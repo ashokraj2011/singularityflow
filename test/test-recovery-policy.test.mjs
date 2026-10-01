@@ -387,3 +387,160 @@ test('generated schema files exactly match pure runtime contracts', async () => 
   const { $schema, $id, ...runtime } = policySchema;
   assert.deepEqual(runtime, TRP_POLICY_SCHEMA);
 });
+
+test('all enabled risk categories remain unable to waive a critical obligation', () => {
+  for (const category of ['known-test-failure', 'new-test-failure', 'reduced-coverage', 'validation-unavailable', 'nonessential-document']) {
+    const fixture = createTrpFixture();
+    const policy = { ...fixture.policy, enabledRiskCategories: [category] };
+    const agreement = change(fixture.agreement, value => {
+      value.repositories[0].mandatoryObligations[0].nonWaivable = true;
+      if (category === 'nonessential-document') value.repositories[0].mandatoryObligations[0].kind = 'document';
+    });
+    const selection = change(fixture.selection, value => { value.agreementSha256 = agreement.recordSha256; });
+    const observation = change(fixture.observation, value => {
+      value.agreementSha256 = agreement.recordSha256; value.selectionSha256 = selection.recordSha256;
+      if (category === 'new-test-failure') value.cases[0].causeSha256 = fixture.hash('new cause');
+      if (category === 'validation-unavailable') {
+        value.observedOutcome = 'unavailable'; value.processExitCode = null; value.reportStatus = 'missing'; value.reportSha256s = [];
+        value.cases.forEach(entry => { entry.outcome = 'not-run'; });
+        value.counts = { discovered: 2, passed: 0, failed: 0, skipped: 0, notRun: 2 };
+      }
+      if (category === 'reduced-coverage') {
+        value.cases.find(entry => entry.outcome === 'passed').outcome = 'skipped'; value.counts.passed = 0; value.counts.skipped = 1;
+      }
+    });
+    const preview = evaluate(fixture, { policy, agreement, selection, observations: [observation], decisions: [] });
+    const decisions = preview.issues.map((issue, index) => change(fixture.decision, value => {
+      value.id = `critical-attempt-${index}`; value.agreementSha256 = agreement.recordSha256; value.category = category;
+      value.issueId = issue.id;
+      if (category !== 'known-test-failure') value.anchorObservationDigest = observation.recordSha256;
+    }));
+    const result = evaluate(fixture, { policy, agreement, selection, observations: [observation], decisions });
+    denied(result);
+    assert.ok(result.issues.every(issue => issue.category === 'non-waivable' && !issue.riskEligible));
+    assert.deepEqual(result.decisionRefs, []);
+    assert.equal(result.dispositions[0].disposition, 'integrity-blocked');
+  }
+});
+
+test('future observations and current evidence verified in the future cannot qualify a gate', () => {
+  const fixture = createTrpFixture();
+  const future = change(fixture.observation, value => {
+    value.createdAt = '2026-10-02T13:02:00Z'; value.startedAt = '2026-10-02T13:00:00Z'; value.completedAt = '2026-10-02T13:01:00Z';
+  });
+  denied(evaluate(fixture, { observations: [future] }));
+  const verifyEvidence = record => ({ ...fixture.input.verifyEvidence(record), verifiedAt: '2026-10-02T13:00:00Z' });
+  denied(evaluate(fixture, { verifyEvidence }));
+  assert.equal(evaluate(fixture, { mode: 'historical', verifyEvidence }).gateDecision, 'allow-with-risk',
+    'rechecking authentic historical bytes later must not erase an originally valid transition');
+  for (const mode of ['current', 'historical']) denied(evaluate(fixture, { mode,
+    verifyEvidence: record => ({ ...fixture.input.verifyEvidence(record), verifiedAt: '2026-10-02T08:00:00Z' }) }));
+});
+
+test('authorization cannot predate the reviewed record and expiry/revocation boundaries are exact', () => {
+  const fixture = createTrpFixture();
+  denied(evaluate(fixture, { verifyAuthority: (record, context) => ({ ...fixture.input.verifyAuthority(record, context),
+    issuedAt: '2026-10-02T09:00:00Z' }) }));
+  const verifyAuthority = (record, context) => ({ ...fixture.input.verifyAuthority(record, context),
+    revokedAt: record.kind === 'phase-risk-decision' ? fixture.at : null });
+  denied(evaluate(fixture, { verifyAuthority }));
+  assert.equal(evaluate(fixture, { verifyAuthority, mode: 'historical', at: '2026-10-02T11:00:00Z' }).gateDecision, 'allow-with-risk');
+  const decision = change(fixture.decision, value => { value.expiresAt = fixture.at; });
+  denied(evaluate(fixture, { decisions: [decision] }));
+  assert.equal(evaluate(fixture, { decisions: [decision], mode: 'historical', at: '2026-10-02T11:00:00Z' }).gateDecision, 'allow-with-risk');
+});
+
+test('carry-forward cannot discard relevant dependency bindings or authorize an earlier generation of the same phase', () => {
+  const fixture = createTrpFixture();
+  for (const dependencies of [[], fixture.dependencies.slice(0, 1)]) {
+    const decision = change(fixture.decision, value => { value.applicability.dependencies = dependencies; });
+    denied(evaluate(fixture, { decisions: [decision] }));
+  }
+  const decision = change(fixture.decision, value => { value.subject.generation += 1; });
+  denied(evaluate(fixture, { decisions: [decision] }));
+});
+
+test('a baseline for another obligation cannot authorize these otherwise identical failed tests', () => {
+  const fixture = createTrpFixture();
+  const baseline = change(fixture.baseline, value => { value.obligationId = 'different-test-obligation'; });
+  const agreement = change(fixture.agreement, value => { value.repositories[0].baselineRefs = [baseline.recordSha256]; });
+  const selection = change(fixture.selection, value => { value.agreementSha256 = agreement.recordSha256; });
+  const observation = change(fixture.observation, value => { value.agreementSha256 = agreement.recordSha256; value.selectionSha256 = selection.recordSha256; });
+  const decision = change(fixture.decision, value => {
+    value.agreementSha256 = agreement.recordSha256; value.anchorObservationDigest = baseline.recordSha256;
+    value.applicability.baselineSha256 = baseline.recordSha256;
+  });
+  denied(evaluate(fixture, { agreement, selection, observations: [observation], baselines: [baseline], decisions: [decision] }));
+});
+
+test('selected testcase identity must belong to the authenticated declared inventory', () => {
+  const fixture = createTrpFixture();
+  const selection = change(fixture.selection, value => { value.inventoryTestIds = ['test:A', 'test:C']; });
+  const result = evaluate(fixture, withSelection(fixture, selection));
+  denied(result);
+  assert.ok(result.issues.some(issue => /absent from the verified inventory/u.test(issue.message)));
+});
+
+test('a known failure decision cannot legitimize a missing or contradictory execution result', () => {
+  const fixture = createTrpFixture();
+  for (const processExitCode of [null, 0]) {
+    const observation = change(fixture.observation, value => { value.processExitCode = processExitCode; });
+    const result = evaluate(fixture, { observations: [observation] });
+    denied(result);
+    assert.equal(result.dispositions[0].disposition, 'integrity-blocked');
+  }
+});
+
+test('a new failure decision cannot silently cover testcases that never ran', () => {
+  const fixture = createTrpFixture();
+  const policy = { ...fixture.policy, enabledRiskCategories: ['new-test-failure'] };
+  const observation = change(fixture.observation, value => {
+    value.cases.find(entry => entry.outcome === 'passed').outcome = 'not-run'; value.counts.passed = 0; value.counts.notRun = 1;
+  });
+  const preview = evaluate(fixture, { policy, observations: [observation], decisions: [] });
+  const failure = preview.issues.find(issue => issue.category === 'new-test-failure');
+  const decision = change(fixture.decision, value => {
+    value.category = 'new-test-failure'; value.issueId = failure.id; value.anchorObservationDigest = observation.recordSha256;
+  });
+  const result = evaluate(fixture, { policy, observations: [observation], decisions: [decision] });
+  denied(result);
+  assert.ok(result.issues.some(issue => issue.category === 'reduced-coverage' && result.remainingBlockers.includes(issue.id)));
+});
+
+test('an exact new-failure decision does not carry to a new observation merely because the cause is unchanged', () => {
+  const fixture = createTrpFixture();
+  const policy = { ...fixture.policy, enabledRiskCategories: ['new-test-failure'] };
+  const observation = change(fixture.observation, value => { value.cases[0].causeSha256 = fixture.hash('new cause'); });
+  const preview = evaluate(fixture, { policy, observations: [observation], decisions: [] });
+  const decision = change(fixture.decision, value => {
+    value.category = 'new-test-failure'; value.issueId = preview.issues[0].id; value.anchorObservationDigest = observation.recordSha256;
+  });
+  assert.equal(evaluate(fixture, { policy, observations: [observation], decisions: [decision] }).gateDecision, 'allow-with-risk');
+  const later = change(observation, value => { value.id = 'another-authenticated-run'; });
+  denied(evaluate(fixture, { policy, observations: [later], decisions: [decision] }));
+});
+
+test('reviewed known-failure exclusion cannot name a testcase absent from its baseline', () => {
+  const fixture = createTrpFixture();
+  const policy = { ...fixture.policy, enabledRiskCategories: ['known-test-failure', 'reduced-coverage'] };
+  const agreement = change(fixture.agreement, value => { value.repositories[0].execution.knownFailureHandling = 'reviewed-exclusion'; });
+  const selectionDraft = change(fixture.selection, value => {
+    value.agreementSha256 = agreement.recordSha256; value.confirmationSha256 = fixture.hash('full-inventory-review');
+    value.exclusions = [{ testId: 'test:C', baselineSha256: fixture.baseline.recordSha256, decisionSha256: fixture.hash('pending') }];
+  });
+  const observationFor = selection => change(fixture.observation, value => {
+    value.agreementSha256 = agreement.recordSha256; value.selectionSha256 = selection.recordSha256;
+  });
+  const preview = evaluate(fixture, { policy, agreement, selection: selectionDraft, observations: [observationFor(selectionDraft)], decisions: [] });
+  const coverage = preview.issues.find(issue => issue.category === 'reduced-coverage');
+  assert.ok(coverage);
+  const decision = change(fixture.decision, value => {
+    value.agreementSha256 = agreement.recordSha256; value.category = 'reduced-coverage'; value.issueId = coverage.id;
+    value.applicability.excludedTestIds = ['test:C'];
+  });
+  const known = change(fixture.decision, value => { value.agreementSha256 = agreement.recordSha256; });
+  const selection = change(selectionDraft, value => { value.exclusions[0].decisionSha256 = decision.recordSha256; });
+  const result = evaluate(fixture, { policy, agreement, selection, observations: [observationFor(selection)], decisions: [known, decision] });
+  denied(result);
+  assert.ok(result.issues.some(issue => issue.category === 'reduced-coverage' && result.remainingBlockers.includes(issue.id)));
+});

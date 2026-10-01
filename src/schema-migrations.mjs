@@ -2794,11 +2794,17 @@ const families = [
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-review-[0-9]{3}\.json$/]
   }),
   family({ id: 'workflow-snapshot-amendment', currentVersion: 1, immutable: true }),
-  family({ id: 'test-command-adoption-review', currentVersion: 1, immutable: true,
+  family({ id: 'test-command-adoption-review', currentVersion: 2, immutable: true,
+    // Read projections never invent a post-publication revalidation binding for old reviews.
+    steps: [migration(1, 2, identity(2))],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/test-recovery\/command-amendments\/TCA-[0-9]{3,6}-review-001\.json$/] }),
-  family({ id: 'test-command-adoption-decision', currentVersion: 1, immutable: true,
+  family({ id: 'test-command-adoption-decision', currentVersion: 2, immutable: true,
+    steps: [migration(1, 2, identity(2))],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/test-recovery\/command-amendments\/TCA-[0-9]{3,6}-decision\.json$/] }),
-  family({ id: 'test-command-adoption-summary', currentVersion: 1, immutable: true }),
+  family({ id: 'test-command-adoption-summary', currentVersion: 2, immutable: true,
+    steps: [migration(1, 2, identity(2))] }),
+  family({ id: 'test-command-epoch-validation', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/test-recovery\/epochs\/TCEV-[a-f0-9-]{36}\.json$/] }),
   family({
     id: 'story-reference-repository-set', currentVersion: 1, immutable: true,
     paths: [
@@ -2919,7 +2925,7 @@ const families = [
   family({
     id: 'code-delivery', currentVersion: 2, minimumReadableVersion: 1,
     steps: [migration(1, 2, codeDeliveryV1ToV2)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+\.json$/]
+    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+(?:-epoch\d+-[a-f0-9-]{36})?\.json$/]
   }),
   family({
     id: 'work-reconciliation', currentVersion: 1,

@@ -13,13 +13,16 @@ import { syncAgent } from './agents.mjs';
 import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
-import { assertTestCommandAmendmentPolicyScope, TEST_COMMAND_AMENDMENT_DIALECT,
-  testCommandAmendmentDigest, validateTestCommandAmendmentRecord } from './test-command-amendment-contracts.mjs';
+import { assertTestCommandAmendmentPolicyScope, assertTestCommandCandidateGlobalScope, TEST_COMMAND_AMENDMENT_DIALECTS,
+  publishedTestCommandRevalidation, testCommandAmendmentDialect, testCommandAmendmentVersion,
+  testCommandAmendmentDigest, testCommandRevalidationRequirement,
+  validateTestCommandAmendmentRecord } from './test-command-amendment-contracts.mjs';
 import { verifyTestCommandReviewOrigin } from './test-command-amendment-origin.mjs';
 import { applyCapabilityPolicyToWorkResolution } from './capability-context.mjs';
 import { applicationPathContext, isApplicationChangeEntry } from './application-paths.mjs';
 import { buildRepositoryTreeChangeSet } from './repository-change-set.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
+import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
   verifySkillPackage } from './skp-package.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -507,10 +510,15 @@ function validateTestCommandDecision(config, workId, decision, { previous, next,
   return scope;
 }
 
-function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = false } = {}) {
+export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = false, decision = null } = {}) {
+  const published = decision && testCommandAmendmentVersion(decision) === 2;
   if (previous.currentPhase !== phaseId || proposed.currentPhase !== phaseId
+      || (published && (previous.status !== 'in_progress' || proposed.status !== 'in_progress'))
       || canonicalJson(previous.phaseOrder) !== canonicalJson(proposed.phaseOrder)
       || canonicalJson(previous.workItem) !== canonicalJson(proposed.workItem)) fail('Test-command amendment must retain Story identity and its current phase.', 'WFA_AMENDMENT_UNSUPPORTED');
+  if (published && (canonicalJson(previous.lineage ?? null) !== canonicalJson(proposed.lineage ?? null)
+      || canonicalJson((proposed.history ?? []).slice(0, (previous.history ?? []).length))
+        !== canonicalJson(previous.history ?? []))) fail('Published command amendment must preserve prior submission lineage and history.', 'WFA_AMENDMENT_INVALID');
   for (const id of previous.phaseOrder) {
     const before = previous.phases?.[id];
     const after = proposed.phases?.[id];
@@ -519,20 +527,30 @@ function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = 
       const beforeStable = { ...before, remoteOutputs: before.remoteOutputs ?? [] };
       const afterStable = { ...after, remoteOutputs: after.remoteOutputs ?? [] };
       if (canonicalJson(beforeStable) !== canonicalJson(afterStable)) fail(`Test-command amendment changed preserved phase '${id}'.`, 'WFA_AMENDMENT_UNSUPPORTED');
-    } else if ((before.generation ?? 0) !== 0 || (after.generation ?? 0) !== 0
+    } else if ((!published && ((before.generation ?? 0) !== 0 || (after.generation ?? 0) !== 0
         || (before.generationPublications?.length ?? 0) !== 0 || (after.generationPublications?.length ?? 0) !== 0
-        || ['approved', 'submitted', 'complete'].includes(before.status)
+        || ['approved', 'submitted', 'complete'].includes(before.status)))
         || canonicalJson(before.generationIntent ?? null) !== canonicalJson(after.generationIntent ?? null)) {
       fail('Test-command amendment cannot alter a published generation or authoring intent.', 'WFA_AMENDMENT_UNSUPPORTED');
     } else {
+      if (published && (canonicalJson(publishedTestCommandRevalidation(before)) !== canonicalJson(decision.revalidation)
+          || canonicalJson(publishedTestCommandRevalidation(after)) !== canonicalJson(decision.revalidation)
+          || !['in_progress', 'awaiting_approval'].includes(before.status) || after.status !== 'in_progress'
+          || before.generationIntent?.status !== 'consumed'
+          || canonicalJson(after.testCommandRevalidation) !== canonicalJson(testCommandRevalidationRequirement(decision))
+          || after.testCommandValidation != null)) fail('Published command amendment must preserve history and establish only its exact pending validation epoch.', 'WFA_AMENDMENT_INVALID');
       const beforeStable = structuredClone(before); const afterStable = structuredClone(after);
       for (const value of [beforeStable, afterStable]) {
         delete value.qualityCommands; delete value.checks; delete value.validationVerdict;
+        if (published) {
+          delete value.testCommandRevalidation; delete value.testCommandValidation;
+          value.status = 'in_progress';
+        }
         value.remoteOutputs ??= [];
         // A gen-0 draft can be scanned before adoption without a separate Story commit.
         // Capture checks its live projection exactly; replay authenticates its accepted bytes
         // against the reviewed draft digest below, not the older placeholder registration.
-        if (replay) delete value.artifacts;
+        if (replay && !published) delete value.artifacts;
       }
       if (canonicalJson(beforeStable) !== canonicalJson(afterStable)) fail('Test-command amendment changed unrelated current phase state.', 'WFA_AMENDMENT_UNSUPPORTED');
     }
@@ -550,6 +568,8 @@ function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = 
 function validateTestCommandReview(review, decision, previousWorkflow, originalAuthor = null) {
   validateTestCommandAmendmentRecord(review);
   if (review.kind !== 'test-command-adoption-review' || review.id !== decision.id
+      || testCommandAmendmentVersion(review) !== testCommandAmendmentVersion(decision)
+      || canonicalJson(review.revalidation ?? null) !== canonicalJson(decision.revalidation ?? null)
       || review.workId !== decision.workId || review.phaseId !== decision.phaseId
       || review.at !== decision.approvedAt || canonicalJson(review.from) !== canonicalJson(decision.from)
       || canonicalJson(review.to) !== canonicalJson(decision.to)) fail('Test-command human review differs from its approved decision.', 'WFA_AMENDMENT_INVALID');
@@ -567,6 +587,24 @@ function validateTestCommandReview(review, decision, previousWorkflow, originalA
     ?? previousWorkflow.workItem?.createdBy;
   if (!actorIdentityKeys(author).length) fail('Test-command original author identity is unavailable.', 'WFA_AMENDMENT_INVALID');
   if (policy.allowSelfApproval === false && actorIdentityKeys(author).some((key) => actorIdentityKeys(review.actor).includes(key))) fail('Test-command author cannot self-approve this amendment.', 'WFA_AMENDMENT_INVALID');
+}
+
+function verifyPublishedTestCommandBinding(root, config, workflow, decision, atCommit = 'HEAD') {
+  if (testCommandAmendmentVersion(decision) !== 2) return;
+  const phase = workflow.phases[decision.phaseId];
+  const publicationCommit = publishedGenerationCommit(root, workflow, phase);
+  if (!publicationCommit || !commitIsAncestor(root, publicationCommit, atCommit)) fail('Published command amendment has no retained governed publication ancestor.', 'WFA_AMENDMENT_INVALID');
+  const original = readCommittedJson(root, publicationCommit, storyRelative(config, workflow.workItem.id, 'workflow.json'),
+    'Story at its original command publication').record;
+  const publication = phase.generationPublications.find(entry => entry.generation === phase.generation);
+  const oldPublication = original.phases?.[phase.id]?.generationPublications?.find(entry => entry.generation === phase.generation);
+  if (!oldPublication || canonicalJson(oldPublication) !== canonicalJson(publication)) fail('Published command amendment changed its immutable historical publication.', 'WFA_AMENDMENT_INVALID');
+  const publicationPath = publication.record.path;
+  if (!publicationPath.startsWith(`${storyRelative(config, workflow.workItem.id)}/context/generation-publications/`)) fail('Historical publication belongs to another Story.', 'WFA_PATH_REFUSED');
+  const originalBytes = readCommittedJson(root, publicationCommit, publicationPath, 'Original generation publication record').bytes;
+  const retainedBytes = readCommittedJson(root, atCommit, publicationPath, 'Retained generation publication record').bytes;
+  const currentBytes = readCommittedJson(root, 'HEAD', publicationPath, 'Current retained generation publication record').bytes;
+  if (!originalBytes.equals(retainedBytes) || !originalBytes.equals(currentBytes)) fail('Published command amendment cannot rewrite its original publication record.', 'WFA_AMENDMENT_INVALID');
 }
 
 function validateAmendmentDecision(config, workId, decision, {
@@ -1219,7 +1257,7 @@ export async function captureWorkflowSnapshotAmendment(root, config, currentWork
   return reference;
 }
 
-/** Preserve the whole accepted closure while replacing only one unpublished test contract. */
+/** Preserve the whole accepted closure while replacing one reviewed test contract. */
 export async function captureWorkflowTestCommandAmendment(root, config, currentWorkflow,
   proposedWorkflow, { approvedConfigurationSnapshot, amendmentDecision } = {}) {
   const workId = currentWorkflow?.workItem?.id;
@@ -1241,10 +1279,12 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
   if (proposedWorkflow.resolution.policySha256 !== testCommandAmendmentDigest(policyForDigest)) fail('Test-command policy digest differs from its reviewed decision.', 'WFA_AMENDMENT_INVALID');
   validateTestCommandDecision(config, workId, decision, { previous: { reference: currentWorkflow.workflowSnapshot, policy: previous.policy },
     next: { reference: { revision }, policy: proposedWorkflow.resolution }, decisionPath: amendmentDecision.path });
-  assertTestCommandWorkflowScope(currentWorkflow, proposedWorkflow, decision.phaseId);
+  assertTestCommandWorkflowScope(currentWorkflow, proposedWorkflow, decision.phaseId, { decision });
+  verifyPublishedTestCommandBinding(root, config, currentWorkflow, decision);
   // Only the configuration owner can provide this capability. A cloned snapshot object fails.
   const candidate = applyCapabilityPolicyToWorkResolution(
     resolveApprovedStoryWorkType(approvedConfigurationSnapshot, currentWorkflow.workItem.workType), currentWorkflow.resolution.capability);
+  assertTestCommandCandidateGlobalScope(previous.policy, candidate);
   const candidatePhase = candidate.phases.find((phase) => phase.id === decision.phaseId);
   const nextPhase = proposedWorkflow.resolution.phases.find((phase) => phase.id === decision.phaseId);
   const candidatePhases = structuredClone(candidate.phases);
@@ -1296,7 +1336,7 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
     amendment: { schemaVersion: currentSchemaVersion('workflow-snapshot-amendment'), decisionPath: amendmentDecision.path, decisionSha256: amendmentDecision.sha256 },
     provenance: { ...structuredClone(previous.manifest.provenance), configuration: {
       repository: sanitizeRemote(source.repository) || null, commit: source.commit, filesSha256: source.filesSha256 ?? null } },
-    semantics: { ...structuredClone(previous.manifest.semantics), snapshot: 'wfa-snapshot-v3', amendment: TEST_COMMAND_AMENDMENT_DIALECT },
+    semantics: { ...structuredClone(previous.manifest.semantics), snapshot: 'wfa-snapshot-v3', amendment: testCommandAmendmentDialect(decision) },
     configFoldHash: domainHash('wfa.fold.v1', proposedWorkflow.resolution), createdAt: decision.approvedAt,
     limits: { assets: assets.length, bytes: totalBytes }, snapshotHash: null };
   manifest.snapshotHash = domainHash('wfa.snapshot.v3', manifestCore(manifest));
@@ -1703,7 +1743,11 @@ function immutableAmendmentEvidence(root, relative, expectedSha256, label, famil
   let storedVersion;
   try { storedVersion = readRecord(family, record).storedVersion; }
   catch { fail(`${label} has no registered immutable reader.`, 'WFA_AMENDMENT_INVALID'); }
-  if (storedVersion !== 1 || !bytes.equals(atHead)
+  const supportedVersion = ['test-command-adoption-review',
+    'test-command-adoption-decision'].includes(family)
+    ? [1, 2].includes(storedVersion) && testCommandAmendmentVersion(record) === storedVersion
+    : storedVersion === 1;
+  if (!supportedVersion || !bytes.equals(atHead)
       || qualified(sha256(bytes)) !== expectedSha256
       || canonicalJson(record) !== bytes.toString('utf8')) {
     fail(`${label} differs from its exact reviewed immutable bytes.`,
@@ -2051,7 +2095,8 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     'Story at the original pinned test-command authority').record;
   if (canonicalJson(parent.workflowSnapshot) !== canonicalJson(previousReference)
       || canonicalJson(parent.resolution) !== canonicalJson(acceptedParent.resolution)) fail('Test-command amendment did not preserve its immediately preceding snapshot authority.', 'WFA_AMENDMENT_INVALID');
-  assertTestCommandWorkflowScope(parent, workflow, decision.phaseId, { replay: true });
+  assertTestCommandWorkflowScope(parent, workflow, decision.phaseId, { replay: true, decision });
+  verifyPublishedTestCommandBinding(root, config, parent, decision, acceptanceCommit);
   const expectedReviewPath = storyRelative(config, workId, `context/test-recovery/command-amendments/${decision.id}-review-001.json`);
   if (decision.review.path !== expectedReviewPath) fail('Test-command review path is outside its immutable slot.', 'WFA_PATH_REFUSED');
   const review = immutableAmendmentEvidence(root, expectedReviewPath, decision.review.sha256,
@@ -2064,7 +2109,8 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     from: decision.from, to: decision.to, actor: review.record.actor,
     originalAuthority: review.record.originalAuthority, candidateAuthority: review.record.candidateAuthority,
     preserved: review.record.preserved, sourceHead,
-    configurationAncestrySha256: testCommandAmendmentDigest(decision.configurationAncestry) };
+    configurationAncestrySha256: testCommandAmendmentDigest(decision.configurationAncestry),
+    ...(decision.revalidation ? { revalidation: decision.revalidation } : {}) };
   if (testCommandAmendmentDigest(plan) !== review.record.planSha256) fail('Test-command review does not bind the exact published compare-and-swap parent.', 'WFA_AMENDMENT_INVALID');
   const changes = buildRepositoryTreeChangeSet(root, { baseTree: sourceHead, targetTree: acceptanceCommit,
     env: { ...withoutGitProcessOverrides(), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' } });
@@ -2088,10 +2134,11 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
   const originalAuthor = originalIntent.record.startedBy?.actor
     ?? initialSnapshotAuthority(root, config, workId).workflow.workItem?.createdBy;
   validateTestCommandReview(review.record, decision, parent, originalAuthor);
-  const expectedSummary = { schemaVersion: currentSchemaVersion('test-command-adoption-summary'), kind: 'test-command-adoption-summary',
+  const expectedSummary = { schemaVersion: testCommandAmendmentVersion(decision), kind: 'test-command-adoption-summary',
     id: decision.id, phaseId: decision.phaseId, status: 'approved', decisionPath, decisionSha256,
     reviewPath: expectedReviewPath, reviewSha256: decision.review.sha256,
-    from: decision.from, to: decision.to, decidedAt: decision.approvedAt };
+    from: decision.from, to: decision.to, decidedAt: decision.approvedAt,
+    ...(decision.revalidation ? { revalidation: decision.revalidation } : {}) };
   const matches = (workflow.testCommandAmendments ?? []).filter((entry) => entry.id === decision.id);
   if (matches.length !== 1 || canonicalJson(matches[0]) !== canonicalJson(expectedSummary)
       || (parent.testCommandAmendments ?? []).some((entry) => entry.id === decision.id)) fail('Test-command acceptance does not retain its exact append-only review summary.', 'WFA_AMENDMENT_INVALID');
@@ -2193,7 +2240,7 @@ async function acceptedAmendmentChain(root, config, workId, requestedReference, 
         'WFA_AMENDMENT_INVALID');
     }
     const decisionPath = manifest.amendment.decisionPath;
-    const testCommand = manifest.semantics?.amendment === TEST_COMMAND_AMENDMENT_DIALECT;
+    const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(manifest.semantics?.amendment);
     if (testCommand) testCommandDecisionId(config, workId, decisionPath);
     else amendmentDecisionId(config, workId, decisionPath);
     if (firstAddedCommit(root, decisionPath,
@@ -2203,6 +2250,7 @@ async function acceptedAmendmentChain(root, config, workId, requestedReference, 
     }
     const { bytes: decisionBytes, record: decision } = readCommittedJson(root, commit,
       decisionPath, `Workflow snapshot revision ${revision} decision`);
+    if (testCommand && manifest.semantics.amendment !== testCommandAmendmentDialect(decision)) fail('Test-command snapshot dialect does not match its reviewed record version.', 'WFA_AMENDMENT_INVALID');
     const headDecision = gitTreeEntries(root, 'HEAD', [decisionPath],
       `Current workflow snapshot revision ${revision} decision`, {
         maximumBytes: MAXIMUM_AMENDMENT_DECISION_BYTES,
@@ -2449,7 +2497,7 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
     }
     return;
   }
-  if (storedVersion === 3 && manifest.semantics?.amendment === TEST_COMMAND_AMENDMENT_DIALECT && !selected.length) {
+  if (storedVersion === 3 && TEST_COMMAND_AMENDMENT_DIALECTS.includes(manifest.semantics?.amendment) && !selected.length) {
     if (!Array.isArray(manifest.skillPackages) || declared.length
         || [...assetByLogicalId.values()].some((asset) => asset.purpose === 'skill-package-file')
         || manifest.semantics.snapshot !== 'wfa-snapshot-v3' || manifest.semantics.policyReaderMinimum !== 5
@@ -2465,7 +2513,7 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
       || manifest.semantics?.skillTextParser !== SKP_PARSER_PROFILE
       || manifest.semantics?.skillPhaseBinding !== 'skp-contract/v1'
       || (storedVersion === 3
-        && !['skill-version-adoption/v1', TEST_COMMAND_AMENDMENT_DIALECT].includes(manifest.semantics?.amendment))) {
+        && !['skill-version-adoption/v1', ...TEST_COMMAND_AMENDMENT_DIALECTS].includes(manifest.semantics?.amendment))) {
     fail('Story skill snapshot has an unsupported or incomplete interpretation profile.',
       'WFA_RUNTIME_INCOMPATIBLE');
   }
@@ -2553,7 +2601,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
         [ACCEPTED_REVISION_AUTHORITY]: authority
       });
       if (previous) {
-        const testCommand = current.manifest?.semantics?.amendment === TEST_COMMAND_AMENDMENT_DIALECT;
+        const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(current.manifest?.semantics?.amendment);
         const validateDecision = testCommand ? validateTestCommandDecision : validateAmendmentDecision;
         validateDecision(config, workflow.workItem.id, authority.decision, {
           previous: {

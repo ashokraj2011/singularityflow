@@ -32,6 +32,18 @@ test('test-command scope changes only commands, preserving old pins without muta
   assert.equal(result.proposed.testRecovery, undefined, 'a legacy Story is not opted into TRP');
 });
 
+for (const retainLint of [false, true]) {
+  test(`test-command scope can add the absent explicit runner${retainLint ? ' while retaining structured lint' : ''}`, () => {
+    const { workflow, candidate, authorities } = fixture();
+    for (const phase of [workflow.resolution.phases[0], candidate.phases[0]]) phase.generation = { task: 'code' };
+    workflow.resolution.phases[0].qualityCommands = retainLint ? [workflow.resolution.phases[0].qualityCommands[0]] : [];
+    candidate.phases[0].qualityCommands = [...structuredClone(workflow.resolution.phases[0].qualityCommands), command('test/generated.test.mjs')];
+    const result = testCommandAmendmentPolicy(workflow, candidate, authorities);
+    assert.equal(result.oldCommands.filter(entry => entry.kind === 'test').length, 0);
+    assert.deepEqual(result.proposed.phases[0].qualityCommands, candidate.phases[0].qualityCommands);
+  });
+}
+
 for (const [label, mutate, code] of [
   ['topology', value => value.candidate.phases.reverse(), 'TCA_AMENDMENT_UNSUPPORTED'],
   ['source boundary', value => { value.candidate.phases[0].sourceBoundary = 'test-automation'; }, 'TCA_AMENDMENT_UNSUPPORTED'],
@@ -46,8 +58,18 @@ for (const [label, mutate, code] of [
   ['larger quorum', value => { value.workflow.resolution.phases[0].approval.minimum = 2; value.candidate.phases[0].approval.minimum = 2; }, 'TCA_AMENDMENT_AUTHORITY_UNSUPPORTED'],
   ['no change', value => { value.candidate.phases[0].qualityCommands = structuredClone(value.workflow.resolution.phases[0].qualityCommands); }, 'TCA_AMENDMENT_NO_CHANGE'],
   ['duplicate test identity', value => { value.candidate.phases[0].qualityCommands.push(command('test/another.test.mjs')); }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['removing a test command', value => { value.workflow.resolution.phases[0].qualityCommands.push({ ...command('test/extra.test.mjs'), id: 'extra-tests' }); }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['renaming a test command', value => { value.candidate.phases[0].qualityCommands[1].id = 'replacement-tests'; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['adding unrelated test coverage command', value => { value.candidate.phases[0].qualityCommands.push({ ...command('test/extra.test.mjs'), id: 'extra-tests' }); }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['lowered discovery minimum', value => { value.workflow.resolution.phases[0].qualityCommands[1].result.minimumDiscovered = 2; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['lowered passing minimum', value => { value.workflow.resolution.phases[0].qualityCommands[1].result.minimumPassed = 2; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['shrinking affected roots', value => { value.candidate.phases[0].qualityCommands[1].affectedRoots = ['src/one']; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['changing test source extensions', value => { value.candidate.phases[0].qualityCommands[1].result.sourceExtensions = ['.mts']; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['advisory test requirement', value => { value.candidate.phases[0].qualityCommands[1].requirement = 'advisory'; }, 'TCA_AMENDMENT_UNSUPPORTED'],
   ['legacy string runner', value => { value.candidate.phases[0].qualityCommands[1] = 'npm test'; }, 'CODE_TEST_RESULT_REQUIRED'],
   ['unstructured original runner', value => { value.workflow.resolution.phases[0].qualityCommands[1] = 'npm test'; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['undeclared code phase addition', value => { value.workflow.resolution.phases[0].qualityCommands = []; }, 'TCA_AMENDMENT_UNSUPPORTED'],
+  ['ambiguous non-test string addition', value => { value.workflow.resolution.phases[0].generation = { task: 'code' }; value.candidate.phases[0].generation = { task: 'code' }; value.workflow.resolution.phases[0].qualityCommands = ['custom-runner']; value.candidate.phases[0].qualityCommands = ['custom-runner', command('test/generated.test.mjs')]; }, 'TCA_AMENDMENT_UNSUPPORTED'],
   ['zero-test suppression', value => { value.candidate.phases[0].qualityCommands[1].argv.push('--passWithNoTests'); }, 'CODE_TEST_SUPPRESSED']
 ]) {
   test(`test-command scope refuses ${label}`, () => {

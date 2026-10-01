@@ -13,11 +13,11 @@ related:
   - recovery
   - approvals
   - configuration
-version: 2
+version: 3
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
-The currently enabled production routes are bounded readiness repair, reviewed test selection, and a narrowly scoped prepublication test-command amendment. Production risk acceptance and arbitrary same-Story policy amendment are not enabled by this pilot.
+The currently enabled production routes are bounded readiness repair, reviewed test selection, and a narrowly scoped test-command amendment for the current code phase. Production risk acceptance and arbitrary same-Story policy amendment are not enabled by this pilot.
 
 ## Purpose and prerequisites
 
@@ -40,7 +40,7 @@ The VS Code intake section appears only when exact-base preflight advertises the
 
 - **Shell:** inspect `singularity-flow story test-policy show <WORK-ID> --json`. For bounded repair, use `singularity-flow story test-policy repair <WORK-ID> --plan --json`. For pre-Story evidence, use `singularity-flow precheck --run --scope dependency-test --json`. These previews execute no test; execution requires the returned exact confirmation.
 - **Copilot:** `/sf-start` presents independent intake choices; `/sf-ready` reviews baseline acquisition; `/sf-recover` follows the engine's current repair actions. `/sf-approve` retains its separate approval-only boundary.
-- **VS Code:** the Start Work form shows the pilot only when the engine advertises it. Review the observed baseline and the complete plan, then use its explicit confirmation control. Unsupported choices remain unavailable.
+- **VS Code:** the Start Work form shows the pilot only when the engine advertises it. Review the observed baseline and complete plan, then explicitly confirm. The current phase's **Test policy and recovery** action, or **Review Story Test Policy and Recovery** in the command palette, reads the policy and previews an approved runner amendment or missing local review origin. A returned review action stages the exact command in a terminal without pressing Enter; execute it yourself to begin live review. A UI selection is not human approval. Unsupported choices remain unavailable.
 
 ## Guided workflow
 
@@ -56,7 +56,7 @@ Before starting, review the exact plan: repository bases, requested and effectiv
 
 ### Repair admission and checkpoint
 
-A failing or unknown baseline may admit the Story into bounded readiness repair when the engine returns that route. Feature preparation and code generation remain blocked until every required code-bearing repository has passing readiness or a currently verified applicable decision. One repository's acceptance does not cover another. Intake and document phases can continue within their existing obligations.
+A failing or unknown baseline may admit the Story into bounded readiness repair when the engine returns that route. The current production pilot admits feature preparation and code generation only after every required code-bearing repository has passing readiness; risk-based admission is not enabled. One repository's evidence does not cover another. Intake and document phases can continue within their existing obligations.
 
 The repair scope is bounded to reviewed readiness changes, not feature implementation. The command pilot supports one required code-bearing repository, runtime-only repair, conventional top-level project notes, added tests, and Node dependency/lock repair that preserves manifest scripts and other execution configuration. It refuses product-source edits, changed/removed/renamed baseline tests or fixtures, new manifests and unclassified runner/configuration changes. Legitimate fixes outside this narrow scope need a separately supported governed scope; the pilot does not claim to handle every repair. Test-only or setup-only repair needs no fabricated product-source edit. Do not delete tests, lower assertions, add blanket skips or edit protected configuration merely to obtain a pass.
 
@@ -66,17 +66,21 @@ Execution uses the existing bounded readiness runner. Completion requires a comp
 
 The command records a passing assessment through the normal governed Story transaction, appending its raw receipt and checkpoint. It preserves the original baseline and source reference and records the repaired checkpoint as the feature-generation base. Initial baseline readiness is admission evidence only. It is not proof that the later feature candidate passed publication or submission tests. After a runtime-only repair, a fresh verified readiness result may legitimately qualify an unchanged source commit.
 
-### Correct a pinned test command before first publication
+### Correct a pinned test command without discarding generated work
 
-An approved configuration correction does not automatically update an existing Story. When the current code-delivery phase has generated source and tests but has not published its first generation, inspect `singularity-flow story test-policy amend <WORK-ID> --reason "Explain the approved command correction" --json`. The command reads the newer approved configuration from the Story's original authority and previews its exact old/new test contracts. It does not run tests.
+An approved configuration correction does not automatically update an existing Story. For the current code-delivery phase, inspect `singularity-flow story test-policy amend <WORK-ID> --reason "Explain the approved command correction" --json`. The command reads the newer approved configuration from the Story's original authority and previews its exact old/new test contracts. It does not run tests. The phase must still be in progress or awaiting approval; this route cannot reopen a completed Story or a prior completed phase.
 
 This specific repair can also serve a Story with an accepted workflow-authority snapshot that did not opt into TRP. It does not add a Test and Recovery Agreement, narrow testing or enable risk acceptance; all existing obligations remain pinned.
 
-This bounded route requires generation zero, the original open generation intent, the existing source baseline, and an already structured `kind: test` contract. It cannot convert a legacy string command or infer a new test obligation. Commit only the intended application source and tests separately before review; the amendment does not stage application changes. An authored phase artifact may remain a draft. The amendment preserves its bytes, the application tree, the original generation intent and baseline, and every existing snapshot. It appends a workflow-authority revision and advances the validation epoch; it does not restart the Story or rewrite previous policy records.
+This bounded route uses structured `kind: test` contracts, the existing source baseline and original generation intent. A Story with no explicit test command may adopt a newly approved structured contract; this is explicit reviewed adoption, not automatic trust in an inferred runner. Existing non-test commands remain unchanged. Ambiguous legacy string or inferred test declarations are not converted by this route. Commit only the intended application source and tests separately before review; the amendment does not stage application changes. Before first publication, the intent must remain open and an authored phase artifact may remain a draft. After publication, the consumed intent and exact published generation remain intact. The amendment preserves artifact bytes, the application tree, the original intent and baseline, and every existing snapshot. It appends a workflow-authority revision and advances the validation epoch; it does not restart the Story or rewrite previous policy records.
 
 The reviewing human must satisfy both the original pinned phase authority and the newer approved configuration authority. The pilot supports one required human reviewer and unchanged approval policy and authority membership; it cannot grant itself authority, lower approval requirements or adopt unrelated workflow changes. Follow the exact returned `--apply --confirm <DIGEST>` action in a live terminal and review the displayed command difference. The digest selects the review; the flag alone is not approval. Changed source, draft, reason, authority or configuration requires a fresh preview and review.
 
-After the amendment commits, resume the existing generation's normal publication route. It must execute the corrected structured test command and produce fresh current evidence before publication succeeds. A command amendment is not a test pass, a failure waiver, phase approval or submission permission. This route is unavailable after the phase's first publication; arbitrary policy migration and post-publication epoch revalidation remain outside the pilot.
+Before first publication, resume the existing generation's normal publication route after the amendment commits. It must execute the corrected structured test command and produce fresh current evidence before publication succeeds.
+
+For an already published current generation, the amendment retains its publication, previous validation receipts, submission packets and approval history. An awaiting-approval phase returns to in progress. Follow the normal submit route: it executes the corrected command against the unchanged generation, records fresh epoch-specific validation and creates a new immutable review packet. It does not fabricate a new content generation or relabel an old test run under the new command. Old-epoch evidence cannot satisfy the new epoch or approve its replacement packet. Ordinary independent approval is still required. Repeated submissions retain normal sequence gates and use distinct execution records rather than overwriting earlier validation.
+
+A command amendment is not a test pass, failure waiver, phase approval or submission permission. Existing test-command identities, affected roots and source-extension coverage must remain; discovery and passing thresholds cannot decrease. Review the entire changed structured contract, including its report adapter, not just its displayed executable. Arbitrary policy migration and reopening completed work remain outside this route.
 
 The recorded policy closure travels with the Story, but its private human-review origin does not. On another checkout, or after local proof is lost, `TCA_AUTHORITY_ORIGIN_UNAVAILABLE` stops ordinary accepted-policy use. Inspect `singularity-flow story test-policy attest <WORK-ID> --json`; the original recorded reviewer may then use its returned `--apply --confirm <REVIEW-SHA256>` action in a live terminal to re-attest that exact review. Another reviewer cannot impersonate the original reviewer. This recovery restores only checkout-local proof: it changes no tracked Story, source or policy bytes, reruns no test and does not qualify evidence from another host. If the original reviewer is unavailable, this pilot has no substitute-reviewer recovery route.
 
@@ -100,7 +104,7 @@ A recorded commit awaiting push remains publication-pending. Resume that exact t
 
 This implementation does not claim completion of all TRP v1.0 release acceptance criteria. The pure record/evaluation contract is broader than the operations each installed engine can authenticate and execute. Read the advertised capability and returned legal actions before using a route. Unsupported adapters, precise selectors, exception categories, amendment routes and baseline acquisition modes must fail closed or stay unavailable.
 
-In particular, the production known-failure observation/decision path is not fully integrated across lifecycle gates. The schema and evaluator alone do not make intake acceptance executable. Multi-repository readiness repair, arbitrary assertion/product fixes, and targeted/full baseline acquisition from intake remain unavailable in this pilot. A missing route is a stated limitation, not consent to use a different command or edit workflow records by hand.
+In particular, production risk categories remain disabled. The pure evaluator supports independently reviewed, bounded dispositions, but current code-delivery gates still require passing executable receipts. Production selection is a file/suite cohort, not the evaluator's authenticated testcase inventory; failed-run observation retention, agreement authorization and shared decision consumption across all lifecycle gates are not yet a complete production path. The schema, a diagnostic display or a successful pure-unit test alone does not make intake acceptance executable. Multi-repository readiness repair, arbitrary assertion/product fixes, and targeted/full baseline acquisition from intake remain unavailable. A missing route is a stated limitation, not consent to use a different command or edit workflow records by hand.
 
 Passing local tests qualify the host on which they ran. Simulated Windows paths or platform flags do not establish native Windows qualification. macOS, Linux and Windows results must be reported independently; no cross-host execution evidence equivalence is implied by matching test names.
 

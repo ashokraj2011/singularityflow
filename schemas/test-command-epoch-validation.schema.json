@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/test-command-epoch-validation.schema.json",
+  "title": "Immutable test-command-epoch-validation record",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "test-command-epoch-validation"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^TCEV-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "workId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "phaseId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "amendmentId": {
+      "type": "string",
+      "pattern": "^TCA-[0-9]{3,6}$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "validationEpoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "policySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "commandInventorySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "publicationSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "generationCommit": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+    },
+    "sourceTreeSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "deliveryReceipt": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "checksSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "status": {
+      "const": "passed"
+    },
+    "validatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "workId",
+    "phaseId",
+    "amendmentId",
+    "generation",
+    "validationEpoch",
+    "policySha256",
+    "commandInventorySha256",
+    "publicationSha256",
+    "generationCommit",
+    "sourceTreeSha256",
+    "deliveryReceipt",
+    "checksSha256",
+    "status",
+    "validatedAt"
+  ],
+  "additionalProperties": false
+}

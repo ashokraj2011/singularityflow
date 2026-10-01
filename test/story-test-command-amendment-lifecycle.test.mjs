@@ -16,6 +16,7 @@ import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/ma
 import { withOperationContext } from '../src/operation-context.mjs';
 import { authoredArtifactText } from '../src/publication-preflight.mjs';
 import { collectRepositoryReadinessEvidence } from '../src/repository-readiness-evidence.mjs';
+import { withConfirmationPort } from '../src/sequence.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { approvePhase, commitAndPublish, createWorkflow, publishGeneration, scanArtifacts, submitPhase, workDir } from '../src/state.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
@@ -40,7 +41,7 @@ function setActor(root, actor) {
   process.env.SINGULARITY_FLOW_TEST_IDENTITY = actor.name;
 }
 
-async function fixture(t, { oldCommandWorks = false, testRecovery = true } = {}) {
+async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExplicitTestCommand = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-command-amendment-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'application'); const remote = path.join(base, 'remote.git');
@@ -77,10 +78,11 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true } = {})
     spec: { acceptance: 'off' } };
   const phase = definition.phases.implementation;
   phase.inputs = []; phase.clarification = { mode: 'off' };
-  phase.qualityCommands = [{ id: 'node-tests', kind: 'test',
+  const initialTestCommand = { id: 'node-tests', kind: 'test',
     argv: [process.execPath, '--test', '--test-reporter=tap', oldCommandWorks ? 'test/generated.test.mjs' : 'test/missing.test.mjs'],
     workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
-    result: { adapter: 'node-tap', path: '.sflow/results/generated.tap', minimumDiscovered: 1, minimumPassed: 1 } }];
+    result: { adapter: 'node-tap', path: '.sflow/results/generated.tap', minimumDiscovered: 1, minimumPassed: 1 } };
+  phase.qualityCommands = noExplicitTestCommand ? [] : [initialTestCommand];
   await writeFile(definitionPath, YAML.stringify(definition));
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'Application and approved initial policy');
   git(base, 'clone', '-q', '--bare', root, remote); git(root, 'remote', 'add', 'origin', remote);
@@ -127,6 +129,21 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true } = {})
     "import {mkdirSync,appendFileSync} from 'node:fs';",
     "test('generated feature',()=>{ mkdirSync('.sflow/results',{recursive:true}); appendFileSync('.sflow/results/corrected-runner-ran','ran\\n'); assert.equal(value,2); });", ''
   ].join('\n'));
+  if (noExplicitTestCommand) {
+    // This application has a real custom launcher, but no supported inference
+    // contract. The correction must adopt an explicit runner rather than claim
+    // that the unknown wrapper's output is already verified test evidence.
+    await mkdir(path.join(root, 'scripts'));
+    await writeFile(path.join(root, 'scripts/run-suite.mjs'), "import '../test/generated.test.mjs';\n");
+    await writeFile(path.join(root, 'test/service-contract.test.ts'), [
+      "const test = require('node:test'); const assert = require('node:assert/strict');",
+      "test('generated value supports the consumer contract', async () => { const {value} = await import('../src/service.mjs'); assert.equal(value * 2, 4); });", ''
+    ].join('\n'));
+    const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+    manifest.scripts.test = 'node scripts/run-suite.mjs';
+    await writeFile(path.join(root, 'package.json'), JSON.stringify(manifest));
+    git(root, 'add', 'package.json', 'scripts/run-suite.mjs', 'test/service-contract.test.ts');
+  }
   git(root, 'add', 'src/service.mjs', 'test/generated.test.mjs');
   git(root, 'commit', '-qm', 'Preserve generated application source and tests before policy review');
   const value = { root, remote, publisher, config, workflow, artifact, baseCommit,
@@ -134,7 +151,9 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true } = {})
   value.candidate = async (change = null) => {
     const file = path.join(publisher, 'singularity/workflow.yml');
     const next = YAML.parse(await readFile(file, 'utf8'));
+    if (!next.phases.implementation.qualityCommands.length) next.phases.implementation.qualityCommands = [structuredClone(initialTestCommand)];
     next.phases.implementation.qualityCommands[0].argv = [process.execPath, '--test', '--test-reporter=tap', 'test/generated.test.mjs'];
+    if (noExplicitTestCommand) next.phases.implementation.qualityCommands[0].argv.push('test/service-contract.test.ts');
     if (change) change(next);
     await writeFile(file, YAML.stringify(next)); git(publisher, 'add', 'singularity/workflow.yml');
     git(publisher, 'commit', '-qm', 'Approve bounded test-command correction'); git(publisher, 'push', '-q', 'origin', CONFIGURATION_BRANCH);
@@ -277,6 +296,53 @@ async function assertCloneRecovery(value) {
   await assert.rejects(access(path.join(root, '.sflow/results/corrected-runner-ran')), { code: 'ENOENT' });
 }
 
+async function submitCurrent(value) {
+  const generation = value.workflow.phases.implementation.generation;
+  await context(value.root, () => commitAndPublish(value.root, value.config, value.workflow,
+    { type: 'approval-requested', phaseId: 'implementation', generation }, 'Submit corrected generation for independent approval', [], {
+      beforeStateWrite: async () => {
+        const phase = await submitPhase(value.root, value.config, value.workflow, { phaseId: 'implementation',
+          actor: author, agent: 'developer', persist: false });
+        await createStoryReviewPacket(value.root, value.config, value.workflow, phase);
+      }
+    }));
+  await value.reload();
+}
+
+async function approveCurrent(value) {
+  const generation = value.workflow.phases.implementation.generation;
+  await context(value.root, () => commitAndPublish(value.root, value.config, value.workflow,
+    { type: 'phase-approved', phaseId: 'implementation', generation, actor: reviewer, agent: null,
+      authorityGroup: 'engineering-reviewers' }, 'Approve exact corrected generation', [], {
+      beforeStateWrite: () => approvePhase(value.root, value.config, value.workflow,
+        { phaseId: 'implementation', actor: reviewer, agent: null, persist: false })
+    }));
+  await value.reload();
+}
+
+async function retainedValidationBytes(value) {
+  const phase = value.workflow.phases.implementation;
+  const evidence = phase.deliveryEvidence;
+  const paths = new Set([
+    evidence.receiptPath, evidence.changeSetPath, phase.testCommandValidation?.path,
+    ...(evidence.testExecutions ?? []).map(entry => entry.receiptPath),
+    ...(value.workflow.lineage.submissions ?? []).map(entry => entry.path)
+  ].filter(Boolean));
+  for (const execution of evidence.testExecutions ?? []) {
+    const receipt = JSON.parse(await readFile(path.join(value.root, execution.receiptPath), 'utf8'));
+    // Node TAP currently has no durable testcase-observation adapter. Where a
+    // supported adapter supplies raw reports, preserve those bytes as well.
+    for (const report of receipt.testcaseObservation?.rawReports ?? []) paths.add(report.path);
+  }
+  return new Map(await Promise.all([...paths].map(async relative => [relative,
+    await readFile(path.join(value.root, relative))])));
+}
+
+async function assertRetainedValidationBytes(value, retained) {
+  for (const [relative, bytes] of retained) assert.deepEqual(await readFile(path.join(value.root, relative)), bytes,
+    `revalidation must not overwrite historical evidence: ${relative}`);
+}
+
 test('real dual-authority terminal amendment preserves generated work and publishes with the corrected runner',
   { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
   const value = await fixture(t);
@@ -330,23 +396,9 @@ test('real dual-authority terminal amendment preserves generated work and publis
     'ordinary publication may update only its managed metadata envelope');
   await verifyWorkflowSnapshot(value.root, value.config, value.workflow, { requireAccepted: true });
   await assertCloneRecovery(value);
-  await context(value.root, () => commitAndPublish(value.root, value.config, value.workflow,
-    { type: 'approval-requested', phaseId: 'implementation', generation: 1 }, 'Submit corrected generation for independent approval', [], {
-      beforeStateWrite: async () => {
-        const phase = await submitPhase(value.root, value.config, value.workflow, { phaseId: 'implementation',
-          actor: author, agent: 'developer', persist: false });
-        await createStoryReviewPacket(value.root, value.config, value.workflow, phase);
-      }
-    }));
-  await value.reload();
+  await submitCurrent(value);
   assert.equal(value.workflow.phases.implementation.status, 'awaiting_approval');
-  await context(value.root, () => commitAndPublish(value.root, value.config, value.workflow,
-    { type: 'phase-approved', phaseId: 'implementation', generation: 1, actor: reviewer, agent: null,
-      authorityGroup: 'engineering-reviewers' }, 'Approve exact corrected generation', [], {
-      beforeStateWrite: () => approvePhase(value.root, value.config, value.workflow,
-        { phaseId: 'implementation', actor: reviewer, agent: null, persist: false })
-    }));
-  await value.reload();
+  await approveCurrent(value);
   assert.equal(value.workflow.phases.implementation.status, 'approved');
   assert.equal(value.workflow.status, 'complete');
   assert.equal(value.workflow.testRecovery.validationEpoch, 2);
@@ -392,6 +444,34 @@ test('an enrolled non-TRP Story can repair its command without opting into a tes
     assert.equal(value.workflow.testRecovery, undefined);
   });
 
+test('a non-TRP Story with no explicit or supported inferred runner adopts an approved structured contract without losing work',
+  { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
+    const value = await fixture(t, { testRecovery: false, noExplicitTestCommand: true });
+    assert.deepEqual(value.workflow.phases.implementation.qualityCommands, []);
+    await assert.rejects(value.publish(), { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' },
+      'the custom launcher cannot be silently treated as a verified inferred runner');
+    await value.reload();
+    const before = await preserved(value);
+    const candidate = await value.candidate();
+    const plan = await context(value.root, () => previewStoryTestCommandAmendment(value.root, value.config, value.workflow,
+      { approvedConfigurationSnapshot: candidate, reason }));
+    const applied = await confirmInTerminal(value, plan.planSha256, candidate);
+    assert.equal(applied.ok, true, applied.stack ?? applied.message);
+    await value.reload();
+    const after = await preserved(value);
+    for (const field of ['source', 'test', 'draft', 'intent', 'intentBytes', 'baseCommit', 'intervalBase']) {
+      assert.deepEqual(after[field], before[field], `explicit runner adoption must preserve ${field}`);
+    }
+    assert.equal(value.workflow.testRecovery, undefined);
+    assert.equal(value.workflow.resolution.testRecoveryAgreement, undefined);
+    assert.equal(value.workflow.phases.implementation.qualityCommands[0].kind, 'test');
+    await assert.rejects(access(value.marker), { code: 'ENOENT' });
+    await value.publish();
+    assert.equal(value.workflow.phases.implementation.generation, 1);
+    assert.equal(await readFile(value.marker, 'utf8'), 'ran\n');
+    assert.equal(value.workflow.testRecovery, undefined);
+  });
+
 test('unrelated approved phase policy delta cannot be carried by a test-command amendment', async t => {
   const value = await fixture(t);
   const candidate = await value.candidate(next => { next.phases.implementation.sourceBoundary = 'test-automation'; });
@@ -416,9 +496,93 @@ test('new configuration cannot self-grant reviewer authority absent from the ori
   await assert.rejects(access(value.marker), { code: 'ENOENT' });
 });
 
-test('a genuinely published generation cannot use the prepublication amendment route', async t => {
+test('a published submitted generation adopts a corrected command only through fresh same-generation epoch validation',
+  { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
   const value = await fixture(t, { oldCommandWorks: true });
   await value.publish();
+  await submitCurrent(value);
+  const before = await preserved(value);
+  const priorPhase = structuredClone(value.workflow.phases.implementation);
+  const priorSubmissions = structuredClone(value.workflow.lineage.submissions);
+  const priorEvidence = structuredClone(priorPhase.deliveryEvidence);
+  const retainedBytes = await retainedValidationBytes(value);
+  const oldRunCount = (await readFile(value.marker, 'utf8')).trim().split('\n').length;
+  const candidate = await value.candidate(next => {
+    next.phases.implementation.qualityCommands[0].argv.splice(1, 0, '--no-warnings');
+  });
+  const plan = await context(value.root, () => previewStoryTestCommandAmendment(value.root, value.config, value.workflow,
+    { approvedConfigurationSnapshot: candidate, reason }));
+  assert.equal(plan.status, 'ready');
+  const applied = await confirmInTerminal(value, plan.planSha256, candidate);
+  assert.equal(applied.ok, true, applied.stack ?? applied.message);
+  await value.reload();
+  const phase = value.workflow.phases.implementation;
+  const after = await preserved(value);
+  for (const field of ['source', 'test', 'draft', 'intent', 'intentBytes', 'baseCommit', 'intervalBase']) {
+    assert.deepEqual(after[field], before[field], `postpublication amendment must preserve ${field}`);
+  }
+  assert.equal(phase.status, 'in_progress');
+  assert.equal(phase.generation, 1);
+  assert.equal(phase.generationIntent.status, 'consumed');
+  assert.deepEqual(phase.generationPublications, priorPhase.generationPublications);
+  assert.deepEqual(phase.approvals, priorPhase.approvals);
+  assert.deepEqual(phase.deliveryEvidence, priorEvidence, 'old passing evidence remains historical, not rewritten under the new command');
+  assert.deepEqual(value.workflow.lineage.submissions, priorSubmissions);
+  assert.equal(phase.testCommandRevalidation.validationEpoch, 2);
+  assert.equal(phase.testCommandRevalidation.generation, 1);
+  assert.equal(value.workflow.workflowSnapshot.revision, 2);
+  assert.equal((await readFile(value.marker, 'utf8')).trim().split('\n').length, oldRunCount,
+    'policy amendment executes no tests');
+  await assert.rejects(context(value.root, () => approvePhase(value.root, value.config, value.workflow,
+    { phaseId: 'implementation', actor: reviewer, agent: null, persist: false })),
+  'an old-epoch submission cannot approve the newly amended policy');
+  await assertRetainedValidationBytes(value, retainedBytes);
+  await submitCurrent(value);
+  const revalidated = value.workflow.phases.implementation;
+  assert.equal(revalidated.generation, 1, 'test-only revalidation must not fabricate a new content generation');
+  assert.equal(revalidated.status, 'awaiting_approval');
+  assert.deepEqual(revalidated.generationPublications, priorPhase.generationPublications);
+  assert.equal(value.workflow.lineage.submissions.length, priorSubmissions.length + 1);
+  assert.deepEqual(value.workflow.lineage.submissions.slice(0, -1), priorSubmissions);
+  assert.notEqual(value.workflow.lineage.submissions.at(-1).packetSha256, priorSubmissions.at(-1).packetSha256);
+  assert.notEqual(revalidated.deliveryEvidence.receiptPath, priorEvidence.receiptPath,
+    'the new validation epoch must use a distinct receipt path');
+  assert.ok((await readFile(value.marker, 'utf8')).trim().split('\n').length > oldRunCount,
+    'normal resubmission must run the actual corrected command');
+  await assertRetainedValidationBytes(value, retainedBytes);
+  const firstEpochEvidence = await retainedValidationBytes(value);
+  const firstEpochReference = structuredClone(revalidated.testCommandValidation);
+  const firstEpochReceipt = revalidated.deliveryEvidence.receiptPath;
+  const firstEpochRuns = (await readFile(value.marker, 'utf8')).trim().split('\n').length;
+  await assert.rejects(submitCurrent(value), { code: 'SEQUENCE_CONFIRMATION_REQUIRED' });
+  await assertRetainedValidationBytes(value, firstEpochEvidence);
+  await withConfirmationPort((_message, gate) => {
+    assert.equal(gate, 'phaseStatus', 'a repeat submit must not silently override another gate');
+    return true;
+  }, () => submitCurrent(value));
+  assert.equal(value.workflow.sequenceOverrides.at(-1).gate, 'phaseStatus');
+  assert.equal(value.workflow.phases.implementation.generation, 1);
+  assert.equal(value.workflow.phases.implementation.status, 'awaiting_approval');
+  assert.equal(value.workflow.lineage.submissions.length, priorSubmissions.length + 2);
+  assert.notEqual(value.workflow.phases.implementation.testCommandValidation.path, firstEpochReference.path,
+    'another submission needs a distinct immutable epoch execution record');
+  assert.notEqual(value.workflow.phases.implementation.deliveryEvidence.receiptPath, firstEpochReceipt);
+  assert.ok((await readFile(value.marker, 'utf8')).trim().split('\n').length > firstEpochRuns,
+    'another submission executes fresh validation rather than relabeling prior evidence');
+  await assertRetainedValidationBytes(value, retainedBytes);
+  await assertRetainedValidationBytes(value, firstEpochEvidence);
+  await approveCurrent(value);
+  assert.equal(value.workflow.status, 'complete');
+  assert.equal(value.workflow.phases.implementation.generation, 1);
+  assert.equal(value.workflow.testRecovery.validationEpoch, 2);
+  assert.equal(await readFile(path.join(value.root, 'src/service.mjs'), 'utf8'), before.source);
+});
+
+test('a completed approved generation cannot be reopened by a test-command amendment', async t => {
+  const value = await fixture(t, { oldCommandWorks: true });
+  await value.publish();
+  await submitCurrent(value);
+  await approveCurrent(value);
   assert.equal(value.workflow.phases.implementation.generation, 1);
   const candidate = await value.candidate(next => {
     next.phases.implementation.qualityCommands[0].argv.splice(1, 0, '--no-warnings');
@@ -427,5 +591,5 @@ test('a genuinely published generation cannot use the prepublication amendment r
   await assert.rejects(context(value.root, () => previewStoryTestCommandAmendment(value.root, value.config, value.workflow,
     { approvedConfigurationSnapshot: candidate, reason })), { code: 'TCA_PRIOR_PUBLICATION_UNSUPPORTED' });
   assert.deepEqual(await preserved(value), before);
-  assert.equal(await readFile(value.marker, 'utf8'), 'ran\n');
+  assert.equal(value.workflow.status, 'complete');
 });

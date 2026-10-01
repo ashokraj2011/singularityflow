@@ -816,7 +816,8 @@ export async function storyCommand(positionals, options) {
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
       supported: { readinessRepair: true, selectionPreview: true, riskActivation: false, policyAmendment: false,
-        prepublicationTestCommandAmendment: true },
+        prepublicationTestCommandAmendment: true, currentPublishedPhaseTestCommandAmendment: true,
+        completedStoryTestCommandAmendment: false },
       message: agreement
         ? 'Opt-in repair and selection pilot. No risk is accepted by this read.'
         : 'This Story retains its original test policy; it has not opted into the pilot.'

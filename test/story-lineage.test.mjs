@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan }
+  from '../src/initialization/runtime-readiness.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -35,6 +37,7 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
   git(root, ['add', configPath]);
   git(root, ['commit', '-m', 'Use deterministic brief fixture policy']);
   git(root, ['push']);
+  await qualifyStoryBase(root);
 
   flow(root, ['start', 'BRIEF-1', '--from-branch', 'main', '--title', 'Bound downstream context'], {
     selection: { workType: 'spec-driven-standard', agent: 'product-owner' }
@@ -64,6 +67,22 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
   assert.equal(workflow.phases.specification.agentBriefs.length, 4);
   assert.ok(workflow.phases.specification.agentBriefs.every((brief) => brief.status === 'ready'));
 
+  const sourceReview = JSON.parse(flow(root, ['review-source', 'context', 'specification', '--json']).stdout);
+  const storySource = sourceReview.sources.find(entry => entry.id === 'story');
+  const requestedLine = storySource.text.split(/\r?\n/u).findIndex(line => line.includes('Bound downstream context')) + 1;
+  assert.ok(requestedLine > 0, 'the independent review cites the actual requested Story scope');
+  const sourceReport = { ...sourceReview.reportTemplate, rows: [{
+    id: 'bound-downstream-context', sourceId: 'story', line: requestedLine,
+    quote: 'Bound downstream context', outcome: 'covered', scenarioId: 'S1',
+    clauseIds: ['BRIEF-1:REQ-001', 'BRIEF-1:REQ-002']
+  }] };
+  await mkdir(path.dirname(sourceReview.stagingPath), { recursive: true });
+  await writeFile(sourceReview.stagingPath, `${JSON.stringify(sourceReport, null, 2)}\n`);
+  flow(root, ['agent', '--agent', sourceReview.requiredReviewerAgentId], { selection: false });
+  const reviewed = JSON.parse(flow(root, ['review-source', 'submit', 'specification',
+    '--report-file', sourceReview.stagingPath, '--json'], { selection: false }).stdout);
+  assert.equal(reviewed.status, 'ready', 'submission retains the required independent source-grounded review');
+  flow(root, ['agent', '--agent', 'product-owner'], { selection: false });
   flow(root, ['submit', 'specification']);
   workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/BRIEF-1/workflow.json'), 'utf8'));
   const submission = workflow.lineage.submissions.at(-1);
@@ -159,8 +178,21 @@ async function repository() {
   return { root, remote };
 }
 
+async function qualifyStoryBase(root) {
+  // Bind readiness to this fixture's current local policy and exact committed
+  // base. A fabricated pass or stale setup receipt would hide the downstream
+  // lineage behavior under test; these legacy fixtures have no WFA authority.
+  const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+  assert.deepEqual(plan.blockers, [], 'the exact Story base has a supported readiness plan');
+  const qualified = await executeRepositoryReadinessPlan(root, {
+    scope: 'dependency-test', confirmation: plan.planId
+  });
+  assert.equal(qualified.receipt.status, 'pass', 'Story start consumes current, policy-complete readiness evidence');
+}
+
 test('registered child branches publish hash-bound review packets and unknown branches require a parent Story', async () => {
   const { root, remote } = await repository();
+  await qualifyStoryBase(root);
   flow(root, ['start', 'MOB-123', '--from-branch', 'main', '--title', 'Build mobile login']);
   assert.equal(git(root, [
     '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/feature/login-ui'
@@ -211,6 +243,7 @@ test('registered child branches publish hash-bound review packets and unknown br
 
 test('finalize binds a completed Story to its governed specifications and exact source tree', async () => {
   const { root, remote } = await repository();
+  await qualifyStoryBase(root);
   flow(root, ['start', 'MOB-200', '--from-branch', 'main', '--title', 'Complete mobile login']);
   const workflowPath = path.join(root, 'singularity/work-items/MOB-200/workflow.json');
   const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));

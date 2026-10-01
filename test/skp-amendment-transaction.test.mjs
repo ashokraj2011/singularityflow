@@ -26,6 +26,8 @@ import { captureSkillConfigurationAncestry, verifySkillConfigurationAncestry }
   from '../src/skp-amendment-audit.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { identity } from '../src/git.mjs';
+import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan }
+  from '../src/initialization/runtime-readiness.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const H = (digit) => `sha256:${digit.repeat(64)}`;
@@ -184,6 +186,12 @@ async function fixture(t, { independentSkill = false, approvalMinimum = 1 } = {}
   });
   const storyAuthority = await resolveNewStoryConfigurationAuthority(root);
   assert.ok(storyAuthority, 'start must resolve the approved configuration authority');
+  const readiness = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+  assert.deepEqual(readiness.blockers, [], 'the exact Story base must have a supported readiness plan');
+  const qualified = await executeRepositoryReadinessPlan(root, {
+    scope: 'dependency-test', confirmation: readiness.planId
+  });
+  assert.equal(qualified.receipt.status, 'pass', 'Story start consumes an actual current readiness receipt');
   flow(root, 'start', 'SKP-ADOPT-1', '--from-branch', 'main',
     '--work-type', 'skill-only', '--agent', 'developer',
     '--title', 'Review threat-model version',

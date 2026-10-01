@@ -7,7 +7,7 @@ import test from 'node:test';
 import { issueActionAuthorization } from '../src/action-authorization.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { familyForStoredPath, readRecord } from '../src/schema-migrations.mjs';
-import { assertTestCommandAmendmentPolicyScope, testCommandAmendmentDigest,
+import { assertTestCommandAmendmentPolicyScope, assertTestCommandRunnerRepairScope, testCommandAmendmentDigest,
   TEST_COMMAND_AMENDMENT_SCHEMAS, validateTestCommandAmendmentRecord } from '../src/test-command-amendment-contracts.mjs';
 import { consumeTestCommandReviewAuthorization, testCommandReviewAuthorization,
   testCommandReviewReattestationAuthorization, reattestTestCommandReviewOrigin,
@@ -18,6 +18,7 @@ import { TRP_TERMINAL_AVAILABLE } from './test-recovery-terminal.fixture.mjs';
 const hash = `sha256:${'1'.repeat(64)}`;
 const oldCommit = 'a'.repeat(40); const newCommit = 'b'.repeat(40);
 const commands = [{ id: 'node-test', kind: 'test', argv: ['node', '--test', 'test/missing.test.mjs'],
+  workingDirectory: '.', affectedRoots: ['.'],
   modelPolicy: 'never', result: { adapter: 'node-tap', path: '.sflow/test.tap', minimumDiscovered: 1, minimumPassed: 1 } }];
 function policy() {
   return { configurationSource: { repository: 'https://example.invalid/config.git', commit: oldCommit, filesSha256: hash },
@@ -50,6 +51,34 @@ test('bounded test-command policy delta advances only one epoch and leaves origi
   const before = policy(); const bytes = canonicalJson(before); const after = nextPolicy();
   assert.equal(assertTestCommandAmendmentPolicyScope(before, after, 'implementation').beforeEpoch, 1);
   assert.equal(canonicalJson(before), bytes);
+});
+test('a code phase can adopt its first explicit test contract while preserving structured non-test commands', () => {
+  for (const retained of [[], [{ kind: 'lint', argv: ['eslint', 'src'] }]]) {
+    const before = policy(); before.phases[0].qualityCommands = structuredClone(retained);
+    const after = nextPolicy(); after.phases[0].qualityCommands.unshift(...structuredClone(retained));
+    assertTestCommandAmendmentPolicyScope(before, after, 'implementation');
+  }
+});
+test('first explicit test adoption cannot remove or reinterpret legacy inferred runners', () => {
+  for (const legacy of ['npm test', ['node', '--test'], { argv: ['node', '--test'] },
+    { command: 'eslint src' }, { kind: 'lint', argv: [] }]) {
+    const before = policy(); before.phases[0].qualityCommands = [legacy];
+    const after = nextPolicy(); after.phases[0].qualityCommands.unshift(legacy);
+    assert.throws(() => assertTestCommandAmendmentPolicyScope(before, after, 'implementation'));
+  }
+});
+test('runner repair retains command identities, coverage and test minima', () => {
+  const retained = structuredClone(commands); retained[0].result.minimumDiscovered = 3;
+  retained[0].result.minimumPassed = 2; retained[0].result.sourceExtensions = ['.mjs'];
+  const repaired = structuredClone(retained); repaired[0].argv[2] = 'test/repaired.test.mjs';
+  assertTestCommandRunnerRepairScope(retained, repaired);
+  for (const change of [value => { value[0].id = 'replacement'; }, value => { value[0].affectedRoots = ['test']; },
+    value => { value[0].result.sourceExtensions = []; }, value => { value[0].result.minimumDiscovered = 1; },
+    value => { value[0].result.minimumPassed = 1; }, value => { value[0].requirement = 'optional'; },
+    value => { value.push({ ...structuredClone(value[0]), id: 'additional-test' }); }]) {
+    const candidate = structuredClone(repaired); change(candidate);
+    assert.throws(() => assertTestCommandRunnerRepairScope(retained, candidate));
+  }
 });
 for (const [label, mutate] of [
   ['source boundary', value => { value.phases[0].sourceBoundary.mode = 'off'; }],

@@ -2,283 +2,606 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/test-command-adoption-review.schema.json",
   "title": "Immutable test-command-adoption-review record",
-  "type": "object",
-  "properties": {
-    "schemaVersion": {
-      "const": 1
-    },
-    "kind": {
-      "const": "test-command-adoption-review"
-    },
-    "id": {
-      "type": "string",
-      "pattern": "^TCA-[0-9]{3,6}$"
-    },
-    "workId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096
-    },
-    "phaseId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096
-    },
-    "decision": {
-      "const": "approve"
-    },
-    "at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "planSha256": {
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
-    },
-    "from": {
+  "anyOf": [
+    {
       "type": "object",
       "properties": {
-        "revision": {
-          "type": "integer",
-          "minimum": 1
+        "schemaVersion": {
+          "const": 1
         },
-        "snapshotHash": {
+        "kind": {
+          "const": "test-command-adoption-review"
+        },
+        "id": {
           "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^TCA-[0-9]{3,6}$"
         },
-        "policySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "configurationCommit": {
-          "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-        },
-        "commandInventorySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "validationEpoch": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "revision",
-        "snapshotHash",
-        "policySha256",
-        "configurationCommit",
-        "commandInventorySha256",
-        "validationEpoch"
-      ],
-      "additionalProperties": false
-    },
-    "to": {
-      "type": "object",
-      "properties": {
-        "revision": {
-          "type": "integer",
-          "minimum": 2
-        },
-        "policySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "configurationCommit": {
-          "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-        },
-        "commandInventorySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "validationEpoch": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "revision",
-        "policySha256",
-        "configurationCommit",
-        "commandInventorySha256",
-        "validationEpoch"
-      ],
-      "additionalProperties": false
-    },
-    "actor": {
-      "type": "object",
-      "properties": {
-        "name": {
+        "workId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
-        "email": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "login": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "additionalProperties": false
-    },
-    "originalAuthority": {
-      "type": "object",
-      "properties": {
-        "authorityGroup": {
+        "phaseId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
-        "identityAssurance": {
-          "enum": [
-            "configured-local",
-            "github-authenticated"
-          ]
-        }
-      },
-      "required": [
-        "authorityGroup",
-        "identityAssurance"
-      ],
-      "additionalProperties": false
-    },
-    "candidateAuthority": {
-      "type": "object",
-      "properties": {
-        "authorityGroup": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+        "decision": {
+          "const": "approve"
         },
-        "identityAssurance": {
-          "enum": [
-            "configured-local",
-            "github-authenticated"
-          ]
-        }
-      },
-      "required": [
-        "authorityGroup",
-        "identityAssurance"
-      ],
-      "additionalProperties": false
-    },
-    "preserved": {
-      "type": "object",
-      "properties": {
-        "intentSha256": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^sha256:[a-f0-9]{64}$"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "sourceBaseCommit": {
+        "at": {
           "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-        },
-        "sourceTreeSha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "draftSha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        }
-      },
-      "required": [
-        "intentSha256",
-        "sourceBaseCommit",
-        "sourceTreeSha256",
-        "draftSha256"
-      ],
-      "additionalProperties": false
-    },
-    "authorization": {
-      "type": "object",
-      "properties": {
-        "authorizationId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "questionId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "answerReceipt": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "assurance": {
-          "const": "configured-local-review"
+          "format": "date-time"
         },
         "planSha256": {
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
-        "actionId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+        "from": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "snapshotHash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "snapshotHash",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "email": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "login": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "originalAuthority": {
+          "type": "object",
+          "properties": {
+            "authorityGroup": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "identityAssurance": {
+              "enum": [
+                "configured-local",
+                "github-authenticated"
+              ]
+            }
+          },
+          "required": [
+            "authorityGroup",
+            "identityAssurance"
+          ],
+          "additionalProperties": false
+        },
+        "candidateAuthority": {
+          "type": "object",
+          "properties": {
+            "authorityGroup": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "identityAssurance": {
+              "enum": [
+                "configured-local",
+                "github-authenticated"
+              ]
+            }
+          },
+          "required": [
+            "authorityGroup",
+            "identityAssurance"
+          ],
+          "additionalProperties": false
+        },
+        "preserved": {
+          "type": "object",
+          "properties": {
+            "intentSha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sourceBaseCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "sourceTreeSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "draftSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "intentSha256",
+            "sourceBaseCommit",
+            "sourceTreeSha256",
+            "draftSha256"
+          ],
+          "additionalProperties": false
+        },
+        "authorization": {
+          "type": "object",
+          "properties": {
+            "authorizationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "questionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "answerReceipt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "assurance": {
+              "const": "configured-local-review"
+            },
+            "planSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "actionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "authorizationId",
+            "questionId",
+            "answerReceipt",
+            "assurance",
+            "planSha256",
+            "actionId"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
-        "authorizationId",
-        "questionId",
-        "answerReceipt",
-        "assurance",
+        "schemaVersion",
+        "kind",
+        "id",
+        "workId",
+        "phaseId",
+        "decision",
+        "at",
         "planSha256",
-        "actionId"
+        "from",
+        "to",
+        "actor",
+        "originalAuthority",
+        "candidateAuthority",
+        "preserved",
+        "authorization"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "test-command-adoption-review"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^TCA-[0-9]{3,6}$"
+        },
+        "workId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "phaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "decision": {
+          "const": "approve"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "planSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "from": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "snapshotHash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "snapshotHash",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "email": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "login": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "originalAuthority": {
+          "type": "object",
+          "properties": {
+            "authorityGroup": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "identityAssurance": {
+              "enum": [
+                "configured-local",
+                "github-authenticated"
+              ]
+            }
+          },
+          "required": [
+            "authorityGroup",
+            "identityAssurance"
+          ],
+          "additionalProperties": false
+        },
+        "candidateAuthority": {
+          "type": "object",
+          "properties": {
+            "authorityGroup": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "identityAssurance": {
+              "enum": [
+                "configured-local",
+                "github-authenticated"
+              ]
+            }
+          },
+          "required": [
+            "authorityGroup",
+            "identityAssurance"
+          ],
+          "additionalProperties": false
+        },
+        "preserved": {
+          "type": "object",
+          "properties": {
+            "intentSha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sourceBaseCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "sourceTreeSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "draftSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "intentSha256",
+            "sourceBaseCommit",
+            "sourceTreeSha256",
+            "draftSha256"
+          ],
+          "additionalProperties": false
+        },
+        "authorization": {
+          "type": "object",
+          "properties": {
+            "authorizationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "questionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "answerReceipt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "assurance": {
+              "const": "configured-local-review"
+            },
+            "planSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "actionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "authorizationId",
+            "questionId",
+            "answerReceipt",
+            "assurance",
+            "planSha256",
+            "actionId"
+          ],
+          "additionalProperties": false
+        },
+        "revalidation": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "const": "published-generation"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "publicationSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "publicationsSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "approvalsSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "deliveryEvidenceSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "mode",
+            "generation",
+            "publicationSha256",
+            "publicationsSha256",
+            "approvalsSha256",
+            "deliveryEvidenceSha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "id",
+        "workId",
+        "phaseId",
+        "decision",
+        "at",
+        "planSha256",
+        "from",
+        "to",
+        "actor",
+        "originalAuthority",
+        "candidateAuthority",
+        "preserved",
+        "authorization",
+        "revalidation"
       ],
       "additionalProperties": false
     }
-  },
-  "required": [
-    "schemaVersion",
-    "kind",
-    "id",
-    "workId",
-    "phaseId",
-    "decision",
-    "at",
-    "planSha256",
-    "from",
-    "to",
-    "actor",
-    "originalAuthority",
-    "candidateAuthority",
-    "preserved",
-    "authorization"
-  ],
-  "additionalProperties": false
+  ]
 }

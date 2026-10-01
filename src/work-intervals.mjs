@@ -89,6 +89,11 @@ export function assertWorkReconciliationIntegrity(report, {
 }
 
 function generationFor(phase) {
+  // Runner-policy validation reuses a consumed publication; it is not preparation
+  // for a new authored generation. An actual reopen establishes a new open intent.
+  if (phase?.testCommandRevalidation && phase?.generationIntent?.status === 'consumed') {
+    return Math.max(1, Number(phase.generation ?? 0));
+  }
   return Math.max(1, Number(phase?.generation ?? 0) + (phase?.status === 'in_progress' ? 1 : 0));
 }
 
@@ -152,11 +157,13 @@ function baselineCore(record) {
 
 export async function verifyWorkIntervalBaseline(root, config, workflow, {
   phaseId = workflow.currentPhase,
-  itemDirectory
+  itemDirectory,
+  allowReconciled = false
 } = {}) {
   const phase = activePhase(workflow, phaseId);
   const current = workflow.workIntervals?.current;
-  if (!current || current.phaseId !== phase.id || current.status !== 'open') {
+  if (!current || current.phaseId !== phase.id || !(current.status === 'open'
+    || (allowReconciled && current.status === 'reconciled'))) {
     throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
   }
   const itemTarget = await secureRepositoryPath(root, itemDirectory, { label: 'Story directory', type: 'directory' });

@@ -1,4 +1,4 @@
-/** Reviewed, prepublication adoption of an approved test command; never a test bypass. */
+/** Reviewed adoption of an approved test command with fresh epoch validation; never a test bypass. */
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { loadStoryConfigurationSnapshot, resolveNewStoryConfigurationAuthority } from '../configuration-branch.mjs';
 import { repoRoot } from '../git.mjs';

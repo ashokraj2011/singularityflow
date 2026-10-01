@@ -489,6 +489,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       sha256: entry.receiptSha256,
       status: entry.status
     })),
+    ...(phase.testCommandValidation ? { testCommandEpoch: structuredClone(phase.testCommandValidation) } : {}),
     claimMaps: currentClaimMapBindings(root, config, workflow, phase),
     checksSha256: hash(phase.checks ?? []),
     artifactSetSha256: reviewArtifactSetSha256(artifacts),
@@ -543,7 +544,9 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     })),
     checks: phase.checks ?? [],
     usage: phase.usage ?? [],
-    approvals: phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],
+    // Prior-epoch human approvals remain in phase history, but are not approvals
+    // of the freshly executed packet now being assembled.
+    approvals: phase.testCommandRevalidation ? [] : phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],
     visualAssurance,
     submissionEvidence,
     witnessReview,

@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   refusalEnvelope, refusalRemediationPlan, renderRefusalPlan
 } from '../src/refusal-remediation.mjs';
+import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -402,6 +403,8 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   assert.equal(missing.steps[0].skill, '/sf-code');
   assert.equal(missing.steps[1].command, null);
   assert.match(missing.steps[1].label, /in-scope test script or runner declaration/);
+  assert.match(missing.steps[1].label, /story test-policy amend --reason TEXT/);
+  assert.match(missing.steps[1].label, /refresh alone does not change its pin/);
   assert.equal(missing.steps[2].command,
     'singularity-flow phase prepublish implementation --json');
   assert.match(missing.retry.label, /in-scope repository runner repair/);
@@ -417,9 +420,9 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   assert.equal(malformed.context.strategy, 'pinned-test-policy-prerequisite');
   assert.equal(malformed.steps[0].command, 'singularity-flow recover --json');
   assert.equal(malformed.steps[1].command, 'singularity-flow explain test-recovery');
-  assert.match(malformed.steps[1].label, /Before the first code publication/);
+  assert.match(malformed.steps[1].label, /active published phase retains its publication/);
   assert.match(malformed.steps[1].label, /story test-policy amend --reason TEXT/);
-  assert.match(malformed.steps[1].label, /Published phases and unrelated policy changes are not supported/);
+  assert.match(malformed.steps[1].label, /Completed Stories, legacy string runners and unrelated policy changes are not supported/);
   assert.equal(malformed.retry.command, null);
 
   const protectedPath = refusalRemediationPlan(Object.assign(
@@ -441,6 +444,30 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   ]);
   assert.match(protectedPath.steps[1].label, /Restore every listed protected path/);
   assert.ok(protectedPath.steps.every((entry) => entry.execution === 'user-reviewed'));
+});
+
+test('missing inferred runner explains reviewed existing-Story adoption without claiming automatic migration', () => {
+  const error = structuredTestCommandRequiredError({ id: 'implementation' });
+  assert.equal(error.code, 'CODE_DELIVERY_TEST_COMMAND_REQUIRED');
+  assert.equal(error.details.remediation.action, 'repair-in-scope-repository-runner-or-review-test-command-amendment');
+  assert.match(error.message, /eligible current Story.*story test-policy amend.*live human review/);
+  assert.match(error.message, /refresh alone does not change its pin/);
+  assert.match(error.message, /Do not edit protected workflow configuration/);
+});
+
+test('amended epoch refusal preserves publication and separates fresh validation from old approval', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Epoch validation required.'), {
+    code: 'TCA_EPOCH_VALIDATION_REQUIRED', details: { phase: 'implementation' }
+  }), ['submit', 'implementation', '--json']);
+  assert.equal(plan.steps[0].command, 'singularity-flow phase show implementation --json');
+  assert.match(plan.steps[0].label, /old publication is preserved/);
+  assert.match(plan.steps[0].label, /submit again to run fresh tests/);
+  assert.match(plan.steps[0].label, /do not republish unchanged code or reuse the old approval packet/);
+  assert.equal(plan.steps[1].command, 'singularity-flow explain test-recovery');
+  assert.equal(plan.retry.automatic, false);
+  assert.ok(plan.steps.slice(0, 2).every(entry => entry.kind === 'diagnostic'));
+  assert.equal(plan.steps[2].command, 'singularity-flow recover --phase implementation --json');
+  assert.ok(plan.steps.every(entry => !entry.argv.includes('--apply')));
 });
 
 test('incomplete authoring refusals lead with a read-only prepublish check and bounded correction guidance', () => {

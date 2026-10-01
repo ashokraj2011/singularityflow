@@ -71,6 +71,7 @@ import {
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
+import { beginTestCommandEpochValidation, recordTestCommandEpochValidation, verifyTestCommandEpochValidation } from './test-command-epoch.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import {
   beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
@@ -153,7 +154,7 @@ import {
   applicationChangeSetProjection, applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
   isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval,
-  recordFinalReconciliation
+  recordFinalReconciliation, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
 import {
@@ -2372,6 +2373,22 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
       publicationCommit: exactCommit
     })
   ]);
+  // A runner-only amendment preserves the already published artifact, including the old
+  // engine metadata. Accept those exact reviewed bytes under the authenticated amendment;
+  // never infer permission from mutable phase flags or accept a merely similar metadata block.
+  if (metadata && !canonicalMetadata.has(metadata)
+    && phase.testCommandRevalidation?.generation === phase.generation) {
+    await verifyAcceptedTestCommandAmendment(root, config, workflow);
+    const summary = (workflow.testCommandAmendments ?? []).findLast(entry => entry.phaseId === phase.id);
+    const reviewBytes = summary?.reviewPath
+      ? exactFileAtObject(root, head(root), summary.reviewPath, { maximumBytes: 1024 * 1024 }) : null;
+    if (reviewBytes && `sha256:${createHash('sha256').update(reviewBytes).digest('hex')}` === summary.reviewSha256) {
+      const review = JSON.parse(reviewBytes.toString('utf8'));
+      const currentSha256 = `sha256:${createHash('sha256').update(currentText).digest('hex')}`;
+      if (review.revalidation?.generation === phase.generation
+        && review.preserved?.draftSha256 === currentSha256) canonicalMetadata.add(metadata);
+    }
+  }
   if (!metadata || !canonicalMetadata.has(metadata)) {
     return { ...base, status: 'unsafe', reason: 'managed-metadata-invalid' };
   }
@@ -2938,6 +2955,9 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
       || !binding?.path || !binding.sha256 || !packet.evidenceCommit) {
     throw refuse('the approval does not bind a current code-delivery receipt.');
   }
+  // Prior code evidence remains authoritative only for its exact accepted runner epoch.
+  // A later unrelated policy amendment does not rewrite this source phase's policy binding.
+  await verifyTestCommandEpochValidation(root, config, workflow, source, { packet });
   const historical = run('git', ['show', `${packet.evidenceCommit}:${binding.path}`], {
     cwd: root, allowFailure: true
   });
@@ -4337,11 +4357,11 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   return { commands, checks };
 }
 
-async function persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt) {
+async function persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt, epochRun = null) {
   if (receipt.testcaseObservation?.status !== 'observed') return receipt;
   const directoryRelative = posix(path.join(
     workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests', 'raw',
-    `${phase.id}-gen${phase.generation}`, command.id.replace(/[^A-Za-z0-9._-]+/g, '-')
+    `${phase.id}-gen${phase.generation}${epochRun ? `-${epochRun.suffix}` : ''}`, command.id.replace(/[^A-Za-z0-9._-]+/g, '-')
   ));
   await ensureSecureRepositoryDirectory(root, directoryRelative, {
     label: 'Durable local test observation directory'
@@ -4385,6 +4405,7 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  const testCommandEpochRun = beginTestCommandEpochValidation(workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'submit');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
@@ -4646,6 +4667,15 @@ async function submitPhaseTransition(root, config, workflow, {
   if (registration.status === 'repairable') repairRequiredArtifactRegistration(workflow, phase, registration, session);
   phase.generationCommit = exactGenerationCommit;
   phase.publicationCommit = exactPublicationCommit;
+  if (testCommandEpochRun && phaseUsesWorkInterval(phase)
+    && workflow.workIntervals?.current?.status === 'reconciled') {
+    const retainedBaseline = await verifyWorkIntervalBaseline(root, config, workflow, {
+      phaseId: phase.id, itemDirectory: workDir(root, config, workflow.workItem.id), allowReconciled: true
+    });
+    await ensureWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id,
+      itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id),
+      sourceBaseCommit: retainedBaseline.sourceBaseCommit, baselineTag: testCommandEpochRun.suffix });
+  }
   if (codeDeliveryRequired && !runChecks) {
     throw new SingularityFlowError(
       `Phase ${phase.id} is a code delivery and cannot skip validation commands.`,
@@ -4701,11 +4731,11 @@ async function submitPhaseTransition(root, config, workflow, {
         } catch (error) {
           throw await attachRequiredTestExecution(error, root, command, check);
         }
-        await persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt);
+        await persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt, testCommandEpochRun);
         const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
         const receiptPath = posix(path.join(
           workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests',
-          `${phase.id}-gen${phase.generation}-${safeId}.json`
+          `${phase.id}-gen${phase.generation}${testCommandEpochRun ? `-${testCommandEpochRun.suffix}` : ''}-${safeId}.json`
         ));
         await writeJson(path.join(root, receiptPath), receipt);
         testExecutions.push({
@@ -4828,8 +4858,14 @@ async function submitPhaseTransition(root, config, workflow, {
       status: 'ready',
       validatedAt: phase.deliveryEvidence.validation.validatedAt
     };
-    await writeJson(path.join(root, phase.deliveryEvidence.receiptPath), readyReceipt);
+    const validatedReceiptPath = testCommandEpochRun
+      ? posix(path.join(workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery',
+        `${phase.id}-gen${phase.generation}-${testCommandEpochRun.suffix}.json`))
+      : phase.deliveryEvidence.receiptPath;
+    await writeJson(path.join(root, validatedReceiptPath), readyReceipt);
+    phase.deliveryEvidence.receiptPath = validatedReceiptPath;
     phase.deliveryEvidence.receiptSha256 = createHash('sha256').update(canonicalJson(readyReceipt)).digest('hex');
+    await recordTestCommandEpochValidation(root, config, workflow, phase, testCommandEpochRun);
     await refreshObservedSpecificationClaims(root, config, workflow, phase, readyReceipt);
   }
   if (phaseUsesWorkInterval(phase)) {
@@ -5020,6 +5056,7 @@ export async function approvePhase(root, config, workflow, {
   agent: decisionAgent = undefined,
   persist = true
 } = {}) {
+  await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   assertSkillPhaseHostReady(workflow, phase, 'approve');
@@ -5079,6 +5116,7 @@ export async function approvePhase(root, config, workflow, {
       code: 'STORY_REVIEW_EVIDENCE_INVALID'
     });
   }
+  await verifyTestCommandEpochValidation(root, config, workflow, phase, { packet: submittedReview });
   const skillApprovalEvidence = await verifySkillPhaseApproval(
     root, config, workflow, phase, submittedReview
   );
@@ -5392,7 +5430,8 @@ export async function approvePhase(root, config, workflow, {
   }
   const actor = session.actor;
   const key = actorKey(actor);
-  const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved'
+    && (!phase.testCommandRevalidation || item.reviewPacketSha256 === submittedReview.packetSha256));
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
@@ -5493,7 +5532,7 @@ export async function approvePhase(root, config, workflow, {
   if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
     throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`);
   }
-  const prospectiveApprovals = [...phase.approvals, decision];
+  const prospectiveApprovals = [...(phase.testCommandRevalidation ? active : phase.approvals), decision];
   const reached = approvalRequirementsMet(phase.approvalPolicy, prospectiveApprovals);
   const approvalOutcome = reached ? decisionOutcome(workflow, phase) : null;
   const upcomingForApproval = reached ? upcomingAfterOutcome(workflow, phase, approvalOutcome) : null;

@@ -1953,6 +1953,9 @@ test('recovery reports an unsupported native test runner before publication is a
   assert.equal(action?.skill, '/sf-code');
   assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-code');
   assert.match(action.detail, /repository-owned test script/);
+  assert.match(action.detail, /authorized reviewer can preview story test-policy amend/);
+  assert.match(action.detail, /original configuration authority/);
+  assert.doesNotMatch(action.detail, /new Story under separately approved policy is required/);
   assert.doesNotMatch(action.detail, /refresh it, then resume this same phase/);
   const unchanged = await recoveryPlan(context.root, context.config, context.workflow, {
     phaseId: 'implementation'

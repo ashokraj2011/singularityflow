@@ -110,6 +110,32 @@ test('reconciliation refuses deleted or tampered governed baselines', async () =
   );
 });
 
+test('same-publication epoch intervals preserve generation and old reconciled baseline bytes', async () => {
+  const context = await fixture();
+  const phase = context.workflow.phases.implement;
+  phase.generation = 1;
+  phase.generationIntent = { status: 'consumed' };
+  phase.testCommandRevalidation = { id: 'TCA-001', validationEpoch: 2 };
+  const first = await ensureWorkIntervalBaseline(context.root, context.config, context.workflow,
+    { ...context, baselineTag: 'tca-001' });
+  assert.equal(first.generation, 1);
+  const firstBytes = await readFile(path.join(context.root, first.path));
+  context.workflow.workIntervals.current.status = 'reconciled';
+  await assert.rejects(verifyWorkIntervalBaseline(context.root, context.config, context.workflow, context), /no open/);
+  const retained = await verifyWorkIntervalBaseline(context.root, context.config, context.workflow,
+    { ...context, allowReconciled: true });
+  const second = await ensureWorkIntervalBaseline(context.root, context.config, context.workflow,
+    { ...context, baselineTag: 'epoch2-second-run', sourceBaseCommit: retained.sourceBaseCommit });
+  assert.equal(second.generation, 1);
+  assert.notEqual(second.path, first.path);
+  assert.equal(second.sourceBaseCommit, first.sourceBaseCommit);
+  assert.deepEqual(await readFile(path.join(context.root, first.path)), firstBytes);
+  phase.generationIntent.status = 'open';
+  const successor = await ensureWorkIntervalBaseline(context.root, context.config, context.workflow,
+    { ...context, baselineTag: 'authored-successor' });
+  assert.equal(successor.generation, 2, 'an actual source-authoring reopen still prepares the successor');
+});
+
 test('reconciliation refuses baseline path escapes and policy drift', async () => {
   const escaped = await fixture();
   await ensureWorkIntervalBaseline(escaped.root, escaped.config, escaped.workflow, escaped);

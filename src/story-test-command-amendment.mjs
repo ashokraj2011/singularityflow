@@ -1,4 +1,4 @@
-/** Bounded, pre-first-publication migration of an enrolled Story's test command. */
+/** Governed command-only migration for the current, nonterminal code-delivery phase. */
 import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -9,12 +9,13 @@ import { approvedStoryApprovalAuthorities, resolveApprovedStoryWorkType } from '
 import { isTestQualityCommand, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
 import { exactFileAtObject, head, identity } from './git.mjs';
-import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { canonicalJson } from './records.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { assertTestCommandRunnerRepairScope, publishedTestCommandRevalidation, testCommandRevalidationRequirement } from './test-command-amendment-contracts.mjs';
 import { trpSelectionPublicPreview } from './trp-delivery-selection.mjs';
 import { applicationPathContext, ensureWorkIntervalBaseline, isApplicationChangeEntry, verifyWorkIntervalBaseline } from './work-intervals.mjs';
 import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
@@ -80,9 +81,13 @@ export function testCommandAmendmentPolicy(workflow, candidateResolution, candid
   const oldCommands = original.qualityCommands ?? [];
   const newCommands = candidate.qualityCommands ?? [];
   const oldTests = oldCommands.filter(isTestQualityCommand);
-  if (!oldTests.length || oldTests.some(command => !command || typeof command !== 'object'
+  const explicitAddition = !oldTests.length && phaseRequiresCodeDelivery(original)
+    && oldCommands.every(command => command && typeof command === 'object' && !Array.isArray(command)
+      && Array.isArray(command.argv) && command.argv.length
+      && command.argv.every(part => typeof part === 'string' && part.length));
+  if ((!oldTests.length && !explicitAddition) || oldTests.some(command => !command || typeof command !== 'object'
     || Array.isArray(command) || command.kind !== 'test' || !Array.isArray(command.argv) || !command.argv.length)) {
-    fail('This bounded amendment requires an existing structured kind:test command contract; conversion of legacy inferred runners is not supported.');
+    fail('This bounded amendment repairs structured tests or adds the missing explicit test contract to an existing code phase; conversion of legacy inferred runners is not supported.');
   }
   if (!same(oldCommands.filter(command => !isTestQualityCommand(command)), newCommands.filter(command => !isTestQualityCommand(command)))) {
     fail('A test-command amendment cannot add, remove, or change non-test quality commands.');
@@ -108,6 +113,11 @@ export function testCommandAmendmentPolicy(workflow, candidateResolution, candid
     if (ids.has(normalized.id)) fail('Candidate test command IDs must be unambiguous.');
     ids.add(normalized.id);
   }
+  try { assertTestCommandRunnerRepairScope(oldCommands, newCommands); }
+  catch (error) {
+    if (error?.code !== 'WFA_AMENDMENT_INVALID') throw error;
+    fail(error.message);
+  }
   if (same(oldCommands, newCommands)) fail('The candidate does not change the pinned test command.', 'TCA_AMENDMENT_NO_CHANGE');
   reviewPolicy(original.approval); reviewPolicy(candidate.approval);
   const proposed = structuredClone(workflow.resolution);
@@ -122,17 +132,21 @@ async function boundedFile(root, relative, label) {
 }
 
 async function candidateFor(root, config, workflow, { approvedConfigurationSnapshot, reason, phaseId = null } = {}) {
-  const { sourceTreeHash, storyPublicationPending } = await import('./state.mjs');
+  const { generationResultMatches, sourceTreeHash, storyPublicationPending } = await import('./state.mjs');
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) {
     fail('Recover the exact pending Story publication before amending its runner.', 'TCA_PUBLICATION_PENDING');
   }
   if (phaseId != null && phaseId !== workflow.currentPhase) fail('Only the current code-delivery phase may be amended.');
   const phase = workflow.phases?.[workflow.currentPhase];
-  if (!phase || !phaseRequiresCodeDelivery(phase) || Number(phase.generation) !== 0
-    || phase.status !== 'in_progress' || phase.deliveryEvidence || phase.generationCommit
-    || (phase.publications ?? []).length || (workflow.lineage?.submissions ?? []).some(entry => entry.phase === phase.id)) {
-    fail('This amendment supports only the current code phase before its first publication. Existing publications and source are preserved; post-publication epoch revalidation is unavailable.', 'TCA_PRIOR_PUBLICATION_UNSUPPORTED');
+  if (!phase || !phaseRequiresCodeDelivery(phase) || !Number.isSafeInteger(phase.generation) || phase.generation < 0
+    || !['in_progress', 'awaiting_approval'].includes(phase.status) || workflow.status !== 'in_progress') {
+    fail('Only the active current code phase can adopt a runner amendment. Completed phases and terminal Stories retain their historical approvals; use the owning reopen process.', 'TCA_PRIOR_PUBLICATION_UNSUPPORTED');
   }
+  const revalidation = phase.generation > 0 ? publishedTestCommandRevalidation(phase) : null;
+  if (!revalidation && (phase.status !== 'in_progress' || phase.deliveryEvidence || phase.generationCommit
+    || (workflow.lineage?.submissions ?? []).some(entry => entry.phase === phase.id))) fail('Generation-zero amendment state contains historical publication or submission evidence.', 'TCA_AMENDMENT_STALE');
+  if (revalidation && (!await generationResultMatches(root, config, workflow, phase)
+    || phase.generationIntent?.status !== 'consumed')) fail('Published source or authored content changed. Preserve this draft and publish its successor through the existing repair route before amending policy.', 'TCA_PUBLISHED_CONTENT_CHANGED');
   const text = String(reason ?? '').trim();
   if (text.length < 15 || text.length > 2000 || /[\x00-\x1f\x7f]/u.test(text)) {
     fail('Provide a substantive amendment reason of 15–2000 ordinary characters.', 'TCA_AMENDMENT_REASON_REQUIRED');
@@ -155,16 +169,22 @@ async function candidateFor(root, config, workflow, { approvedConfigurationSnaps
   const candidateAuthority = requireApprovalAuthority(authorities, reviewPolicy(policy.candidate.approval), liveActor);
   const actor = { name: liveActor.name, email: liveActor.email ?? null, login: liveActor.login ?? null };
   const interval = workflow.workIntervals?.current;
-  if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') fail('Prepare this phase under its existing pin before reviewing a runner amendment.', 'TCA_AUTHORING_BOUNDARY_REQUIRED');
-  await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory: path.join(root, workRelative(config, workflow)) });
-  const intent = await verifyOpenGenerationIntent(root, workflow, phase);
-  if (!intent) fail('The original open authoring boundary is required and will be preserved.', 'TCA_AUTHORING_BOUNDARY_REQUIRED');
+  if (!interval || interval.phaseId !== phase.id || !(interval.status === 'open'
+    || (revalidation && interval.status === 'reconciled'))) fail('Prepare this phase under its existing pin before reviewing a runner amendment.', 'TCA_AUTHORING_BOUNDARY_REQUIRED');
+  await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id,
+    itemDirectory: path.join(root, workRelative(config, workflow)), allowReconciled: Boolean(revalidation) });
+  const intent = revalidation ? phase.generationIntent : await verifyOpenGenerationIntent(root, workflow, phase);
+  if (!intent?.path) fail('The original authoring boundary is required and will be preserved.', 'TCA_AUTHORING_BOUNDARY_REQUIRED');
   const currentHead = head(root);
   const changes = await buildRepositoryChangeSet(root, { baseCommit: currentHead, subject: { kind: 'test-command-amendment', workId: workflow.workItem.id } });
   if (changes.entries.some(entry => isApplicationChangeEntry(entry, applicationPathContext(config, workflow)))) {
     fail('Commit only the reviewed application source/test draft before amending its runner. The amendment never stages or discards those bytes.', 'TCA_SOURCE_DRAFT_UNCOMMITTED');
   }
   const intentBytes = await boundedFile(root, intent.path, 'Original generation intent');
+  if (revalidation) {
+    const originalBytes = exactFileAtObject(root, publishedGenerationCommit(root, workflow, phase), intent.path, { maximumBytes: 16 * 1024 * 1024 });
+    if (!originalBytes || !Buffer.from(originalBytes).equals(intentBytes)) fail('The published authoring intent is not its immutable original receipt.', 'TCA_AMENDMENT_STALE');
+  }
   const originalIntent = JSON.parse(intentBytes.toString('utf8'));
   let author = originalIntent.startedBy?.actor;
   if (!actorKey(author)) {
@@ -198,7 +218,8 @@ async function candidateFor(root, config, workflow, { approvedConfigurationSnaps
   const role = match => ({ authorityGroup: match.authorityGroup, identityAssurance: match.identityAssurance });
   const core = { id, workId: workflow.workItem.id, phaseId: phase.id, reason: text, from, to, actor,
     originalAuthority: role(originalAuthority), candidateAuthority: role(candidateAuthority), preserved,
-    sourceHead: currentHead, configurationAncestrySha256: digest(configurationAncestry) };
+    sourceHead: currentHead, configurationAncestrySha256: digest(configurationAncestry),
+    ...(revalidation ? { revalidation } : {}) };
   const planSha256 = digest(core);
   return { ...core, planSha256, phase, proposedResolution: policy.proposed, configurationAncestry,
     oldCommands: policy.oldCommands, newCommands: policy.newCommands, accepted };
@@ -219,10 +240,11 @@ function publicPreview(candidate) {
     executed: false, stateChanged: false, sourceChanged: false,
     prerequisites: { originalApproval: { mode: 'required', minimum: 1, authorityGroup: candidate.originalAuthority.authorityGroup },
       candidateApproval: { mode: 'required', minimum: 1, authorityGroup: candidate.candidateAuthority.authorityGroup },
-      originalAuthoringBoundary: 'open-and-preserved', sourceAndTests: 'already-committed',
+      originalAuthoringBoundary: candidate.revalidation ? 'published-and-preserved' : 'open-and-preserved', sourceAndTests: 'already-committed',
       authoredArtifact: 'exact-bytes-preserved-including-dirty-draft',
-      confirmation: 'exact-plan-and-live-terminal-review', supportedOriginalRunner: 'structured-kind-test' },
-    limitations: ['pre-first-publication-only', 'single-human-dual-authority', 'no-risk-or-scope-change'],
+      confirmation: 'exact-plan-and-live-terminal-review', supportedOriginalRunner: 'structured-kind-test-or-no-declared-tests' },
+    ...(candidate.revalidation ? { revalidation: candidate.revalidation, impact: 'published-generation-retained-new-epoch-requires-fresh-submission' } : {}),
+    limitations: ['active-current-phase-only', 'single-human-dual-authority', 'no-risk-or-scope-change'],
     legalActions: [{ id: 'apply-test-command-amendment', command: 'story', args: ['test-policy', 'amend', '--work-id', candidate.workId,
       '--reason', candidate.reason, '--apply', '--confirm', candidate.planSha256] }] };
 }
@@ -244,11 +266,11 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
   if (options.confirm !== initial.planSha256) fail('Review and confirm the current exact test-command amendment plan.', 'TCA_AMENDMENT_CONFIRMATION_REQUIRED');
   const origin = await import('./test-command-amendment-origin.mjs');
   const at = nowIso();
-  const reviewCore = { schemaVersion: 1, kind: 'test-command-adoption-review', id: initial.id,
+  const reviewCore = { schemaVersion: initial.revalidation ? 2 : 1, kind: 'test-command-adoption-review', id: initial.id,
     workId: initial.workId, phaseId: initial.phaseId, decision: 'approve', at,
     planSha256: initial.planSha256, from: initial.from, to: initial.to, actor: initial.actor,
     originalAuthority: initial.originalAuthority, candidateAuthority: initial.candidateAuthority,
-    preserved: initial.preserved };
+    preserved: initial.preserved, ...(initial.revalidation ? { revalidation: initial.revalidation } : {}) };
   const card = origin.testCommandReviewAuthorization(reviewCore);
   // The immutable card binds exact command hashes. Show the concrete redacted change alongside
   // it; configured secrets never need to be repeated to establish the reviewed plan identity.
@@ -268,10 +290,10 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
       const review = await origin.consumeTestCommandReviewAuthorization(root, path.join(root, workRelative(config, current)), { review: reviewCore, token: grant.token });
       const reviewPath = recordPath(config, current, fresh.id, 'review-001');
       const reviewSha256 = digest(review);
-      const decision = { schemaVersion: 1, kind: 'test-command-adoption-decision', id: fresh.id,
+      const decision = { schemaVersion: fresh.revalidation ? 2 : 1, kind: 'test-command-adoption-decision', id: fresh.id,
         workId: fresh.workId, status: 'approved', phaseId: fresh.phaseId, approvedAt: at, reason: fresh.reason,
         from: fresh.from, to: fresh.to, configurationAncestry: fresh.configurationAncestry,
-        review: { path: reviewPath, sha256: reviewSha256 } };
+        review: { path: reviewPath, sha256: reviewSha256 }, ...(fresh.revalidation ? { revalidation: fresh.revalidation } : {}) };
       const decisionPath = recordPath(config, current, fresh.id, 'decision');
       const decisionSha256 = digest(decision);
       await writeReviewRecord(root, reviewPath, review);
@@ -282,10 +304,15 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
       if (current.testRecovery) current.testRecovery.validationEpoch = fresh.to.validationEpoch;
       phase.checks = [];
       phase.validationVerdict = null;
+      if (fresh.revalidation) {
+        phase.testCommandRevalidation = testCommandRevalidationRequirement(decision);
+        phase.testCommandValidation = null;
+        phase.status = 'in_progress';
+      }
       current.testCommandAmendments ??= [];
-      current.testCommandAmendments.push({ schemaVersion: 1, kind: 'test-command-adoption-summary', id: fresh.id,
+      current.testCommandAmendments.push({ schemaVersion: fresh.revalidation ? 2 : 1, kind: 'test-command-adoption-summary', id: fresh.id,
         phaseId: fresh.phaseId, status: 'approved', decisionPath, decisionSha256, reviewPath, reviewSha256,
-        from: fresh.from, to: fresh.to, decidedAt: at });
+        from: fresh.from, to: fresh.to, decidedAt: at, ...(fresh.revalidation ? { revalidation: fresh.revalidation } : {}) });
       current.workIntervals.current = null;
       await ensureWorkIntervalBaseline(root, config, current, { phaseId: phase.id,
         itemDirectory: path.join(root, workRelative(config, current)), itemRelative: workRelative(config, current),
@@ -310,7 +337,8 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
       applied: true, stateChanged: true, executed: false, sourceChanged: false, ...transaction.value,
       publication: transaction.publication, pending: pending ?? null,
       legalActions: pending ? [{ id: 'recover-publication', command: 'recover', args: [workflow.workItem.id, '--json'] }]
-        : [{ id: 'prepare-amended-phase', command: 'prepare', args: [initial.phaseId, '--work-id', initial.workId] }] };
+        : [{ id: initial.revalidation ? 'revalidate-amended-phase' : 'prepare-amended-phase',
+          command: initial.revalidation ? 'submit' : 'prepare', args: [initial.phaseId, '--work-id', initial.workId] }] };
   } finally { PROSPECTIVE.delete(workflow); }
 }
 
@@ -336,6 +364,9 @@ export async function verifyAcceptedTestCommandAmendment(root, config, workflow,
     const pinned = workflow.resolution.phases.find(entry => entry.id === summary.phaseId);
     if (!phase || !pinned || !same(phase.qualityCommands, pinned.qualityCommands)) {
       fail('An amended runtime command differs from its accepted policy.', 'TCA_AMENDMENT_STALE');
+    }
+    if (!same(phase.testCommandRevalidation ?? null, accepted.phases?.[summary.phaseId]?.testCommandRevalidation ?? null)) {
+      fail('The current epoch requirement differs from its immutable amendment boundary.', 'TCA_AMENDMENT_STALE');
     }
   }
 }

@@ -38,6 +38,7 @@ import {
   phaseGenerationChatPrefill, submissionCommandArgv
 } from './views/submission-presentation.ts';
 import { phasePrepublishDecision } from './views/phase-prepublish.ts';
+import { testRecoveryPreviewArgs, testRecoveryReviewActions, type TestRecoveryAction } from './views/story-test-recovery.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
@@ -901,6 +902,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
+    'singularityFlow.reviewStoryTestRecovery',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
@@ -7320,6 +7322,63 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prepareStoryPhase': ((node?: TreeNode) => runStoryPhase('prepare', node)) as never,
     'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,
     'singularityFlow.submitStoryPhase': ((node?: TreeNode) => runStoryPhase('submit', node)) as never,
+    'singularityFlow.reviewStoryTestRecovery': async () => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!repository || !workflow?.workItem?.id || !workflow.currentPhase) {
+        void vscode.window.showWarningMessage('Attach a Story before reviewing its test policy.');
+        return;
+      }
+      const checkedRepository = repository;
+      const scope = repositoryEpoch.capture();
+      const subject = { workId: workflow.workItem.id, phaseId: workflow.currentPhase };
+      const stillCurrent = (): boolean => repositoryEpoch.isCurrent(scope) && repository === checkedRepository
+        && store.current.snapshot?.workflow?.workItem?.id === subject.workId
+        && store.current.snapshot?.workflow?.currentPhase === subject.phaseId;
+      const choice = await vscode.window.showQuickPick([
+        { label: 'Inspect test policy and readiness', action: 'show' as TestRecoveryAction,
+          description: 'Read only; no tests, changes or risk acceptance' },
+        { label: 'Preview approved test-runner repair', action: 'amend' as TestRecoveryAction,
+          description: 'Preserve code; review a newer command from the original configuration authority' },
+        { label: 'Restore review after clone or host change', action: 'attest' as TestRecoveryAction,
+          description: 'Inspect missing local review evidence; original reviewer required' }
+      ], { title: `${subject.workId} — Test and recovery`, ignoreFocusOut: true });
+      if (!choice || !stillCurrent()) return;
+      const reason = choice.action === 'amend' ? await vscode.window.showInputBox({
+        title: 'Why is the approved runner being repaired?', ignoreFocusOut: true,
+        prompt: 'The preview adopts only the newer approved test command, not unrelated configuration changes.',
+        validateInput: value => {
+          try { testRecoveryPreviewArgs('amend', subject, value); return null; }
+          catch (error) { return (error as Error).message; }
+        }
+      }) : undefined;
+      if (!stillCurrent() || choice.action === 'amend' && reason === undefined) return;
+      try {
+        const args = testRecoveryPreviewArgs(choice.action, subject, reason);
+        const result = await client.run<unknown>(args);
+        if (!stillCurrent()) return;
+        // JSON language mode prevents repository-derived strings from becoming links or commands.
+        const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(result, null, 2) });
+        await vscode.window.showTextDocument(document, { preview: true });
+        if (!stillCurrent()) return;
+        const actions = testRecoveryReviewActions(result, choice.action, subject, reason);
+        if (!actions.length) return;
+        const selected = await vscode.window.showQuickPick(actions, {
+          title: 'Review the preview; prepare a terminal command only', ignoreFocusOut: true,
+          placeHolder: 'No risk is accepted and no Story is changed by opening this terminal.'
+        });
+        if (!selected || !stillCurrent()) return;
+        const terminal = vscode.window.createTerminal({
+          name: `Singularity Flow · Test recovery · ${subject.workId}`, cwd: checkedRepository,
+          // Quote for a known shell, not a user-selected Git Bash/cmd profile on Windows.
+          shellPath: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
+          env: { ELECTRON_RUN_AS_NODE: '1' }
+        });
+        terminal.show(true);
+        terminal.sendText(terminalCommand(checkedRepository, selected.args, process.platform, client.location), false);
+      } catch (error) {
+        if (stillCurrent()) showRefusal(error, { headline: 'Could not review Story test recovery' });
+      }
+    },
     'singularityFlow.prefillStoryPhaseGeneration': async (node?: TreeNode) => {
       const phaseId = store.current.snapshot?.workflow?.currentPhase;
       if (!phaseId) {

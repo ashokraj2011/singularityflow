@@ -428,10 +428,10 @@ const KNOWN = Object.freeze({
       'Inspect the current phase and approved source scope before repairing a repository-owned test runner declaration.',
       `singularity-flow phase show${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code'),
     step('repair-in-scope-repository-runner',
-      'If the affected module has an in-scope test script or runner declaration, repair it without changing the pinned workflow or suppressing tests. A newer runtime may also add native support.',
+      'If the affected module has an in-scope test script or runner declaration, repair it without changing the pinned workflow or suppressing tests. Otherwise, an authorized reviewer can preview story test-policy amend --reason TEXT after the configuration authority approves an explicit runner. The engine determines current-Story eligibility; refresh alone does not change its pin. A newer runtime may also add native support.',
       null, 'remediation'),
     step('recheck-structured-test-contract',
-      'After a real repository or runtime change, recheck the same phase. Do not retry publication against unchanged inputs.',
+      'After a real repository/runtime repair or accepted command amendment, follow its returned preparation or fresh-validation route. This read-only check does not republish unchanged code. Do not retry publication against unchanged inputs.',
       `singularity-flow phase prepublish${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code')
   ],
   CODE_TEST_FAILED: (argv, error) => requiredTestFailureSteps(argv, error),
@@ -445,7 +445,7 @@ const KNOWN = Object.freeze({
       'Inspect the malformed configured test-command contract; do not print argv containing potential secrets.',
       'singularity-flow recover --json', 'diagnostic', '/sf-recover'),
     step('stop-unchanged-pinned-command',
-      'The current Story command is sealed in its accepted policy. Before the first code publication, an authorized reviewer can adopt a corrected command from the original approved configuration authority using story test-policy amend --reason TEXT (preview first). Published phases and unrelated policy changes are not supported. Do not edit the Story pin or retry unchanged policy.',
+      'The current Story command is sealed in its accepted policy. An authorized reviewer can preview story test-policy amend --reason TEXT to adopt a corrected structured test command from the original approved configuration authority. An active published phase retains its publication and requires fresh epoch validation and submission. Completed Stories, legacy string runners and unrelated policy changes are not supported. Do not edit the Story pin or retry unchanged policy.',
       'singularity-flow explain test-recovery', 'diagnostic')
   ],
   CODE_TEST_SUPPRESSED: (argv, error) => KNOWN.CODE_TEST_RESULT_REQUIRED(argv, error),
@@ -469,7 +469,15 @@ const KNOWN = Object.freeze({
   ],
   TCA_PRIOR_PUBLICATION_UNSUPPORTED: () => [
     step('preserve-published-test-evidence',
-      'This bounded command amendment cannot change already-published code. Preserve its receipts and use a separately reviewed supported recovery; do not clear its generation or repeat unchanged publication.',
+      'Only the current active code phase can adopt a command-only repair; completed Stories and other phases cannot be reopened by this operation. Preserve their publications and approvals, and use the normal reviewed request-changes route before previewing again. Never clear generations or historical evidence.',
+      'singularity-flow explain test-recovery', 'diagnostic')
+  ],
+  TCA_EPOCH_VALIDATION_REQUIRED: (argv, error) => [
+    step('inspect-amended-validation-epoch',
+      'The old publication is preserved, but its test results do not validate the new command. Inspect the current phase and submit again to run fresh tests under the amended policy; do not republish unchanged code or reuse the old approval packet.',
+      `singularity-flow phase show${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic'),
+    step('inspect-test-command-epoch-recovery',
+      'Keep the exact new validation evidence and normal phase approval separate from the retained historical publication.',
       'singularity-flow explain test-recovery', 'diagnostic')
   ],
   CHANGE_SET_POLICY_VIOLATION: (_argv, error) => error?.details?.violationKind === 'protected-process-path'
@@ -610,9 +618,9 @@ export function refusalRemediationPlan(error, argv = []) {
   const retryLabel = skillHostBlocked
     ? 'Do not retry generation, publication, submission or approval until the approved live host controls and exact delivery owner are implemented and qualified. Diagnostics cannot enable execution.'
     : repositoryRunnerBlocked
-    ? 'Do not retry publication until an in-scope repository runner repair or updated runtime makes a structured test command available and prepublish is ready.'
+    ? 'Do not retry unchanged publication. An in-scope repository runner repair, updated runtime or reviewed command amendment must establish the structured contract; then follow the returned preparation or fresh-validation route.'
     : pinnedTestPolicyBlocked
-    ? 'Do not retry unchanged publication. Before the first code publication, preview a reviewed test-command amendment from corrected approved configuration; otherwise use a separately reviewed supported recovery route.'
+    ? 'Do not retry unchanged publication. Preview a reviewed test-command amendment from corrected approved configuration for the active current code phase. Retain any existing publication and follow the returned preparation or fresh-validation route.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
     : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'

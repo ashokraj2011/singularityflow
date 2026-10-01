@@ -496,13 +496,16 @@ export function structuredTestCommandRequiredError(phase) {
     + 'phase recovery can be rechecked. Do not edit protected workflow configuration on the Story '
     + 'branch. If repository-owned runner repair is impossible, configure kind: test, argv, '
     + 'workingDirectory, affectedRoots, and a result adapter through approved configuration '
-    + 'authority for future Stories, or add deterministic support for the native runner.',
+    + 'authority. An eligible current Story can preview story test-policy amend to adopt '
+    + 'that exact approved command with live human review; configuration refresh alone '
+    + 'does not change its pin. Unsupported Stories need the returned repair route or '
+    + 'deterministic support for the native runner.',
     {
       code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED',
       details: {
         phase: phase.id,
         diagnosticAction: { command: `singularity-flow recover --phase ${phase.id} --json` },
-        remediation: { action: 'repair-in-scope-repository-runner-or-review-future-policy' }
+        remediation: { action: 'repair-in-scope-repository-runner-or-review-test-command-amendment' }
       }
     }
   );

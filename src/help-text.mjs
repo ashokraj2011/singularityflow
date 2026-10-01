@@ -835,7 +835,7 @@ Usage:
   singularity-flow story test-policy repair [--work-id ID] [--repository ID] --run --confirm PLAN-DIGEST [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] --apply --confirm PLAN-DIGEST [--json]
-    (current code phase before first publication only; live authorized terminal review; no tests are waived)
+    (current active code phase; preserves published generations; fresh epoch validation; live authorized terminal review; no tests waived)
   singularity-flow story test-policy attest [WORK-ID] [--json]
   singularity-flow story test-policy attest [WORK-ID] --apply --confirm REVIEW-SHA256 [--json]
     (restore review origin in a new checkout; exact retained reviewer; no Story or Git records change)

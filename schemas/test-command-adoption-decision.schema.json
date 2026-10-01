@@ -2,208 +2,456 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/test-command-adoption-decision.schema.json",
   "title": "Immutable test-command-adoption-decision record",
-  "type": "object",
-  "properties": {
-    "schemaVersion": {
-      "const": 1
-    },
-    "kind": {
-      "const": "test-command-adoption-decision"
-    },
-    "id": {
-      "type": "string",
-      "pattern": "^TCA-[0-9]{3,6}$"
-    },
-    "workId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096
-    },
-    "phaseId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096
-    },
-    "status": {
-      "const": "approved"
-    },
-    "approvedAt": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "reason": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096
-    },
-    "from": {
-      "type": "object",
-      "properties": {
-        "revision": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "snapshotHash": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "policySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "configurationCommit": {
-          "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-        },
-        "commandInventorySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "validationEpoch": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "revision",
-        "snapshotHash",
-        "policySha256",
-        "configurationCommit",
-        "commandInventorySha256",
-        "validationEpoch"
-      ],
-      "additionalProperties": false
-    },
-    "to": {
-      "type": "object",
-      "properties": {
-        "revision": {
-          "type": "integer",
-          "minimum": 2
-        },
-        "policySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "configurationCommit": {
-          "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-        },
-        "commandInventorySha256": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "validationEpoch": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "revision",
-        "policySha256",
-        "configurationCommit",
-        "commandInventorySha256",
-        "validationEpoch"
-      ],
-      "additionalProperties": false
-    },
-    "configurationAncestry": {
+  "anyOf": [
+    {
       "type": "object",
       "properties": {
         "schemaVersion": {
           "const": 1
         },
         "kind": {
-          "const": "skill-configuration-ancestry"
+          "const": "test-command-adoption-decision"
         },
-        "repository": {
+        "id": {
+          "type": "string",
+          "pattern": "^TCA-[0-9]{3,6}$"
+        },
+        "workId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
-        "ancestorCommit": {
+        "phaseId": {
           "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+          "minLength": 1,
+          "maxLength": 4096
         },
-        "descendantCommit": {
+        "status": {
+          "const": "approved"
+        },
+        "approvedAt": {
           "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+          "format": "date-time"
         },
-        "objectFormat": {
-          "enum": [
-            "sha1",
-            "sha256"
-          ]
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
         },
-        "commits": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 128,
-          "items": {
-            "type": "object",
-            "properties": {
-              "oid": {
-                "type": "string",
-                "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-              },
-              "bytesBase64": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 87384
-              }
+        "from": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
             },
-            "required": [
-              "oid",
-              "bytesBase64"
-            ],
-            "additionalProperties": false
-          }
+            "snapshotHash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "snapshotHash",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "configurationAncestry": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "kind": {
+              "const": "skill-configuration-ancestry"
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "ancestorCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "descendantCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "objectFormat": {
+              "enum": [
+                "sha1",
+                "sha256"
+              ]
+            },
+            "commits": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "oid": {
+                    "type": "string",
+                    "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+                  },
+                  "bytesBase64": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 87384
+                  }
+                },
+                "required": [
+                  "oid",
+                  "bytesBase64"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "repository",
+            "ancestorCommit",
+            "descendantCommit",
+            "objectFormat",
+            "commits"
+          ],
+          "additionalProperties": false
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
         "schemaVersion",
         "kind",
-        "repository",
-        "ancestorCommit",
-        "descendantCommit",
-        "objectFormat",
-        "commits"
+        "id",
+        "workId",
+        "phaseId",
+        "status",
+        "approvedAt",
+        "reason",
+        "from",
+        "to",
+        "configurationAncestry",
+        "review"
       ],
       "additionalProperties": false
     },
-    "review": {
+    {
       "type": "object",
       "properties": {
-        "path": {
+        "schemaVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "test-command-adoption-decision"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^TCA-[0-9]{3,6}$"
+        },
+        "workId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
-        "sha256": {
+        "phaseId": {
           "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "status": {
+          "const": "approved"
+        },
+        "approvedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "from": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "snapshotHash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "snapshotHash",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "policySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "configurationCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "commandInventorySha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "revision",
+            "policySha256",
+            "configurationCommit",
+            "commandInventorySha256",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        "configurationAncestry": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "kind": {
+              "const": "skill-configuration-ancestry"
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "ancestorCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "descendantCommit": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            },
+            "objectFormat": {
+              "enum": [
+                "sha1",
+                "sha256"
+              ]
+            },
+            "commits": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "oid": {
+                    "type": "string",
+                    "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+                  },
+                  "bytesBase64": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 87384
+                  }
+                },
+                "required": [
+                  "oid",
+                  "bytesBase64"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "repository",
+            "ancestorCommit",
+            "descendantCommit",
+            "objectFormat",
+            "commits"
+          ],
+          "additionalProperties": false
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "revalidation": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "const": "published-generation"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "publicationSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "publicationsSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "approvalsSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "deliveryEvidenceSha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "mode",
+            "generation",
+            "publicationSha256",
+            "publicationsSha256",
+            "approvalsSha256",
+            "deliveryEvidenceSha256"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
-        "path",
-        "sha256"
+        "schemaVersion",
+        "kind",
+        "id",
+        "workId",
+        "phaseId",
+        "status",
+        "approvedAt",
+        "reason",
+        "from",
+        "to",
+        "configurationAncestry",
+        "review",
+        "revalidation"
       ],
       "additionalProperties": false
     }
-  },
-  "required": [
-    "schemaVersion",
-    "kind",
-    "id",
-    "workId",
-    "phaseId",
-    "status",
-    "approvedAt",
-    "reason",
-    "from",
-    "to",
-    "configurationAncestry",
-    "review"
-  ],
-  "additionalProperties": false
+  ]
 }

@@ -649,6 +649,11 @@
         "icon": "$(send)"
       },
       {
+        "command": "singularityFlow.reviewStoryTestRecovery",
+        "title": "Singularity Flow: Review Story Test Policy and Recovery",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "singularityFlow.prefillStoryPhaseGeneration",
         "title": "Singularity Flow: Generate and Publish Current Story Phase in Copilot",
         "icon": "$(sparkle)"

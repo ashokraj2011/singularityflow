@@ -258,6 +258,7 @@ function verifiedAuthority(record, context, verifyAuthority, capability, confirm
     return receipt.recordSha256 === record.recordSha256 && receipt.principal === record.issuer.principal
       && receipt.policyAuthoritySha256 === context.policy.authoritySha256
       && receipt.confirmationSha256 === confirmation && receipt.capability === capability
+      && Date.parse(record.createdAt) <= Date.parse(receipt.issuedAt)
       && Date.parse(receipt.issuedAt) <= time && (receipt.revokedAt === null || Date.parse(receipt.revokedAt) > time)
       && (capability !== 'trp-risk-decision' || (receipt.authorizationRef === record.authorizationRef && receipt.transitions.includes(context.operation)));
   } catch { return false; }
@@ -268,11 +269,18 @@ function verifiedEvidence(record, context, verifyEvidence) {
     const receipt = verifyEvidence(record, context);
     assertSchema(evidenceReceipt, receipt);
     return receipt.recordSha256 === record.recordSha256 && receipt.reportsAvailable === true
-      && Date.parse(record.createdAt) <= Date.parse(context.at);
+      && Date.parse(record.createdAt) <= Date.parse(context.at)
+      && Date.parse(receipt.verifiedAt) >= Date.parse(record.createdAt)
+      // Historical replay authenticates old bytes now; its verification timestamp may
+      // legitimately be later than the original transition, never a new authorization.
+      && (context.mode === 'historical' || Date.parse(receipt.verifiedAt) <= Date.parse(context.at));
   } catch { return false; }
 }
 function sameDependencies(expected, actual) {
   return Array.isArray(actual) && expected.every((dependency) => actual.some((entry) => entry.id === dependency.id && entry.sha256 === dependency.sha256));
+}
+function exactDependencies(expected, actual) {
+  return expected.length === actual.length && sameDependencies(expected, actual);
 }
 function sameSubject(left, right, { phase = true, generation = true } = {}) {
   return left.workId === right.workId && left.repositoryId === right.repositoryId
@@ -311,10 +319,11 @@ export function trpIssueIdentity({ category, obligationId, message, observation 
 function knownFailureMatch(current, baseline, decision, selection) {
   if (!baseline || baseline.kind !== 'test-baseline-manifest' || baseline.identityCompleteness !== 'complete'
     || current.identityCompleteness !== 'complete' || baseline.subject.repositoryId !== current.subject.repositoryId
-    || baseline.subject.workId !== current.subject.workId || baseline.preFeatureBase !== baseline.sourceRevision
+    || baseline.subject.workId !== current.subject.workId || baseline.obligationId !== current.obligationId
+    || baseline.preFeatureBase !== baseline.sourceRevision
     || current.commandSha256 !== baseline.commandSha256 || current.commandInventorySha256 !== baseline.commandInventorySha256
     || current.selectorSha256 !== baseline.selectorSha256 || trpEnvironmentDigest(current.environment) !== trpEnvironmentDigest(baseline.environment)
-    || !sameDependencies(decision.applicability.dependencies, baseline.dependencies)
+    || !exactDependencies(decision.applicability.dependencies, baseline.dependencies)
     || current.expectedTestIds.some((testId) => !baseline.expectedTestIds.includes(testId))) return false;
   // Disappearance/skips and changed semantics are findings even if failure counts fall.
   if (current.expectedTestIds.length !== selection.selectedTestIds.length
@@ -418,6 +427,8 @@ export function evaluateTestRecoveryGate({
         || !verifiedAuthority(selection, context, verifyAuthority, 'trp-scope-confirmation', selection.confirmationSha256)))) throw new Error('Exact expanded test scope needs authorized confirmation');
       if (selection.effectiveMode === 'not-applicable' || (!selection.selectedTestIds.length && !selection.selectedSuites.length)) throw new Error('Required test selection is empty');
       if (!selection.inventoryTestIds.length || !selection.selectedTestIds.length) throw new Error('A verified exact test inventory is required by this TRP adapter');
+      if ([...selection.selectedTestIds, ...selection.exclusions.map((entry) => entry.testId)]
+        .some((testId) => !selection.inventoryTestIds.includes(testId))) throw new Error('Selected or excluded tests are absent from the verified inventory');
       if (full && selection.inventoryTestIds.some((testId) => !selection.selectedTestIds.includes(testId)
         && !selection.exclusions.some((entry) => entry.testId === testId))) throw new Error('All-configured selection does not cover its inventory');
       if (selection.exclusions.some((entry) => selection.selectedTestIds.includes(entry.testId))) throw new Error('Excluded tests cannot count as executed');
@@ -443,6 +454,7 @@ export function evaluateTestRecoveryGate({
         && decision.subject.workId === evaluationSubject.workId && decision.subject.repositoryId === evaluationSubject.repositoryId
         && decision.subject.validationEpoch === evaluationSubject.validationEpoch
         && (conditions.carryForward || sameSubject(decision.subject, evaluationSubject))
+        && (decision.subject.phaseId !== evaluationSubject.phaseId || decision.subject.generation <= evaluationSubject.generation)
         && conditions.phaseIds.includes(evaluationSubject.phaseId) && decision.transitions.includes(operation)
         && policy.enabledRiskCategories.includes(decision.category) && Date.parse(decision.createdAt) <= Date.parse(at)
         && Date.parse(at) < Date.parse(decision.expiresAt)
@@ -479,6 +491,10 @@ export function evaluateTestRecoveryGate({
             || observation.dependencies.length === 0 || selection.selectedTestIds.some((testId) => !observation.expectedTestIds.includes(testId)))) throw new Error('Test identity completeness is not established for the sealed cohort');
         if (observation.observedOutcome === 'passed' && (observation.processExitCode !== 0 || observation.counts.failed > 0
           || observation.counts.notRun > 0 || (required.kind === 'test' && observation.counts.discovered === 0))) throw new Error('Passing claim contradicts process or exact observed outcomes');
+        if (required.kind === 'test' && observation.observedOutcome === 'failed'
+          && (observation.processExitCode === null || observation.processExitCode === 0 || observation.counts.failed === 0)) {
+          throw new Error('Executed failure claim requires a nonzero process and exact failed test identities');
+        }
       } catch (error) { raise('provenance', error.message); }
       if (!localIssues.length) {
         if (['not-run', 'unavailable', 'inconclusive'].includes(observation.observedOutcome)) raise('validation-unavailable', 'Required validation remains unverified');
@@ -491,12 +507,16 @@ export function evaluateTestRecoveryGate({
             : known ? 'known-test-failure' : 'new-test-failure', 'Required check failed');
         }
         if (required.kind === 'test' && (selection.uncoveredAreas.length || !selection.impactComplete || selection.exclusions.length
-          || observation.counts.skipped > 0)) raise('reduced-coverage', 'Selected validation has explicitly untested coverage');
+          || observation.counts.skipped > 0 || (observation.observedOutcome === 'failed' && observation.counts.notRun > 0))) {
+          raise('reduced-coverage', 'Selected validation has explicitly untested coverage');
+        }
         if (required.kind === 'test') {
           const pinnedBaselines = validBaselines.filter((entry) => repo.baselineRefs.includes(entry.recordSha256)
-            && entry.subject.repositoryId === evaluationSubject.repositoryId && entry.subject.workId === evaluationSubject.workId);
-          if (repo.baselineDisposition === 'accept-known-failures' && (!repo.baselineRefs.length
-            || repo.baselineRefs.some((reference) => !pinnedBaselines.some((entry) => entry.recordSha256 === reference)))) {
+            && entry.subject.repositoryId === evaluationSubject.repositoryId && entry.subject.workId === evaluationSubject.workId
+            && entry.obligationId === required.id);
+          if (repo.baselineDisposition === 'accept-known-failures' && (!pinnedBaselines.length
+            || repo.baselineRefs.some((reference) => !validBaselines.some((entry) => entry.recordSha256 === reference
+              && entry.subject.repositoryId === evaluationSubject.repositoryId && entry.subject.workId === evaluationSubject.workId)))) {
             raise('provenance', 'Accepted baseline evidence is missing or cannot be authenticated');
           }
           const missingSentinel = pinnedBaselines.flatMap((entry) => entry.cases.filter((test) => test.outcome === 'failed'))
@@ -511,11 +531,13 @@ export function evaluateTestRecoveryGate({
     }
     const authorized = [];
     for (const finding of localIssues) {
-      if (TRP_INTEGRITY_CATEGORIES.includes(finding.category) || !observation) continue;
+      if (required.nonWaivable || !finding.riskEligible || finding.severity !== 'noncritical'
+        || TRP_INTEGRITY_CATEGORIES.includes(finding.category) || !observation) continue;
       const decision = validDecisions.find((candidate) => {
         const conditions = candidate.applicability;
         if (candidate.obligationId !== required.id || conditions.environmentSha256 !== trpEnvironmentDigest(observation.environment)
-          || !sameDependencies(conditions.dependencies, observation.dependencies)
+          || !exactDependencies(conditions.dependencies, observation.dependencies)
+          || (required.kind === 'test' && conditions.dependencies.length === 0)
           || conditions.commandSha256 !== observation.commandSha256 || conditions.selectorSha256 !== observation.selectorSha256
           || Date.parse(at) - Date.parse(observation.completedAt) > conditions.maxObservationAgeSeconds * 1000
           || observation.expectedTestIds.some((testId) => !conditions.allowedTestIds.includes(testId))) return false;
@@ -527,7 +549,10 @@ export function evaluateTestRecoveryGate({
         const excludedBaseline = candidate.category === 'reduced-coverage' && selection?.exclusions.length > 0
           && validBaselines.some((entry) => entry.recordSha256 === candidate.anchorObservationDigest
             && repo.baselineRefs.includes(entry.recordSha256)
-            && selection.exclusions.every((excluded) => excluded.baselineSha256 === entry.recordSha256));
+            && entry.obligationId === required.id && entry.subject.workId === evaluationSubject.workId
+            && entry.subject.repositoryId === evaluationSubject.repositoryId
+            && selection.exclusions.every((excluded) => excluded.baselineSha256 === entry.recordSha256
+              && entry.cases.some((test) => test.id === excluded.testId && test.outcome === 'failed')));
         return candidate.category === finding.category && candidate.issueId === finding.id
           && (candidate.anchorObservationDigest === observation.recordSha256 || excludedBaseline)
           && (finding.category !== 'reduced-coverage' || (selection && selection.exclusions.every((entry) => conditions.excludedTestIds.includes(entry.testId)

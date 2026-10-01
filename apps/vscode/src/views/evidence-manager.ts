@@ -10,8 +10,11 @@ import { brandLockup,
 import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 
-/** The four sources evidence can come from, enumerated so a message can be checked against them. */
-export const EVIDENCE_SOURCE_KINDS = Object.freeze(['files', 'figma-export', 'figma-link', 'url'] as const);
+/**
+ * The sources evidence can come from, enumerated so a message can be checked against them. The
+ * last is offered only to a Story released from an Epic: a verified copy of one of its sources.
+ */
+export const EVIDENCE_SOURCE_KINDS = Object.freeze(['files', 'figma-export', 'figma-link', 'url', 'epic-source'] as const);
 export type EvidenceSourceKind = typeof EVIDENCE_SOURCE_KINDS[number];
 
 export interface EvidenceManagerActions {
@@ -33,7 +36,8 @@ function itemKey(item: EvidenceCatalogItem): string {
 export function evidenceManagerHtml(
   webview: vscode.Webview,
   targets: EvidenceTarget[],
-  items: EvidenceCatalogItem[]
+  items: EvidenceCatalogItem[],
+  { releasedFrom = null }: { releasedFrom?: string | null } = {}
 ): string {
   const token = nonce();
   const active = items.filter((item) => item.status === 'active');
@@ -45,7 +49,8 @@ export function evidenceManagerHtml(
     ['files', 'Files, images & PDFs', 'Choose one or more local documents, screenshots, spreadsheets, or design assets.', 'document'],
     ['figma-export', 'Figma export package', 'Attach an exported folder as pinned, reviewable design evidence.', 'visual'],
     ['figma-link', 'Figma design link', 'Record an HTTPS Figma reference without storing credentials.', 'visual'],
-    ['url', 'HTTPS reference', 'Record a governed link to an external document or design system.', 'document']
+    ['url', 'HTTPS reference', 'Record a governed link to an external document or design system.', 'document'],
+    ...(releasedFrom ? [['epic-source', 'Source from the Epic', `Import a verified copy of one of Epic ${releasedFrom}'s sources into the Story.`, 'document'] as [EvidenceSourceKind, string, string, IconName]] : [])
   ];
   const sourceButtons = sourceCards.map(([source, label, description, glyph]) => `
     <button class="evidence-source" type="button" data-attach="${source}"${attachDisabled}>
@@ -80,7 +85,7 @@ export function evidenceManagerHtml(
     <header class="inbox-header">
       <p class="eyebrow">Governed lifecycle evidence</p>
       <h1>${icon('visual', { size: 24 })}Evidence & designs</h1>
-      <p class="meta">Attach source material once, then review exactly what each Story or Epic can use. Files are hashed, committed, and pushed by the Flow CLI.</p>
+      <p class="meta">Attach source material once, then review exactly what each Story or Epic can use. The Flow CLI hashes every file and commits and pushes the record; a Story file kept on this machine only commits its name, size and SHA-256, never its bytes.</p>
     </header>
     <div class="summary-grid">
       <div class="summary-card"><strong>${active.length}</strong><span>Active evidence</span></div>
@@ -167,7 +172,7 @@ export class EvidenceManagerPanel implements vscode.Disposable {
    *
    * `source` gains a real check it did not have. It was `message.source && …` — any non-empty
    * string passed and was handed straight to `actions.attach` typed as an `EvidenceSourceKind` it
-   * might not be. `enumField` holds it to the four the type actually declares.
+   * might not be. `enumField` holds it to the kinds the type actually declares.
    */
   private router = registerMessageRouter('singularityFlow.evidenceManager', {
     attach: (message) => {
@@ -211,7 +216,8 @@ export class EvidenceManagerPanel implements vscode.Disposable {
     this.panel.webview.html = evidenceManagerHtml(
       this.panel.webview,
       evidenceTargets(this.store.current.snapshot),
-      evidenceCatalog(this.store.current.snapshot)
+      evidenceCatalog(this.store.current.snapshot),
+      { releasedFrom: (this.store.current.snapshot?.workflow as { lineage?: { epicId?: string | null } } | undefined)?.lineage?.epicId ?? null }
     );
   }
 

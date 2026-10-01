@@ -121,7 +121,8 @@ export async function renderActiveStoryEvidence(root, definition, workflow, { ph
       if (budgetLimited) limited.push(record.id);
     }
     const injectedBytes = viewed.binary ? 0 : shownBytes;
-    const truncated = viewed.binary ? false : viewed.truncated || budgetLimited;
+    // An Office file is shown as its extracted text, so its text being cut is what truncation means.
+    const truncated = rendition ? rendition.truncated || budgetLimited : viewed.binary ? false : viewed.truncated || budgetLimited;
     const renditionRecord = rendition
       ? { rendition: { extractor: rendition.extractor, version: rendition.version, bytes: rendition.bytes, sha256: rendition.sha256, truncated: rendition.truncated || budgetLimited } }
       : {};

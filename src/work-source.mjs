@@ -43,6 +43,22 @@ function safeIssueUrl(value) {
   return parsed.toString();
 }
 
+// A Jira issue's attachments can be attached to the Story later (documents fetch --provider jira
+// --ref <ID>), so what identifies and fetches each one is kept: never its author, never its bytes.
+function safeJiraAttachments(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 200).flatMap((item) => {
+    const id = item?.id == null ? '' : cleanText(String(item.id), 128);
+    const url = safeIssueUrl(item?.url);
+    if (!id || !url) return [];
+    const size = Number(item.size);
+    return [{
+      id, filename: cleanText(item.filename, 512) || null, mimeType: cleanText(item.mimeType, 256) || null,
+      size: item.size != null && Number.isFinite(size) && size >= 0 ? size : null,
+      createdAt: cleanText(item.createdAt, 64) || null, url
+    }];
+  });
+}
+
 function optionalBoolean(value) {
   if (value == null || value === '') return null;
   return value === true || String(value).trim().toLowerCase() === 'true';
@@ -79,6 +95,7 @@ export function normalizeWorkSource(source = {}, { rawRef = null, fetchedAt = nu
   const id = source.id == null ? null : cleanText(source.id, 512);
   const key = source.key == null ? null : cleanText(source.key, 512);
   const url = safeIssueUrl(source.url);
+  const attachments = type === 'jira' ? safeJiraAttachments(source.attachments) : [];
   // Provider payloads are deliberately projected through this allowlist. Credentials, response
   // headers, custom fields and other opaque tracker data must never enter governed artifacts.
   const content = {
@@ -111,7 +128,9 @@ export function normalizeWorkSource(source = {}, { rawRef = null, fetchedAt = nu
     priority: cleanText(source.priority, 512),
     storyPoints: Number.isFinite(Number(source.storyPoints)) ? Number(source.storyPoints) : null,
     assignee: cleanText(source.assignee, 1024),
-    subtasks: safeSubtasks(source.subtasks)
+    subtasks: safeSubtasks(source.subtasks),
+    // Present only when there are some, so every other source keeps the digest it always had.
+    ...(attachments.length ? { attachments } : {})
   };
   return {
     ...content,

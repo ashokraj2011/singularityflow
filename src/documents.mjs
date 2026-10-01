@@ -7,6 +7,8 @@ import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
+import { downloadJiraAttachment } from './jira.mjs';
+import { epicSourceById, pinnedStorySource, readStoryEpicSource, storyEpicSources } from './story-epic-sources.mjs';
 import { currentSchemaVersion, familyForStoredPath, readRecord } from './schema-migrations.mjs';
 import {
   DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH, assertAvailableDocumentNames, assignDocumentNames,
@@ -1045,6 +1047,98 @@ export async function addDocuments(root, config, workflow, {
   await saveStoryDraft(root, config, workflow); return added;
 }
 
+/**
+ * The attachments of the Jira issue a Story was started from, read from its pinned source.json:
+ * `documents fetch --provider jira --ref <ID>` can attach only an attachment the Story was started
+ * with, and downloads it only from the configured Jira origin with the configured credentials.
+ * A Story not started from Jira has none and is told so.
+ */
+export async function jiraAttachments(root, config, workflow, { required = false } = {}) {
+  const source = await pinnedStorySource(root, config, workflow);
+  if (source?.type !== 'jira') {
+    if (!required) return [];
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' was not started from a Jira issue, so it has no Jira attachments to fetch.`,
+      { code: 'DOCUMENT_JIRA_SOURCE_REQUIRED' });
+  }
+  return (Array.isArray(source.attachments) ? source.attachments : [])
+    .filter((attachment) => attachment?.id != null && typeof attachment.url === 'string')
+    .map((attachment) => ({ ...attachment, id: String(attachment.id) }));
+}
+
+function jiraAttachmentById(attachments, id) {
+  const attachment = attachments.find((entry) => entry.id === String(id));
+  if (!attachment) {
+    throw new SingularityFlowError(`The Jira issue has no attachment '${id}'. Its attachments: ${attachments.map((entry) => `${entry.id} (${entry.filename ?? 'unnamed'})`).join(', ') || 'none'}.`,
+      { code: 'DOCUMENT_JIRA_ATTACHMENT_UNKNOWN' });
+  }
+  return attachment;
+}
+
+function jiraAttachmentAdapter(attachments, runtime = {}) {
+  const find = (reference) => jiraAttachmentById(attachments, reference.objectId);
+  return {
+    head: async (reference) => {
+      const attachment = find(reference);
+      return { name: attachment.filename ?? null, mimeType: attachment.mimeType ?? null, version: attachment.createdAt ?? null };
+    },
+    get: async (reference, { maxBytes }) => {
+      const attachment = find(reference);
+      const downloaded = await downloadJiraAttachment(attachment.url, {
+        env: runtime.env ?? process.env, fetchImpl: runtime.fetchImpl ?? globalThis.fetch, maxBytes
+      });
+      return {
+        bytes: downloaded.bytes, mimeType: attachment.mimeType ?? downloaded.mimeType,
+        objectId: attachment.id, version: downloaded.version ?? attachment.createdAt ?? null
+      };
+    }
+  };
+}
+
+/** Reads one verified Epic source; head and get answer from its pinned record. */
+function epicSourceAdapter(root, epic, source, runtime = {}) {
+  return {
+    head: async () => ({ name: source.filename ?? source.name, mimeType: source.mimeType, version: source.sha256 }),
+    get: async (reference, { maxBytes }) => ({
+      bytes: await readStoryEpicSource(root, epic, source, { maxBytes, runtime }),
+      mimeType: source.mimeType, objectId: source.sourceId, version: source.sha256
+    })
+  };
+}
+
+async function importedEpicSourceIds(root, config, workflow) {
+  return new Set((await loadManifest(root, config, workflow)).documents
+    .filter((record) => record.remote?.source === 'epic-source').map((record) => String(record.remote.objectId)));
+}
+
+/** Every verified source of the Epic this Story was released from, marked when already imported. */
+export async function browseEpicSources(root, config, workflow) {
+  const epic = await storyEpicSources(root, config, workflow, { required: true });
+  const imported = await importedEpicSourceIds(root, config, workflow);
+  return {
+    providerId: 'epic', providerType: 'epic-source', epicId: epic.epicId, commit: epic.commit,
+    entries: epic.sources.map((source) => ({
+      id: source.sourceId, name: source.name, filename: source.filename, mimeType: source.mimeType,
+      size: source.bytes, sha256: source.sha256, imported: imported.has(source.sourceId)
+    })),
+    rejected: epic.rejected
+  };
+}
+
+/**
+ * The sources of the Epic this Story was released from that it has not imported yet, and those
+ * that failed verification. Empty for a Story not released from an Epic; never throws.
+ */
+export async function importableEpicSources(root, config, workflow) {
+  try {
+    const epic = await storyEpicSources(root, config, workflow);
+    if (!epic.epicId) return { epicId: null, waiting: [], rejected: [] };
+    const imported = await importedEpicSourceIds(root, config, workflow);
+    return { epicId: epic.epicId, waiting: epic.sources.filter((source) => !imported.has(source.sourceId)), rejected: epic.rejected };
+  } catch {
+    return { epicId: null, waiting: [], rejected: [] };
+  }
+}
+
 function resolveStorageProvider(config, providerId, workflow = null) {
   const storage = workflow?.resolution?.storage ?? config.storage;
   const selectedId = providerId ?? storage?.defaultProvider ?? null;
@@ -1066,16 +1160,29 @@ export async function fetchRemoteDocument(root, config, workflow, {
   await enforceDocumentPhase(root, workflow, config, phase, 'fetch documents');
   const policy = documentPolicy(workflow, config);
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
+  // The Jira issue the Story came from is a source too; its attachment's file name is its default name.
+  const jira = providerId === 'jira' ? await jiraAttachments(root, config, workflow, { required: true }) : null;
+  const jiraAttachment = jira ? jiraAttachmentById(jira, remoteRef) : null;
+  // So is the Epic the Story was released from: its source keeps the name the Epic gave it.
+  const epic = providerId === 'epic' ? await storyEpicSources(root, config, workflow, { required: true }) : null;
+  const epicSource = epic ? epicSourceById(epic, remoteRef) : null;
   // `name` is the document's name, like an upload's; the stored file name comes from the provider.
-  const [documentName] = assignDocumentNames(1, { names: name == null ? [] : [name], label });
+  const [documentName] = assignDocumentNames(1, {
+    names: name != null ? [name] : jiraAttachment?.filename ? [jiraAttachment.filename] : epicSource ? [epicSource.name] : [], label
+  });
   const offeredPhases = normalizeDocumentPhases(phases, workflow, { fromPhase: phase.id });
   const storage = resolveDocumentStorage(store, policy);
   assertAvailableDocumentNames((await loadManifest(root, config, workflow)).documents, [documentName]);
-  const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
+  const { selectedId, provider } = jira
+    ? { selectedId: 'jira', provider: { type: 'jira' } }
+    : epic ? { selectedId: 'epic', provider: { type: 'epic-source' } }
+      : resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
   if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
-  const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
-  const reference = { objectId: remoteRef, url: /^https?:\/\//i.test(remoteRef) ? remoteRef : undefined };
+  const adapter = jira ? jiraAttachmentAdapter(jira, runtime)
+    : epic ? epicSourceAdapter(root, epic, epicSource, runtime)
+      : storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
+  const reference = { objectId: epicSource?.sourceId ?? remoteRef, url: /^https?:\/\//i.test(remoteRef) ? remoteRef : undefined };
   let headMeta = null;
   if (typeof adapter.head === 'function') {
     try { headMeta = await adapter.head(reference); } catch { headMeta = null; }
@@ -1099,7 +1206,11 @@ export async function fetchRemoteDocument(root, config, workflow, {
   assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
   const manifest = await loadManifest(root, config, workflow);
   const id = nextId(manifest.documents);
-  const remote = { source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef) };
+  const remote = {
+    source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef),
+    // Which Epic, at which commit, and the record that pinned it: enough to check the copy later.
+    ...(epic ? { epicId: epic.epicId, commit: epic.commit, recordSha256: epicSource.recordSha256 } : {})
+  };
   let record;
   if (storage === 'local') {
     const fetchedSha256 = createHash('sha256').update(fetchedBytes).digest('hex');

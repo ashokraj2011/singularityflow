@@ -113,6 +113,12 @@ test('a DOCX is read as its extracted text in documents view and in prompts, nev
   assert.equal(entry.rendition.version, SOURCE_TEXT_EXTRACTOR_VERSION);
   assert.match(entry.rendition.sha256, /^[a-f0-9]{64}$/);
   assert.deepEqual(rendered.files[0].rendition, entry.rendition, 'the receipt records the same rendition as the prompt entry');
+  assert.equal(entry.truncated, false);
+  // Cut text is recorded as cut, on the entry as well as its rendition.
+  workflow.resolution.documents.maxPreviewBytes = 12;
+  const cut = (await renderActiveStoryEvidence(root, definition, workflow)).entries[0];
+  assert.equal(cut.rendition.truncated, true);
+  assert.equal(cut.truncated, true);
 });
 
 test('a file named only in non-Latin letters keeps its type, its text and a readable stored name', async () => {

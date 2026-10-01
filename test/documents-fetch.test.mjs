@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
@@ -9,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { loadConfig, loadWorkflow } from '../src/state.mjs';
 import { fetchRemoteDocument, listRemoteDocuments } from '../src/documents.mjs';
+import { normalizeWorkSource } from '../src/work-source.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -185,4 +187,52 @@ test('documents fetch refuses environment-local names, secrets, and unscannable 
       ), false);
     });
   }
+});
+
+test('a Story started from Jira attaches its issue\'s attachments with documents fetch --provider jira', async () => {
+  const root = await repository();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, 'DOCS-9');
+  // A manual Story has no Jira issue behind it.
+  await assert.rejects(() => fetchRemoteDocument(root, config, workflow, { providerId: 'jira', remoteRef: '10001' }),
+    (error) => error?.code === 'DOCUMENT_JIRA_SOURCE_REQUIRED');
+  // What start --jira pins: the issue as normalizeWorkSource keeps it, its attachments included.
+  const sourcePath = path.join(root, 'singularity/work-items/DOCS-9/source.json');
+  const source = normalizeWorkSource({
+    type: 'jira', id: '10500', key: 'DOCS-9', title: 'Rate table', url: 'https://jira.example.com/browse/DOCS-9',
+    attachments: [{
+      id: '10001', filename: 'rate-table.csv', mimeType: 'text/csv', size: 18, createdAt: '2026-09-30T10:00:00.000+0000',
+      author: 'Someone', url: 'https://jira.example.com/rest/api/3/attachment/content/10001'
+    }]
+  }, { rawRef: 'DOCS-9', fetchedAt: '2026-10-01T00:00:00.000Z' });
+  await writeFile(sourcePath, `${JSON.stringify(source, null, 2)}\n`);
+  workflow.resolution.sourceSha256 = createHash('sha256').update(await readFile(sourcePath)).digest('hex');
+  const requests = [];
+  const runtime = {
+    env: { JIRA_BASE_URL: 'https://jira.example.com', JIRA_EMAIL: 'owner@example.com', JIRA_API_TOKEN: 'test' },
+    fetchImpl: async (url) => { requests.push(String(url)); return bytesResponse(Buffer.from('band,rate\nA,4.5\n'), 'text/csv'); }
+  };
+  await assert.rejects(() => fetchRemoteDocument(root, config, workflow, { providerId: 'jira', remoteRef: '999', runtime }),
+    (error) => error?.code === 'DOCUMENT_JIRA_ATTACHMENT_UNKNOWN' && /10001 \(rate-table\.csv\)/.test(error.message));
+  const [record] = await fetchRemoteDocument(root, config, workflow, { providerId: 'jira', remoteRef: '10001', runtime });
+  assert.equal(record.name, 'rate-table.csv', 'an attachment is named after its file unless --name says otherwise');
+  assert.equal(record.mimeType, 'text/csv');
+  assert.deepEqual([record.remote.source, record.remote.objectId], ['jira', '10001']);
+  assert.deepEqual(requests, ['https://jira.example.com/rest/api/3/attachment/content/10001']);
+  assert.equal(await readFile(path.join(root, record.path), 'utf8'), 'band,rate\nA,4.5\n');
+});
+
+test('only a Story released from an Epic in this repository imports Epic sources', async () => {
+  const root = await repository();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, 'DOCS-9');
+  await assert.rejects(() => fetchRemoteDocument(root, config, workflow, { providerId: 'epic', remoteRef: 'SRC-000000000000' }),
+    (error) => error?.code === 'DOCUMENT_EPIC_SOURCE_REQUIRED' && /was not released from an Epic/.test(error.message));
+  // A source naming an Epic whose files are not in this repository (another repository's Epic).
+  const sourcePath = path.join(root, 'singularity/work-items/DOCS-9/source.json');
+  await writeFile(sourcePath, `${JSON.stringify({ ...JSON.parse(await readFile(sourcePath, 'utf8')), epicId: 'EPIC-404' }, null, 2)}\n`);
+  workflow.resolution.sourceSha256 = createHash('sha256').update(await readFile(sourcePath)).digest('hex');
+  await assert.rejects(() => fetchRemoteDocument(root, config, workflow, { providerId: 'epic', remoteRef: 'SRC-000000000000' }),
+    (error) => error?.code === 'DOCUMENT_EPIC_SOURCES_UNAVAILABLE' && /Epic 'EPIC-404' is not in this repository at the commit Story 'DOCS-9' was cut from/.test(error.message)
+      && /attach the files with documents upload instead/.test(error.message));
 });

@@ -118,7 +118,7 @@ import {
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
+import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { documentStorageChoices } from './document-storage-policy.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
@@ -4895,7 +4895,10 @@ async function documentsCommand(positionals, options) {
       throw new SingularityFlowError(`This Story has no phase '${phaseId}'.${didYouMean(phaseId, workflow.phaseOrder)} Choose from ${workflow.phaseOrder.join(', ')}.`,
         { code: 'DOCUMENT_PHASES_INVALID' });
     }
-    const records = await documentCatalog(root, config, workflow, { includeDetached: optionBoolean(options, 'all'), phaseId });
+    // --phase answers what that phase's prompts and reviews use: supporting documents only, not the
+    // Story's generated and workflow documents, which a reader of one phase has to filter out.
+    const records = (await documentCatalog(root, config, workflow, { includeDetached: optionBoolean(options, 'all'), phaseId }))
+      .filter((item) => !phaseId || ['file', 'url'].includes(item.type));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
     if (!records.length) return console.log(phaseId ? `No documents are offered to ${phaseId}.` : 'No documents found.');
     // Supporting documents carry a name and the phases that use them; generated and system
@@ -4918,6 +4921,20 @@ async function documentsCommand(positionals, options) {
       sections.push(`Workflow documents\n${table(generated.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', status: item.status ?? 'active', label: item.label, location: item.url ?? item.path ?? '' })), [
         { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION', kind: 'path' }
       ])}`);
+    }
+    // The Jira issue's own attachments are a source, not documents, until someone attaches them.
+    const attached = new Set((await documentCatalog(root, config, workflow)).filter((item) => item.remote?.source === 'jira').map((item) => String(item.remote.objectId)));
+    const waiting = (await jiraAttachments(root, config, workflow).catch(() => [])).filter((attachment) => !attached.has(attachment.id));
+    if (waiting.length) {
+      sections.push(`Jira attachments not attached yet\n${waiting.map((attachment) => `  ${attachment.id}  ${attachment.filename ?? ''}`).join('\n')}\nAttach one with: singularity-flow documents fetch --provider jira --ref <ID> [--name NAME]`);
+    }
+    // So are the sources of the Epic the Story was released from, until someone imports them.
+    const epicSources = await importableEpicSources(root, config, workflow);
+    if (epicSources.waiting.length) {
+      sections.push(`Epic ${epicSources.epicId} sources not imported yet\n${epicSources.waiting.map((source) => `  ${source.sourceId}  ${source.name}${source.mimeType ? ` (${source.mimeType})` : ''}`).join('\n')}\nImport one with: singularity-flow documents fetch --provider epic --ref <SRC-ID> [--name NAME] [--phases A,B]`);
+    }
+    if (epicSources.rejected.length) {
+      sections.push(`Epic ${epicSources.epicId} sources that failed verification (not importable)\n${epicSources.rejected.map((source) => `  ${source.sourceId ?? '(no ID)'}  ${source.name ?? ''}: ${source.reason}`).join('\n')}`);
     }
     return console.log(sections.join('\n\n'));
   }
@@ -5050,6 +5067,19 @@ async function documentsCommand(positionals, options) {
   }
   if (subcommand === 'browse') {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+    // The Epic a Story was released from is browsed like a provider: its verified sources, by ID.
+    if (optionString(options, 'provider') === 'epic') {
+      const result = await browseEpicSources(root, config, workflow);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Epic ${result.epicId} sources at ${result.commit.slice(0, 12)}`);
+      if (result.entries.length) {
+        console.log(table(result.entries.map((entry) => ({ name: entry.name, id: entry.id, type: entry.mimeType ?? '', size: entry.size, status: entry.imported ? 'imported' : '' })), [
+          { key: 'name', label: 'NAME' }, { key: 'id', label: 'SOURCE ID' }, { key: 'type', label: 'TYPE' }, { key: 'size', label: 'BYTES' }, { key: 'status', label: 'IN STORY' }
+        ]));
+      } else console.log('No verified sources.');
+      for (const source of result.rejected) console.log(`Not importable: ${source.sourceId ?? '(no ID)'} ${source.name ?? ''}: ${source.reason}`);
+      return;
+    }
     const result = await listRemoteDocuments(config, { providerId: optionString(options, 'provider'), path: optionString(options, 'path', ''), workflow });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.providerId} (${result.providerType})`);

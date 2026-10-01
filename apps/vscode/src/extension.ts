@@ -96,7 +96,7 @@ import {
   evidenceScopeCommand, evidenceStorageChoices, evidenceTargets, evidenceUsesLabel,
   suggestedEvidenceName, validateEvidenceName,
   expandEpicEvidenceDirectory, validateEvidenceUrl,
-  type EvidenceCatalogItem, type EvidenceTarget
+  type EpicSourceBrowse, type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
@@ -5837,6 +5837,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (!target) return;
 
+    // A Story released from an Epic can import the Epic's own sources, so it is offered them.
+    const releasedFrom = target.kind === 'story'
+      ? (store.current.snapshot?.workflow as { lineage?: { epicId?: string | null } } | undefined)?.lineage?.epicId ?? null
+      : null;
     const source = requestedSource ? { value: requestedSource } : await vscode.window.showQuickPick([{
       label: 'Files, images or PDFs', value: 'files' as const,
       description: 'Select one or more local files'
@@ -5851,7 +5855,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, {
       label: 'Other HTTPS reference', value: 'url' as const,
       description: 'Pin a document or design-system link'
-    }], { title: `Attach evidence to ${target.label}`, placeHolder: 'Choose the source type' });
+    }, ...(releasedFrom ? [{
+      label: 'Source from the Epic', value: 'epic-source' as const,
+      description: `Import a verified copy of one of Epic ${releasedFrom}'s sources`
+    }] : [])], { title: `Attach evidence to ${target.label}`, placeHolder: 'Choose the source type' });
     if (!source) return;
 
     // A Story document needs its own name. Ask once per file or folder, suggesting the file name
@@ -5895,6 +5902,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const chosen = phaseOrder.filter((phase) => picked.some((entry) => entry.label === phase));
       return chosen.length === defaults.length && chosen.every((phase) => defaults.includes(phase)) ? null : chosen;
     };
+    // Where a Story file is kept: only what its document policy allows, its default first; one
+    // choice is no choice. Undefined on cancel.
+    const askStorage = async (plural: boolean): Promise<'git' | 'local' | undefined> => {
+      const policy = evidenceStorageChoices(
+        (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
+      if (policy.allowed.length <= 1) return policy.default;
+      const options = [{
+        label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
+      }, {
+        label: 'Keep on this machine only',
+        description: 'Git records its name, size and SHA-256; other machines cannot open it', value: 'local' as const
+      }].sort((left, right) => Number(right.value === policy.default) - Number(left.value === policy.default));
+      const choice = await vscode.window.showQuickPick(options,
+        { title: plural ? 'Where should these files be kept?' : 'Where should this file be kept?', ignoreFocusOut: true });
+      return choice?.value;
+    };
     let input: Parameters<typeof evidenceCommands>[1] | null = null;
     if (source.value === 'files') {
       const picked = await vscode.window.showOpenDialog({
@@ -5914,22 +5937,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!names) return;
       let storage: 'git' | 'local' = 'git';
       if (target.kind === 'story') {
-        // Offer only what this Story's document policy allows, its default first; one choice is no choice.
-        const policy = evidenceStorageChoices(
-          (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
-        storage = policy.default;
-        if (policy.allowed.length > 1) {
-          const options = [{
-            label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
-          }, {
-            label: 'Keep on this machine only',
-            description: 'Git records its name, size and SHA-256; other machines cannot open it', value: 'local' as const
-          }].sort((left, right) => Number(right.value === policy.default) - Number(left.value === policy.default));
-          const choice = await vscode.window.showQuickPick(options,
-            { title: paths.length > 1 ? 'Where should these files be kept?' : 'Where should this file be kept?', ignoreFocusOut: true });
-          if (!choice) return;
-          storage = choice.value;
-        }
+        const chosen = await askStorage(paths.length > 1);
+        if (!chosen) return;
+        storage = chosen;
       }
       const phases = await askPhases();
       if (phases === undefined) return;
@@ -5963,6 +5973,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const phases = await askPhases();
       if (phases === undefined) return;
       input = { kind: 'figma-export', paths, names, store: 'git', phases };
+    } else if (source.value === 'epic-source') {
+      if (target.kind !== 'story') {
+        void vscode.window.showInformationMessage('An Epic\'s sources are imported into a Story released from it. Choose that Story as the owner.');
+        return;
+      }
+      let browsed: EpicSourceBrowse;
+      try {
+        browsed = await client.run<EpicSourceBrowse>(['documents', 'browse', '--provider', 'epic', '--json']);
+      } catch (error) {
+        showRefusal(error, { headline: 'Could not read the Epic\'s sources' });
+        return;
+      }
+      const waiting = browsed.entries.filter((entry) => !entry.imported);
+      // A source that failed verification is never offered; say how many, so none goes missing silently.
+      const failed = browsed.rejected.length
+        ? `${browsed.rejected.length} failed verification and cannot be imported (${browsed.rejected.map((entry) => entry.sourceId ?? entry.name).join(', ')})`
+        : '';
+      if (!waiting.length) {
+        void vscode.window.showInformationMessage(`Every verified source of Epic ${browsed.epicId} is already in ${target.label}.${failed ? ` ${failed}.` : ''}`);
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(waiting.map((entry) => ({
+        label: entry.name, description: [entry.id, entry.mimeType].filter(Boolean).join(' · '), entry
+      })), {
+        title: `Import a source from Epic ${browsed.epicId}${failed ? ` · ${failed}` : ''}`, ignoreFocusOut: true,
+        placeHolder: 'Its copy is checked against the Epic\'s SHA-256'
+      });
+      if (!picked) return;
+      const name = await vscode.window.showInputBox({
+        title: 'Name this document',
+        prompt: `How reviewers and prompts will refer to ${picked.entry.id} in ${target.label}.`,
+        value: picked.entry.name.replace(/\s+/gu, ' ').trim().slice(0, 120),
+        ignoreFocusOut: true,
+        validateInput: (value) => validateEvidenceName(value, storyNames)
+      });
+      if (!name?.trim()) return;
+      const storage = await askStorage(false);
+      if (!storage) return;
+      const phases = await askPhases();
+      if (phases === undefined) return;
+      input = { kind: 'epic-source', sourceId: picked.entry.id, name: name.replace(/\s+/gu, ' ').trim(), store: storage, phases };
     } else {
       const figmaOnly = source.value === 'figma-link';
       const url = await vscode.window.showInputBox({
@@ -5992,11 +6043,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Story documents are named by now, and the name is what the person will look for afterwards.
     const summary = input.kind === 'url'
       ? input.label
+      : input.kind === 'epic-source' ? `'${input.name}'`
       : input.names?.length
         ? input.names.map((name) => `'${name}'`).join(', ')
         : `${input.paths.length} ${input.paths.length === 1 ? 'path' : 'paths'}`;
     const confirmation = await vscode.window.showInformationMessage(
-      input.kind === 'files' && input.store === 'local'
+      (input.kind === 'files' || input.kind === 'epic-source') && input.store === 'local'
         ? `Attach ${summary} to ${target.label}? The file stays on this machine; only its name, size and SHA-256 are committed and pushed.`
         : `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
       { modal: true }, 'Attach evidence');

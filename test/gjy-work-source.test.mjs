@@ -76,3 +76,20 @@ test('GitHub source failures are bounded and happen before lifecycle mutation', 
     (error) => error.code === 'GITHUB_ISSUE_UNAVAILABLE' && /authentication required/.test(error.message)
   );
 });
+
+test('a Jira source keeps what fetches its attachments, and nothing else gains a field or a new digest', () => {
+  const issue = { type: 'jira', id: '7', key: 'PAY-7', title: 'Pay', url: 'https://jira.example.com/browse/PAY-7' };
+  const source = normalizeWorkSource({ ...issue, attachments: [
+    { id: '1', filename: 'brief.pdf', mimeType: 'application/pdf', size: 10, createdAt: '2026-09-30T10:00:00.000+0000', author: 'Someone', url: 'https://jira.example.com/rest/api/3/attachment/content/1?token=x' },
+    { id: '2', filename: 'leak.txt', url: 'https://user:pass@jira.example.com/rest/api/3/attachment/content/2' },
+    { id: null, filename: 'no-id.txt', url: 'https://jira.example.com/rest/api/3/attachment/content/3' }
+  ] });
+  assert.deepEqual(source.attachments, [{
+    id: '1', filename: 'brief.pdf', mimeType: 'application/pdf', size: 10,
+    createdAt: '2026-09-30T10:00:00.000+0000', url: 'https://jira.example.com/rest/api/3/attachment/content/1'
+  }]);
+  assert.doesNotMatch(JSON.stringify(source), /Someone|token=x|user:pass/);
+  assert.equal(normalizeWorkSource({ ...issue, attachments: [] }).contentSha256, normalizeWorkSource(issue).contentSha256);
+  assert.equal('attachments' in normalizeWorkSource(issue), false);
+  assert.equal('attachments' in normalizeWorkSource({ type: 'manual', title: 'x', attachments: source.attachments }), false);
+});

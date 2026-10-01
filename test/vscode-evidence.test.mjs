@@ -160,3 +160,34 @@ test('VS Code separates active and detached evidence and builds shell-free detac
     'intake generation 1, design generation 2');
   assert.equal(evidenceUsesLabel([]), null);
 });
+
+test('a tree row opens every active Story document, including links and documents kept on one machine', async () => {
+  const { storyEvidenceNode } = await import(path.join(packageRoot, 'apps/vscode/src/views/tree-model.ts'));
+  const committed = storyEvidenceNode('MOB-1', { id: 'DOC-001', name: 'Brief', type: 'file', path: 'singularity/work-items/MOB-1/inputs/DOC-001/brief.md', mimeType: 'text/markdown', storage: { kind: 'git' } });
+  assert.equal(committed.path, 'singularity/work-items/MOB-1/inputs/DOC-001/brief.md');
+  assert.equal(committed.runCommand, undefined);
+  assert.equal(committed.label, 'Brief');
+  assert.equal(committed.description, 'text/markdown');
+  const local = storyEvidenceNode('MOB-1', { id: 'DOC-002', name: 'Private notes', type: 'file', mimeType: 'text/markdown', storage: { kind: 'local', key: 'abc' }, availability: 'available' });
+  assert.equal(local.path, undefined);
+  assert.equal(local.runCommand, 'singularityFlow.openArtifact');
+  assert.equal(local.description, 'text/markdown · this machine only');
+  assert.deepEqual(local.evidence, { ownerKind: 'story', ownerId: 'MOB-1', evidenceId: 'DOC-002', packageId: undefined, status: 'active' });
+  const elsewhere = storyEvidenceNode('MOB-1', { id: 'DOC-003', name: 'Their notes', type: 'file', storage: { kind: 'local' }, availability: 'unavailable', mimeType: 'text/plain' });
+  assert.equal(elsewhere.description, 'text/plain · on another machine');
+  const link = storyEvidenceNode('MOB-1', { id: 'DOC-004', name: 'Design', type: 'url', url: 'https://example.com/design' });
+  assert.equal(link.runCommand, 'singularityFlow.openArtifact');
+  const detached = storyEvidenceNode('MOB-1', { id: 'DOC-005', name: 'Old', type: 'file', storage: { kind: 'local' } }, true);
+  assert.equal(detached.runCommand, undefined);
+  assert.equal(detached.description, 'detached');
+});
+
+test('a Story imports one of its Epic\'s sources through documents fetch, storage and phases stated', () => {
+  const target = { kind: 'story', id: 'APP-1', label: 'Story APP-1' };
+  assert.deepEqual(evidenceCommands(target, { kind: 'epic-source', sourceId: 'SRC-6C9812569F6A', name: 'Ledger brief', store: 'local', phases: ['intake', 'requirements'] }), [
+    ['documents', 'fetch', '--provider', 'epic', '--ref', 'SRC-6C9812569F6A', '--name', 'Ledger brief', '--store', 'local', '--phases', 'intake,requirements']
+  ]);
+  assert.deepEqual(evidenceCommands(target, { kind: 'epic-source', sourceId: 'SRC-6C9812569F6A', name: 'Ledger brief', phases: null }), [
+    ['documents', 'fetch', '--provider', 'epic', '--ref', 'SRC-6C9812569F6A', '--name', 'Ledger brief', '--store', 'git']
+  ]);
+});

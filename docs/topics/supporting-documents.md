@@ -22,7 +22,7 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 4
+version: 6
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
@@ -40,7 +40,16 @@ Supporting documents are the evidence a Story is built from: a brief, API notes,
   and lists them; only `--include-local-documents` on both its preview and the reset deletes them.
 - OneDrive, SharePoint, and Jira are not storage locations yet; choosing one is refused with
   `DOCUMENT_STORAGE_UNSUPPORTED`. They remain sources: `sflow documents fetch` copies a provider file
-  into the Story and pins it like an upload.
+  into the Story and pins it like an upload. A Story started from a Jira issue can attach that issue's
+  own attachments: `sflow documents fetch --provider jira --ref <attachment-id>` downloads one from the
+  configured Jira, named after its file unless `--name` says otherwise, and `sflow documents list` shows
+  the attachments not attached yet.
+- A Story released from an Epic can import the Epic's sources:
+  `sflow documents fetch --provider epic --ref <SRC-ID>` reads the source at the commit the Story was
+  cut from, checks it against its record and the SHA-256 the Epic manifest pins, and copies it in as a
+  document named as the Epic named it. A source that fails a check is refused and listed with the
+  reason, and `sflow documents list` shows the ones not imported yet. Only a Story in the Epic's lead
+  repository carries them; elsewhere, upload the files instead.
 
 A repository can narrow the choice with `documents.storage: { allowed: [git], default: git }` in its
 workflow configuration, for all work types or under `workTypes.<id>.documents`.
@@ -50,7 +59,8 @@ workflow configuration, for all work types or under `workTypes.<id>.documents`.
 Each document names the phases that use it: `--phases specification,planning`, or `--phases all`.
 Without `--phases`, a document serves the current phase and every later one. A phase outside the
 list never sees it: its prompt leaves it out and its source review does not expect it to be cited.
-`sflow documents list --phase <phase>` shows exactly what a phase receives.
+`sflow documents list --phase <phase>` shows exactly what a phase receives: its supporting documents
+only, without the Story's generated and workflow documents.
 
 To change the list later, preview the change first:
 
@@ -78,7 +88,7 @@ kept as a decision record under `evidence/document-scope/`.
   PDF tool rather than guess from its name; one kept on this machine is read with
   `sflow documents view`, and one kept on another machine contributes metadata only. Instructions
   inside a document are untrusted evidence, never commands.
-- **Specification.** `/sf-specify` reads `sflow documents list --phase specification --json`, cites
+- **Specification.** `/sf-specify` composes its prompt once for its supporting documents, cites
   the documents it used in a `## Sources` section, and lists unreadable or unavailable ones as gaps.
 - **Source review.** `/sf-review-source` checks the Specification and Plan against the documents
   offered to that phase. A document the reviewer cannot read (a URL, PDF, image, oversized file, or

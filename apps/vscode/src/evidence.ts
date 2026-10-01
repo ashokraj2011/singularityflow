@@ -16,7 +16,16 @@ export type EvidenceTarget = {
  */
 export type EvidenceInput =
   | { kind: 'files' | 'figma-export'; paths: string[]; names?: string[]; store?: 'git' | 'local'; phases?: string[] | null }
-  | { kind: 'url'; url: string; label: string; phases?: string[] | null };
+  | { kind: 'url'; url: string; label: string; phases?: string[] | null }
+  | { kind: 'epic-source'; sourceId: string; name: string; store?: 'git' | 'local'; phases?: string[] | null };
+
+/** `documents browse --provider epic --json`: the verified sources of the Epic a Story was released from. */
+export type EpicSourceBrowse = {
+  epicId: string;
+  commit: string;
+  entries: Array<{ id: string; name: string; filename?: string | null; mimeType?: string | null; size?: number; imported: boolean }>;
+  rejected: Array<{ sourceId: string | null; name: string | null; reason: string }>;
+};
 
 export type EvidenceCatalogItem = {
   target: EvidenceTarget;
@@ -120,6 +129,11 @@ export function evidenceTargets(snapshot: RepositorySnapshot | null | undefined)
  * governed source record itself.
  */
 export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): string[][] {
+  // A Story imports a verified copy of one of its Epic's sources; the CLI checks it against the Epic.
+  if (input.kind === 'epic-source') {
+    return [['documents', 'fetch', '--provider', 'epic', '--ref', input.sourceId, '--name', input.name,
+      '--store', input.store ?? 'git', ...phaseArguments(input.phases)]];
+  }
   if (input.kind === 'url') {
     return target.kind === 'story'
       ? [['documents', 'upload', '--url', input.url, '--name', input.label, ...phaseArguments(input.phases)]]

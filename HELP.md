@@ -1578,6 +1578,10 @@ singularity-flow documents fetch  --provider onedrive --ref <drive-item-id>
 
 `fetch` downloads the bytes into `inputs/DOC-nnn/`, hashes them, records provider provenance (`providerId`, `objectId`, version), and commits/pushes like any other document — so a resumed checkout on another machine has the content, not just a link. In the CLI the bearer token is read from `SINGULARITY_FLOW_STORAGE_TOKEN_ONEDRIVE`; VS Code stores provider credentials in `SecretStorage` and exposes governed document actions without placing tokens in repository state.
 
+A Story started from a Jira issue can attach the issue's own attachments without any storage provider: `singularity-flow documents fetch --provider jira --ref <attachment-id> [--name NAME]` downloads one from the configured Jira origin with the configured Jira credentials. Only attachments recorded in the Story's pinned source can be fetched, each is named after its file unless `--name` is given, and `documents list` shows the ones not attached yet. Stories started with `start --jira` and with `story fetch` both record their issue's attachments (identity, file name, type, size and download URL; never the author or the bytes).
+
+A Story released from an Epic can import the Epic's own sources the same way: `singularity-flow documents fetch --provider epic --ref <SRC-ID> [--name NAME]`. The source is read at the commit the Story was cut from, checked against its record and the SHA-256 the Epic manifest pins, and copied in as an ordinary document named as the Epic named it; a source that fails a check is refused and listed with the reason. `documents list` shows the Epic sources not imported yet. Only a Story in the Epic's lead repository carries them; in another repository, attach the files with `documents upload`.
+
 For a tab-like browser inside a canvas-capable Copilot host, enable experimental features, start a fresh session, and invoke the bundled extension:
 
 ```text

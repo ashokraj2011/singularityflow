@@ -585,6 +585,8 @@ Usage:
   singularity-flow documents upload --url URL --name TEXT [--phases PHASE,...|all] [--json]
   singularity-flow documents browse --provider ID [--path PATH] [--json]
   singularity-flow documents fetch <ITEM-ID> --provider ID --name TEXT [--filename FILE] [--phases PHASE,...|all] [--store git|local] [--json]
+  singularity-flow documents fetch <ATTACHMENT-ID> --provider jira [--name TEXT] [--phases PHASE,...|all] [--store git|local] [--json]
+  singularity-flow documents fetch <SRC-ID> --provider epic [--name TEXT] [--phases PHASE,...|all] [--store git|local] [--json]
   singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes] [--json]
   singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--dry-run] [--yes]
   singularity-flow documents store <DOCUMENT-ID|NAME> --store git [--json]

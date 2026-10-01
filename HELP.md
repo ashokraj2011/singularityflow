@@ -2654,6 +2654,10 @@ singularity-flow import add market:acme/a11y-review --as skill --agent architect
 An index is JSON: `{"format": "sflow-marketplace@1", "name": …, "publisher": …, "entries": [{"id", "kind": "skill"|"template"|"agent", "version", "label", "description", "url", "sha256", "bytes", "tags", "phases"} | {"id", "kind": "generated", "version", "urlTemplate", "phase", "target"}]}`.
 `imports check` reports newer versions with the exact update command.
 
+An approved MCP server can be a source too, and an MCP server can itself be installed from a link or
+a marketplace; see `sflow explain mcp-integration` (`mcp sources`, `import preview mcp:… --launch`,
+`import add … --as mcp-server`, `mcp host add`).
+
 Remote skills are prompt context for the active agent, not global slash commands. Reference a remote artifact template explicitly with the existing storage syntax `agent:architecture/design-template`; it is copied into the work item and pinned before use. Dynamic generated output is fetched once per prospective generation and reused.
 
 ```bash
@@ -3512,10 +3516,11 @@ singularity-flow agents lock <PACK> [--update]
 singularity-flow agents sync <PACK>
 singularity-flow agents status [PACK]
 singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
-singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]> [--as skill|template|agent] [--id ID] [--max-bytes N]
+singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]|mcp:SERVER/prompt|resource|tool/NAME> [--as skill|template|agent|mcp-server] [--id ID] [--max-bytes N] [--launch] [--arg NAME=VALUE]...
 singularity-flow import add <LINK> --as skill --agent AGENT [--id ID] [--phases A,B] [--optional] --sha256 HASH [--replace] [--dry-run] [--propose]
 singularity-flow import add <LINK> --as template [--id ID] [--label TEXT] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose]
 singularity-flow import add <LINK> --as agent [--without-defaults] --sha256 HASH [--replace] [--dry-run] [--propose]
+singularity-flow import add <LINK|market:ID/ENTRY> --as mcp-server [--agents A,B] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose]
 singularity-flow import add --as generated --agent AGENT --id ID --url-template URL --phase PHASE --target artifacts/PHASE/FILE.md [--optional] [--dry-run] [--propose]
 singularity-flow imports [list]
 singularity-flow imports check
@@ -3527,6 +3532,8 @@ singularity-flow marketplace remove <ID> [--dry-run] [--propose]
 singularity-flow mcp list|status|doctor [--json]
 singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
 singularity-flow mcp probe <SERVER> --network [--json]
+singularity-flow mcp sources [SERVER] [--launch]
+singularity-flow mcp host add <SERVER> [--replace-server]
 singularity-flow mcp attest <SERVER> --confirm <SERVER>
 singularity-flow mcp warm <SERVER> --network [--json]
 singularity-flow mcp verify-offline <SERVER> [--json]

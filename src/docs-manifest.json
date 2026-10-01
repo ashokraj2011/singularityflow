@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "74aed862617478eaeccbfa9a2f47afc56ab0d36f",
+  "sourceCommit": "64d768561ba1950032c374d0c3af0ae6dee10516",
   "topicCount": 71,
-  "contentSha256": "3cf6a6ae92bf4f168bdf69cd36b03707464fdc995556f64c83848563d793ba99",
+  "contentSha256": "3fd63e5adae335c31a8acb554b4c000cc1eb2ed935db271e5d57690fa4777341",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -248,8 +248,8 @@
     {
       "id": "importing-assets",
       "title": "Importing skills, templates, and agents",
-      "version": 2,
-      "sha256": "eb9f66c4bca15db283d8abc6a741ae6979f6086399dbd53ed2a79cc629e1bf3e",
+      "version": 3,
+      "sha256": "75dddfb6391f4249147bc972fbcd6d525ebf715c60edebc7b865dcf18b23884f",
       "routingSha256": "c927cd630b7c5f17205b1f1d182dc1f3e494aee50b138ff2b95216c9111b5a24",
       "file": "importing-assets.md"
     },
@@ -320,8 +320,8 @@
     {
       "id": "mcp-integration",
       "title": "MCP integration",
-      "version": 6,
-      "sha256": "31ea1e9277fed20dc2ab6c2499c4259ef6b939a18a0497ce4b91bef5474f4675",
+      "version": 7,
+      "sha256": "4389f40b86466f9cd2cacd3e8c7775653142e7d6a6bc02ed3cba148019a9ab88",
       "routingSha256": "c84ac0fcbc53adf0f6f791f64254ceec3a4a1ddceb96b7767dcdd5db4aefcb39",
       "file": "mcp-integration.md"
     },

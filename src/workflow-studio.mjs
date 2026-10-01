@@ -23,8 +23,10 @@ import {
   textOf, upsertAgentTableRow, validateGeneratedSource, vendoredAgentResourcePath
 } from './asset-import.mjs';
 import { normalizeMarketplaces } from './marketplace.mjs';
+import { mcpDescriptorPath, parseMcpServerDescriptor } from './mcp-descriptor.mjs';
 import { DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES } from './remote-fetch.mjs';
 import { importsStatus } from './asset-import.mjs';
+import { importableMcpServers } from './mcp-import.mjs';
 import { templateReferences } from './template-catalog.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
@@ -209,6 +211,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     security: { profile: security.profile, autoEnrollNewIdentities: security.autoEnrollNewIdentities },
     marketplaces: Object.values(safeMarketplaces(raw.marketplaces, problems)).map((marketplace) => ({ ...marketplace, allowedOrigins: [...marketplace.allowedOrigins] })),
     imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
+    mcpSources: await importableMcpServers(root).catch(() => []),
     blueprintPhases: Object.fromEntries(Object.entries(starter.phases).filter(([id]) => !phases[id]).map(([id, phase]) => {
       const approval = approvalSummary(phase.approval);
       return [id, {
@@ -361,7 +364,7 @@ export function unifiedDiff(before, after, file) {
 const RANK = Object.freeze({
   'marketplace.add': 0, 'marketplace.remove': 0, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
   'import.template': 3.5, 'phase.create': 4, 'phase.update': 5, 'workflow.create': 6, 'workflow.update': 7,
-  'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.remove': 11
+  'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11
 });
 
 function requireId(value, label) {
@@ -510,6 +513,7 @@ class StudioCandidate {
       case 'import.template': return this.importTemplate(change);
       case 'import.agent': return this.importAgent(change);
       case 'import.generated': return this.importGenerated(change);
+      case 'import.mcpServer': return this.importMcpServer(change);
       case 'import.remove': return this.removeImport(change);
       default: throw new SingularityFlowError(`Unknown Studio change '${change?.op}'.`, { code: 'STUDIO_CHANGE_UNKNOWN' });
     }
@@ -679,6 +683,44 @@ class StudioCandidate {
     this.summary.push(`${agent.label} fetches ${source.target} for ${this.phaseLabel(source.phase)} from ${source.urlTemplate}.`);
   }
 
+  importMcpServer({ sha256, id = null, agents = [], phases = [], replace = false }) {
+    const staged = this.stagedContent(sha256, 'mcp-server', { id: id == null ? null : requireId(id, 'An MCP server ID') });
+    const descriptor = parseMcpServerDescriptor(staged.text, { id: staged.inspection.id });
+    const serverId = descriptor.id;
+    const key = importLedgerKey('mcp-server', { id: serverId });
+    if (this.content.mcpServers?.[serverId]) {
+      if (!replace) throw new SingularityFlowError(`An MCP server called '${serverId}' is already governed here. Replace it deliberately, or import it under another ID.`, { code: 'STUDIO_MCP_SERVER_EXISTS' });
+      if (!this.ledger.imports[key]) throw new SingularityFlowError(`MCP server '${serverId}' was configured in this repository, not imported, so an import cannot replace it.`, { code: 'STUDIO_MCP_SERVER_EXISTS' });
+    }
+    if (!Array.isArray(agents)) throw new SingularityFlowError('The agents that may use an MCP server must be a list.', { code: 'STUDIO_IMPORT_INVALID' });
+    const assigned = [...new Set(agents.map((agentId) => this.requireAgent(requireId(agentId, 'An agent ID')).id))];
+    const steps = this.requirePhases(phases);
+    const sources = descriptor.policy.sources ?? null;
+    if (!assigned.length && !sources) {
+      throw new SingularityFlowError(`Choose the agents that may use ${descriptor.label}.`, { code: 'STUDIO_IMPORT_INVALID' });
+    }
+    if (!assigned.length && descriptor.policy.tools.length) {
+      throw new SingularityFlowError(`${descriptor.label} offers tools; choose the agents that may use them, or import it for its content only.`, { code: 'STUDIO_IMPORT_INVALID' });
+    }
+    const node = {
+      label: descriptor.label, hostReference: serverId,
+      ...(assigned.length ? { agents: assigned } : {}), ...(steps.length ? { phases: steps } : {}),
+      ...(assigned.length && descriptor.policy.tools.length ? { tools: descriptor.policy.tools } : {}),
+      approval: descriptor.policy.approval, evidence: descriptor.policy.evidence,
+      ...(sources ? { sources } : {})
+    };
+    this.document.setIn(['mcpServers', serverId], this.document.createNode(node));
+    // An agent may use only the MCP tools its own file declares; grant exactly what was chosen.
+    const granted = descriptor.policy.tools.length ? descriptor.policy.tools.map((tool) => `${serverId}/${tool}`) : [`${serverId}/*`];
+    for (const agentId of assigned) {
+      const agent = this.touch(this.requireAgent(agentId));
+      for (const tool of granted) if (!agent.tools.includes(tool)) agent.tools = [...agent.tools, tool];
+    }
+    this.vendored.set(mcpDescriptorPath(serverId), staged.bytes);
+    this.recordImport('mcp-server', { id: serverId }, staged, { id: serverId, path: mcpDescriptorPath(serverId), agents: assigned, phases: steps, tools: granted });
+    this.summary.push(`MCP server ${descriptor.label} from ${sourceText(staged.source)}${assigned.length ? ` for ${assigned.map((agentId) => this.agentLabel(agentId)).join(', ')}` : ', for imports only'}. Add its host entry with singularity-flow mcp host add ${serverId}.`);
+  }
+
   removeImport({ key }) {
     const entry = this.ledger.imports[String(key ?? '')];
     if (!entry) throw new SingularityFlowError(`Nothing was imported as '${key}'. List imports with singularity-flow imports.`, { code: 'STUDIO_IMPORT_UNKNOWN' });
@@ -717,6 +759,18 @@ class StudioCandidate {
         if (this.lock.agents?.[agent.id]) { delete this.lock.agents[agent.id]; this.lockChanged = true; }
       }
       this.summary.push(`Agent ${agent?.label ?? target.id} removed.`);
+    } else if (entry.kind === 'mcp-server') {
+      const required = Object.entries(this.content.phases ?? {}).filter(([, phase]) => (phase?.mcp?.requiredServers ?? []).includes(target.id)).map(([phaseId]) => this.phaseLabel(phaseId));
+      if (required.length) throw new SingularityFlowError(`${required.join(', ')} require MCP server ${target.id}; change those steps first.`, { code: 'STUDIO_MCP_SERVER_IN_USE' });
+      this.document.deleteIn(['mcpServers', target.id]);
+      if (!Object.keys(this.content.mcpServers ?? {}).length) this.document.deleteIn(['mcpServers']);
+      for (const agentId of target.agents ?? []) {
+        const agent = this.agents.get(agentId);
+        if (!agent) continue;
+        this.touch(agent).tools = agent.tools.filter((tool) => !tool.startsWith(`${target.id}/`));
+      }
+      if (target.path) this.vendored.set(target.path, null);
+      this.summary.push(`MCP server ${target.id} removed; remove its host entry from .vscode/mcp.json yourself if it is no longer used.`);
     } else {
       throw new SingularityFlowError(`Imports of kind '${entry.kind}' cannot be removed here.`, { code: 'STUDIO_IMPORT_UNKNOWN' });
     }
@@ -1151,8 +1205,8 @@ function sha256Of(bytes) { return createHash('sha256').update(bytes).digest('hex
 /** The link an import came from, as an agent table row names it. */
 function sourceUrl(source) {
   const url = source?.url;
-  if (typeof url !== 'string' || !url.startsWith('https://')) {
-    throw new SingularityFlowError('Only content imported from a link can be added to an agent table today.', { code: 'STUDIO_IMPORT_INVALID' });
+  if (typeof url !== 'string' || !(url.startsWith('https://') || (source.kind === 'mcp' && url.startsWith('mcp://')))) {
+    throw new SingularityFlowError('This import has no source an agent table can name.', { code: 'STUDIO_IMPORT_INVALID' });
   }
   return url;
 }
@@ -1166,6 +1220,7 @@ function templateLabel(heading, id) {
 
 function sourceText(source) {
   if (source?.kind === 'marketplace') return `marketplace ${source.marketplace} (${source.entry} ${source.version})`;
+  if (source?.kind === 'mcp') return `MCP server ${source.server} (${source.method} ${source.name})`;
   return source?.url ?? source?.urlTemplate ?? 'its source';
 }
 

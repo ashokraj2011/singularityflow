@@ -137,7 +137,7 @@ import {
   attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus,
   playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile,
   previewPlaywrightAuthImport, probeMcpHost,
-  recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp,
+  recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer,
   scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost
 } from './mcp.mjs';
 import { message as gatewayMessage } from './gateway/messages.mjs';
@@ -6034,6 +6034,51 @@ async function agentsCommand(positionals, options) {
 async function mcpCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
+  if (subcommand === 'host') {
+    // The host entry of an imported MCP server, from the reviewed descriptor in configuration. It goes
+    // to this checkout's VS Code workspace file, which is the developer's, not governed configuration.
+    const action = positionals[2];
+    const serverId = positionals[3];
+    if (action !== 'add' || !serverId) throw new SingularityFlowError('Use: singularity-flow mcp host add <SERVER> [--replace-server]', { code: 'COMMAND_UNKNOWN' });
+    const { mcpDescriptorPath, parseMcpServerDescriptor } = await import('./mcp-descriptor.mjs');
+    const descriptorText = await withApprovedConfigurationRead(root, async () => {
+      const target = await secureRepositoryPath(root, mcpDescriptorPath(serverId), { label: 'Imported MCP server descriptor', type: 'file' });
+      if (!target.exists) throw new SingularityFlowError(`No MCP server '${serverId}' has been imported. Import it first with singularity-flow import add <LINK|market:…> --as mcp-server.`, { code: 'MCP_SERVER_NOT_IMPORTED' });
+      return readFile(target.absolute, 'utf8');
+    }, { preferAuthority: true });
+    const descriptor = parseMcpServerDescriptor(descriptorText, { id: serverId });
+    const result = await scaffoldMcpServer(root, {
+      serverId, entry: descriptor.host, inputs: descriptor.inputs, replaceServer: optionBoolean(options, 'replace-server')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, serverId, host: descriptor.host }, null, 2));
+    console.log(`${result.changed ? 'Added' : 'Verified'} MCP host entry '${serverId}' in ${result.path} (${result.sha256.slice(0, 12)}).`);
+    console.log(descriptor.host.type === 'stdio'
+      ? `  It runs: ${[descriptor.host.command, ...descriptor.host.args].join(' ')}`
+      : `  It connects to: ${descriptor.host.url}`);
+    for (const warning of descriptor.warnings) console.log(`  Warning: ${warning}`);
+    console.log('  Review and commit it; VS Code asks before it starts a new server.');
+    return;
+  }
+  if (subcommand === 'sources') {
+    const { importableMcpServers, listMcpSources } = await import('./mcp-import.mjs');
+    const serverId = positionals[2];
+    if (!serverId) {
+      const servers = await withApprovedConfigurationRead(root, () => importableMcpServers(root), { preferAuthority: true });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'mcp-importable-servers', servers }, null, 2));
+      if (!servers.length) return console.log('No governed MCP server allows imports. Allow one with mcpServers.<id>.sources in a reviewed workflow change.');
+      for (const server of servers) console.log(`${server.id}: ${server.label} — prompts ${server.sources.prompts.join(', ') || 'none'}; resources ${server.sources.resources.join(', ') || 'none'}; tools ${server.sources.tools.join(', ') || 'none'}`);
+      return;
+    }
+    const result = await withApprovedConfigurationRead(root, () => listMcpSources(root, serverId, { launch: optionBoolean(options, 'launch') }), { preferAuthority: true });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.server.label} (${result.serverInfo?.name ?? result.server.hostReference}) offers:`);
+    for (const prompt of result.prompts) console.log(`  prompt   ${prompt.reference}${prompt.arguments.length ? ` (${prompt.arguments.map((argument) => `${argument.name}${argument.required ? '' : '?'}`).join(', ')})` : ''}${prompt.description ? ` — ${prompt.description}` : ''}`);
+    for (const resource of result.resources) console.log(`  resource ${resource.reference}${resource.description ? ` — ${resource.description}` : ''}`);
+    for (const tool of result.tools) console.log(`  tool     ${tool.reference}${tool.arguments.length ? ` (${tool.arguments.map((argument) => `${argument.name}${argument.required ? '' : '?'}`).join(', ')})` : ''}${tool.description ? ` — ${tool.description}` : ''}`);
+    if (!result.prompts.length && !result.resources.length && !result.tools.length) console.log('  nothing its policy allows importing');
+    console.log('Preview one with: singularity-flow import preview <REFERENCE> --as skill|template --launch [--arg NAME=VALUE]');
+    return;
+  }
   if (subcommand === 'scaffold') {
     const server = requirePositional(positionals, 2, 'MCP server');
     if (!['playwright', 'figma'].includes(server)) throw new SingularityFlowError(`No MCP scaffold is bundled for '${server}'. Supported: playwright, figma.`);
@@ -8165,6 +8210,17 @@ async function rejectCommand(positionals, options) {
 // ---------------------------------------------------------------------------------------------
 // Imports: skills, templates, agents and generated-artifact sources from a link
 
+/** Repeated --arg NAME=VALUE pairs for an MCP prompt or tool. */
+function importArguments(options) {
+  const values = {};
+  for (const pair of optionStrings(options, 'arg')) {
+    const separator = String(pair).indexOf('=');
+    if (separator < 1) throw new SingularityFlowError(`--arg takes NAME=VALUE, not '${pair}'.`, { code: 'MCP_ARGUMENTS_INVALID' });
+    values[pair.slice(0, separator)] = pair.slice(separator + 1);
+  }
+  return values;
+}
+
 function listOption(options, key) {
   return optionStrings(options, key).flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean);
 }
@@ -8234,6 +8290,8 @@ function printImportPreview(preview, command) {
   if (details.tools) console.log(`  Tools: ${details.tools.join(', ') || 'none'}`);
   if (details.defaultFor?.length) console.log(`  Drafts by default: ${details.defaultFor.join(', ')}`);
   if (details.tokens) console.log(`  Values filled in per Story: ${details.tokens.join(', ') || 'none'}`);
+  if (details.host) console.log(details.host.type === 'stdio' ? `  Starting it runs: ${[details.host.command, ...(details.host.args ?? [])].join(' ')}` : `  It connects to: ${details.host.url}`);
+  if (preview.source?.kind === 'mcp') console.log(`  Read from MCP server ${preview.source.server}${preview.source.serverInfo?.name ? ` (${preview.source.serverInfo.name} ${preview.source.serverInfo.version})` : ''}${Object.entries(preview.source.arguments ?? {}).map(([name, value]) => ` · ${name}=${value}`).join('')}`);
   for (const warning of preview.warnings ?? []) console.log(`  Warning: ${warning}`);
   const lines = preview.text.split(/\r?\n/);
   console.log('  --- content ---');
@@ -8253,7 +8311,8 @@ async function importCommand(positionals, options) {
   if (action === 'preview') {
     const reference = requirePositional(positionals, 2, 'link to import');
     const preview = await previewImport(root, reference, {
-      as, id: optionString(options, 'id'), maxBytes: optionNumber(options, 'max-bytes') ?? undefined
+      as, id: optionString(options, 'id'), maxBytes: optionNumber(options, 'max-bytes') ?? undefined,
+      launch: optionBoolean(options, 'launch'), arguments: importArguments(options)
     });
     const command = importAddCommandLine(reference, {
       as: preview.as, agent: optionString(options, 'agent'), id: preview.id ?? importIdFromLink(reference), sha256: preview.sha256
@@ -8287,14 +8346,14 @@ async function importCommand(positionals, options) {
       ...(origin ? { origin } : {})
     };
   } else {
-    if (!['skill', 'template', 'agent'].includes(as ?? '')) {
-      throw new SingularityFlowError('Say what to import it as: --as skill, --as template, --as agent, or --as generated.', { code: 'IMPORT_KIND_INVALID' });
+    if (!['skill', 'template', 'agent', 'mcp-server'].includes(as ?? '')) {
+      throw new SingularityFlowError('Say what to import it as: --as skill, --as template, --as agent, --as mcp-server, or --as generated.', { code: 'IMPORT_KIND_INVALID' });
     }
     const reference = requirePositional(positionals, 2, 'link to import');
     const sha256 = optionString(options, 'sha256');
     if (!sha256) {
       // Nothing is added unseen: fetch and stage it, show it, and name the exact bytes to add.
-      const preview = await previewImport(root, reference, { as, id: optionString(options, 'id') });
+      const preview = await previewImport(root, reference, { as, id: optionString(options, 'id'), launch: optionBoolean(options, 'launch'), arguments: importArguments(options) });
       const command = importAddCommandLine(reference, {
         as, agent: optionString(options, 'agent'), id: optionString(options, 'id') ?? preview.id ?? importIdFromLink(reference), phases, sha256: preview.sha256
       });
@@ -8303,13 +8362,15 @@ async function importCommand(positionals, options) {
         code: 'IMPORT_SHA256_REQUIRED', details: { sha256: preview.sha256, command }
       });
     }
-    const id = optionString(options, 'id') ?? (as === 'agent' ? null : importIdFromLink(reference));
-    if (as !== 'agent' && !id) throw new SingularityFlowError('Name the import with --id <kebab-case-id>.', { code: 'IMPORT_ID_INVALID' });
+    const id = optionString(options, 'id') ?? (['agent', 'mcp-server'].includes(as) ? null : importIdFromLink(reference));
+    if (!['agent', 'mcp-server'].includes(as) && !id) throw new SingularityFlowError('Name the import with --id <kebab-case-id>.', { code: 'IMPORT_ID_INVALID' });
     change = as === 'skill'
       ? { op: 'import.skill', agent: optionString(options, 'agent'), id, source: reference, sha256, phases, optional: optionBoolean(options, 'optional'), replace: optionBoolean(options, 'replace') }
       : as === 'template'
         ? { op: 'import.template', id, label: optionString(options, 'label') ?? undefined, source: reference, sha256, phases, replace: optionBoolean(options, 'replace') }
-        : { op: 'import.agent', id: id ?? undefined, source: reference, sha256, withoutDefaults: optionBoolean(options, 'without-defaults'), replace: optionBoolean(options, 'replace') };
+        : as === 'mcp-server'
+          ? { op: 'import.mcpServer', id: id ?? undefined, source: reference, sha256, agents: listOption(options, 'agents'), phases, replace: optionBoolean(options, 'replace') }
+          : { op: 'import.agent', id: id ?? undefined, source: reference, sha256, withoutDefaults: optionBoolean(options, 'without-defaults'), replace: optionBoolean(options, 'replace') };
   }
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [change] };
   const subject = String(change.id ?? change.agent ?? 'import');

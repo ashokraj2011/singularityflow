@@ -373,12 +373,14 @@ Every public operation is classified before its implementation module is importe
 | mcp.design-sources.promote | mutation | never | — | — |
 | mcp.design-sources.status | read | never | — | — |
 | mcp.doctor | read | never | — | — |
+| mcp.host.add | mutation | never | — | — |
 | mcp.list | read | never | — | — |
 | mcp.probe | read | never | — | — |
 | mcp.record | mutation | never | — | — |
 | mcp.scaffold | mutation | never | — | — |
 | mcp.serve | read | never | — | — |
 | mcp.smoke | mutation | never | — | — |
+| mcp.sources | read | never | — | — |
 | mcp.status | read | never | — | — |
 | mcp.verify-offline | mutation | never | — | — |
 | mcp.warm | mutation | never | — | — |

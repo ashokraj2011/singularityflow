@@ -957,6 +957,16 @@
             "captureResults": { "type": "boolean", "default": false }
           },
           "additionalProperties": false
+        },
+        "sources": {
+          "type": "object",
+          "description": "What Singularity Flow may read from this server when a person imports from it. Absent: never contacted by the engine.",
+          "properties": {
+            "prompts": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+            "resources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
+            "tools": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" } }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

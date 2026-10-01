@@ -999,6 +999,10 @@ function lockedAgentEntry(lock, agent) {
       fail(`Governed agent '${agent.id}' dependency '${dependency.id}' has a stale or invalid lock.`,
         'WORKFLOW_AGENT_LOCK_STALE');
     }
+    if (String(locked.url ?? '').startsWith('mcp://')) {
+      fail(`Governed agent '${agent.id}' ${dependency.type} '${dependency.id}' was imported from an MCP server, which a workflow bundle cannot carry yet. `
+        + 'Import it in the destination repository from the same server instead.', 'WORKFLOW_AGENT_DEPENDENCY_UNPORTABLE');
+    }
     // An imported (vendored) copy lives in this repository's configuration, not in the bundle: the
     // destination re-fetches the same URL and checks the same hash, as for any locked dependency.
     const { vendored: _vendored, ...portable } = clone(locked);

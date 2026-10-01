@@ -27,6 +27,8 @@ import {
 import {
   configuredMarketplaces, fetchMarketplaceIndex, requireMarketplace, selectMarketplaceEntry
 } from './marketplace.mjs';
+import { parseMcpServerDescriptor } from './mcp-descriptor.mjs';
+import { fetchMcpContent, parseMcpReference } from './mcp-import.mjs';
 import { scanText, secretRefusal } from './secrets.mjs';
 import { SingularityFlowError, YAML_OUTPUT, nowIso, secureRepositoryPath, snapshot } from './util.mjs';
 
@@ -34,7 +36,7 @@ export const IMPORTS_LOCK_PATH = 'singularity/imports.lock.yml';
 export const IMPORTS_VENDOR_ROOT = 'singularity/imports';
 export const IMPORTED_TEMPLATE_DIRECTORY = 'imported';
 /** What a fetched document can be used as. Generated artifacts are a source, not content. */
-export const IMPORT_CONTENT_KINDS = Object.freeze(['skill', 'template', 'agent']);
+export const IMPORT_CONTENT_KINDS = Object.freeze(['skill', 'template', 'agent', 'mcp-server']);
 const STAGED_FORMAT = 'sflow-import-staged@1';
 const PREVIEW_TEXT_LIMIT = 64 * 1024;
 const STAGED_KEEP = 64;
@@ -71,14 +73,16 @@ export function requireSha256(value) {
 // References
 
 /**
- * What an import names: a public HTTPS link, or `market:<marketplace>/<entry>[@version]` in a
- * marketplace this repository trusts. Both resolve to bytes to fetch and the provenance to record.
+ * What an import names: a public HTTPS link, `market:<marketplace>/<entry>[@version]` in a
+ * marketplace this repository trusts, or `mcp:<server>/prompt|resource|tool/<name>` on an approved
+ * MCP server. Each resolves to bytes and the provenance to record.
  */
 export function parseImportReference(value) {
   const text = String(value ?? '').trim();
   if (!text) throw fail('Name what to import: a public https:// link, or market:<marketplace>/<entry>.', 'IMPORT_REFERENCE_REQUIRED');
   const market = /^market:([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:@([0-9A-Za-z][0-9A-Za-z.+-]{0,63}))?$/.exec(text);
   if (market) return Object.freeze({ kind: 'marketplace', marketplace: market[1], entry: market[2], version: market[3] ?? null, display: text });
+  if (text.startsWith('mcp:')) return parseMcpReference(text);
   if (text.startsWith('market:')) throw fail(`'${text}' is not a marketplace reference; use market:<marketplace>/<entry> or market:<marketplace>/<entry>@<version>.`, 'IMPORT_REFERENCE_UNSUPPORTED');
   if (/^https:\/\//i.test(text)) {
     if (text.includes('|')) throw fail('An import link cannot contain "|"; use its percent-encoded form.', 'IMPORT_REFERENCE_UNSUPPORTED');
@@ -95,7 +99,12 @@ export async function resolveMarketplaceReference(root, reference, { fetchImpl =
   return { marketplace, index, entry: selectMarketplaceEntry(index, marketplace.id, reference.entry, reference.version) };
 }
 
-async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, maxBytes = DEFAULT_REMOTE_MAX_BYTES } = {}) {
+async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, maxBytes = DEFAULT_REMOTE_MAX_BYTES, launch = false, arguments: args = {}, sessionOptions = {} } = {}) {
+  if (reference.kind === 'mcp') {
+    const fetched = await fetchMcpContent(root, reference, { launch, arguments: args, sessionOptions });
+    if (fetched.bytes.length > maxBytes) throw fail(`The MCP ${reference.method} returned more than ${maxBytes} bytes.`, 'IMPORT_LIMIT_INVALID');
+    return fetched;
+  }
   if (reference.kind === 'marketplace') {
     const { marketplace, index, entry } = await resolveMarketplaceReference(root, reference, { fetchImpl });
     if (!entry.url) {
@@ -144,6 +153,7 @@ function frontmatterOf(text) {
 
 /** The likeliest use of fetched text: an agent file, an artifact template, or a skill. */
 export function suggestImportKind(text) {
+  if (/^\s*\{/.test(text) && /"format"\s*:\s*"sflow-mcp-server@1"/.test(text)) return 'mcp-server';
   const frontmatter = frontmatterOf(text);
   const metadata = frontmatter?.metadata;
   if (frontmatter && (Array.isArray(frontmatter.tools)
@@ -165,7 +175,7 @@ export function inspectImportContent(kind, text, { id = null, label = 'The impor
     throw fail(`Import as one of: ${IMPORT_CONTENT_KINDS.join(', ')}.`, 'IMPORT_KIND_INVALID');
   }
   if (!text.trim()) throw fail(`${label} is empty.`, 'IMPORT_CONTENT_EMPTY');
-  if (/^\s*(?:<!doctype\s+html|<html[\s>])/i.test(text)) {
+  if (kind !== 'mcp-server' && /^\s*(?:<!doctype\s+html|<html[\s>])/i.test(text)) {
     throw fail(`${label} is a web page, not Markdown. Use the link to the raw file.`, 'IMPORT_NOT_MARKDOWN');
   }
   if (text.includes('\0')) throw fail(`${label} contains NUL bytes; only text can be imported.`, 'IMPORT_NOT_MARKDOWN');
@@ -173,6 +183,14 @@ export function inspectImportContent(kind, text, { id = null, label = 'The impor
   if (scan.blocking.length) throw fail(secretRefusal(scan), 'IMPORT_SECRET_DETECTED');
   const frontmatter = frontmatterOf(text);
   const warnings = [];
+  if (kind === 'mcp-server') {
+    const descriptor = parseMcpServerDescriptor(text, { id });
+    return {
+      id: descriptor.id,
+      details: { label: descriptor.label, description: descriptor.description, host: descriptor.host, policy: descriptor.policy, inputs: descriptor.inputs.map((input) => input.id) },
+      warnings: descriptor.warnings
+    };
+  }
   if (kind === 'skill') {
     const suggested = typeof frontmatter?.name === 'string' && ID.test(frontmatter.name.trim()) ? frontmatter.name.trim() : null;
     return {
@@ -266,12 +284,14 @@ export async function readStagedImport(root, sha256) {
  * Fetch, check and stage something to import. Nothing in the repository changes; the result is what
  * a person reviews, and its `sha256` is what an add names.
  */
-export async function previewImport(root, value, { as = null, id = null, fetchImpl = globalThis.fetch, maxBytes = DEFAULT_REMOTE_MAX_BYTES } = {}) {
+export async function previewImport(root, value, {
+  as = null, id = null, fetchImpl = globalThis.fetch, maxBytes = DEFAULT_REMOTE_MAX_BYTES, launch = false, arguments: args = {}, sessionOptions = {}
+} = {}) {
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > HARD_REMOTE_MAX_BYTES) {
     throw fail(`--max-bytes must be between 1 and ${HARD_REMOTE_MAX_BYTES}.`, 'IMPORT_LIMIT_INVALID');
   }
   const reference = parseImportReference(value);
-  const fetched = await fetchReference(root, reference, { fetchImpl, maxBytes });
+  const fetched = await fetchReference(root, reference, { fetchImpl, maxBytes, launch, arguments: args, sessionOptions });
   const text = decodeUtf8(fetched.bytes, `The content at ${reference.display}`);
   const suggestedAs = fetched.entry?.kind ?? suggestImportKind(text);
   if (fetched.entry && as && as !== fetched.entry.kind) {
@@ -308,7 +328,7 @@ export async function previewImport(root, value, { as = null, id = null, fetchIm
 /** The import operations of a Studio change set, keyed by the content they name. */
 export function changeSetImportOperations(changeSet) {
   return (Array.isArray(changeSet?.changes) ? changeSet.changes : [])
-    .filter((change) => ['import.skill', 'import.template', 'import.agent'].includes(change?.op));
+    .filter((change) => ['import.skill', 'import.template', 'import.agent', 'import.mcpServer'].includes(change?.op));
 }
 
 /**
@@ -324,6 +344,10 @@ export async function resolveChangeSetImports(root, changeSet, { fetchImpl = glo
     const staged = await readStagedImport(root, sha256);
     if (staged) { resolved.set(sha256, staged); continue; }
     const reference = parseImportReference(change.source);
+    if (reference.kind === 'mcp') {
+      // An MCP server's answer cannot be fetched again to prove it is the same: only the staged copy counts.
+      throw fail(`The content previewed from ${reference.display} is no longer staged on this machine. Preview it again (with --launch) and add the new preview.`, 'IMPORT_NOT_STAGED');
+    }
     const fetched = await fetchReference(root, reference, { fetchImpl, maxBytes: HARD_REMOTE_MAX_BYTES });
     const actual = sha256Hex(fetched.bytes);
     if (actual !== sha256) {
@@ -472,6 +496,7 @@ async function fileState(root, relative) {
 
 function sourceLabel(source) {
   if (source?.kind === 'marketplace') return `market:${source.marketplace}/${source.entry}@${source.version}`;
+  if (source?.kind === 'mcp') return `mcp:${source.server}/${source.method}/${source.method === 'resource' ? encodeURIComponent(source.name) : source.name}`;
   return source?.url ?? source?.urlTemplate ?? source?.kind ?? 'unknown';
 }
 

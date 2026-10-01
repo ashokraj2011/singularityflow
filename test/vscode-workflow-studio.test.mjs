@@ -214,9 +214,14 @@ test('library imports queued in the page become engine operations the engine che
 
 test('the host previews, browses and checks imports only through engine reads', async () => {
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
-  assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['import', 'preview', reference, '--as', as, '--json'\]\)/);
+  assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['import', 'preview', reference, '--as', as, \.\.\.mcpFlags, '--json'\]\)/);
+  // An MCP server is started only after the person allows it, with the engine's own description.
+  assert.match(host, /if \(reference\.startsWith\('mcp:'\)\) \{[\s\S]{0,200}if \(!\(await this\.mcpConsentFor\(serverId\)\)\) return;[\s\S]{0,40}mcpFlags\.push\('--launch'\)/);
+  assert.match(host, /\['mcp', 'sources', serverId, '--json'\]\)[\s\S]{0,400}Repeat with --launch[\s\S]{0,600}showWarningMessage\(`Allow MCP server/);
+  assert.match(host, /if \(!id \|\| !\(await this\.mcpConsentFor\(id\)\)\) return;[\s\S]{0,120}\['mcp', 'sources', id, '--launch', '--json'\]/);
+  assert.match(host, /'Add host entry'\);[\s\S]{0,120}if \(confirmed !== 'Add host entry'\) return;[\s\S]{0,200}\['mcp', 'host', 'add', id, '--json'\]/);
   assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['marketplace', 'browse', id, '--json'\]\)/);
   assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['imports', 'check', '--json'\]\)/);
-  assert.match(host, /reference\.startsWith\('https:\/\/'\) \|\| reference\.startsWith\('market:'\)/, 'only links and marketplace entries are previewed');
+  assert.match(host, /reference\.startsWith\('https:\/\/'\) \|\| reference\.startsWith\('market:'\) \|\| reference\.startsWith\('mcp:'\)/, 'only links, marketplace entries and MCP items are previewed');
   assert.doesNotMatch(host, /writeFile|fs\.promises/);
 });

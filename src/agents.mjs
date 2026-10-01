@@ -61,9 +61,19 @@ function parseMaxBytes(value, label) {
   return number;
 }
 function linkValue(value) { return value.match(/^\[[^\]]*\]\(([^)]+)\)$/)?.[1] ?? value; }
-function validateRemoteUrl(value, label, { dynamic = false } = {}) {
+function validateRemoteUrl(value, label, { dynamic = false, mcp = false } = {}) {
+  // A skill or template imported from an approved MCP server names its source as mcp://; it is only
+  // ever read from its vendored copy, never fetched.
+  if (mcp && String(value).startsWith('mcp://')) {
+    if (!/^mcp:\/\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:prompt|resource|tool)\/[^\s|]+$/.test(value)) {
+      throw new SingularityFlowError(`${label} must be mcp://<server>/prompt|resource|tool/<name>.`);
+    }
+    return value;
+  }
   return validatePublicHttpsUrl(value, label, { dynamic, allowedTokens: ALLOWED_TOKENS });
 }
+
+export function isMcpDependencyUrl(value) { return typeof value === 'string' && value.startsWith('mcp://'); }
 
 function parseAgentDocument(text, file) {
   // Git for Windows commonly checks Markdown out with CRLF line endings. Agent
@@ -150,7 +160,7 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     if (!idPattern(row.ID)) throw new SingularityFlowError(`Remote ${type} ID '${row.ID}' in ${source} must be lower-case kebab-case.`);
     if (seen.has(row.ID)) throw new SingularityFlowError(`Remote dependency ID '${row.ID}' is duplicated in ${source}.`);
     seen.add(row.ID);
-    const url = validateRemoteUrl(linkValue(row[urlKey]), `${type} '${row.ID}' URL`, { dynamic });
+    const url = validateRemoteUrl(linkValue(row[urlKey]), `${type} '${row.ID}' URL`, { dynamic, mcp: !dynamic });
     return { id: row.ID, type, url, optional: parseBoolean(row.Optional, `${type} '${row.ID}' Optional`), maxBytes: parseMaxBytes(row['Max bytes'], `${type} '${row.ID}' Max bytes`) };
   };
   const skills = skillRows.map((row) => ({ ...common(row, 'skill', 'URL'), phases: splitList(row.Phases) }));
@@ -425,6 +435,12 @@ export async function resolveAgentLock(root, agent, { fetchImpl = globalThis.fet
       dependencies.push({ ...vendored });
       continue;
     }
+    if (isMcpDependencyUrl(dependency.url)) {
+      throw new SingularityFlowError(
+        `Agent '${agent.id}' ${dependency.type} '${dependency.id}' comes from an MCP server and has no imported copy. Import it with singularity-flow import preview ${dependency.url.replace('mcp://', 'mcp:')} --launch, then import add.`,
+        { code: 'AGENT_MCP_DEPENDENCY_NOT_IMPORTED' }
+      );
+    }
     try {
       const fetched = await fetchRemoteMarkdown(dependency.url, { maxBytes: dependency.maxBytes, fetchImpl });
       dependencies.push({ ...dependency, sha256: fetched.sha256, size: fetched.size, resolvedUrl: fetched.resolvedUrl });
@@ -468,6 +484,11 @@ async function materializeLocked(root, agent, lockEntry, dependency, { fetchImpl
       : `Imported ${dependency.type} '${dependency.id}' is missing from ${locked.vendored}.`;
     if (dependency.optional) return { ...locked, status: 'unavailable', warning: problem };
     throw new SingularityFlowError(`${problem} Restore the imported file or import it again.`, { code: 'AGENT_VENDORED_DEPENDENCY_MISMATCH' });
+  }
+  if (isMcpDependencyUrl(locked.url)) {
+    const problem = `${dependency.type} '${dependency.id}' comes from an MCP server and has no imported copy.`;
+    if (dependency.optional) return { ...locked, status: 'unavailable', warning: problem };
+    throw new SingularityFlowError(`${problem} Import it again with singularity-flow import.`, { code: 'AGENT_MCP_DEPENDENCY_NOT_IMPORTED' });
   }
   const destination = cachePath(root, agent.id, locked);
   const cached = await snapshot(destination);

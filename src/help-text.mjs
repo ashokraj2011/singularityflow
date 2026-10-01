@@ -560,10 +560,11 @@ Usage:
   singularity-flow agents sync <PACK>
   singularity-flow agents status [PACK]
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
-  singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]> [--as skill|template|agent] [--id ID] [--max-bytes N] [--json]
+  singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]|mcp:SERVER/prompt|resource|tool/NAME> [--as skill|template|agent|mcp-server] [--id ID] [--max-bytes N] [--launch] [--arg NAME=VALUE]... [--json]
   singularity-flow import add <LINK> --as skill --agent AGENT [--id ID] [--phases A,B] [--optional] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
   singularity-flow import add <LINK> --as template [--id ID] [--label TEXT] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
   singularity-flow import add <LINK> --as agent [--without-defaults] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
+  singularity-flow import add <LINK|market:ID/ENTRY> --as mcp-server [--agents A,B] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
   singularity-flow import add --as generated --agent AGENT --id ID --url-template URL --phase PHASE --target artifacts/PHASE/FILE.md [--optional] [--dry-run] [--propose] [--json]
   singularity-flow imports [list] [--json]
   singularity-flow imports check [--json]
@@ -575,6 +576,8 @@ Usage:
   singularity-flow mcp list|status|doctor [--json]
   singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
   singularity-flow mcp doctor [--server ID] [--network] [--json]
+  singularity-flow mcp sources [SERVER] [--launch] [--json]
+  singularity-flow mcp host add <SERVER> [--replace-server] [--json]
   singularity-flow mcp probe <SERVER> --network [--json]
   singularity-flow mcp warm <SERVER> --network
   singularity-flow mcp verify-offline <SERVER> [--json]

@@ -246,6 +246,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'import.template': return (change.replace ? 'Update template ' : 'Template ') + (change.label || change.id) + ' from ' + change.source + (change.phases && change.phases.length ? ', used by ' + change.phases.map(phaseName).join(', ') : '');
       case 'import.agent': return (change.replace ? 'Update an agent' : 'Agent') + ' from ' + change.source + (change.withoutDefaults ? ', without taking over steps' : '');
       case 'import.generated': return agentName(change.agent) + ' fetches ' + change.target + ' for ' + phaseName(change.phase);
+      case 'import.mcpServer': return (change.replace ? 'Update MCP server' : 'MCP server') + ' from ' + change.source + (change.agents && change.agents.length ? ' for ' + change.agents.map(agentName).join(', ') : ', for imports only');
       case 'import.remove': return 'Remove ' + change.key;
       case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
       case 'marketplace.remove': return 'Stop trusting marketplace ' + change.id;
@@ -1198,7 +1199,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   var IMPORT_KINDS = [
     { value: 'skill', label: 'A skill for one of your agents' },
     { value: 'template', label: 'A document template for steps' },
-    { value: 'agent', label: 'A whole agent' }
+    { value: 'agent', label: 'A whole agent' },
+    { value: 'mcp-server', label: 'An MCP server for your agents' }
   ];
   var KIND_WORDS = { skill: 'Skill', template: 'Template', agent: 'Agent', generated: 'Generated artifact', workflow: 'Workflow', 'mcp-server': 'MCP server' };
 
@@ -1263,9 +1265,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var target = lib.target || (lib.target = { agent: '', id: suggestedId(preview), phases: (preview.marketplace && preview.marketplace.phases) || [], optional: false, label: '', withoutDefaults: false, replace: false });
     var card = el('section', { class: 'studio-card', 'aria-label': 'Import preview' });
     card.appendChild(el('div', { class: 'studio-row spread' },
-      el('h2', { text: (KIND_WORDS[preview.as] || preview.as) + (preview.marketplace ? ': ' + preview.marketplace.label + ' ' + preview.marketplace.version : ' from a link') }),
+      el('h2', { text: (KIND_WORDS[preview.as] || preview.as) + (preview.marketplace ? ': ' + preview.marketplace.label + ' ' + preview.marketplace.version : preview.source && preview.source.kind === 'mcp' ? ' from an MCP server' : ' from a link') }),
       el('span', { class: 'pill', title: preview.sha256, text: 'SHA-256 ' + preview.sha256.slice(0, 12) + ' · ' + preview.bytes + ' bytes' })));
     card.appendChild(el('span', { class: 'muted', text: 'From ' + preview.reference + (preview.source && preview.source.resolvedUrl && preview.source.resolvedUrl !== preview.reference ? ', served from ' + preview.source.resolvedUrl : '') }));
+    if (preview.source && preview.source.kind === 'mcp') {
+      card.appendChild(el('span', { class: 'muted', text: 'Read from MCP server ' + preview.source.server + (preview.source.serverInfo && preview.source.serverInfo.name ? ' (' + preview.source.serverInfo.name + ' ' + (preview.source.serverInfo.version || '') + ')' : '') + Object.keys(preview.source.arguments || {}).map(function (name) { return ' · ' + name + '=' + preview.source.arguments[name]; }).join('') }));
+    }
     if (preview.details && preview.details.description) card.appendChild(el('span', { text: preview.details.description }));
     (preview.warnings || []).forEach(function (warning) { card.appendChild(el('div', { class: 'callout wait', text: warning })); });
     card.appendChild(el('pre', { class: 'preview-text', 'aria-label': 'Exact content', text: preview.text + (preview.truncated ? '\n…' : '') }));
@@ -1285,6 +1290,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         field('import-label', 'Name', textInput('import-label', target.label, function (value) { target.label = value; }, { placeholder: 'From its first heading' }))));
       card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'Use it as the template for' }),
         stepChecks('import-step-', target.phases, Object.keys(state.draft.phases).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); }), function (phases) { target.phases = phases; })));
+    } else if (preview.as === 'mcp-server') {
+      renderMcpServerTarget(card, preview, target);
     } else if (preview.as === 'agent') {
       var details = preview.details || {};
       card.appendChild(el('span', { text: 'Agent ' + (details.label || preview.id) + (details.tools ? ' · may use ' + details.tools.map(toolLabel).join(', ') : '') }));
@@ -1313,6 +1320,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       var change = { op: 'import.template', id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), replace: replace };
       if (String(target.label || '').trim()) change.label = String(target.label).trim();
       queueImport(change, 'Template ' + target.id + ' added to your changes.');
+    } else if (preview.as === 'mcp-server') {
+      queueImport({ op: 'import.mcpServer', source: preview.reference, sha256: preview.sha256, agents: (target.agents || []).slice(), phases: target.phases.slice(), replace: replace },
+        'MCP server ' + ((preview.details && preview.details.label) || preview.id) + ' added to your changes.');
     } else {
       queueImport({ op: 'import.agent', source: preview.reference, sha256: preview.sha256, withoutDefaults: target.withoutDefaults, replace: replace },
         'Agent ' + ((preview.details && preview.details.label) || preview.id) + ' added to your changes.');
@@ -1420,6 +1430,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + row.status + (checked ? ' · ' + checked.status + (checked.detail ? ' (' + checked.detail + ')' : '') : '') })),
         el('div', { class: 'studio-row' },
           checked && checked.updateCommand ? button('Review update', function () { reviewUpdate(row, checked); }, { class: 'primary', 'aria-label': 'Review the update to ' + row.key }) : null,
+          row.kind === 'mcp-server' && row.status === 'current' ? button('Add host entry', function () { post({ type: 'studio.mcpHostAdd', id: row.target.id }); }, { class: 'secondary', 'aria-label': 'Add the host entry for ' + row.target.id }) : null,
           removing ? el('span', { class: 'pill', text: 'Removed once you publish' }) : button('Remove', function () { queueImport({ op: 'import.remove', key: row.key }, row.key + ' will be removed once you publish.'); }, { class: 'secondary', 'aria-label': 'Remove ' + row.key }))));
     });
     return section;
@@ -1434,10 +1445,83 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     previewImport(match[1], row.kind, { agent: target.agent || '', id: target.id || '', phases: (target.phases || []).slice(), optional: false, label: '', withoutDefaults: false });
   }
 
+  // ---- Library: from an approved MCP server -----------------------------------------------
+
+  function renderMcpSources(lib) {
+    var servers = state.model.mcpSources || [];
+    var section = el('section', { class: 'studio-card', 'aria-label': 'From an MCP server' });
+    section.appendChild(el('h2', { text: 'From an MCP server' }));
+    if (!servers.length) {
+      section.appendChild(el('p', { class: 'muted', text: 'No MCP server allows imports yet. A server allows them when its governed policy lists what may be read (mcpServers.<id>.sources), or when you install one from a marketplace.' }));
+      return section;
+    }
+    section.appendChild(el('p', { class: 'muted', text: 'Read a prompt, a resource or a tool\'s answer from an approved server. Singularity Flow starts or contacts the server only after you allow it, and stops it as soon as the import is read.' }));
+    servers.forEach(function (server) {
+      section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark ok', text: '✓' }),
+        el('div', null, el('strong', { text: server.label }), el('div', { class: 'muted', text: [server.sources.prompts.length ? 'prompts ' + server.sources.prompts.join(', ') : null, server.sources.resources.length ? 'resources ' + server.sources.resources.join(', ') : null, server.sources.tools.length ? 'tools ' + server.sources.tools.join(', ') : null].filter(Boolean).join(' · ') })),
+        button(lib.busy === 'mcp:' + server.id ? 'Asking…' : 'Show what it offers', function () { lib.busy = 'mcp:' + server.id; lib.mcp = null; lib.error = null; render(); post({ type: 'studio.mcpSources', id: server.id }); }, { class: 'secondary', 'aria-label': 'Show what ' + server.label + ' offers' })));
+    });
+    if (lib.mcp) section.appendChild(renderMcpOffer(lib));
+    return section;
+  }
+
+  function renderMcpOffer(lib) {
+    var offer = lib.mcp;
+    var box = el('div', { class: 'decision-box', 'aria-label': 'Offered by ' + offer.server.label });
+    box.appendChild(el('strong', { text: offer.server.label + (offer.serverInfo && offer.serverInfo.name ? ' (' + offer.serverInfo.name + (offer.serverInfo.version ? ' ' + offer.serverInfo.version : '') + ')' : '') }));
+    var items = [];
+    offer.prompts.forEach(function (prompt) { items.push({ kind: 'Prompt', name: prompt.name, description: prompt.description, arguments: prompt.arguments, reference: prompt.reference, as: 'skill' }); });
+    offer.resources.forEach(function (resource) { items.push({ kind: 'Resource', name: resource.name, description: resource.description || resource.uri, arguments: [], reference: resource.reference, as: 'template' }); });
+    offer.tools.forEach(function (tool) { items.push({ kind: 'Tool', name: tool.name, description: tool.description, arguments: tool.arguments, reference: tool.reference, as: 'skill' }); });
+    if (!items.length) box.appendChild(el('p', { class: 'muted', text: 'It offers nothing its policy allows importing.' }));
+    lib.mcpForms = lib.mcpForms || {};
+    items.forEach(function (item) {
+      var form = lib.mcpForms[item.reference] || (lib.mcpForms[item.reference] = { as: item.as, values: {} });
+      var card = el('article', { class: 'studio-card' },
+        el('div', { class: 'studio-row spread' }, el('strong', { text: item.name }), el('span', { class: 'pill', text: item.kind })),
+        item.description ? el('span', { class: 'muted', text: item.description }) : null);
+      item.arguments.forEach(function (argument) {
+        var key = 'mcp-arg-' + kebab(item.reference) + '-' + argument.name;
+        card.appendChild(field(key, argument.name + (argument.required ? '' : ' (optional)'), textInput(key, form.values[argument.name] || '', function (value) { form.values[argument.name] = value; }), argument.description));
+      });
+      card.appendChild(el('div', { class: 'studio-row' },
+        select('mcp-as-' + kebab(item.reference), [{ value: 'skill', label: 'Use as a skill' }, { value: 'template', label: 'Use as a document template' }], form.as, function (value) { form.as = value; }),
+        button('Preview', function () {
+          var missing = item.arguments.filter(function (argument) { return argument.required && !String(form.values[argument.name] || '').trim(); });
+          if (missing.length) { setStatus('Fill in ' + missing.map(function (argument) { return argument.name; }).join(', ') + ' first.'); return; }
+          var values = {};
+          Object.keys(form.values).forEach(function (name) { if (String(form.values[name]).trim()) values[name] = String(form.values[name]).trim(); });
+          var lib2 = library(); lib2.replace = false;
+          lib2.preview = null; lib2.error = null; lib2.busy = 'preview'; lib2.target = null; render();
+          post({ type: 'studio.importPreview', reference: item.reference, as: form.as, arguments: values });
+        }, { class: 'secondary', 'aria-label': 'Preview ' + item.name })));
+      box.appendChild(card);
+    });
+    return box;
+  }
+
+  function renderMcpServerTarget(card, preview, target) {
+    var details = preview.details || {};
+    var host = details.host || {};
+    card.appendChild(el('span', { text: host.type === 'stdio' ? 'Starting it runs: ' + [host.command].concat(host.args || []).join(' ') : 'It connects to: ' + host.url }));
+    var policy = details.policy || {};
+    card.appendChild(el('span', { class: 'muted', text: (policy.tools && policy.tools.length ? 'Tools for agents: ' + policy.tools.join(', ') : 'No tools listed: chosen agents may use all its tools') + (policy.sources ? ' · imports allowed from it' : '') }));
+    target.agents = target.agents || [];
+    card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'Which agents may use it' }),
+      el('div', { class: 'grid-3' }, Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); }).map(function (agentId) {
+        return el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'mcp-agent-' + agentId, checked: target.agents.indexOf(agentId) >= 0, onchange: function (event) {
+          target.agents = event.target.checked ? target.agents.concat([agentId]) : target.agents.filter(function (entry) { return entry !== agentId; });
+        } }), state.draft.agents[agentId].label);
+      }))));
+    card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'In which steps (none chosen: every step)' }),
+      stepChecks('mcp-step-', target.phases, Object.keys(state.draft.phases).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); }), function (phases) { target.phases = phases; })));
+    card.appendChild(el('p', { class: 'muted', text: 'Publishing adds its governed policy and grants the chosen agents its tools. Its host entry is added to your VS Code workspace afterwards, when you choose to.' }));
+  }
+
   function renderLibrary(main) {
     var lib = library();
     main.appendChild(el('header', null, el('h1', { text: 'Library' }),
-      el('p', { class: 'studio-lede', text: 'Add skills, document templates and agents from a link or from a marketplace your repository trusts. You see the exact content before it is added; it is copied into your configuration and published with your other changes.' })));
+      el('p', { class: 'studio-lede', text: 'Add skills, document templates, agents and MCP servers from a link, a marketplace your repository trusts, or an approved MCP server. You see the exact content before it is added; it is copied into your configuration and published with your other changes.' })));
     var form = el('section', { class: 'studio-card', 'aria-label': 'Add from a link' });
     form.appendChild(el('h2', { text: 'Add from a link' }));
     form.appendChild(el('div', { class: 'grid-2' },
@@ -1464,6 +1548,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
     }
     main.appendChild(renderMarketplaces(lib));
+    main.appendChild(renderMcpSources(lib));
     main.appendChild(renderImported(lib));
   }
 
@@ -1603,8 +1688,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else if (message.type === 'studio.importsChecked') {
       var checks = library(); checks.busy = null; checks.check = (message.result && message.result.imports) || [];
       setStatus(checks.check.some(function (entry) { return entry.updateCommand; }) ? 'Some imports changed at their source.' : 'Every import matches its source.'); render();
+    } else if (message.type === 'studio.mcpSourcesListed') {
+      var offered = library(); offered.busy = null; offered.mcp = message.result; offered.mcpForms = {}; render();
+    } else if (message.type === 'studio.mcpHostAdded') {
+      setStatus(message.summary || 'Host entry added.');
     } else if (message.type === 'studio.importFailed') {
       var failed = library(); failed.busy = null; failed.error = message.message || 'That did not work.'; failed.preview = null; render();
+      var alert = document.querySelector('[role=alert]'); if (alert && alert.scrollIntoView) alert.scrollIntoView({ block: 'center' });
     }
   });
 

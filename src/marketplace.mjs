@@ -16,7 +16,7 @@ import { SingularityFlowError } from './util.mjs';
 
 export const MARKETPLACE_INDEX_FORMAT = 'sflow-marketplace@1';
 /** Entry kinds this build can import; others are listed but not offered. */
-export const MARKETPLACE_IMPORT_KINDS = Object.freeze(['skill', 'template', 'agent', 'generated']);
+export const MARKETPLACE_IMPORT_KINDS = Object.freeze(['skill', 'template', 'agent', 'generated', 'mcp-server']);
 const MARKETPLACE_KINDS = new Set([...MARKETPLACE_IMPORT_KINDS, 'workflow', 'mcp-server']);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SHA256 = /^[0-9a-f]{64}$/;

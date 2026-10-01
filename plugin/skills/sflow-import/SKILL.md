@@ -24,7 +24,8 @@ argument-hint: "[preview LINK|market:ID/ENTRY --as skill|template|agent | add ..
    and gives the exact update command; `singularity-flow imports remove <IMPORT> --propose --json` removes one.
 
 Marketplaces: `singularity-flow marketplace browse <ID> --json` lists entries; preview and add
-`market:<ID>/<ENTRY>` like a link. Trust a new one (`singularity-flow marketplace add <ID> --index <URL> --propose --json`)
+`market:<ID>/<ENTRY>` like a link. MCP: `singularity-flow mcp sources <SERVER> --json` refuses with what would
+run; add `--launch` only after the person allows it, then preview `mcp:<SERVER>/prompt|resource|tool/<NAME>`. Trust a new one (`singularity-flow marketplace add <ID> --index <URL> --propose --json`)
 only when the person asks.
 
 Never edit `singularity/imports.lock.yml`, `singularity/agents.lock.yml` or vendored files by hand, fetch the link

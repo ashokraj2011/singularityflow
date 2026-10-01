@@ -41,7 +41,7 @@ export function normalizeMcpServers(value = {}, { agents = [], phases = [] } = {
     if (!ID.test(id)) throw new SingularityFlowError(`MCP server '${id}' must use lower-case kebab-case.`);
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new SingularityFlowError(`MCP server '${id}' must be an object.`);
     for (const key of Object.keys(entry)) {
-      if (!['id', 'label', 'hostReference', 'agents', 'phases', 'tools', 'required', 'approval', 'evidence'].includes(key)) {
+      if (!['id', 'label', 'hostReference', 'agents', 'phases', 'tools', 'required', 'approval', 'evidence', 'sources'].includes(key)) {
         throw new SingularityFlowError(`MCP server '${id}' contains unknown field '${key}'.`);
       }
     }
@@ -61,6 +61,7 @@ export function normalizeMcpServers(value = {}, { agents = [], phases = [] } = {
     for (const key of Object.keys(evidence)) if (!['captureToolCalls', 'captureResults'].includes(key)) throw new SingularityFlowError(`MCP server '${id}' evidence contains unknown field '${key}'.`);
     for (const [key, setting] of Object.entries(evidence)) if (typeof setting !== 'boolean') throw new SingularityFlowError(`MCP server '${id}' evidence.${key} must be boolean.`);
     if (entry.required != null && typeof entry.required !== 'boolean') throw new SingularityFlowError(`MCP server '${id}' required must be boolean.`);
+    const sources = normalizeMcpSources(entry.sources, id);
     normalized[id] = {
       id,
       label: entry.label ?? id,
@@ -70,10 +71,52 @@ export function normalizeMcpServers(value = {}, { agents = [], phases = [] } = {
       tools,
       required: entry.required === true,
       approval,
-      evidence: { captureToolCalls: evidence.captureToolCalls !== false, captureResults: evidence.captureResults === true }
+      evidence: { captureToolCalls: evidence.captureToolCalls !== false, captureResults: evidence.captureResults === true },
+      // Present only when configured, so an existing server's normalized policy is byte-identical.
+      ...(sources ? { sources } : {})
     };
   }
   return normalized;
+}
+
+/**
+ * What Singularity Flow itself may read from a server when a person imports from it: named prompts,
+ * resources by URI prefix, and named tools ('*' allows every prompt or resource). Absent means the
+ * engine never contacts the server; agents still use it through their host as before.
+ */
+export function normalizeMcpSources(value, id) {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`MCP server '${id}' sources must be an object.`);
+  for (const key of Object.keys(value)) {
+    if (!['prompts', 'resources', 'tools'].includes(key)) throw new SingularityFlowError(`MCP server '${id}' sources contains unknown field '${key}'.`);
+  }
+  const list = (key, check, max) => {
+    const entries = stringList(value[key], `MCP server '${id}' sources.${key}`);
+    for (const entry of entries) {
+      if (entry.length > max || /[\u0000-\u001f\u007f]/.test(entry) || !check(entry)) {
+        throw new SingularityFlowError(`MCP server '${id}' sources.${key} entry '${entry}' is not valid.`);
+      }
+    }
+    return entries;
+  };
+  const sources = {
+    prompts: list('prompts', (entry) => entry === '*' || !/\s/.test(entry), 128),
+    resources: list('resources', () => true, 512),
+    tools: list('tools', (entry) => TOOL.test(entry) && !entry.includes('/'), 128)
+  };
+  if (!sources.prompts.length && !sources.resources.length && !sources.tools.length) {
+    throw new SingularityFlowError(`MCP server '${id}' sources must allow at least one prompt, resource or tool.`);
+  }
+  return sources;
+}
+
+/** Whether a server's sources allow reading one prompt, resource or tool. */
+export function mcpSourceAllowed(sources, method, name) {
+  if (!sources) return false;
+  if (method === 'prompt') return sources.prompts.includes('*') || sources.prompts.includes(name);
+  if (method === 'resource') return sources.resources.includes('*') || sources.resources.some((prefix) => name.startsWith(prefix));
+  if (method === 'tool') return sources.tools.includes(name);
+  return false;
 }
 
 export function normalizePhaseMcpPolicy(value = null, { servers = {}, phaseId = 'phase' } = {}) {
@@ -117,8 +160,16 @@ export function normalizePhaseMcpPolicy(value = null, { servers = {}, phaseId = 
   return { requiredServers, requireSmoke: value.requireSmoke === true, evidence: normalizedEvidence };
 }
 
+/**
+ * A server that lists only what may be imported from it (sources, no tools, no agents) serves
+ * imports alone: no agent is offered it, so no agent has to declare its tools.
+ */
+export function mcpImportOnly(server) {
+  return Boolean(server?.sources) && !(server.tools ?? []).length && !(server.agents ?? []).length;
+}
+
 export function mcpServersForContext(definition, { agent, phase } = {}) {
-  return Object.values(definition.mcpServers ?? {}).filter((server) =>
+  return Object.values(definition.mcpServers ?? {}).filter((server) => !mcpImportOnly(server) &&
     (!server.agents.length || server.agents.includes(agent)) &&
     (phase == null || !server.phases.length || server.phases.includes(phase))
   ).map((server) => ({

@@ -901,6 +901,12 @@
       },
       "digest": "a893b8c1063e33498618b67612ad628cbe0eb59615c6c4b6fbe30a52f667b0c6"
     },
+    "src/mcp-client.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "102d2822d47e9ad20dea58f279093bb30ddfaa8d2988db694db9774ef020fa06"
+    },
     "src/mcp-readiness.mjs": {
       "counts": {
         "process-import": 1

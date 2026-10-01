@@ -25,7 +25,8 @@ interface StudioPlan { valid: boolean; changed: boolean; summary: string[]; prob
 interface StudioApplyResult extends StudioPlan { reviewRequired?: boolean; branch?: string | null; authorityMode?: string; written?: string[] }
 
 const MAX_CHANGE_SET_BYTES = 1024 * 1024;
-const IMPORT_KINDS = new Set(['skill', 'template', 'agent']);
+const IMPORT_KINDS = new Set(['skill', 'template', 'agent', 'mcp-server']);
+const SERVER_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_REFERENCE_LENGTH = 2048;
 
 
@@ -40,6 +41,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private static current: WorkflowStudioPanel | null = null;
   private readonly subscriptions: vscode.Disposable[] = [];
   private model: StudioModel | null = null;
+  /** MCP servers the person allowed this Studio session to start or contact for imports. */
+  private readonly mcpConsent = new Set<string>();
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -80,7 +83,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.reload': () => this.load(true),
     'studio.preview': (message) => this.preview(stringField(message, 'changeSet')),
     'studio.publish': (message) => this.publish(stringField(message, 'changeSet'), integerField(message, 'count') ?? 0),
-    'studio.importPreview': (message) => this.importPreview(stringField(message, 'reference'), stringField(message, 'as')),
+    'studio.importPreview': (message) => this.importPreview(stringField(message, 'reference'), stringField(message, 'as'), (message as { arguments?: unknown }).arguments),
+    'studio.mcpSources': (message) => this.mcpSources(stringField(message, 'id')),
+    'studio.mcpHostAdd': (message) => this.mcpHostAdd(stringField(message, 'id')),
     'studio.marketplaceBrowse': (message) => this.marketplaceBrowse(stringField(message, 'id')),
     'studio.importsCheck': () => this.importsCheck()
   });
@@ -89,14 +94,24 @@ export class WorkflowStudioPanel implements vscode.Disposable {
    * The engine fetches, checks and stages what a person wants to import; the page shows the exact
    * text and hash it returns. Nothing in the repository changes until the import is published.
    */
-  private async importPreview(reference: string | null, as: string | null): Promise<void> {
-    if (!reference || reference.length > MAX_REFERENCE_LENGTH || !(reference.startsWith('https://') || reference.startsWith('market:'))
+  private async importPreview(reference: string | null, as: string | null, rawArguments?: unknown): Promise<void> {
+    if (!reference || reference.length > MAX_REFERENCE_LENGTH
+        || !(reference.startsWith('https://') || reference.startsWith('market:') || reference.startsWith('mcp:'))
         || !as || !IMPORT_KINDS.has(as)) {
-      this.post({ type: 'studio.importFailed', message: 'Paste a public https:// link, or choose a marketplace entry.' });
+      this.post({ type: 'studio.importFailed', message: 'Paste a public https:// link, or choose a marketplace entry or an MCP server item.' });
       return;
     }
+    const mcpFlags: string[] = [];
+    if (reference.startsWith('mcp:')) {
+      const serverId = reference.slice(4).split('/')[0] ?? '';
+      if (!(await this.mcpConsentFor(serverId))) return;
+      mcpFlags.push('--launch');
+      for (const [name, value] of Object.entries(rawArguments && typeof rawArguments === 'object' ? rawArguments as Record<string, unknown> : {}).slice(0, 32)) {
+        if (/^[A-Za-z0-9_.-]{1,64}$/.test(name) && typeof value === 'string' && value.length <= 4096) mcpFlags.push('--arg', `${name}=${value}`);
+      }
+    }
     try {
-      const preview = await this.client.run<Record<string, unknown>>(['import', 'preview', reference, '--as', as, '--json']);
+      const preview = await this.client.run<Record<string, unknown>>(['import', 'preview', reference, '--as', as, ...mcpFlags, '--json']);
       this.post({ type: 'studio.importPreviewed', preview });
     } catch (error) {
       this.post({ type: 'studio.importFailed', message: (error as Error).message });
@@ -111,6 +126,61 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try {
       const result = await this.client.run<Record<string, unknown>>(['marketplace', 'browse', id, '--json']);
       this.post({ type: 'studio.marketplaceEntries', result });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  /**
+   * Starting or contacting an MCP server is the person's decision. The engine refuses without
+   * consent and says exactly what it would run or where it would connect; that is what is shown.
+   */
+  private async mcpConsentFor(serverId: string): Promise<boolean> {
+    if (!SERVER_ID.test(serverId)) {
+      this.post({ type: 'studio.importFailed', message: 'Choose an MCP server this repository allows imports from.' });
+      return false;
+    }
+    if (this.mcpConsent.has(serverId)) return true;
+    let described = '';
+    try {
+      await this.client.run<Record<string, unknown>>(['mcp', 'sources', serverId, '--json']);
+      return true;
+    } catch (error) {
+      const message = (error as Error).message;
+      if (!/Repeat with --launch/.test(message)) { this.post({ type: 'studio.importFailed', message }); return false; }
+      described = (message.split(' Nothing was started.')[0] ?? message).replace(/\.$/, '');
+    }
+    const allowed = await vscode.window.showWarningMessage(`Allow MCP server '${serverId}' for imports?`, {
+      modal: true,
+      detail: `${described}.\n\nWorkflow Studio stops it as soon as each import is read. Your choice lasts until this Studio closes.`
+    }, 'Allow');
+    if (allowed !== 'Allow') { this.post({ type: 'studio.importFailed', message: `MCP server '${serverId}' was not started.` }); return false; }
+    this.mcpConsent.add(serverId);
+    return true;
+  }
+
+  private async mcpSources(id: string | null): Promise<void> {
+    if (!id || !(await this.mcpConsentFor(id))) return;
+    try {
+      const result = await this.client.run<Record<string, unknown>>(['mcp', 'sources', id, '--launch', '--json']);
+      this.post({ type: 'studio.mcpSourcesListed', result });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  /** The host entry of an installed MCP server goes to this workspace's VS Code file, on request. */
+  private async mcpHostAdd(id: string | null): Promise<void> {
+    if (!id || !SERVER_ID.test(id)) return;
+    const confirmed = await vscode.window.showWarningMessage(`Add MCP server '${id}' to this workspace's .vscode/mcp.json?`, {
+      modal: true,
+      detail: 'The entry comes from the reviewed import. VS Code asks before it starts the server; review and commit the file like any other change.'
+    }, 'Add host entry');
+    if (confirmed !== 'Add host entry') return;
+    try {
+      const result = await this.client.run<{ path?: string; host?: { type?: string; command?: string; args?: string[]; url?: string } }>(['mcp', 'host', 'add', id, '--json']);
+      const what = result.host?.type === 'stdio' ? `It runs: ${[result.host.command ?? '', ...(result.host.args ?? [])].join(' ')}` : `It connects to: ${result.host?.url ?? ''}`;
+      this.post({ type: 'studio.mcpHostAdded', summary: `Added '${id}' to ${result.path ?? '.vscode/mcp.json'}. ${what}` });
     } catch (error) {
       this.post({ type: 'studio.importFailed', message: (error as Error).message });
     }

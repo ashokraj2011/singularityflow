@@ -228,6 +228,10 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'workflow-decisions.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'remote-fetch.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'asset-import.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'marketplace.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'mcp-client.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'mcp-import.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'mcp-descriptor.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
     ), '// fixture\n'),
@@ -301,6 +305,10 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/workflow-decisions.mjs',
     'src/remote-fetch.mjs',
     'src/asset-import.mjs',
+    'src/marketplace.mjs',
+    'src/mcp-client.mjs',
+    'src/mcp-import.mjs',
+    'src/mcp-descriptor.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',

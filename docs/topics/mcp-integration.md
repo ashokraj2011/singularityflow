@@ -1,7 +1,7 @@
 ---
 id: mcp-integration
 title: MCP integration
-version: 6
+version: 7
 aliases:
   - mcp
   - playwright
@@ -18,7 +18,8 @@ credentials and trust prompt. Flow owns the repository policy: `mcpServers` in
 `workflow.yml` declares which governed agents, phases and exact tools may use the
 host server, with what approval and evidence capture. The host server ID and Flow
 `hostReference` must match. Flow never stores MCP credentials or silently starts a
-server from read-only commands.
+server from read-only commands; it reads from a server itself only for an import the policy allows
+and a person consents to.
 
 ## Purpose and prerequisites
 
@@ -58,6 +59,35 @@ local npm resolution and MCP startup, not network sandboxing of the server itsel
 when the proof is absent or stale. The scaffolded VS Code entry calls the internal `mcp serve`
 stdio wrapper, which starts only this verified local executable and adds any managed storage-state
 path in memory; the tracked host file never contains that path.
+
+### Import from an MCP server, or install one
+
+A governed server may also say what Singularity Flow itself may read from it for imports:
+
+```yaml
+mcpServers:
+  docs:
+    label: Docs server
+    sources:
+      prompts: [security-checklist]
+      resources: ['docs://templates/']
+      tools: [render-notes]
+```
+
+Absent `sources`, the engine never contacts the server. A server that lists only `sources` (no tools,
+no agents) is used for imports alone and is not offered to agents. `sflow mcp sources docs --launch`
+lists what it offers that the policy allows; `sflow import preview mcp:docs/prompt/security-checklist
+--as skill --launch --arg area=payments` reads one and stages it like any other import. Without
+`--launch` nothing is started: the refusal says exactly what would run or where it would connect. The
+answer is vendored, because an MCP server's output cannot be fetched again to prove it is the same; a
+workflow bundle refuses agents with MCP-imported resources.
+
+To install a server published as a `sflow-mcp-server@1` descriptor (from a link or a marketplace),
+import it with `--as mcp-server --agents <A,B>`: the governed policy is added, the chosen agents are
+granted its tools, and the descriptor is kept under `singularity/imports/mcp/`. A descriptor cannot
+assign itself to agents or steps. Its host entry is added to this workspace's `.vscode/mcp.json` only
+by `sflow mcp host add <SERVER>`, which prints the exact command or URL; VS Code still asks before
+starting it.
 
 ## State and safety
 

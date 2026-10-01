@@ -61,7 +61,7 @@ export function playwrightHostEntry({ packageVersion = MCP_SCAFFOLD_VERSIONS.pla
   };
 }
 
-export async function scaffoldMcpServer(root, { serverId, entry, replaceServer = false } = {}) {
+export async function scaffoldMcpServer(root, { serverId, entry, replaceServer = false, inputs = [] } = {}) {
   const target = await secureRepositoryPath(root, MCP_WORKSPACE_PATH, {
     label: 'VS Code MCP configuration',
     type: 'file'
@@ -77,8 +77,24 @@ export async function scaffoldMcpServer(root, { serverId, entry, replaceServer =
     }
   }
   assertHostDocument(document);
+  // VS Code prompts for ${input:…} values from the document's inputs; add the ones the entry needs.
+  const existingInputs = Array.isArray(document.inputs) ? document.inputs : [];
+  const missingInputs = [];
+  for (const input of inputs) {
+    const present = existingInputs.find((candidate) => candidate?.id === input.id);
+    if (!present) missingInputs.push(input);
+    else if (canonicalJson(present) !== canonicalJson(input) && !replaceServer) {
+      throw new SingularityFlowError(
+        `${MCP_WORKSPACE_PATH} already defines input '${input.id}' differently. Review it and use --replace-server to replace the server entry and its inputs.`,
+        { code: 'MCP_HOST_ENTRY_CONFLICT', details: { serverId, input: input.id } }
+      );
+    }
+  }
+  if (inputs.length) {
+    document.inputs = [...existingInputs.filter((candidate) => !inputs.some((input) => input.id === candidate?.id) || !replaceServer), ...(replaceServer ? inputs : missingInputs)];
+  }
   const current = document.servers[serverId];
-  if (current && canonicalJson(current) === canonicalJson(entry)) {
+  if (current && canonicalJson(current) === canonicalJson(entry) && !missingInputs.length) {
     return {
       path: MCP_WORKSPACE_PATH, changed: false, status: 'unchanged',
       sha256: (await snapshot(target.absolute)).sha256

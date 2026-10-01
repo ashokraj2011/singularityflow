@@ -4369,7 +4369,7 @@ Terminal equivalent: singularity-flow prepare &lt;phase&gt;, followed by `singul
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~493 body tokens</span>
+          <span class="pill">~540 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-import</code></dd></div>
@@ -4407,7 +4407,8 @@ argument-hint: &quot;[preview LINK|market:ID/ENTRY --as skill|template|agent | a
    and gives the exact update command; `singularity-flow imports remove &lt;IMPORT&gt; --propose --json` removes one.
 
 Marketplaces: `singularity-flow marketplace browse &lt;ID&gt; --json` lists entries; preview and add
-`market:&lt;ID&gt;/&lt;ENTRY&gt;` like a link. Trust a new one (`singularity-flow marketplace add &lt;ID&gt; --index &lt;URL&gt; --propose --json`)
+`market:&lt;ID&gt;/&lt;ENTRY&gt;` like a link. MCP: `singularity-flow mcp sources &lt;SERVER&gt; --json` refuses with what would
+run; add `--launch` only after the person allows it, then preview `mcp:&lt;SERVER&gt;/prompt|resource|tool/&lt;NAME&gt;`. Trust a new one (`singularity-flow marketplace add &lt;ID&gt; --index &lt;URL&gt; --propose --json`)
 only when the person asks.
 
 Never edit `singularity/imports.lock.yml`, `singularity/agents.lock.yml` or vendored files by hand, fetch the link

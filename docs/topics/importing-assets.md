@@ -13,9 +13,9 @@ related:
   - agents-and-routing
   - knowledge-and-remote-assets
   - workflow-authoring
-version: 2
+version: 3
 ---
-Agent skills, artifact templates, whole agents, and generated-artifact sources can come from a link or from a marketplace the repository trusts. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
+Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
 ## Purpose and prerequisites
 
@@ -34,7 +34,8 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 3. Add exactly what you saw: `singularity-flow import add <LINK> --as skill --agent architect --phases design --sha256 <HASH> --propose`. Without `--sha256` the command shows the content and refuses.
 4. Review the change. A skill becomes a row in the agent's `## Remote skills` table, its entry in `singularity/agents.lock.yml`, and a copy under `singularity/imports/agents/`. A template becomes `<templatesRoot>/imported/<id>.md` and a catalog entry. `singularity/imports.lock.yml` records each source.
 5. To use a marketplace, trust it once: `singularity-flow marketplace add acme --index https://catalog.example.org/sflow-marketplace.json --allowed-origin https://cdn.example.org --propose`. Browse it with `singularity-flow marketplace browse acme`, then preview and add `market:acme/<entry>` exactly like a link. Each entry pins its file by SHA-256; a file that does not match is refused.
-6. Later, `singularity-flow imports check` re-reads every source. Anything that changed is staged and shown with the exact `import add … --replace` command; updating is another reviewed import.
+6. From an approved MCP server: `singularity-flow mcp sources docs --launch` lists what its policy allows; `singularity-flow import preview mcp:docs/prompt/security-checklist --as skill --launch --arg area=payments` reads one. To install a published MCP server: `singularity-flow import add <LINK|market:…> --as mcp-server --agents architect --sha256 <HASH> --propose`, then `singularity-flow mcp host add <SERVER>`. See `sflow explain mcp-integration`.
+7. Later, `singularity-flow imports check` re-reads every source. Anything that changed is staged and shown with the exact `import add … --replace` command; updating is another reviewed import.
 
 ## State and safety
 
@@ -44,6 +45,7 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 - Adding a skill to an agent that already names remote resources nobody has trusted is refused; run `singularity-flow agents lock <AGENT>` first.
 - No credentials, cookies or tokens are ever sent. Links with embedded credentials, private hosts and `localhost` are refused.
 - A marketplace index can only list files from its own origin and the origins `workflow.yml` allows for it; anything else refuses the whole index.
+- An MCP server is started or contacted only with `--launch`, for an item its governed `sources` allow; its answer is vendored and never re-read.
 
 ## Troubleshooting
 

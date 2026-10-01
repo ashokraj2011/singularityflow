@@ -286,7 +286,7 @@ const REVISION_SUBCOMMANDS = Object.freeze([
 const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const MCP_SUBCOMMANDS = Object.freeze([
   'attest', 'auth', 'design-sources', 'doctor', 'list', 'probe', 'record', 'scaffold', 'serve',
-  'smoke', 'status', 'verify-offline', 'warm'
+  'smoke', 'sources', 'status', 'verify-offline', 'warm', 'host'
 ]);
 const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
@@ -782,9 +782,11 @@ function resolveMcpOperation(definition, positionals, options) {
   if (!MCP_SUBCOMMANDS.includes(subcommand)) {
     return unknownSubcommand('mcp', subcommand, MCP_SUBCOMMANDS);
   }
-  if (['list', 'status', 'doctor', 'probe', 'serve'].includes(subcommand)) {
+  // `sources` contacts an approved server only after consent and changes no governed state.
+  if (['list', 'status', 'doctor', 'probe', 'serve', 'sources'].includes(subcommand)) {
     return never(`mcp.${subcommand}`, definition, 'read');
   }
+  if (subcommand === 'host') return never('mcp.host.add', definition, 'mutation');
   if (subcommand === 'auth') {
     const action = positionals[2] ?? 'status';
     if (!['clear', 'import', 'remove', 'status'].includes(action)) {
@@ -1756,8 +1758,9 @@ export function operationCatalog() {
     never('delivery.readiness', deliveryDefinition, 'read'),
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),
-    ...['list', 'status', 'doctor', 'probe', 'serve'].map((name) => never(`mcp.${name}`, mcpDefinition, 'read')),
+    ...['list', 'status', 'doctor', 'probe', 'serve', 'sources'].map((name) => never(`mcp.${name}`, mcpDefinition, 'read')),
     ...['attest', 'record', 'scaffold', 'smoke', 'verify-offline', 'warm'].map((name) => never(`mcp.${name}`, mcpDefinition, 'mutation')),
+    never('mcp.host.add', mcpDefinition, 'mutation'),
     never('mcp.auth.status', mcpDefinition, 'read'),
     never('mcp.auth.clear.preview', mcpDefinition, 'read'),
     never('mcp.auth.clear', mcpDefinition, 'mutation'),

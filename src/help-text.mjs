@@ -86,8 +86,9 @@ Usage:
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
   singularity-flow start <WORK-ID> [--jira | --github URL|owner/repo#number | --story-file FILE] [--title TEXT] [--description TEXT]
-    [--acceptance-criteria TEXT] [--document FILE --document-name TEXT]... [--document-url URL --document-url-name TEXT]...
-    [--document-phases PHASE,...|all] [--document-store git|local] --from-branch BRANCH [--fetch] [--allow-dirty]
+    [--acceptance-criteria TEXT] [--document FILE --document-name TEXT [--document-phases PHASE,...|all] [--document-store git|local]]...
+    [--document-url URL --document-url-name TEXT [--document-url-phases PHASE,...|all]]... --from-branch BRANCH [--fetch] [--allow-dirty]
+    Document phases and storage are given once for every document, or once per document in the same order.
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
     [--isolated-worktree] [--intake-receipt ID]

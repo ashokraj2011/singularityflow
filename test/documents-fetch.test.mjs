@@ -48,6 +48,8 @@ async function repository({ withEnvironmentDeclaration = false } = {}) {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
   config.storage = { defaultProvider: 'onedrive', providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's', driveId: 'd' } } };
+  // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
+  config.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(configPath, YAML.stringify(config));
   if (withEnvironmentDeclaration) {
     await writeFile(path.join(root, 'singularity', 'environments.yml'), [

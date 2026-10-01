@@ -695,7 +695,10 @@ export class IntakePanel {
         this.cancelBasePreflight();
         this.preflightVersion += 1;
         // Another workflow has other phases, so a narrowed phase set does not carry over.
-        this.update({ workType: workflow.id, storyDocumentPhases: null, error: null, ...emptyStoryPreflight() });
+        this.update({
+          workType: workflow.id, error: null, ...emptyStoryPreflight(),
+          storyAttachments: this.form.storyAttachments.map((entry) => entry ? { ...entry, phases: null } : entry)
+        });
         return this.preflightBaseBranch();
       }
     },
@@ -736,16 +739,27 @@ export class IntakePanel {
     attachmentNameDraft: (message) => this.renameStoryAttachment(message, false),
     attachmentName: (message) => this.renameStoryAttachment(message, true),
     attachmentStore: (message) => {
+      const index = this.attachmentIndex(message);
       const value = stringField(message, 'value');
-      if (value === 'git' || value === 'local') this.update({ storyDocumentStore: value, error: null });
+      if (index === null || !this.form.storyAttachments[index] || (value !== 'git' && value !== 'local')) return;
+      this.update({
+        storyAttachments: this.form.storyAttachments.map((entry, slot) => slot === index && entry ? { ...entry, store: value } : entry),
+        error: null
+      });
     },
     attachmentPhases: (message) => {
+      const index = this.attachmentIndex(message);
       const phases = this.form.storyWorkflows.find((workflow) => workflow.id === this.form.workType)?.phases ?? [];
       const raw = Array.isArray(message.value) ? message.value : null;
-      if (!raw || raw.some((entry) => typeof entry !== 'string' || !phases.includes(entry))) return;
+      if (index === null || !this.form.storyAttachments[index] || !raw
+        || raw.some((entry) => typeof entry !== 'string' || !phases.includes(entry))) return;
       // Every phase is the default, so it passes no flag; anything narrower is kept in workflow order.
       const chosen = phases.filter((phase) => raw.includes(phase));
-      this.update({ storyDocumentPhases: chosen.length === phases.length ? null : chosen, error: null });
+      this.update({
+        storyAttachments: this.form.storyAttachments.map((entry, slot) => slot === index && entry
+          ? { ...entry, phases: chosen.length === phases.length ? null : chosen } : entry),
+        error: null
+      });
     },
     attachmentClear: (message) => {
       const index = this.attachmentIndex(message);
@@ -917,16 +931,22 @@ export class IntakePanel {
       canSelectFolders: false,
       canSelectMany: replaceIndex === null,
       ...(this.form.targetRepository ? { defaultUri: vscode.Uri.file(this.form.targetRepository) } : {}),
+      // One combined filter: a second one would leave images greyed out until the dialog's format
+      // menu is changed, because the first filter is the one it selects.
       filters: {
-        Documents: ['md', 'markdown', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'csv', 'json', 'yaml', 'yml'],
-        Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
+        'Documents and images': ['md', 'markdown', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'xlsx', 'pptx', 'csv', 'json', 'yaml', 'yml',
+          'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'],
+        'All files': ['*']
       }
     });
     if (!selected?.length || this.disposed) return;
+    const previous = replaceIndex === null ? null : this.form.storyAttachments[replaceIndex];
     const drafts: StoryAttachmentDraft[] = selected.map((uri) => ({
       sourcePath: uri.fsPath,
       displayName: path.basename(uri.fsPath),
-      name: suggestedStoryDocumentName(uri.fsPath)
+      name: suggestedStoryDocumentName(uri.fsPath),
+      // A replaced file keeps the storage and phases chosen for its slot.
+      ...(previous ? { store: previous.store, phases: previous.phases } : {})
     })).filter((entry) => Boolean(entry.sourcePath && entry.displayName));
     if (!drafts.length) return;
 

@@ -55,6 +55,10 @@ export interface StoryAttachmentDraft {
   displayName: string;
   /** The document's name in the Story, which every later lookup, prompt and citation uses. */
   name: string;
+  /** Where this document's bytes are kept: committed with the Story (the default), or on this machine only. */
+  store?: 'git' | 'local';
+  /** The phases that use this document, in workflow order; absent or null means every phase. */
+  phases?: string[] | null;
 }
 
 /** The longest document name the engine accepts. */
@@ -190,10 +194,6 @@ export interface IntakeForm {
   referenceRepositories: ReferenceRepositoryDraft[];
   /** Local documents staged in the UI for the governed Story-start attachment flow. */
   storyAttachments: Array<StoryAttachmentDraft | null>;
-  /** Where the Story-start documents' bytes are kept: committed, or on this machine only. */
-  storyDocumentStore: 'git' | 'local';
-  /** The phases the Story-start documents are offered to; null means every phase of the workflow. */
-  storyDocumentPhases: string[] | null;
   /** Exact browser origin pinned for the POC workflow. */
   targetUrl: string;
   profile: string | null;
@@ -301,7 +301,6 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   availableStoryWorkflows: [],
   referenceRepositories: [],
   storyAttachments: emptyStoryAttachmentSlots(),
-  storyDocumentStore: 'git', storyDocumentPhases: null,
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
@@ -436,9 +435,11 @@ export function intakeProblems(form: IntakeForm): string[] {
       }
     }
     problems.push(...storyAttachmentNameProblems(form.storyAttachments));
-    if (form.storyAttachments.some(Boolean) && form.storyDocumentPhases && !form.storyDocumentPhases.length) {
-      problems.push('Choose at least one phase that uses the supporting documents.');
-    }
+    form.storyAttachments.forEach((entry, index) => {
+      if (entry && Array.isArray(entry.phases) && !entry.phases.length) {
+        problems.push(`Choose at least one phase that uses document ${index + 1} (${entry.displayName}).`);
+      }
+    });
     if (!form.baseBranch) {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
@@ -500,14 +501,16 @@ export function intakeCommand(form: IntakeForm): string[] {
     .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
       '--reference-branch', `${entry.id}=${entry.branch}`]);
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
-  const named = form.storyAttachments.flatMap((entry) =>
-    entry ? ['--document', entry.sourcePath, '--document-name', storyAttachmentName(entry).replace(/\s+/gu, ' ').trim()] : []);
-  // One storage choice and one phase set for every Story-start document, as the engine takes them.
-  const attachments = named.length ? [
-    ...named,
-    ...(form.storyDocumentStore === 'local' ? ['--document-store', 'local'] : []),
-    ...(form.storyDocumentPhases?.length ? ['--document-phases', form.storyDocumentPhases.join(',')] : [])
-  ] : [];
+  const selected = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
+  // Each document's storage and phases go once per --document, in the same order. When every
+  // document keeps the defaults (committed to Git, every phase) no flag is passed at all.
+  const attachments = [
+    ...selected.flatMap((entry) => ['--document', entry.sourcePath, '--document-name', storyAttachmentName(entry).replace(/\s+/gu, ' ').trim()]),
+    ...(selected.some((entry) => entry.store === 'local')
+      ? selected.flatMap((entry) => ['--document-store', entry.store === 'local' ? 'local' : 'git']) : []),
+    ...(selected.some((entry) => entry.phases?.length)
+      ? selected.flatMap((entry) => ['--document-phases', entry.phases?.length ? entry.phases.join(',') : 'all']) : [])
+  ];
   const isolated = ['--isolated-worktree'];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
     ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
@@ -1000,23 +1003,21 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
   </section>`;
 }
 
-/**
- * Where the Story's documents are kept and which phases use them, for all of them at once. Shown
- * before any file is chosen so the choice is visible up front; it applies only once a file is.
- */
-function storyAttachmentOptionsHtml(form: IntakeForm): string {
+/** Where one staged document is kept and which phases use it. */
+function storyAttachmentOptionsHtml(form: IntakeForm, entry: StoryAttachmentDraft, index: number): string {
   const phases = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.phases ?? [];
-  const chosen = form.storyDocumentPhases ?? phases;
+  const chosen = entry.phases ?? phases;
+  const store = entry.store === 'local' ? 'local' : 'git';
   return `<div class="attachment-options">
-      <label>Keep the documents you choose
-        <select data-attachment-store aria-label="Where the supporting documents are kept">
-          <option value="git"${form.storyDocumentStore === 'git' ? ' selected' : ''}>Committed to Git — everyone on the Story gets them</option>
-          <option value="local"${form.storyDocumentStore === 'local' ? ' selected' : ''}>On this machine only — Git records name, size and SHA-256</option>
+      <label>Keep it
+        <select data-attachment-store="${index}" aria-label="Where document ${index + 1} is kept">
+          <option value="git"${store === 'git' ? ' selected' : ''}>Committed to Git — everyone on the Story gets it</option>
+          <option value="local"${store === 'local' ? ' selected' : ''}>On this machine only — Git records name, size and SHA-256</option>
         </select>
       </label>
       ${phases.length ? `<fieldset class="attachment-phases"><legend>Used in phases</legend>
-        ${phases.map((phase) => `<label><input type="checkbox" data-attachment-phase="${escape(phase)}"${chosen.includes(phase) ? ' checked' : ''}> <code>${escape(phase)}</code></label>`).join('')}
-      </fieldset>` : '<p class="muted">Choose a workflow to choose which phases use the documents.</p>'}
+        ${phases.map((phase) => `<label><input type="checkbox" data-attachment-phase="${index}" data-phase="${escape(phase)}"${chosen.includes(phase) ? ' checked' : ''}> <code>${escape(phase)}</code></label>`).join('')}
+      </fieldset>` : '<p class="muted">Choose a workflow to choose which phases use this document.</p>'}
     </div>`;
 }
 
@@ -1048,8 +1049,9 @@ function storyAttachmentsHtml(form: IntakeForm): string {
         <label>Name in the Story
           <input type="text" data-attachment-name="${index}" value="${escape(storyAttachmentName(entry))}"
             maxlength="${STORY_DOCUMENT_NAME_MAXIMUM_LENGTH}" aria-label="Name for document ${index + 1}">
-        </label>`
-    : '<p class="muted">No document selected. Choose a file, then give it a name here.</p>'}
+        </label>
+        ${storyAttachmentOptionsHtml(form, entry, index)}`
+    : '<p class="muted">No document selected. Choose a file or image, then name it and choose where it is kept and which phases use it.</p>'}
         <p class="card-foot">
           <button type="button" class="secondary" data-attachment-pick="${index}">${entry ? 'Replace file' : 'Choose file'}</button>
           ${entry ? `<button type="button" class="secondary" data-attachment-clear="${index}">Clear</button>` : ''}
@@ -1059,9 +1061,8 @@ function storyAttachmentsHtml(form: IntakeForm): string {
     <p class="card-foot">
       <button type="button" class="secondary" data-attachments-pick${selectedCount >= MAX_STORY_ATTACHMENT_SLOTS ? ' disabled' : ''}>Choose documents…</button>
     </p>
-    ${storyAttachmentOptionsHtml(form)}
-    <p class="muted">Four slots are available. Each document needs its own name; prompts, reviews
-      and citations refer to it by that name. File paths come from VS Code's native picker and
+    <p class="muted">Four slots are available. Each document needs its own name, and has its own
+      storage and phases; prompts, reviews and citations refer to it by that name. File paths come from VS Code's native picker and
       cannot be typed or posted by webview content.</p>
   </section>`;
 }
@@ -1223,9 +1224,12 @@ export const INTAKE_SCRIPT = `
       index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
     if (el.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentName',
       index: Number(el.dataset.attachmentName), value: el.value });
-    if (el.dataset?.attachmentStore !== undefined) return vscode.postMessage({ type: 'attachmentStore', value: el.value });
+    if (el.dataset?.attachmentStore !== undefined) return vscode.postMessage({ type: 'attachmentStore',
+      index: Number(el.dataset.attachmentStore), value: el.value });
     if (el.dataset?.attachmentPhase !== undefined) return vscode.postMessage({ type: 'attachmentPhases',
-      value: [...document.querySelectorAll('[data-attachment-phase]')].filter((box) => box.checked).map((box) => box.dataset.attachmentPhase) });
+      index: Number(el.dataset.attachmentPhase),
+      value: [...document.querySelectorAll('[data-attachment-phase="' + el.dataset.attachmentPhase + '"]')]
+        .filter((box) => box.checked).map((box) => box.dataset.phase) });
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {

@@ -319,8 +319,11 @@ export const STYLE = `
   .attachment-slots .attachment-slot { min-width: 0; margin: 0; }
   .attachment-slot strong { overflow-wrap: anywhere; }
   @media(max-width:640px) { .attachment-slots { grid-template-columns: 1fr; } }
-  .attachment-options { display: grid; gap: .5rem; margin-top: .75rem; }
-  .attachment-phases { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; }
+  .attachment-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; margin-top: .75rem; }
+  .attachment-options > label { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+  .attachment-options > label select { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+  .attachment-phases { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; margin: 0; padding: .4rem .6rem; min-inline-size: 0;
+    border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, .35)); border-radius: 4px; }
   .attachment-phases label { display: inline-flex; align-items: center; gap: .35rem; }
   .evidence-storage.warn { color: var(--vscode-editorWarning-foreground); }
   /* A choice between a few things, each of which needs a sentence to be choosable at all. A radio in

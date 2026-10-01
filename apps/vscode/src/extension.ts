@@ -25,7 +25,10 @@ import { WorkspaceStore } from './state.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import { BackgroundWorkGovernor } from './background-governor.ts';
-import type { RepositorySnapshot } from './cli/snapshot.ts';
+import type { DecisionInputSpec, RepositorySnapshot, StoryDecisionView } from './cli/snapshot.ts';
+import {
+  decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, submitArgvWithDecisionValues
+} from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
@@ -905,7 +908,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
@@ -5546,8 +5549,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         return;
       }
+      // The decision after this phase reads values recorded with the submission; ask for them first.
+      const decisionValues = await askDecisionValues(readiness?.decisionInputs ?? []);
+      if (!decisionValues) return;
       return runNode({
-        kind: 'action', id: `story:${phaseId}:submit`, label: `submit ${phaseId}`, command
+        kind: 'action', id: `story:${phaseId}:submit`, label: `submit ${phaseId}`,
+        command: submitArgvWithDecisionValues(command, decisionValues)
       });
     }
     if (node?.command) return runNode(node);
@@ -5590,10 +5597,90 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
 
+  /**
+   * The values a phase records for the decision after it, asked with that decision's own choices.
+   * Returns an empty object when there is nothing to ask, and null when the person cancels.
+   */
+  const askDecisionValues = async (inputs: DecisionInputSpec[]): Promise<Record<string, string> | null> => {
+    const values: Record<string, string> = {};
+    for (const input of inputs) {
+      const prompt = decisionInputPrompt(input);
+      const answer = prompt.choices
+        ? await vscode.window.showQuickPick(prompt.choices, {
+          title: prompt.title, placeHolder: 'The decision after this step reads this value', ignoreFocusOut: true
+        })
+        : await vscode.window.showInputBox({
+          title: prompt.title, prompt: 'The decision after this step reads this number', ignoreFocusOut: true,
+          validateInput: prompt.validate
+        });
+      if (answer === undefined || !answer.trim()) return null;
+      values[input.name] = answer.trim();
+    }
+    return values;
+  };
+
+  /**
+   * A person's choice at a waiting workflow decision.
+   *
+   * The question is read fresh from the engine, so the choice is bound (`--expected`) to exactly what
+   * the person saw; they pick an option, or any step when the decision allows it, and say why. The
+   * engine checks their group and applies the route; nothing here decides anything itself.
+   */
+  const chooseStoryDecision = async (requestedWorkId?: string | null, optionId?: string | null): Promise<void> => {
+    const workId = requestedWorkId || store.current.snapshot?.workflow?.workItem.id || null;
+    if (!workId) {
+      showRefusal('Select the Story whose decision you want to answer.', { headline: 'No Story selected' });
+      return;
+    }
+    let view: StoryDecisionView;
+    try { view = await client.run<StoryDecisionView>(['decision', 'show', workId, '--json']); }
+    catch (error) {
+      showRefusal((error as Error).message, { headline: 'Could not read the decision' });
+      return;
+    }
+    const pending = view.pending;
+    if (!pending) {
+      void vscode.window.showInformationMessage(`${workId} is not waiting for a decision.`);
+      return;
+    }
+    let choice: { option?: string; to?: string; label: string } | null = null;
+    const named = optionId && optionId !== '__step__' ? pending.options.find((option) => option.id === optionId) : null;
+    if (named) choice = { option: named.id, label: named.label };
+    else {
+      const items = decisionChoiceItems(pending);
+      const picked = optionId === '__step__'
+        ? items.find((item) => item.anyStep)
+        : await vscode.window.showQuickPick(items, { title: pending.label, placeHolder: pendingDecisionSummary(pending), ignoreFocusOut: true });
+      if (!picked) return;
+      if (picked.anyStep) {
+        const workflow = store.current.snapshot?.workflow;
+        const steps = (workflow?.phaseOrder ?? []).map((id) => ({ label: workflow?.phases[id]?.label ?? id, description: id, to: id }))
+          .concat([{ label: 'Finish the Story', description: 'end', to: 'end' }]);
+        const step = await vscode.window.showQuickPick(steps, { title: `${pending.label}: choose a step`, ignoreFocusOut: true });
+        if (!step) return;
+        choice = { to: step.to, label: step.label };
+      } else if (picked.option) choice = { option: picked.option, label: picked.label };
+    }
+    if (!choice) return;
+    const reason = await vscode.window.showInputBox({
+      title: `${pending.label}: ${choice.label}`,
+      prompt: 'Why this choice? It is recorded in the Story with your name.',
+      ignoreFocusOut: true,
+      validateInput: (value) => (value.trim() ? null : 'A reason is required.')
+    });
+    if (!reason?.trim()) return;
+    await runNode({
+      kind: 'action', id: `story:decision:${pending.decision}`, label: `Choose '${choice.label}'`,
+      command: decisionChooseArgv(workId, pending, choice, reason)
+    });
+  };
+
   const onJourneyMessage = async (message: JourneyMessage): Promise<void> => {
     if (message.type === 'pin') return addSource();
+    if (message.type === 'decide') return chooseStoryDecision(null, message.option);
     if (message.type === 'run') {
       const journey = buildJourney(store.current.snapshot);
+      if (journey.nextAction?.execution === 'decide') return chooseStoryDecision(journey.id, null);
       if (journey.nextAction?.execution === 'prefill') {
         return vscode.commands.executeCommand('singularityFlow.prefillStoryPhaseGeneration', {
           kind: 'action', id: 'story:journey:generate', label: journey.nextAction.label ?? 'Generate phase',
@@ -5601,10 +5688,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
       }
       if (journey.nextAction?.execution === 'run') {
+        // A phase that feeds a decision records its values when it is submitted: ask with the
+        // decision's own choices, then run exactly the validated command with them filled in.
+        const decisionValues = await askDecisionValues(journey.nextAction.decisionInputs ?? []);
+        if (!decisionValues) return;
         return runNode({
           kind: 'action', id: `${journey.kind}:journey:next`,
           label: journey.nextAction.label ?? journey.nextAction.reason,
-          command: [...journey.nextAction.argv]
+          command: submitArgvWithDecisionValues(journey.nextAction.argv, decisionValues)
         });
       }
       return;
@@ -6410,6 +6501,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ? { openPath: story.repositoryPath } : {})
       });
     }
+    if (message.type === 'decide') return chooseStoryDecision(message.workId, null);
     if (message.type === 'open-artifact') {
       return openArtifact(repository, {
         kind: 'artifact', id: message.artifact.id, label: message.artifact.label,
@@ -7433,6 +7525,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // Workflow Studio is the visual way in: workflows, steps, agents and approvals edited together
     // and published as one change. The Designer stays for artifact templates and advanced policy.
+    'singularityFlow.decideStory': async (target?: unknown) => {
+      const workId = typeof target === 'string' ? target
+        : (target as { workId?: unknown } | undefined)?.workId;
+      return chooseStoryDecision(typeof workId === 'string' ? workId : null, null);
+    },
     'singularityFlow.openWorkflowStudio': async () => {
       const { WorkflowStudioPanel } = lazyPanels();
       WorkflowStudioPanel.show(client, output, {

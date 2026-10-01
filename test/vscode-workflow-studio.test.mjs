@@ -136,3 +136,48 @@ test('the host publishes through a proposal bound to the authority it read, and 
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openWorkflowStudio' && /Workflow Studio/.test(entry.title)));
 });
+
+test('decisions are edited on the board and checked by the engine with its own people and dependency rules', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  const feature = draft.workflows.feature;
+  assert.deepEqual(feature.decisions, [], 'a packaged workflow starts without decisions');
+  const loop = model.workflows.flatMap((workflow) => workflow.reworkLoops).find((entry) => entry.resetOnPhase);
+  if (loop) assert.ok(loop.resetOnPhase, 'a send-back rule keeps the step that resets its count');
+
+  // An ask after requirements may finish the Story early; a loop after verification goes back to code.
+  const ask = logic.newDecision(feature, 'requirements', 'ask');
+  assert.deepEqual(ask.routes.map((route) => route.to), ['next', 'end']);
+  const repeat = logic.newDecision(feature, 'verification', 'loop');
+  assert.equal(repeat.back, 'implementation');
+  feature.decisions = [ask, repeat];
+  assert.deepEqual(logic.reachOf(feature, 'requirements', 'end').skips, ['design', 'implementation-spec', 'implementation', 'verification', 'conformance']);
+  assert.match(logic.decisionLines(feature, repeat)[0], /^↩ implementation until Done is yes \(at most 3\)$/);
+  const changeSet = logic.changeSetFrom(model, draft);
+  const update = changeSet.changes.find((change) => change.op === 'workflow.update' && change.id === 'feature');
+  assert.deepEqual(update.decisions.map((decision) => decision.kind), ['ask', 'loop']);
+  assert.match(logic.describe(update, draft), /decisions changed/);
+  const plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const diff = plan.files.find((file) => file.path === 'singularity/workflow.yml').diff;
+  assert.match(diff, /\+\s+decisions:/);
+  assert.match(diff, /\+\s+kind: loop/);
+
+  // A branch that skips requirements would strand design, which reads it: the engine refuses it.
+  const branch = logic.newDecision(feature, 'intake', 'branch');
+  branch.routes[1].to = 'design';
+  feature.decisions = [branch];
+  const refused = check(root, logic.changeSetFrom(model, draft));
+  assert.equal(refused.valid, false);
+  assert.ok(refused.problems.some((problem) => /skips 'requirements', which 'design' reads/.test(problem.message)), JSON.stringify(refused.problems));
+
+  // Removing a step drops the decisions that used it; converting a decision keeps its name.
+  feature.decisions = [logic.newDecision(feature, 'requirements', 'ask')];
+  assert.deepEqual(logic.pruneDecisions(feature, 'requirements'), ['What should happen next?']);
+  assert.deepEqual(feature.decisions, []);
+  const converted = logic.convertDecision(feature, { ...logic.newDecision(feature, 'intake', 'branch'), label: 'Risky?' }, 'loop');
+  assert.equal(converted.label, 'Risky?');
+  assert.deepEqual(converted.goal, { outcome: 'yes' });
+});

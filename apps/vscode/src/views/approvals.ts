@@ -50,6 +50,7 @@ function cardHtml(approval: PendingApproval): string {
       <span class="muted">${escape(KIND_LABEL[approval.kind] ?? approval.kind)}</span>
     </div>
     <p class="muted">${escape(approval.detail)}</p>
+    ${approval.afterApproval ? `<p class="callout"><b>After approval:</b> ${escape(approval.afterApproval)}</p>` : ''}
     ${approval.sha256 ? `<p><code>${escape(approval.sha256.slice(0, 16))}</code> <span class="muted">the exact bytes being approved</span></p>` : ''}
     ${chainHtml(approval)}
     ${approval.signatures.length

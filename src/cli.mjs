@@ -8182,7 +8182,7 @@ function printDecisionView(view) {
     for (const route of decision.routes) {
       const where = route.reach === 'backward' ? `back to ${route.toLabel}`
         : route.reach === 'end' ? 'finish the Story' : route.toLabel;
-      const skips = route.skips.length ? ` (skips ${route.skips.join(', ')})` : '';
+      const skips = route.skips.length ? ` (skips ${(route.skipLabels ?? route.skips).join(', ')})` : '';
       const rule = decision.mode === 'ask' ? '' : route.rule ? `when ${route.rule} ` : 'otherwise ';
       console.log(`    • ${route.label}: ${rule}→ ${where}${skips}`);
     }
@@ -8194,7 +8194,7 @@ function printDecisionView(view) {
     for (const option of view.pending.options) {
       const where = option.reach === 'backward' ? `back to ${option.toLabel}`
         : option.reach === 'end' ? 'finish the Story' : option.toLabel;
-      console.log(`    ${option.id} — ${option.label} → ${where}${option.skips.length ? ` (skips ${option.skips.join(', ')})` : ''}`);
+      console.log(`    ${option.id} — ${option.label} → ${where}${option.skips.length ? ` (skips ${(option.skipLabels ?? option.skips).join(', ')})` : ''}`);
     }
     if (view.pending.anyStep) console.log('    or any step with --to <PHASE|end>');
     console.log(`  Choose: singularity-flow decision choose ${view.workId} --option <ID> --reason "<why>" --expected ${view.pending.key}`);

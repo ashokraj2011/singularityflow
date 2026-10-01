@@ -16,7 +16,8 @@
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type RepositorySnapshot, type InitiativeSnapshot, type PhaseStatus, type StoryWorkflow,
-  type StoryArtifact, type StoryApproval, type SubmissionReadiness
+  type StoryArtifact, type StoryApproval, type SubmissionReadiness,
+  type DecisionInputSpec, type PendingDecisionView
 } from '../cli/snapshot.ts';
 import {
   phaseSubmissionPresentation, storyArtifactPublicationLabel
@@ -90,8 +91,14 @@ export interface Journey {
   nextAction: {
     command: string; reason: string; label?: string;
     executable: 'singularity-flow'; argv: readonly string[];
-    execution?: 'run' | 'prefill'; skill: string; copilotCommand: string; copyable: boolean;
+    execution?: 'run' | 'prefill' | 'decide'; skill: string; copilotCommand: string; copyable: boolean;
+    /** Values the decision after this phase reads; the host asks for them before running. */
+    decisionInputs?: DecisionInputSpec[];
   } | null;
+  /** A workflow decision waiting for a person, with its options. */
+  decision: PendingDecisionView | null;
+  /** What happens after the current phase, when a decision follows it. */
+  decisionAhead: { label: string; text: string } | null;
   /** Set when there is nothing to render, with the reason. */
   empty: string | null;
 }
@@ -99,7 +106,8 @@ export interface Journey {
 const EMPTY: Journey = {
   kind: 'story', id: '', title: '', profile: '', branch: null, status: '',
   stages: [], currentStage: null, selectedStage: null, artifacts: [], approvals: [], packs: [], sources: [],
-  repositories: [], blockers: [], nextAction: null, empty: 'Nothing governed is checked out on this branch.'
+  repositories: [], blockers: [], nextAction: null, decision: null, decisionAhead: null,
+  empty: 'Nothing governed is checked out on this branch.'
 };
 
 /**
@@ -213,9 +221,11 @@ function storyJourneyOf(
         current: workflow.currentPhase === phase.id,
         approved: phase.status === 'approved',
         generation: phase.generation,
-        publicationLabel: phase.id === workflow.currentPhase && presentation.kind !== 'unavailable'
-          ? presentation.statusLabel
-          : `${String(phase.status).replaceAll('_', ' ')} · generation ${phase.generation}`,
+        publicationLabel: phase.status === 'skipped'
+          ? `skipped by a decision${phase.skippedBy?.route ? ` (${phase.skippedBy.route})` : ''}`
+          : phase.id === workflow.currentPhase && presentation.kind !== 'unavailable'
+            ? presentation.statusLabel
+            : `${String(phase.status).replaceAll('_', ' ')} · generation ${phase.generation}`,
         authored: artifacts.filter((artifact) => artifact.sha256).length,
         declared: Math.max(artifacts.length, phase.requiredArtifact ? 1 : 0),
         artifacts,
@@ -233,6 +243,21 @@ function storyJourneyOf(
       : presentation?.kind === 'source-review-required' && presentation.skill && readiness?.nextCommand
         ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : null;
+  // A waiting decision is the next action, before anything about submitting: the approved phase
+  // has nothing left to do until a person chooses.
+  const decisionView = snapshot.decisions ?? null;
+  const pending: PendingDecisionView | null = workflow.pendingDecision ? decisionView?.pending ?? null : null;
+  const decisionRoutes = pending
+    ? commandGuidance({ command: `singularity-flow decision show ${workflow.workItem.id}`, skill: '/sf-approve' })
+    : null;
+  const ahead = decisionView?.ahead ?? null;
+  const decisionAhead = !pending && ahead && ahead.after === workflow.currentPhase
+    ? { label: ahead.label, text: ahead.projection?.text
+      ?? (ahead.mode === 'ask'
+        ? `After ${currentStage?.label ?? 'this phase'}, a person chooses what happens next ('${ahead.label}').`
+        : `After ${currentStage?.label ?? 'this phase'}, '${ahead.label}' chooses the next step from the values it records.`) }
+    : null;
+  const decisionInputs: DecisionInputSpec[] = readiness?.decisionInputs ?? [];
   return {
     kind: 'story',
     id: workflow.workItem.id,
@@ -249,7 +274,19 @@ function storyJourneyOf(
     sources: [],
     repositories: [],
     blockers: [],
-    nextAction: presentation?.kind === 'ready-to-submit' && actionRoutes
+    nextAction: pending && decisionRoutes
+      ? {
+          command: decisionRoutes.command,
+          executable: decisionRoutes.executable,
+          argv: decisionRoutes.argv,
+          copilotCommand: decisionRoutes.copilotCommand,
+          copyable: decisionRoutes.copyable,
+          reason: pending.reason === 'limit'
+            ? `'${pending.label}' used all ${pending.maxRounds} rounds. Choose what happens next.`
+            : `'${pending.label}' waits for a person to choose what happens next.`,
+          label: 'Choose what happens next', execution: 'decide', skill: decisionRoutes.skill
+        }
+      : presentation?.kind === 'ready-to-submit' && actionRoutes
       ? {
           command: actionRoutes.command,
           executable: actionRoutes.executable,
@@ -257,7 +294,9 @@ function storyJourneyOf(
           copilotCommand: actionRoutes.copilotCommand,
           copyable: actionRoutes.copyable,
           reason: presentation.statusLabel,
-          label: 'Submit for approval', execution: 'run', skill: actionRoutes.skill
+          label: decisionInputs.length ? 'Record the decision values and submit' : 'Submit for approval',
+          execution: 'run', skill: actionRoutes.skill,
+          ...(decisionInputs.length ? { decisionInputs } : {})
         }
       : presentation?.kind === 'generation-required' && actionRoutes
         ? {
@@ -282,6 +321,8 @@ function storyJourneyOf(
               execution: 'prefill', skill: actionRoutes.skill
             }
         : null,
+    decision: pending,
+    decisionAhead,
     empty: null
   };
 }
@@ -418,6 +459,8 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
       reason: next?.reason ?? 'Continue with the next governed step.',
       execution: 'run'
     } : null,
+    decision: null,
+    decisionAhead: null,
     empty: null
   };
 }

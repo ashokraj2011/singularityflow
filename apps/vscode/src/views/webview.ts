@@ -139,6 +139,10 @@ export const STYLE = `
   .phase-node.done::after { height: 2px; background: var(--sf-accent); }
   .phase-node.current .phase-marker { color: var(--vscode-editor-background); border: 2px solid var(--sf-wait); background: var(--sf-wait); animation: sf-phase-pulse 1.8s ease-out infinite; }
   .phase-node.attention .phase-marker { color: var(--sf-bad); border-color: var(--sf-bad); }
+  .phase-node.skipped .phase-marker { opacity: .6; border-style: dashed; }
+  .phase-node.skipped .phase-name { opacity: .65; text-decoration: line-through; }
+  .decision-options { display: flex; flex-direction: column; gap: .4rem; margin: .5rem 0; }
+  .decision-options .decision-option { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
   .phase-name { position: relative; z-index: 1; align-self: end; width: fit-content; padding-right: .35rem; background: var(--vscode-editor-background); font-weight: 600; white-space: nowrap; }
   .phase-state { color: var(--sf-dim); font-size: .72rem; white-space: nowrap; }
   @keyframes sf-phase-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--sf-wait); } 55% { box-shadow: 0 0 0 .42rem transparent; } }

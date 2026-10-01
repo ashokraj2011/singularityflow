@@ -791,6 +791,15 @@ function storyPhaseActions(
   readiness: SubmissionReadiness | null | undefined
 ): TreeNode[] {
   if (workflow.currentPhase !== phase.id) return [];
+  // A workflow decision waits for a person after this approved phase; choosing is the only action.
+  const pending = workflow.pendingDecision;
+  if (pending && pending.after === phase.id) {
+    return [{
+      kind: 'action', id: `story:${phase.id}:decide`, label: `Choose what happens next: ${pending.label}`,
+      description: pending.reason === 'limit' ? 'its rounds are used' : 'a person decides', icon: 'git-compare',
+      runCommand: 'singularityFlow.decideStory', contextValue: 'sflow.story.decision'
+    }];
+  }
   if (phase.status === 'awaiting_approval') {
     return [{
       kind: 'action', id: `story:${phase.id}:approve`, label: `Review and approve ${phase.label}`,

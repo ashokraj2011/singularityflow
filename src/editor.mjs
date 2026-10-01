@@ -111,6 +111,7 @@ import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
+import { storyDecisionView } from './workflow-decisions.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
@@ -981,6 +982,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     } : null,
     workflow,
     submissionReadiness: submission,
+    // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
+    decisions: workflow ? storyDecisionView(workflow) : null,
     referenceRepositories,
     progress,
     report,
@@ -1089,6 +1092,8 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     selectedInitiativeId,
     workflow,
     submissionReadiness: submission,
+    // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
+    decisions: workflow ? storyDecisionView(workflow) : null,
     referenceRepositories,
     progress,
     report,

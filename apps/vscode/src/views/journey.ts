@@ -14,6 +14,7 @@ import { buildJourney, type Journey } from './journey-model.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
+import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -75,13 +76,14 @@ const RAIL_STATE: Record<string, string> = {
   rejected: 'attention',
   stale: 'attention',
   in_progress: 'current',
+  skipped: 'skipped',
   not_started: ''
 };
 
 function railHtml(journey: Journey): string {
   return journey.stages.map((stage, index) => {
     const state = stage.current ? 'current' : (RAIL_STATE[stage.status] ?? '');
-    const marker = state === 'done' ? icon('ok', { size: 14 }) : String(index + 1);
+    const marker = state === 'done' ? icon('ok', { size: 14 }) : state === 'skipped' ? '–' : String(index + 1);
     const selected = journey.selectedStage?.id === stage.id;
     return `
     <li class="phase-node clickable ${state}${selected ? ' selected' : ''}">
@@ -144,6 +146,18 @@ function packsHtml(journey: Journey): string {
       </tr>`).join('')}</tbody></table>`;
 }
 
+/** The options of a waiting decision; each button chooses one, after the extension asks why. */
+function decisionOptionsHtml(journey: Journey): string {
+  const pending = journey.decision;
+  if (!pending) return '';
+  const options = pending.options.map((option) => `
+        <div class="decision-option"><button data-decide="${escape(option.id)}">${escape(option.label)}</button>
+          <span class="muted">→ ${escape(decisionTargetText(option))}</span></div>`).join('');
+  const anyStep = pending.anyStep ? '<div class="decision-option"><button class="secondary" data-decide="__step__">Another step…</button></div>' : '';
+  return `<p class="muted">Decided by ${escape(pending.by.join(', ') || 'the step\'s approvers')}.</p>
+      <div class="decision-options" role="group" aria-label="${escape(pending.label)}">${options}${anyStep}</div>`;
+}
+
 export function journeyBodyHtml(journey: Journey): string {
   if (journey.empty) return `<div class="empty"><p>${escape(journey.empty)}</p></div>`;
 
@@ -186,9 +200,10 @@ export function journeyBodyHtml(journey: Journey): string {
       <!-- The button says what pressing it does; the argv is the supporting detail beneath it. It
            was the other way round, so the only filled button on the page was labelled with a raw
            command line and the readable sentence sat above it doing nothing. -->
-      ${journey.nextAction.copyable
+      ${journey.nextAction.execution === 'decide' && journey.decision ? decisionOptionsHtml(journey) : journey.nextAction.copyable
     ? `<button data-run="next">${escape(journey.nextAction.label ?? actionLabel(journey.nextAction))}</button>`
     : '<p class="muted">Replace the shown placeholders before continuing.</p>'}
+      ${journey.decisionAhead ? `<p class="muted">Then: ${escape(journey.decisionAhead.text)}</p>` : ''}
       <div class="command-hint journey-command-routes">
         <p><b>Shell:</b> <code>${escape(journey.nextAction.command)}</code>
           ${journey.nextAction.copyable
@@ -221,7 +236,7 @@ export function journeyBodyHtml(journey: Journey): string {
 export const JOURNEY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route]');
+    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide]');
     if (!target) return;
     event.preventDefault();
     if (target.dataset.copyRoute) navigator.clipboard.writeText(target.dataset.copyRoute).catch(() => {});
@@ -229,6 +244,7 @@ export const JOURNEY_SCRIPT = `
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.run) vscode.postMessage({ type: 'run' });
+    else if (target.dataset.decide) vscode.postMessage({ type: 'decide', option: target.dataset.decide });
     else if (target.dataset.pin) vscode.postMessage({ type: 'pin' });
   });
 `;
@@ -237,6 +253,7 @@ export type JourneyMessage =
   | { type: 'open'; outputId: string }
   | { type: 'approve'; outputId: string }
   | { type: 'run' }
+  | { type: 'decide'; option: string | null }
   | { type: 'pin' };
 
 function journeySubjectKey(store: WorkspaceStore): string | null {
@@ -291,6 +308,7 @@ export class JourneyPanel {
         this.render();
       },
       run: () => onMessage({ type: 'run' }),
+      decide: (message) => onMessage({ type: 'decide', option: stringField(message, 'option') }),
       pin: () => onMessage({ type: 'pin' }),
       open: (message) => {
         const outputId = stringField(message, 'id');

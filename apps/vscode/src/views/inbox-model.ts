@@ -8,7 +8,7 @@
  */
 import { buildApprovals, type Approvals } from './approvals-model.ts';
 import type {
-  InitiativeOutput, RepositorySnapshot, StoryArtifact, StoryPhase, SubmissionReadiness
+  InitiativeOutput, PendingDecisionView, RepositorySnapshot, StoryArtifact, StoryPhase, SubmissionReadiness
 } from '../cli/snapshot.ts';
 import type { TreeNode } from './tree-model.ts';
 import { storyArtifactPublicationLabel } from './submission-presentation.ts';
@@ -90,6 +90,8 @@ export interface Inbox {
   activeStories: InboxStory[];
   /** Flattened phase groups retained for callers that only render the active subject. */
   groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
+  /** A workflow decision in the checked-out Story that waits for a person. */
+  decision?: (PendingDecisionView & { workId: string }) | null;
   empty: string | null;
 }
 
@@ -346,6 +348,9 @@ export function buildInbox(
     stories,
     activeStories,
     groups,
+    decision: snapshot.workflow?.pendingDecision && snapshot.decisions?.pending
+      ? { ...snapshot.decisions.pending, workId: snapshot.workflow.workItem.id }
+      : null,
     empty: subjectId || artifacts.length || approvals.pending.length || stories.length
       ? null
       : 'Nothing governed is checked out on this branch.'

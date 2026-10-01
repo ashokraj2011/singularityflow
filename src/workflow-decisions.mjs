@@ -647,9 +647,13 @@ export function storyDecisionView(workflow) {
       projection = { kind: outcome.kind, target: outcome.target ?? null, route: outcome.route ?? null, text: describeOutcome(workflow, outcome) };
     } catch { projection = null; }
   }
+  // Where a route lands, named by the phase it reaches: 'next' is a direction, not a destination.
   const reachOf = (after, to) => {
     const reach = routeReach(order, after, to);
-    return { reach: reach.kind, target: reach.target, skips: reach.skipped };
+    return {
+      reach: reach.kind, target: reach.target, skips: reach.skipped, skipLabels: reach.skipped.map(name),
+      toLabel: reach.kind === 'end' ? name(DECISION_END) : reach.target ? name(reach.target) : name(to)
+    };
   };
   const pending = workflow?.pendingDecision ?? null;
   return {
@@ -669,7 +673,7 @@ export function storyDecisionView(workflow) {
       rounds: workflow.decisionRounds?.[decision.id]?.count ?? 0,
       inputs: decision.inputs,
       routes: decision.routes.map((route) => ({
-        id: route.id, label: route.label, to: route.to, toLabel: name(route.to), when: route.when,
+        id: route.id, label: route.label, to: route.to, when: route.when,
         rule: route.when ? describeWhen(route.when, decision.inputs) : null,
         ...reachOf(decision.after, route.to)
       }))
@@ -687,7 +691,7 @@ export function storyDecisionView(workflow) {
     pending: pending ? {
       ...pending,
       afterLabel: name(pending.after),
-      options: pending.options.map((option) => ({ ...option, toLabel: name(option.to), ...reachOf(pending.after, option.to) }))
+      options: pending.options.map((option) => ({ ...option, ...reachOf(pending.after, option.to) }))
     } : null,
     skipped: order.filter((id) => workflow.phases?.[id]?.status === 'skipped').map((id) => ({
       phase: id, label: name(id), by: workflow.phases[id].skippedBy ?? null, at: workflow.phases[id].skippedAt ?? null

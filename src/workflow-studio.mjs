@@ -147,7 +147,13 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])],
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
-      reworkLoops: (type.reworkLoops ?? []).map((loop) => ({ from: loop.from, to: loop.to, maxAttempts: loop.maxAttempts })),
+      // Kept whole: a send-back rule's reset phase is part of its repair budget, and a decision is
+      // edited in the shape it is written in.
+      reworkLoops: (type.reworkLoops ?? []).map((loop) => ({
+        from: loop.from, to: loop.to, maxAttempts: loop.maxAttempts,
+        ...(loop.resetOnPhase ? { resetOnPhase: loop.resetOnPhase } : {})
+      })),
+      decisions: structuredClone(type.decisions ?? []),
       steps: (resolved?.phases ?? (type.phases ?? []).map((phaseId) => ({ id: phaseId, ...phases[phaseId] }))).map((phase) => ({
         id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase),
         agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
@@ -694,7 +700,7 @@ class StudioCandidate {
     this.summary.push(`New workflow ${name}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  updateWorkflow({ id, label, description, phases, reworkLoops }) {
+  updateWorkflow({ id, label, description, phases, reworkLoops, decisions }) {
     const workflowId = requireId(id, 'A workflow ID');
     const current = this.content.workTypes?.[workflowId];
     if (!current) throw new SingularityFlowError(`There is no workflow '${workflowId}'.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
@@ -724,11 +730,22 @@ class StudioCandidate {
       const loops = reworkLoops.map((loop) => ({
         from: this.requirePhase(requireId(loop.from, 'A loop step')),
         to: this.requirePhase(requireId(loop.to, 'A loop step')),
-        maxAttempts: Number(loop.maxAttempts ?? 3)
+        maxAttempts: Number(loop.maxAttempts ?? 3),
+        ...(loop.resetOnPhase ? { resetOnPhase: this.requirePhase(requireId(loop.resetOnPhase, 'A loop reset step')) } : {})
       }));
       if (loops.length) this.document.setIn(['workTypes', workflowId, 'reworkLoops'], this.document.createNode(loops));
       else this.document.deleteIn(['workTypes', workflowId, 'reworkLoops']);
       changed.push('send-back rules');
+    }
+    if (decisions != null) {
+      // Written as authored; the whole candidate is validated afterwards, so a rule naming a missing
+      // step or skipping one a later step reads is refused with the engine's own message.
+      if (!Array.isArray(decisions) || decisions.some((entry) => !entry || typeof entry !== 'object' || Array.isArray(entry))) {
+        throw new SingularityFlowError(`${name} decisions must be a list of decisions.`, { code: 'STUDIO_DECISIONS_INVALID' });
+      }
+      if (decisions.length) this.document.setIn(['workTypes', workflowId, 'decisions'], this.document.createNode(structuredClone(decisions)));
+      else this.document.deleteIn(['workTypes', workflowId, 'decisions']);
+      changed.push('decisions');
     }
     this.workflows.set(workflowId, { newlyCreated: this.workflows.get(workflowId)?.newlyCreated ?? false });
     if (changed.length) this.summary.push(`${name}: ${changed.join(', ')} changed.`);

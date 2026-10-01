@@ -59,7 +59,7 @@ const STUDIO_STYLE = `
 .column[aria-current=step] .agent-card{outline:2px solid var(--vscode-focusBorder)}
 .connector{height:10px;display:flex;justify-content:center}
 .connector span{width:2px;background:var(--sf-border)}
-.step-tools{display:flex;justify-content:center;gap:2px;padding-top:4px}
+.step-tools{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;padding-top:4px}
 .step-tools button{padding:3px 6px;font-size:11px}
 .lane-label{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.8}
 .add-column{border:1px dashed var(--sf-border);border-radius:10px;display:flex;flex-direction:column;gap:8px;padding:10px;min-width:170px;justify-content:center}
@@ -86,6 +86,14 @@ const STUDIO_STYLE = `
 .diff .add{color:var(--vscode-gitDecoration-addedResourceForeground,#73c991)}
 .diff .del{color:var(--vscode-gitDecoration-deletedResourceForeground,#c74e39)}
 .studio-status{min-height:1.2em;font-size:12px}
+.swatch.decide{background:var(--vscode-charts-purple,#b180d7)}
+.decide-card{text-align:left;font:inherit;color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:8px 10px;margin-top:6px;border-radius:10px;border:1px solid color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 55%,transparent);background:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 12%,transparent)}
+.decide-card[aria-pressed=true]{outline:2px solid var(--vscode-focusBorder)}
+.decide-card .lane-label{display:flex;align-items:center;gap:6px}
+.diamond{display:inline-block;width:9px;height:9px;transform:rotate(45deg);background:var(--vscode-charts-purple,#b180d7)}
+.decision-box{border:1px solid var(--sf-border);border-radius:8px;padding:8px 10px;margin:0;display:flex;flex-direction:column;gap:6px}
+.decision-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.decision-row select,.decision-row input[type=text]{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border));background:var(--vscode-input-background);color:var(--vscode-input-foreground);max-width:100%}
 @media (max-width:900px){.studio{grid-template-columns:minmax(0,1fr)}.studio-nav{border-right:0;border-bottom:1px solid var(--sf-border);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr)}.inspector{position:static}}
 `;
 
@@ -98,7 +106,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 (function () {
   'use strict';
   var vscodeApi = window.__sfVscode;
-  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '' };
+  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '' };
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -111,7 +119,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, order: [] };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
-      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), isNew: false, installFrom: null };
+      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
         draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, overridden: Boolean(step.overridden) };
@@ -184,15 +192,22 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (before.description !== workflow.description) patch.description = workflow.description;
         if (!same(before.phases, workflow.phases)) patch.phases = workflow.phases;
         if (!same(before.reworkLoops, workflow.reworkLoops)) patch.reworkLoops = workflow.reworkLoops;
+        if (!same(before.decisions, workflow.decisions || [])) patch.decisions = workflow.decisions || [];
         if (Object.keys(patch).length > 2) changes.push(patch);
       } else if (workflow.installFrom) {
         var installed = { op: 'workflow.update', id: id };
         if (workflow.label !== workflow.blueprintLabel) installed.label = workflow.label;
         if (!same(workflow.phases, workflow.blueprintPhases)) installed.phases = workflow.phases;
         if (workflow.reworkLoops.length) installed.reworkLoops = workflow.reworkLoops;
+        if ((workflow.decisions || []).length) installed.decisions = workflow.decisions;
         if (Object.keys(installed).length > 2) changes.push(installed);
       }
-      if (workflow.isNew && workflow.reworkLoops.length) changes.push({ op: 'workflow.update', id: id, reworkLoops: workflow.reworkLoops });
+      if (workflow.isNew && (workflow.reworkLoops.length || (workflow.decisions || []).length)) {
+        var follow = { op: 'workflow.update', id: id };
+        if (workflow.reworkLoops.length) follow.reworkLoops = workflow.reworkLoops;
+        if ((workflow.decisions || []).length) follow.decisions = workflow.decisions;
+        changes.push(follow);
+      }
       workflow.phases.forEach(function (phaseId) {
         var phase = draft.phases[phaseId];
         if (!phase || phase.isNew) return;
@@ -216,7 +231,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     switch (change.op) {
       case 'workflow.create': return 'New workflow ' + change.label + ': ' + change.phases.map(phaseName).join(' → ');
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
-      case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules' }[key] || key; }).join(', ') + ' changed';
+      case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions' }[key] || key; }).join(', ') + ' changed';
       case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent);
       case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
       case 'phase.agent': return phaseName(change.phase) + ' is now drafted by ' + agentName(change.agent);
@@ -228,7 +243,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }
   }
 
-  window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, describe: describe, kebab: kebab };
+  window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, describe: describe, kebab: kebab,
+    newDecision: function () { return newDecision.apply(null, arguments); }, convertDecision: function () { return convertDecision.apply(null, arguments); },
+    decisionLines: function () { return decisionLines.apply(null, arguments); }, reachOf: function () { return reachOf.apply(null, arguments); },
+    targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
+    relabelRules: function () { return relabelRules.apply(null, arguments); }, buildTest: function () { return buildTest.apply(null, arguments); } };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -329,7 +348,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     state.draft.steps[workflowId][id] = clone(stepSettings(workflowId, phaseId));
     delete state.draft.steps[workflowId][phaseId];
     workflow.phases.forEach(function (other) { var settings = state.draft.steps[workflowId][other]; if (settings) settings.inputs = settings.inputs.map(function (input) { return input === phaseId ? id : input; }); });
-    workflow.reworkLoops = workflow.reworkLoops.map(function (loop) { return { from: loop.from === phaseId ? id : loop.from, to: loop.to === phaseId ? id : loop.to, maxAttempts: loop.maxAttempts }; });
+    workflow.reworkLoops = workflow.reworkLoops.map(function (loop) {
+      var copy = { from: loop.from === phaseId ? id : loop.from, to: loop.to === phaseId ? id : loop.to, maxAttempts: loop.maxAttempts };
+      if (loop.resetOnPhase) copy.resetOnPhase = loop.resetOnPhase === phaseId ? id : loop.resetOnPhase;
+      return copy;
+    });
+    renameDecisionSteps(workflow, phaseId, id);
     state.step = id;
     setStatus('This workflow now uses its own copy of ' + source.label + '; choose its agent freely.');
     changed();
@@ -348,7 +372,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflow = state.draft.workflows[workflowId];
     if (workflow.phases.length <= 1) { setStatus('A workflow needs at least one step.'); return; }
     workflow.phases = workflow.phases.filter(function (phase) { return phase !== phaseId; });
-    workflow.reworkLoops = workflow.reworkLoops.filter(function (loop) { return loop.from !== phaseId && loop.to !== phaseId; });
+    workflow.reworkLoops = workflow.reworkLoops.filter(function (loop) { return loop.from !== phaseId && loop.to !== phaseId && loop.resetOnPhase !== phaseId; });
+    var droppedDecisions = pruneDecisions(workflow, phaseId);
+    if (droppedDecisions.length) setStatus('Removed the decision ' + droppedDecisions.join(', ') + ', which used that step.');
     if (state.draft.phases[phaseId] && state.draft.phases[phaseId].isNew && !Object.keys(state.draft.workflows).some(function (id) { return state.draft.workflows[id].phases.indexOf(phaseId) >= 0; })) delete state.draft.phases[phaseId];
     pruneInputs(workflowId);
     if (state.step === phaseId) state.step = workflow.phases[0];
@@ -466,7 +492,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function createWorkflowFromWizard(choice, id) {
     var label = state.wizard.label.trim();
-    var workflow = { id: id, label: label, description: (state.wizard.description || '').trim(), phases: choice.phases.slice(), reworkLoops: [], isNew: true, installFrom: null };
+    var workflow = { id: id, label: label, description: (state.wizard.description || '').trim(), phases: choice.phases.slice(), reworkLoops: [], decisions: [], isNew: true, installFrom: null };
     if (choice.blueprint) {
       workflow.installFrom = choice.blueprint.id;
       choice.blueprint.phases.forEach(function (phaseId) {
@@ -477,6 +503,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (id === choice.blueprint.id) { workflow.isNew = false; workflow.blueprintLabel = choice.blueprint.label; workflow.blueprintPhases = choice.blueprint.phases.slice(); }
     } else if (choice.key.indexOf('workflow:') === 0) {
       workflow.reworkLoops = clone(state.draft.workflows[choice.key.slice(9)].reworkLoops);
+      workflow.decisions = clone(state.draft.workflows[choice.key.slice(9)].decisions || []);
     }
     state.draft.workflows[id] = workflow;
     state.draft.steps[id] = {};
@@ -484,6 +511,427 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     workflow.phases.forEach(function (phaseId) { state.draft.steps[id][phaseId] = sourceSteps && sourceSteps[phaseId] ? clone(sourceSteps[phaseId]) : stepSettings(id, phaseId); });
     state.workflow = id; state.step = workflow.phases[0]; state.view = 'board';
     changed();
+  }
+
+  // ---- Decisions -----------------------------------------------------------------------------
+  //
+  // A decision is edited in the shape it is written in workflow.yml, so the change set carries it
+  // as authored and the engine validates the whole workflow: the same rules apply here and in YAML.
+
+  var DECISION_KINDS = [
+    { value: 'branch', label: 'If / else: rules choose the next step' },
+    { value: 'loop', label: 'Loop until a goal' },
+    { value: 'ask', label: 'Ask a person' }
+  ];
+
+  function decisionAfterStep(workflow, phaseId) {
+    return (workflow.decisions || []).find(function (decision) { return decision.after === phaseId; }) || null;
+  }
+  function decisionById(workflow, id) {
+    return (workflow.decisions || []).find(function (decision) { return decision.id === id; }) || null;
+  }
+  function stepLabel(id) {
+    if (id === 'end') return 'Finish the Story';
+    if (id === 'next') return 'Next step';
+    return ((state.draft && state.draft.phases[id]) || { label: id }).label;
+  }
+  function uniqueId(base, taken) {
+    var root = base || 'route'; var id = root; var count = 2;
+    while (taken.indexOf(id) >= 0) { id = root + '-' + count; count += 1; }
+    return id;
+  }
+  /** A value name the engine accepts: starts with a letter, then letters, digits and hyphens. */
+  function inputName(label, taken) {
+    var base = kebab(label) || 'value';
+    if (!/^[a-z]/.test(base)) base = 'v-' + base;
+    return uniqueId(base.slice(0, 40), taken);
+  }
+
+  /** Where a route leads from the step before the decision. */
+  function reachOf(workflow, after, to) {
+    var phases = workflow.phases; var from = phases.indexOf(after);
+    if (to === 'next') return { kind: from + 1 < phases.length ? 'next' : 'end', target: phases[from + 1] || null, skips: [] };
+    if (to === 'end') return { kind: 'end', target: null, skips: phases.slice(from + 1) };
+    var at = phases.indexOf(to);
+    if (at < 0) return { kind: 'missing', target: to, skips: [] };
+    if (at <= from) return { kind: 'back', target: to, skips: [] };
+    return { kind: at === from + 1 ? 'next' : 'forward', target: to, skips: phases.slice(from + 1, at) };
+  }
+  function targetText(workflow, after, to) {
+    var reach = reachOf(workflow, after, to);
+    if (reach.kind === 'end') return reach.skips.length ? 'Finish (skips ' + reach.skips.map(stepLabel).join(', ') + ')' : 'Finish';
+    if (reach.kind === 'back') return '↩ ' + stepLabel(reach.target);
+    if (reach.kind === 'missing') return stepLabel(reach.target) + ' (not in this workflow)';
+    return stepLabel(reach.target) + (reach.skips.length ? ' (skips ' + reach.skips.map(stepLabel).join(', ') + ')' : '');
+  }
+
+  function inputOf(decision, name) {
+    return (decision.inputs || []).find(function (input) { return input.name === name; }) || null;
+  }
+  /** One comparison in plain words, from the YAML shorthand. */
+  function testText(label, test) {
+    if (test === undefined || test === null) return label + ' is unset';
+    if (typeof test === 'string' || typeof test === 'number') return label + ' is ' + test;
+    if (Array.isArray(test)) return label + ' is ' + test.join(' or ');
+    if (test.not !== undefined) return label + ' is not ' + [].concat(test.not).join(' or ');
+    var parts = [];
+    if (test.atLeast !== undefined) parts.push('at least ' + test.atLeast);
+    if (test.above !== undefined) parts.push('above ' + test.above);
+    if (test.atMost !== undefined) parts.push('at most ' + test.atMost);
+    if (test.below !== undefined) parts.push('below ' + test.below);
+    return label + ' is ' + parts.join(' and ');
+  }
+  function whenText(decision, when) {
+    return Object.keys(when || {}).map(function (name) {
+      var input = inputOf(decision, name);
+      return testText(input ? (input.label || input.name) : name, when[name]);
+    }).join(' and ');
+  }
+
+  /** The routes of a decision in plain words, one line each, for the board and its inspector. */
+  function decisionLines(workflow, decision) {
+    if (decision.kind === 'loop') {
+      return ['↩ ' + stepLabel(decision.back) + ' until ' + whenText(decision, decision.goal) + ' (at most ' + (decision.maxRounds || 3) + ')',
+        'Then ' + targetText(workflow, decision.after, 'next')];
+    }
+    if (decision.kind === 'ask') {
+      return ['A person chooses:'].concat((decision.routes || []).map(function (route) { return route.label + ' → ' + targetText(workflow, decision.after, route.to); }));
+    }
+    return (decision.routes || []).map(function (route) {
+      return (route.when ? 'If ' + whenText(decision, route.when) : 'Otherwise') + ' → ' + targetText(workflow, decision.after, route.to);
+    });
+  }
+
+  /** A new decision after a step with sensible routes for its kind, ready to edit. */
+  function newDecision(workflow, phaseId, kind) {
+    var phases = workflow.phases; var at = phases.indexOf(phaseId);
+    var last = at === phases.length - 1;
+    var taken = (workflow.decisions || []).map(function (decision) { return decision.id; });
+    var decision = { id: uniqueId(kebab('decide-after-' + phaseId), taken), after: phaseId, kind: kind };
+    if (kind === 'loop') {
+      decision.label = 'Repeat until it is done';
+      decision.inputs = [{ name: 'done', label: 'Done', values: ['yes', 'no'] }];
+      decision.goal = { done: 'yes' };
+      decision.back = at > 0 ? phases[at - 1] : phaseId;
+      decision.maxRounds = 3;
+      return decision;
+    }
+    if (kind === 'ask') {
+      decision.label = 'What should happen next?';
+      // After the last step there is no next one: offer another round or finishing.
+      decision.routes = last
+        ? [{ id: 'again', label: 'Another round', to: phaseId }, { id: 'finish', label: 'Finish here', to: 'end' }]
+        : [{ id: 'continue', label: 'Continue', to: 'next' }, { id: 'finish', label: 'Finish here', to: 'end' }];
+      return decision;
+    }
+    decision.label = 'Which way next?';
+    decision.inputs = [{ name: 'outcome', label: 'Outcome', values: ['yes', 'no'] }];
+    decision.routes = [{ id: 'rule-1', label: 'Outcome is yes', when: { outcome: 'yes' }, to: last ? 'end' : 'next' },
+      { id: 'otherwise', label: 'Otherwise', to: phases[at + 2] ? phases[at + 2] : 'end' }];
+    return decision;
+  }
+
+  /** Change a decision's kind, keeping its name, values and who decides where they still apply. */
+  function convertDecision(workflow, decision, kind) {
+    var fresh = newDecision(workflow, decision.after, kind);
+    fresh.id = decision.id;
+    fresh.label = decision.label || fresh.label;
+    if (decision.by) fresh.by = clone(decision.by);
+    if (kind !== 'ask' && decision.inputs && decision.inputs.length) {
+      fresh.inputs = clone(kind === 'loop' ? decision.inputs.slice(0, 1) : decision.inputs);
+      var first = fresh.inputs[0];
+      var value = first.type === 'number' ? { atLeast: first.minimum !== undefined && first.minimum !== null ? first.minimum : 0 } : first.values[0];
+      var when = {}; when[first.name] = value;
+      if (kind === 'loop') fresh.goal = when;
+      else { fresh.routes[0].when = when; fresh.routes[0].label = capitalize(whenText(fresh, when)); }
+    }
+    return fresh;
+  }
+  function capitalize(text) { text = String(text || ''); return text.charAt(0).toUpperCase() + text.slice(1); }
+
+  function setDecision(workflow, decision, replacement) {
+    workflow.decisions = (workflow.decisions || []).map(function (entry) { return entry === decision ? replacement : entry; });
+    return replacement;
+  }
+  function removeDecision(workflow, decision) {
+    workflow.decisions = (workflow.decisions || []).filter(function (entry) { return entry !== decision; });
+  }
+
+  /** Keep branch rule ids and labels in step with their rules, so nothing needs naming by hand. */
+  function relabelRules(decision) {
+    if (decision.kind !== 'branch') return;
+    var last = decision.routes.length - 1;
+    decision.routes.forEach(function (route, index) {
+      if (index === last) { route.id = 'otherwise'; route.label = 'Otherwise'; delete route.when; return; }
+      route.id = 'rule-' + (index + 1);
+      route.label = capitalize(whenText(decision, route.when)).slice(0, 120) || 'Rule ' + (index + 1);
+    });
+  }
+
+  // Comparisons as the inspector offers them, and their YAML shorthand.
+  function operatorOptions(input) {
+    if (input && input.type === 'number') return [{ value: 'is', label: 'is' }, { value: 'atLeast', label: 'is at least' }, { value: 'atMost', label: 'is at most' }, { value: 'above', label: 'is above' }, { value: 'below', label: 'is below' }];
+    return [{ value: 'is', label: 'is' }, { value: 'not', label: 'is not' }];
+  }
+  function testOperator(test) {
+    if (test && typeof test === 'object' && !Array.isArray(test)) {
+      if (test.not !== undefined) return 'not';
+      return ['atLeast', 'atMost', 'above', 'below'].find(function (key) { return test[key] !== undefined; }) || 'is';
+    }
+    return 'is';
+  }
+  function testValue(test) {
+    if (test === undefined || test === null) return '';
+    if (Array.isArray(test)) return String(test[0]);
+    if (typeof test === 'object') { var key = testOperator(test); return String([].concat(key === 'not' ? test.not : test[key])[0]); }
+    return String(test);
+  }
+  function buildTest(input, operator, value) {
+    if (input.type === 'number') {
+      var number = Number(value);
+      if (!isFinite(number)) number = 0;
+      if (operator === 'is') return number;
+      var bound = {}; bound[operator] = number; return bound;
+    }
+    var choice = input.values.indexOf(value) >= 0 ? value : input.values[0];
+    return operator === 'not' ? { not: choice } : choice;
+  }
+
+  /** The three controls of one comparison: which value, how it compares, and to what. */
+  function conditionControls(decision, when, onChange, key) {
+    var name = Object.keys(when || {})[0];
+    var input = inputOf(decision, name) || (decision.inputs || [])[0];
+    if (!input) return [el('span', { class: 'muted', text: 'Add a value the step records first.' })];
+    var test = when ? when[input.name] : undefined;
+    var operator = testOperator(test); var value = testValue(test);
+    function commit(nextInput, nextOperator, nextValue) {
+      var chosen = inputOf(decision, nextInput) || input;
+      var operators = operatorOptions(chosen).map(function (option) { return option.value; });
+      var updated = {}; updated[chosen.name] = buildTest(chosen, operators.indexOf(nextOperator) >= 0 ? nextOperator : 'is', nextValue);
+      onChange(updated);
+    }
+    return [
+      select(key + '-input', (decision.inputs || []).map(function (entry) { return { value: entry.name, label: entry.label || entry.name }; }), input.name, function (next) { commit(next, operator, value); }, { 'aria-label': 'Value to check' }),
+      select(key + '-op', operatorOptions(input), operator, function (next) { commit(input.name, next, value); }, { 'aria-label': 'Comparison' }),
+      input.type === 'number'
+        ? textInput(key + '-value', value, function (next) { commit(input.name, operator, next); }, { 'aria-label': 'Number', style: 'width:72px' })
+        : select(key + '-value', input.values.map(function (choice) { return { value: choice, label: choice }; }), value, function (next) { commit(input.name, operator, next); }, { 'aria-label': 'Choice' })
+    ];
+  }
+
+  /** Where a route may go: the next step, a later one (naming what it skips), back, or the end. */
+  function targetOptions(workflow, after, current) {
+    var phases = workflow.phases; var from = phases.indexOf(after);
+    var options = [];
+    if (from + 1 < phases.length) options.push({ value: 'next', label: 'Next step: ' + stepLabel(phases[from + 1]) });
+    phases.forEach(function (id, index) {
+      if (index === from + 1) { if (current === id) options.push({ value: id, label: stepLabel(id) }); return; }
+      if (index > from) options.push({ value: id, label: stepLabel(id) + ' (skips ' + phases.slice(from + 1, index).map(stepLabel).join(', ') + ')' });
+      else options.push({ value: id, label: (index === from ? '↩ Redo ' : '↩ Back to ') + stepLabel(id) });
+    });
+    options.push({ value: 'end', label: 'Finish the Story' });
+    if (current && !options.some(function (option) { return option.value === current; })) options.push({ value: current, label: stepLabel(current) + ' (not in this workflow)' });
+    return options;
+  }
+
+  /** Rename a value and every rule that reads it, or change its choices and keep rules valid. */
+  function renameInput(decision, index, label) {
+    var input = decision.inputs[index];
+    var taken = decision.inputs.filter(function (entry, at) { return at !== index; }).map(function (entry) { return entry.name; });
+    var name = inputName(label, taken);
+    var before = input.name;
+    input.label = String(label).trim().slice(0, 120) || name;
+    input.name = name;
+    function rekey(when) { if (when && when[before] !== undefined) { when[name] = when[before]; if (name !== before) delete when[before]; } }
+    (decision.routes || []).forEach(function (route) { rekey(route.when); });
+    rekey(decision.goal);
+  }
+  function setChoices(decision, index, text) {
+    var input = decision.inputs[index];
+    var values = []; String(text || '').split(',').forEach(function (part) { var choice = part.trim(); if (choice && values.map(function (v) { return v.toLowerCase(); }).indexOf(choice.toLowerCase()) < 0) values.push(choice); });
+    if (!values.length) return false;
+    input.values = values.slice(0, 20);
+    function keep(when) { if (when && when[input.name] !== undefined) when[input.name] = buildTest(input, testOperator(when[input.name]), testValue(when[input.name])); }
+    (decision.routes || []).forEach(function (route) { keep(route.when); });
+    keep(decision.goal);
+    return true;
+  }
+  function setInputType(decision, index, type) {
+    var input = decision.inputs[index];
+    if (type === 'number') { delete input.values; input.type = 'number'; }
+    else { delete input.type; delete input.minimum; delete input.maximum; input.values = ['yes', 'no']; }
+    function reset(when) { if (when && when[input.name] !== undefined) when[input.name] = buildTest(input, 'is', type === 'number' ? '0' : input.values[0]); }
+    (decision.routes || []).forEach(function (route) { reset(route.when); });
+    reset(decision.goal);
+  }
+
+  /**
+   * The people rules, checked as the person edits so the route that would be refused is visible
+   * here: a rule may send work back, or skip a step people sign off, only after a step people
+   * sign off. The engine applies the same rules when the change is checked.
+   */
+  function decisionWarnings(workflowId, workflow, decision) {
+    var warnings = [];
+    var signed = Boolean(stepSettings(workflowId, decision.after).approval.group);
+    var routes = decision.kind === 'loop' ? [{ to: decision.back }, { to: 'next' }] : (decision.routes || []);
+    var reaches = routes.map(function (route) { return reachOf(workflow, decision.after, route.to); });
+    var goesBack = reaches.some(function (reach) { return reach.kind === 'back'; });
+    if (decision.kind !== 'ask' && !signed) {
+      if (goesBack) warnings.push('A rule can send work back only after a step people sign off. Give ' + stepLabel(decision.after) + ' a sign-off, or make this an Ask a person decision.');
+      var gated = [];
+      reaches.forEach(function (reach) { reach.skips.forEach(function (id) { if (stepSettings(workflowId, id).approval.group && gated.indexOf(id) < 0) gated.push(id); }); });
+      if (gated.length) warnings.push('A rule can skip ' + gated.map(stepLabel).join(', ') + ', which people sign off, only after a step people sign off. Give ' + stepLabel(decision.after) + ' a sign-off, or make this an Ask a person decision.');
+    }
+    if ((decision.kind === 'ask' || goesBack) && !signed && !decision.by) warnings.push('Choose who decides: ' + stepLabel(decision.after) + ' has no sign-off to take people from.');
+    reaches.forEach(function (reach) { if (reach.kind === 'missing') warnings.push(stepLabel(reach.target) + ' is not in this workflow any more; choose another step.'); });
+    return warnings;
+  }
+
+  /** Drop or re-aim decisions that name a step the workflow no longer has. */
+  function pruneDecisions(workflow, removedId) {
+    var dropped = [];
+    workflow.decisions = (workflow.decisions || []).filter(function (decision) {
+      var uses = decision.after === removedId || decision.back === removedId
+        || (decision.routes || []).some(function (route) { return route.to === removedId; });
+      if (uses && decision.after !== removedId && decision.kind !== 'loop') {
+        decision.routes.forEach(function (route) { if (route.to === removedId) route.to = 'next'; });
+        return true;
+      }
+      if (uses) dropped.push(decision.label);
+      return !uses;
+    });
+    return dropped;
+  }
+
+  function renameDecisionSteps(workflow, from, to) {
+    (workflow.decisions || []).forEach(function (decision) {
+      if (decision.after === from) decision.after = to;
+      if (decision.back === from) decision.back = to;
+      (decision.routes || []).forEach(function (route) { if (route.to === from) route.to = to; });
+    });
+  }
+
+  function decisionCard(workflow, phaseId) {
+    var decision = decisionAfterStep(workflow, phaseId);
+    if (!decision) return null;
+    return el('button', { type: 'button', class: 'decide-card', 'aria-pressed': state.decision === decision.id ? 'true' : 'false', onclick: function () { state.step = phaseId; state.decision = decision.id; render(); } },
+      el('span', { class: 'lane-label' }, el('span', { class: 'diamond', 'aria-hidden': 'true' }), 'THEN DECIDE'),
+      el('strong', { text: decision.label }),
+      decisionLines(workflow, decision).map(function (line) { return el('span', { class: 'muted', text: line }); }));
+  }
+
+  function inputsEditor(decision) {
+    var box = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'What ' + stepLabel(decision.after) + ' records' }));
+    (decision.inputs || []).forEach(function (input, index) {
+      box.appendChild(el('div', { class: 'decision-row' },
+        textInput('dec-input-name-' + index, input.label || input.name, function (value) { if (value.trim()) { renameInput(decision, index, value); relabelRules(decision); changed(); } }, { 'aria-label': 'Name of the value', style: 'width:120px' }),
+        select('dec-input-type-' + index, [{ value: 'choice', label: 'one of' }, { value: 'number', label: 'a number' }], input.type === 'number' ? 'number' : 'choice', function (value) { setInputType(decision, index, value); relabelRules(decision); changed(); }, { 'aria-label': 'Kind of value' }),
+        input.type === 'number' ? null : textInput('dec-input-values-' + index, (input.values || []).join(', '), function (value) { if (setChoices(decision, index, value)) { relabelRules(decision); changed(); } else setStatus('List at least one choice, separated by commas.'); }, { 'aria-label': 'Choices separated by commas', placeholder: 'low, medium, high' }),
+        decision.kind === 'branch' && decision.inputs.length > 1 ? button('Remove', function () {
+          var name = input.name;
+          decision.inputs.splice(index, 1);
+          decision.routes.forEach(function (route) { if (route.when && route.when[name] !== undefined) { route.when = {}; route.when[decision.inputs[0].name] = buildTest(decision.inputs[0], 'is', ''); } });
+          relabelRules(decision); changed();
+        }, { class: 'secondary', 'aria-label': 'Remove ' + (input.label || input.name) }) : null));
+    });
+    if (decision.kind === 'branch' && decision.inputs.length < 10) {
+      box.appendChild(button('Add a value', function () {
+        var taken = decision.inputs.map(function (entry) { return entry.name; });
+        decision.inputs.push({ name: inputName('value', taken), label: 'Value ' + (decision.inputs.length + 1), values: ['yes', 'no'] });
+        changed();
+      }, { class: 'secondary' }));
+    }
+    box.appendChild(el('span', { class: 'hint', text: 'The agent records these when it submits the step, and the person who signs it off sees them.' }));
+    return box;
+  }
+
+  function renderDecisionInspector(workflowId, decision) {
+    var workflow = state.draft.workflows[workflowId];
+    var aside = el('aside', { class: 'inspector', 'aria-label': 'Decision settings' });
+    aside.appendChild(el('div', null, el('div', { class: 'lane-label', text: 'DECISION AFTER ' + stepLabel(decision.after).toUpperCase() }), el('h2', { text: decision.label })));
+    aside.appendChild(field('dec-name', 'Question', textInput('dec-name', decision.label, function (value) { if (value.trim()) { decision.label = value.trim().slice(0, 120); changed(); } })));
+    aside.appendChild(field('dec-kind', 'Kind', select('dec-kind', DECISION_KINDS, decision.kind, function (value) {
+      var converted = setDecision(workflow, decision, convertDecision(workflow, decision, value));
+      relabelRules(converted); state.decision = converted.id; changed();
+    }), decision.kind === 'branch' ? 'Rules read values the step records and choose the next step; the last one takes everything else.'
+      : decision.kind === 'loop' ? 'Goes back until the goal is met. When the rounds are used up, a person chooses.'
+        : 'The Story waits, and someone you choose picks one of the options.'));
+    if (decision.kind !== 'ask') aside.appendChild(inputsEditor(decision));
+    if (decision.kind === 'branch') {
+      var rules = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Rules, checked in order' }));
+      decision.routes.slice(0, -1).forEach(function (route, index) {
+        rules.appendChild(el('div', { class: 'decision-row' },
+          el('span', { class: 'muted', text: index === 0 ? 'If' : 'Else if' }),
+          conditionControls(decision, route.when, function (when) { route.when = when; relabelRules(decision); changed(); }, 'dec-rule-' + index),
+          el('span', { class: 'muted', text: 'go to' }),
+          select('dec-rule-' + index + '-to', targetOptions(workflow, decision.after, route.to), route.to, function (value) { route.to = value; changed(); }, { 'aria-label': 'Next step when this rule holds' }),
+          decision.routes.length > 2 ? button('Remove', function () { decision.routes.splice(index, 1); relabelRules(decision); changed(); }, { class: 'secondary', 'aria-label': 'Remove this rule' }) : null));
+      });
+      if (decision.routes.length < 10) {
+        rules.appendChild(button('Add a rule', function () {
+          var first = decision.inputs[0]; var when = {}; when[first.name] = buildTest(first, 'is', first.type === 'number' ? '0' : first.values[first.values.length - 1]);
+          decision.routes.splice(decision.routes.length - 1, 0, { id: 'rule', label: 'Rule', when: when, to: 'next' });
+          relabelRules(decision); changed();
+        }, { class: 'secondary' }));
+      }
+      var otherwise = decision.routes[decision.routes.length - 1];
+      rules.appendChild(el('div', { class: 'decision-row' }, el('span', { class: 'muted', text: 'Otherwise go to' }),
+        select('dec-otherwise', targetOptions(workflow, decision.after, otherwise.to), otherwise.to, function (value) { otherwise.to = value; changed(); }, { 'aria-label': 'Next step otherwise' })));
+      aside.appendChild(rules);
+    }
+    if (decision.kind === 'loop') {
+      var phases = workflow.phases; var from = phases.indexOf(decision.after);
+      aside.appendChild(el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Goal' }),
+        el('div', { class: 'decision-row' }, el('span', { class: 'muted', text: 'Until' }),
+          conditionControls(decision, decision.goal, function (when) { decision.goal = when; changed(); }, 'dec-goal'))));
+      aside.appendChild(el('div', { class: 'grid-2' },
+        field('dec-back', 'Otherwise go back to', select('dec-back', phases.slice(0, Math.max(0, from) + 1).map(function (id) { return { value: id, label: id === decision.after ? 'Redo ' + stepLabel(id) : stepLabel(id) }; }), decision.back, function (value) { decision.back = value; changed(); })),
+        field('dec-rounds', 'At most', select('dec-rounds', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (count) { return { value: String(count), label: count + (count === 1 ? ' round' : ' rounds') }; }), String(decision.maxRounds || 3), function (value) { decision.maxRounds = Number(value); changed(); }))));
+    }
+    if (decision.kind === 'ask') {
+      var options = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Options the person chooses from' }));
+      decision.routes.forEach(function (route, index) {
+        options.appendChild(el('div', { class: 'decision-row' },
+          textInput('dec-option-' + index, route.label, function (value) {
+            if (!value.trim()) return;
+            route.label = value.trim().slice(0, 120);
+            route.id = uniqueId(kebab(value) || 'option', decision.routes.filter(function (other) { return other !== route; }).map(function (other) { return other.id; }));
+            changed();
+          }, { 'aria-label': 'Option name', style: 'width:140px' }),
+          el('span', { class: 'muted', text: 'goes to' }),
+          select('dec-option-' + index + '-to', targetOptions(workflow, decision.after, route.to), route.to, function (value) { route.to = value; changed(); }, { 'aria-label': 'Where this option goes' }),
+          decision.routes.length > 2 ? button('Remove', function () { decision.routes.splice(index, 1); changed(); }, { class: 'secondary', 'aria-label': 'Remove ' + route.label }) : null));
+      });
+      if (decision.routes.length < 10) {
+        options.appendChild(button('Add an option', function () {
+          var taken = decision.routes.map(function (route) { return route.id; });
+          decision.routes.push({ id: uniqueId('option', taken), label: 'Option ' + (decision.routes.length + 1), to: 'next' });
+          changed();
+        }, { class: 'secondary' }));
+      }
+      options.appendChild(el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' },
+        el('input', { type: 'checkbox', 'data-key': 'dec-any-step', checked: decision.anyStep === true, onchange: function (event) { if (event.target.checked) decision.anyStep = true; else delete decision.anyStep; changed(); } }),
+        'They may also pick any other step'));
+      aside.appendChild(options);
+    }
+    var goesBack = decision.kind === 'loop' || (decision.routes || []).some(function (route) { return reachOf(workflow, decision.after, route.to).kind === 'back'; });
+    if (decision.kind === 'branch' && goesBack) {
+      aside.appendChild(field('dec-branch-rounds', 'Going back at most', select('dec-branch-rounds', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (count) { return { value: String(count), label: count + (count === 1 ? ' time' : ' times') }; }), String(decision.maxRounds || 3), function (value) { decision.maxRounds = Number(value); changed(); }), 'Then a person chooses.'));
+    } else if (decision.kind === 'branch' && decision.maxRounds) {
+      delete decision.maxRounds;
+    }
+    if (decision.kind === 'ask' || goesBack) {
+      var by = decision.by ? [].concat(decision.by)[0] : '';
+      var owner = stepSettings(workflowId, decision.after).approval.group;
+      aside.appendChild(field('dec-by', decision.kind === 'ask' ? 'Who chooses' : 'Who chooses when the rounds are used up',
+        select('dec-by', [{ value: '', label: owner ? 'Whoever signs off ' + stepLabel(decision.after) : 'Choose a group…' }].concat(Object.keys(state.draft.groups).map(function (id) { return { value: id, label: state.draft.groups[id].label }; })), by, function (value) { if (value) decision.by = [value]; else delete decision.by; changed(); })));
+    }
+    decisionWarnings(workflowId, workflow, decision).forEach(function (warning) { aside.appendChild(el('div', { class: 'callout bad', text: warning })); });
+    aside.appendChild(el('div', { class: 'callout' }, decisionLines(workflow, decision).map(function (line) { return el('div', { text: line }); })));
+    aside.appendChild(el('div', { class: 'studio-row' },
+      button('Back to the step', function () { state.decision = null; render(); }, { class: 'secondary' }),
+      button('Remove decision', function () { removeDecision(workflow, decision); state.decision = null; changed(); }, { class: 'secondary' })));
+    return aside;
   }
 
   function renderBoard(main) {
@@ -504,7 +952,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       field('board-description', 'What it is for', textInput('board-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); }))));
     var board = el('div', { class: 'board' });
     var left = el('div', { style: 'display:flex;flex-direction:column;gap:12px;min-width:0' });
-    left.appendChild(el('div', { class: 'lanes-legend' }, el('span', null, el('span', { class: 'swatch agent' }), 'Agent drafts'), el('span', null, el('span', { class: 'swatch people' }), 'People sign off'), el('span', { class: 'muted', text: 'Select a step to edit it. Drag a step, or use the arrows, to reorder.' })));
+    left.appendChild(el('div', { class: 'lanes-legend' }, el('span', null, el('span', { class: 'swatch agent' }), 'Agent drafts'), el('span', null, el('span', { class: 'swatch people' }), 'People sign off'), el('span', null, el('span', { class: 'swatch decide' }), 'Decides what comes next'), el('span', { class: 'muted', text: 'Select a step to edit it. Drag a step, or use the arrows, to reorder.' })));
     var lanes = el('div', { class: 'lanes', role: 'list', 'aria-label': 'Steps of ' + workflow.label });
     phases.forEach(function (phaseId, index) {
       var phase = state.draft.phases[phaseId] || { label: phaseId, output: 'document' };
@@ -518,19 +966,26 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         ondragover: function (event) { event.preventDefault(); column.classList.add('drop-target'); },
         ondragleave: function () { column.classList.remove('drop-target'); },
         ondrop: function (event) { event.preventDefault(); column.classList.remove('drop-target'); var moved = event.dataTransfer.getData('text/plain'); var from = phases.indexOf(moved); if (from >= 0 && from !== index) moveStep(workflowId, moved, index - from); } },
-        el('button', { type: 'button', class: 'agent-card', 'aria-pressed': state.step === phaseId ? 'true' : 'false', onclick: function () { state.step = phaseId; render(); } },
+        el('button', { type: 'button', class: 'agent-card', 'aria-pressed': state.step === phaseId ? 'true' : 'false', onclick: function () { state.step = phaseId; state.decision = null; render(); } },
           el('span', { class: 'lane-label', text: 'STEP ' + (index + 1) }),
           el('strong', { text: phase.label }),
           el('span', { class: 'studio-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: agent ? initials(agent.label) : '?' }),
             el('span', null, el('div', { text: agent ? agent.label : 'Choose an agent' }), el('div', { class: 'muted', text: ({ document: 'Writes a document', analysis: 'Writes an analysis', code: 'Changes code', none: 'Sign-off only' })[stepOutput(workflowId, phaseId)] || '' }))),
           phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null),
         el('div', { class: 'connector', 'aria-hidden': 'true' }, el('span')),
-        el('button', { type: 'button', class: 'sign-card' + (blockedGroup ? ' blocked' : ''), onclick: function () { state.step = phaseId; render(); } },
+        el('button', { type: 'button', class: 'sign-card' + (blockedGroup ? ' blocked' : ''), onclick: function () { state.step = phaseId; state.decision = null; render(); } },
           el('span', { class: 'lane-label', text: 'SIGN-OFF' }),
           el('span', { text: group ? group.label : 'No sign-off' }),
           el('span', { class: 'muted', text: !group ? 'Goes straight to the next step' : blockedGroup ? 'Nobody can approve yet'
             : group.members.length ? settings.approval.minimum + ' of ' + group.members.length + ' must approve' : groupHint(group).replace(/^./, function (first) { return first.toUpperCase(); }) })),
+        decisionCard(workflow, phaseId),
         el('div', { class: 'step-tools' },
+          decisionAfterStep(workflow, phaseId) ? null : button('Decide', function () {
+            // After the last step the useful question is 'another round or finish?', which a person answers.
+            var decision = newDecision(workflow, phaseId, index === phases.length - 1 ? 'ask' : 'branch');
+            workflow.decisions = (workflow.decisions || []).concat([decision]);
+            state.step = phaseId; state.decision = decision.id; changed();
+          }, { class: 'secondary', 'aria-label': 'Add a decision after ' + phase.label, title: 'Decide what happens after this step' }),
           button('Earlier', function () { moveStep(workflowId, phaseId, -1); }, { class: 'secondary', 'aria-label': 'Move ' + phase.label + ' earlier', title: 'Move earlier', disabled: index === 0 }),
           button('Later', function () { moveStep(workflowId, phaseId, 1); }, { class: 'secondary', 'aria-label': 'Move ' + phase.label + ' later', title: 'Move later', disabled: index === phases.length - 1 }),
           button('Remove', function () { removeStep(workflowId, phaseId); }, { class: 'secondary', 'aria-label': 'Remove ' + phase.label + ' from this workflow', title: 'Remove from this workflow' })));
@@ -553,7 +1008,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       left.appendChild(el('div', { class: 'callout' }, loops.map(function (loop) { return el('div', { text: 'If ' + (state.draft.phases[loop.from] || { label: loop.from }).label + ' is rejected it goes back to ' + (state.draft.phases[loop.to] || { label: loop.to }).label + ', at most ' + loop.maxAttempts + ' times.' }); })));
     }
     board.appendChild(left);
-    board.appendChild(renderInspector(workflowId, state.step));
+    var selectedDecision = state.decision ? decisionById(workflow, state.decision) : null;
+    if (!selectedDecision) state.decision = null;
+    board.appendChild(selectedDecision ? renderDecisionInspector(workflowId, selectedDecision) : renderInspector(workflowId, state.step));
     main.appendChild(board);
   }
 
@@ -596,11 +1053,27 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       aside.appendChild(el('div', { class: 'callout bad' }, 'Nobody is in this group, so this step could never be approved. ', button('Add people', function () { state.view = 'people'; render(); }, { class: 'secondary' })));
     }
     var loop = workflow.reworkLoops.find(function (entry) { return entry.from === phaseId; });
+    var loopCount = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; }).length;
     aside.appendChild(field('step-back', 'If rejected, send back to', select('step-back', [{ value: '', label: 'This step (redo it)' }].concat(earlier.map(function (id) { return { value: id, label: (state.draft.phases[id] || { label: id }).label }; })), loop ? loop.to : '', function (value) {
       workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry.from !== phaseId; });
-      if (value) workflow.reworkLoops.push({ from: phaseId, to: value, maxAttempts: 3 });
+      if (value) {
+        var kept = { from: phaseId, to: value, maxAttempts: loop ? loop.maxAttempts : 3 };
+        if (loop && loop.resetOnPhase && workflow.phases.indexOf(loop.resetOnPhase) < workflow.phases.indexOf(value)) kept.resetOnPhase = loop.resetOnPhase;
+        workflow.reworkLoops.push(kept);
+      }
       changed();
-    }, { disabled: !settings.approval.group || !earlier.length }), !settings.approval.group ? 'Only a step with a sign-off can send work back.' : 'Sending work back repeats the steps in between, at most 3 times.'));
+    }, { disabled: !settings.approval.group || !earlier.length || loopCount > 1 }), loopCount > 1 ? 'This step has ' + loopCount + ' send-back rules; change them in the Workflow Designer.'
+      : !settings.approval.group ? 'Only a step with a sign-off can send work back.'
+        : 'Sending work back repeats the steps in between, at most ' + (loop ? loop.maxAttempts : 3) + ' times' + (loop && loop.resetOnPhase ? ', counted again after ' + stepLabel(loop.resetOnPhase) + ' runs again' : '') + '.'));
+    var after = decisionAfterStep(workflow, phaseId);
+    aside.appendChild(field('step-decision', 'After this step', after
+      ? button(after.label + ' →', function () { state.decision = after.id; render(); }, { class: 'secondary', id: 'step-decision', 'aria-label': 'Open the decision ' + after.label })
+      : select('step-decision', [{ value: '', label: 'Go to the next step' }].concat(DECISION_KINDS), '', function (value) {
+        if (!value) return;
+        var created = newDecision(workflow, phaseId, value);
+        workflow.decisions = (workflow.decisions || []).concat([created]);
+        state.decision = created.id; changed();
+      }), after ? 'A decision chooses what happens after ' + phase.label + '.' : 'Add a decision to branch, loop until a goal, or let a person choose.'));
     var more = el('details', null, el('summary', { text: 'More settings' }));
     var views = (state.model.choices.views || []);
     if (views.length) {

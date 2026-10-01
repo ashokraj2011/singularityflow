@@ -7,6 +7,7 @@ import { buildApprovals, type PendingApproval } from './approvals-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
+import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -34,10 +35,23 @@ function artifactRows(inbox: Inbox): string {
     </section>`).join('');
 }
 
+function workflowDecisionCard(inbox: Inbox): string {
+  const pending = inbox.decision;
+  if (!pending) return '';
+  return `
+    <article class="decision-card">
+      <div><span class="eyebrow">decision</span><h3>${escape(pending.label)}</h3></div>
+      <p class="muted">${escape(pending.workId)} · after ${escape(pending.afterLabel ?? pending.after)}${pending.reason === 'limit' ? ` · all ${escape(String(pending.maxRounds ?? ''))} rounds are used` : ''}</p>
+      <ul class="muted">${pending.options.map((option) => `<li>${escape(option.label)} → ${escape(decisionTargetText(option))}</li>`).join('')}</ul>
+      <div class="card-foot"><button data-decide="${escape(pending.workId)}">Choose what happens next</button></div>
+    </article>`;
+}
+
 function decisionCards(inbox: Inbox): string {
   const decisions = inbox.approvals.pending.filter((approval) => approval.standing === 'yours');
-  if (!decisions.length) return `<p class="ok-text">${icon('ok')}Nothing is waiting for your decision.</p>`;
-  return `<div class="decision-cards">${decisions.map((approval) => `
+  const waiting = workflowDecisionCard(inbox);
+  if (!decisions.length && !waiting) return `<p class="ok-text">${icon('ok')}Nothing is waiting for your decision.</p>`;
+  return `<div class="decision-cards">${waiting}${decisions.map((approval) => `
     <article class="decision-card">
       <div><span class="eyebrow">${escape(approval.kind)}</span><h3>${escape(approval.label)}</h3></div>
       <p class="muted">${escape(approval.detail)}</p>
@@ -115,7 +129,7 @@ export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshin
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-refresh-stories],[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval]');
+    const target = event.target.closest('[data-refresh-stories],[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide]');
     if (!target) return;
     if (target.hasAttribute('data-refresh-stories')) vscode.postMessage({ type: 'refresh-stories' });
     else if (target.dataset.story) vscode.postMessage({
@@ -125,6 +139,7 @@ const SCRIPT = `
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
     else if (target.dataset.openApproval) vscode.postMessage({ type: 'open-approval', id: target.dataset.openApproval });
+    else if (target.dataset.decide) vscode.postMessage({ type: 'decide', id: target.dataset.decide });
   });
 `;
 
@@ -134,7 +149,8 @@ export type InboxMessage =
   | { type: 'open-artifact'; artifact: InboxArtifact }
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
-  | { type: 'open-approval'; approval: PendingApproval };
+  | { type: 'open-approval'; approval: PendingApproval }
+  | { type: 'decide'; workId: string };
 
 export class InboxPanel {
   private static current: InboxPanel | null = null;
@@ -215,7 +231,11 @@ export class InboxPanel {
       },
       approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
-      'open-approval': (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open-approval', approval }); }
+      'open-approval': (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open-approval', approval }); },
+      decide: (message) => {
+        const workId = stringField(message, 'id');
+        if (workId && this.currentInbox().decision?.workId === workId) onMessage({ type: 'decide', workId });
+      }
     });
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through

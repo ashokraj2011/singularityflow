@@ -424,6 +424,11 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "singularityFlow.decideStory",
+        "title": "Singularity Flow: Choose What Happens Next",
+        "icon": "$(git-compare)"
+      },
+      {
         "command": "singularityFlow.openDesigner",
         "title": "Singularity Flow: Workflow Designer",
         "icon": "$(symbol-structure)"

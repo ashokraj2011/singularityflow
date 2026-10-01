@@ -54,6 +54,8 @@ export interface PendingApproval {
   /** Exact submitted packet and source revision this decision is bound to. */
   reviewPacketSha256?: string | null;
   submittedSourceCommit?: string | null;
+  /** What approving does when a workflow decision follows the phase, in the engine's words. */
+  afterApproval?: string | null;
 }
 
 export interface Approvals {
@@ -192,6 +194,19 @@ function identityOf(value: unknown): string {
 }
 
 /** The checked-out Story's exact phase decision, derived from workflow.json rather than Initiative state. */
+/**
+ * What approving this phase does under the decision that follows it, so the approver sees the route
+ * before they approve: the engine's projection from the recorded values, or that a person chooses.
+ */
+function afterApprovalText(snapshot: RepositorySnapshot, workflow: StoryWorkflow, phaseId: string): string | null {
+  const ahead = snapshot.decisions?.ahead;
+  if (!ahead || ahead.after !== phaseId || workflow.currentPhase !== phaseId) return null;
+  if (ahead.projection?.text) return ahead.projection.text;
+  return ahead.mode === 'ask'
+    ? `A person then chooses what happens next ('${ahead.label}').`
+    : `'${ahead.label}' then chooses the next step from the recorded values.`;
+}
+
 function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow): Approvals {
   const actor = lower(snapshot.identities?.git?.email) || null;
   const phaseId = workflow.currentPhase;
@@ -259,7 +274,8 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       artifactPath: artifact,
       workId: workflow.workItem.id,
       reviewPacketSha256: packet,
-      submittedSourceCommit: sourceCommit
+      submittedSourceCommit: sourceCommit,
+      afterApproval: afterApprovalText(snapshot, workflow, phase.id)
     }],
     obstacles: [],
     empty: null

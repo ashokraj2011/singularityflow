@@ -61,8 +61,65 @@ export interface CapabilityNode {
 }
 
 export type PhaseStatus =
-  | 'not_started' | 'in_progress' | 'awaiting_approval' | 'approved' | 'rejected' | 'stale'
+  | 'not_started' | 'in_progress' | 'awaiting_approval' | 'approved' | 'skipped' | 'rejected' | 'stale'
   | (string & {});
+
+/** One value a phase records for the decision after it: one of its choices, or a number. */
+export interface DecisionInputSpec {
+  name: string;
+  label?: string;
+  type: 'choice' | 'number' | (string & {});
+  values?: string[];
+  minimum?: number | null;
+  maximum?: number | null;
+  decision?: string;
+  decisionLabel?: string;
+}
+
+export interface DecisionOptionView {
+  id: string;
+  label: string;
+  to: string;
+  toLabel?: string;
+  reach?: 'next' | 'forward' | 'backward' | 'end' | (string & {});
+  skips?: string[];
+  /** The skipped phases by name, in order. */
+  skipLabels?: string[];
+}
+
+/** A workflow decision waiting for a person, bound to its exact question by `key`. */
+export interface PendingDecisionView {
+  key: string;
+  decision: string;
+  label: string;
+  reason: 'ask' | 'limit' | (string & {});
+  after: string;
+  afterLabel?: string;
+  by: string[];
+  anyStep?: boolean;
+  round?: number | null;
+  maxRounds?: number | null;
+  options: DecisionOptionView[];
+}
+
+/** The engine's view of a Story's decisions (`decision show --json`). */
+export interface StoryDecisionView {
+  schemaVersion?: number;
+  workId?: string | null;
+  decisions: Array<{
+    id: string; after: string; afterLabel?: string; kind: string; label: string; mode?: string;
+    maxRounds?: number | null; rounds?: number;
+    routes: Array<{ id: string; label: string; to: string; toLabel?: string; rule?: string | null; reach?: string; skips?: string[] }>;
+  }>;
+  ahead: {
+    decision: string; label: string; mode: string; after: string; inputs: DecisionInputSpec[];
+    recorded?: Record<string, string | number> | null; hint?: string | null;
+    projection?: { kind: string; target: string | null; route?: string | null; text: string } | null;
+  } | null;
+  pending: PendingDecisionView | null;
+  skipped: Array<{ phase: string; label: string; by?: { decision: string; route: string | null } | null; at?: string | null }>;
+  log?: Array<Record<string, unknown>>;
+}
 
 /** `not_generated` before a phase runs, `published` once it has, `approved` once it is signed off. */
 export type OutputStatus =
@@ -293,6 +350,8 @@ export interface StoryPhase {
   label: string;
   status: PhaseStatus;
   generation: number;
+  skippedBy?: { decision: string; route: string | null } | null;
+  decisionInputs?: { decision: string; values: Record<string, string | number> } | null;
   submittedAt?: string | null;
   generatedBy?: { name?: string; email?: string; login?: string } | null;
   requiredArtifact?: { path: string } | null;
@@ -312,6 +371,8 @@ export interface StoryWorkflow {
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;
   status?: string;
+  /** A workflow decision waiting for a person; the phase it follows is approved and current. */
+  pendingDecision?: (Omit<PendingDecisionView, 'options'> & { options: Array<{ id: string; label: string; to: string }> }) | null;
   cancellation?: {
     status: 'cancelled';
     phase: string;
@@ -330,6 +391,7 @@ export interface StoryWorkflow {
     requestedAt: string;
     requestedBy?: { name?: string; email?: string; login?: string } | null;
     resolvedAt?: string | null;
+    decision?: { id: string; route?: string | null; round?: number | null; maxRounds?: number | null } | null;
     forwardCheckpoint?: {
       id: string;
       sourceCommit: string;
@@ -381,6 +443,10 @@ export interface SubmissionReadiness {
   nextCommand: string | null;
   classification?: string;
   reasonCode?: string;
+  /** The waiting decision, when `classification` is `decision-required`. */
+  decision?: PendingDecisionView;
+  /** Values the decision after this phase reads; a host asks for them before submitting. */
+  decisionInputs?: DecisionInputSpec[];
 }
 
 export interface StoryModelUsage {
@@ -682,6 +748,7 @@ export interface RepositorySnapshot {
   }>;
   /** Explicit submit/generate routing for the selected Story phase. Absent means fail closed. */
   submissionReadiness?: SubmissionReadiness | null;
+  decisions?: StoryDecisionView | null;
   architectureIntent?: {
     workId: string; enabled: boolean; present: boolean;
     status: 'disabled' | 'absent' | 'invalid' | 'candidate' | 'approved';

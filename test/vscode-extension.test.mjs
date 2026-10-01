@@ -2529,7 +2529,8 @@ test('the journey fails closed when a serialized action is unsafe or contradicts
 test('the Work Journey host executes only the action retained by the validated view model', async () => {
   const extensionSource = await readFile(source('extension.ts'), 'utf8');
   assert.match(extensionSource,
-    /const journey = buildJourney\(store\.current\.snapshot\);[\s\S]{0,900}command: \[\.\.\.journey\.nextAction\.argv\]/,
+    // The validated argv, with any decision values the person chose filled into its placeholders.
+    /const journey = buildJourney\(store\.current\.snapshot\);[\s\S]{0,1400}command: submitArgvWithDecisionValues\(journey\.nextAction\.argv, decisionValues\)/,
     'the click path must not re-read an unvalidated raw initiative next action');
   assert.doesNotMatch(extensionSource,
     /const next = store\.current\.snapshot\?\.initiative\?\.nextActions\?\.\[0\]/);

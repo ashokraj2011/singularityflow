@@ -10,7 +10,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument } from './document-storage.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
-import { extractSourceText, isTextualSource } from './source-text.mjs';
+import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 
@@ -171,12 +171,15 @@ async function storySources(root, config, workflow, phaseId) {
       continue;
     }
     let text;
-    if (isTextualSource(document.mimeType, relative)) text = utf8(file.bytes, `Attachment '${document.id}'`);
+    // An older record whose stored name lost its extension is typed from its original name.
+    const mime = effectiveDocumentMimeType(document);
+    const typedName = path.extname(relative) ? relative : (document.sourceName ?? relative);
+    if (isTextualSource(mime, typedName)) text = utf8(file.bytes, `Attachment '${document.id}'`);
     else {
-      const extracted = extractSourceText(file.bytes, document.mimeType);
+      const extracted = extractSourceText(file.bytes, mime);
       if (extracted.status !== 'extracted') {
         unreadable.push({ id: document.id, name, code: 'no-text-layer', originalSha256: file.sha256,
-          reason: `${document.mimeType ?? 'its type'} has no text a reviewer can cite (${extracted.reason})` });
+          reason: `${mime ?? 'its type'} has no text a reviewer can cite (${extracted.reason})` });
         continue;
       }
       text = extracted.text;

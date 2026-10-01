@@ -173,10 +173,10 @@ export const SECRET_RULES = Object.freeze([
  * is. Images and Office formats with no recoverable text are binary like a PDF; they used to be
  * refused as "not valid UTF-8", which made every such Story document impossible to upload.
  */
-const SKIP_PATH = /(?:^|\/)(?:node_modules|\.git)\/|\.(?:png|jpg|jpeg|gif|ico|pdf|zip|gz|tgz|woff2?|ttf|eot|mp4|mov|vsix|webp|bmp|tiff?|heic|fig|pptx|doc|xls|ppt)$|(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i;
+const SKIP_PATH = /(?:^|\/)(?:node_modules|\.git)\/|\.(?:png|jpg|jpeg|gif|ico|pdf|zip|gz|tgz|woff2?|ttf|eot|mp4|mov|vsix|webp|bmp|tiff?|heic|fig|doc|xls|ppt)$|(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i;
 
 /** Office documents scanned through their extracted text, which is what reaches prompts. */
-const EXTRACTED_TEXT_PATH = /\.(?:docx|xlsx)$/i;
+const EXTRACTED_TEXT_PATH = /\.(?:docx|xlsx|pptx)$/i;
 
 export function scannablePath(filePath) {
   return !SKIP_PATH.test(String(filePath ?? ''));

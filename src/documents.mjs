@@ -14,7 +14,8 @@ import {
 } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
 import {
-  SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_RENDITION_SUFFIX, TEXT_SOURCE_EXTENSIONS, extractSourceText, hasTextExtractor
+  SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_RENDITION_SUFFIX, TEXT_SOURCE_EXTENSIONS, documentMimeType as mimeTypeForName,
+  effectiveDocumentMimeType, extractSourceText, hasTextExtractor
 } from './source-text.mjs';
 import {
   isLocalDocument, localDocumentAvailability, readLocalDocument, resolveDocumentStorage, storeLocalDocument
@@ -33,27 +34,6 @@ export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
 
 // One list for prompts and source review, so a format shown to a phase as text can also be cited.
 const TEXT_EXTENSIONS = TEXT_SOURCE_EXTENSIONS;
-const MIME_TYPES = {
-  '.c': 'text/x-c', '.cc': 'text/x-c++', '.cpp': 'text/x-c++', '.cs': 'text/x-csharp', '.css': 'text/css', '.csv': 'text/csv',
-  '.dart': 'text/x-dart', '.fig': 'application/x-figma', '.gif': 'image/gif', '.go': 'text/x-go', '.gradle': 'text/x-gradle',
-  '.groovy': 'text/x-groovy', '.h': 'text/x-c', '.hpp': 'text/x-c++', '.html': 'text/html', '.java': 'text/x-java-source',
-  '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.js': 'text/javascript', '.jsx': 'text/jsx', '.json': 'application/json',
-  '.kt': 'text/x-kotlin', '.kts': 'text/x-kotlin', '.lua': 'text/x-lua', '.md': 'text/markdown', '.markdown': 'text/markdown', '.mdx': 'text/markdown',
-  '.pdf': 'application/pdf', '.php': 'text/x-php', '.png': 'image/png', '.properties': 'text/plain', '.py': 'text/x-python',
-  '.r': 'text/x-r', '.rb': 'text/x-ruby', '.rs': 'text/x-rust', '.scala': 'text/x-scala', '.scss': 'text/x-scss',
-  '.sh': 'text/x-shellscript', '.sql': 'text/x-sql', '.svg': 'image/svg+xml', '.swift': 'text/x-swift', '.tf': 'text/x-terraform',
-  '.ts': 'text/typescript', '.tsx': 'text/tsx', '.txt': 'text/plain', '.vue': 'text/x-vue', '.webp': 'image/webp',
-  '.xml': 'application/xml', '.yaml': 'application/yaml', '.yml': 'application/yaml',
-  '.adoc': 'text/asciidoc', '.rst': 'text/x-rst', '.toml': 'text/x-toml', '.ini': 'text/plain', '.tsv': 'text/tab-separated-values',
-  '.graphql': 'text/x-graphql', '.feature': 'text/x-gherkin', '.log': 'text/plain', '.puml': 'text/plain', '.mmd': 'text/plain',
-  '.proto': 'text/x-protobuf', '.less': 'text/x-less', '.sass': 'text/x-sass', '.mm': 'text/x-objcpp', '.m': 'text/x-objc',
-  '.clj': 'text/x-clojure', '.cljs': 'text/x-clojure', '.cmake': 'text/x-cmake',
-  // Office formats: DOCX and XLSX text is extracted for prompts and reviews; the others are named honestly.
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.doc': 'application/msword', '.xls': 'application/vnd.ms-excel', '.ppt': 'application/vnd.ms-powerpoint'
-};
 const INLINE_PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']);
 
 export function createStoryDocumentBudget({
@@ -118,7 +98,7 @@ export function admitStoryDocumentResource(budget, {
 }
 
 function manifestPath(root, config, workflow) { return path.join(workDir(root, config, workflow.workItem.id), 'documents.json'); }
-function mimeType(file) { return MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'; }
+function mimeType(file) { return mimeTypeForName(file); }
 // Story intake validates and freezes local documents before it creates a governed Story commit.
 // Export the same MIME resolver used by the eventual catalog write so the preflight and publication
 // cannot disagree merely because two extension tables drifted apart.
@@ -162,6 +142,9 @@ export function validateDocumentUrl(value) {
 function safeName(value) {
   let candidate = path.basename(value).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   candidate = candidate.replace(/[. ]+$/gu, '') || 'document';
+  // A name written only in non-Latin letters (要件.md) sanitizes to its extension alone, which Node
+  // then reads as an extensionless dotfile; keep a stem so its type, text and preview survive.
+  if (/^\.[A-Za-z0-9]+$/u.test(candidate) && path.extname(path.basename(value))) candidate = `document${candidate}`;
   // Git treats a component named `.git` specially on every platform. Windows additionally refuses
   // DOS device names even when they carry an extension. Preserve human-recognizable source paths,
   // but make those reserved components ordinary portable directory/file names.
@@ -1063,7 +1046,10 @@ export async function viewDocument(root, config, workflow, reference, { includeD
   const records = await documentCatalog(root, config, workflow, { includeDetached });
   // An ID or alias first, then a document name, then a path or file name.
   const record = resolveDocumentRecord(records, reference); if (record.type === 'url') return { record, content: null, binary: false };
-  const extension = path.extname(record.path ?? record.storage?.key ?? record.sourceName ?? '').toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
+  // An older record whose stored name lost its extension is typed from its original name.
+  const mime = effectiveDocumentMimeType(record);
+  const extension = (path.extname(record.path ?? record.storage?.key ?? '') || path.extname(record.sourceName ?? '')).toLowerCase();
+  const binary = !TEXT_EXTENSIONS.has(extension) && !mime.startsWith('text/');
   let absolute;
   let bytes;
   let current;
@@ -1081,8 +1067,8 @@ export async function viewDocument(root, config, workflow, reference, { includeD
   }
   if (binary) {
     // A DOCX or XLSX is a ZIP of XML whose text is what a reader needs; the bytes stay as they are.
-    const rendition = hasTextExtractor(record.mimeType)
-      ? documentRendition(bytes ?? await readFile(absolute), record.mimeType, documentPolicy(workflow, config).maxPreviewBytes ?? 1048576)
+    const rendition = hasTextExtractor(mime)
+      ? documentRendition(bytes ?? await readFile(absolute), mime, documentPolicy(workflow, config).maxPreviewBytes ?? 1048576)
       : null;
     return {
       record, content: null, binary: true, absolutePath: absolute,

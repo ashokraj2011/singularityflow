@@ -128,11 +128,13 @@ test('binary and lockfiles are skipped; test directories are not', () => {
   // "just to check".
   assert.equal(scannablePath('test/fixtures/config.json'), true);
   assert.equal(scannablePath('src/app.js'), true);
-  // Office and image formats with no recoverable text are binary like a PDF; DOCX and XLSX are
-  // scanned through their extracted text instead of their ZIP bytes.
-  for (const binary of ['deck.pptx', 'legacy.doc', 'sheet.xls', 'slides.ppt', 'screen.webp', 'design.fig']) assert.equal(scannablePath(binary), false, binary);
+  // Office and image formats with no recoverable text are binary like a PDF; DOCX, XLSX and PPTX
+  // are scanned through their extracted text, which is what reaches prompts, not their ZIP bytes.
+  for (const binary of ['legacy.doc', 'sheet.xls', 'slides.ppt', 'screen.webp', 'design.fig']) assert.equal(scannablePath(binary), false, binary);
   assert.equal(scannablePath('brief.docx'), true);
   assert.equal(scannedAsExtractedText('brief.docx'), true);
+  assert.equal(scannablePath('deck.pptx'), true);
+  assert.equal(scannedAsExtractedText('deck.pptx'), true);
   assert.equal(scannedAsExtractedText('BUDGET.XLSX'), true);
   assert.equal(scannedAsExtractedText('notes.md'), false);
 });

@@ -94,3 +94,64 @@ test('an empty document is unreadable rather than an empty rendition', () => {
   const empty = `<?xml version="1.0"?><w:document xmlns:w="x"><w:body><w:p/></w:body></w:document>`;
   assert.equal(extractSourceText(zip([['word/document.xml', empty]]), DOCX).status, 'unreadable');
 });
+
+const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+test('an XLSX keeps every value in its column, even after an empty styled cell or row', () => {
+  // Excel writes empty styled cells and rows as self-closing elements. Read as opening tags they
+  // swallowed the next cell, so "Basic, (no fee), 100" came out as a fee of 100.
+  const shared = '<sst><si><t>Plan</t></si><si><t>Fee</t></si><si><t>Limit</t></si><si><t>Basic</t></si><si><t>Pro</t></si></sst>';
+  const sheet = '<worksheet><sheetData>'
+    + '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>'
+    + '<row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2" s="1"/><c r="C2"><v>100</v></c></row>'
+    + '<row r="3" spans="1:3"/>'
+    + '<row r="4"><c r="A4" t="s"><v>4</v></c><c r="B4"><v>2.5</v></c><c r="C4"><v>1000</v></c></row>'
+    + '</sheetData></worksheet>';
+  const result = extractSourceText(zip([['xl/sharedStrings.xml', shared], ['xl/worksheets/sheet1.xml', sheet]]), XLSX);
+  assert.equal(result.text, '# sheet1\nPlan\tFee\tLimit\nBasic\t\t100\nPro\t2.5\t1000');
+});
+
+test('XLSX sheets carry their workbook names, in sheet order', () => {
+  const sheets = Array.from({ length: 11 }, (_, index) => [`xl/worksheets/sheet${index + 1}.xml`,
+    `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Sheet ${index + 1}</t></is></c></row></sheetData></worksheet>`]);
+  const workbook = '<workbook><sheets><sheet name="Prices &amp; Limits" sheetId="1" r:id="rId1"/><sheet name="Notes" sheetId="2" r:id="rId2"/></sheets></workbook>';
+  const relationships = '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="/xl/worksheets/sheet2.xml"/></Relationships>';
+  const result = extractSourceText(zip([['xl/workbook.xml', workbook], ['xl/_rels/workbook.xml.rels', relationships], ...sheets]), XLSX);
+  const headings = result.text.split('\n').filter((line) => line.startsWith('# '));
+  assert.deepEqual(headings.slice(0, 4), ['# Prices & Limits', '# Notes', '# sheet3', '# sheet4']);
+  assert.equal(headings.at(-1), '# sheet11', 'sheet10 and sheet11 follow sheet9, not sheet1');
+});
+
+test('a DOCX keeps tabs, line breaks, table rows and footnotes', () => {
+  const document = '<w:document><w:body>'
+    + '<w:p><w:r><w:t>Duplicates</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>return HTTP 409</w:t></w:r><w:r><w:br/></w:r><w:r><w:t>and are not retried.</w:t></w:r></w:p>'
+    + '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Code</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Meaning</w:t></w:r></w:p></w:tc></w:tr>'
+    + '<w:tr><w:tc><w:p><w:r><w:t>409</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Duplicate</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+    + '</w:body></w:document>';
+  const footnotes = '<w:footnotes><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:t>---</w:t></w:r></w:p></w:footnote>'
+    + '<w:footnote w:id="1"><w:p><w:r><w:t>Card payments only.</w:t></w:r></w:p></w:footnote></w:footnotes>';
+  const result = extractSourceText(zip([['word/document.xml', document], ['word/footnotes.xml', footnotes]]), DOCX);
+  assert.match(result.text, /^Duplicates\treturn HTTP 409\nand are not retried\./);
+  assert.match(result.text, /\| Code \| Meaning \|\n\| 409 \| Duplicate \|/);
+  assert.match(result.text, /Footnotes:\n\nCard payments only\./);
+  assert.doesNotMatch(result.text, /---/, 'the separator footnote is not text');
+});
+
+test('a PPTX becomes its slide text in slide order, with speaker notes', () => {
+  const slide = (text) => `<p:sld><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:sld>`;
+  const result = extractSourceText(zip([
+    ['ppt/slides/slide10.xml', slide('Appendix')],
+    ['ppt/slides/slide1.xml', slide('Retry button for operators')],
+    ['ppt/slides/slide2.xml', slide('Second slide')],
+    ['ppt/notesSlides/notesSlide1.xml', '<p:notes><a:p><a:r><a:t>Confirm with legal</a:t></a:r></a:p><a:p><a:r><a:t>1</a:t></a:r></a:p></p:notes>']
+  ]), PPTX);
+  assert.equal(result.status, 'extracted');
+  assert.deepEqual(result.text.split('\n').filter((line) => line.startsWith('# ')), ['# Slide 1', '# Slide 2', '# Slide 10']);
+  assert.match(result.text, /Retry button for operators\nNotes:\nConfirm with legal/);
+});
+
+test('an Office entry that inflates past the cap is unreadable instead of exhausting memory', () => {
+  const bomb = '<w:document><w:body><w:p><w:r><w:t>' + 'A'.repeat(65 * 1024 * 1024) + '</w:t></w:r></w:p></w:body></w:document>';
+  const result = extractSourceText(zip([['word/document.xml', bomb]]), DOCX);
+  assert.equal(result.status, 'unreadable');
+});

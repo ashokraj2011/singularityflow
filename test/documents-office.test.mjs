@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { loadDefinition } from '../src/config.mjs';
 import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
+import { SOURCE_TEXT_EXTRACTOR_VERSION } from '../src/source-text.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -105,13 +106,26 @@ test('a DOCX is read as its extracted text in documents view and in prompts, nev
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'OFFICE-1');
   const rendered = await renderActiveStoryEvidence(root, definition, workflow);
-  assert.match(rendered.markdown, /## DOC-001 — Retry brief[\s\S]*Text extracted from this [^\n]* file \(extractor v1\); its original bytes are not included\.[\s\S]*retried once after 30 seconds/);
+  assert.match(rendered.markdown, new RegExp('## DOC-001 — Retry brief[\\s\\S]*Text extracted from this [^\\n]* file \\(extractor v' + SOURCE_TEXT_EXTRACTOR_VERSION + '\\); its original bytes are not included\\.[\\s\\S]*retried once after 30 seconds'));
   assert.doesNotMatch(rendered.markdown, /Inspect this verified file/);
   const [entry] = rendered.entries;
   assert.equal(entry.injectedBytes, 0, 'no original byte is injected');
-  assert.equal(entry.rendition.version, 1);
+  assert.equal(entry.rendition.version, SOURCE_TEXT_EXTRACTOR_VERSION);
   assert.match(entry.rendition.sha256, /^[a-f0-9]{64}$/);
   assert.deepEqual(rendered.files[0].rendition, entry.rendition, 'the receipt records the same rendition as the prompt entry');
+});
+
+test('a file named only in non-Latin letters keeps its type, its text and a readable stored name', async () => {
+  const root = await repository();
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-unicode-name-'));
+  const requirement = path.join(uploads, '要件.md');
+  await writeFile(requirement, '# 要件\nRetry a failed payment once.\n');
+  flow(root, ['start', 'OFFICE-3', '--from-branch', 'main', '--title', 'Read a non-Latin file name']);
+  flow(root, ['documents', 'upload', requirement, '--name', 'Requirements (JA)']);
+  const [record] = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+  assert.equal(record.mimeType, 'text/markdown');
+  assert.match(record.path, /\/inputs\/DOC-001\/document\.md$/);
+  assert.match(flow(root, ['documents', 'view', 'Requirements (JA)']).stdout, /Retry a failed payment once\./);
 });
 
 test('a secret inside a DOCX is refused before its bytes are copied', async () => {

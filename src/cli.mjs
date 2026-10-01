@@ -7,7 +7,7 @@ import path from 'node:path';
 import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
-import { chmodSync, constants as fsConstants, existsSync } from 'node:fs';
+import { chmodSync, constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
   exportWorkflowBundle,
@@ -1999,7 +1999,7 @@ export async function startCommand(positionals, options) {
         { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
       );
     }
-    refuseStartDocumentsForExistingStory(id, explicitFiles, explicitUrls);
+    refuseStartDocumentsForExistingStory(root, id, localStory, explicitFiles, explicitUrls, optionStrings(options, 'document-name'));
     const requested = await externalSource();
     const existingIdentity = workflowSourceIdentity(localStory.state);
     if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
@@ -2202,7 +2202,7 @@ export async function startCommand(positionals, options) {
           { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
         );
       }
-      refuseStartDocumentsForExistingStory(id, explicitFiles, explicitUrls);
+      refuseStartDocumentsForExistingStory(root, id, remoteStory, explicitFiles, explicitUrls, optionStrings(options, 'document-name'));
       const requested = await externalSource();
       const existingIdentity = workflowSourceIdentity(remoteStory.state);
       if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
@@ -4729,13 +4729,34 @@ async function nextCommand(options) {
 
 /**
  * Documents given to start belong to a new Story's opening record. Resuming a Story would drop them
- * without a word, so it refuses and names the command that adds them to the Story that exists.
+ * without a word, so it refuses and names the command that adds them to the Story that exists —
+ * unless the Story already has every one of them, which is the same start repeated (after a
+ * timeout, say) and resumes as before. A link matches by URL; a file by its document name, or by
+ * its file name when no name was given.
  */
-function refuseStartDocumentsForExistingStory(id, files, urls) {
+function refuseStartDocumentsForExistingStory(root, id, story, files, urls, names = []) {
   if (!files.length && !urls.length) return;
+  const location = story?.location ?? null;
+  let recorded = [];
+  if (location?.path) {
+    const relative = path.posix.join(path.posix.dirname(location.path), 'documents.json');
+    const text = location.source === 'working-tree'
+      ? (existsSync(path.join(root, relative)) ? readFileSync(path.join(root, relative), 'utf8') : null)
+      : fileAtRef(root, location.commit ?? location.ref, relative);
+    try { recorded = (JSON.parse(text ?? '{}').documents ?? []).filter((record) => record?.status !== 'detached'); } catch { recorded = []; }
+  }
+  const missingUrls = urls.filter((url) => !recorded.some((record) => record.type === 'url' && record.url === url));
+  const missingFiles = files.filter((file, index) => {
+    const name = names[index]; const base = path.basename(file);
+    return !recorded.some((record) => record.type === 'file' && (name
+      ? record.name === name || record.label === name
+      : record.sourceName === base || path.posix.basename(record.path ?? '') === base));
+  });
+  const missing = missingUrls.length + missingFiles.length;
+  if (!missing) return;
   throw new SingularityFlowError(
-    `Story '${id}' already exists, so the ${files.length + urls.length} document(s) given here would not be added. Resume it without --document or --document-url, then add them with singularity-flow documents upload <FILE...> --name <NAME>... (or --url <URL> --name <NAME>). Nothing was changed.`,
-    { code: 'STORY_START_DOCUMENTS_STORY_EXISTS', details: { workId: id, documents: files.length + urls.length } }
+    `Story '${id}' already exists, so the ${missing} document(s) given here would not be added. Resume it without --document or --document-url, then add them with singularity-flow documents upload <FILE...> --name <NAME>... (or --url <URL> --name <NAME>). Nothing was changed.`,
+    { code: 'STORY_START_DOCUMENTS_STORY_EXISTS', details: { workId: id, documents: missing } }
   );
 }
 

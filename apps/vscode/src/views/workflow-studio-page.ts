@@ -93,6 +93,7 @@ const STUDIO_STYLE = `
 .diamond{display:inline-block;width:9px;height:9px;transform:rotate(45deg);background:var(--vscode-charts-purple,#b180d7)}
 .decision-box{border:1px solid var(--sf-border);border-radius:8px;padding:8px 10px;margin:0;display:flex;flex-direction:column;gap:6px}
 .decision-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.preview-text{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre-wrap;overflow:auto;max-height:280px;border:1px solid var(--sf-border);border-radius:6px;padding:8px;margin:0}
 .decision-row select,.decision-row input[type=text]{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border));background:var(--vscode-input-background);color:var(--vscode-input-foreground);max-width:100%}
 @media (max-width:900px){.studio{grid-template-columns:minmax(0,1fr)}.studio-nav{border-right:0;border-bottom:1px solid var(--sf-border);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr)}.inspector{position:static}}
 `;
@@ -116,7 +117,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- The draft and the change set ---------------------------------------------------------
 
   function initialDraft(model) {
-    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, order: [] };
+    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, order: [], imports: [] };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
@@ -221,6 +222,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (Object.keys(update).length > 3) changes.push(update);
       });
     });
+    // Imports and marketplace trust are explicit operations the person queued; the engine orders them.
+    (draft.imports || []).forEach(function (change) { changes.push(clone(change)); });
     return { schema: 'sflow-studio-change-set@1', base: model.base, changes: changes };
   }
 
@@ -239,6 +242,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
       case 'group.create': return 'New approval group ' + change.label;
       case 'group.update': return ((draft.groups[change.id] || {}).label || change.id) + ': ' + (change.members ? 'people' : 'name') + ' changed';
+      case 'import.skill': return (change.replace ? 'Update skill ' : 'Skill ') + change.id + ' for ' + agentName(change.agent) + (change.phases && change.phases.length ? ' in ' + change.phases.map(phaseName).join(', ') : '') + ', from ' + change.source;
+      case 'import.template': return (change.replace ? 'Update template ' : 'Template ') + (change.label || change.id) + ' from ' + change.source + (change.phases && change.phases.length ? ', used by ' + change.phases.map(phaseName).join(', ') : '');
+      case 'import.agent': return (change.replace ? 'Update an agent' : 'Agent') + ' from ' + change.source + (change.withoutDefaults ? ', without taking over steps' : '');
+      case 'import.generated': return agentName(change.agent) + ' fetches ' + change.target + ' for ' + phaseName(change.phase);
+      case 'import.remove': return 'Remove ' + change.key;
+      case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
+      case 'marketplace.remove': return 'Stop trusting marketplace ' + change.id;
       default: return change.op;
     }
   }
@@ -247,7 +257,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     newDecision: function () { return newDecision.apply(null, arguments); }, convertDecision: function () { return convertDecision.apply(null, arguments); },
     decisionLines: function () { return decisionLines.apply(null, arguments); }, reachOf: function () { return reachOf.apply(null, arguments); },
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
-    relabelRules: function () { return relabelRules.apply(null, arguments); }, buildTest: function () { return buildTest.apply(null, arguments); } };
+    relabelRules: function () { return relabelRules.apply(null, arguments); }, buildTest: function () { return buildTest.apply(null, arguments); },
+    importKey: function () { return importKey.apply(null, arguments); }, linkId: function () { return linkId.apply(null, arguments); } };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -421,6 +432,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       el('div', { class: 'brand', text: 'WORKFLOW STUDIO' }),
       item('home', 'Workflows', Object.keys(state.draft.workflows).length, false),
       item('agents', 'Agents', Object.keys(state.draft.agents).length, false),
+      item('library', 'Library', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', blocked || null, blocked > 0),
       item('changes', 'Changes', pending, pending > 0),
       el('p', { class: 'note', text: 'Running Stories keep the workflow they started with. What you publish applies to new Stories after review.' })));
@@ -1110,10 +1122,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('span', { class: 'muted', text: agent.description }),
         el('span', { style: 'font-size:12px', text: drafts.length ? 'Drafts: ' + drafts.join(', ') : 'Not the default for any step yet' }),
         el('div', { class: 'rail' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })),
+        agentResources(id).length ? el('span', { style: 'font-size:12px', text: 'Skills and sources: ' + agentResources(id).map(function (resource) { return resource.id; }).join(', ') }) : null,
+        button('Add a skill', function () { var lib = library(); lib.as = 'skill'; lib.pendingAgent = id; lib.preview = null; lib.target = null; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill to ' + agent.label }),
         button('Edit', function () { state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions, defaults: [], context: null }; render(); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label })));
     });
     main.appendChild(grid);
   }
+
+  function agentResources(id) { var agent = (state.model.agents || []).find(function (entry) { return entry.id === id; }); return (agent && agent.resources) || []; }
 
   function toolLabel(tool) { var entry = (state.model.choices.tools || []).find(function (item) { return item.id === tool; }); return entry ? entry.label : tool; }
 
@@ -1175,6 +1191,280 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       state.agentForm = null;
     }
     changed();
+  }
+
+  // ---- Library: skills, templates and agents from a link or a trusted marketplace ------------
+
+  var IMPORT_KINDS = [
+    { value: 'skill', label: 'A skill for one of your agents' },
+    { value: 'template', label: 'A document template for steps' },
+    { value: 'agent', label: 'A whole agent' }
+  ];
+  var KIND_WORDS = { skill: 'Skill', template: 'Template', agent: 'Agent', generated: 'Generated artifact', workflow: 'Workflow', 'mcp-server': 'MCP server' };
+
+  function library() {
+    return state.library || (state.library = { reference: '', as: 'skill', preview: null, busy: null, error: null, target: null, market: null, entries: null, check: null, newMarket: null });
+  }
+
+  /** The link or marketplace entry to preview, as the engine names it. */
+  function importReference(entry, marketplaceId) { return 'market:' + marketplaceId + '/' + entry.id + '@' + entry.version; }
+
+  /** The ID an import suggests: its own name, the marketplace entry's ID, or the link's file name. */
+  function suggestedId(preview) {
+    return preview.id || (preview.marketplace && preview.marketplace.entry) || linkId(preview.reference);
+  }
+
+  function linkId(reference) {
+    var match = /\/([^\/?#]+?)(?:\.agent)?(?:\.md|\.markdown|\.txt)?(?:[?#].*)?$/.exec(String(reference || ''));
+    var name = match ? match[1] : '';
+    if (/^(skill|readme|index)$/i.test(name)) { var parts = String(reference).split('?')[0].split('/'); name = parts[parts.length - 2] || name; }
+    return kebab(name);
+  }
+
+  /** Start a preview: the engine fetches, checks and stages the exact bytes. */
+  function previewImport(reference, as, target) {
+    var lib = library();
+    // The link box keeps what the person typed; a marketplace entry is previewed by its reference.
+    if (reference.indexOf('market:') !== 0) { lib.reference = reference; lib.as = as; }
+    lib.preview = null; lib.error = null; lib.busy = 'preview'; lib.target = target || null;
+    render();
+    post({ type: 'studio.importPreview', reference: reference, as: as });
+  }
+
+  function agentSteps(agentId) {
+    return Object.keys(state.draft.phases).filter(function (phaseId) { return state.draft.phases[phaseId].agent === agentId; });
+  }
+
+  function stepChecks(prefix, selected, phaseIds, onChange) {
+    return el('div', { class: 'grid-3' }, phaseIds.map(function (phaseId) {
+      return el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': prefix + phaseId, checked: selected.indexOf(phaseId) >= 0, onchange: function (event) {
+        onChange(event.target.checked ? selected.concat([phaseId]) : selected.filter(function (entry) { return entry !== phaseId; }));
+      } }), (state.draft.phases[phaseId] || { label: phaseId }).label);
+    }));
+  }
+
+  function queueImport(change, message) {
+    var lib = library();
+    state.draft.imports = (state.draft.imports || []).filter(function (existing) { return importKey(existing) !== importKey(change); }).concat([change]);
+    lib.preview = null; lib.target = null; lib.reference = ''; lib.error = null;
+    setStatus(message);
+    changed();
+  }
+
+  function importKey(change) {
+    if (change.op === 'import.skill' || change.op === 'import.generated') return change.op + ':' + change.agent + '/' + change.id;
+    if (change.op === 'import.agent') return change.op + ':' + change.sha256;
+    if (change.op === 'import.remove') return change.op + ':' + change.key;
+    return change.op + ':' + change.id;
+  }
+
+  function renderPreviewCard(lib) {
+    var preview = lib.preview;
+    var target = lib.target || (lib.target = { agent: '', id: suggestedId(preview), phases: (preview.marketplace && preview.marketplace.phases) || [], optional: false, label: '', withoutDefaults: false, replace: false });
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Import preview' });
+    card.appendChild(el('div', { class: 'studio-row spread' },
+      el('h2', { text: (KIND_WORDS[preview.as] || preview.as) + (preview.marketplace ? ': ' + preview.marketplace.label + ' ' + preview.marketplace.version : ' from a link') }),
+      el('span', { class: 'pill', title: preview.sha256, text: 'SHA-256 ' + preview.sha256.slice(0, 12) + ' · ' + preview.bytes + ' bytes' })));
+    card.appendChild(el('span', { class: 'muted', text: 'From ' + preview.reference + (preview.source && preview.source.resolvedUrl && preview.source.resolvedUrl !== preview.reference ? ', served from ' + preview.source.resolvedUrl : '') }));
+    if (preview.details && preview.details.description) card.appendChild(el('span', { text: preview.details.description }));
+    (preview.warnings || []).forEach(function (warning) { card.appendChild(el('div', { class: 'callout wait', text: warning })); });
+    card.appendChild(el('pre', { class: 'preview-text', 'aria-label': 'Exact content', text: preview.text + (preview.truncated ? '\n…' : '') }));
+    card.appendChild(el('p', { class: 'muted', text: 'This exact content is what gets added. It is copied into your configuration, so Stories never fetch it again.' }));
+    if (preview.as === 'skill') {
+      var agents = Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
+      var phaseIds = target.agent ? (agentSteps(target.agent).length ? agentSteps(target.agent) : Object.keys(state.draft.phases)) : [];
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('import-agent', 'Which agent uses it', select('import-agent', [{ value: '', label: 'Choose an agent' }].concat(agents.map(function (id) { return { value: id, label: state.draft.agents[id].label }; })), target.agent, function (value) { target.agent = value; target.phases = target.phases.filter(function (phaseId) { return agentSteps(value).indexOf(phaseId) >= 0; }); render(); })),
+        field('import-id', 'Skill ID', textInput('import-id', target.id, function (value) { target.id = kebab(value); requestRender(); }), 'Shown in the agent\'s skills table.')));
+      if (target.agent) card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'In which of its steps (none chosen: every step it drafts)' }),
+        stepChecks('import-step-', target.phases, phaseIds, function (phases) { target.phases = phases; })));
+      card.appendChild(el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'import-optional', checked: target.optional, onchange: function (event) { target.optional = event.target.checked; } }), 'Optional: the agent works without it'));
+    } else if (preview.as === 'template') {
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('import-id', 'Template ID', textInput('import-id', target.id, function (value) { target.id = kebab(value); requestRender(); })),
+        field('import-label', 'Name', textInput('import-label', target.label, function (value) { target.label = value; }, { placeholder: 'From its first heading' }))));
+      card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'Use it as the template for' }),
+        stepChecks('import-step-', target.phases, Object.keys(state.draft.phases).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); }), function (phases) { target.phases = phases; })));
+    } else if (preview.as === 'agent') {
+      var details = preview.details || {};
+      card.appendChild(el('span', { text: 'Agent ' + (details.label || preview.id) + (details.tools ? ' · may use ' + details.tools.map(toolLabel).join(', ') : '') }));
+      if ((details.defaultFor || []).length) {
+        card.appendChild(el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'import-without-defaults', checked: target.withoutDefaults, onchange: function (event) { target.withoutDefaults = event.target.checked; } }),
+          'Do not let it take over ' + details.defaultFor.map(function (phaseId) { return (state.draft.phases[phaseId] || { label: phaseId }).label; }).join(', ')));
+      }
+    }
+    if (lib.replace) card.appendChild(el('div', { class: 'callout wait', text: 'This replaces what was imported before; the change shows the difference.' }));
+    card.appendChild(el('div', { class: 'studio-row' },
+      button('Add to changes', function () { addPreviewedImport(); }, { class: 'primary' }),
+      button('Cancel', function () { lib.preview = null; lib.target = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function addPreviewedImport() {
+    var lib = library(); var preview = lib.preview; var target = lib.target;
+    var replace = Boolean(lib.replace);
+    if (preview.as === 'skill') {
+      if (!target.agent) { setStatus('Choose the agent that uses this skill.'); return; }
+      if (!target.id) { setStatus('Give the skill an ID.'); return; }
+      queueImport({ op: 'import.skill', agent: target.agent, id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), optional: target.optional, replace: replace },
+        'Skill ' + target.id + ' for ' + state.draft.agents[target.agent].label + ' added to your changes.');
+    } else if (preview.as === 'template') {
+      if (!target.id) { setStatus('Give the template an ID.'); return; }
+      var change = { op: 'import.template', id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), replace: replace };
+      if (String(target.label || '').trim()) change.label = String(target.label).trim();
+      queueImport(change, 'Template ' + target.id + ' added to your changes.');
+    } else {
+      queueImport({ op: 'import.agent', source: preview.reference, sha256: preview.sha256, withoutDefaults: target.withoutDefaults, replace: replace },
+        'Agent ' + ((preview.details && preview.details.label) || preview.id) + ' added to your changes.');
+    }
+    lib.replace = false;
+  }
+
+  function renderGeneratedForm(lib) {
+    var entry = lib.generated; var marketplace = lib.market;
+    var agents = Object.keys(state.draft.agents).filter(function (id) { return agentSteps(id).indexOf(entry.phase) >= 0; });
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Generated artifact source' });
+    card.appendChild(el('h2', { text: 'Generated artifact: ' + entry.label }));
+    card.appendChild(el('span', { class: 'muted', text: 'Fetched for each Story from ' + entry.urlTemplate + ' into ' + entry.target + ' when ' + ((state.draft.phases[entry.phase] || { label: entry.phase }).label) + ' starts.' }));
+    if (!agents.length) card.appendChild(el('div', { class: 'callout wait', text: 'No agent drafts ' + ((state.draft.phases[entry.phase] || { label: entry.phase }).label) + ' in your workflows, so nothing would fetch it.' }));
+    lib.generatedAgent = lib.generatedAgent && agents.indexOf(lib.generatedAgent) >= 0 ? lib.generatedAgent : (agents[0] || '');
+    card.appendChild(field('generated-agent', 'Which agent fetches it', select('generated-agent', agents.map(function (id) { return { value: id, label: state.draft.agents[id].label }; }), lib.generatedAgent, function (value) { lib.generatedAgent = value; })));
+    card.appendChild(el('div', { class: 'studio-row' },
+      button('Add to changes', function () {
+        if (!lib.generatedAgent) { setStatus('Choose the agent that fetches it.'); return; }
+        queueImport({ op: 'import.generated', agent: lib.generatedAgent, id: entry.id, urlTemplate: entry.urlTemplate, phase: entry.phase, target: entry.target, origin: { marketplace: marketplace.id, index: marketplace.index, entry: entry.id, version: entry.version } },
+          'Generated artifact ' + entry.label + ' added to your changes.');
+        lib.generated = null;
+      }, { class: 'primary', disabled: !agents.length }),
+      button('Cancel', function () { lib.generated = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function renderMarketplaces(lib) {
+    var section = el('section', { class: 'studio-card', 'aria-label': 'Marketplaces' });
+    section.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Marketplaces this repository trusts' }),
+      button('Trust a marketplace', function () { lib.newMarket = { id: '', label: '', index: '', origins: '' }; render(); }, { class: 'secondary' })));
+    var trusted = (state.model.marketplaces || []).filter(function (market) { return !(state.draft.imports || []).some(function (change) { return change.op === 'marketplace.remove' && change.id === market.id; }); });
+    var pending = (state.draft.imports || []).filter(function (change) { return change.op === 'marketplace.add'; });
+    if (!trusted.length && !pending.length) section.appendChild(el('p', { class: 'muted', text: 'None yet. A marketplace is a catalog your team publishes; each entry pins its file by hash, and its index can only list files from origins you allow here.' }));
+    trusted.forEach(function (market) {
+      section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark ok', text: '✓' }),
+        el('div', null, el('strong', { text: market.label }), el('div', { class: 'muted', text: market.index + (market.allowedOrigins.length ? ' · files also from ' + market.allowedOrigins.join(', ') : '') })),
+        el('div', { class: 'studio-row' },
+          button(lib.busy === 'browse:' + market.id ? 'Opening…' : 'Browse', function () { lib.busy = 'browse:' + market.id; lib.market = market; lib.entries = null; lib.error = null; render(); post({ type: 'studio.marketplaceBrowse', id: market.id }); }, { class: 'secondary', 'aria-label': 'Browse ' + market.label }),
+          button('Stop trusting', function () { queueImport({ op: 'marketplace.remove', id: market.id }, market.label + ' will no longer be trusted once you publish.'); }, { class: 'secondary', 'aria-label': 'Stop trusting ' + market.label }))));
+    });
+    pending.forEach(function (change) { section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark wait', text: '…' }), el('div', null, el('strong', { text: change.label || change.id }), el('div', { class: 'muted', text: change.index + ' · trusted once you publish' })), el('span', null))); });
+    if (lib.newMarket) section.appendChild(renderNewMarketplace(lib));
+    if (lib.market && lib.entries) section.appendChild(renderEntries(lib));
+    return section;
+  }
+
+  function renderNewMarketplace(lib) {
+    var form = lib.newMarket;
+    var box = el('div', { class: 'decision-box' });
+    box.appendChild(el('div', { class: 'grid-2' },
+      field('market-label', 'Name', textInput('market-label', form.label, function (value) { form.label = value; if (!form.id) form.id = kebab(value); requestRender(); }, { placeholder: 'Engineering catalog' })),
+      field('market-id', 'ID', textInput('market-id', form.id, function (value) { form.id = kebab(value); }))));
+    box.appendChild(field('market-index', 'Index link (sflow-marketplace@1 JSON)', textInput('market-index', form.index, function (value) { form.index = value.trim(); }, { placeholder: 'https://catalog.example.org/sflow-marketplace.json' })));
+    box.appendChild(field('market-origins', 'Other places its files may come from (optional)', textInput('market-origins', form.origins, function (value) { form.origins = value; }, { placeholder: 'https://cdn.example.org' }), 'Comma-separated origins. Files from anywhere else are refused.'));
+    box.appendChild(el('div', { class: 'studio-row' },
+      button('Add to changes', function () {
+        if (!form.id || !/^https:\/\//.test(form.index)) { setStatus('A marketplace needs an ID and an https:// index link.'); return; }
+        var origins = String(form.origins || '').split(',').map(function (value) { return value.trim(); }).filter(Boolean);
+        var change = { op: 'marketplace.add', id: form.id, index: form.index, allowedOrigins: origins };
+        if (String(form.label || '').trim()) change.label = String(form.label).trim();
+        lib.newMarket = null;
+        queueImport(change, 'Marketplace ' + (change.label || change.id) + ' will be trusted once you publish.');
+      }, { class: 'primary' }),
+      button('Cancel', function () { lib.newMarket = null; render(); }, { class: 'secondary' })));
+    return box;
+  }
+
+  function renderEntries(lib) {
+    var market = lib.market; var result = lib.entries;
+    var box = el('div', { class: 'decision-box', 'aria-label': 'Entries in ' + market.label });
+    box.appendChild(el('div', { class: 'studio-row spread' }, el('strong', { text: (result.marketplace.name || market.label) + (result.marketplace.publisher ? ' by ' + result.marketplace.publisher : '') }),
+      textInput('market-search', lib.search || '', function (value) { lib.search = value; render(); }, { placeholder: 'Search entries', 'aria-label': 'Search entries' })));
+    var query = String(lib.search || '').toLowerCase();
+    var entries = result.entries.filter(function (entry) { return !query || [entry.id, entry.label, entry.description || ''].concat(entry.tags || []).some(function (value) { return String(value).toLowerCase().indexOf(query) >= 0; }); });
+    if (!entries.length) box.appendChild(el('p', { class: 'muted', text: 'No entries match.' }));
+    var grid = el('div', { class: 'agents-grid' });
+    entries.forEach(function (entry) {
+      grid.appendChild(el('article', { class: 'studio-card' },
+        el('div', { class: 'studio-row spread' }, el('strong', { text: entry.label }), el('span', { class: 'pill', text: (KIND_WORDS[entry.kind] || entry.kind) + ' ' + entry.version })),
+        entry.description ? el('span', { class: 'muted', text: entry.description }) : null,
+        (entry.tags || []).length ? el('div', { class: 'rail' }, entry.tags.map(function (tag) { return el('span', { class: 'pill', text: tag }); })) : null,
+        entry.importable
+          ? button(entry.kind === 'generated' ? 'Set up' : 'Preview', function () {
+            if (entry.kind === 'generated') { lib.generated = entry; lib.preview = null; render(); return; }
+            previewImport(importReference(entry, market.id), entry.kind, null);
+          }, { class: 'secondary', 'aria-label': (entry.kind === 'generated' ? 'Set up ' : 'Preview ') + entry.label })
+          : el('span', { class: 'muted', text: 'This version of Singularity Flow cannot import ' + (KIND_WORDS[entry.kind] || entry.kind).replace(/^[A-Z][a-z]/, function (start) { return start.toLowerCase(); }) + ' entries yet.' })));
+    });
+    box.appendChild(grid);
+    return box;
+  }
+
+  function renderImported(lib) {
+    var section = el('section', { class: 'studio-card', 'aria-label': 'Imported' });
+    section.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Imported into this repository' }),
+      button(lib.busy === 'check' ? 'Checking…' : 'Check for updates', function () { lib.busy = 'check'; lib.check = null; render(); post({ type: 'studio.importsCheck' }); }, { class: 'secondary', disabled: !(state.model.imports || []).length || Boolean(lib.busy) })));
+    var rows = state.model.imports || [];
+    if (!rows.length) section.appendChild(el('p', { class: 'muted', text: 'Nothing yet. What you import is listed here with where it came from.' }));
+    rows.forEach(function (row) {
+      var removing = (state.draft.imports || []).some(function (change) { return change.op === 'import.remove' && change.key === row.key; });
+      var checked = lib.check && lib.check.find(function (entry) { return entry.key === row.key; });
+      section.appendChild(el('div', { class: 'check-row' },
+        el('span', { class: 'mark ' + (row.status === 'current' ? 'ok' : row.status === 'missing' || row.status.indexOf('edited (') === 0 ? 'bad' : 'wait'), text: row.status === 'current' ? '✓' : '!' }),
+        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + row.status + (checked ? ' · ' + checked.status + (checked.detail ? ' (' + checked.detail + ')' : '') : '') })),
+        el('div', { class: 'studio-row' },
+          checked && checked.updateCommand ? button('Review update', function () { reviewUpdate(row, checked); }, { class: 'primary', 'aria-label': 'Review the update to ' + row.key }) : null,
+          removing ? el('span', { class: 'pill', text: 'Removed once you publish' }) : button('Remove', function () { queueImport({ op: 'import.remove', key: row.key }, row.key + ' will be removed once you publish.'); }, { class: 'secondary', 'aria-label': 'Remove ' + row.key }))));
+    });
+    return section;
+  }
+
+  /** An update is a fresh preview of the changed source, added with replace and the same target. */
+  function reviewUpdate(row, checked) {
+    var match = /^singularity-flow import add "([^"]+)"/.exec(checked.updateCommand || '');
+    if (!match) return;
+    var target = row.target || {};
+    library().replace = true;
+    previewImport(match[1], row.kind, { agent: target.agent || '', id: target.id || '', phases: (target.phases || []).slice(), optional: false, label: '', withoutDefaults: false });
+  }
+
+  function renderLibrary(main) {
+    var lib = library();
+    main.appendChild(el('header', null, el('h1', { text: 'Library' }),
+      el('p', { class: 'studio-lede', text: 'Add skills, document templates and agents from a link or from a marketplace your repository trusts. You see the exact content before it is added; it is copied into your configuration and published with your other changes.' })));
+    var form = el('section', { class: 'studio-card', 'aria-label': 'Add from a link' });
+    form.appendChild(el('h2', { text: 'Add from a link' }));
+    form.appendChild(el('div', { class: 'grid-2' },
+      field('import-link', 'Link to the raw file', textInput('import-link', lib.reference, function (value) { lib.reference = value.trim(); }, { placeholder: 'https://example.org/skills/security-review/SKILL.md' })),
+      field('import-as', 'Use it as', select('import-as', IMPORT_KINDS, lib.as, function (value) { lib.as = value; }))));
+    form.appendChild(el('div', { class: 'studio-row' },
+      button(lib.busy === 'preview' ? 'Fetching…' : 'Preview', function () {
+        if (!/^https:\/\//.test(lib.reference || '')) { lib.error = 'Paste a public https:// link to the raw file.'; render(); return; }
+        lib.replace = false;
+        previewImport(lib.reference, lib.as, null);
+      }, { class: 'primary', disabled: Boolean(lib.busy) }),
+      el('span', { class: 'muted', text: 'Only public HTTPS links; nothing is sent with the request.' })));
+    if (lib.error) form.appendChild(el('div', { class: 'callout bad', role: 'alert', text: lib.error }));
+    main.appendChild(form);
+    if (lib.preview) main.appendChild(renderPreviewCard(lib));
+    if (lib.generated) main.appendChild(renderGeneratedForm(lib));
+    var queued = (state.draft.imports || []);
+    if (queued.length) {
+      main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'Waiting to be published' }, el('h2', { text: 'Waiting to be published' }),
+        el('ul', { class: 'change-list' }, queued.map(function (change) {
+          return el('li', { class: 'studio-row spread' }, el('span', { text: describe(change, state.draft) }),
+            button('Undo', function () { state.draft.imports = state.draft.imports.filter(function (entry) { return entry !== change; }); changed(); }, { class: 'secondary', 'aria-label': 'Undo: ' + describe(change, state.draft) }));
+        })),
+        button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
+    }
+    main.appendChild(renderMarketplaces(lib));
+    main.appendChild(renderImported(lib));
   }
 
   function renderPeople(main) {
@@ -1275,6 +1565,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (state.view === 'board') renderBoard(main);
     else if (state.view === 'new') renderWizard(main);
     else if (state.view === 'agents') renderAgents(main);
+    else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'changes') renderChanges(main);
     else renderHome(main);
@@ -1303,6 +1594,17 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       state.busy = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {
       state.busy = null; render();
+    } else if (message.type === 'studio.importPreviewed') {
+      var lib = library(); lib.busy = null; lib.error = null; lib.preview = message.preview;
+      if (!lib.target && lib.pendingAgent) lib.target = { agent: lib.pendingAgent, id: suggestedId(message.preview), phases: (message.preview.marketplace && message.preview.marketplace.phases) || [], optional: false, label: '', withoutDefaults: false };
+      lib.pendingAgent = null; render();
+    } else if (message.type === 'studio.marketplaceEntries') {
+      var market = library(); market.busy = null; market.entries = message.result; market.search = ''; render();
+    } else if (message.type === 'studio.importsChecked') {
+      var checks = library(); checks.busy = null; checks.check = (message.result && message.result.imports) || [];
+      setStatus(checks.check.some(function (entry) { return entry.updateCommand; }) ? 'Some imports changed at their source.' : 'Every import matches its source.'); render();
+    } else if (message.type === 'studio.importFailed') {
+      var failed = library(); failed.busy = null; failed.error = message.message || 'That did not work.'; failed.preview = null; render();
     }
   });
 

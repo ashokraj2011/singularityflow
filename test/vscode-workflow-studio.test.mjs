@@ -181,3 +181,42 @@ test('decisions are edited on the board and checked by the engine with its own p
   assert.equal(converted.label, 'Risky?');
   assert.deepEqual(converted.goal, { outcome: 'yes' });
 });
+
+test('library imports queued in the page become engine operations the engine checks from staged bytes', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  assert.deepEqual(model.marketplaces, []);
+  assert.deepEqual(model.imports, []);
+  assert.ok(model.agents.find((agent) => agent.id === 'architect').resources, 'agents carry the resources their tables name');
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  assert.deepEqual(draft.imports, []);
+  // The engine stages exactly what it previewed; the page only names the hash.
+  const { stageImport } = await import(path.join(packageRoot, 'src/asset-import.mjs'));
+  const bytes = Buffer.from('# Security review\n\n- Check every entry point.\n');
+  const staged = await stageImport(root, { bytes, source: { kind: 'url', url: 'https://skills.example.org/s.md', resolvedUrl: 'https://skills.example.org/s.md' } });
+  draft.imports.push({ op: 'import.skill', agent: 'architect', id: 'security-review', source: 'https://skills.example.org/s.md', sha256: staged.sha256, phases: ['design'], optional: false, replace: false });
+  draft.imports.push({ op: 'marketplace.add', id: 'acme', label: 'Acme', index: 'https://catalog.example.org/index.json', allowedOrigins: ['https://cdn.example.org'] });
+  const changeSet = logic.changeSetFrom(model, draft);
+  assert.deepEqual(changeSet.changes.map((change) => change.op), ['import.skill', 'marketplace.add']);
+  assert.equal(logic.describe(changeSet.changes[0], draft), 'Skill security-review for Architect in Architecture and design, from https://skills.example.org/s.md');
+  assert.equal(logic.describe(changeSet.changes[1], draft), 'Trust marketplace Acme');
+  assert.equal(logic.importKey(changeSet.changes[0]), 'import.skill:architect/security-review');
+  assert.equal(logic.linkId('https://example.org/team/security-review/SKILL.md'), 'security-review');
+  assert.equal(logic.linkId('https://example.org/templates/threat-model.md'), 'threat-model');
+  const plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((file) => file.path).sort(), [
+    '.github/agents/architect.agent.md', 'singularity/agents.lock.yml', 'singularity/imports.lock.yml',
+    'singularity/imports/agents/architect/skill-security-review.md', 'singularity/workflow.yml'
+  ]);
+});
+
+test('the host previews, browses and checks imports only through engine reads', async () => {
+  const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
+  assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['import', 'preview', reference, '--as', as, '--json'\]\)/);
+  assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['marketplace', 'browse', id, '--json'\]\)/);
+  assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['imports', 'check', '--json'\]\)/);
+  assert.match(host, /reference\.startsWith\('https:\/\/'\) \|\| reference\.startsWith\('market:'\)/, 'only links and marketplace entries are previewed');
+  assert.doesNotMatch(host, /writeFile|fs\.promises/);
+});

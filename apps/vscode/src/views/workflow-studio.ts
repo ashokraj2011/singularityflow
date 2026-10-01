@@ -3,7 +3,9 @@
  * the people who sign it off, then check and publish everything as one governed change.
  *
  * The page keeps the draft; this host only reads the model (`workflow studio --json`), asks the
- * engine to check a change set (`--dry-run`), and publishes it after a person confirms. The engine
+ * engine to check a change set (`--dry-run`), and publishes it after a person confirms. For the
+ * Library it also asks the engine to preview an import, browse a trusted marketplace and check
+ * imported sources; each is an engine read, and adding is just another change in the set. The engine
  * remains the authority: it validates the whole candidate configuration and writes through a review
  * proposal (or a local authority's working tree). The extension never writes configuration itself.
  */
@@ -23,6 +25,8 @@ interface StudioPlan { valid: boolean; changed: boolean; summary: string[]; prob
 interface StudioApplyResult extends StudioPlan { reviewRequired?: boolean; branch?: string | null; authorityMode?: string; written?: string[] }
 
 const MAX_CHANGE_SET_BYTES = 1024 * 1024;
+const IMPORT_KINDS = new Set(['skill', 'template', 'agent']);
+const MAX_REFERENCE_LENGTH = 2048;
 
 
 export interface WorkflowStudioActions {
@@ -68,15 +72,58 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   }
 
   /**
-   * The four messages the page sends. The change set arrives as JSON text and is bounded here; the
+   * The messages the page sends. The change set arrives as JSON text and is bounded here; the
    * engine parses and validates its content, so the host never trusts its shape.
    */
   private router = registerMessageRouter('singularityFlow.workflowStudio', {
     'studio.ready': () => this.load(false),
     'studio.reload': () => this.load(true),
     'studio.preview': (message) => this.preview(stringField(message, 'changeSet')),
-    'studio.publish': (message) => this.publish(stringField(message, 'changeSet'), integerField(message, 'count') ?? 0)
+    'studio.publish': (message) => this.publish(stringField(message, 'changeSet'), integerField(message, 'count') ?? 0),
+    'studio.importPreview': (message) => this.importPreview(stringField(message, 'reference'), stringField(message, 'as')),
+    'studio.marketplaceBrowse': (message) => this.marketplaceBrowse(stringField(message, 'id')),
+    'studio.importsCheck': () => this.importsCheck()
   });
+
+  /**
+   * The engine fetches, checks and stages what a person wants to import; the page shows the exact
+   * text and hash it returns. Nothing in the repository changes until the import is published.
+   */
+  private async importPreview(reference: string | null, as: string | null): Promise<void> {
+    if (!reference || reference.length > MAX_REFERENCE_LENGTH || !(reference.startsWith('https://') || reference.startsWith('market:'))
+        || !as || !IMPORT_KINDS.has(as)) {
+      this.post({ type: 'studio.importFailed', message: 'Paste a public https:// link, or choose a marketplace entry.' });
+      return;
+    }
+    try {
+      const preview = await this.client.run<Record<string, unknown>>(['import', 'preview', reference, '--as', as, '--json']);
+      this.post({ type: 'studio.importPreviewed', preview });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  private async marketplaceBrowse(id: string | null): Promise<void> {
+    if (!id || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+      this.post({ type: 'studio.importFailed', message: 'Choose a marketplace this repository trusts.' });
+      return;
+    }
+    try {
+      const result = await this.client.run<Record<string, unknown>>(['marketplace', 'browse', id, '--json']);
+      this.post({ type: 'studio.marketplaceEntries', result });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  private async importsCheck(): Promise<void> {
+    try {
+      const result = await this.client.run<Record<string, unknown>>(['imports', 'check', '--json']);
+      this.post({ type: 'studio.importsChecked', result });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
 
   private post(message: Record<string, unknown>): void {
     void this.panel.webview.postMessage(message);

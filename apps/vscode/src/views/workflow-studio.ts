@@ -10,11 +10,11 @@
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
-import { navigationTarget, nonce } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import {
-  STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, studioPublishArgs, workflowStudioHtml, type StudioAuthority
+  STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioPublishArgs, workflowStudioBody, type StudioAuthority
 } from './workflow-studio-page.ts';
 
 
@@ -49,7 +49,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       await this.router.route(raw);
     }, null, this.subscriptions);
     panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
-    panel.webview.html = workflowStudioHtml(panel.webview, nonce());
+    const token = nonce();
+    panel.webview.html = page('Workflow Studio', workflowStudioBody(token),
+      contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
   static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions): WorkflowStudioPanel {

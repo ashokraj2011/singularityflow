@@ -8,7 +8,8 @@ import { spawnSync } from 'node:child_process';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
-const { WORKFLOW_STUDIO_SCRIPT, workflowStudioHtml } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+const { WORKFLOW_STUDIO_SCRIPT, workflowStudioBody } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+const { contentSecurityPolicy, page } = await import(path.join(packageRoot, 'apps/vscode/src/views/webview.ts'));
 const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Studio Tester' };
 
 function run(command, args, cwd, input = '') {
@@ -42,9 +43,12 @@ test('the page loads without a document and says nothing changed until something
   assert.equal(typeof logic.changeSetFrom, 'function');
   assert.deepEqual(posted, [], 'without its root element the page neither renders nor asks for a model');
   assert.equal(logic.kebab('Vendor Assessment!'), 'vendor-assessment');
-  const html = workflowStudioHtml({ cspSource: 'vscode-resource:' }, 'nonce123');
+  // Composed the way the panel composes it.
+  const html = page('Workflow Studio', workflowStudioBody('nonce123'),
+    contentSecurityPolicy({ cspSource: 'vscode-resource:' }, 'nonce123'), 'nonce123', WORKFLOW_STUDIO_SCRIPT);
   assert.match(html, /<div id="studio-root"/);
   assert.match(html, /script-src 'nonce-nonce123'/);
+  assert.match(html, /<style nonce="nonce123">\s*\.studio\{/, 'the Studio stylesheet carries the nonce');
   assert.doesNotMatch(WORKFLOW_STUDIO_SCRIPT, /setAttribute\('style'/, 'the nonce-only CSP would drop style attributes');
 });
 

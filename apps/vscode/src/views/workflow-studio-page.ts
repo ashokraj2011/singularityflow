@@ -8,8 +8,6 @@
  * The change set is computed by comparing the draft with the model it came from, so undoing an
  * edit is just editing it back, and nothing accumulates stale operations.
  */
-import type * as vscode from 'vscode';
-import { contentSecurityPolicy, page } from './webview.ts';
 
 const STUDIO_STYLE = `
 .studio{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 80px);gap:0}
@@ -881,7 +879,10 @@ export function studioPublishArgs(authority: StudioAuthority | null | undefined)
 export const STUDIO_PREVIEW_ARGS = Object.freeze(['workflow', 'studio', 'apply', '--change-set', '-', '--dry-run', '--json']);
 export const STUDIO_MODEL_ARGS = Object.freeze(['workflow', 'studio', '--json']);
 
-export function workflowStudioHtml(webview: vscode.Webview, token: string): string {
-  const body = `<style nonce="${token}">${STUDIO_STYLE}</style><div id="studio-root" class="studio-shell"></div>`;
-  return page('Workflow Studio', body, contentSecurityPolicy(webview, token), token, WORKFLOW_STUDIO_SCRIPT);
+/**
+ * The page body. The panel wraps it in the shared page shell, so the footer that shell draws and
+ * the code that answers the footer's clicks live in the same file.
+ */
+export function workflowStudioBody(token: string): string {
+  return `<style nonce="${token}">${STUDIO_STYLE}</style><div id="studio-root" class="studio-shell"></div>`;
 }

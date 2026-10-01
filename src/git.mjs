@@ -989,6 +989,23 @@ export function refHead(root, ref, { env = process.env } = {}) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+/** Keep `commit` reachable under `ref` (refs/... only), so moving a branch away from it loses nothing. */
+export function preserveCommitRef(root, ref, commit) {
+  invariant(/^refs\/[A-Za-z0-9._\/-]+$/u.test(String(ref ?? '')) && !String(ref).includes('..'), 'Preserved commit ref is invalid.');
+  invariant(/^[0-9a-f]{40,64}$/u.test(String(commit ?? '')), 'Preserved commit ID is invalid.');
+  git(['update-ref', ref, commit], { cwd: root });
+}
+
+/**
+ * Point the checked-out branch at `commit`, refusing if a local change would be lost: Git's
+ * `reset --keep`. Callers prove the tree clean and preserve the commit they leave first.
+ */
+export function moveCheckedOutBranch(root, commit) {
+  invariant(/^[0-9a-f]{40,64}$/u.test(String(commit ?? '')), 'Branch target commit ID is invalid.');
+  git(['reset', '--keep', commit], { cwd: root });
+  return head(root);
+}
+
 export function fastForwardTo(root, ref) {
   git(['merge', '--ff-only', ref], { cwd: root, stdio: 'inherit' });
   return head(root);

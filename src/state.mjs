@@ -7774,8 +7774,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     if (observation.reachable && !observation.malformed && observation.sha !== null) {
       if (!commitIsAncestor(root, observation.sha, governedLocalParent)) {
         throw new SingularityFlowError(
-          `Story '${workflow.workItem.id}' remote branch '${targetBranch}' is not an ancestor of the local Story branch. `
-          + 'Fetch and reconcile the divergent branch before publishing; nothing was changed.',
+          `Story '${workflow.workItem.id}' has commits on its remote branch '${targetBranch}' that this checkout does not have: another clone published to it. `
+          + 'Run singularity-flow refresh-branch to bring them in (it only fast-forwards), then retry; nothing was changed. '
+          + 'If it reports that the branch diverged, this checkout also holds an unpublished commit: run singularity-flow sync.',
           {
             code: 'STORY_PUBLICATION_REMOTE_DIVERGED',
             details: {

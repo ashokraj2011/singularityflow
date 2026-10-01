@@ -141,7 +141,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'planned', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'risk-status', 'run',
-  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'set', 'sign', 'solo',
   'saved-buffers-confirmed', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before

@@ -2169,6 +2169,8 @@ singularity-flow sync
 
 After the commit boundary, sync retries the existing history without rebasing, resetting, or force-pushing. A normal non-fast-forward rejection protects concurrent terminal decisions from overwriting one another.
 
+When the rejection means another clone published to the same Story first and the retained commit is a document upload, sync says so. `singularity-flow sync --replay` (preview it with `--dry-run`) adds the same files, names, phases and storage again on top of the published Story, so they take the next free document IDs, and publishes that as a new commit. The retained commit stays reachable under `refs/sflow-replayed/<WORK-ID>/<commit>`; if the replayed upload cannot be recorded, the branch and its pending marker are put back as they were. Any other retained commit is left for a person to reconcile.
+
 ## World model
 
 The world model grounds phase generation in repository facts:
@@ -3567,7 +3569,7 @@ singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
-singularity-flow sync
+singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]
 singularity-flow spec index [FILE] [--out FILE] [--dry-run]|claims|coverage|acceptance|trace ...
 singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
 singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]

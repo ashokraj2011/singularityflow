@@ -220,6 +220,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'code-documentation.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'code-documentation-inspection.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'spec-coverage-preview.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'document-replay.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
     ), '// fixture\n'),
@@ -285,6 +286,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/code-documentation.mjs',
     'src/code-documentation-inspection.mjs',
     'src/spec-coverage-preview.mjs',
+    'src/document-replay.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',

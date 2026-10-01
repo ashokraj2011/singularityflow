@@ -8272,10 +8272,11 @@ async function cancelCommand(positionals, options) {
   }
 }
 
-async function syncCommand(positionals = []) {
+async function syncCommand(positionals = [], options = {}) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const requestedId = positionals[1] ?? branch(root);
+  if (optionBoolean(options, 'replay')) return syncReplayCommand(root, config, requestedId, options);
   const direct = await recoverPreparedPublicationBySubject(root, { kind: 'story', id: requestedId });
   if (direct.status === 'active') {
     throw new SingularityFlowError(
@@ -8296,7 +8297,12 @@ async function syncCommand(positionals = []) {
     );
   }
   const workflow = await loadStoryAggregate(root, config, requestedId);
-  const result = await syncPublication(root, config, workflow);
+  let result;
+  try {
+    result = await syncPublication(root, config, workflow);
+  } catch (error) {
+    throw await explainLostPublicationRace(root, config, workflow, error);
+  }
   if (result.recoveredPrepared && result.restoredPrepared) {
     console.log(`Rolled back the interrupted pre-commit publication for ${workflow.workItem.id} to its exact durable pre-transaction state.`);
     if (result.rescuePath) console.log(`Preserved the interrupted partial bytes at ${result.rescuePath}.`);
@@ -8306,6 +8312,55 @@ async function syncCommand(positionals = []) {
   } else if (result.noOp) {
     console.log(`Story ${workflow.workItem.id} has no pending publication; nothing was pushed.`);
   } else console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
+}
+
+/**
+ * A push refused because another clone published to the Story first leaves a retained commit that
+ * sync can only retry. When that commit is a document upload, say how to replay it.
+ */
+async function explainLostPublicationRace(root, config, workflow, error) {
+  let plan = null;
+  try {
+    const { planDocumentReplay } = await import('./document-replay.mjs');
+    plan = await planDocumentReplay(root, config, workflow);
+  } catch { return error; }
+  if (plan?.replayable) {
+    return new SingularityFlowError(
+      `Another clone published to ${workflow.workItem.id} first, so its retained document upload (commit ${plan.commit.slice(0, 8)}) cannot be pushed as it is. `
+      + 'Replay it onto the published Story with singularity-flow sync --replay (preview with --dry-run): the same documents are added again and take the next free IDs. Nothing was changed.',
+      { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, remoteTip: plan.remoteTip, documents: plan.documents } }
+    );
+  }
+  if (plan?.reason === 'name-taken') {
+    const { documentReplayReason } = await import('./document-replay.mjs');
+    return new SingularityFlowError(
+      `Another clone published to ${workflow.workItem.id} first, and its retained document upload cannot be replayed: ${documentReplayReason(plan)}. `
+      + 'Nothing was changed.', { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, collisions: plan.collisions } }
+    );
+  }
+  return error;
+}
+
+async function syncReplayCommand(root, config, requestedId, options) {
+  const { documentReplayReason, replayPendingDocumentUpload } = await import('./document-replay.mjs');
+  const workflow = await loadStoryAggregate(root, config, requestedId);
+  const dryRun = optionBoolean(options, 'dry-run');
+  const result = await replayPendingDocumentUpload(root, config, workflow, { dryRun });
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  if (dryRun) {
+    if (!result.replayable) {
+      console.log(`Nothing to replay: ${documentReplayReason(result)}.`);
+      return;
+    }
+    console.log(`Would replay commit ${result.commit.slice(0, 8)} onto ${result.remote}/${result.branch} at ${result.remoteTip.slice(0, 8)}:`);
+    for (const document of result.documents) console.log(`  ${document.id} — ${document.name} (gets the next free ID)`);
+    console.log('Dry run: no state changed.');
+    return;
+  }
+  console.log(`Replayed commit ${result.from.slice(0, 8)} onto the published Story; it is kept at ${result.preservedRef}.`);
+  for (const document of result.documents) console.log(`  ${document.previousId} → ${document.id ?? '?'} — ${document.name}`);
+  console.log(`Commit: ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' pushed' : ' retained locally'}`);
+  if (!result.publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
 }
 
 async function ledgerCommand(positionals, options) {
@@ -17173,7 +17228,7 @@ async function dispatch(command, positionals, options) {
     reject: () => rejectCommand(positionals, options),
     reopen: () => reopenCommand(positionals, options),
     cancel: () => cancelCommand(positionals, options),
-    sync: () => syncCommand(positionals),
+    sync: () => syncCommand(positionals, options),
     ledger: () => ledgerCommand(positionals, options),
     capabilities: () => capabilitiesCommand(positionals, options),
     state: () => stateCommand(positionals, options),

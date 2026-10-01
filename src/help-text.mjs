@@ -639,7 +639,7 @@ Usage:
   singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE] [--clause ID]...
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
-  singularity-flow sync
+  singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal] [--json]
   singularity-flow wm init

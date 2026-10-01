@@ -117,7 +117,7 @@ const entries = {
   delivery: ['sf-inspect', 'sf-adhoc'],
   approve: ['sf-approve'],
   reject: ['sf-reject'],
-  decision: ['sf-approve', 'sf-next'],
+  decision: ['sf-decide'],
   reopen: ['sf-reject'],
   cancel: ['sf-cancel'],
   sync: ['sf-next'],

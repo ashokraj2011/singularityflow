@@ -18,9 +18,9 @@ function nextActions(workflow, phase) {
   // A Story waiting for a person moves only by their choice; the approved phase has nothing to submit.
   const pending = workflow.pendingDecision;
   if (pending) return [
-    copilotAction({ skill: '/sflow-approve', command: `singularity-flow decision show ${workflow.workItem.id}`, reason: `See what '${pending.label}' offers and who may choose.` }),
+    copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision show ${workflow.workItem.id}`, reason: `See what '${pending.label}' offers and who may choose.` }),
     ...pending.options.map((option) => copilotAction({
-      skill: '/sflow-approve',
+      skill: '/sflow-decide',
       command: `singularity-flow decision choose ${workflow.workItem.id} --option ${option.id} --reason <reason> --expected ${pending.key}`,
       reason: `Choose '${option.label}' for '${pending.label}'.`
     }))

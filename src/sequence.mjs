@@ -46,8 +46,8 @@ export function sequenceGuidance(workflow) {
   if (pending) return {
     summary: `Choose what happens next for '${pending.label}'${pending.reason === 'limit' ? '; its rounds are used' : ''}. Members of ${pending.by.join(', ')} decide.`,
     actions: [
-      copilotAction({ skill: '/sflow-approve', command: `singularity-flow decision show ${workId}` }),
-      copilotAction({ skill: '/sflow-approve', command: `singularity-flow decision choose ${workId} --option <option> --reason <reason> --expected ${pending.key}` })
+      copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision show ${workId}` }),
+      copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision choose ${workId} --option <option> --reason <reason> --expected ${pending.key}` })
     ]
   };
   if (!phase) return {

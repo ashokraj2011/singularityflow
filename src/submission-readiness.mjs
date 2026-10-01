@@ -187,7 +187,7 @@ export function submissionReadinessSnapshot(workflow, {
       ...draft,
       classification: 'decision-required',
       command: `singularity-flow decision show ${workflow.workItem.id}`,
-      nextSkill: '/sf-approve',
+      nextSkill: '/sf-decide',
       reasonCode: 'DECISION_REQUIRED',
       decision: {
         key: pending.key, decision: pending.decision, label: pending.label, reason: pending.reason,

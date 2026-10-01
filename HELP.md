@@ -2712,7 +2712,8 @@ The easiest way to create and change workflows is **Workflow Studio** in VS Code
 - start a workflow from one of yours or from a packaged blueprint, then add, remove and reorder steps;
 - choose the agent that drafts each step, what the step produces, which earlier steps it reads, who signs it off and how many approvals it needs, and where rejected work goes back to;
 - create an agent from a role (analyst, architect, developer, tester, designer, reviewer) without editing Markdown;
-- add people to approval groups.
+- add people to approval groups;
+- add a **decision** after a step with **Decide**: an if / else whose rules read values the step records, a loop that goes back until a goal is met (at most a few rounds), or a question a person answers. See [Decisions, branches and loops](docs/topics/workflow-decisions.md).
 
 Edits collect as one set of changes. **Check changes** asks the engine to validate the whole resulting configuration — workflow, agents and templates together — and shows each file's diff; **Publish** writes them as one review proposal on the approved configuration (or, for a working-tree authority, as files to commit). Running Stories keep the workflow they started with.
 

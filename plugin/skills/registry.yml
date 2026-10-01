@@ -132,6 +132,7 @@ skills:
   sflow-epic-resume: { class: interactive, executionBoundary: repository }
   sflow-epic-review: { class: review, executionBoundary: repository }
   sflow-epic-review-decision: { class: review, executionBoundary: repository }
+  sflow-decide: { class: review }
   sflow-epic-sources: { class: mutation, executionBoundary: repository }
   sflow-epic-start: { class: interactive, executionBoundary: repository }
   sflow-epic-status: { class: echo, executionBoundary: repository }

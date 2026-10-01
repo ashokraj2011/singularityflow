@@ -20,7 +20,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 1
+version: 2
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -35,7 +35,7 @@ Use a decision when not every Story needs every phase, when a phase should repea
 ## Use it from each surface
 
 - **Shell:** `singularity-flow submit --decision NAME=VALUE` records what a branch or loop reads; `singularity-flow decision show` and `singularity-flow decision choose` read and answer a waiting decision.
-- **Copilot:** the phase skill records the values when it submits; `/sf-approve` guides a person through a decision that waits for them.
+- **Copilot:** the phase skill records the values when it submits; `/sf-decide` shows a waiting decision's options and records the person's choice and reason.
 - **VS Code:** Workflow Studio adds a decision after a step. During a Story, the journey shows skipped steps and loop rounds, and a waiting decision offers its options as buttons.
 
 ## Guided workflow

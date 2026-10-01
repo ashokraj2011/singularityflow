@@ -44,7 +44,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
   if (ahead) {
     const { decision, outcome } = ahead;
     if (!outcome || outcome.kind === 'pause') {
-      return [action('then', '/sflow-approve', `singularity-flow decision show ${workflow.workItem.id}`,
+      return [action('then', '/sflow-decide', `singularity-flow decision show ${workflow.workItem.id}`,
         decision.mode === 'ask' || outcome?.kind === 'pause'
           ? `${when}, a person chooses what happens next ('${decision.label}').`
           : `${when}, '${decision.label}' chooses the next step from the values it records.`)];
@@ -84,9 +84,9 @@ export function workflowNextSteps(workflow, {
   if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workId);
   const pending = workflow.pendingDecision;
   if (pending) return [
-    action('now', '/sflow-approve', `singularity-flow decision show ${workId}`,
+    action('now', '/sflow-decide', `singularity-flow decision show ${workId}`,
       `'${pending.label}' waits for ${pending.by.join(', ')} to choose what happens next${pending.reason === 'limit' ? '; its rounds are used' : ''}.`),
-    ...pending.options.map((option, index) => action(index === 0 ? 'then' : 'alternative', '/sflow-approve',
+    ...pending.options.map((option, index) => action(index === 0 ? 'then' : 'alternative', '/sflow-decide',
       `singularity-flow decision choose ${workId} --option ${option.id} --reason <reason> --expected ${pending.key}`,
       `Choose '${option.label}'.`)),
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')

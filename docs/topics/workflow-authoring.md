@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 34
+version: 35
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -41,6 +41,11 @@ which earlier steps it reads, the approval group and how many approvals it needs
 step rejected work goes back to. Steps are added from the repository's step catalog or created new,
 and reordered by dragging or with the arrow buttons. A new workflow starts from one of the
 repository's workflows, from a packaged blueprint that is not installed yet, or blank.
+
+A **Decide** button adds a decision after a step, drawn under it as "Then decide": an if / else
+whose rules read values the step records and choose the next step, a loop that goes back until a
+goal is met, or a question a person answers. Its targets name the steps a route would skip; the
+engine refuses a route that skips a step a later one reads. See `sflow explain workflow-decisions`.
 
 Agents are created from a role (analyst, product owner, architect, developer, tester, designer,
 reviewer, or blank): name, one-sentence description, tools, knowledge views and instructions. The

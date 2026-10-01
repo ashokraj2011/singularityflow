@@ -248,7 +248,7 @@ function storyJourneyOf(
   const decisionView = snapshot.decisions ?? null;
   const pending: PendingDecisionView | null = workflow.pendingDecision ? decisionView?.pending ?? null : null;
   const decisionRoutes = pending
-    ? commandGuidance({ command: `singularity-flow decision show ${workflow.workItem.id}`, skill: '/sf-approve' })
+    ? commandGuidance({ command: `singularity-flow decision show ${workflow.workItem.id}`, skill: '/sf-decide' })
     : null;
   const ahead = decisionView?.ahead ?? null;
   const decisionAhead = !pending && ahead && ahead.after === workflow.currentPhase

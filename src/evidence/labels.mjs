@@ -30,11 +30,12 @@ export function lifecycleWords(workflow) {
  * The label for an evaluation. `terminal` is a decision-mode terminal evaluation of the current
  * inputs, or null when none exists; a projection can never supply one, so views read Incomplete.
  */
-export function completionLabel({ workflow, rows = [], terminal = null }) {
+export function completionLabel({ workflow, rows = [], terminal = null, gate = null }) {
   const counts = resultCounts(rows);
   // Anything but a decision-mode terminal evaluation is no final evaluation at all.
   const decisive = terminal?.mode === 'decision' && terminal.boundary === 'terminal';
-  if (decisive && rows.length > 0) {
+  // A stored final evaluation never outweighs a block in the current one.
+  if (decisive && rows.length > 0 && gate !== 'block') {
     if (terminal.decision?.gate === 'allow') {
       return { label: COMPLETION_LABELS.complete, kind: 'complete', reasons: [] };
     }

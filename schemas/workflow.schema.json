@@ -516,6 +516,45 @@
     },
     "decisionRounds": { "type": "object", "additionalProperties": { "type": "object", "properties": { "count": { "type": "integer", "minimum": 0 } } } },
     "decisionLog": { "type": "array", "items": { "type": "object" } },
+    "completion": {
+      "description": "The final evaluation the transition that ended the Story passed. Cleared when rework reopens it.",
+      "type": "object",
+      "required": ["label", "kind", "mode", "boundary", "decision", "inputSha256", "evaluatedAt"],
+      "properties": {
+        "label": { "enum": ["Complete", "Complete with accepted exceptions"] },
+        "kind": { "enum": ["complete", "complete-with-exceptions"] },
+        "mode": { "const": "decision" },
+        "boundary": { "const": "terminal" },
+        "decision": {
+          "type": "object",
+          "required": ["gate"],
+          "properties": { "gate": { "enum": ["allow", "allow-with-risk"] } },
+          "additionalProperties": false
+        },
+        "inputSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "assuranceFloor": { "type": ["string", "null"] },
+        "evaluatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "applicability": {
+      "description": "Why a responsibility the workflow leaves out does not apply to this Story, decided by a person in the omission's approval group.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["responsibility", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "responsibility": { "enum": ["scope", "plan", "implement", "verify", "review"] },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" },
+          "withdrawnAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "phaseOrder": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
     "phases": {
       "type": "object",

@@ -64,6 +64,11 @@ async function fixture(t, id, { code = false, minimum = 1 } = {}) {
   git('init', '--bare', '-b', 'main', path.join(directory, 'remote.git'));
   git('remote', 'add', 'origin', path.join(directory, 'remote.git')); git('push', '-u', 'origin', 'main');
   flow(['start', id, '--from-branch', 'main', '--work-type', 'rework-regression', '--agent', 'qa', '--title', 'Rework lifecycle regression', '--description', 'Exercise exact evidence restoration and fresh downstream review.']);
+  // The route leaves these responsibilities out, so the Story can finish only once someone in the
+  // omission's group has said why they do not apply; say it once, before any review begins.
+  for (const responsibility of ['scope', 'plan', 'implement']) {
+    flow(['decision', 'applicability', '--responsibility', responsibility, '--reason', 'This regression fixture exercises rework and review only.']);
+  }
   const state = async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items', id, 'workflow.json'), 'utf8'));
   const publish = (phase) => { flow(['prepare', phase]); flow(['phase', 'publish', phase]); };
   if (code) await changeSource(2);

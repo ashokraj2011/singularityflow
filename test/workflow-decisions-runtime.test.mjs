@@ -38,6 +38,8 @@ async function repository() {
   config.workTypes[WORK_TYPE] = {
     label: 'Decision demo',
     phases: ['intake', 'requirements', 'design', 'implementation-spec'],
+    // Specifying without building: every end says which responsibilities it leaves out, and why.
+    omits: ['implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'This decision demonstration specifies work and builds nothing.', authority: 'product-approvers' })),
     phaseOverrides: {
       requirements: { inputs: ['intake'] },
       design: { inputs: ['intake', { phase: 'requirements', optional: true }] },
@@ -57,7 +59,7 @@ async function repository() {
         routes: [
           { id: 'continue', label: 'Continue to design', to: 'next' },
           { id: 'again', label: 'Another round', to: 'requirements' },
-          { id: 'stop', label: 'Finish here', to: 'end' }
+          { id: 'stop', label: 'Finish here', to: 'end', omits: ['implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'This decision demonstration specifies work and builds nothing.', authority: 'product-approvers' })) }
         ]
       },
       {
@@ -77,6 +79,14 @@ async function repository() {
 }
 
 const AGENTS = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect' };
+
+/** Start a Story and record, once, why the responsibilities every end leaves out do not apply. */
+function start(root, workId) {
+  flow(root, ['start', workId, '--from-branch', 'main'], { agent: 'product-owner' });
+  for (const responsibility of ['implement', 'verify']) {
+    flow(root, ['decision', 'applicability', '--responsibility', responsibility, '--reason', 'This decision demonstration specifies work and builds nothing.'], { agent: 'product-owner' });
+  }
+}
 
 async function state(root, workId) {
   return JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
@@ -100,7 +110,7 @@ async function work(root, workId, phaseId, submitArgs = []) {
 test('a branch skips a phase, a loop goes back and stops at its limit, and a person chooses', async () => {
   const root = await repository();
   const workId = 'DEC-1';
-  flow(root, ['start', workId, '--from-branch', 'main'], { agent: 'product-owner' });
+  start(root, workId);
 
   // The phase before a rule must record what the rule reads.
   const missing = await work(root, workId, 'intake', Object.assign([], { allowFailure: true }));
@@ -199,7 +209,7 @@ test('a branch skips a phase, a loop goes back and stops at its limit, and a per
 test('a person can finish a Story early, and the finished Story reopens from the phase that ran last', async () => {
   const root = await repository();
   const workId = 'DEC-2';
-  flow(root, ['start', workId, '--from-branch', 'main'], { agent: 'product-owner' });
+  start(root, workId);
   await work(root, workId, 'intake', ['--decision', 'risk=high']);
   flow(root, ['approve', '--yes'], { agent: 'product-owner' });
   let workflow = await state(root, workId);

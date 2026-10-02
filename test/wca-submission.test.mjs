@@ -16,6 +16,10 @@ import { previewWorkflowDraftPackage, WCA_REQUEST_SCHEMA } from '../src/wca-comp
 import { openGitDraftStore } from '../src/wca-git-drafts.mjs';
 import { createWorkflowDraftReviewProposal, validateWorkflowDraftSubmissionSnapshot, workflowDraftSubmissionPlan } from '../src/wca-submission.mjs';
 
+// These fixture workflows exercise configuration authoring, not delivery, and say so for each
+// responsibility a Story would otherwise owe; omitting one a route does hold is only a warning.
+const OMITS = ['scope', 'plan', 'implement', 'verify', 'review'].map((responsibility) => ({ responsibility, reason: 'A configuration-authoring fixture that exercises no delivery.', authority: 'reviewers' }));
+
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const DRAFT_ID = 'WFD-SUBMIT01';
 const TERMINAL_FIXTURE_UNAVAILABLE = process.platform !== 'darwin' || !existsSync('/usr/bin/expect');
@@ -67,7 +71,7 @@ async function fixture(t, { attributes = null, templatesRoot = 'singularity/temp
     generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
   const definition = { version: 2, templatesRoot,
     worldModel: { views: ['architecture', 'development', 'testing', 'security', 'business', 'operations', 'release'] },
-    workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'] } },
+    workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'], omits: OMITS } },
     phases: { intake: phase('intake'), conformance: phase('conformance') }, approvalSecurity: { profile: 'team' },
     approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } } };
   await mkdir(path.join(first, 'singularity'), { recursive: true });
@@ -90,7 +94,7 @@ async function fixture(t, { attributes = null, templatesRoot = 'singularity/temp
   const request = { schema: WCA_REQUEST_SCHEMA, intent: 'create', id: 'team-notes', label: 'Team notes', baseRevision: commit,
     target: { governs: 'story', authority: 'selected-repository', hosts: [] },
     bindings: { analysisTask: { kind: 'execution-task', id: 'analyze' }, review: { kind: 'approval-authority', id: 'reviewers' } },
-    definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'] }],
+    definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'], omits: OMITS }],
       phases: [{ id: 'team-note', label: 'Team note', artifact: { path: 'artifacts/team-note/note.md', kind: 'custom:note', minimumBytes: 20, maximumBytes: 16_384 },
         inputs: ['intake'], template: 'note-template', agent: 'note-writer', taskBinding: 'analysisTask', approvalBinding: 'review', qualityBindings: [], writeScope: 'artifact-only' }],
       agents: [{ id: 'note-writer', description: 'Write the selected note', prompt: 'Read the exact approved intake. Produce the selected note and stop for human review.', toolBindings: [], skillRefs: [] }],

@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
 import { assertWorkReconciliationIntegrity } from './work-intervals.mjs';
-import { exactFileAtObject } from './git.mjs';
+import { exactFileAtObject, head } from './git.mjs';
 
 function committedJson(root, commit, relative) {
   const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024 });
@@ -11,8 +13,25 @@ function committedJson(root, commit, relative) {
   return JSON.parse(bytes.toString('utf8'));
 }
 
+/**
+ * The submission the transition being evaluated is about to commit, when the waived generation's
+ * packet is not in history yet. Its replay needs that very commit, so the transition's own final
+ * evaluation checks the packet it just wrote; every later evaluation replays it from history.
+ */
+async function pendingWaiverSubmission(root, phase, entry) {
+  if (exactFileAtObject(root, head(root), entry.path)) return null;
+  const stored = JSON.parse(await readFile(path.join(root, entry.path), 'utf8'));
+  const { packetSha256, ...base } = stored;
+  if (packetSha256 !== entry.packetSha256 || createHash('sha256').update(JSON.stringify(base)).digest('hex') !== packetSha256
+      || stored.phase !== phase.id || Number(stored.generation) !== Number(phase.generation) || stored.status !== 'policy_waived'
+      || stored.submissionEvidence?.checksSha256 !== createHash('sha256').update(JSON.stringify(phase.checks ?? [])).digest('hex')) {
+    throw new Error('the pending submission does not authorize this waived generation');
+  }
+  return stored;
+}
+
 /** Replay a policy waiver from its hash-verified submission and sealed reconciliation. */
-export async function verifyPhaseApprovalWaiver(root, config, workflow, phase) {
+export async function verifyPhaseApprovalWaiver(root, config, workflow, phase, { pendingTransition = false } = {}) {
   try {
     const policy = supportedWaiverPolicy(phase.approvalPolicy);
     if (!policy || phase.approvalDisposition !== 'policy_waived') {
@@ -21,6 +40,9 @@ export async function verifyPhaseApprovalWaiver(root, config, workflow, phase) {
     const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
       candidate.phase === phase.id && Number(candidate.generation) === Number(phase.generation));
     if (!entry) throw new Error('the waived generation has no immutable submission');
+    if (pendingTransition && await pendingWaiverSubmission(root, phase, entry)) {
+      return { valid: true, pending: true, errors: [], evidenceCommit: null, packetSha256: entry.packetSha256 };
+    }
     const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
     if (packet.workId !== workflow.workItem.id || packet.phase !== phase.id
         || Number(packet.generation) !== Number(phase.generation) || packet.status !== 'policy_waived'

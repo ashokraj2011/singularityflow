@@ -37,6 +37,21 @@ export async function completionVerdict(root, workId) {
   }
 }
 
+/**
+ * The final evaluation the ending transition recorded on the Story, as a verdict. Every ending now
+ * passes the evaluation inside its own transaction, so a committed ending carries one; a Story
+ * without it never finished that way.
+ */
+export function recordedCompletion(workflow) {
+  const record = workflow?.status === 'complete' ? workflow.completion : null;
+  if (!record?.evaluatedAt) return null;
+  return Object.freeze({
+    verified: true, label: record.label, kind: record.kind,
+    assurance: record.assuranceFloor === 'none' ? null : record.assuranceFloor ?? null,
+    errors: Object.freeze([]), warnings: Object.freeze([]), findings: Object.freeze([])
+  });
+}
+
 /** What to do when the final check failed: each finding's own recovery, then the check itself. */
 export function completionRecoveryActions(verdict) {
   if (verdict.verified) return [];
@@ -59,7 +74,7 @@ export function finalCheckRefusalMessage(workId, verdict) {
 /** Print the verdict for terminal users; JSON callers read it from the command result instead. */
 export function printCompletionVerdict(verdict, { write = console.log, warn = console.warn } = {}) {
   if (verdict.verified) {
-    write('Final governance check passed.');
+    write(verdict.label ? `Final governance check passed: ${verdict.label}.` : 'Final governance check passed.');
     // The check proves the Story's records are consistent, not that each criterion was tested.
     if (verdict.assurance === 'module-observed') {
       write('Assurance: acceptance criteria are linked to tests by tags and the module test commands passed; no test-case result is joined to a criterion yet.');

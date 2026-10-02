@@ -25,9 +25,12 @@ export const OBLIGATION_STATUSES = Object.freeze([
   'met', 'partial', 'pending', 'missing', 'failed', 'inconclusive', 'excepted', 'not-applicable'
 ]);
 
-/** One row's result, from the strongest blocker down. Scope dispositions never degrade a label. */
+/**
+ * One row's result, from the strongest blocker down. `not-applicable` is a recorded applicability
+ * decision: a scope disposition, so it never degrades a label.
+ */
 export const ROW_RESULTS = Object.freeze([
-  'failed', 'inconclusive', 'missing', 'pending', 'satisfied-with-exception', 'satisfied'
+  'failed', 'inconclusive', 'missing', 'pending', 'satisfied-with-exception', 'satisfied', 'not-applicable'
 ]);
 
 export const GATE_DECISIONS = Object.freeze(['allow', 'allow-with-risk', 'block']);

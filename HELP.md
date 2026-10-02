@@ -3673,6 +3673,7 @@ singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--t
 singularity-flow reject testing --to implementation --repair --reason TEXT [--confirm SHA256]
 singularity-flow decision show [WORK-ID] [--json]
 singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY]
+singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT
 singularity-flow review-source context|status <specification|planning> [--json]
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]

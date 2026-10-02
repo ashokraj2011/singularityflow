@@ -58,7 +58,11 @@ async function repository() {
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes[WORK_TYPE] = {
     label: 'Import demo', phases: ['intake', 'design'],
-    phaseOverrides: { design: { inputs: ['intake'] } }
+    phaseOverrides: { design: { inputs: ['intake'] } },
+    // Drafting a design from imported assets specifies, builds and tests nothing, and says so.
+    omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({
+      responsibility, reason: 'This demonstration only drafts a design from imported assets.', authority: 'product-approvers'
+    }))
   };
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);

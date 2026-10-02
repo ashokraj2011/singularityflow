@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { recordSha256 } from '../records.mjs';
+import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import {
   isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap,
@@ -125,8 +126,8 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
 }
 
 /** Build the graph from records already in memory; the loader and the tests both use this. */
-export function evidenceGraph({ workflow, records, deliveries = [], findings = [], untrusted = false, terminal = null }) {
-  const graph = { workflow, records, deliveries, findings, untrusted, terminal };
+export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], findings = [], untrusted = false, terminal = null }) {
+  const graph = { workflow, records, deliveries, inspections, findings, untrusted, terminal };
   // What the evaluation was computed from, so a cache or a stored decision can tell whether its
   // inputs are still current without re-reading every record.
   graph.inputSha256 = `sha256:${recordSha256({
@@ -147,16 +148,54 @@ export function evidenceGraph({ workflow, records, deliveries = [], findings = [
       observed: (records.observed ?? []).map((map) => recordSha256(map))
     },
     deliveries,
+    inspections: inspections.map((entry) => ({ phaseId: entry.phaseId, sha256: recordSha256({ text: entry.text }) })),
+    applicability: (workflow.applicability ?? []).filter((entry) => !entry.withdrawnAt)
+      .map((entry) => ({ responsibility: entry.responsibility, authorityGroup: entry.authorityGroup ?? null, at: entry.at ?? null })),
     findings: findings.map((entry) => entry.code)
   })}`;
+  // A final evaluation counts only for the evidence it was made over.
+  if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;
   return graph;
+}
+
+/**
+ * The approved artifacts of the steps that verify, for a Story with no code step: there a criterion
+ * is verified by inspection, when an approved verification artifact cites it.
+ */
+async function loadInspections(root, directory, workflow, findings) {
+  const phases = workflow.phases ?? {};
+  if ((workflow.phaseOrder ?? []).some((id) => phaseRequiresCodeDelivery(phases[id]))) return [];
+  const verifying = (workflow.resolution?.obligationGraph?.nodes ?? []).filter((node) => node.responsibilities.includes('verify'));
+  const inspections = [];
+  for (const node of verifying) {
+    const phase = phases[node.id];
+    const relative = phase?.requiredArtifact?.path;
+    if (!relative || !['approved', 'awaiting_approval'].includes(phase.status)) continue;
+    try {
+      const text = await readFile(path.join(directory, relative), 'utf8');
+      inspections.push({ phaseId: node.id, text: text.slice(0, 1024 * 1024) });
+    } catch (error) {
+      findings.push({
+        code: 'EVIDENCE_INSPECTION_UNREADABLE', category: 'records', blocking: true, obligationIds: [],
+        message: `The verification artifact of ${node.id} could not be read: ${error.message}`
+      });
+    }
+  }
+  return inspections;
 }
 
 /** Read one Story's records from its checkout. Never throws for a record problem; reports it. */
 export async function loadEvidenceGraph(root, { workId = null } = {}) {
   const accepted = await loadAcceptedStoryExecution(root, workId);
-  const workflow = accepted.workflow;
-  const directory = itemDirectory(root, accepted.definition, workflow.workItem.id);
+  return evidenceGraphFromAggregate(root, accepted.definition, accepted.workflow);
+}
+
+/**
+ * The graph of an aggregate already in memory: a view passes the committed Story; the final check
+ * passes the Story its transition is about to commit.
+ */
+export async function evidenceGraphFromAggregate(root, definition, workflow) {
+  const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
   const findings = [];
   let untrusted = false;
   const projected = await loadProjectedSpecRecords(root, directory, workflow, findings);
@@ -167,5 +206,6 @@ export async function loadEvidenceGraph(root, { workId = null } = {}) {
     const phase = workflow.phases[id];
     if (phase?.deliveryEvidence) deliveries.push(await loadDelivery(root, phase, findings));
   }
-  return evidenceGraph({ workflow, records, deliveries, findings, untrusted });
+  const inspections = await loadInspections(root, directory, workflow, findings);
+  return evidenceGraph({ workflow, records, deliveries, inspections, findings, untrusted });
 }

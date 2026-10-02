@@ -663,6 +663,7 @@ Usage:
   singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE] [--clause ID]...
   singularity-flow decision show [WORK-ID] [--json]
   singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY] [--json]
+  singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]

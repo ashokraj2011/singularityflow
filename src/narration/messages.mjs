@@ -541,6 +541,10 @@ export const MESSAGES = Object.freeze({
         : `Decision ${slot(s.decision)} chose ${slot(s.route)}.${finalCheckSentence(s)}`),
     preserves: false
   },
+  'decision.applicability.succeeded': {
+    headline: (s) => `Recorded that ${slot(s.responsibility)} does not apply to this Story.`,
+    preserves: false
+  },
   'reject.succeeded': {
     headline: (s) => `Requested changes to ${slot(s.phase)}; the Story is back at ${slot(s.target)}.`,
     preserves: false

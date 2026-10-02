@@ -27,6 +27,10 @@ import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
 import { captureVerifiedConfigurationAssetBytes } from '../src/configuration-branch.mjs';
 import { withCommandTiming } from '../src/dx-timing-context.mjs';
 
+// These fixture workflows exercise configuration authoring, not delivery, and say so for each
+// responsibility a Story would otherwise owe; omitting one a route does hold is only a warning.
+const OMITS = ['scope', 'plan', 'implement', 'verify', 'review'].map((responsibility) => ({ responsibility, reason: 'A configuration-authoring fixture that exercises no delivery.', authority: 'reviewers' }));
+
 function git(root, ...argv) { const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: 30_000 }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); }
 const testDigest = (value) => `sha256:${recordSha256(value)}`;
 const testDomainDigest = (domain, value) => `sha256:${createHash('sha256').update(`${domain}\0`).update(canonicalJson(value)).digest('hex')}`;
@@ -108,7 +112,7 @@ async function fixture(t, configure = () => {}, approvedSkills = []) {
   const root = path.join(base, 'client'); const remote = path.join(base, 'authority.git'); await mkdir(root);
   git(base, 'init', '--bare', remote); git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Compiler Fixture'); git(root, 'config', 'user.email', 'compiler@example.test');
   const phase = (key) => ({ label: key, artifact: { path: `artifacts/${key}/${key}.md`, minimumBytes: 20, maximumBytes: 16_384 }, defaultTemplate: 'common/empty.md', inputs: [], approval: { mode: 'none' }, writeScope: 'artifact-only', generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
-  const definition = { version: 2, templatesRoot: 'singularity/templates', worldModel: { views: ['architecture', 'development', 'testing', 'security', 'business', 'operations', 'release'] }, workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'] } }, phases: { intake: phase('intake'), conformance: phase('conformance') }, approvalSecurity: { profile: 'team' }, approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } } };
+  const definition = { version: 2, templatesRoot: 'singularity/templates', worldModel: { views: ['architecture', 'development', 'testing', 'security', 'business', 'operations', 'release'] }, workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'], omits: OMITS } }, phases: { intake: phase('intake'), conformance: phase('conformance') }, approvalSecurity: { profile: 'team' }, approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } } };
   const environmentDeclaration = configure(definition);
   await mkdir(path.join(root, definition.templatesRoot, 'common'), { recursive: true }); await mkdir(path.join(root, 'singularity'), { recursive: true }); await mkdir(path.join(root, '.github/agents'), { recursive: true });
   await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(definition)); await writeFile(path.join(root, definition.templatesRoot, 'common/empty.md'), '# Exact approved template\n');
@@ -122,7 +126,7 @@ async function fixture(t, configure = () => {}, approvedSkills = []) {
   }
   git(root, 'add', '.'); git(root, 'commit', '-m', 'approved test source'); git(root, 'branch', 'sflow/config'); git(root, 'remote', 'add', 'origin', remote); git(root, 'push', 'origin', 'main', 'sflow/config');
   const commit = git(root, 'rev-parse', 'HEAD'); const store = openGitDraftStore({ root, remote, workspaceId: 'configuration' });
-  const request = { schema: WCA_REQUEST_SCHEMA, intent: 'create', id: 'team-notes', label: 'Team notes', baseRevision: commit, target: { governs: 'story', authority: 'selected-repository', hosts: [] }, bindings: { analysisTask: { kind: 'execution-task', id: 'analyze' }, review: { kind: 'approval-authority', id: 'reviewers' } }, definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'] }], phases: [{ id: 'team-note', label: 'Team note', artifact: { path: 'artifacts/team-note/note.md', kind: 'custom:note', minimumBytes: 20, maximumBytes: 16_384 }, inputs: ['intake'], template: 'note-template', agent: 'note-writer', taskBinding: 'analysisTask', approvalBinding: 'review', qualityBindings: [], writeScope: 'artifact-only' }], agents: [{ id: 'note-writer', description: 'Write the selected note', prompt: 'Read the exact approved intake. Produce the selected note and stop for human review.', toolBindings: [], skillRefs: [] }], templates: [{ id: 'note-template', content: '# Team note\n\n## Inputs\n\n## Findings\n\n## Open questions\n' }] } };
+  const request = { schema: WCA_REQUEST_SCHEMA, intent: 'create', id: 'team-notes', label: 'Team notes', baseRevision: commit, target: { governs: 'story', authority: 'selected-repository', hosts: [] }, bindings: { analysisTask: { kind: 'execution-task', id: 'analyze' }, review: { kind: 'approval-authority', id: 'reviewers' } }, definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'], omits: OMITS }], phases: [{ id: 'team-note', label: 'Team note', artifact: { path: 'artifacts/team-note/note.md', kind: 'custom:note', minimumBytes: 20, maximumBytes: 16_384 }, inputs: ['intake'], template: 'note-template', agent: 'note-writer', taskBinding: 'analysisTask', approvalBinding: 'review', qualityBindings: [], writeScope: 'artifact-only' }], agents: [{ id: 'note-writer', description: 'Write the selected note', prompt: 'Read the exact approved intake. Produce the selected note and stop for human review.', toolBindings: [], skillRefs: [] }], templates: [{ id: 'note-template', content: '# Team note\n\n## Inputs\n\n## Findings\n\n## Open questions\n' }] } };
   return { root, remote, commit, store, request, definition };
 }
 async function preview(f, request = f.request, operationId = 'create-preview', assets = []) {
@@ -177,7 +181,7 @@ async function skillContractFixture(t) {
       confirmation: { contractSha256: proposal.bindingRefs.contractSha256, catalogSha256: proposal.bindingRefs.catalogSha256,
         packageSha256: manifest.packageSha256, candidateSha256: proposal.candidateSha256, planSha256: `sha256:${'a'.repeat(64)}`, draftRevision: 1 } }));
     definition.workTypes.baseline.phases = phaseOrder;
-    definition.workTypes.sibling = { label: 'Sibling', phases: [...phaseOrder] };
+    definition.workTypes.sibling = { label: 'Sibling', phases: [...phaseOrder], omits: OMITS };
   }, ['SKILL.md', 'references/note.txt']);
   const replacement = structuredClone(phase); replacement.contract.produces[0].minimumBytes = 32;
   return { ...f, replacementRequest: { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'skill-contract-review', label: 'Reviewed skill note contract',
@@ -649,7 +653,7 @@ test('named shared template metadata edits retain aliases and exact masked effec
   const f = await fixture(t, (definition) => {
     definition.templates = { shared: { path: 'common/empty.md', label: 'Shared', kind: 'note' }, alias: 'common/empty.md' };
     definition.phases.intake.defaultTemplate = 'template:shared'; definition.phases.conformance.defaultTemplate = 'template:alias';
-    definition.workTypes.masked = { label: 'Masked', phases: ['intake'], templateOverrides: { intake: 'common/empty.md' } };
+    definition.workTypes.masked = { label: 'Masked', phases: ['intake'], templateOverrides: { intake: 'common/empty.md' }, omits: OMITS };
   });
   const request = await sharedTemplateRequest(f, 'template:shared'); request.definitions.templates[0].definition = { ...f.definition.templates.shared, label: 'Reviewed shared label', description: 'Exact display prose' };
   const p = await preview(f, request); assert.equal(p.result.readiness.authoring, 'valid', JSON.stringify(p.result.findings));

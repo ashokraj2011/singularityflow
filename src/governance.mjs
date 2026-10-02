@@ -204,7 +204,7 @@ export function verifiedAbandonedGenerations(root, config, workflow, { errors = 
   return verified;
 }
 
-export async function runGovernanceGate(root, config, workflow, { terminal = false } = {}) {
+export async function runGovernanceGate(root, config, workflow, { terminal = false, pendingTransition = false } = {}) {
   config = await resolveStoryExecutionDefinition(root, config, workflow);
   const errors = [], warnings = [], passes = [];
   const base = await validateWorkflow(root, config, workflow, { strict: true }); errors.push(...base.errors); warnings.push(...base.warnings);
@@ -501,9 +501,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const peopleSatisfyPolicy = distinct.size >= (phase.approvalPolicy.minimum ?? 1) && !missingAuthorities.length;
     let waived = false;
     if (phase.approvalDisposition === 'policy_waived') {
-      const replay = await verifyPhaseApprovalWaiver(root, config, workflow, phase);
+      const replay = await verifyPhaseApprovalWaiver(root, config, workflow, phase, { pendingTransition });
       waived = replay.valid;
-      if (waived) passes.push(`policy waiver verified: ${phaseId}`);
+      if (waived) passes.push(replay.pending ? `policy waiver recorded by this transition: ${phaseId}` : `policy waiver verified: ${phaseId}`);
       else if (policyRequiresPeople && !peopleSatisfyPolicy) {
         errors.push(...replay.errors.map((message) => `${phaseId} policy waiver is invalid: ${message}`));
       } else {
@@ -599,13 +599,24 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       else passes.push(`specification clauses: ${phaseId} generation ${phase.generation} · ${index.clauses.length}`);
     }
     if (specPolicy.coverage !== 'off') {
-      const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
+      const observedCoverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
         base: workflow.workItem.baseCommit
           ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit
           ?? workflow.workItem.baseBranch,
         target: 'HEAD',
         pathContext: applicationPathContext(config, workflow)
       }), specPolicy, { root });
+      // Only a code step records an observed claim. A route with none (a work type that builds
+      // nothing, or an end that skipped its code steps) implements its clauses through the steps
+      // that hold implementation, and the evidence evaluation judges those; counting them here
+      // would call every such clause unimplemented.
+      const codeRoute = workflow.phaseOrder.some((id) => phaseRequiresCodeDelivery(workflow.phases[id])
+        && workflow.phases[id].status !== 'skipped');
+      const coverage = codeRoute ? observedCoverage : (() => {
+        const complete = !observedCoverage.unclaimedChangedPaths.length && !observedCoverage.withdrawnButClaimed.length
+          && !observedCoverage.invalidEvidence.length;
+        return { ...observedCoverage, unimplemented: [], complete, severity: complete ? 'pass' : observedCoverage.severity };
+      })();
       const messages = [
         ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
         ...coverage.unclaimedChangedPaths.map((file) => `changed path is not claimed by a clause: ${file}`),
@@ -727,7 +738,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
   }
 
-  if (config.git?.publish === 'required' && terminal) {
+  // A transition being evaluated before its own commit is published by that transaction, which
+  // rolls back if the push fails, so only a finished Story is checked against its remote.
+  if (config.git?.publish === 'required' && terminal && !pendingTransition) {
     const remote = config.git.remote ?? 'origin';
     const publicationBranch = workflowPublicationBranch(root, workflow);
     const observation = await terminalPublicationObservation(root, remote, publicationBranch);

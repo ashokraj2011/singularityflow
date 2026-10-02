@@ -17,6 +17,7 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import { authoredArtifactText } from '../src/publication-preflight.mjs';
 import { collectRepositoryReadinessEvidence } from '../src/repository-readiness-evidence.mjs';
 import { withConfirmationPort } from '../src/sequence.mjs';
+import { recordApplicabilityDecision } from '../src/evidence/applicability.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { approvePhase, commitAndPublish, createWorkflow, publishGeneration, scanArtifacts, submitPhase, workDir } from '../src/state.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
@@ -117,6 +118,17 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
     readinessRepositories, repositoryReadiness, testRecoveryPlan: testRecovery ? testRecoveryPlan : null,
     approvedConfigurationSnapshot: approved }));
   await context(root, () => commitAndPublish(root, config, workflow, { type: 'binding' }, 'Bind Story under original approved command'));
+  // The route omits scope, plan and review, so the Story can finish only once the reviewers' group
+  // has said why they do not apply; it says so once, before any generation is submitted.
+  await context(root, () => commitAndPublish(root, config, workflow, { type: 'decision-made', payload: { decision: 'applicability' } },
+    'Record why the omitted responsibilities do not apply', [], {
+      beforeStateWrite: () => {
+        for (const responsibility of ['scope', 'plan', 'review']) {
+          recordApplicabilityDecision(workflow, { responsibility, reason: 'An isolated command amendment fixture with one implementation step.',
+            actor: reviewer.email, authorityGroup: 'engineering-reviewers', at: new Date().toISOString() });
+        }
+      }
+    }));
   assert.equal(workflow.phases.implementation.generation, 0);
   assert.equal(workflow.phases.implementation.generationIntent.status, 'open');
   const artifact = path.join(workDir(root, config, workflow.workItem.id), workflow.phases.implementation.requiredArtifact.path);

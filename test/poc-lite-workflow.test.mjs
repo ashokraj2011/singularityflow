@@ -208,12 +208,49 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.equal(awaitingDecision.phases['poc-lite-finalize'].status, 'awaiting_approval');
   assert.deepEqual(awaitingDecision.phases['poc-lite-finalize'].approvals, []);
 
+  // POC Lite omits scope; its final approval is refused until someone in the omission's group says
+  // why scope does not apply to this Story, and the refusal writes nothing.
+  const statePath = path.join(root, 'singularity/work-items/POC-LITE-1/workflow.json');
+  const stateBefore = await readFile(statePath, 'utf8');
+  const headBefore = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'poc-lite-finalize', '--yes'], root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /cannot finish yet[\s\S]*ends without scope; someone in quality-reviewers must record why it does not apply/);
+  assert.match(refused.stdout + refused.stderr, /decision applicability --responsibility scope/);
+  assert.equal(await readFile(statePath, 'utf8'), stateBefore, 'a refused ending must not change the Story');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), headBefore);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+
+  // The guidance offers the decision before the approval it unblocks.
+  const next = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
+  assert.equal(next[0].command, 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>');
+  assert.equal(next[0].timing, 'now');
+  assert.ok(next.some((entry) => entry.timing === 'then' && /approve/.test(entry.command)), JSON.stringify(next.map((entry) => [entry.timing, entry.command])));
+  const shown = JSON.parse(lifecycle('decision', 'show', '--json').stdout);
+  assert.deepEqual(shown.applicability.map((entry) => [entry.responsibility, entry.authority, entry.satisfied]), [['scope', 'quality-reviewers', false]]);
+  const short = run(process.execPath, [CLI, '--no-model', 'decision', 'applicability', '--responsibility', 'scope', '--reason', 'n/a'], root, { allowFailure: true });
+  assert.notEqual(short.status, 0);
+  assert.match(short.stdout + short.stderr, /20 to 1000 characters/);
+  const notOmitted = run(process.execPath, [CLI, '--no-model', 'decision', 'applicability', '--responsibility', 'verify', '--reason', 'Verification always applies to this Story.'], root, { allowFailure: true });
+  assert.notEqual(notOmitted.status, 0);
+  assert.match(notOmitted.stdout + notOmitted.stderr, /No end of this Story's workflow omits verify/);
+  const decided = lifecycle('decision', 'applicability', '--responsibility', 'scope',
+    '--reason', 'This POC demonstrates the lifecycle on one local change and has no requirements.');
+  assert.match(decided.stdout, /Recorded that scope does not apply to POC-LITE-1, decided by .+ through quality-reviewers/);
+  assert.equal(JSON.parse(lifecycle('decision', 'show', '--json').stdout).applicability[0].satisfied, true);
+
   lifecycle('approve', 'poc-lite-finalize', '--yes');
 
   const completed = JSON.parse(await readFile(
     path.join(root, 'singularity/work-items/POC-LITE-1/workflow.json'), 'utf8'
   ));
   assert.equal(completed.currentPhase, null, 'the final human decision must complete the workflow');
+  assert.equal(completed.completion.label, 'Complete');
+  assert.equal(completed.completion.mode, 'decision');
+  assert.equal(completed.applicability.length, 1);
+  const matrix = JSON.parse(lifecycle('evidence', 'matrix', '--json').stdout).data.matrix;
+  assert.equal(matrix.evaluation.completion.label, 'Complete', JSON.stringify(matrix.evaluation.findings));
+  assert.equal(matrix.page.rows.find((row) => row.id === 'story:scope').result, 'not-applicable');
   assert.equal(completed.phases['poc-lite-finalize'].status, 'approved');
   assert.equal(completed.phases['poc-lite-finalize'].approvals.length, 1);
   assert.equal(completed.phases['poc-lite-finalize'].approvals[0].decision, 'approved');

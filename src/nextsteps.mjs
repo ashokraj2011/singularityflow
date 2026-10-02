@@ -8,6 +8,7 @@ import {
 import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { applicabilityStatus } from './evidence/applicability.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -25,6 +26,27 @@ function completionActions(workId, timing = 'now') {
     action('alternative', '/sflow-progress', `singularity-flow progress ${workId}`, 'Review deterministic phase completion and approvals.'),
     action('alternative', '/sflow-report', `singularity-flow report ${workId}`, 'Review timing, rework, token usage, and bottlenecks.')
   ];
+}
+
+/**
+ * The applicability decisions an ending still needs, when completing this phase would end the
+ * Story: the final evaluation refuses the ending until each one is recorded.
+ */
+function applicabilityActions(workflow, phase) {
+  const ahead = upcomingDecision(workflow, phase);
+  let endpoint;
+  if (ahead) {
+    if (ahead.outcome?.kind !== 'end') return [];
+    endpoint = (workflow.resolution?.obligationGraph?.endpoints ?? []).find((entry) =>
+      entry.decision === ahead.decision.id && entry.route === ahead.outcome.route);
+  } else if (nextPhaseAfterSkillAmendment(workflow, phase)) {
+    return [];
+  }
+  return applicabilityStatus(workflow, endpoint).filter((entry) => !entry.satisfied).map((entry) => action(
+    'now', '/sflow-decide',
+    `singularity-flow decision applicability ${workflow.workItem.id} --responsibility ${entry.responsibility} --reason <reason>`,
+    `This Story ends without ${entry.responsibility}; someone in ${entry.authority} records why it does not apply before it can finish.`
+  ));
 }
 
 function cancellationActions(workflow) {
@@ -88,13 +110,15 @@ export function workflowNextSteps(workflow, {
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')
   ];
 
+  const undecided = phase.status === 'awaiting_approval' ? applicabilityActions(workflow, phase) : [];
   let immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
-    phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
+    undecided.length ? (index === 0 ? 'then' : 'alternative')
+      : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
     item.skill,
     item.command,
     item.reason
   ));
-  if (phase.status === 'awaiting_approval') return [...immediate, ...afterCompletionActions(workflow, phase)];
+  if (phase.status === 'awaiting_approval') return [...undecided, ...immediate, ...afterCompletionActions(workflow, phase)];
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });

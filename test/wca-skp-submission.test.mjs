@@ -18,6 +18,10 @@ import { captureWorkflowCompilerContext, captureWorkflowDraftCompilerSource, com
   previewWorkflowDraftPackage, workflowDraftPackageProposalFiles, WCA_REQUEST_SCHEMA } from '../src/wca-compiler.mjs';
 import { openGitDraftStore } from '../src/wca-git-drafts.mjs';
 import { WCA_SKP_LOCAL_PRODUCER_PROFILE, validateWorkflowSkillFinalizationRecord } from '../src/wca-skp-finalization.mjs';
+
+// These fixture workflows exercise configuration authoring, not delivery, and say so for each
+// responsibility a Story would otherwise owe; omitting one a route does hold is only a warning.
+const OMITS = ['scope', 'plan', 'implement', 'verify', 'review'].map((responsibility) => ({ responsibility, reason: 'A configuration-authoring fixture that exercises no delivery.', authority: 'reviewers' }));
 import { createWorkflowDraftReviewProposal, validateWorkflowDraftSkillSubmissionSnapshot,
   validateWorkflowDraftSubmissionSnapshot, workflowDraftSubmissionPlan } from '../src/wca-submission.mjs';
 
@@ -118,7 +122,7 @@ async function fixture(t, { classified = true } = {}) {
     generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
   const definition = { version: 2, templatesRoot: 'singularity/templates',
     worldModel: { views: ['architecture', 'development', 'testing', 'security', 'business', 'operations', 'release'] },
-    workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'] } },
+    workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'], omits: OMITS } },
     phases: { intake: ordinary('intake'), conformance: ordinary('conformance') },
     approvalSecurity: { profile: 'team' },
     approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } } };
@@ -138,7 +142,7 @@ async function fixture(t, { classified = true } = {}) {
   const request = { schema: WCA_REQUEST_SCHEMA, intent: 'create', id: 'team-notes', label: 'Team notes',
     description: 'Produce one inert findings artifact for independent human review.', baseRevision: commit,
     target: { governs: 'story', authority: 'selected-repository', hosts: [] },
-    definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'] }],
+    definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'], omits: OMITS }],
       phases: [{ id: 'team-note', kind: 'skill', label: 'Team findings', agent: 'note-writer', skill: { id: 'analysis-procedure' },
         contract: { task: 'analyze', consumes: [{ phase: 'intake', output: 'primary', required: true, state: 'approved' }],
           produces: [{ id: 'primary', path: 'artifacts/team-note/note.md', kind: 'custom:note', mediaType: 'text/markdown', encoding: 'utf-8',

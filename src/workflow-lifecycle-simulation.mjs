@@ -8,7 +8,7 @@ import { advanceCompletedPhase, reopenPhaseRange } from './lifecycle-transitions
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import path from 'node:path';
-import { assertWorkTypeStartable } from './config.mjs';
+import { assertPlannedClaimsReady } from './config.mjs';
 import { resolvedArtifactSet, memberRoot } from './artifact-sets.mjs';
 import { inputFindingSeverity, qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 
@@ -137,10 +137,10 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
     if (!ordinary(captured) || !validId(captured.id) || !Array.isArray(captured.phases)
         || !captured.phases.length) throw failure('WCA_SIMULATION_INVALID');
     workflowId = captured.id;
-    try { assertWorkTypeStartable(captured); }
-    catch (error) {
-      finding(error?.code === 'WORKFLOW_OBLIGATIONS_UNMET' ? 'WCA_SIMULATION_OBLIGATIONS_UNMET' : 'WCA_SIMULATION_PLANNED_CLAIMS_MIGRATION_REQUIRED');
-    }
+    // The lifecycle profile is about publication, review and rework mechanics. Whether every route
+    // keeps its responsibilities is the obligation compiler's finding, reported with the candidate.
+    try { assertPlannedClaimsReady(captured); }
+    catch { finding('WCA_SIMULATION_PLANNED_CLAIMS_MIGRATION_REQUIRED'); }
     if (captured.phases.length > WORKFLOW_LIFECYCLE_SIMULATION_LIMITS.phases
         || (captured.reworkLoops?.length ?? 0) > WORKFLOW_LIFECYCLE_SIMULATION_LIMITS.loops) throw failure('WCA_SIMULATION_LIMIT');
     coverage.phaseCount = captured.phases.length;

@@ -23,7 +23,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  branch, changedFiles, commitIsAncestor, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -546,6 +546,50 @@ function storyHistoryCommits(root, args, label) {
     absentWhen: () => gitHeadIsUnborn(root)
   });
   return (output ?? '').trim().split(/\r?\n/u).filter(Boolean);
+}
+
+/**
+ * Whether a commit is exactly one applicability decision [E2G-005]: a person recording why a
+ * left-out responsibility does not apply changes nothing a review saw, so it may sit between a
+ * phase's submission and its approval. Anything more in the commit fails closed.
+ */
+function applicabilityDecisionCommit(root, config, workflow, commit) {
+  const identity = governedCommitIdentity(root, commit);
+  if (identity?.parents.length !== 1 || !identity.eventSha256) return false;
+  const [parent] = identity.parents;
+  const item = workDirRelative(config, workflow.workItem.id);
+  const stateFile = `${item}/workflow.json`;
+  const allowedPaths = new Set([stateFile, `${item}/STATUS.md`]);
+  let changed;
+  try { changed = exactChangedPathsBetweenObjects(root, parent, identity.commit); } catch { return false; }
+  if (!changed.length || changed.some((file) => !allowedPaths.has(file)) || !changed.includes(stateFile)) return false;
+  let before;
+  let after;
+  try {
+    before = JSON.parse(exactFileAtObject(root, parent, stateFile)?.toString('utf8') ?? 'null');
+    after = JSON.parse(exactFileAtObject(root, identity.commit, stateFile)?.toString('utf8') ?? 'null');
+  } catch { return false; }
+  if (!before || !after) return false;
+  const DECISION_KEYS = new Set(['applicability', 'history', 'publicationProjections']);
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (!DECISION_KEYS.has(key) && recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null)) return false;
+  }
+  // Each list keeps what it had and gains exactly one entry; earlier decisions only gain a withdrawal.
+  const appendsOne = (key) => {
+    const prior = before[key] ?? [];
+    const next = after[key] ?? [];
+    return Array.isArray(next) && next.length === prior.length + 1
+      && recordSha256(next.slice(0, prior.length).map((entry) => key === 'applicability' ? { ...entry, withdrawnAt: undefined } : entry))
+        === recordSha256(prior.map((entry) => key === 'applicability' ? { ...entry, withdrawnAt: undefined } : entry));
+  };
+  if (!['applicability', 'history', 'publicationProjections'].every(appendsOne)) return false;
+  if (after.history.at(-1)?.event !== 'applicability_decided') return false;
+  const event = after.publicationProjections.at(-1)?.event ?? null;
+  return Boolean(event)
+    && event.type === LIFECYCLE_EVENT.DECISION_MADE
+    && event.payload?.decision === 'applicability'
+    && event.subject?.id === workflow.workItem.id
+    && identity.eventSha256 === `sha256:${recordSha256(event)}`;
 }
 
 function initialWorkflowRecord(root, config, workId) {
@@ -5447,10 +5491,13 @@ export async function approvePhase(root, config, workflow, {
       allowedReviewCommits.add(commit);
     }
   }
+  for (const commit of interveningCommits) {
+    if (!allowedReviewCommits.has(commit) && applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
+  }
   if (interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior governed approvals or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
+      + 'Only prior governed approvals, applicability decisions or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
       {
         code: 'STORY_REVIEW_INTERVENING_COMMIT',
         details: {
@@ -8871,6 +8918,14 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               });
             }
           }
+        }
+        // Every publication that commits a Story as complete passes the final evaluation first, and
+        // once. It runs after every other write of the transition (approval metadata, the approved
+        // snapshot, the decision receipt), so it judges the bytes about to be committed; a refusal
+        // throws before the state is written, and the publication unit rolls back.
+        if (workflow.status === 'complete' && workflow.completion?.evaluatedAt == null) {
+          const { assertTerminalTransition } = await import('./evidence/terminal.mjs');
+          await assertTerminalTransition(root, config, workflow);
         }
         if (unacceptedWorkflowSnapshot) {
           await finalizeDraftWorkflowSnapshot(root, config, workflow);

@@ -244,6 +244,13 @@ test('Classic delivery commits passing test results before Testing and Code chec
   const finished = await workflow();
   assert.equal(finished.currentPhase, null);
   assert.equal(finished.phases.conformance.status, 'approved');
+  // The final approval passed the decision-mode evaluation in its own transaction, and the matrix
+  // reads the record it left for exactly this evidence.
+  assert.equal(finished.completion.label, 'Complete');
+  assert.equal(finished.completion.decision.gate, 'allow');
+  const matrix = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix;
+  assert.equal(matrix.evaluation.completion.label, 'Complete', JSON.stringify(matrix.evaluation.findings));
+  assert.equal(matrix.evaluation.inputSha256, finished.completion.inputSha256);
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/CLASSIC-1'], root).stdout.trim(),
     run('git', ['rev-parse', 'HEAD'], root).stdout.trim());
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/main'], root).stdout.trim(), base);

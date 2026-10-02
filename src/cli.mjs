@@ -179,7 +179,8 @@ import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict } from './completion-verdict.mjs';
+import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
+import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
@@ -7696,8 +7697,8 @@ async function runSubmitCommand(positionals, options, submitContext) {
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
   // here; NEXT now comes from the deterministic planner against the state the submission left.
   const advanced = currentPhase(workflow);
-  // An approval-free last phase ends the Story here, so the whole-Story check runs here too.
-  const completion = !advanced && workflow.status === 'complete' ? await completionVerdict(root, workflow.workItem.id) : null;
+  // An approval-free last phase ends the Story here; its transaction passed the final evaluation.
+  const completion = !advanced ? recordedCompletion(workflow) : null;
   if (completion) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
@@ -8294,8 +8295,8 @@ async function approveCommand(positionals, options) {
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
-  // The last approval decides every step; only the whole-Story check can say the Story is complete.
-  const completion = result.next ? null : await completionVerdict(root, workflow.workItem.id);
+  // The last approval ends the Story only after its transaction passed the final evaluation.
+  const completion = result.next ? null : recordedCompletion(workflow);
   if (completion) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'approve', classification: 'mutation' },
@@ -8677,8 +8678,24 @@ async function decisionCommand(positionals, options) {
   const action = positionals[1] ?? 'show';
   if (action === 'show') return decisionShowCommand(positionals, options);
   if (action === 'choose') return decisionChooseCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show or decision choose.`,
+  if (action === 'applicability') return decisionApplicabilityCommand(positionals, options);
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose or decision applicability.`,
     { code: 'COMMAND_UNKNOWN' });
+}
+
+function printApplicability(rows) {
+  if (!rows.length) return;
+  console.log('\nResponsibilities this Story\'s end leaves out:');
+  for (const row of rows) {
+    const decided = row.decision
+      ? `decided by ${row.decision.actor} through ${row.decision.authorityGroup}: ${row.decision.reason}`
+      : `waiting for ${row.authority} to say why it does not apply`;
+    console.log(`  ${row.responsibility} — ${row.satisfied ? decided : row.decision ? `${decided} (needs ${row.authority})` : decided}`);
+  }
+  const open = rows.filter((row) => !row.satisfied);
+  for (const row of open) {
+    console.log(`  Decide: singularity-flow decision applicability --responsibility ${row.responsibility} --reason "<why it does not apply>"`);
+  }
 }
 
 function printDecisionView(view) {
@@ -8727,12 +8744,107 @@ async function decisionShowCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? undefined;
   const { workflow } = await loadAcceptedStoryExecution(root, requestedId);
-  const view = storyDecisionView(workflow);
+  const view = { ...storyDecisionView(workflow), applicability: applicabilityStatus(workflow) };
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify(view, null, 2));
     return;
   }
   printDecisionView(view);
+  printApplicability(view.applicability);
+}
+
+/**
+ * Record why a responsibility the workflow leaves out does not apply to this Story. Only a person
+ * in the group the omission names may decide, and the Story cannot finish until they have.
+ */
+async function decisionApplicabilityCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    await checkout(root, requestedId, {
+      base: config.defaultBaseBranch,
+      fetch: optionBoolean(options, 'fetch'),
+      existingOnly: true,
+      remote: config.git?.remote ?? 'origin'
+    });
+  }
+  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
+  const id = workflow.workItem.id;
+  if (workflow.status !== 'in_progress') {
+    throw new SingularityFlowError(
+      `Story ${id} is ${workflow.status === 'complete' ? 'already finished' : workflow.status}; applicability is decided while it is in progress.`,
+      { code: 'APPLICABILITY_STORY_CLOSED' }
+    );
+  }
+  const responsibility = optionString(options, 'responsibility') ?? null;
+  if (!responsibility) {
+    throw new SingularityFlowError('Name the responsibility with --responsibility <scope|plan|implement|verify|review>.', { code: 'APPLICABILITY_RESPONSIBILITY_REQUIRED' });
+  }
+  const reason = optionString(options, 'reason') ?? '';
+  // The same checks the transaction makes, before anything is locked or written.
+  const groups = omissionAuthorities(workflow, responsibility);
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
+  const authority = groups.length ? requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  ) : null;
+  const decide = (aggregate) => recordApplicabilityDecision(aggregate, {
+    responsibility, reason, actor: actorKey(actor), authorityGroup: authority?.authorityGroup ?? null,
+    identityAssurance: authority?.identityAssurance ?? null, at: nowIso()
+  });
+  decide(structuredClone(workflow));
+  const { value: decision, publication } = await transactStory(
+    root,
+    config,
+    workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE,
+      phaseId: workflow.currentPhase ?? null,
+      generation: null,
+      actor,
+      agent,
+      authorityGroup: authority.authorityGroup,
+      payload: { decision: 'applicability', responsibility }
+    },
+    `[${id}][applicability:${responsibility}] does not apply`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record an applicability decision');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'applicability_decided', phase: aggregate.currentPhase ?? null,
+        detail: `${responsibility} does not apply. Reason: ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      // The publication otherwise names the current phase's approval as the decision.
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'applicability', responsibility, reviewPacketSha256: null }
+      })
+    }
+  );
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Recorded that ${responsibility} does not apply to ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
+    console.log(publication.pushed
+      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    const open = applicabilityStatus(workflow).filter((row) => !row.satisfied);
+    if (open.length) console.log(`Still to decide before the Story can finish: ${open.map((row) => row.responsibility).join(', ')}.`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.applicability', classification: 'mutation' },
+    subject: { kind: 'story', id },
+    outcome: succeeded('decision.applicability.succeeded', { responsibility }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, decision, applicability: applicabilityStatus(workflow) }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
 async function decisionChooseCommand(positionals, options) {
@@ -8820,8 +8932,8 @@ async function decisionChooseCommand(positionals, options) {
       : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
     formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   }
-  // An `end` route finishes the Story, so the whole-Story check runs before anything calls it complete.
-  const completion = workflow.status === 'complete' ? await completionVerdict(root, workflow.workItem.id) : null;
+  // An `end` route finishes the Story only after its transaction passed the final evaluation.
+  const completion = recordedCompletion(workflow);
   if (completion && !optionBoolean(options, 'json')) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'decision.choose', classification: 'mutation' },

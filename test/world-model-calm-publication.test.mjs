@@ -167,6 +167,8 @@ async function repository(t, { publication = 'off' } = {}) {
     label: 'Architecture lifecycle test',
     description: 'One-phase public lifecycle fixture for immutable architecture evidence.',
     phases: ['planning', 'verification'],
+    // An architecture-evidence fixture: it defines no requirements and plans no change.
+    omits: ['scope', 'plan'].map((responsibility) => ({ responsibility, reason: 'An architecture-evidence fixture that defines and plans no change.', authority: 'architecture-reviewers' })),
     phaseOverrides: {
       planning: { inputs: [] },
       verification: {
@@ -293,6 +295,11 @@ async function approvedIntentFixture(root, {
   });
   git(root, ['add', `singularity/work-items/${workId}`]);
   git(root, ['commit', '-q', '-m', `[${workId}][init] create architecture lifecycle fixture`]);
+  // The fixture's route omits scope and plan; record once why they do not apply, before any review.
+  for (const responsibility of ['scope', 'plan']) {
+    flow(root, ['decision', 'applicability', '--work-id', workId, '--responsibility', responsibility,
+      '--reason', 'An architecture-evidence fixture that defines and plans no change.']);
+  }
 
   const drift = exerciseLivePolicyDrift ? await applyLiveStoryPolicyDrift(root) : null;
   const candidatePath = path.join(root, `architecture-intent-${workId}.json`);

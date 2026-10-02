@@ -13,12 +13,14 @@
 import { approvalRequirementsMet } from '../approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords } from '../specifications.mjs';
+import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
 import {
   DEFAULT_REQUIRED_ASSURANCE, ROW_RESULTS, assuranceAtLeast, obligationId, weakestAssurance
 } from './vocabulary.mjs';
 
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
+const STORY_RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);
 
 function finding(code, message, { obligationIds = [], category = 'evidence', blocking = true } = {}) {
   return { code, message, obligationIds, category, blocking };
@@ -68,12 +70,28 @@ function aggregateOutcome(outcomes) {
 
 function rowResult(obligations) {
   const statuses = obligations.map((entry) => entry.status);
+  if (statuses.length && statuses.every((status) => status === 'not-applicable')) return 'not-applicable';
   if (statuses.includes('failed')) return 'failed';
   if (statuses.includes('inconclusive')) return 'inconclusive';
   if (statuses.includes('missing') || statuses.includes('partial')) return 'missing';
   if (statuses.includes('pending')) return 'pending';
   if (statuses.includes('excepted')) return 'satisfied-with-exception';
   return 'satisfied';
+}
+
+/** The steps of the route that hold a responsibility, from the graph the Story pinned. */
+function holders(workflow, responsibility) {
+  return (workflow.resolution?.obligationGraph?.nodes ?? [])
+    .filter((node) => node.responsibilities.includes(responsibility))
+    .map((node) => node.id)
+    .filter((id) => workflow.phases?.[id] && workflow.phases[id].status !== 'skipped');
+}
+
+/** The strongest single review word across the steps that review: self-approval is never hidden. */
+function combinedReview(facets) {
+  if (!facets.length) return 'not-required';
+  for (const facet of ['pending', 'self-approved', 'policy-approved']) if (facets.includes(facet)) return facet;
+  return facets.every((facet) => facet === 'not-required') ? 'not-required' : 'approved';
 }
 
 function ordered(records, workflow) {
@@ -126,6 +144,29 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     phaseFinished(phases[id]) || deliveries.some((delivery) => delivery.phaseId === id && delivery.receipt?.status === 'ready'));
   const findings = [...(graph.findings ?? [])];
 
+  // The end this Story reached, or will reach, and what that end declared it leaves undone. A
+  // recorded applicability decision makes those obligations not applicable; until then they wait.
+  const endpoint = endpointTaken(workflow);
+  const applicability = applicabilityStatus(workflow, endpoint);
+  const omitted = new Map(applicability.map((entry) => [entry.responsibility, entry]));
+  const applyOmission = (obligation) => {
+    const omission = omitted.get(obligation.responsibility);
+    if (!omission) return obligation;
+    return {
+      ...obligation, status: omission.satisfied ? 'not-applicable' : 'pending',
+      facets: { ...obligation.facets, exception: omission.satisfied ? 'not-applicable' : 'pending-decision' },
+      omittedBy: omission
+    };
+  };
+  // Without a code step there are no claims to observe: the steps that implement are judged as a
+  // whole, and a criterion is verified by inspection when an approved verification step cites it.
+  const noCode = codePhaseIds.length === 0;
+  const implementSteps = noCode ? holders(workflow, 'implement') : codePhaseIds;
+  const claimsPlanned = workflow.resolution?.plannedClaims?.mode === 'required';
+  const planSteps = holders(workflow, 'plan');
+  const verifySteps = holders(workflow, 'verify');
+  const inspections = graph.inspections ?? [];
+
   const rows = clauses.map((clause) => {
     const id = clause.id;
     const planned = plannedClaims[id] ?? null;
@@ -133,11 +174,14 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     const rowFindings = [];
     const obligations = [];
 
-    // Plan: the approved plan names where the criterion lands and how it is tested.
+    // Plan: the approved plan names where the criterion lands and how it is tested. Without
+    // planned claims (a work type with no code step) the steps that hold the plan plan it.
     const planId = obligationId(workId, 'plan', id);
-    const plannedBy = ownerIds.length ? ownerIds : [clause.definedIn];
+    const plannedBy = claimsPlanned ? (ownerIds.length ? ownerIds : [clause.definedIn])
+      : planSteps.length ? planSteps : [clause.definedIn];
     const planReview = reviewFacet(phases[plannedBy[0]]);
-    const planStatus = planned ? 'met' : plannedBy.every((owner) => phaseFinished(phases[owner])) ? 'missing' : 'pending';
+    const plannersFinished = plannedBy.every((owner) => phaseFinished(phases[owner]));
+    const planStatus = planned ? 'met' : !claimsPlanned ? (plannersFinished ? 'met' : 'pending') : plannersFinished ? 'missing' : 'pending';
     if (planStatus === 'missing') rowFindings.push(finding('EVIDENCE_PLAN_MISSING', `${id} is not in the approved plan.`, { obligationIds: [planId] }));
     obligations.push({
       id: planId, responsibility: 'plan', subject: id, owningSteps: plannedBy, status: planStatus,
@@ -148,10 +192,11 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     const implementId = obligationId(workId, 'implement', id);
     const testOnly = clause.type === 'AC' && planned && !(planned.expectedPaths ?? []).length
       && (planned.tests ?? []).length > 0 && (observed?.testResults ?? []).length === planned.tests.length;
-    const implementers = codePhaseIds.length ? codePhaseIds : [];
+    const implementers = implementSteps;
     const implementReview = implementers.length ? reviewFacet(phases[implementers.at(-1)]) : 'not-required';
     let implementStatus;
     if (!implementers.length) implementStatus = 'not-applicable';
+    else if (noCode) implementStatus = implementers.every((step) => phaseFinished(phases[step])) ? 'met' : 'pending';
     else if (observed?.verdict === 'matched' || testOnly) implementStatus = 'met';
     else if (observed && ['partial', 'deviated'].includes(observed.verdict)) implementStatus = 'partial';
     else implementStatus = submittedCode ? 'missing' : 'pending';
@@ -165,7 +210,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     if (implementStatus === 'missing') rowFindings.push(finding('EVIDENCE_IMPLEMENTATION_MISSING', `No delivered change implements ${id}.`, { obligationIds: [implementId] }));
     obligations.push({
       id: implementId, responsibility: 'implement', subject: id, owningSteps: implementers, status: implementStatus,
-      fulfillment: testOnly ? 'test-only' : 'new-or-modified',
+      fulfillment: noCode ? 'non-code' : testOnly ? 'test-only' : 'new-or-modified',
       facets: {
         coverage: observed?.observedPaths?.length || testOnly ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',
         review: implementReview, freshness: 'current', exception: observed?.verdict === 'deviated' ? 'deviation' : 'none'
@@ -184,7 +229,16 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       let execution = 'not-run';
       let exception = 'none';
       let skipped = 0;
-      if (planned?.testDisposition === 'not-applicable') {
+      let inspectedBy = [];
+      if (noCode) {
+        // A reviewer approved verification evidence that cites the criterion; no test proves it.
+        inspectedBy = inspections.filter((entry) => entry.text.includes(id) && phaseFinished(phases[entry.phaseId])
+          && !['pending', 'not-required'].includes(reviewFacet(phases[entry.phaseId]))).map((entry) => entry.phaseId);
+        execution = 'not-applicable';
+        assurance = inspectedBy.length ? 'declared' : 'none';
+        status = inspectedBy.length ? 'met' : verifySteps.length && verifySteps.every((step) => phaseFinished(phases[step])) ? 'missing' : 'pending';
+        if (status === 'missing') rowFindings.push(finding('EVIDENCE_INSPECTION_MISSING', `No approved verification step cites ${id}.`, { obligationIds: [verifyId] }));
+      } else if (planned?.testDisposition === 'not-applicable') {
         status = 'excepted';
         exception = 'not-applicable';
         assurance = 'none';
@@ -222,7 +276,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         }
       }
       verification = {
-        association: submitted.length || tagged.length ? 'test-file-tag' : 'none',
+        association: noCode ? 'inspection' : submitted.length || tagged.length ? 'test-file-tag' : 'none',
+        inspectedBy,
         tests: [...new Set(tagged.map((entry) => entry.testSource))].sort(),
         commands: [...new Set(submitted.map((entry) => entry.commandId).filter(Boolean))].sort(),
         execution,
@@ -231,7 +286,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         testReason: planned?.testReason ?? null
       };
       obligations.push({
-        id: verifyId, responsibility: 'verify', subject: id, owningSteps: [...new Set(tagged.map((entry) => entry.phaseId))], status,
+        id: verifyId, responsibility: 'verify', subject: id, owningSteps: noCode ? inspectedBy : [...new Set(tagged.map((entry) => entry.phaseId))], status,
         facets: {
           coverage: tagged.length ? 'linked' : planned?.testDisposition === 'not-applicable' ? 'not-applicable' : 'unlinked',
           execution, assurance, review: implementReview, freshness: 'current', exception
@@ -248,7 +303,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       facets: { coverage: 'not-applicable', execution: 'not-applicable', assurance: 'not-applicable', review: implementReview, freshness: 'current', exception: 'none' }
     });
 
-    const result = graph.untrusted ? 'inconclusive' : rowResult(obligations);
+    const judged = obligations.map(applyOmission);
+    const result = graph.untrusted ? 'inconclusive' : rowResult(judged);
     findings.push(...rowFindings);
     return {
       id, type: clause.type, definedIn: clause.definedIn,
@@ -261,20 +317,82 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       } : null,
       implementation: observed ? { verdict: observed.verdict, observedPaths: observed.observedPaths ?? [], testResults: observed.testResults ?? [] } : null,
       verification,
-      obligations,
+      obligations: judged,
       findings: rowFindings,
       actions: [{ kind: 'explain', command: `singularity-flow explain --subject clause --id ${id}` }]
     };
   });
 
-  if (!rows.length) {
+  // Story-level rows: every responsibility the end omits, and, when no clause carries them, the
+  // responsibilities the route holds, so a Story without clauses still owes something visible.
+  const storyRow = (responsibility, obligation, extra = {}) => ({
+    id: `story:${responsibility}`, type: 'STORY', definedIn: null, source: null, statementSha256: null,
+    result: graph.untrusted ? 'inconclusive' : rowResult([obligation]), assurance: obligation.facets.assurance,
+    plan: null, implementation: null, verification: null, obligations: [obligation], findings: [], actions: [], ...extra
+  });
+  const storyRows = [];
+  for (const responsibility of STORY_RESPONSIBILITIES) {
+    const omission = omitted.get(responsibility);
+    const id = obligationId(workId, responsibility, 'story');
+    if (omission) {
+      const row = storyRow(responsibility, {
+        id, responsibility, subject: 'story', owningSteps: [], status: omission.satisfied ? 'not-applicable' : 'pending',
+        facets: { coverage: 'not-applicable', execution: 'not-applicable', assurance: 'not-applicable', review: omission.satisfied ? 'decided' : 'pending', freshness: 'current', exception: 'not-applicable' }
+      }, {
+        applicability: omission,
+        actions: [{ kind: 'decide', command: `singularity-flow decision applicability --responsibility ${responsibility} --reason "<why it does not apply>"` }]
+      });
+      if (!omission.satisfied) {
+        row.findings.push(finding('APPLICABILITY_DECISION_REQUIRED',
+          `This Story ends without ${responsibility}; someone in ${omission.authority} must record why it does not apply.`, { obligationIds: [id] }));
+      }
+      storyRows.push(row);
+      continue;
+    }
+    if (rows.length || responsibility === 'scope') continue;
+    const steps = holders(workflow, responsibility);
+    let status = !steps.length ? 'missing' : steps.every((step) => phaseFinished(phases[step])) ? 'met' : 'pending';
+    let execution = 'not-applicable';
+    let assurance = 'not-applicable';
+    let exception = 'none';
+    if (responsibility === 'implement' && codePhaseIds.length) {
+      status = codePhaseIds.every((step) => phaseFinished(phases[step]) && deliveries.some((delivery) => delivery.phaseId === step && delivery.receipt?.status === 'ready'))
+        ? 'met' : 'pending';
+    }
+    if (responsibility === 'verify' && codePhaseIds.length) {
+      const ready = deliveries.filter((delivery) => delivery.receipt?.status === 'ready');
+      const outcomes = ready.flatMap((delivery) => (delivery.executions ?? []).map((entry) => executionOutcome(delivery, entry.commandId).outcome));
+      execution = aggregateOutcome(outcomes);
+      const accepted = ready.some((delivery) => delivery.testRecovery?.disposition === 'accepted-risk');
+      if (execution === 'passed') { status = 'met'; assurance = 'module-observed'; }
+      else if (['failed', 'unavailable'].includes(execution) && accepted) { status = 'excepted'; assurance = 'declared'; exception = 'accepted-risk'; }
+      else if (execution === 'failed') status = 'failed';
+      else if (execution === 'not-run') status = 'pending';
+      else status = 'inconclusive';
+    }
+    const row = storyRow(responsibility, {
+      id, responsibility, subject: 'story', owningSteps: steps, status,
+      facets: { coverage: 'not-applicable', execution, assurance, review: combinedReview(steps.map((step) => reviewFacet(phases[step]))), freshness: 'current', exception }
+    });
+    if (status === 'missing') row.findings.push(finding('EVIDENCE_RESPONSIBILITY_UNHELD', `No step on this Story's route holds ${responsibility}.`, { obligationIds: [id] }));
+    if (status === 'failed') row.findings.push(finding('EVIDENCE_TEST_FAILED', 'A test command of this Story failed.', { obligationIds: [id] }));
+    if (status === 'inconclusive') row.findings.push(finding('EVIDENCE_TEST_UNAVAILABLE', 'A test command of this Story passed with skipped tests or produced no usable result.', { obligationIds: [id] }));
+    storyRows.push(row);
+  }
+  for (const row of storyRows) findings.push(...row.findings);
+
+  const scopeMissing = !rows.length && !omitted.has('scope');
+  if (scopeMissing) {
     findings.push(finding('EVIDENCE_NO_CRITERIA', 'No requirement or acceptance criterion is indexed for this Story, so nothing can be shown as satisfied.'));
   }
-  const counts = resultCounts(rows);
-  const blocked = !rows.length || rows.some((row) => BLOCKING_RESULTS.has(row.result))
+  const clauseRows = rows;
+  const allRows = [...clauseRows, ...storyRows];
+  const counts = resultCounts(allRows);
+  const blocked = scopeMissing || allRows.some((row) => BLOCKING_RESULTS.has(row.result))
     || findings.some((entry) => entry.blocking && entry.category === 'records');
-  const gate = blocked ? 'block' : rows.some((row) => row.result === 'satisfied-with-exception') ? 'allow-with-risk' : 'allow';
-  const verified = rows.filter((row) => row.type === 'AC' && ['satisfied', 'satisfied-with-exception'].includes(row.result));
+  const gate = blocked ? 'block' : allRows.some((row) => row.result === 'satisfied-with-exception') ? 'allow-with-risk' : 'allow';
+  const verified = allRows.filter((row) => (row.type === 'AC' || row.id === 'story:verify')
+    && ['satisfied', 'satisfied-with-exception'].includes(row.result));
   return {
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
     workId,
@@ -283,16 +401,22 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     mode,
     inputSha256: graph.inputSha256 ?? null,
     lifecycle: { status: workflow.status, words: lifecycleWords(workflow) },
-    requiredAssurance: { level: requiredAssurance, source: 'default; the repository capability profile is not computed yet' },
-    rows,
+    requiredAssurance: {
+      level: requiredAssurance,
+      source: noCode ? 'no code step: criteria are verified by inspection of approved verification evidence'
+        : 'default; the repository capability profile is not computed yet'
+    },
+    endpoint: endpoint ? { from: endpoint.from, decision: endpoint.decision, route: endpoint.route } : null,
+    applicability,
+    rows: allRows,
     findings,
     summary: {
-      rows: rows.length,
+      rows: allRows.length,
       results: Object.fromEntries(ROW_RESULTS.map((result) => [result, counts[result] ?? 0])),
       assuranceFloor: weakestAssurance(verified.map((row) => row.assurance)),
       testCaseResults: 'not joined to criteria yet'
     },
     decision: { gate, boundary },
-    completion: completionLabel({ workflow, rows, terminal: graph.terminal ?? null })
+    completion: completionLabel({ workflow, rows: allRows, terminal: graph.terminal ?? null, gate })
   };
 }

@@ -120,6 +120,8 @@ export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation 
   // Reopened phases run again, so their decisions are taken again; a question still waiting
   // after one of them no longer describes the Story.
   if (workflow.pendingDecision && affectedIds.includes(workflow.pendingDecision.after)) delete workflow.pendingDecision;
+  // A reopened Story finishes again, and its final evaluation is made again over the new evidence.
+  delete workflow.completion;
   workflow.currentPhase = targetId; workflow.status = 'in_progress';
   return affectedIds;
 }

@@ -582,7 +582,7 @@ export function assertPlannedClaimsReady(resolved) {
     `Workflow '${id}' predates the planned-claim contract and cannot start a new Story. `
     + 'Review it with singularity-flow workflow validate, then run workflow edit with '
     + '--planned-claims required --clause-phases <phase,...> --claim-owners <code=owner,...>, '
-    + 'or use --planned-claims opt-out --opt-out-reason <reviewed reason>. Existing Stories keep their pinned policy.',
+    + 'or, for a workflow that defines no requirement clauses, declare omits for scope with a reason and the approval group that decides. Existing Stories keep their pinned policy.',
     {
       code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
       details: { workType: id, reason: resolved.plannedClaims.reason ?? null }

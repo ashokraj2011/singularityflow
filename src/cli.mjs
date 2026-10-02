@@ -6668,9 +6668,13 @@ export async function phaseAuthoringSummary(root, config, workflow, phase) {
  */
 function printPhaseReview(review, { showArtifact = false } = {}) {
   console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
-  // The step's route, not a record of who produced this generation: that is its authorship.
+  // The step's route, not a record of who produced this generation: that is its authorship. The
+  // automatic route is what every step that names no skill drafts on, so repeating it on every
+  // submit, approve and review says nothing; it is printed only with the warning that a configured
+  // choice was ignored. `--json` keeps every route field.
   if (review.policyVerified === false) console.log(`Drafting route withheld: ${review.policyReason}`);
-  else if (review.effectiveAuthoringSkill) {
+  else if (review.effectiveAuthoringSkill
+      && (review.authoringSkillSource !== 'automatic' || review.authoringSkillWarning)) {
     console.log(`Drafting skill: ${review.effectiveAuthoringSkill} (${review.authoringSkillSource})`);
     if (review.authoringSkillWarning) console.log(`  ${review.authoringSkillWarning}`);
   }

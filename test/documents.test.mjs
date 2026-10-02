@@ -169,6 +169,7 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(submission.stdout, /Generated documents ready for review/);
   assert.doesNotMatch(submission.stdout, /Complete intake evidence/, 'submit summarises; it does not dump');
   assert.match(submission.stdout, /Submitted intake for approval with 1 generated document/);
+  assert.doesNotMatch(submission.stdout, /Drafting skill/, 'the automatic route of a step that names no skill is not repeated');
   // A submit used to run to several hundred lines. The compact evidence receipt adds review facts,
   // but the result still has to remain findable without dumping artifact bodies.
   assert.ok(submission.stdout.split('\n').length < 40, `submit printed ${submission.stdout.split('\n').length} lines`);

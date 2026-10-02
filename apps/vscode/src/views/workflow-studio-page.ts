@@ -463,7 +463,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function button(label, onClick, attrs) { return el('button', Object.assign({ type: 'button', onclick: onClick }, attrs || {}), label); }
   function select(id, options, value, onChange, attrs) {
     return el('select', Object.assign({ id: id, 'data-key': id, onchange: function (event) { onChange(event.target.value); } }, attrs || {}),
-      options.map(function (option) { return el('option', { value: option.value, selected: option.value === value, disabled: option.disabled }, option.label); }));
+      options.map(function (option) { return el('option', { value: option.value, selected: option.value === value, disabled: option.disabled, title: option.title }, option.label); }));
   }
   function field(id, label, control, hint) {
     return el('div', { class: 'field' }, el('label', { for: id }, label), control, hint ? el('span', { class: 'hint' }, hint) : null);
@@ -1643,7 +1643,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
    * Which skill drafts a step in this workflow, as Drafted with offers it: nothing for a sign-off-only
    * step; a fixed line where the engine refuses a choice, for a step only its deterministic generator
    * produces and for a compiled skill step, whose binding decides; otherwise Automatic, which follows
-   * what the step produces, and every skill that can draft that output.
+   * what the step produces, and every skill that can draft that output, each with its description.
    * On a shared step the choice is this workflow's own, as sign-off is.
    */
   function skillPicker(workflowId, phaseId, settings, users) {
@@ -1659,9 +1659,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }
     if (route.compiledSkill) return { fixed: 'Its compiled skill', hint: 'This step\'s compiled skill binding decides how it is drafted, so no drafting skill can be chosen.' };
     var automatic = output === 'code' ? '/sf-code' : '/sf-phase';
-    var choices = (state.model.choices.authoringSkills || []).filter(function (choice) { return choice.produces.indexOf(output) >= 0 && choice.label !== automatic; });
+    var catalog = state.model.choices.authoringSkills || [];
+    var automaticChoice = catalog.find(function (choice) { return choice.label === automatic; });
+    var choices = catalog.filter(function (choice) { return choice.produces.indexOf(output) >= 0 && choice.label !== automatic; });
     var current = settings.authoringSkill || '';
-    var options = [{ value: '', label: 'Automatic (' + automatic + ')' }].concat(choices.map(function (choice) { return { value: choice.id, label: choice.label }; }));
+    var options = [{ value: '', label: 'Automatic (' + automatic + ')', title: automaticChoice && automaticChoice.description || null }]
+      .concat(choices.map(function (choice) { return { value: choice.id, label: choice.label, title: choice.description || null }; }));
     if (current && !options.some(function (option) { return option.value === current; })) options.push({ value: current, label: '/' + current });
     var chosen = choices.find(function (choice) { return choice.id === current; });
     var hint = chosen && chosen.description ? chosen.description : current ? 'Drafted with /' + current + '.' : 'Chosen by what the step produces.';

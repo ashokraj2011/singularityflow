@@ -705,3 +705,22 @@ test('a workflow that sets what a step produces keeps it when the step\'s own ou
   const plan = check(root, page.changeSetFrom(model, state.draft));
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
 });
+
+test('Drafted with shows each skill\'s description as its tooltip', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  // Just enough of a document to render one field.
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener() {} });
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createTextNode: (text) => ({ text }) });
+  const descriptions = Object.fromEntries(model.choices.authoringSkills.map((choice) => [choice.id, choice.description]));
+  assert.ok(Object.values(descriptions).every(Boolean), 'every listed skill has a description');
+  const settings = page.stepSettings('feature', 'design');
+  const options = page.skillPicker('feature', 'design', settings, []).options;
+  assert.deepEqual(options.map((option) => [option.value, option.title]), [
+    ['', descriptions['sf-phase']], ['sf-requirements', descriptions['sf-requirements']], ['sf-design', descriptions['sf-design']], ['sf-release', descriptions['sf-release']]
+  ]);
+  const field = page.authoringSkillControl('feature', 'design', settings, []);
+  const select = field.children.find((child) => child.tag === 'select');
+  assert.deepEqual(select.children.map((option) => option.attributes.title), options.map((option) => option.title));
+});

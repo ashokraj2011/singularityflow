@@ -7,6 +7,7 @@ import { assertNoPendingPublication, saveStoryDraft, workDir, workDirRelative } 
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
+import { resetPhaseRangeForRework } from './lifecycle-transitions.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { downloadJiraAttachment } from './jira.mjs';
 import { epicSourceById, pinnedStorySource, readStoryEpicSource, storyEpicSources } from './story-epic-sources.mjs';
@@ -446,25 +447,22 @@ function storyCone(workflow, phases) {
   return { affectedPhases, reopenedPhase: workflow.phaseOrder[earliest], earliest };
 }
 
+/**
+ * Reopen the cone exactly as every other rework path does, so each reopened phase needs a new
+ * generation rather than offering its invalidated one for submission again, and record which
+ * detachment decision invalidated it.
+ */
 function invalidateStoryCone(workflow, cone, decisionSha256, timestamp, reason = 'supporting-evidence-detached') {
   if (cone.earliest < 0) return cone;
-  const { earliest, affectedPhases, reopenedPhase } = cone;
-  for (let index = earliest; index < workflow.phaseOrder.length; index += 1) {
-    const phase = workflow.phases[workflow.phaseOrder[index]];
-    for (const approval of phase.approvals ?? []) if (!approval.invalidatedAt) {
-      approval.invalidatedAt = timestamp;
-      approval.invalidationReason = reason;
-      approval.invalidatedBy = decisionSha256;
-    }
-    phase.status = index === earliest ? 'in_progress' : 'not_started';
-    phase.submittedAt = null;
-    phase.approvedAt = null;
-    phase.approvedBy = null;
+  const { affectedPhases, reopenedPhase } = cone;
+  for (const phaseId of resetPhaseRangeForRework(workflow, {
+    targetId: reopenedPhase, at: timestamp,
+    invalidation: { invalidationReason: reason, invalidatedBy: decisionSha256 }
+  })) {
+    const phase = workflow.phases[phaseId];
     phase.invalidatedAt = timestamp;
     phase.invalidatedBy = decisionSha256;
   }
-  workflow.currentPhase = reopenedPhase;
-  workflow.status = 'in_progress';
   return { affectedPhases, reopenedPhase };
 }
 

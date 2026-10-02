@@ -9,7 +9,7 @@ import { withCommandResult } from './narration/emit.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
 import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
-import { clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
+import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -334,6 +334,7 @@ function switchCurrentPhase(workflow, phase, at) {
       candidate.approvedAt = null;
       candidate.approvedBy = null;
       clearDecisionState(candidate);
+      clearApprovalDisposition(candidate);
       continue;
     }
     if (['in_progress', 'awaiting_approval'].includes(candidate.status) || index > targetIndex) {
@@ -342,6 +343,7 @@ function switchCurrentPhase(workflow, phase, at) {
       candidate.approvedAt = null;
       candidate.approvedBy = null;
       clearDecisionState(candidate);
+      clearApprovalDisposition(candidate);
     }
     if (index >= targetIndex) candidate.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
   }
@@ -357,9 +359,11 @@ function reconcileStatus(workflow, phase, allowedStatuses, at) {
     phase.status = 'in_progress';
     phase.submittedAt = null;
     phase.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
+    clearApprovalDisposition(phase);
   } else if (desired === 'awaiting_approval') {
     phase.status = 'awaiting_approval';
     phase.submittedAt ??= at;
+    clearApprovalDisposition(phase);
   }
   workflow.currentPhase = phase.id;
   workflow.status = 'in_progress';

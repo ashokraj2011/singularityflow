@@ -10,6 +10,7 @@ import { loadDefinition } from '../src/config.mjs';
 import { detachDocuments, scopeDocuments, validateDocumentUrl } from '../src/documents.mjs';
 import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
+import { phaseNeedsGeneration } from '../src/sequence.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -790,7 +791,17 @@ test('the gate accepts a superseded generation composed from a document detached
   await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
   flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);
   // Detaching the notes reopens intake, which is redone and approved without them.
-  assert.equal(JSON.parse(flow(root, ['documents', 'detach', 'DOC-001', '--reason', 'Wrong notes', '--yes', '--json']).stdout).reopenedPhase, 'intake');
+  const detached = JSON.parse(flow(root, ['documents', 'detach', 'DOC-001', '--reason', 'Wrong notes', '--yes', '--json']).stdout);
+  assert.equal(detached.reopenedPhase, 'intake');
+  // Like every other reopen, the generation that used the document cannot be submitted again.
+  const reopened = JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'));
+  assert.equal(reopened.phases.intake.reworkRevalidation?.generation, 1);
+  assert.equal(phaseNeedsGeneration(reopened, reopened.phases.intake), true);
+  assert.equal(reopened.phases.intake.approvals.at(-1).invalidationReason, 'supporting-evidence-detached');
+  const now = detached.next.actions.filter((action) => action.timing === 'now').map((action) => action.command);
+  assert.ok(now.some((command) => /singularity-flow (?:prepare|phase publish) intake/.test(command)), now.join('\n'));
+  assert.equal(now.some((command) => /singularity-flow submit/.test(command)), false,
+    'next steps offer to submit the invalidated generation');
   flow(root, ['wm', 'compose', '--phase', 'intake']);
   await writeFile(intake, `${await readFile(intake, 'utf8')}\nRevised without the withdrawn notes.\n`);
   flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);

@@ -83,8 +83,30 @@ export function skipPhaseRange(workflow, phaseIds, { at, decision, route }) {
   return skipped;
 }
 
-/** The existing rejection owner resets the entire range, not just dependency descendants. */
-export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
+/**
+ * Send one phase back for rework. Every path that reopens a phase (a rejection or a decision's
+ * loop, reopening completed work, promoting a design source, detaching a document its work used)
+ * applies exactly this: its decisions are invalidated, its review and approval are cleared, it
+ * needs a new generation, and nothing recorded about its previous completion carries over. The
+ * caller adds what only it records, such as who rejected the phase or which decision invalidated it.
+ */
+export function resetPhaseForRework(phase, { at, status, invalidation = {} }) {
+  for (const approval of phase.approvals ?? []) {
+    if (!approval.invalidatedAt) Object.assign(approval, { invalidatedAt: at, ...invalidation });
+  }
+  phase.status = status;
+  phase.submittedAt = null; phase.approvedAt = null; phase.approvedBy = null;
+  phase.submissionArchitectureDecision = null;
+  phase.reworkRevalidation = { generation: phase.generation, invalidatedAt: at };
+  clearDecisionState(phase);
+  clearApprovalDisposition(phase);
+}
+
+/**
+ * Reset the target and every phase after it for rework, and make the target current. The whole
+ * range is reset, not just dependency descendants. Nothing changes when any phase in it is malformed.
+ */
+export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation = {} }) {
   const targetIndex = phaseIndex(workflow, targetId);
   const affectedIds = workflow.phaseOrder.slice(targetIndex);
   if (affectedIds.some((id) => !Array.isArray(workflow.phases[id].approvals)
@@ -93,14 +115,7 @@ export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
       { code: 'LIFECYCLE_TRANSITION_INVALID' });
   }
   for (const [index, id] of affectedIds.entries()) {
-    const affected = workflow.phases[id];
-    affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
-    affected.status = index === 0 ? 'in_progress' : 'not_started';
-    affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
-    affected.submissionArchitectureDecision = null;
-    affected.reworkRevalidation = { generation: affected.generation, invalidatedAt: at };
-    clearDecisionState(affected);
-    if (index === 0) { affected.rejectedAt = at; affected.rejectedBy = actor; affected.rejectionReason = reason; }
+    resetPhaseForRework(workflow.phases[id], { at, status: index === 0 ? 'in_progress' : 'not_started', invalidation });
   }
   // Reopened phases run again, so their decisions are taken again; a question still waiting
   // after one of them no longer describes the Story.
@@ -109,9 +124,38 @@ export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
   return affectedIds;
 }
 
+/** A rejection or reopen: the range is reset and the target records who sent it back and why. */
+export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
+  const affectedIds = resetPhaseRangeForRework(workflow, { targetId, at });
+  const target = workflow.phases[targetId];
+  target.rejectedAt = at; target.rejectedBy = actor; target.rejectionReason = reason;
+  return affectedIds;
+}
+
 /** A phase that runs again records its decision values again and is no longer skipped. */
 export function clearDecisionState(phase) {
   delete phase.skippedAt; delete phase.skippedBy; delete phase.decisionInputs;
+}
+
+/**
+ * Only an automatic completion records a disposition ('policy_waived' or 'not_required') and a
+ * policy waiver. Once the phase is sent back, submitted for people to review, or approved by one,
+ * the record describes an earlier completion. Kept, the governance gate would replay an earlier
+ * round's waiver against the current generation.
+ */
+export function clearApprovalDisposition(phase) {
+  delete phase.approvalDisposition; delete phase.approvalWaiver;
+}
+
+/**
+ * The automatic disposition of the phase's current completion, or null. Older builds never cleared
+ * the record, so a phase reopened, or approved by people, after an automatic completion may still
+ * carry one that no longer describes it; a current human approval wins.
+ */
+export function automaticApprovalDisposition(phase) {
+  if (phase?.status !== 'approved') return null;
+  if ((phase.approvals ?? []).some((item) => !item.invalidatedAt && item.decision === 'approved')) return null;
+  return phase.approvalDisposition ?? null;
 }
 
 /**

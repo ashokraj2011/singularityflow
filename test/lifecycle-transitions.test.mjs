@@ -3,7 +3,8 @@ import test from 'node:test';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
 
 import {
-  advanceCompletedPhase, nextPhaseAfterSkillAmendment, reopenPhaseRange
+  advanceCompletedPhase, automaticApprovalDisposition, nextPhaseAfterSkillAmendment, reopenPhaseRange,
+  resetPhaseRangeForRework
 } from '../src/lifecycle-transitions.mjs';
 
 const at = '2026-09-27T12:00:00.000Z';
@@ -101,6 +102,11 @@ test('an amendment can complete a source while retaining all remaining approved 
 test('rejection resets the full target-to-end range without discarding generations or audit evidence', () => {
   const workflow = fixture();
   workflow.status = 'complete';
+  // An automatic completion's record: once the phase is reopened it no longer describes it.
+  for (const phase of Object.values(workflow.phases)) {
+    phase.approvalDisposition = 'policy_waived';
+    phase.approvalWaiver = { policyId: 'quick-fix-low-risk-v1', waivedAt: '2026-09-26T13:00:00.000Z' };
+  }
   const before = structuredClone(workflow);
   const affected = reopenPhaseRange(workflow, { targetId: 'planning', at,
     actor: 'reviewer@example.test', reason: 'Correct the reviewed test plan.' });
@@ -117,6 +123,9 @@ test('rejection resets the full target-to-end range without discarding generatio
     assert.equal(phase.approvals[1].invalidatedAt, before.phases[id].approvals[1].invalidatedAt);
     for (const key of ['submittedAt', 'approvedAt', 'approvedBy', 'submissionArchitectureDecision']) {
       assert.equal(phase[key], null);
+    }
+    for (const key of ['approvalDisposition', 'approvalWaiver']) {
+      assert.equal(Object.hasOwn(phase, key), false, `${id} kept ${key} from its earlier completion`);
     }
     for (const key of ['generation', 'artifacts', 'claimMaps', 'startedAt']) {
       assert.deepEqual(phase[key], before.phases[id][key]);
@@ -156,4 +165,41 @@ test('malformed later phases or decisions cannot leave a partially reopened rang
       actor: 'reviewer', reason: 'Correct this range.' }), { code: 'LIFECYCLE_TRANSITION_INVALID' });
     assert.deepEqual(workflow, before);
   }
+});
+
+test('every reopen path resets its range through one helper, adding only what that path records', () => {
+  const workflow = fixture();
+  workflow.status = 'complete'; workflow.currentPhase = null;
+  workflow.phases.verification.approvalDisposition = 'policy_waived';
+  workflow.phases.verification.approvalWaiver = { policyId: 'quick-fix-low-risk-v1' };
+  workflow.phases.release.skippedAt = at; workflow.phases.release.skippedBy = { decision: 'ship', route: 'end' };
+  workflow.pendingDecision = { after: 'verification' };
+  const before = structuredClone(workflow);
+  // A detached document invalidates with its decision; a design-source promotion records no rejection.
+  const affected = resetPhaseRangeForRework(workflow, { targetId: 'implementation', at,
+    invalidation: { invalidationReason: 'supporting-evidence-detached', invalidatedBy: 'c'.repeat(64) } });
+  assert.deepEqual(affected, ['implementation', 'verification', 'release']);
+  assert.equal(workflow.currentPhase, 'implementation');
+  assert.equal(workflow.status, 'in_progress');
+  assert.equal(Object.hasOwn(workflow, 'pendingDecision'), false, 'a question after a reopened phase is asked again');
+  for (const id of affected) {
+    const phase = workflow.phases[id];
+    assert.equal(phaseNeedsGeneration(workflow, phase), true, `${id} must publish a new generation`);
+    assert.deepEqual(phase.approvals[0], { ...before.phases[id].approvals[0], invalidatedAt: at,
+      invalidationReason: 'supporting-evidence-detached', invalidatedBy: 'c'.repeat(64) });
+    assert.deepEqual(phase.approvals[1], before.phases[id].approvals[1], 'an earlier invalidation is kept as recorded');
+    assert.equal(phase.rejectedAt, undefined);
+    for (const key of ['approvalDisposition', 'approvalWaiver', 'skippedAt', 'skippedBy']) assert.equal(Object.hasOwn(phase, key), false);
+  }
+  assert.deepEqual(workflow.phases.planning, before.phases.planning);
+});
+
+test('only a current automatic completion reports its disposition', () => {
+  const phase = { status: 'approved', approvalDisposition: 'policy_waived', approvals: [] };
+  assert.equal(automaticApprovalDisposition(phase), 'policy_waived');
+  // A Story an older build reopened or had people approve may still carry the record.
+  assert.equal(automaticApprovalDisposition({ ...phase, approvals: [{ decision: 'approved', actor: { email: 'reviewer@example.test' } }] }), null);
+  assert.equal(automaticApprovalDisposition({ ...phase, approvals: [{ decision: 'approved', invalidatedAt: at }] }), 'policy_waived');
+  assert.equal(automaticApprovalDisposition({ ...phase, status: 'in_progress' }), null);
+  assert.equal(automaticApprovalDisposition({ status: 'approved', approvals: [] }), null);
 });

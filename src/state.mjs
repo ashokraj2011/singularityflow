@@ -168,7 +168,10 @@ import {
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
-import { advanceCompletedPhase, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange } from './lifecycle-transitions.mjs';
+import {
+  advanceCompletedPhase, clearApprovalDisposition, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,
+  resetPhaseRangeForRework
+} from './lifecycle-transitions.mjs';
 import {
   assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome,
   normalizeDecisionInputValues, pendingDecisionRecord, recordedDecisionValues, resolveDecisionChoice
@@ -5190,6 +5193,8 @@ async function submitPhaseTransition(root, config, workflow, {
     } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${advanceDetail(workflow, automaticPending)}` });
   } else {
     phase.status = 'awaiting_approval';
+    // People review this generation; a waiver recorded for an earlier one does not authorize it.
+    clearApprovalDisposition(phase);
     workflow.history.push({
       at: phase.submittedAt,
       actor: actorKey(session.actor),
@@ -5774,6 +5779,9 @@ export async function approvePhase(root, config, workflow, {
     await assertPlannedSpecificationClaims(root, config, workflow, upcomingForApproval);
   }
   phase.approvals.push(decision);
+  // A person decides this phase now, so an automatic completion recorded before (by a build that
+  // kept it across a reopen) no longer describes it.
+  clearApprovalDisposition(phase);
   let approvalPending = null;
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
@@ -6223,7 +6231,7 @@ export async function previewTestingRepair(root, config, workflow) {
 /**
  * The values a phase records for the decision after it, taken at submission so the reviewer
  * approves exactly the facts the decision will read. A submitted phase cannot change them; a
- * phase that is reopened records them again, because `reopenPhaseRange` clears them.
+ * phase that is reopened records them again, because `resetPhaseForRework` clears them.
  */
 function recordSubmittedDecisionInputs(workflow, phase, supplied, actor) {
   const decision = decisionFedBy(workflow, phase.id);
@@ -6940,6 +6948,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   });
   specification.generation = amendmentGeneration;
   specification.submissionArchitectureDecision = null;
+  // The approved amendment is a person's decision on the new generation, not an automatic completion.
+  clearApprovalDisposition(specification);
   specification.status = 'approved';
   specification.submittedAt = at;
   specification.approvedAt = at;
@@ -7140,6 +7150,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     phase.submissionArchitectureDecision = null;
     phase.approvedAt = null;
     phase.approvedBy = null;
+    clearApprovalDisposition(phase);
     phase.rejectedAt = at;
     phase.rejectedBy = key;
     phase.rejectionReason = `Revalidate after approved intent amendment ${proposal.id}.`;
@@ -7318,21 +7329,9 @@ export async function reopenWorkflow(root, config, workflow, {
     targetIndex,
     createdAt: timestamp
   });
-  for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
-    const affected = workflow.phases[workflow.phaseOrder[index]];
-    affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
-    affected.status = index === targetIndex ? 'in_progress' : 'not_started';
-    affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
-    affected.submissionArchitectureDecision = null;
-    affected.reworkRevalidation = { generation: affected.generation, invalidatedAt: timestamp };
-    clearDecisionState(affected);
-    if (index === targetIndex) {
-      affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment;
-    }
-    await updateArtifactMetadata(root, config, workflow, affected);
-  }
-  workflow.currentPhase = targetId;
-  workflow.status = 'in_progress';
+  for (const id of reopenPhaseRange(workflow, {
+    targetId, at: timestamp, actor: key, reason: changeRequest.comment
+  })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
   // Reopening changes execution state, never the pinned operational contract. Legacy phases with
   // no task declaration already fail closed through phaseRequiresCodeDelivery and are hydrated by
   // normalizeCurrentWorkflow; an explicit non-code task such as the chore profile's `analyze` is
@@ -7745,21 +7744,12 @@ export async function promoteDesignSource(root, config, workflow, {
   const targetIndex = workflow.phaseOrder.indexOf(configured.capturePhase);
   if (targetIndex < 0) throw new SingularityFlowError(`Pinned design-source capture phase '${configured.capturePhase}' is missing.`);
   const timestamp = nowIso();
-  for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
-    const affected = workflow.phases[workflow.phaseOrder[index]];
-    for (const approval of affected.approvals ?? []) if (!approval.invalidatedAt) approval.invalidatedAt = timestamp;
-    affected.status = index === targetIndex ? 'in_progress' : 'not_started';
-    affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
-    affected.submissionArchitectureDecision = null;
-    affected.reworkRevalidation = { generation: affected.generation, invalidatedAt: timestamp };
-    clearDecisionState(affected);
-    await updateArtifactMetadata(root, config, workflow, affected);
+  // A promotion is not a rejection: the capture phase reopens without recording one.
+  for (const id of resetPhaseRangeForRework(workflow, { targetId: configured.capturePhase, at: timestamp })) {
+    await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
   }
-  if (workflow.pendingDecision && workflow.phaseOrder.indexOf(workflow.pendingDecision.after) >= targetIndex) delete workflow.pendingDecision;
   const capture = workflow.phases[configured.capturePhase];
   capture.designSourceSelection = { ...(capture.designSourceSelection ?? {}), [candidate.fileKey]: candidate.candidateRecordId };
-  workflow.currentPhase = configured.capturePhase;
-  workflow.status = 'in_progress';
   const record = {
     schemaVersion: 1, candidateRecordId: candidate.candidateRecordId, fileKey: candidate.fileKey,
     approvedRecordId: candidate.approvedRecordId, approvedVersion: candidate.approvedVersion,
@@ -8319,6 +8309,7 @@ export function applySkillAmendmentSelectiveReopen(workflow, amendment, at) {
     phase.status = index === first ? 'in_progress' : 'not_started';
     phase.submittedAt = null; phase.approvedAt = null; phase.approvedBy = null;
     phase.submissionArchitectureDecision = null;
+    clearApprovalDisposition(phase);
     phase.skillAmendmentRevalidation = {
       id: amendment.id, state: 'affected', adoptedAt: at,
       generationAtAdoption: phase.generation

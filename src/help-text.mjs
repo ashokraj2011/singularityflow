@@ -829,6 +829,15 @@ Usage:
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]
   singularity-flow story test-policy show [--work-id ID] [--json]
+  singularity-flow story test-policy risks [--work-id ID] [--phase PHASE] [--operation publish|submit|approve|downstream|replay] [--json]
+  singularity-flow story test-policy accept-risk --issue ISSUE-ID --reason TEXT --follow-up-owner ID --remediation TEXT
+    [--work-id ID] [--phase PHASE] [--repository ID] [--operation publish|submit|approve|downstream|replay] [--expires UTC-ISO]
+    [--apply --confirm PLAN-DIGEST] [--json]
+  singularity-flow story test-policy revoke-risk --record-sha256 RECORD-DIGEST --reason TEXT [--work-id ID]
+    [--apply --confirm PLAN-DIGEST] [--json]
+  singularity-flow story test-policy attest-risk [--record-sha256 RECORD-DIGEST] [--work-id ID]
+    [--apply --confirm PLAN-DIGEST] [--json]
+    (preview first; pinned delegated human review required; no integrity bypass or automatic test pass)
   singularity-flow story test-policy plan [--work-id ID] [--phase PHASE] [--json]
   singularity-flow story test-policy confirm [--work-id ID] --phase PHASE --confirm PLAN-DIGEST
   singularity-flow story test-policy repair [--work-id ID] [--repository ID] [--plan] [--json]

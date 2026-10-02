@@ -790,6 +790,10 @@ export async function storyCommand(positionals, options) {
   if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
+    if (['risks', 'accept-risk', 'revoke-risk', 'attest-risk'].includes(action)) {
+      const { run: runTestRisk } = await import('./story-test-risk.mjs');
+      return runTestRisk(action, positionals.slice(3), { options, root });
+    }
     if (action === 'attest') {
       const { run: runTestAttestation } = await import('./story-test-attestation.mjs');
       return runTestAttestation(positionals.slice(3), { options, root });
@@ -815,11 +819,12 @@ export async function storyCommand(positionals, options) {
       schemaVersion: 1, resultType: 'story-test-policy', workId: workflow.workItem.id,
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
-      supported: { readinessRepair: true, selectionPreview: true, riskActivation: false, policyAmendment: false,
+      supported: { readinessRepair: true, selectionPreview: true, riskActivation: true,
+        riskCategories: ['validation-unavailable'], riskScope: 'One native runner launch failure per code-delivery phase; exact human review required', policyAmendment: false,
         prepublicationTestCommandAmendment: true, currentPublishedPhaseTestCommandAmendment: true,
         completedStoryTestCommandAmendment: false },
       message: agreement
-        ? 'Opt-in repair and selection pilot. No risk is accepted by this read.'
+        ? 'Opt-in repair and selection pilot with bounded unavailable-runner review. No risk is accepted by this read.'
         : 'This Story retains its original test policy; it has not opted into the pilot.'
     };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

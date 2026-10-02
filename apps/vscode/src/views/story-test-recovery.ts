@@ -1,5 +1,5 @@
 /** Read-only recovery cards. A UI selection never substitutes for terminal review. */
-export type TestRecoveryAction = 'show' | 'amend' | 'attest';
+export type TestRecoveryAction = 'show' | 'amend' | 'attest' | 'risks';
 export interface TestRecoverySubject { workId: string; phaseId: string }
 const digest = /^sha256:[a-f0-9]{64}$/u;
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -11,8 +11,9 @@ function object(value: unknown): Record<string, unknown> | null {
 export function testRecoveryPreviewArgs(action: TestRecoveryAction, subject: TestRecoverySubject, reason?: string): string[] {
   if (!identifier.test(subject.workId) || !identifier.test(subject.phaseId)
       || subject.workId.includes('..') || subject.phaseId.includes('..')) throw new Error('Refresh the current Story before reviewing test recovery.');
-  if (!['show', 'amend', 'attest'].includes(action)) throw new Error('Unsupported test-recovery action.');
+  if (!['show', 'amend', 'attest', 'risks'].includes(action)) throw new Error('Unsupported test-recovery action.');
   const args = ['story', 'test-policy', action, '--work-id', subject.workId];
+  if (action === 'risks') args.push('--phase', subject.phaseId);
   if (action === 'amend') {
     const explanation = reason?.trim() ?? '';
     if (explanation.length < 15 || explanation.length > 2000 || /[\x00-\x1f\x7f]/u.test(explanation)) {

@@ -129,7 +129,8 @@
       "enum": [
         "trp-agreement",
         "trp-risk-decision",
-        "trp-scope-confirmation"
+        "trp-scope-confirmation",
+        "trp-risk-revocation"
       ]
     },
     "transitions": {

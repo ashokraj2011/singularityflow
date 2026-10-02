@@ -13,11 +13,11 @@ related:
   - recovery
   - approvals
   - configuration
-version: 3
+version: 4
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
-The currently enabled production routes are bounded readiness repair, reviewed test selection, and a narrowly scoped test-command amendment for the current code phase. Production risk acceptance and arbitrary same-Story policy amendment are not enabled by this pilot.
+The available routes are bounded readiness repair, reviewed test selection, test-command amendment for the current code phase, and a narrow unavailable-runner exception. This is not a general waiver for failing tests, arbitrary document repair, dirty worktrees or protected state.
 
 ## Purpose and prerequisites
 
@@ -86,6 +86,24 @@ The recorded policy closure travels with the Story, but its private human-review
 
 ## State and safety
 
+### Review an unavailable runner without declaring tests passed
+
+New Stories may explicitly enable `validation-unavailable` and name `riskAuthorities` in approved `testRecovery` configuration. The named groups must already exist in `approvalAuthorities`; installing the runtime does not delegate anyone. Keep `allowEvidenceReuse: false`. The current adapter requires one code-bearing repository and one explicitly named, structured test command per code-delivery phase. Unknown, inferred or multi-command risk contracts are refused during intake. Document-only workflows do not acquire test obligations.
+
+This exception covers an authenticated native executable launch failure (`ENOENT`), not a process that ran and exited nonzero, a timeout, skipped tests, a missing report after execution, or a source-mutating command. The unavailable observation has zero executed tests and explicitly incomplete testcase inventory. It does not claim coverage. Source, exact command, selection, environment and host origin remain bound. Installing the executable, changing source or changing the environment invalidates the old observation and requires a new attempt. Historical test reports remain untouched and cannot substitute for the missing run.
+
+Inspect `singularity-flow story test-policy risks --work-id <WORK-ID> --phase <PHASE> --operation publish --json`. The inspection runs no tests. If the immutable agreement lacks current authorization, preview `story test-policy attest-risk --work-id <WORK-ID> --json`; its returned apply action requires a live delegated risk reviewer. The agreement's original author is preserved and need not be the approving reviewer. A decision re-attestation, unlike an agreement authorization, requires its original recorded reviewer.
+
+For an eligible issue, preview `story test-policy accept-risk --work-id <WORK-ID> --phase <PHASE> --operation publish --issue <ISSUE-ID> --reason "Substantive reason for proceeding" --follow-up-owner <OWNER> --remediation "Repair reference or action" --json`. Review the exact candidate, unavailable check, expiry and follow-up. Only its returned `--apply --confirm <PLAN-DIGEST>` command, executed by the delegated reviewer in a live terminal, can record consent. Expiry cannot exceed the pinned policy maximum. A checkbox, reason text or digest alone grants nothing.
+
+Each transition is separate: `publish`, `submit`, `approve`, `downstream` and `replay`. Publication consent is not submission permission, normal phase approval, or permission to consume the result downstream. Review the corresponding operation only when the engine requests it; a published source phase can be named explicitly for downstream/replay review even after the active phase advances. The next gate reevaluates the same policy and exact record. A retained launch failure is not presented as fresh test execution, and it cannot satisfy a command amendment's requirement for fresh passing epoch validation.
+
+The review transaction preserves application code and the original observation. Failed-publication rollback retains an authenticated checkout-local diagnostic so risk inspection does not dead-end; the accepted review commits its exact observation and selection with the decision. Required remote acknowledgement must complete before advancement. A pending push uses the existing recovery transaction, never a duplicate review.
+
+To withdraw a decision, preview `story test-policy revoke-risk --work-id <WORK-ID> --record-sha256 <RECORD-DIGEST> --reason "Reason for withdrawing this exception" --json`, then follow the exact live review. Revocation is append-only and blocks future use; original evidence and past decisions remain intact. On another checkout, public JSON does not establish execution or human-review origin. Risk review can be restored by the appropriate reviewer, but an unavailable-runner observation must be captured on that host. Never copy private origin files to pretend qualification.
+
+In VS Code use **Review Story Test Policy and Recovery → Inspect phase risks and reviewed exceptions**. Select the transition, inspect the JSON, then choose an eligible review or revocation. The final action only prefills a terminal; it does not press Enter or accept risk.
+
 Inspect the engine's current test-policy, phase-risk or recovery result. Follow the exact returned legal action. A blocker should identify its stable issue ID, observation, disposition, preserved work, owner and repair/review route. Unavailable external prerequisites remain explicit; the agent must not invent a successful repair.
 
 Risk review requires a substantive human reason, exact-plan confirmation, the applicable pinned authority and a durable decision receipt. An actor label, Git name, selected checkbox or exhausted repair budget is not proof of authority. Unsupported exception categories remain unavailable even if a client sends a flag. Known failures cannot be matched by counts alone; new failures, changed test meaning, missing identities or uncertain environments require a separate evaluation.
@@ -104,7 +122,7 @@ A recorded commit awaiting push remains publication-pending. Resume that exact t
 
 This implementation does not claim completion of all TRP v1.0 release acceptance criteria. The pure record/evaluation contract is broader than the operations each installed engine can authenticate and execute. Read the advertised capability and returned legal actions before using a route. Unsupported adapters, precise selectors, exception categories, amendment routes and baseline acquisition modes must fail closed or stay unavailable.
 
-In particular, production risk categories remain disabled. The pure evaluator supports independently reviewed, bounded dispositions, but current code-delivery gates still require passing executable receipts. Production selection is a file/suite cohort, not the evaluator's authenticated testcase inventory; failed-run observation retention, agreement authorization and shared decision consumption across all lifecycle gates are not yet a complete production path. The schema, a diagnostic display or a successful pure-unit test alone does not make intake acceptance executable. Multi-repository readiness repair, arbitrary assertion/product fixes, and targeted/full baseline acquisition from intake remain unavailable. A missing route is a stated limitation, not consent to use a different command or edit workflow records by hand.
+Actual test-failure acceptance, known-failure carry-forward, reduced coverage and document exceptions remain disabled in production. Production selection is a file/suite cohort, not an independently authenticated testcase inventory. The pure evaluator has broader contracts, but those do not qualify a production adapter. General dirty-worktree/protected-state bypasses, multi-repository readiness repair, arbitrary assertion/product fixes and targeted/full baseline acquisition from intake remain unavailable. A missing route is a stated limitation, not consent to use a different command or edit workflow records by hand.
 
 Passing local tests qualify the host on which they ran. Simulated Windows paths or platform flags do not establish native Windows qualification. macOS, Linux and Windows results must be reported independently; no cross-host execution evidence equivalence is implied by matching test names.
 

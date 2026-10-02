@@ -7,6 +7,21 @@ import { createTrpFixture } from './test-recovery-policy.fixture.mjs';
 function change(record, update) { const copy = structuredClone(record); update(copy); return sealTrpRecord(copy); }
 function evaluate(fixture, overrides = {}) { return evaluateTestRecoveryGate({ ...fixture.input, ...overrides }); }
 function denied(result) { assert.equal(result.gateDecision, 'block'); assert.ok(result.remainingBlockers.length > 0); }
+test('structured command identities remain exact in agreements, baselines, observations and decisions', () => {
+  const fixture = createTrpFixture();
+  for (const commandId of ['.-python-tests', './module/maven-tests']) {
+    const agreement = change(fixture.agreement, value => {
+      value.repositories[0].mandatoryObligations[0].id = commandId;
+    });
+    assert.equal(agreement.repositories[0].mandatoryObligations[0].id, commandId);
+    for (const record of [fixture.baseline, fixture.observation, fixture.decision]) {
+      const changed = change(record, value => { value.obligationId = commandId; });
+      validateTrpRecord(changed);
+      assert.equal(changed.obligationId, commandId);
+      assert.throws(() => change(record, value => { value.obligationId = ''; }), /invalid string/u);
+    }
+  }
+});
 test('cause identity groups genuine retries but separates repository and exact failing cases', () => {
   const fixture = createTrpFixture();
   const input = { category: 'new-test-failure', obligationId: 'unit-tests', message: 'Required check failed', observation: fixture.observation };
@@ -281,6 +296,61 @@ test('enabled unavailable validation is a separate exact decision and remains un
   denied(evaluate(fixture, { policy, observations: [observation], decisions: [decision], integrityIssues: [{ category: 'provenance', obligationId: 'report', message: 'Old XML is falsely claimed as current' }] }));
 });
 
+test('authenticated unavailable attempts disclose unknown inventory without inventing coverage', () => {
+  const fixture = createTrpFixture();
+  const policy = { ...fixture.policy, enabledRiskCategories: ['validation-unavailable'] };
+  const selection = change(fixture.selection, value => {
+    value.selectedTestIds = []; value.inventoryTestIds = []; value.selectedSuites = ['unit-tests'];
+    value.uncoveredAreas = ['testcase-inventory-unknown']; value.impactComplete = false;
+  });
+  const observation = change(fixture.observation, value => {
+    value.selectionSha256 = selection.recordSha256; value.observedOutcome = 'unavailable';
+    value.processExitCode = null; value.reportStatus = 'missing'; value.reportSha256s = [];
+    value.identityCompleteness = 'incomplete'; value.expectedTestIds = []; value.cases = [];
+    value.counts = { discovered: 0, passed: 0, failed: 0, skipped: 0, notRun: 0 };
+  });
+  const input = { policy, selection, observations: [observation], decisions: [] };
+  const preview = evaluate(fixture, input);
+  assert.equal(preview.operationReadiness, 'needs-decision');
+  assert.deepEqual(preview.issues.map(issue => issue.category), ['validation-unavailable']);
+  const decision = change(fixture.decision, value => {
+    value.category = 'validation-unavailable'; value.issueId = preview.issues[0].id;
+    value.anchorObservationDigest = observation.recordSha256;
+    value.applicability.carryForward = false; value.applicability.allowedTestIds = [];
+    value.applicability.acceptedFailures = []; value.applicability.baselineSha256 = null;
+  });
+  const accepted = evaluate(fixture, { ...input, decisions: [decision] });
+  assert.equal(accepted.gateDecision, 'allow-with-risk');
+  assert.equal(accepted.dispositions[0].observedOutcome, 'unavailable');
+  assert.equal(accepted.normalApprovalRequired, true);
+  denied(evaluate(fixture, { ...input, decisions: [decision], verifyEvidence: () => null }));
+  denied(evaluate(fixture, { ...input, decisions: [decision], candidateDependencies: [] }));
+  denied(evaluate(fixture, { ...input, decisions: [decision], candidateEnvironment: { ...fixture.environment, hostId: 'other-host' } }));
+  denied(evaluate(fixture, { ...input, policy: fixture.policy, decisions: [decision] }));
+  for (const mutate of [
+    value => { value.observedOutcome = 'inconclusive'; },
+    value => { value.observedOutcome = 'passed'; value.processExitCode = 0; },
+    value => { value.observedOutcome = 'failed'; value.processExitCode = 1; },
+    value => { value.processExitCode = 1; },
+    value => { value.reportStatus = 'stale'; },
+    value => { value.reportSha256s = [fixture.hash('unrelated-old-report')]; }
+  ]) denied(evaluate(fixture, { ...input, observations: [change(observation, mutate)], decisions: [decision] }));
+  const nextAttempt = change(observation, value => { value.id = 'another-run'; });
+  denied(evaluate(fixture, { ...input, observations: [nextAttempt], decisions: [decision] }));
+});
+
+test('agreement authorship stays separate from a verified delegated approving principal', () => {
+  const fixture = createTrpFixture();
+  const original = fixture.input.verifyAuthority;
+  const result = evaluate(fixture, { verifyAuthority: (record, context) => ({ ...original(record, context),
+    principal: record.kind === 'story-test-recovery-agreement' ? 'delegated-reviewer' : record.issuer.principal }) });
+  assert.equal(result.gateDecision, 'allow-with-risk');
+  denied(evaluate(fixture, { verifyAuthority: (record, context) => ({ ...original(record, context),
+    principal: record.kind === 'phase-risk-decision' ? 'different-reviewer' : record.issuer.principal }) }));
+  denied(evaluate(fixture, { verifyAuthority: (record, context) => ({ ...original(record, context),
+    policyAuthoritySha256: record.kind === 'story-test-recovery-agreement' ? fixture.hash('wrong-policy') : fixture.policy.authoritySha256 }) }));
+});
+
 test('new-failure and document categories require their own reviewed issue and enabled policy', () => {
   const fixture = createTrpFixture();
   const policy = { ...fixture.policy, enabledRiskCategories: ['new-test-failure'] };
@@ -378,7 +448,7 @@ test('missing or process-inconsistent baseline evidence cannot bless current res
 
 test('generated schema files exactly match pure runtime contracts', async () => {
   const names = { 'story-test-recovery-agreement': 'agreement', 'test-baseline-manifest': 'baseline', 'test-selection-manifest': 'selection',
-    'phase-validation-observation': 'observation', 'phase-risk-decision': 'decision', 'phase-gate-evaluation': 'evaluation',
+    'phase-validation-observation': 'observation', 'phase-risk-decision': 'decision', 'phase-risk-revocation': 'revocation', 'phase-gate-evaluation': 'evaluation',
     'story-test-policy-amendment': 'amendment', 'phase-repair-receipt': 'repair', 'trp-authority-receipt': 'authority-receipt' };
   for (const [kind, schema] of Object.entries(TRP_SCHEMAS)) {
     assert.deepEqual(JSON.parse(await readFile(new URL(`../schemas/trp-${names[kind]}.schema.json`, import.meta.url), 'utf8')), schema);

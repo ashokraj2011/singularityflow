@@ -11,6 +11,42 @@ import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.m
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
+test('unavailable-runner refusal names exact risk inspection without accepting or retrying it', () => {
+  const error = Object.assign(new Error('Required runner unavailable'), { code: 'TRP_PHASE_GATE_BLOCKED',
+    details: { workId: 'Story-1', phase: 'implementation', operation: 'submit' } });
+  const plan = refusalRemediationPlan(error, ['submit', 'implementation']);
+  const inspection = plan.steps.find(item => item.id === 'inspect-exact-phase-risks');
+  assert.equal(inspection.command, 'singularity-flow story test-policy risks --work-id Story-1 --phase implementation --operation submit --json');
+  assert.equal(inspection.execution, 'user-reviewed');
+  assert.equal(plan.retry.automatic, false);
+  assert.doesNotMatch(JSON.stringify(plan.steps), /accept-risk|--apply|--skip/u);
+  const hostile = refusalRemediationPlan(Object.assign(new Error('Unavailable'), { code: error.code,
+    details: { workId: 'a;sh', phase: '--unsafe', operation: 'publish;sh' } }), ['phase', 'publish', 'implementation']);
+  assert.doesNotMatch(JSON.stringify(hostile.steps), /a;sh|--unsafe|publish;sh/u);
+});
+
+test('pending risk publication and unsupported adapters preserve exact recovery boundaries', () => {
+  const pending = refusalRemediationPlan(Object.assign(new Error('Pending'), { code: 'TRP_PUBLICATION_PENDING' }), ['story', 'test-policy', 'accept-risk']);
+  assert.equal(pending.steps[0].command, 'singularity-flow recover --json');
+  assert.match(pending.steps[0].label, /existing pending/u);
+  const unsupported = refusalRemediationPlan(Object.assign(new Error('Unsupported'), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' }), ['phase', 'publish', 'implementation']);
+  assert.match(unsupported.steps[0].label, /do not reinterpret a failed test as unavailable/u);
+  assert.equal(unsupported.steps[0].command, 'singularity-flow explain test-recovery');
+});
+
+test('approval-stage risk refusal preserves the exact inspection and ends approval without a retry loop', () => {
+  const error = Object.assign(new Error('Approval requires its own risk decision'), { code: 'TRP_PHASE_GATE_BLOCKED',
+    details: { workId: 'Story-1', phase: 'implementation', operation: 'approve' } });
+  const plan = refusalRemediationPlan(error, ['approve', 'implementation']);
+  assert.equal(plan.steps[0].id, 'inspect-exact-phase-risks');
+  assert.match(plan.steps[0].command, /--operation approve --json$/u);
+  assert.ok(plan.steps.some(step => step.id === 'leave-approval-turn'));
+  assert.equal(plan.retry.automatic, false);
+  assert.equal(plan.retry.command, null);
+  assert.match(plan.retry.label, /normal phase approval stays separate/u);
+  assert.doesNotMatch(JSON.stringify(plan.steps), /accept-risk|--apply|--skip/u);
+});
+
 test('skill-host refusal distinguishes an external prerequisite from repairable Story content', () => {
   for (const code of ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED']) {
     const error = Object.assign(new Error('Host unavailable'), { code,

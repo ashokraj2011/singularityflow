@@ -2359,7 +2359,7 @@ const families = [
   ...[
     ['story-test-recovery-agreement', 'agreements'], ['test-baseline-manifest', 'baselines'],
     ['test-selection-manifest', 'selections'], ['phase-validation-observation', 'runs'],
-    ['phase-risk-decision', 'decisions'], ['phase-gate-evaluation', 'evaluations'],
+    ['phase-risk-decision', 'decisions'], ['phase-risk-revocation', 'revocations'], ['phase-gate-evaluation', 'evaluations'],
     ['story-test-policy-amendment', 'amendments'], ['phase-repair-receipt', 'repairs'],
     ['trp-authority-receipt', 'authorizations'], ['trp-readiness-checkpoint', 'readiness-checkpoints']
   ].map(([id, directory]) => family({ id, currentVersion: 1, immutable: true,

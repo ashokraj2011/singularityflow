@@ -60,7 +60,8 @@ test('VS Code exposes recovery without executing or accepting a decision on a cl
   assert.match(route, /client\.run<unknown>\(args\)/u);
   assert.match(route, /testRecoveryPreviewArgs\(choice.action/u);
   assert.match(route, /repositoryEpoch\.isCurrent\(scope\)/u);
-  assert.match(route, /currentPhase === subject.phaseId/u);
+  assert.match(route, /const attachedPhaseId = workflow.currentPhase/u);
+  assert.match(route, /currentPhase === attachedPhaseId/u);
   assert.match(route, /terminal\.sendText\(terminalCommand\([^\n]+, false\)/u);
   assert.match(route, /'powershell.exe' : '\/bin\/sh'/u);
   assert.match(route, /ELECTRON_RUN_AS_NODE: '1'/u);

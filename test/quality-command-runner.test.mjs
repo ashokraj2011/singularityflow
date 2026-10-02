@@ -4,9 +4,43 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
 import { PassThrough } from 'node:stream';
 
-import { runQualityCommand } from '../src/quality-command-runner.mjs';
+import { runQualityCommand, verifyUnavailableQualityLaunch } from '../src/quality-command-runner.mjs';
+
+test('only an unchanged native ENOENT launch can authenticate unavailable validation', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-launch-'));
+  const command = path.join(cwd, 'does-not-exist');
+  const args = ['--checked-argument'];
+  const result = await runQualityCommand(command, args, { cwd, timeoutMs: 1000 });
+  const binding = { command, args, cwd,
+    environmentSha256: createHash('sha256').update(JSON.stringify(Object.entries(process.env).sort())).digest('hex') };
+  const proof = verifyUnavailableQualityLaunch(result, binding);
+  assert.equal(result.error.code, 'ENOENT');
+  assert.ok(proof);
+  assert.ok(Date.parse(proof.completedAt) >= Date.parse(proof.startedAt));
+  assert.equal(verifyUnavailableQualityLaunch({ ...result }, binding), null);
+  assert.equal(verifyUnavailableQualityLaunch(result, { ...binding, command: process.execPath }), null);
+  assert.equal(verifyUnavailableQualityLaunch(result, { ...binding, args: [] }), null);
+  result.status = 0;
+  assert.equal(verifyUnavailableQualityLaunch(result, binding), null);
+});
+
+test('injected launch transports cannot mint unavailable-validation provenance', async () => {
+  const command = 'fake-missing-executable';
+  const cwd = process.cwd();
+  const result = await runQualityCommand(command, [], { cwd, timeoutMs: 1000, spawnCommand() {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    setImmediate(() => {
+      const error = new Error('fake missing executable'); error.code = 'ENOENT';
+      child.emit('error', error); child.emit('close', null, null);
+    });
+    return child;
+  } });
+  assert.equal(verifyUnavailableQualityLaunch(result, { command, args: [], cwd }), null);
+});
 
 test('argv quality commands use the safe Windows npm shim without enabling shell mode', async () => {
   const calls = [];

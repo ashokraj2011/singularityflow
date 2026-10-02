@@ -16,6 +16,8 @@ import { appendTrpRecord, appendTrpOriginalBaseline, readTrpRecord, readTrpRepai
 import { assertTrpFeatureAdmission, completeTrpReadinessRepair } from './test-recovery-repair.mjs';
 import { assertTrpRepairCohortRetained, inspectTrpRepairScope } from './test-recovery-repair-scope.mjs';
 import { trpDigest } from './test-recovery-policy.mjs';
+import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObservation,
+  retainedStoryTestRisk, verifiedStoryTestRiskReviewCommits } from './test-recovery-runtime.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
@@ -1973,6 +1975,8 @@ export async function beginPhaseGeneration(root, config, workflow, {
   await assertNoPendingPublication(root, config, workflow, 'begin code generation');
   const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
+  const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
+  if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
@@ -1995,6 +1999,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
+  const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
+  if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   if (!dryRun) assertSkillPhaseHostReady(workflow, phase, 'prepare');
   let references = [];
   if (!dryRun) {
@@ -2928,16 +2934,18 @@ function assertRequiredAssignment(workflow, phase) {
  * Replaying the immutable review packet also protects a later Testing/Code checking approval from
  * a stale or fabricated "tests passed" paragraph.
  */
-async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
+export async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
   const sourceId = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom;
   if (!sourceId) return null;
   const source = workflow.phases?.[sourceId];
+  const riskReference = source?.deliveryEvidence?.testRecovery;
   const refuse = (reason) => new SingularityFlowError(
     `Phase '${phase.id}' needs verified, committed passing tests from '${sourceId}': ${reason}`,
     { code: 'PRIOR_CODE_TEST_EVIDENCE_REQUIRED', details: { phase: phase.id, sourcePhase: sourceId } }
   );
   if (!source || source.status !== 'approved' || source.deliveryEvidence?.status !== 'ready'
-      || source.deliveryEvidence?.validation?.status !== 'passed') {
+      || (source.deliveryEvidence?.validation?.status !== 'passed'
+        && !(riskReference && source.deliveryEvidence.validation?.status === 'unavailable'))) {
     throw refuse('finish and approve the Code phase with passing structured tests first.');
   }
   const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
@@ -2945,6 +2953,9 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
   if (!entry) throw refuse('the approved generation has no immutable submission packet.');
   const { readStoryReviewPacket } = await import('./story-lineage.mjs');
   const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+  if (riskReference) await assertStoryTestRiskGate(root, config, workflow, { phaseId: source.id,
+    generation: source.generation, operation: 'downstream', observationSha256: riskReference.observationSha256,
+    evidenceCommit: packet.evidenceCommit });
   const binding = packet.submissionEvidence?.codeDelivery;
   const approved = (source.approvals ?? []).some((decision) =>
     decision.decision === 'approved' && !decision.invalidatedAt
@@ -2978,7 +2989,8 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
       || Number(receipt.generation) !== Number(source.generation)
       || receipt.tree?.generationCommit !== source.generationCommit
       || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
-      || receipt.testExecutions.some((execution) => execution.status !== 'passed')) {
+      || receipt.testExecutions.some((execution) => execution.status !== 'passed'
+        && !(riskReference && execution.kind === 'phase-validation-observation' && execution.status === 'unavailable'))) {
     throw refuse('the receipt does not describe the approved generation and passing executions.');
   }
   if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)) {
@@ -3005,6 +3017,7 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
       && source.sourceBoundary !== 'test-automation'
       ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
     evidenceCommit: packet.evidenceCommit,
+    testRecovery: riskReference ? { config, workflow, operation: 'downstream' } : null,
     pathContext: applicationPathContext(config, workflow)
   });
   if (!replay.valid || !replay.executions.length) {
@@ -3133,6 +3146,7 @@ export async function publishGeneration(root, config, workflow, {
   if (deliveryPreflight) {
     await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
     const testedSelection = deliveryPreflight.trpSelection ?? null;
+    const testedRisk = deliveryPreflight.testRecovery ?? null;
     // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
@@ -3149,6 +3163,7 @@ export async function publishGeneration(root, config, workflow, {
       }
       deliveryPreflight.trpSelection = testedSelection;
     }
+    if (testedRisk) deliveryPreflight.testRecovery = testedRisk;
   }
   // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
   // publication path. Re-read the immutable Candidate after all preflight tests and before the
@@ -3406,6 +3421,7 @@ export async function publishGeneration(root, config, workflow, {
         } : {})
       },
       testExecutions: [],
+      ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
       ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
       ...(autoCandidateVerification ? {
         autoCandidateVerification: structuredClone(autoCandidateVerification)
@@ -3794,6 +3810,7 @@ async function attachRequiredTestExecution(error, root, command, check) {
 }
 
 const transientQualityResultRestorers = new WeakMap();
+const qualityCommandResults = new WeakMap();
 
 async function qualityResultDirectoryFiles(absolute, adapter, depth = 0, state = { files: 0, bytes: 0 }, {
   clearing = false
@@ -4233,6 +4250,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
+      ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
+      ...(result.timedOut ? { timedOut: true } : {}),
       exitCode: result.status, stdout: boundedQualityDiagnostic(result.stdout),
       stderr: boundedQualityDiagnostic(result.timedOut
         ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
@@ -4256,6 +4275,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         }, check) : error;
     }
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
+    qualityCommandResults.set(check, result);
     checks.push(check);
     activeTransientRestore = null;
   }
@@ -4297,11 +4317,27 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   if (!commands.length) {
     throw structuredTestCommandRequiredError(phase);
   }
+  let trpSelection = null;
   if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
-    const selection = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryEvidence, commands, { persist: true });
-    commands = selection.commands;
-    if (selection.reference) deliveryEvidence.trpSelection = selection.reference;
+    trpSelection = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryEvidence, commands, { persist: true });
+    commands = trpSelection.commands;
+    if (trpSelection.reference) deliveryEvidence.trpSelection = trpSelection.reference;
   }
+  const retainedRisk = await retainedStoryTestRisk(root, config, workflow, phase, {
+    operation: 'publish', generation: trpSelection?.selection?.subject.generation ?? Number(phase.generation ?? 0) + 1,
+    selection: trpSelection?.selection });
+  if (retainedRisk) {
+    if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
+      const paths = phase.sourceBoundary === 'test-automation' ? deliveryEvidence.testPaths : deliveryEvidence.sourcePaths;
+      const uncovered = paths.filter(candidate => !commands.some(command => command.affectedRoots.some(affectedRoot =>
+        affectedRoot === '.' || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
+      if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+    }
+    deliveryEvidence.testRecovery = { observationSha256: retainedRisk.observation.recordSha256,
+      observedOutcome: 'unavailable', disposition: 'accepted-risk', evaluationSha256: retainedRisk.evaluation.recordSha256 };
+    return { commands, checks: [], testRecovery: retainedRisk };
+  }
+  const riskRun = await beginStoryTestRiskRun(root, config, workflow, phase, { commands, selection: trpSelection?.selection });
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
   });
@@ -4314,6 +4350,10 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
           throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
         }
         if (check.status === 'blocked') {
+          const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
+            { run: riskRun, check, result: qualityCommandResults.get(check) }) : null;
+          if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
+            operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
           throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication.`, { code: 'CODE_TEST_FAILED' });
         }
         if (check.status !== 'passed' || check.exitCode !== 0) {
@@ -4682,12 +4722,28 @@ async function submitPhaseTransition(root, config, workflow, {
       { code: 'CODE_DELIVERY_TESTS_CANNOT_BE_SKIPPED' }
     );
   }
-  phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow, deliveryCommands, {
+  const retainedRisk = codeDeliveryRequired ? await retainedStoryTestRisk(root, config, workflow, phase, {
+    operation: 'submit', generation: phase.generation, selection: trpSelection?.selection }) : null;
+  if (retainedRisk && testCommandEpochRun) {
+    throw new SingularityFlowError('A runner amendment requires fresh passing validation; unavailable-runner risk cannot satisfy its new epoch.', { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
+  }
+  const riskRun = codeDeliveryRequired && !retainedRisk
+    ? await beginStoryTestRiskRun(root, config, workflow, phase, { commands: requiredTestCommands, selection: trpSelection?.selection }) : null;
+  phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
+    retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
       trpSelection && command?.kind === 'test' ? command.provenance
         : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred']))
   }) : [];
+  if (retainedRisk) {
+    const observation = retainedRisk.observation;
+    phase.checks.push({ id: observation.obligationId, command: externalCommandText(requiredTestCommands[0], 0),
+      kind: 'test', requirement: 'required', status: 'unavailable', exitCode: null,
+      sourceCommit: observation.sourceRevision, sourceTreeSha256: observation.sourceManifestSha256,
+      startedAt: observation.startedAt, completedAt: observation.completedAt,
+      trpObservationSha256: observation.recordSha256, stdout: '', stderr: observation.diagnostics.join('\n') });
+  }
   if (!codeDeliveryRequired) {
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
     // command may emit no report at all, so it cannot authorize discarding a preserved report.
@@ -4698,6 +4754,14 @@ async function submitPhaseTransition(root, config, workflow, {
     try {
       for (const command of requiredTestCommands) {
         const check = phase.checks.find((entry) => entry.id === command.id);
+        if (retainedRisk && command.id === retainedRisk.observation.obligationId) {
+          const observation = retainedRisk.observation;
+          const receiptPath = `${workDirRelative(config, workflow.workItem.id)}/context/test-recovery/runs/${observation.id}.json`;
+          testExecutions.push({ commandId: command.id, receiptPath,
+            receiptSha256: createHash('sha256').update(canonicalJson(observation)).digest('hex'),
+            kind: 'phase-validation-observation', status: 'unavailable', affectedRoots: command.affectedRoots });
+          continue;
+        }
         let parsed;
         let receipt;
         try {
@@ -4705,6 +4769,10 @@ async function submitPhaseTransition(root, config, workflow, {
             throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
           }
           if (check.status === 'blocked') {
+            const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
+              { run: riskRun, check, result: qualityCommandResults.get(check) }) : null;
+            if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
+              operation: 'submit', generation: phase.generation, observationSha256: observation.recordSha256 });
             throw new SingularityFlowError(`Required test command '${command.id}' was blocked.`, { code: 'CODE_TEST_FAILED' });
           }
           if (check.status !== 'passed' || check.exitCode !== 0) {
@@ -4775,8 +4843,10 @@ async function submitPhaseTransition(root, config, workflow, {
   const { failed, unavailable, unavailableRequired } = validation;
   const reviewableFailure = Boolean(phase.repairBudget && failed.length);
   if (failed.length && !reviewableFailure) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
-  if (unavailableRequired.length) {
-    errors.push(`Required quality command was unavailable: ${unavailableRequired.map((check) => check.command).join(', ')}`);
+  const unacceptedUnavailable = unavailableRequired.filter(check => !retainedRisk
+    || check.trpObservationSha256 !== retainedRisk.observation.recordSha256);
+  if (unacceptedUnavailable.length) {
+    errors.push(`Required quality command was unavailable: ${unacceptedUnavailable.map((check) => check.command).join(', ')}`);
   }
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   phase.validationVerdict = validation.verdict;
@@ -4809,10 +4879,13 @@ async function submitPhaseTransition(root, config, workflow, {
         command: externalCommandText(command, index)
       })),
       checks: phase.checks.map((check) => ({ id: check.id, status: check.status, sourceTreeSha256: check.sourceTreeSha256 })),
-      status: failed.length ? 'failed' : 'passed',
+      status: failed.length ? 'failed' : unavailableRequired.length ? 'unavailable' : 'passed',
       validatedAt: nowIso()
     };
     phase.deliveryEvidence.status = 'ready';
+    if (retainedRisk) phase.deliveryEvidence.testRecovery = {
+      observationSha256: retainedRisk.observation.recordSha256, observedOutcome: 'unavailable',
+      disposition: 'accepted-risk', evaluationSha256: retainedRisk.evaluation.recordSha256 };
     phase.deliveryEvidence.testExecutions = testExecutions;
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
@@ -4848,7 +4921,9 @@ async function submitPhaseTransition(root, config, workflow, {
     const readyReceipt = {
       ...deliveryReceipt,
       traceability: { ...deliveryReceipt.traceability, bindings: traceabilityBindings },
-      testExecutions: testExecutions.map(({ affectedRoots: _affectedRoots, ...entry }) => entry),
+      testExecutions: testExecutions.map(({ affectedRoots, ...entry }) => ({ ...entry,
+        ...(entry.kind === 'phase-validation-observation' ? { affectedRoots } : {}) })),
+      ...(retainedRisk ? { testRecovery: structuredClone(phase.deliveryEvidence.testRecovery) } : {}),
       tree: {
         ...deliveryReceipt.tree,
         workingStateDigest: validatedSourceTreeSha256,
@@ -5173,6 +5248,14 @@ export async function approvePhase(root, config, workflow, {
     'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
   ], `Phase '${phase.id}' prior approvals`);
   const allowedReviewCommits = new Set(priorApprovalCommits);
+  const riskReference = phase.deliveryEvidence?.testRecovery;
+  const approvalRisk = riskReference ? await assertStoryTestRiskGate(root, config, workflow, {
+    phaseId: phase.id, operation: 'approve', generation: phase.generation,
+    observationSha256: riskReference.observationSha256, evidenceCommit: submittedReview.evidenceCommit }) : null;
+  if (approvalRisk) {
+    for (const commit of await verifiedStoryTestRiskReviewCommits(root, config, workflow, approvalRisk,
+      interveningCommits.filter(item => !allowedReviewCommits.has(item)))) allowedReviewCommits.add(commit);
+  }
   if (workflow.auto && interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
     const { readGovernedAutoCheckpoint } = await import('./auto/auto-checkpoint.mjs');
     for (const projection of workflow.publicationProjections ?? []) {
@@ -5300,7 +5383,9 @@ export async function approvePhase(root, config, workflow, {
   });
   const failedChecks = validation.failed;
   const unavailableRequiredChecks = validation.unavailableRequired;
-  if (failedChecks.length || unavailableRequiredChecks.length) {
+  const unacceptedUnavailable = unavailableRequiredChecks.filter(check => !approvalRisk
+    || check.trpObservationSha256 !== riskReference.observationSha256);
+  if (failedChecks.length || unacceptedUnavailable.length) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. Reject it to an allowed repair phase.`,
       { code: 'PHASE_VALIDATION_FAILED' }
@@ -5309,7 +5394,7 @@ export async function approvePhase(root, config, workflow, {
   if (phaseRequiresCodeDelivery(phase)) {
     const validation = phase.deliveryEvidence?.validation;
     const currentTree = currentSourceTreeSha256;
-    if (!validation || validation.status !== 'passed') {
+    if (!validation || (validation.status !== 'passed' && !(approvalRisk && validation.status === 'unavailable'))) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,
         { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
@@ -5355,7 +5440,8 @@ export async function approvePhase(root, config, workflow, {
       if (receipt.status !== 'ready'
         || receiptSha256 !== submittedReview.submissionEvidence?.codeDelivery?.sha256
         || receipt.tree?.generationCommit !== phase.generationCommit
-        || (receipt.testExecutions ?? []).some((execution) => execution.status !== 'passed')) {
+        || (receipt.testExecutions ?? []).some((execution) => execution.status !== 'passed'
+          && !(approvalRisk && execution.kind === 'phase-validation-observation' && execution.status === 'unavailable'))) {
         throw new SingularityFlowError(
           `Phase '${phase.id}' code-delivery receipt is absent, stale, or does not contain passing test evidence.`,
           { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
@@ -5386,6 +5472,7 @@ export async function approvePhase(root, config, workflow, {
           && phase.sourceBoundary !== 'test-automation'
           ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
         evidenceCommit: submittedReview.evidenceCommit,
+        testRecovery: approvalRisk ? { config, workflow, operation: 'approve' } : null,
         pathContext: applicationPathContext(config, workflow)
       });
       if (!replay.valid) {

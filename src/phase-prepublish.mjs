@@ -274,8 +274,19 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
   const sourceId = pinned?.testEvidenceFrom;
   if (sourceId) {
     const source = workflow.phases?.[sourceId];
+    let acceptedUnavailable = false;
+    if (source?.deliveryEvidence?.testRecovery) {
+      try {
+        const { assertPassedCodeDeliveryInput } = await import('./state.mjs');
+        await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+        acceptedUnavailable = true;
+      } catch (error) {
+        blockers.push({ code: error.code ?? 'TRP_PHASE_GATE_BLOCKED', category: 'code-delivery', path: null, line: null,
+          message: error.message, details: error.details ?? null });
+      }
+    }
     if (!source || source.status !== 'approved' || source.deliveryEvidence?.status !== 'ready'
-        || source.deliveryEvidence?.validation?.status !== 'passed') {
+        || (source.deliveryEvidence?.validation?.status !== 'passed' && !acceptedUnavailable)) {
       blockers.push({
         code: 'phase.prior-test-evidence.required', category: 'code-delivery', path: null, line: null,
         message: `Phase '${phase.id}' needs approved passing test evidence from '${sourceId}'.`

@@ -435,6 +435,30 @@ const KNOWN = Object.freeze({
       `singularity-flow phase prepublish${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code')
   ],
   CODE_TEST_FAILED: (argv, error) => requiredTestFailureSteps(argv, error),
+  TRP_PHASE_GATE_BLOCKED: (_argv, error) => {
+    const workId = safeWorkId(error?.details?.workId);
+    const phase = safeWorkId(error?.details?.phase);
+    const operation = ['publish', 'submit', 'approve', 'downstream', 'replay'].includes(error?.details?.operation)
+      ? error.details.operation : 'publish';
+    return [step('inspect-exact-phase-risks',
+      'Inspect the exact unavailable-runner observation. Repair the runner, or let a delegated human review only an eligible current issue; no failed test becomes passed.',
+      `singularity-flow story test-policy risks${workId ? ` --work-id ${workId}` : ''}${phase ? ` --phase ${phase}` : ''} --operation ${operation} --json`, 'diagnostic'),
+    step('review-risk-boundaries',
+      'Agreement authorization, decision durability, expiry and normal phase approval remain separate. Do not retry unchanged publication or hand-edit the Story policy.',
+      'singularity-flow explain test-recovery', 'diagnostic')];
+  },
+  TRP_RISK_REVIEW_STALE: () => [step('refresh-risk-review',
+    'Candidate, environment, observation or authority changed. Preview the exact risk again; old confirmation is not consent for the new candidate.',
+    'singularity-flow story test-policy risks --json', 'diagnostic')],
+  TRP_PUBLICATION_PENDING: () => [step('resume-exact-risk-publication',
+    'Resume the existing pending Story publication. A local decision that has not reached its required remote cannot authorize advancement.',
+    'singularity-flow recover --json', 'diagnostic', '/sf-recover')],
+  TRP_RISK_ADAPTER_UNAVAILABLE: () => [step('inspect-risk-adapter-limit',
+    'This case has no qualified risk adapter. Preserve work and inspect the supported runner-repair or reviewed command-amendment route; do not reinterpret a failed test as unavailable.',
+    'singularity-flow explain test-recovery', 'diagnostic')],
+  TRP_AUTHORITY_REQUIRED: () => [step('inspect-risk-authority',
+    'Use the risk-review authority already pinned in the Story. A copied receipt, Git name, exhausted retry budget or ordinary phase approval cannot grant an exception.',
+    'singularity-flow explain test-recovery', 'diagnostic')],
   CODE_TEST_SKIPPED: (argv, error) => requiredTestFailureSteps(argv, error),
   CODE_TEST_ZERO_DISCOVERED: (argv, error) => requiredTestFailureSteps(argv, error),
   CODE_TEST_TIMEOUT: (argv, error) => requiredTestFailureSteps(argv, error),
@@ -563,6 +587,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  const riskReviewBlocked = ['TRP_PHASE_GATE_BLOCKED', 'TRP_RISK_REVIEW_STALE',
+    'TRP_PUBLICATION_PENDING', 'TRP_RISK_ADAPTER_UNAVAILABLE', 'TRP_AUTHORITY_REQUIRED'].includes(code);
   // A soft gate names its own way through; generic help and diagnostics only bury it.
   const softGateBlocked = code === 'SEQUENCE_CONFIRMATION_REQUIRED';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
@@ -603,7 +629,9 @@ export function refusalRemediationPlan(error, argv = []) {
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
-      ? [...phaseSteps, ...known, ...nonDuplicateExplicit]
+      ? riskReviewBlocked
+        ? [known[0], ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'), ...known.slice(1)]
+        : [...phaseSteps, ...known, ...nonDuplicateExplicit]
       : requiredTestBlocked
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
       : authoringIncomplete
@@ -621,6 +649,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Do not retry unchanged publication. An in-scope repository runner repair, updated runtime or reviewed command amendment must establish the structured contract; then follow the returned preparation or fresh-validation route.'
     : pinnedTestPolicyBlocked
     ? 'Do not retry unchanged publication. Preview a reviewed test-command amendment from corrected approved configuration for the active current code phase. Retain any existing publication and follow the returned preparation or fresh-validation route.'
+    : riskReviewBlocked
+    ? 'Inspect the exact risk or repair prerequisite. Only a delegated human can record an eligible exception; normal phase approval stays separate. End an approval-only turn before any review mutation, then re-evaluate in a fresh turn.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
     : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'

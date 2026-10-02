@@ -1226,6 +1226,17 @@ export function exactTreePathsAtObject(root, objectId, pathspec = []) {
   return result.status === 0 ? nullList(result.stdout) : null;
 }
 
+/** Compare exact local object trees without replace refs, caller indexes or lazy remote fetches. */
+export function exactChangedPathsBetweenObjects(root, before, after) {
+  invariant(EXACT_LOCAL_OBJECT_ID.test(String(before ?? '')) && EXACT_LOCAL_OBJECT_ID.test(String(after ?? '')),
+    'Exact Git comparison requires full object IDs.');
+  const result = git(['diff-tree', '--no-commit-id', '--no-ext-diff', '--no-renames', '--name-only', '-r', '-z', before, after, '--'], {
+    cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true, maxBuffer: 4 * 1024 * 1024
+  });
+  const output = gitReadOutput(result, 'Exact local changed paths');
+  return nullList(output);
+}
+
 /**
  * A transient exact-object repository, never a worktree or a contributor object database.
  * Remote contact stays at the existing frozen enterprise transport boundary. A child with an

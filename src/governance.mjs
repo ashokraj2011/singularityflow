@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state-stores.mjs';
 import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
@@ -31,6 +32,7 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { canonicalJson } from './records.mjs';
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
@@ -308,6 +310,21 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
             warnings.push(`${phaseId} generation ${generation} code-delivery receipt is readable legacy v1 evidence`);
           } else {
             if (found && receipt.tree?.generationCommit !== found[0]) errors.push(`${phaseId} generation ${generation} receipt names a different generation commit`);
+            let riskReplay = null;
+            if (receipt.testRecovery) {
+              const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find(entry =>
+                entry.phase === phase.id && Number(entry.generation) === Number(generation));
+              if (submission) {
+                const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+                const packet = await readStoryReviewPacket(root, config, workflow, submission.packetSha256);
+                if (packet.submissionEvidence?.codeDelivery?.path === receiptPath
+                  && String(packet.submissionEvidence.codeDelivery.sha256).replace(/^sha256:/u, '')
+                    === createHash('sha256').update(canonicalJson(receipt)).digest('hex')) {
+                  riskReplay = { evidenceCommit: packet.evidenceCommit,
+                    testRecovery: { config, workflow, operation: 'submit', mode: 'historical', at: receipt.validatedAt } };
+                } else errors.push(`${phaseId} generation ${generation}: TRP delivery receipt differs from its immutable review packet`);
+              }
+            }
             const replay = await verifyCodeDeliveryReceipt(root, receipt, {
               protectedPaths: [...new Set([
                 ...(config.governance?.protectedPaths ?? []),
@@ -323,7 +340,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
               sourceBindingPolicy: workflow.resolution?.plannedClaims?.mode === 'required'
                 && phase.sourceBoundary !== 'test-automation'
                 ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
-              pathContext: applicationPathContext(config, workflow)
+              pathContext: applicationPathContext(config, workflow),
+              ...riskReplay
             });
             errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
             if (replay.valid) passes.push(`code delivery verified: ${phaseId} generation ${generation}`);

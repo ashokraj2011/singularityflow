@@ -18,6 +18,7 @@ import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { validateTrpRecord } from './test-recovery-policy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
@@ -144,6 +145,15 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
         `Test execution '${execution.commandId}' changed before its review snapshot was created.`,
         { code: 'STORY_REVIEW_EVIDENCE_STALE' }
       );
+    }
+    if (execution.kind === 'phase-validation-observation') {
+      validateTrpRecord(stored, { kind: 'phase-validation-observation' });
+      if (stored.observedOutcome !== 'unavailable' || stored.obligationId !== execution.commandId
+        || stored.recordSha256 !== phase.deliveryEvidence.testRecovery?.observationSha256) {
+        throw new SingularityFlowError('The unavailable test observation differs from the submission binding.', { code: 'STORY_REVIEW_EVIDENCE_STALE' });
+      }
+      // This record proves no module or testcase execution; WEL receives no invented witness.
+      continue;
     }
     const receipt = readRecord('test-execution', stored).record;
     const observation = receipt.testcaseObservation;
@@ -487,7 +497,8 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       commandId: entry.commandId,
       path: entry.receiptPath,
       sha256: entry.receiptSha256,
-      status: entry.status
+      status: entry.status,
+      ...(entry.kind === 'phase-validation-observation' ? { kind: entry.kind } : {})
     })),
     ...(phase.testCommandValidation ? { testCommandEpoch: structuredClone(phase.testCommandValidation) } : {}),
     claimMaps: currentClaimMapBindings(root, config, workflow, phase),
@@ -677,7 +688,7 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
         sha256: packet.submissionEvidence.codeDelivery.sha256
       }] : []),
       ...(packet.submissionEvidence?.testExecutions ?? []).map((entry) => ({
-        kind: 'test-execution', path: entry.path, sha256: entry.sha256
+        kind: entry.kind === 'phase-validation-observation' ? entry.kind : 'test-execution', path: entry.path, sha256: entry.sha256
       })),
       ...(claimMaps ?? []).map((entry) => ({
         kind: 'specification-claim-map', claimKind: entry.kind,
@@ -708,6 +719,13 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
         }
         // Apply migrations only after the externally bound stored projection is authenticated.
         const replayed = readRecord(binding.kind, storedRecord).record;
+        if (binding.kind === 'phase-validation-observation') {
+          validateTrpRecord(replayed, { kind: binding.kind });
+          if (replayed.subject.workId !== packet.workId || replayed.subject.phaseId !== packet.phase
+            || replayed.subject.generation !== Number(packet.generation) || replayed.observedOutcome !== 'unavailable') {
+            throw new Error('TRP observation does not describe this submission');
+          }
+        }
         if (binding.kind === 'specification-claim-map'
           && (replayed.kind !== binding.claimKind
             || Number(replayed.generation) !== Number(binding.generation)

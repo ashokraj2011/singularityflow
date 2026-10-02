@@ -836,7 +836,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   minimumModelAssurance = 'unavailable',
   sourceBindingPolicy = 'off',
   evidenceCommit = null,
-  pathContext = null
+  pathContext = null,
+  testRecovery = null
 } = {}) {
   const errors = [];
   const fail = (message) => errors.push(message);
@@ -982,6 +983,36 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
 
   const executions = new Map();
   for (const execution of receipt.testExecutions ?? []) {
+    if (execution.kind === 'phase-validation-observation') {
+      try {
+        if (!testRecovery?.config || !testRecovery?.workflow || !evidenceCommit || !receipt.testRecovery
+          || execution.status !== 'unavailable' || receipt.testRecovery.observedOutcome !== 'unavailable'
+          || receipt.testRecovery.disposition !== 'accepted-risk') throw new Error('authenticated TRP runtime context is required');
+        const { assertStoryTestRiskGate } = await import('./test-recovery-runtime.mjs');
+        const context = await assertStoryTestRiskGate(root, testRecovery.config, testRecovery.workflow, {
+          phaseId: receipt.phase, generation: Number(receipt.generation), operation: testRecovery.operation ?? 'replay',
+          observationSha256: receipt.testRecovery.observationSha256, evidenceCommit,
+          ...(testRecovery.mode === 'historical' ? { mode: 'historical', at: testRecovery.at } : {}) });
+        const observation = context.observations[0];
+        if (!observation || context.evaluation.gateDecision !== 'allow-with-risk'
+          || observation.obligationId !== execution.commandId || observation.observedOutcome !== 'unavailable'
+          || observation.sourceManifestSha256 !== receipt.tree.workingStateDigest
+          || execution.receiptPath !== `${testRecovery.config.workItemRoot ?? 'singularity/work-items'}/${receipt.workId}/context/test-recovery/runs/${observation.id}.json`
+          || receiptDigest(observation) !== String(execution.receiptSha256).replace(/^sha256:/u, '')) {
+          throw new Error('the unavailable observation is not bound to this exact committed delivery');
+        }
+        const phase = testRecovery.workflow.phases?.[receipt.phase];
+        const commands = await resolveDeliveryQualityCommands(root, phase);
+        const command = commands.find(item => item?.kind === 'test' && item.id === execution.commandId);
+        if (!command || canonicalJson(command.affectedRoots) !== canonicalJson(execution.affectedRoots)) {
+          throw new Error('unavailable command coverage differs from the approved command contract');
+        }
+        executions.set(execution.commandId, { commandId: execution.commandId, status: 'unavailable',
+          affectedRoots: execution.affectedRoots, observedOutcome: 'unavailable', disposition: 'accepted-risk',
+          decisionRefs: context.evaluation.decisionRefs });
+      } catch (error) { fail(`TRP unavailable validation ${execution.commandId} does not replay: ${error.message}`); }
+      continue;
+    }
     let testReceipt;
     try {
       const source = evidenceCommit

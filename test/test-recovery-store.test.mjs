@@ -151,3 +151,59 @@ test('real terminal origin survives restart and binds pin, exact bytes, host and
   const alteredOrigin = await loadTrpAuthorityVerifier({ ...options, records: [agreement, receipt] });
   assert.equal(alteredOrigin(agreement, { policy: fixture.policy }), null, 'a fabricated origin cannot replay');
 });
+
+test('a delegated reviewer authorizes an agreement without impersonating its immutable author', { skip: !TRP_TERMINAL_AVAILABLE }, async (t) => {
+  const { root, workRoot } = await workspace(t); const fixture = createTrpFixture();
+  const agreement = sealTrpRecord({ ...fixture.agreement, issuer: { principal: 'story-author@example.com', channel: 'confirmed-story-intake' } });
+  const original = canonicalJson(agreement);
+  const receipt = await authorizeTrpRecord(root, workRoot, agreement, { policy: fixture.policy, pinnedAuthorities, delegation });
+  assert.equal(receipt.issuer.principal, 'reviewer@example.com');
+  assert.equal(receipt.actor.email, 'reviewer@example.com');
+  assert.equal(canonicalJson(agreement), original);
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Authorize exact agreement');
+  const localCommit = git(root, 'rev-parse', 'HEAD');
+  const options = { root, workRoot, policy: fixture.policy, pinnedAuthorities, delegation, localCommit, localOnly: true };
+  const verifier = await loadTrpAuthorityVerifier(options);
+  assert.equal(verifier(agreement, { policy: fixture.policy }).principal, 'reviewer@example.com');
+  const wrongGroup = await loadTrpAuthorityVerifier({ ...options,
+    pinnedAuthorities: { 'risk-reviewers': { label: 'Different reviewers', allowAnyGitIdentity: false, members: [{ email: 'someone-else@example.com' }] } } });
+  assert.equal(wrongGroup(agreement, { policy: fixture.policy }), null);
+  const forged = sealTrpRecord({ ...receipt, issuer: { principal: 'story-author@example.com', channel: 'terminal' } });
+  await writeFile(path.join(workRoot, 'context', 'test-recovery', 'authorizations', `${receipt.id}.json`), canonicalJson(forged));
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Forged author assertion');
+  const tampered = await loadTrpAuthorityVerifier({ ...options, localCommit: git(root, 'rev-parse', 'HEAD') });
+  assert.equal(tampered(agreement, { policy: fixture.policy }), null);
+});
+
+test('durable authenticated revocations remain effective when callers provide a narrowed record set', { skip: !TRP_TERMINAL_AVAILABLE }, async (t) => {
+  const { root, workRoot } = await workspace(t); const fixture = createTrpFixture();
+  const decision = sealTrpRecord({ ...fixture.decision, transitions: delegation.transitions,
+    issuer: { principal: 'reviewer@example.com', channel: 'terminal' } });
+  const authority = { policy: fixture.policy, pinnedAuthorities, delegation };
+  const decisionReceipt = await authorizeTrpRecord(root, workRoot, decision, authority);
+  const effectiveAt = new Date().toISOString();
+  const revocation = sealTrpRecord({ ...fixture.envelope('phase-risk-revocation', 'revoke-1'),
+    createdAt: effectiveAt, effectiveAt, issuer: decision.issuer,
+    agreementSha256: decision.agreementSha256, policyAuthoritySha256: decision.policyAuthoritySha256,
+    decisionSha256: decision.recordSha256, category: decision.category, transitions: decision.transitions,
+    authorizationRef: 'revocation-authorization', confirmationSha256: fixture.hash('revoke-plan'),
+    reason: 'The review is withdrawn pending a fresh engineering investigation.' });
+  await authorizeTrpRecord(root, workRoot, revocation, authority);
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Publish immutable grant and revocation');
+  const localCommit = git(root, 'rev-parse', 'HEAD');
+  const options = { root, workRoot, ...authority, localCommit, localOnly: true,
+    records: [decision, decisionReceipt] };
+  const verifier = await loadTrpAuthorityVerifier(options);
+  assert.equal(verifier(decision, { policy: fixture.policy }).revokedAt, effectiveAt);
+  assert.equal((await readTrpRecord(workRoot, referenceFor(decision))).recordSha256, decision.recordSha256);
+  const clone = path.join(root, 'clone'); git(root, 'clone', '-q', root, clone);
+  git(clone, 'config', 'user.name', 'TRP Reviewer'); git(clone, 'config', 'user.email', 'reviewer@example.com');
+  const cloneWorkRoot = path.join(clone, 'custom-work', 'story-1');
+  const clonedReceipt = await authorizeTrpRecord(clone, cloneWorkRoot, decision, authority);
+  git(clone, 'add', '.'); git(clone, 'commit', '-qm', 'Re-attest original grant');
+  const cloneVerifier = await loadTrpAuthorityVerifier({ ...options, root: clone, workRoot: cloneWorkRoot,
+    localCommit: git(clone, 'rev-parse', 'HEAD'), records: [decision, clonedReceipt] });
+  assert.equal(cloneVerifier(decision, { policy: fixture.policy }), null, 're-attesting a grant cannot discard its durable revocation');
+});
+
+function referenceFor(record) { return { kind: record.kind, id: record.id, recordSha256: record.recordSha256 }; }

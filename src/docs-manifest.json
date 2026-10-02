@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b43a12e681445286c2d669660d4b368ecffb5a4b",
+  "sourceCommit": "ff78edb13e1a5ab21649dc8dbf2511cd6c7389ec",
   "topicCount": 72,
-  "contentSha256": "97dab040c9071cbaff6afb3666891b538548bba89d03a79e40dac955f41fe088",
+  "contentSha256": "70606676efc03a70dc104a2edb22350215bbb36ca7a530d45ec65efc7f54b021",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -512,8 +512,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and phase recovery pilot",
-      "version": 3,
-      "sha256": "7ab98eb63c64a8fb8bd8630d5d8e81c94d822e72b55d767f844af9a2610e3e03",
+      "version": 4,
+      "sha256": "2b2da13175fdcc723f5e105b4e3821a323c935462e44695c333ca6f4bda8a9bb",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

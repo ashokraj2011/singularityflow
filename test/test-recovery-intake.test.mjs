@@ -138,3 +138,44 @@ test('TRP CLI operations classify plans as read-only and confirmations/execution
     assert.equal(resolveOperation({ requestedCommand: 'story', positionals: ['story', 'test-policy', action], options }).classification, 'mutation');
   }
 });
+
+test('only explicit unavailable-runner review can activate; other categories and evidence reuse remain disabled', () => {
+  const policy = normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['validation-unavailable'] });
+  assert.deepEqual(policy.enabledRiskCategories, ['validation-unavailable']);
+  assert.equal(policy.allowEvidenceReuse, false);
+  assert.throws(() => normalizeTestRecoveryPolicy({ enabled: true, enabledRiskCategories: ['validation-unavailable'] }), { code: 'TRP_POLICY_INVALID' });
+  for (const category of ['new-test-failure', 'known-test-failure', 'reduced-coverage', 'nonessential-document']) {
+    assert.throws(() => normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: [category] }), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
+  }
+});
+
+test('risk intake seals exact command IDs and phase-specific obligations without changing older agreements', () => {
+  const input = fixture();
+  input.definition.testRecovery = { enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['validation-unavailable'] };
+  input.phaseDefinitions = ['build', 'refine'].map(id => ({ id, generationPolicy: { task: 'code' }, qualityCommands: [
+    { id: '.-python-tests', kind: 'test', argv: ['python', '-m', 'pytest'], result: { adapter: 'junit-xml', path: 'result.xml' } }
+  ] }));
+  const preview = previewTestRecoveryIntake(input);
+  assert.equal(preview.ready, true, preview.blockers.join(' '));
+  const agreement = initialTestRecoveryAgreement(preview, { workId: 'story-1', principal: 'author@example.invalid', createdAt: '2026-10-02T12:00:00Z' });
+  validateTrpRecord(agreement);
+  const [obligation] = agreement.repositories[0].mandatoryObligations;
+  assert.equal(agreement.repositories[0].mandatoryObligations.length, 1);
+  assert.equal(obligation.id, '.-python-tests');
+  assert.equal(obligation.nonWaivable, false);
+  assert.deepEqual([...obligation.phaseIds].sort(), ['build', 'refine']);
+  assert.deepEqual([...obligation.transitions].sort(), ['approve', 'downstream', 'publish', 'replay', 'submit']);
+  input.phaseDefinitions[0].qualityCommands[0].id = 'different-command';
+  assert.notEqual(previewTestRecoveryIntake(input).planDigest, preview.planDigest);
+});
+
+test('unsupported multi-repository, inferred and non-code runner exceptions are refused during intake', () => {
+  for (const mode of ['inferred', 'multiple-repositories', 'non-code']) {
+    const input = fixture();
+    input.definition.testRecovery = { enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['validation-unavailable'] };
+    if (mode === 'multiple-repositories') input.repositories.push({ id: 'other', baseCommit: base });
+    if (mode === 'non-code') input.phaseDefinitions = [{ id: 'test', generationPolicy: { task: 'document' },
+      qualityCommands: [{ id: 'unit', kind: 'test', argv: ['node', '--test'] }] }];
+    assert.equal(previewTestRecoveryIntake(input).ready, false, mode);
+  }
+});

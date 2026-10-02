@@ -2,9 +2,22 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
+import { createHash } from 'node:crypto';
 import { resolvePlatformProcess, tryWindowsTaskkill } from './platform-process.mjs';
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
+const unavailableLaunches = new WeakMap();
+
+/** Opaque, native-spawn provenance. Injected test transports cannot mint execution evidence. */
+export function verifyUnavailableQualityLaunch(result, { command, args, cwd, environmentSha256 }) {
+  const observed = unavailableLaunches.get(result);
+  return observed && observed.command === command && observed.cwd === cwd
+    && JSON.stringify(observed.args) === JSON.stringify(args)
+    && typeof environmentSha256 === 'string' && environmentSha256 === observed.environmentSha256
+    && result.error?.code === 'ENOENT' && result.status === observed.status
+    && result.timedOut === false && result.aborted === false
+    ? Object.freeze({ startedAt: observed.startedAt, completedAt: observed.completedAt }) : null;
+}
 
 function boundedCapture(maxBytes) {
   const firstLimit = Math.ceil(maxBytes / 2);
@@ -66,6 +79,10 @@ export function runQualityCommand(command, args = [], {
   platformRealpathCommand = undefined
 } = {}) {
   return new Promise((resolve) => {
+    const startedAt = new Date().toISOString();
+    const executionEnvironment = { ...env };
+    const executionArgs = [...args];
+    const environmentSha256 = createHash('sha256').update(JSON.stringify(Object.entries(executionEnvironment).sort())).digest('hex');
     const stdout = boundedCapture(captureBytes);
     const stderr = boundedCapture(captureBytes);
     let timedOut = false;
@@ -106,14 +123,14 @@ export function runQualityCommand(command, args = [], {
       // commands stay shell-free; only the known Windows npm/npx batch shims receive the narrow,
       // escaped ComSpec launch adapter.
       const launch = shell
-        ? { executable: command, arguments: args, spawnOptions: { shell: true } }
-        : resolvePlatformProcess(command, args, {
-          platform, environment: env, spawnSyncCommand: platformLookupCommand, cwd,
+        ? { executable: command, arguments: executionArgs, spawnOptions: { shell: true } }
+        : resolvePlatformProcess(command, executionArgs, {
+          platform, environment: executionEnvironment, spawnSyncCommand: platformLookupCommand, cwd,
           lstatSyncCommand: platformLstatCommand,
           realpathSyncCommand: platformRealpathCommand
         });
       child = spawnCommand(launch.executable, launch.arguments, {
-        cwd, env, ...launch.spawnOptions,
+        cwd, env: executionEnvironment, ...launch.spawnOptions,
         detached: killTree && platform !== 'win32',
         stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe']
       });
@@ -164,7 +181,7 @@ export function runQualityCommand(command, args = [], {
         const out = stdout.result();
         const err = stderr.result();
         if (streamError && stdoutFile) await unlink(stdoutFile).catch(() => {});
-        resolve({
+        const result = {
           status: code ?? 1,
           signal: terminationSignal,
           error,
@@ -176,7 +193,16 @@ export function runQualityCommand(command, args = [], {
           stderrBytes: err.bytes,
           stdoutTruncated: out.truncated,
           stderrTruncated: err.truncated
-        });
+        };
+        if (spawnCommand === spawn && platformLookupCommand === spawnSync
+          && platformLstatCommand === undefined && platformRealpathCommand === undefined
+          && platform === process.platform && !shell && !child.pid && error?.code === 'ENOENT'
+          && !timedOut && !aborted && !streamError) {
+          unavailableLaunches.set(result, { command, args: executionArgs, cwd, status: result.status,
+            startedAt, completedAt: new Date().toISOString(),
+            environmentSha256 });
+        }
+        resolve(result);
       };
       if (stdoutStream && !stdoutStream.destroyed) stdoutStream.end(() => { void finish(); });
       else void finish();

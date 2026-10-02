@@ -22,7 +22,7 @@ import { sealTrpRecord, validateTrpRecord, trpDigest } from './test-recovery-pol
 const DIRECTORIES = Object.freeze({
   'story-test-recovery-agreement': 'agreements', 'test-baseline-manifest': 'baselines',
   'test-selection-manifest': 'selections', 'phase-validation-observation': 'runs',
-  'phase-risk-decision': 'decisions', 'phase-gate-evaluation': 'evaluations',
+  'phase-risk-decision': 'decisions', 'phase-risk-revocation': 'revocations', 'phase-gate-evaluation': 'evaluations',
   'story-test-policy-amendment': 'amendments', 'phase-repair-receipt': 'repairs',
   'trp-authority-receipt': 'authorizations'
 });
@@ -231,12 +231,12 @@ function assertDelegation(record, policy, delegation) {
   if (!policy?.enabled || record.policyAuthoritySha256 && record.policyAuthoritySha256 !== policy.authoritySha256) fail('TRP authorization must use the pinned policy', 'TRP_AUTHORITY_REQUIRED');
   if (!delegation || delegation.minimumAssurance !== 'configured-local-review' || delegation.minimum !== 1
     || !Array.isArray(delegation.authorities) || !delegation.authorities.length) fail('This host requires explicit single-approver terminal review delegation', 'TRP_AUTHORITY_REQUIRED');
-  if (record.kind === 'phase-risk-decision' && (!policy.enabledRiskCategories.includes(record.category)
+  if (['phase-risk-decision', 'phase-risk-revocation'].includes(record.kind) && (!policy.enabledRiskCategories.includes(record.category)
     || !delegation.categories?.includes(record.category)
     || !record.transitions.every((transition) => delegation.transitions?.includes(transition)))) fail('The exact risk category and transitions are not delegated', 'TRP_AUTHORITY_REQUIRED');
-  if (!['story-test-recovery-agreement', 'phase-risk-decision', 'test-selection-manifest'].includes(record.kind)) fail('This record kind has no supported human authorization operation');
+  if (!['story-test-recovery-agreement', 'phase-risk-decision', 'phase-risk-revocation', 'test-selection-manifest'].includes(record.kind)) fail('This record kind has no supported human authorization operation');
 }
-function capability(record) { return record.kind === 'phase-risk-decision' ? 'trp-risk-decision' : record.kind === 'test-selection-manifest' ? 'trp-scope-confirmation' : 'trp-agreement'; }
+function capability(record) { return record.kind === 'phase-risk-revocation' ? 'trp-risk-revocation' : record.kind === 'phase-risk-decision' ? 'trp-risk-decision' : record.kind === 'test-selection-manifest' ? 'trp-scope-confirmation' : 'trp-agreement'; }
 
 /** Deterministic review card; the terminal channel presents these exact sealed bytes. */
 export function trpAuthorityReview(record, policy) {
@@ -336,9 +336,11 @@ export async function consumeTrpAuthority(root, { record, policy, pinnedAuthorit
   if (canonicalJson(expected) !== canonicalJson(review)) fail('TRP review changed; present the exact current plan again', 'TRP_REVIEW_STALE');
   const authorization = await consumeActionAuthorization(root, token, expected.plan, expected.action, { requireTerminalPresentation: true });
   const match = requireApprovalAuthority(pinnedAuthorities, { authorities: delegation.authorities }, authorization.actor);
-  if (!principal(authorization.actor) || principal(authorization.actor) !== record.issuer.principal.toLowerCase()) fail('Human decision principal does not match the reviewed record', 'TRP_AUTHORITY_REQUIRED');
+  if (!principal(authorization.actor) || (record.kind !== 'story-test-recovery-agreement'
+    && principal(authorization.actor) !== record.issuer.principal.toLowerCase())) fail('Human decision principal does not match the reviewed record', 'TRP_AUTHORITY_REQUIRED');
   const receipt = sealTrpRecord({ schemaVersion: 1, kind: 'trp-authority-receipt', id: authorization.authorizationId,
-    subject: record.subject, createdAt: authorization.createdAt, issuer: record.issuer,
+    subject: record.subject, createdAt: authorization.createdAt,
+    issuer: { principal: principal(authorization.actor), channel: 'terminal' },
     provenance: { authorityRef: record.provenance.authorityRef, evidenceRefs: [record.recordSha256] },
     authorizedRecordSha256: record.recordSha256, policyAuthoritySha256: policy.authoritySha256,
     confirmationSha256: record.confirmationSha256 ?? record.confirmedPlanSha256, capability: capability(record), transitions: record.transitions ?? [],
@@ -378,7 +380,12 @@ export async function loadTrpAuthorityVerifier({ root, workRoot, policy, pinnedA
   const actualWorkRoot = await realpath(workRoot);
   const workRelative = path.relative(repositoryRoot, actualWorkRoot);
   if (workRelative === '..' || workRelative.startsWith(`..${path.sep}`) || path.isAbsolute(workRelative)) fail('TRP work root is outside its governed repository');
-  const loaded = records ?? await loadTrpRecords(workRoot);
+  const inventory = await loadTrpRecords(workRoot);
+  const revocations = inventory.filter((record) => record.kind === 'phase-risk-revocation');
+  const loaded = records ? [...records, ...inventory.filter((record) =>
+    (record.kind === 'phase-risk-revocation' || (record.kind === 'trp-authority-receipt'
+      && revocations.some((revocation) => revocation.recordSha256 === record.authorizedRecordSha256)))
+    && !records.some((entry) => entry.recordSha256 === record.recordSha256))] : inventory;
   const authenticated = new Map();
   const committed = (record) => {
     const relative = path.join(workRelative, relativeRecordPath(record)).split(path.sep).join('/');
@@ -400,15 +407,36 @@ export async function loadTrpAuthorityVerifier({ root, workRoot, policy, pinnedA
       if (receipt.policyAuthoritySha256 !== policy.authoritySha256 || receipt.authorityGroup !== match.authorityGroup
         || receipt.reviewPlanSha256 !== review.plan.planHash || receipt.reviewActionId !== review.action.actionId
         || receipt.capability !== capability(record) || receipt.confirmationSha256 !== (record.confirmationSha256 ?? record.confirmedPlanSha256)
-        || principal(receipt.actor) !== record.issuer.principal.toLowerCase()
-        || receipt.issuer.principal !== record.issuer.principal || canonicalJson(receipt.subject) !== canonicalJson(record.subject)
+        || principal(receipt.actor) !== receipt.issuer.principal.toLowerCase()
+        || (record.kind !== 'story-test-recovery-agreement' && receipt.issuer.principal !== record.issuer.principal)
+        || canonicalJson(receipt.subject) !== canonicalJson(record.subject)
         || canonicalJson([...receipt.transitions].sort()) !== canonicalJson([...(record.transitions ?? [])].sort())
         || (record.authorizationRef && record.authorizationRef !== receipt.authorizationRef)) continue;
-      authenticated.set(record.recordSha256, Object.freeze({ recordSha256: record.recordSha256, principal: record.issuer.principal,
+      authenticated.set(record.recordSha256, Object.freeze({ recordSha256: record.recordSha256, principal: receipt.issuer.principal,
         policyAuthoritySha256: policy.authoritySha256, confirmationSha256: receipt.confirmationSha256, capability: receipt.capability,
         transitions: receipt.transitions, issuedAt: receipt.issuedAt, revokedAt: revokedAtByRecord.get(record.recordSha256) ?? null,
         durable: true, authorizationRef: receipt.authorizationRef }));
     } catch { /* A malformed or no-longer-delegated receipt is not an authority. */ }
+  }
+  // A revoked grant cannot be revived by re-reviewing its original receipt on a
+  // clone. All durable revocation records must be authenticated as well; an
+  // unavailable local witness fails closed until those records are re-attested.
+  for (const revocation of loaded.filter((record) => record.kind === 'phase-risk-revocation')) {
+    validateTrpRecord(revocation);
+    if (!committed(revocation)) continue;
+    const decision = loaded.find((record) => record.kind === 'phase-risk-decision'
+      && record.recordSha256 === revocation.decisionSha256);
+    if (!decision || revocation.agreementSha256 !== decision.agreementSha256
+      || revocation.policyAuthoritySha256 !== decision.policyAuthoritySha256
+      || revocation.category !== decision.category
+      || canonicalJson(revocation.subject) !== canonicalJson(decision.subject)
+      || canonicalJson([...revocation.transitions].sort()) !== canonicalJson([...decision.transitions].sort())) continue;
+    const authority = authenticated.get(decision.recordSha256);
+    if (!authority) continue;
+    if (!authenticated.has(revocation.recordSha256)) { authenticated.delete(decision.recordSha256); continue; }
+    const revokedAt = !authority.revokedAt || revocation.effectiveAt < authority.revokedAt
+      ? revocation.effectiveAt : authority.revokedAt;
+    authenticated.set(decision.recordSha256, Object.freeze({ ...authority, revokedAt }));
   }
   return (record, context) => {
     const receipt = authenticated.get(record.recordSha256);

@@ -23,7 +23,7 @@ const observational = (value, description) => ({
 /** The sole owner of first-party Story, Initiative, ad hoc landing, and governed Goal members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 8,
+  version: 9,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
@@ -39,6 +39,18 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
     TEST_READINESS_REPAIRED: {
       ...governing('test-readiness-repaired', 'Records a validated baseline repair checkpoint without erasing its original baseline.'),
       since: 7
+    },
+    TEST_RISK_ATTESTED: {
+      ...governing('test-risk-attested', 'Records live delegated review of the exact test agreement or immutable risk record; observed validation is unchanged.'),
+      since: 9
+    },
+    TEST_RISK_ACCEPTED: {
+      ...governing('test-risk-accepted', 'Records a bounded risk decision for one exact observation and named transition; never a test pass or phase approval.'),
+      since: 9
+    },
+    TEST_RISK_REVOKED: {
+      ...governing('test-risk-revoked', 'Withdraws one exact test-risk grant for future transitions while preserving historical evidence.'),
+      since: 9
     },
     ARTIFACT_GENERATED: governing('artifact-generated', 'Publishes one governed artifact generation.'),
     APPROVAL_REQUESTED: governing('approval-requested', 'Submits an exact generation for governed approval.'),

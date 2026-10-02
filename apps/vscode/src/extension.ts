@@ -39,6 +39,7 @@ import {
 } from './views/submission-presentation.ts';
 import { phasePrepublishDecision } from './views/phase-prepublish.ts';
 import { testRecoveryPreviewArgs, testRecoveryReviewActions, type TestRecoveryAction } from './views/story-test-recovery.ts';
+import { storyRiskPreviewArgs, storyRiskChoices, storyRiskApplyArgs, type StoryRiskTerms } from './views/story-test-risk.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
@@ -7330,17 +7331,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const checkedRepository = repository;
       const scope = repositoryEpoch.capture();
-      const subject = { workId: workflow.workItem.id, phaseId: workflow.currentPhase };
+      const attachedPhaseId = workflow.currentPhase;
+      let subject = { workId: workflow.workItem.id, phaseId: attachedPhaseId };
       const stillCurrent = (): boolean => repositoryEpoch.isCurrent(scope) && repository === checkedRepository
         && store.current.snapshot?.workflow?.workItem?.id === subject.workId
-        && store.current.snapshot?.workflow?.currentPhase === subject.phaseId;
+        && store.current.snapshot?.workflow?.currentPhase === attachedPhaseId;
       const choice = await vscode.window.showQuickPick([
         { label: 'Inspect test policy and readiness', action: 'show' as TestRecoveryAction,
           description: 'Read only; no tests, changes or risk acceptance' },
         { label: 'Preview approved test-runner repair', action: 'amend' as TestRecoveryAction,
           description: 'Preserve code; review a newer command from the original configuration authority' },
         { label: 'Restore review after clone or host change', action: 'attest' as TestRecoveryAction,
-          description: 'Inspect missing local review evidence; original reviewer required' }
+          description: 'Inspect missing local review evidence; original reviewer required' },
+        { label: 'Inspect phase risks and reviewed exceptions', action: 'risks' as TestRecoveryAction,
+          description: 'Inspect blockers, authorize eligible risk, or revoke a decision; no automatic bypass' }
       ], { title: `${subject.workId} — Test and recovery`, ignoreFocusOut: true });
       if (!choice || !stillCurrent()) return;
       const reason = choice.action === 'amend' ? await vscode.window.showInputBox({
@@ -7353,14 +7357,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }) : undefined;
       if (!stillCurrent() || choice.action === 'amend' && reason === undefined) return;
       try {
-        const args = testRecoveryPreviewArgs(choice.action, subject, reason);
+        const riskTransition = choice.action === 'risks' ? await vscode.window.showQuickPick([
+          { label: 'Publication', operation: 'publish' as const }, { label: 'Submission', operation: 'submit' as const },
+          { label: 'Approval', operation: 'approve' as const }, { label: 'Downstream evidence use', operation: 'downstream' as const },
+          { label: 'Replay', operation: 'replay' as const }
+        ], { title: 'Inspect the exact transition; a decision for one does not authorize another', ignoreFocusOut: true }) : null;
+        if (!stillCurrent() || choice.action === 'risks' && !riskTransition) return;
+        if (riskTransition && ['downstream', 'replay'].includes(riskTransition.operation)) {
+          const sourcePhases = Object.entries(workflow.phases ?? {}).filter(([, phase]) => Number(phase.generation) > 0)
+            .map(([phaseId]) => ({ label: phaseId, description: 'Published source phase; active phase will not change', phaseId }));
+          if (!sourcePhases.length) {
+            void vscode.window.showInformationMessage('This Story has no published phase to review for downstream evidence use.');
+            return;
+          }
+          const sourcePhase = await vscode.window.showQuickPick(sourcePhases, {
+            title: 'Which published source phase needs the exception?', ignoreFocusOut: true
+          });
+          if (!sourcePhase || !stillCurrent()) return;
+          subject = { ...subject, phaseId: sourcePhase.phaseId };
+        }
+        const args = riskTransition ? storyRiskPreviewArgs('risks', subject, riskTransition)
+          : testRecoveryPreviewArgs(choice.action, subject, reason);
         const result = await client.run<unknown>(args);
         if (!stillCurrent()) return;
         // JSON language mode prevents repository-derived strings from becoming links or commands.
         const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(result, null, 2) });
         await vscode.window.showTextDocument(document, { preview: true });
         if (!stillCurrent()) return;
-        const actions = testRecoveryReviewActions(result, choice.action, subject, reason);
+        let actions = testRecoveryReviewActions(result, choice.action, subject, reason);
+        if (choice.action === 'risks') {
+          const riskChoices = storyRiskChoices(result, subject);
+          if (!riskChoices.length) return;
+          const selectedRisk = await vscode.window.showQuickPick(riskChoices, {
+            title: 'Choose an exact risk review; integrity failures cannot be waived', ignoreFocusOut: true
+          });
+          if (!selectedRisk || !stillCurrent()) return;
+          const terms: StoryRiskTerms = { ...selectedRisk.terms };
+          if (selectedRisk.action === 'accept-risk' || selectedRisk.action === 'revoke-risk') {
+            terms.reason = await vscode.window.showInputBox({ title: 'Reason for this exact risk decision', ignoreFocusOut: true,
+              validateInput: value => value.trim().length >= 15 && value.trim().length <= 2000 && !/[\x00-\x1f\x7f]/u.test(value)
+                ? null : 'Give a reason of 15–2000 ordinary characters.' });
+            if (terms.reason === undefined || !stillCurrent()) return;
+          }
+          if (selectedRisk.action === 'accept-risk') {
+            terms.followUpOwner = await vscode.window.showInputBox({ title: 'Who owns the follow-up?', ignoreFocusOut: true,
+              validateInput: value => value.trim().length > 0 && value.length <= 256 && !/[\x00-\x1f\x7f]/u.test(value)
+                ? null : 'Name a follow-up owner (1–256 ordinary characters).' });
+            if (terms.followUpOwner === undefined || !stillCurrent()) return;
+            terms.remediationRef = await vscode.window.showInputBox({ title: 'Remediation reference or action', ignoreFocusOut: true,
+              prompt: 'Validation remains unavailable. Record how it will be repaired.',
+              validateInput: value => value.trim().length > 0 && value.length <= 1000 && !/[\x00-\x1f\x7f]/u.test(value)
+                ? null : 'Give a remediation reference or action (1–1000 ordinary characters).' });
+            if (terms.remediationRef === undefined || !stillCurrent()) return;
+          }
+          const riskPreview = await client.run<unknown>(storyRiskPreviewArgs(selectedRisk.action, subject, terms));
+          if (!stillCurrent()) return;
+          const riskDocument = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(riskPreview, null, 2) });
+          await vscode.window.showTextDocument(riskDocument, { preview: true });
+          if (!stillCurrent()) return;
+          const applyArgs = storyRiskApplyArgs(riskPreview, selectedRisk.action, subject, terms);
+          actions = applyArgs ? [{ label: 'Prepare exact risk review in terminal — live authorization still required', args: applyArgs }] : [];
+        }
         if (!actions.length) return;
         const selected = await vscode.window.showQuickPick(actions, {
           title: 'Review the preview; prepare a terminal command only', ignoreFocusOut: true,

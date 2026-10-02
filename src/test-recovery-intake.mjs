@@ -27,7 +27,7 @@ export function normalizeTestRecoveryPolicy(value) {
   };
   const categories = list('enabledRiskCategories', []);
   if (categories.some(category => !TRP_RISK_CATEGORIES.includes(category))) fail('Unsupported testRecovery risk category.');
-  if (categories.length) fail('Risk activation is not available in the repair/selection pilot. Keep enabledRiskCategories empty; no lifecycle gate waiver is enabled.', 'TRP_RISK_ADAPTER_UNAVAILABLE');
+  if (categories.some(category => category !== 'validation-unavailable')) fail('Only exact native runner-unavailable review is supported. Actual test failures, known failures, reduced coverage and document exceptions still need qualified adapters.', 'TRP_RISK_ADAPTER_UNAVAILABLE');
   const authorities = list('riskAuthorities', []);
   if (categories.length && !authorities.length) fail('Enabled risks require explicit testRecovery.riskAuthorities.');
   if (value.allowEvidenceReuse != null && typeof value.allowEvidenceReuse !== 'boolean') fail('testRecovery.allowEvidenceReuse must be boolean.');
@@ -93,6 +93,27 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
   const phaseContract = phases.map(phase => ({ id: phase.id,
     requiresCodeDelivery: phaseRequiresCodeDelivery(phase),
     qualityCommands: phase.qualityCommands ?? [], sourceBoundary: phase.sourceBoundary ?? null }));
+  const riskObligations = [];
+  if (policy.enabledRiskCategories.length) {
+    if (rows.length !== 1) blockers.push('Unavailable-runner review currently requires one code-bearing repository.');
+    for (const phase of phases) {
+      const commands = (phase.qualityCommands ?? []).filter(isTestQualityCommand);
+      if (!phaseRequiresCodeDelivery(phase)) {
+        if (commands.length) blockers.push(`Phase '${phase.id}' runs tests outside the qualified code-delivery risk adapter.`);
+        continue;
+      }
+      if (commands.length !== 1 || commands[0]?.kind !== 'test' || typeof commands[0]?.id !== 'string'
+          || !commands[0].id.trim() || /[\x00-\x1f\x7f]/u.test(commands[0].id)) {
+        blockers.push(`Phase '${phase.id}' needs exactly one explicitly named structured test command for unavailable-runner review.`);
+        continue;
+      }
+      const commandId = commands[0].id;
+      const existing = riskObligations.find(entry => entry.id === commandId);
+      if (existing) existing.phaseIds.push(phase.id);
+      else riskObligations.push({ id: commandId, kind: 'test', nonWaivable: false,
+        phaseIds: [phase.id], transitions: ['publish', 'submit', 'approve', 'downstream', 'replay'] });
+    }
+  }
   const policyAuthoritySha256 = trpDigest({ policy, authorities: definition.approvalAuthorities ?? {} });
   const core = { schemaVersion: 1, workId, workType, policy, policyAuthoritySha256, choices: selected,
     repositories: rows.map(row => ({ repository: row.repository, baseCommit: row.baseCommit,
@@ -102,7 +123,7 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
     schemaVersion: 1, enabled: true, supportedBaselineDispositions: ['fix'],
     supportedExecutionModes: MODES, supportedBaselineScopes: ['reuse'],
     acceptKnownFailuresEligible: false, ready: !blockers.length, planDigest: trpDigest(core),
-    choices: selected, policy, policyAuthoritySha256, repositories: rows, blockers,
+    choices: selected, policy, policyAuthoritySha256, repositories: rows, blockers, riskObligations,
     unavailableReasons: { 'accept-known-failures': 'Not enabled in this pilot: downstream risk adapters are not qualified. Local precheck acknowledgement is not a waiver.' },
     maturity: 'repair-selection-pilot',
     summary: 'Repair/selection pilot: record a bounded repair agreement. This does not run tests, waive a gate, or accept a risk.',
@@ -151,7 +172,8 @@ export function initialTestRecoveryAgreement(preview, { workId, principal, creat
     repositories: preview.repositories.map(repo => ({ repositoryId: repo.repository, required: true, codeBearing: true,
       baselineDisposition: 'fix', baselineScope: 'unknown', baselineRefs: [], riskDecisionRefs: [],
       execution: { mode: preview.choices.executionMode, moduleExpansion: 'confirm', fullSuiteExpansion: 'confirm', knownFailureHandling: 'observe' },
-      mandatoryObligations: (repo.tools.length ? repo.tools : [{ id: 'repository-tests' }]).map(tool => ({
+      mandatoryObligations: preview.policy.enabledRiskCategories.length ? preview.riskObligations
+        : (repo.tools.length ? repo.tools : [{ id: 'repository-tests' }]).map(tool => ({
         id: tool.id.replace(/^[^A-Za-z0-9]+/u, '') || 'repository-tests', kind: 'test', nonWaivable: false,
         transitions: ['publish', 'submit', 'approve', 'replay']
       }))

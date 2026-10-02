@@ -17,6 +17,14 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'story.test-policy.risk-inspected': {
+    headline: (s) => `Story risk review is ${slot(s.status)}. This command made no changes and ran no tests. Use --json for exact blockers and eligible decisions.`,
+    preserves: true
+  },
+  'story.test-policy.risk-recorded': {
+    headline: (s) => `Story risk review is ${slot(s.status)}. Failed or unavailable validation remains failed or unavailable; phase advancement is evaluated separately.`,
+    preserves: false
+  },
   'story.test-policy.origin-inspected': {
     headline: (s) => `Local test-command review origin is ${slot(s.status)}. No Story policy changed and no test ran. Use --json for the exact immutable reviews.`,
     preserves: true

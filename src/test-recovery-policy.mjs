@@ -41,7 +41,10 @@ const testCase = object({
   id: str, outcome: enumeration('passed', 'failed', 'skipped', 'not-run'),
   semanticsSha256: digest, causeSha256: nullable(digest)
 });
-const obligation = object({ id, kind: enumeration('test', 'document', 'quality'), nonWaivable: bool, transitions: set(str) });
+// Obligation IDs are command identities, not filesystem names. Preserve structured
+// command IDs such as '.-python-tests' exactly instead of silently normalizing them.
+const obligation = object({ id: str, kind: enumeration('test', 'document', 'quality'), nonWaivable: bool,
+  transitions: set(str), phaseIds: set(id) }, ['phaseIds']);
 const execution = object({
   mode: enumeration('changed-and-affected', 'all-configured', 'not-applicable'),
   moduleExpansion: enumeration('deny', 'confirm', 'allow'),
@@ -71,7 +74,7 @@ const envelope = (kind, properties, subjectSchema = subject) => ({
     createdAt: timestamp, issuer, provenance, ...properties, recordSha256: digest })
 });
 const observationFields = {
-  obligationId: id, agreementSha256: digest, selectionSha256: digest, sourceRevision: str,
+  obligationId: str, agreementSha256: digest, selectionSha256: digest, sourceRevision: str,
   sourceManifestSha256: digest, commandInventorySha256: digest, commandSha256: digest,
   selectorSha256: digest, dependencies, environment, startedAt: timestamp, completedAt: timestamp,
   processExitCode: nullable({ type: 'integer' }), reportStatus: enumeration('current', 'missing', 'stale', 'invalid', 'not-required'),
@@ -102,7 +105,7 @@ export const TRP_SCHEMAS = deepFreeze({
   'phase-risk-decision': envelope('phase-risk-decision', {
     agreementSha256: digest, policyAuthoritySha256: digest, issueId: id,
     category: enumeration(...TRP_RISK_CATEGORIES), severity: { const: 'noncritical' },
-    anchorObservationDigest: digest, obligationId: id, transitions: array(str, 1, true),
+    anchorObservationDigest: digest, obligationId: str, transitions: array(str, 1, true),
     authorityRef: str, authorizationRef: str, confirmationSha256: digest,
     reason: { type: 'string', minLength: 15, maxLength: 2000 }, expiresAt: timestamp,
     followUpOwner: str, remediationRef: str,
@@ -114,10 +117,16 @@ export const TRP_SCHEMAS = deepFreeze({
       commandSha256: digest, selectorSha256: digest, maxObservationAgeSeconds: integer
     })
   }),
+  'phase-risk-revocation': envelope('phase-risk-revocation', {
+    agreementSha256: digest, policyAuthoritySha256: digest, decisionSha256: digest,
+    category: enumeration(...TRP_RISK_CATEGORIES), transitions: array(str, 1, true),
+    authorizationRef: str, confirmationSha256: digest,
+    reason: { type: 'string', minLength: 15, maxLength: 2000 }, effectiveAt: timestamp
+  }),
   'phase-gate-evaluation': envelope('phase-gate-evaluation', {
     evaluatorVersion: { const: TRP_EVALUATOR_VERSION }, agreementSha256: nullable(digest), policyAuthoritySha256: nullable(digest),
     operation: str, mode: enumeration('current', 'historical'), inputSha256: digest,
-    observationRefs: set(digest), decisionRefs: set(digest), requiredObligations: set(id),
+    observationRefs: set(digest), decisionRefs: set(digest), requiredObligations: set(str),
     issues: array(issue), dispositions: array(disposition), remainingBlockers: set(id),
     supportedNextActions: set(str), decisionDependencies: set(object({ decisionSha256: digest, dependencies })),
     operationReadiness: enumeration('ready', 'needs-execution', 'needs-decision', 'needs-repair', 'blocked', 'publication-pending'),
@@ -137,7 +146,7 @@ export const TRP_SCHEMAS = deepFreeze({
   }),
   'trp-authority-receipt': envelope('trp-authority-receipt', {
     authorizedRecordSha256: digest, policyAuthoritySha256: digest, confirmationSha256: digest,
-    capability: enumeration('trp-agreement', 'trp-risk-decision', 'trp-scope-confirmation'),
+    capability: enumeration('trp-agreement', 'trp-risk-decision', 'trp-scope-confirmation', 'trp-risk-revocation'),
     transitions: set(str), issuedAt: timestamp, authorizationRef: str,
     authorityGroup: str, assurance: { const: 'configured-local-review' },
     reviewPlanSha256: digest, reviewActionId: str, actionAuthorizationId: str,
@@ -240,12 +249,13 @@ export function validateTrpRecord(record, { kind } = {}) {
       || record.cases.some((entry) => !record.expectedTestIds.includes(entry.id)))) fail('Complete observation must include every expected test');
   }
   if (record.kind === 'phase-risk-decision' && Date.parse(record.expiresAt) <= Date.parse(record.createdAt)) fail('Decision expiry must follow issuance');
+  if (record.kind === 'phase-risk-revocation' && record.effectiveAt !== record.createdAt) fail('Revocation takes effect at its recorded review time');
   return record;
 }
 
 const authorityReceipt = object({
   recordSha256: digest, principal: str, policyAuthoritySha256: digest, confirmationSha256: digest,
-  capability: enumeration('trp-agreement', 'trp-risk-decision', 'trp-scope-confirmation'),
+  capability: enumeration('trp-agreement', 'trp-risk-decision', 'trp-scope-confirmation', 'trp-risk-revocation'),
   transitions: set(str), issuedAt: timestamp, revokedAt: nullable(timestamp), durable: { const: true }, authorizationRef: str
 });
 const evidenceReceipt = object({ recordSha256: digest, authenticated: { const: true }, reportsAvailable: bool, verifiedAt: timestamp });
@@ -255,7 +265,8 @@ function verifiedAuthority(record, context, verifyAuthority, capability, confirm
     const receipt = verifyAuthority(record, { ...context, capability });
     assertSchema(authorityReceipt, receipt);
     const time = Date.parse(context.at);
-    return receipt.recordSha256 === record.recordSha256 && receipt.principal === record.issuer.principal
+    return receipt.recordSha256 === record.recordSha256
+      && (capability === 'trp-agreement' || receipt.principal === record.issuer.principal)
       && receipt.policyAuthoritySha256 === context.policy.authoritySha256
       && receipt.confirmationSha256 === confirmation && receipt.capability === capability
       && Date.parse(record.createdAt) <= Date.parse(receipt.issuedAt)
@@ -408,9 +419,26 @@ export function evaluateTestRecoveryGate({
   }
   const repo = agreement.repositories.find((entry) => entry.repositoryId === evaluationSubject.repositoryId);
   if (!repo) { addIssue('policy-integrity', 'repository', null, 'Repository is absent from the pinned agreement', policy); return finish(); }
-  const obligations = repo.mandatoryObligations.filter((entry) => entry.transitions.includes(operation));
+  const obligations = repo.mandatoryObligations.filter((entry) => entry.transitions.includes(operation)
+    && (!entry.phaseIds || entry.phaseIds.includes(evaluationSubject.phaseId)));
   requiredObligations.push(...obligations.map((entry) => entry.id));
   const testObligations = obligations.filter((entry) => entry.kind === 'test');
+  // Missing execution can have an authenticated attempt without a testcase
+  // inventory. It never supports a passed/failed claim or inferred coverage.
+  const unavailableAttempt = (entry) => entry && ['unavailable', 'not-run'].includes(entry.observedOutcome)
+    && ['missing', 'not-required'].includes(entry.reportStatus) && entry.processExitCode === null
+    && entry.identityCompleteness === 'incomplete' && entry.cases.length === 0
+    && entry.expectedTestIds.length === 0 && entry.reportSha256s.length === 0
+    && Object.values(entry.counts).every((count) => count === 0);
+  const unavailableSelection = testObligations.length > 0 && testObligations.every((required) => {
+    const matching = observations.filter((entry) => entry?.obligationId === required.id);
+    if (matching.length !== 1) return false;
+    try {
+      const entry = validateTrpRecord(matching[0], { kind: 'phase-validation-observation' });
+      return unavailableAttempt(entry) && sameSubject(entry.subject, evaluationSubject)
+        && entry.agreementSha256 === agreement.recordSha256 && verifiedEvidence(entry, context, verifyEvidence);
+    } catch { return false; }
+  });
   let selectionValid = testObligations.length === 0;
   if (testObligations.length) {
     try {
@@ -426,7 +454,7 @@ export function evaluateTestRecoveryGate({
       if (expansionRule === 'deny' || (expansionRule === 'confirm' && (!selection.confirmationSha256
         || !verifiedAuthority(selection, context, verifyAuthority, 'trp-scope-confirmation', selection.confirmationSha256)))) throw new Error('Exact expanded test scope needs authorized confirmation');
       if (selection.effectiveMode === 'not-applicable' || (!selection.selectedTestIds.length && !selection.selectedSuites.length)) throw new Error('Required test selection is empty');
-      if (!selection.inventoryTestIds.length || !selection.selectedTestIds.length) throw new Error('A verified exact test inventory is required by this TRP adapter');
+      if ((!selection.inventoryTestIds.length || !selection.selectedTestIds.length) && !unavailableSelection) throw new Error('A verified exact test inventory is required by this TRP adapter');
       if ([...selection.selectedTestIds, ...selection.exclusions.map((entry) => entry.testId)]
         .some((testId) => !selection.inventoryTestIds.includes(testId))) throw new Error('Selected or excluded tests are absent from the verified inventory');
       if (full && selection.inventoryTestIds.some((testId) => !selection.selectedTestIds.includes(testId)
@@ -506,11 +534,12 @@ export function evaluateTestRecoveryGate({
           raise(required.kind === 'document' ? 'nonessential-document' : required.kind === 'quality' ? 'non-waivable'
             : known ? 'known-test-failure' : 'new-test-failure', 'Required check failed');
         }
-        if (required.kind === 'test' && (selection.uncoveredAreas.length || !selection.impactComplete || selection.exclusions.length
-          || observation.counts.skipped > 0 || (observation.observedOutcome === 'failed' && observation.counts.notRun > 0))) {
+        if (required.kind === 'test' && (selection.exclusions.length || (!unavailableAttempt(observation)
+          && (selection.uncoveredAreas.length || !selection.impactComplete || observation.counts.skipped > 0
+            || (observation.observedOutcome === 'failed' && observation.counts.notRun > 0))))) {
           raise('reduced-coverage', 'Selected validation has explicitly untested coverage');
         }
-        if (required.kind === 'test') {
+        if (required.kind === 'test' && !unavailableAttempt(observation)) {
           const pinnedBaselines = validBaselines.filter((entry) => repo.baselineRefs.includes(entry.recordSha256)
             && entry.subject.repositoryId === evaluationSubject.repositoryId && entry.subject.workId === evaluationSubject.workId
             && entry.obligationId === required.id);

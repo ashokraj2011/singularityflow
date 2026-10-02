@@ -324,3 +324,19 @@ test('an agent whose metadata key has no value is edited like one with empty met
   const rendered = parseAgentDependencies(renderAgent(draft, bare), { source: designer.saves[0].path });
   assert.deepEqual({ defaultFor: rendered.defaultFor, worldModelViews: rendered.worldModelViews }, { defaultFor: ['design'], worldModelViews: ['architecture'] });
 });
+
+test('a designer message that fails is reported on the page instead of vanishing', async (t) => {
+  // The panel dropped the promise of every message it handled. A failure was an unhandled
+  // rejection: the button did nothing and the page said nothing.
+  const rejections = [];
+  const record = (error) => rejections.push(error);
+  process.on('unhandledRejection', record);
+  t.after(() => process.off('unhandledRejection', record));
+  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]], {
+    reply: async () => { throw new Error('The save could not be started.'); }
+  });
+  await designer.save({ values: { 'data-agent-description': 'Reviews designs carefully.' } });
+  assert.equal(designer.saves.length, 1);
+  assert.match(designer.html(), /<div class="blockers"><strong>Fix before saving<\/strong><ul><li>The save could not be started\.<\/li>/);
+  assert.deepEqual(rejections, []);
+});

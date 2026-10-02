@@ -82,7 +82,7 @@ export class InstructionDesignerPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      void this.receive(raw);
+      void this.receive(raw).catch((error: unknown) => this.failed(error));
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.onDidChangeViewState?.(({ webviewPanel }) => {
@@ -197,6 +197,18 @@ export class InstructionDesignerPanel {
         : `Saved ${path} as a local configuration draft.`;
     this.errors = [];
     this.render(); return true;
+  }
+
+  /**
+   * A message that throws (frontmatter the renderer cannot write, a save that fails before the CLI
+   * answers) is shown where a refused save is shown. Dropped as an unhandled rejection, it left the
+   * Save button doing nothing at all.
+   */
+  private failed(error: unknown): void {
+    if (this.disposed) return;
+    this.errors = [error instanceof Error ? error.message : String(error)];
+    this.notice = null;
+    this.render();
   }
 
   private strings(value: unknown): string[] {

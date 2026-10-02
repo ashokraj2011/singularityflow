@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
-import { evaluateQuickFixWaiver, DEFAULT_QUICK_FIX_POLICY } from './quick-fix-policy.mjs';
+import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
 import { assertWorkReconciliationIntegrity } from './work-intervals.mjs';
 import { exactFileAtObject } from './git.mjs';
 
@@ -14,9 +14,8 @@ function committedJson(root, commit, relative) {
 /** Replay a policy waiver from its hash-verified submission and sealed reconciliation. */
 export async function verifyPhaseApprovalWaiver(root, config, workflow, phase) {
   try {
-    if (phase.approvalPolicy?.mode !== 'policy'
-        || phase.approvalPolicy.policy !== DEFAULT_QUICK_FIX_POLICY.id
-        || phase.approvalDisposition !== 'policy_waived') {
+    const policy = supportedWaiverPolicy(phase.approvalPolicy);
+    if (!policy || phase.approvalDisposition !== 'policy_waived') {
       throw new Error('the phase has no supported policy-waiver disposition');
     }
     const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
@@ -61,7 +60,7 @@ export async function verifyPhaseApprovalWaiver(root, config, workflow, phase) {
     }
     const replay = evaluateQuickFixWaiver(root, config, retained, {
       ...historical, checks: packet.checks, workIntervalReconciliation: reconciliation
-    }, DEFAULT_QUICK_FIX_POLICY, { targetCommit: packet.submissionCommit });
+    }, policy, { targetCommit: packet.submissionCommit });
     if (!replay.eligible || replay.policyHash !== waiver.policySha256 || replay.policyId !== waiver.policyId
         || canonicalJson(replay.predicates) !== canonicalJson(waiver.predicates)) {
       throw new Error('the exact submitted checks and changes no longer reproduce the policy waiver');

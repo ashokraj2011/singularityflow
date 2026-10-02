@@ -293,3 +293,32 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   assert.ok(gate.errors.some((error) => /^verify policy waiver is invalid: /.test(error)), gate.errors.join('\n'));
   assert.ok(gate.errors.some((error) => /^verify has 0 distinct approvals/.test(error)), gate.errors.join('\n'));
 });
+
+test('an approval policy that names no policy waives under the default one, and the gate verifies it', async (t) => {
+  const { flow, state, complete } = await quickFixStory(t, 'QF-DEFAULT', {
+    configure: (config) => { delete config.phases.verify.approval.policy; }
+  });
+  await complete(2);
+  const workflow = await state();
+  assert.equal(workflow.phases.verify.approvalPolicy.policy, null);
+  assert.equal(workflow.phases.verify.approvalDisposition, 'policy_waived');
+  assert.equal(workflow.status, 'complete');
+  const gate = gateResult(flow(['gate', '--terminal', '--json']));
+  assert.deepEqual(gate.errors, []);
+  assert.ok(gate.passes.includes('policy waiver verified: verify'));
+});
+
+test('a waiver policy this build cannot evaluate waives nothing, so people review the phase', async (t) => {
+  const { flow, state, complete } = await quickFixStory(t, 'QF-UNKNOWN', {
+    configure: (config) => { config.phases.verify.approval.policy = 'team-low-risk-v2'; }
+  });
+  const submitted = await complete(2);
+  assert.match(submitted.stderr, /approval policy 'team-low-risk-v2', which this build cannot evaluate/);
+  let workflow = await state();
+  assert.equal(workflow.phases.verify.status, 'awaiting_approval');
+  assert.equal(holdsDisposition(workflow.phases.verify), false);
+  flow(['approve', 'verify', '--yes']);
+  workflow = await state();
+  assert.equal(workflow.status, 'complete');
+  assert.deepEqual(gateResult(flow(['gate', '--terminal', '--json'])).errors, []);
+});

@@ -16,6 +16,17 @@ function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+/**
+ * The waiver policy an approval of mode `policy` names, or null when this build cannot evaluate
+ * it. A policy that names none means the default. Submission and the gate's replay both decide
+ * here, so a waiver submission grants is one the gate can verify; an unknown policy waives nothing.
+ */
+export function supportedWaiverPolicy(approvalPolicy) {
+  if (approvalPolicy?.mode !== 'policy') return null;
+  return (approvalPolicy.policy ?? DEFAULT_QUICK_FIX_POLICY.id) === DEFAULT_QUICK_FIX_POLICY.id
+    ? DEFAULT_QUICK_FIX_POLICY : null;
+}
+
 function changedPaths(root, config, workflow, targetCommit = 'HEAD') {
   const base = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
   try {

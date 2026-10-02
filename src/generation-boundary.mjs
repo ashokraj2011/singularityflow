@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
@@ -40,7 +41,7 @@ async function verifiedIntentRecord(root, workflow, phase, intent) {
       code: 'GENERATION_INTENT_REQUIRED', cause: error
     });
   }
-  const expectedGeneration = Number(phase.generation ?? 0) + 1;
+  const expectedGeneration = nextPhaseGeneration(phase);
   const receiptSha256 = generationStartSha256(receipt);
   if (receipt.kind !== 'generation-start'
       || receipt.generationIntentId !== intent.id
@@ -73,7 +74,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
   }
-  const generation = Number(phase.generation ?? 0) + 1;
+  const generation = nextPhaseGeneration(phase);
   if (phase.generationIntent?.status === 'open' && Number(phase.generationIntent.generation) === generation) {
     if (persist) await verifiedIntentRecord(root, workflow, phase, phase.generationIntent);
     return phase.generationIntent;
@@ -220,7 +221,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
 export function requireOpenGenerationIntent(workflow, phase) {
   const required = workflow.resolution?.codeDelivery?.generationBoundary?.requireBegin !== false;
   if (!phaseRequiresCodeDelivery(phase) || !required) return null;
-  const expectedGeneration = Number(phase.generation ?? 0) + 1;
+  const expectedGeneration = nextPhaseGeneration(phase);
   const intent = phase.generationIntent;
   if (!intent || intent.status !== 'open' || Number(intent.generation) !== expectedGeneration) {
     throw new SingularityFlowError(
@@ -235,8 +236,8 @@ export async function verifyOpenGenerationIntent(root, workflow, phase) {
   const intent = requireOpenGenerationIntent(workflow, phase);
   if (!intent) return null;
   await verifiedIntentRecord(root, workflow, phase, intent);
-  const expectedBaseline = Number(intent.generation) > 1
-    ? publishedGenerationCommit(root, workflow, phase, Number(intent.generation) - 1)
+  const expectedBaseline = Number(phase.generation) > 0
+    ? publishedGenerationCommit(root, workflow, phase, phase.generation)
     : workflow.workIntervals?.current?.sourceBaseCommit ?? null;
   if (!expectedBaseline || intent.baseline?.commit !== expectedBaseline) {
     throw new SingularityFlowError('The generation intent no longer matches its governed generation baseline.', {

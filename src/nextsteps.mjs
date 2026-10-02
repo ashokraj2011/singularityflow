@@ -6,6 +6,8 @@ import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
 import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './workflow-decisions.mjs';
+import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -13,12 +15,6 @@ function action(timing, skill, command, reason, metadata = {}) {
   });
   const guidance = safeCommandGuidance(candidate);
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
-}
-
-function nextPhase(workflow, currentId) {
-  const index = workflow.phaseOrder.indexOf(currentId);
-  const id = index >= 0 ? workflow.phaseOrder[index + 1] : null;
-  return id ? workflow.phases[id] : null;
 }
 
 function completionActions(workId, timing = 'now') {
@@ -54,7 +50,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
     return [action('then', generationSkillForPhase(target, workflow), `singularity-flow prepare ${target.id}`,
       `${when}, ${describeOutcome(workflow, outcome)}`)];
   }
-  const upcoming = nextPhase(workflow, phase.id);
+  const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
   if (!upcoming) return completionActions(workflow.workItem.id, 'then');
   return [action(
     'then', generationSkillForPhase(upcoming, workflow), `singularity-flow prepare ${upcoming.id}`,
@@ -144,7 +140,7 @@ export function workflowNextSteps(workflow, {
     { operationId: 'phase', route: 'configured-producer' }
   ));
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
-  if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
+  if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== nextPhaseGeneration(phase)) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
   }
   if (needsGeneration && convergenceProjectionRequired) {

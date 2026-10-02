@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
@@ -569,7 +570,7 @@ export async function pendingPromptRelative(root, config, workflow) {
   const currentPhase = workflow.phases?.[workflow.currentPhase];
   if (!currentPhase) return null;
   const file = path.join(workDir(root, config, workflow.workItem.id), 'context',
-    `${workflow.currentPhase}-gen${Number(currentPhase.generation ?? 0) + 1}.json`);
+    `${workflow.currentPhase}-gen${nextPhaseGeneration(currentPhase)}.json`);
   return await exists(file) ? posix(path.relative(root, file)) : null;
 }
 

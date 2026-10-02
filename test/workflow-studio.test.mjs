@@ -267,3 +267,89 @@ test('naming a step\'s output keeps the write scope of a step that writes agains
   assert.equal(workflow.phases.verification.generation.task, 'analyze');
   assert.equal(workflow.phases.verification.writeScope, 'source-and-artifact', 'only moving to or from code changes write scope');
 });
+
+test('a Studio agent save refuses a changed agent baseline without overwriting concurrent instructions', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const original = await buildStudioModel(root);
+  const instructions = original.agents.find((agent) => agent.id === 'architect').instructions;
+  const request = (instructions, base) => ({ schema: 'sflow-studio-change-set@1', base, changes: [{ op: 'agent.update', id: 'architect', instructions }] });
+  await planStudioChangeSet(root, request(`${instructions}\n\nConcurrent instruction.`, original.base), { write: true });
+  const updated = await buildStudioModel(root);
+  assert.equal(updated.base.workflowSha256, original.base.workflowSha256);
+  assert.notEqual(updated.base.agentsSha256, original.base.agentsSha256);
+  await assert.rejects(planStudioChangeSet(root, request(`${instructions}\n\nStale instruction.`, original.base), { write: true }), { code: 'STUDIO_BASE_CHANGED' });
+  assert.match((await buildStudioModel(root)).agents.find((agent) => agent.id === 'architect').instructions, /Concurrent instruction\./);
+  await planStudioChangeSet(root, request(`${instructions}\n\nReviewed instruction.`, updated.base), { write: true });
+  assert.match((await buildStudioModel(root)).agents.find((agent) => agent.id === 'architect').instructions, /Reviewed instruction\./);
+});
+
+test('the agent designer saves block YAML tools without dropping model preferences or custom metadata', async () => {
+  const { parseAgent, renderAgent, validateAgent, instructionCatalog } = await import('../apps/vscode/src/views/instruction-designer-model.ts');
+  const { instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT } = await import('../apps/vscode/src/views/instruction-designer-page.ts');
+  const { loadDefinition } = await import('../src/config.mjs');
+  const { parseAgentDependencies } = await import('../src/agents.mjs');
+  const { saveConfigurationFile } = await import('../src/editor.mjs');
+  const root = await repository();
+  const original = (await readFile(path.join(packageRoot, 'templates/agents/architect.agent.md'), 'utf8'))
+    .replace('tools: [read, search, edit, bash, ask_user]', 'tools:\n  - read\n  - search\n  - edit\n  - bash\n  - ask_user\n  - vendor/tool')
+    .replace('  sflow-model-task: "reason"', '  sflow-model-task: "reason"\n  custom-routing: "keep this"');
+  const relative = '.github/agents/architect.agent.md';
+  await saveConfigurationFile(root, relative, original);
+  const draft = parseAgent(await readFile(path.join(root, relative), 'utf8'), 'architect');
+  assert.deepEqual(draft.tools, ['read', 'search', 'edit', 'bash', 'ask_user', 'vendor/tool']);
+  assert.deepEqual(validateAgent(draft), []);
+  assert.equal(renderAgent(draft), original, 'an untouched editor is byte-preserving');
+  draft.description += ' Updated description.';
+  const catalog = instructionCatalog({ definition: await loadDefinition(root), agents: [{ id: 'architect', path: relative, content: original, editable: true }] });
+  const html = instructionDesignerHtml(catalog, { tab: 'agents', selected: catalog.agents[0], agent: draft, prompt: null, skill: null, errors: [], notice: null, configurationBlockedReason: null });
+  const formValues = { 'data-agent-id': draft.id, 'data-agent-label': draft.label, 'data-agent-description': draft.description, 'data-agent-body': draft.body };
+  let click;
+  const messages = [];
+  const document = {
+    addEventListener(name, listener) { if (name === 'click') click = listener; },
+    querySelector(selector) { const key = selector.slice(1, -1); return key in formValues ? { value: formValues[key] } : null; },
+    querySelectorAll(selector) {
+      const name = /^input\[name="([^"]+)"\]:checked$/.exec(selector)?.[1];
+      if (!name) return [];
+      return [...html.matchAll(/<input\b[^>]*>/g)].map(([tag]) => tag)
+        .filter((tag) => tag.includes(`name="${name}"`) && /\schecked(?:\s|>)/.test(tag))
+        .map((tag) => ({ value: /value="([^"]*)"/.exec(tag)[1] }));
+    }
+  };
+  new Function('window', 'document', INSTRUCTION_DESIGNER_SCRIPT)({ __sfVscode: { postMessage(message) { messages.push(message); } } }, document);
+  click({ target: { closest() { return { dataset: { saveAgent: '1' } }; } } });
+  const submitted = messages[0];
+  assert.deepEqual(submitted.tools, draft.tools, 'the real form includes bash, ask_user and custom tools');
+  assert.equal(submitted.sourceText, undefined, 'original Markdown stays in the host');
+  const rendered = renderAgent(submitted, original);
+  await saveConfigurationFile(root, relative, rendered);
+  const before = parseAgentDependencies(original);
+  const afterText = await readFile(path.join(root, relative), 'utf8');
+  const after = parseAgentDependencies(afterText);
+  assert.deepEqual(after.tools, before.tools);
+  assert.deepEqual(after.frontmatter.model, before.frontmatter.model);
+  assert.deepEqual(after.metadata, before.metadata);
+  assert.equal(after.prompt, before.prompt);
+  assert.doesNotMatch(afterText, /## Remote skills/, 'editing ordinary instructions does not append empty resource tables');
+  assert.match(after.description, /Updated description\.$/);
+  const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/instruction-designer.ts'), 'utf8');
+  assert.match(host, /renderAgent\(draft, this\.sourceText\)/, 'save uses the host baseline rather than webview-provided source text');
+});
+
+test('agent edits preserve instructions after remote tables and retain native display names', async () => {
+  const { parseAgent, renderAgent } = await import('../apps/vscode/src/views/instruction-designer-model.ts');
+  const original = '---\nname: "Native Reviewer"\ndescription: Review documents.\ntools: [read]\nmetadata:\n  custom: retained\n---\n\n# Reviewer\n\nUse evidence.\n\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| guide | https://example.test/guide.md | - | true | 1024 |\n\n## Final instruction\n\nStop for human review.\n';
+  const draft = parseAgent(original, 'native-reviewer');
+  assert.equal(draft.id, 'native-reviewer');
+  assert.match(draft.body, /Stop for human review\./);
+  assert.equal(renderAgent(draft), original);
+  draft.body += '\n\nExplain uncertainty.';
+  const rendered = renderAgent(draft);
+  assert.equal((rendered.match(/## Remote skills/g) ?? []).length, 1);
+  assert.match(rendered, /name: "Native Reviewer"/);
+  assert.match(rendered, /Stop for human review\./);
+  assert.match(rendered, /Explain uncertainty\./);
+  assert.doesNotMatch(rendered, /## Remote artifact templates|## Remote generated artifacts/);
+  assert.equal(parseAgent(rendered, 'native-reviewer').remoteSkills.length, 1);
+});

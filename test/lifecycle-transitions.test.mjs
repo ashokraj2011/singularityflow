@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { phaseNeedsGeneration } from '../src/sequence.mjs';
 
 import {
   advanceCompletedPhase, nextPhaseAfterSkillAmendment, reopenPhaseRange
@@ -111,6 +112,8 @@ test('rejection resets the full target-to-end range without discarding generatio
     const phase = workflow.phases[id];
     assert.equal(phase.status, index === 0 ? 'in_progress' : 'not_started');
     assert.equal(phase.approvals[0].invalidatedAt, at);
+    assert.deepEqual(phase.reworkRevalidation, { generation: before.phases[id].generation, invalidatedAt: at });
+    assert.equal(phaseNeedsGeneration(workflow, phase), true);
     assert.equal(phase.approvals[1].invalidatedAt, before.phases[id].approvals[1].invalidatedAt);
     for (const key of ['submittedAt', 'approvedAt', 'approvedBy', 'submissionArchitectureDecision']) {
       assert.equal(phase[key], null);

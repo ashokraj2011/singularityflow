@@ -31,6 +31,9 @@ async function repository() {
   // The shipped team profile is intentionally closed until an administrator lists members. This
   // lifecycle fixture explicitly exercises the POC profile's open/self-approval behavior.
   config.approvalSecurity = { profile: 'poc' };
+  // These legacy lifecycle fixtures intentionally have no application/test runner. Readiness
+  // enforcement is covered by repository-readiness-runtime and the real Classic/first-run journeys.
+  config.repositoryReadiness = { ...config.repositoryReadiness, requiredBeforeStory: false };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root); execute('git', ['commit', '-m', 'initial'], root);

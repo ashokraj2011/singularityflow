@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { listMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
@@ -180,7 +181,7 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
   const verification = await verifyDesignSourceSet(root, workflow, binding, { itemDirectory });
   if (verification.errors.length && configured.requireApprovedSet) throw new SingularityFlowError(`Approved design context is not usable:\n- ${verification.errors.join('\n- ')}`, { code: 'DESIGN_SOURCE_APPROVAL_INVALID' });
   if (!binding || !verification.sourceSet) return { markdown: '', files: [], warnings: verification.errors };
-  const generation = Number(phase.generation ?? 0) + 1;
+  const generation = nextPhaseGeneration(phase);
   const provenance = {
     schemaVersion: currentSchemaVersion('design-source-provenance'),
     kind: 'design-source-provenance',

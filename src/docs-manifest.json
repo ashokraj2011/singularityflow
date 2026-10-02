@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "db5e8112f88389f3e5ff175ced6adb4253e597a9",
+  "sourceCommit": "24dd42032d5ba4c55cb963db3b9e4df01f33e0f9",
   "topicCount": 72,
-  "contentSha256": "b42d1cdaaad90e95a49be659a6620af44d9844cb766ff19e854f9c0733087b39",
+  "contentSha256": "40b83d3ff828ecbfa9d05d5ef0fd3eb3a4f486419b6e4bc7abeb0027afe76f90",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -400,8 +400,8 @@
     {
       "id": "rejection-and-rework",
       "title": "Rejection and rework",
-      "version": 2,
-      "sha256": "51a6d0ec5cbb1eaf1056fef178e6afe9eae1addc8752aa9e1f92579938dbf7f0",
+      "version": 3,
+      "sha256": "3abffda3c46b9dfe3054773b0af756970daaaece2b3313558157ca8ee2be4c56",
       "routingSha256": "1f6e7452a50ce8f4a4ce16c0cbc245d198d1d1815ff25a77c9429e37aff18825",
       "file": "rejection-and-rework.md"
     },
@@ -512,8 +512,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and phase recovery pilot",
-      "version": 6,
-      "sha256": "111857471994417ad3321fc0fc7732b62a35421a4af2a379e6b3e5c0240162a5",
+      "version": 7,
+      "sha256": "470b8ddcaf008e0c53f999c1a78d79d0aa214461d8ef9fbbcf1cb98c216d6245",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

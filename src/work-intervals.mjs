@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 import { lstat, readFile } from 'node:fs/promises';
 import { branch, changedFiles, gitDir, head } from './git.mjs';
@@ -94,7 +95,9 @@ function generationFor(phase) {
   if (phase?.testCommandRevalidation && phase?.generationIntent?.status === 'consumed') {
     return Math.max(1, Number(phase.generation ?? 0));
   }
-  return Math.max(1, Number(phase?.generation ?? 0) + (phase?.status === 'in_progress' ? 1 : 0));
+  return phase?.status === 'in_progress'
+    ? nextPhaseGeneration(phase)
+    : Math.max(1, Number(phase?.generation ?? 0));
 }
 
 function activePhase(workflow, phaseId = workflow.currentPhase) {

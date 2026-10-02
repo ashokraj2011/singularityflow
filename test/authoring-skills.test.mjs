@@ -138,10 +138,20 @@ test('a specialised skill a step chose is routed, kept in guidance, and checks t
   }
 });
 
-test('guidance keeps the code skill rule and drops skills a step cannot name', () => {
+test('guidance renders verified code routes regardless of the phase name and drops unlisted skills', () => {
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare vendor-analysis', skill: '/sf-jira-board' }), null);
-  assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare design', skill: '/sf-code' }), null, 'a known non-code step never offers /sf-code');
+  const definition = starter();
+  definition.workTypes.feature.phaseOverrides = {
+    ...(definition.workTypes.feature.phaseOverrides ?? {}),
+    design: { inputs: ['requirements'], writeScope: 'source-and-artifact', generation: { requirement: 'required', producer: 'agent', task: 'code' }, authoringSkill: 'sf-code' }
+  };
+  definition.workTypes.feature.plannedClaims.owners.design = 'requirements';
+  const phase = resolveWorkType(validateDefinition(definition), 'feature').phases.find((entry) => entry.id === 'design');
+  assert.equal(generationSkillForPhase(phase), '/sflow-code');
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare design', skill: generationSkillForPhase(phase) }).copilotCommand, '/sf-code');
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare build-api', skill: '/sf-code' }).copilotCommand, '/sf-code');
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow next', skill: '/sf-code' }), null,
+    'a phase authoring route must not be asserted for the generic router');
 });
 
 function execute(command, args, cwd, { allowFailure = false, agent = null } = {}) {

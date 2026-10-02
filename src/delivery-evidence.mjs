@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
   inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
   isSupportingTestResourcePath, readDurableTestObservation, replayLocalJavascriptJsonObservation,
@@ -38,6 +39,66 @@ import {
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
+
+/** Review may repair documents, but only a code generation can replace tested source or tests. */
+export async function assertReviewCodeEvidenceFresh(root, config, workflow, phase) {
+  if (phaseRequiresCodeDelivery(phase)) return null;
+  const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
+  const order = workflow.phaseOrder ?? [];
+  const position = order.indexOf(phase.id);
+  const source = pinned?.testEvidenceFrom ? workflow.phases?.[pinned.testEvidenceFrom]
+    : order.slice(0, Math.max(0, position)).reverse().map((id) => workflow.phases[id])
+      .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate));
+  if (!source) return null;
+  const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
+    candidate.phase === source.id && Number(candidate.generation) === Number(source.generation));
+  const repairCommand = workflow.status === 'complete'
+    ? `singularity-flow reopen ${workflow.workItem.id} --to ${source.id} --reason <REASON>`
+    : (phase.approvalPolicy?.rejectTo ?? []).includes(source.id)
+      && ['in_progress', 'awaiting_approval'].includes(phase.status)
+      ? `singularity-flow reject ${phase.id} --to ${source.id}${phase.status === 'in_progress' ? ' --repair' : ''} --reason <REASON>` : null;
+  const refuse = (message, changedPaths = [], evidenceAvailable = true) => new SingularityFlowError(
+    `Phase '${phase.id}' requires current Code evidence from '${source.id}': ${message} `
+      + `Return the changes to '${source.id}', publish and validate a fresh code generation, then resume '${phase.id}'.`
+      + (evidenceAvailable && repairCommand ? ` Preview the exact repair with: ${repairCommand}.`
+        : evidenceAvailable ? ' The current phase policy has no available direct return; inspect singularity-flow nextsteps --json and request an authorized workflow return.'
+          : ' Restore the original governed Code submission evidence before requesting a confirmed return; run singularity-flow doctor --json to inspect missing evidence.'),
+    { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { phase: phase.id, sourcePhase: source.id, changedPaths,
+      repairCommand: evidenceAvailable ? repairCommand : null } }
+  );
+  if (!entry) throw refuse('the approved code generation has no immutable submission.', [], false);
+  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+  const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+  if (packet.workId !== workflow.workItem.id || packet.phase !== source.id
+      || Number(packet.generation) !== Number(source.generation) || !packet.evidenceCommit) {
+    throw refuse('the submitted code identity does not match its approved generation.', [], false);
+  }
+  const changes = await buildRepositoryChangeSet(root, { baseCommit: packet.evidenceCommit,
+    subject: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation } });
+  const pathContext = applicationPathContext(config, workflow);
+  const classified = classifyDeliveryChanges(changes, { pathContext });
+  // Untracked generated output is already excluded by the application boundary. Tracked build,
+  // vendor and coverage files can be executable inputs, so their names cannot waive fresh tests.
+  const permittedRoles = new Set(['documentation']);
+  const disallowed = classified.entries.filter((entry) => {
+    // Both endpoints matter: moving tested source into README.md is still a source deletion.
+    const endpoints = [entry.oldPath, entry.newPath].filter(Boolean).map((candidate) => ({
+      ...entry, oldPath: candidate, newPath: candidate
+    }));
+    return classifyDeliveryChanges({ entries: endpoints }, { pathContext }).entries
+      .some((endpoint) => !permittedRoles.has(endpoint.role));
+  });
+  const changedPaths = [...new Set(disallowed.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
+  if (changedPaths.length) throw refuse(`source or tests changed after their approved execution: ${changedPaths.join(', ')}.`, changedPaths);
+  const riskReference = source.deliveryEvidence?.testRecovery;
+  if (riskReference) {
+    const { assertStoryTestRiskGate } = await import('./test-recovery-runtime.mjs');
+    await assertStoryTestRiskGate(root, config, workflow, { phaseId: source.id,
+      generation: source.generation, operation: 'downstream',
+      observationSha256: riskReference.observationSha256, evidenceCommit: packet.evidenceCommit });
+  }
+  return { sourcePhase: source.id, evidenceCommit: packet.evidenceCommit };
+}
 
 // Keep source-comment preflight below the exact local-object replay reader's 16 MiB ceiling.
 // Otherwise a generation could publish successfully and only fail at submission or approval.
@@ -466,7 +527,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const changeSet = await buildRepositoryChangeSet(root, {
     baseCommit: baselineCommit,
     subject: {
-      workId: workflow.workItem.id, phase: phase.id, generation: phase.generation + 1,
+      workId: workflow.workItem.id, phase: phase.id, generation: nextPhaseGeneration(phase),
       generationIntentId: phase.generationIntent?.id ?? null
     }
   });
@@ -576,16 +637,18 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   // resources. Do not require a fake product-source edit in the new Code generation: reuse the
   // exact prior approved source bytes, but only when the latest open change request was created
   // by the guarded Testing repair route and still binds this Code generation and its old receipt.
-  const repairRequest = [...(workflow.changeRequests ?? [])].reverse().find((request) =>
-    request.status === 'open' && request.targetPhase === phase.id
-      && request.sourcePhase === 'testing' && request.testingRepair);
+  const repairRequest = [...(workflow.changeRequests ?? [])].reverse().find((request) => {
+    const source = workflow.phases?.[request.sourcePhase];
+    return request.status === 'open' && request.targetPhase === phase.id
+      && request.testingRepair && source && !phaseRequiresCodeDelivery(source)
+      && source.approvalPolicy?.rejectTo?.includes(phase.id);
+  });
   const repair = repairRequest?.testingRepair;
-  const repairDecision = (workflow.phases?.testing?.approvals ?? []).find((decision) =>
+  const repairDecision = (workflow.phases?.[repairRequest?.sourcePhase]?.approvals ?? []).find((decision) =>
     decision.decision === 'rejected' && !decision.invalidatedAt
       && decision.target === phase.id && decision.changeRequestId === repairRequest?.id);
   const testOnlyRepair = !changedSourcePaths.length && Boolean(repair)
     && Boolean(repairDecision)
-    && ['classic-delivery', 'spec-code-test-loop'].includes(workflow.workItem?.workType)
     && Number(phase.generation ?? 0) > 0
     && Number(repair.codeGeneration) === Number(phase.generation)
     && repair.codeGenerationCommit === phase.generationCommit

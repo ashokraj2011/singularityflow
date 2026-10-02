@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -452,7 +453,7 @@ export async function inspectRequiredArtifactContent(root, config, workflow, pha
     // the current submitted generation. This lets submit/approval retain the unchanged-template
     // invariant instead of accidentally comparing generation N's bytes with an N+1 contract.
     generation: phase.status === 'in_progress'
-      ? Number(phase.generation) + 1
+      ? nextPhaseGeneration(phase)
       : Number(phase.generation),
     ...(minimumBytes ? {} : { minimumBytes: 0 }),
     ...(!placeholders ? {

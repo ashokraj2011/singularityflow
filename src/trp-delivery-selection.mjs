@@ -1,4 +1,5 @@
 /** Resolve a pinned TRP delivery cohort without executing repository commands. */
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -201,7 +202,7 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
   const repository = repositoryAgreement(agreement, workflow, repositoryId);
   if (repository.execution.mode === 'not-applicable') throw error('TRP_TEST_OBLIGATION_MISMATCH', 'This phase has test commands but the pinned agreement declares testing not applicable.');
   if (!deliveryEvidence) throw error('TRP_TEST_SELECTION_EVIDENCE_REQUIRED', 'An approved candidate delta is required before selecting delivery tests.');
-  const generation = Number(deliveryEvidence.generation ?? Number(phase.generation ?? 0) + 1);
+  const generation = Number(deliveryEvidence.generation ?? nextPhaseGeneration(phase));
   const validationEpoch = Number(workflow.testRecovery.validationEpoch ?? 1);
   const baseCommit = deliveryEvidence.baselineCommit ?? deliveryEvidence.changeSet?.base?.commit;
   if (!/^[a-f0-9]{40,64}$/u.test(baseCommit ?? '')) throw error('TRP_TEST_SELECTION_BASE_REQUIRED', 'The delivery selection requires an exact pre-feature base commit.');

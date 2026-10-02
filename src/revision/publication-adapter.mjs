@@ -6,6 +6,7 @@
  * pointer, append-only journal, content-addressed precheck input, and retained Candidate store.
  */
 import { recordSha256 } from '../records.mjs';
+import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { head } from '../git.mjs';
 import { loadStoryAggregate } from '../state-stores.mjs';
@@ -74,6 +75,7 @@ export async function currentInteractiveRevisionPublication(root, acceptedExecut
   const { config, workflow, phaseId, phase, subject } = publicationScope(acceptedExecution);
   if (!phaseRequiresCodeDelivery(phase)) return null;
   const provisional = { root, config, workflow, phaseId, phase, subject };
+  const publicationGeneration = nextPhaseGeneration(phase);
   const state = await readRevisionInteractiveState(root, subject, { optional: true });
   const loopStore = revisionLoopStore(provisional);
   const journal = await loopStore.list();
@@ -170,7 +172,7 @@ export async function currentInteractiveRevisionPublication(root, acceptedExecut
         || currentWorkflow.workItem?.id !== active.subject.workId
         || currentWorkflow.currentPhase !== active.subject.phaseId
         || !phaseRequiresCodeDelivery(currentPhase)
-        || Number(currentPhase.generation) !== active.subject.phaseGeneration + 1) {
+        || Number(currentPhase.generation) !== publicationGeneration) {
       fail('REV_PUBLICATION_CONTEXT_STALE',
         'Repository, configuration, or Story phase authority changed during REV publication.');
     }

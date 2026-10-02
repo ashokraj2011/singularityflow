@@ -144,6 +144,19 @@ test('capability Jira scope is enforced at lifecycle intake', () => {
   }), /does not allow Jira project/);
 });
 
+test('Story capability policy preserves explicit approval-free phases', () => {
+  const approval = { mode: 'none', minimum: 0, authorities: [], requiredAuthorities: [], allowSelfApproval: false };
+  const resolution = {
+    approvalAuthorities: { 'architecture-reviewers': { members: [] } },
+    phases: [{ id: 'implement', writeScope: 'source-and-artifact', approval }]
+  };
+  for (const selected of [{ id: 'default', policy: {} }, capability]) {
+    const result = applyCapabilityPolicyToWorkResolution(resolution, selected);
+    assert.deepEqual(result.phases[0].approval, approval);
+    assert.notEqual(result.phases[0].approval, approval);
+  }
+});
+
 test('capability policy tightens Initiative gates without inventing approval on mode none', () => {
   const resolved = applyCapabilityPolicyToInitiativeResolution({
     approvalAuthorities: { 'architecture-reviewers': { members: [] } },

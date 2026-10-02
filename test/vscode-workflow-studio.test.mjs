@@ -341,3 +341,84 @@ test('a drafting skill chosen in the page becomes a per-workflow change, and a c
   assert.match(logic.describe(create, copy), /with \/sf-design$/);
   assert.equal(check(root, changeSet).valid, true, JSON.stringify(check(root, changeSet).problems));
 });
+
+test('copied step drafts retain effective workflow policy and save explicit automatic and empty edits', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const apply = (changes) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes }, { write: true });
+  await apply([
+    { op: 'phase.create', id: 'copy-input', label: 'Copy input', agent: 'architect', approval: 'none' },
+    { op: 'phase.create', id: 'copy-source', label: 'Copy source', agent: 'architect', approval: 'none', inputs: ['copy-input'], views: ['business'], authoringSkill: 'sf-design' },
+    ...['copy-one', 'copy-two'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['copy-input', 'copy-source'] }))
+  ]);
+  const file = path.join(root, 'singularity/workflow.yml');
+  const configuration = YAML.parse(await readFile(file, 'utf8'));
+  configuration.workTypes['copy-one'].phaseOverrides = { 'copy-source': {
+    authoringSkill: null, generation: { task: 'analyze' }, clarification: { mode: 'required' },
+    worldModel: { views: ['security'], depth: 'deep' }, artifact: { minimumBytes: 345 },
+    approval: { authorities: ['architecture-reviewers', 'product-approvers'], minimum: 1 }
+  } };
+  configuration.workTypes['copy-one'].templateOverrides = { 'copy-source': 'common/copy-input.md' };
+  await writeFile(file, YAML.stringify(configuration));
+  const model = await buildStudioModel(root);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  draft.phases['copy-result'] = logic.copiedPhaseDraft(model, draft, 'copy-one', 'copy-source', 'copy-result');
+  assert.deepEqual([draft.phases['copy-result'].output, draft.phases['copy-result'].views, draft.phases['copy-result'].clarification], ['analysis', ['security'], 'required']);
+  draft.workflows['copy-one'].phases = ['copy-input', 'copy-result'];
+  draft.steps['copy-one']['copy-result'] = { ...structuredClone(draft.steps['copy-one']['copy-source']), inputs: [], authoringSkill: null };
+  delete draft.steps['copy-one']['copy-source'];
+  draft.phases['copy-result'].output = 'document';
+  draft.phases['copy-result'].views = [];
+  draft.phases['copy-result'].clarification = 'off';
+  const changeSet = logic.changeSetFrom(model, draft);
+  const created = changeSet.changes.find((change) => change.op === 'phase.create');
+  assert.equal(created.copyFromWorkflow, 'copy-one');
+  assert.equal(created.authoringSkill, null);
+  assert.equal(created.clarification, 'off');
+  await planStudioChangeSet(root, changeSet, { write: true });
+  const after = await buildStudioModel(root);
+  const copied = after.workflows.find((workflow) => workflow.id === 'copy-one').steps.find((phase) => phase.id === 'copy-result');
+  assert.deepEqual([copied.output, copied.inputs, copied.authoringSkill, copied.clarification, copied.views], ['document', [], null, 'off', []]);
+  const saved = YAML.parse(await readFile(file, 'utf8'));
+  assert.equal(saved.phases['copy-result'].artifact.minimumBytes, 345, 'unshown effective artifact policy survives');
+  assert.equal(saved.phases['copy-result'].worldModel.depth, 'deep', 'clearing views preserves other world-model policy');
+  assert.equal(saved.phases['copy-result'].defaultTemplate, 'common/copy-input.md');
+  assert.deepEqual(saved.phases['copy-result'].approval.authorities, ['architecture-reviewers', 'product-approvers'], 'the unchanged sign-off picker does not discard additional authorities');
+  assert.equal(saved.phases['copy-source'].authoringSkill, 'sf-design', 'the shared source remains unchanged');
+  assert.deepEqual(saved.phases['copy-source'].inputs, ['copy-input']);
+});
+
+test('new steps save required clarification and shared steps can clear every inherited input', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const apply = (changes) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes }, { write: true });
+  await apply([
+    { op: 'phase.create', id: 'clear-input', label: 'Clear input', agent: 'architect', approval: 'none' },
+    { op: 'phase.create', id: 'clear-source', label: 'Clear source', agent: 'architect', approval: 'none', inputs: ['clear-input'] },
+    ...['clear-one', 'clear-two', 'clear-three'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['clear-input', 'clear-source'] })),
+    { op: 'phase.update', id: 'clear-source', workflow: 'clear-two', approval: 'none' }
+  ]);
+  let model = await buildStudioModel(root);
+  const { logic } = studioLogic();
+  let draft = logic.initialDraft(model);
+  draft.phases['required-step'] = { id: 'required-step', label: 'Required step', output: 'document', views: [], clarification: 'required', agent: 'architect', isNew: true, usedBy: ['clear-one'], approval: { group: null, minimum: 1 }, inputs: [] };
+  draft.workflows['clear-one'].phases.push('required-step');
+  draft.steps['clear-one']['required-step'] = { approval: { group: null, minimum: 1 }, inputs: [], authoringSkill: null };
+  for (const id of ['clear-one', 'clear-two']) {
+    draft.steps[id]['clear-source'].inputs = [];
+    draft.workflows[id].phases = draft.workflows[id].phases.filter((phase) => phase !== 'clear-input');
+  }
+  const changeSet = logic.changeSetFrom(model, draft);
+  assert.equal(changeSet.changes.find((change) => change.id === 'required-step').clarification, 'required');
+  await planStudioChangeSet(root, changeSet, { write: true });
+  model = await buildStudioModel(root);
+  assert.equal(model.phases.find((phase) => phase.id === 'required-step').clarification, 'required');
+  for (const id of ['clear-one', 'clear-two']) {
+    assert.deepEqual(model.workflows.find((workflow) => workflow.id === id).steps.find((phase) => phase.id === 'clear-source').inputs, []);
+  }
+  assert.deepEqual(model.workflows.find((workflow) => workflow.id === 'clear-three').steps.find((phase) => phase.id === 'clear-source').inputs, ['clear-input']);
+  draft = logic.initialDraft(model);
+  assert.deepEqual(logic.changeSetFrom(model, draft).changes, [], 'a reload has no phantom changes');
+});

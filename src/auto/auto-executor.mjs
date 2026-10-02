@@ -1,4 +1,5 @@
 /** One thin-pilot Auto phase step. Model execution is allowed only under `auto.flight-step`. */
+import { nextPhaseGeneration } from '../phase-generation.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -375,7 +376,7 @@ async function ensureAutoRepairGeneration({
   let currentWorkflow = workflow;
   let currentPhase = phase;
   const expectedOpen = () => currentPhase.generationIntent?.status === 'open'
-    && Number(currentPhase.generationIntent.generation) === Number(currentPhase.generation ?? 0) + 1
+    && Number(currentPhase.generationIntent.generation) === nextPhaseGeneration(currentPhase)
     && SHA256.test(String(currentPhase.generationIntent.receiptSha256 ?? ''));
   if (!phaseRequiresCodeDelivery(currentPhase)) {
     await runLifecycle(worktree, ['prepare', currentPhase.id]);
@@ -412,7 +413,7 @@ async function ensureAutoRepairGeneration({
       const preview = lifecycleJson(previewResult, 'repair generation rollover preview');
       if (preview.phase !== currentPhase.id
           || Number(preview.fromGeneration) !== Number(currentPhase.generation)
-          || Number(preview.toGeneration) !== Number(currentPhase.generation) + 1
+          || Number(preview.toGeneration) !== nextPhaseGeneration(currentPhase)
           || !SHA256.test(String(preview.confirmation ?? ''))
           || preview.mutates !== false) {
         throw new SingularityFlowError(
@@ -1396,7 +1397,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           prompt: { text: prompt }, channel: 'auto-phase-authoring', signal: controller.signal,
           subject: {
             kind: 'story', id: state.story.workId, phase: phase.id,
-            generation: Number(phase.generationIntent?.generation ?? (Number(phase.generation ?? 0) + 1)),
+            generation: Number(phase.generationIntent?.generation ?? (nextPhaseGeneration(phase))),
             generationIntentId: phase.generationIntent?.id ?? null,
             flightId, planSha256: plan.planSha256
           },

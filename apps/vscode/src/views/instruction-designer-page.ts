@@ -82,7 +82,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
   const isNew = !view.selected;
   const packaged = view.selected?.scope === 'packaged';
   const locked = packaged ? ' disabled' : '';
-  const tools = ['read', 'search', 'edit', 'execute', 'web'];
+  const tools = [...new Set([...draft.tools, 'read', 'search', 'edit', 'execute', 'web'])];
   return `<section class="instruction-editor">
     <div class="editor-title"><p class="eyebrow">Governed agent</p><h1>${isNew ? 'Create an agent' : escape(draft.label)}</h1><p class="muted">Agents combine these instructions with the active phase, selected repository world-model views, and approved inputs.</p></div>
     ${errors(view)}<div class="form-grid">

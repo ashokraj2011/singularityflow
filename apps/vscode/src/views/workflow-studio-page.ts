@@ -214,7 +214,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow) };
+        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow) };
       });
     });
     (model.phases || []).forEach(function (phase) {
@@ -231,6 +231,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function approvalChange(step) {
     return step.approval.group ? { group: step.approval.group, minimum: step.approval.minimum || 1 } : 'none';
+  }
+
+  /** A step copy starts with the values shown in its workflow, retaining unsaved catalog edits. */
+  function copiedPhaseDraft(model, draft, workflowId, phaseId, id) {
+    var source = draft.phases[phaseId];
+    var settings = draft.steps[workflowId][phaseId] || {};
+    var output = !settings.output || source.output !== source.baseOutput ? source.output : settings.output;
+    var baseline = (model.phases || []).find(function (phase) { return phase.id === phaseId; });
+    var workflow = draft.workflows[workflowId];
+    var originalWorkflow = (model.workflows || []).find(function (entry) { return entry.id === (workflow.copyOf || workflowId) && entry.phases.indexOf(phaseId) >= 0; });
+    var copyFromWorkflow = originalWorkflow ? originalWorkflow.id : workflow.installFrom && source.fromBlueprint ? workflow.installFrom : null;
+    return Object.assign(clone(source), { id: id, label: source.label + ' (' + workflow.label + ')', isNew: true, copyOf: phaseId, copyFromWorkflow: copyFromWorkflow, usedBy: [workflowId], output: output, baseOutput: output,
+      views: baseline && same(source.views, baseline.views) && settings.views ? settings.views.slice() : (source.views || []).slice(),
+      clarification: baseline && source.clarification === baseline.clarification ? settings.clarification || 'off' : source.clarification,
+      authoringSkill: settings.authoringSkill || null });
   }
 
   /** The engine change set that turns the model into the draft. */
@@ -260,9 +275,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (phase.isNew) {
         var home = Object.keys(draft.workflows).find(function (workflowId) { return draft.workflows[workflowId].phases.indexOf(id) >= 0; });
         var step = home && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs };
-        var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent };
+        var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
         if (phase.copyOf) create.copyOf = phase.copyOf;
-        if (step.authoringSkill) create.authoringSkill = step.authoringSkill;
+        if (phase.copyFromWorkflow) create.copyFromWorkflow = phase.copyFromWorkflow;
         changes.push(create);
         return;
       }
@@ -355,7 +370,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }
   }
 
-  window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, describe: describe, kebab: kebab,
+  window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
     newDecision: function () { return newDecision.apply(null, arguments); }, convertDecision: function () { return convertDecision.apply(null, arguments); },
     decisionLines: function () { return decisionLines.apply(null, arguments); }, reachOf: function () { return reachOf.apply(null, arguments); },
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
@@ -466,10 +481,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var source = state.draft.phases[phaseId];
     var id = kebab(phaseId + '-' + workflowId);
     if (state.draft.phases[id]) { setStatus('A copy already exists: ' + state.draft.phases[id].label + '.'); return; }
-    state.draft.phases[id] = Object.assign(clone(source), { id: id, label: source.label + ' (' + state.draft.workflows[workflowId].label + ')', isNew: true, copyOf: phaseId, usedBy: [workflowId] });
+    var settings = clone(stepSettings(workflowId, phaseId));
+    state.draft.phases[id] = copiedPhaseDraft(state.model, state.draft, workflowId, phaseId, id);
     var workflow = state.draft.workflows[workflowId];
     workflow.phases = workflow.phases.map(function (phase) { return phase === phaseId ? id : phase; });
-    state.draft.steps[workflowId][id] = clone(stepSettings(workflowId, phaseId));
+    state.draft.steps[workflowId][id] = settings;
     state.draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
     state.draft.phases[id].authoringSkill = state.draft.steps[workflowId][id].authoringSkill || null;
     delete state.draft.steps[workflowId][phaseId];

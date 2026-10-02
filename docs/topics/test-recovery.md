@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 6
+version: 7
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -149,6 +149,8 @@ An accepted risk cannot waive identity, evidence provenance, protected-path auth
 Selection consent is host-local and distinct from portable policy or evidence: a confirmation made in one checkout does not silently authorize a wider run on another host. Review the locally computed exact cohort and expansion again. The core evaluator and admission boundary remain authoritative; a UI state, copied receipt, selected default or agent-authored record cannot substitute for authenticated evidence, current authority or a governed commit.
 
 The selection pilot can narrow understood direct Node test and Jest file commands. Pytest is currently module/suite-only: `PYTEST_ADDOPTS` and configuration `addopts` can add test roots beyond a file argument, and those collection inputs are not yet qualified for precise selection. Package scripts and other unsupported precise runners likewise require the disclosed module or full-suite expansion review. Explicit Node preload hooks also require expansion review. Inherited `NODE_OPTIONS` is not supported for any pilot test execution because it can preload extra tests; remove it from the invocation environment and review a fresh plan. Recognized legacy test commands must first declare a structured `kind: test` contract; they cannot run as an undisclosed extra quality gate.
+
+When a later non-code review phase changes source, tests or build inputs, it cannot complete using the earlier Code generation's evidence. Follow the exact repair preview returned by the engine. Where the pinned rejection policy permits it, the confirmed return to Code preserves the edits and requires a fresh code generation and test execution. This is not permission to edit protected configuration or count a passing earlier run as validation of changed code. Ordinary documentation-only repairs do not themselves trigger this source-evidence check; other artifact and scope checks still apply.
 
 Preserve owned drafts and published generations. Recovery now lists `applicationPaths` only after verifying the current open-generation baseline or exact prior publication and enforcing source/protected-path boundaries. Review that diff and authorship before following the returned prepublish or confirmed rollover command. A dirty README, test or source file is not automatically an unknown-worktree dead end. A supported post-publication repair creates a successor generation; a permitted policy-only amendment preserves content and advances its validation requirements. Missing scope proof, unrelated changes, removals, renames, conflicts and symlinks still need manual review. Recovery never commits, stashes, discards or executes these application edits. Unfinished required artifacts and failing tests still block publication until their actual obligations are resolved.
 

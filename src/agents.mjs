@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -591,7 +592,7 @@ export async function renderAgentSkills(root, workflow, phase, session, {
   const text = selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n');
   let audit = null;
   if (record && workflow && itemDirectory && selected.length) {
-    const generation = phase.generation + 1; const files = [];
+    const generation = nextPhaseGeneration(phase); const files = [];
     for (const entry of selected) {
       const target = saved ? null
         : path.join(itemDirectory, 'context/agent-snapshots', session.agent, `${entry.id}-${entry.sha256}.md`);
@@ -609,7 +610,7 @@ export async function renderAgentSkills(root, workflow, phase, session, {
 }
 
 function expandUrl(template, workflow, phase) {
-  const values = { workId: workflow.workItem.id, workType: workflow.workItem.workType, phase: phase.id, generation: phase.generation + 1 };
+  const values = { workId: workflow.workItem.id, workType: workflow.workItem.workType, phase: phase.id, generation: nextPhaseGeneration(phase) };
   return template.replace(TOKEN_PATTERN, (_, token) => encodeURIComponent(String(values[token])));
 }
 
@@ -640,7 +641,7 @@ export async function prepareRemoteOutputs(root, workflow, phase, session, {
     // reviewed live lock check.
     const locked = saved ? { dynamic: true } : lockDependency(synced.lock, dependency);
     if (!locked?.dynamic) throw new SingularityFlowError(`Generated artifact '${dependency.id}' is not present in the agent lock.`);
-    const generation = phase.generation + 1;
+    const generation = nextPhaseGeneration(phase);
     const recordFile = path.join(itemDirectory, 'context', `remote-output-${session.agent}-${dependency.id}-${phase.id}-gen${generation}.json`);
     const target = path.join(itemDirectory, dependency.target);
     const recordExists = await exists(recordFile);

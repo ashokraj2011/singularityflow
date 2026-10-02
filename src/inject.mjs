@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { lstat, mkdir, open, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { constants as fsConstants, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -336,7 +337,7 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {},
 }
 
 function promptGenerationLocation(root, workflow, phase, workDir) {
-  const generation = phase.generation + 1;
+  const generation = nextPhaseGeneration(phase);
   const promptFile = path.join(workDir, 'context', 'prompts', `${phase.id}-gen${generation}.md`);
   const recordFile = path.join(workDir, 'context', `${phase.id}-gen${generation}.json`);
   return {

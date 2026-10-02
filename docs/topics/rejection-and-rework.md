@@ -8,10 +8,18 @@ aliases:
 related:
   - approvals
   - artifacts-and-generation
-version: 2
+version: 3
 commands: []
 ---
 A rejection reopens the phase and requires a fresh generation — with the reviewer's reasons pinned as composed context for the regeneration, alongside anything they cited. Nothing else is lost: implementation branches, interval history, checkpoints, and evidence carry forward. Rejection is designed to be cheap for the author and informative by construction: generation 2 starts from everything generation 1 learned, including the reviewer's exact words.
+
+## Rework completion and abandonment
+
+Every phase reopened by a rejection or backward workflow decision needs fresh generation evidence, not only the target phase. The next-step planner offers regeneration before submission. A target phase completed without human approval, or through a verified policy waiver, resolves its open change request just as an ordinary approved completion does; completed rework is no longer eligible for abandonment.
+
+Roll-forward preserves Git history. A generation published during abandoned rework remains an immutable historical identity, so a later attempt uses the next unused number (for example, generation 3 after abandoning generation 2). Restoring generation 1 for review does not make generation 2 reusable.
+
+When roll-forward exactly restores a clean submitted checkpoint, it creates a fresh review packet and requires fresh human approval. Earlier partial approvals do not carry across that new packet. A checkpoint containing unsubmitted edits is not converted into approved evidence: inspect the returned recovery action and keep those bytes for review.
 
 ## Purpose and prerequisites
 

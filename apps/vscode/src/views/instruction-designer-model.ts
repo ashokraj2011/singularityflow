@@ -1,5 +1,6 @@
 /** Pure read/write model for the visual agent, prompt, skill and prompt-pack designer. */
 import path from 'node:path';
+import YAML from 'yaml';
 import { worldModelViewCatalog } from '../../../../src/world-model-views.mjs';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
@@ -18,6 +19,8 @@ export interface RemoteOutputDraft {
 }
 
 export interface AgentDraft {
+  /** Original Markdown retained by the host, never taken from a webview save request. */
+  sourceText?: string;
   id: string;
   label: string;
   description: string;
@@ -123,13 +126,7 @@ function tableRows(content: string, heading: string): string[][] {
 }
 
 function withoutRemoteTables(content: string): string {
-  const starts = [
-    content.search(/^## Remote skills\s*$/m),
-    content.search(/^## Remote artifact templates\s*$/m),
-    content.search(/^## Remote generated artifacts\s*$/m)
-  ].filter((position) => position >= 0);
-  const first = starts.length ? Math.min(...starts) : -1;
-  return (first < 0 ? content : content.slice(0, first)).trim();
+  return content.replace(/^## Remote (?:skills|artifact templates|generated artifacts)[ \t]*\n(?:[ \t]*\n)*\|[^\n]*(?:\n\|[^\n]*)*\n?/gmi, '').trim();
 }
 
 function bool(valueToParse: string): boolean { return ['true', 'yes'].includes(valueToParse.toLowerCase()); }
@@ -197,17 +194,20 @@ export function instructionCatalog(snapshot: RepositorySnapshot): InstructionCat
 
 export function parseAgent(content: string, fallbackId = ''): AgentDraft {
   const parsed = frontmatter(content);
+  const header = YAML.parse(parsed.header) ?? {};
+  const metadata = header.metadata ?? {};
   const skills = tableRows(parsed.body, 'Remote skills');
   const templates = tableRows(parsed.body, 'Remote artifact templates');
   const outputs = tableRows(parsed.body, 'Remote generated artifacts');
   return {
-    id: scalar(parsed.header, 'name') || fallbackId,
-    label: scalar(parsed.header, 'sflow-label', '  ') || fallbackId,
-    description: scalar(parsed.header, 'description'),
-    phases: list(scalar(parsed.header, 'sflow-phases', '  ')),
-    defaultFor: list(scalar(parsed.header, 'sflow-default-for', '  ')),
-    worldModelViews: list(scalar(parsed.header, 'sflow-world-model-views', '  ')),
-    tools: list(scalar(parsed.header, 'tools')),
+    sourceText: content,
+    id: typeof header.name === 'string' && ID.test(header.name) ? header.name : fallbackId,
+    label: metadata['sflow-label'] || header.name || fallbackId,
+    description: typeof header.description === 'string' ? header.description : '',
+    phases: list(metadata['sflow-phases'] ?? ''),
+    defaultFor: list(metadata['sflow-default-for'] ?? ''),
+    worldModelViews: list(metadata['sflow-world-model-views'] ?? ''),
+    tools: Array.isArray(header.tools) ? [...header.tools] : [],
     body: withoutRemoteTables(parsed.body),
     remoteSkills: skills.filter((row) => row.length === 5 && row[0]).map((row) => ({
       id: row[0]!, url: row[1]!, phases: list(row[2]!), optional: bool(row[3]!), maxBytes: row[4]!
@@ -290,13 +290,43 @@ function remoteTables(draft: AgentDraft): string {
   const skills = draft.remoteSkills.map((entry) => `| ${cell(entry.id)} | ${cell(entry.url)} | ${cell(entry.phases.join(','))} | ${entry.optional ? 'true' : 'false'} | ${cell(entry.maxBytes)} |`).join('\n');
   const templates = draft.remoteTemplates.map((entry) => `| ${cell(entry.id)} | ${cell(entry.url)} | ${cell(entry.phases.join(','))} | ${entry.optional ? 'true' : 'false'} | ${cell(entry.maxBytes)} |`).join('\n');
   const outputs = draft.remoteOutputs.map((entry) => `| ${cell(entry.id)} | ${cell(entry.urlTemplate)} | ${cell(entry.phase)} | ${cell(entry.target)} | ${entry.optional ? 'true' : 'false'} | ${cell(entry.maxBytes)} |`).join('\n');
-  return `## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n${skills}\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n${templates}\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n${outputs}`;
+  return [
+    skills ? `## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n${skills}` : '',
+    templates ? `## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n${templates}` : '',
+    outputs ? `## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n${outputs}` : ''
+  ].filter(Boolean).join('\n\n');
 }
 
-export function renderAgent(draft: AgentDraft): string {
-  const body = draft.body.trim();
-  const withTables = `${body}\n\n${remoteTables(draft)}`;
-  return `---\nname: ${draft.id}\ndescription: ${quoted(draft.description.trim())}\ntools: [${draft.tools.join(', ')}]\nmetadata:\n  sflow-label: ${quoted(draft.label.trim())}\n  sflow-phases: ${quoted(draft.phases.join(','))}\n  sflow-default-for: ${quoted(draft.defaultFor.join(','))}\n  sflow-world-model-views: ${quoted(draft.worldModelViews.join(','))}\n---\n\n${withTables}\n`;
+export function renderAgent(draft: AgentDraft, sourceText = draft.sourceText ?? ''): string {
+  const original = frontmatter(sourceText);
+  const before = sourceText ? parseAgent(sourceText, draft.id) : null;
+  const document = YAML.parseDocument(original.header || '{}');
+  if (document.errors.length) throw new Error('Agent frontmatter is not valid YAML.');
+  const same = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+  // Checkbox order follows the catalog, not an intentional reordering of the authored lists.
+  const fieldUnchanged = (key: keyof AgentDraft): boolean => Boolean(before && (
+    Array.isArray(before[key]) && Array.isArray(draft[key])
+      ? same([...before[key]].sort(), [...draft[key]].sort()) : same(before[key], draft[key])
+  ));
+  const set = (key: keyof AgentDraft, field: string[], value: unknown): void => {
+    if (!fieldUnchanged(key)) document.setIn(field, document.createNode(value));
+  };
+  set('id', ['name'], draft.id);
+  set('description', ['description'], draft.description.trim());
+  set('tools', ['tools'], draft.tools);
+  set('label', ['metadata', 'sflow-label'], draft.label.trim());
+  set('phases', ['metadata', 'sflow-phases'], draft.phases.join(','));
+  set('defaultFor', ['metadata', 'sflow-default-for'], draft.defaultFor.join(','));
+  set('worldModelViews', ['metadata', 'sflow-world-model-views'], draft.worldModelViews.join(','));
+  const bodyUnchanged = before && ['body', 'remoteSkills', 'remoteTemplates', 'remoteOutputs']
+    .every((key) => same(before[key as keyof AgentDraft], draft[key as keyof AgentDraft]));
+  const body = bodyUnchanged ? original.body : `\n${[draft.body.trim(), remoteTables(draft)].filter(Boolean).join('\n\n')}\n`;
+  const headerUnchanged = before && ['id', 'description', 'tools', 'label', 'phases', 'defaultFor', 'worldModelViews']
+    .every((key) => fieldUnchanged(key as keyof AgentDraft));
+  if (headerUnchanged && bodyUnchanged) return sourceText;
+  const header = headerUnchanged ? `${original.header}\n` : document.toString({ lineWidth: 0 });
+  const rendered = `---\n${header}---\n${body}`;
+  return sourceText.includes('\r\n') ? rendered.replace(/\n/g, '\r\n') : rendered;
 }
 
 export function renderPrompt(draft: PromptDraft): string { return `${draft.body.trim()}\n`; }

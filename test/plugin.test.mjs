@@ -432,9 +432,13 @@ test('runner policy adoption stays a reviewed recovery action outside the coding
 test('verify skill routes release to its phase skill without running verification authoring', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
   assert.match(content, /Boundary phase `release`, never author verification/);
-  assert.match(content, /first `NOW` is `singularity-flow prepare release`.*Next in Copilot: \/sf-release.*Terminal equivalent: singularity-flow prepare release.*stop/s);
-  assert.match(content, /Otherwise relay the returned release routes and stop/);
+  assert.match(content, /relay the returned release routes and stop/);
   assert.ok(content.indexOf('Boundary phase `release`') < content.indexOf('phase `verification`'));
+  assert.match(content, /singularity-flow nextsteps --json/);
+  assert.doesNotMatch(content, /singularity-flow verify --json/,
+    'ordinary Feature/Bugfix/Chore verification must not require a fast-path verb');
+  assert.match(content, /Stop if `policyVerified` is false/);
+  assert.match(content, /source changes require the returned governed repair\/rework route and fresh evidence/);
 });
 
 test('requirements skill authors qualified acceptance-criteria identifiers', async () => {

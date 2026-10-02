@@ -63,6 +63,37 @@ test('generated and approval-pending phases return only valid next transitions',
   assert.equal(awaiting[2].skill, '/sf-phase');
 });
 
+test('post-completion guidance skips only phases preserved by an approved skill amendment', () => {
+  const story = workflow({ generation: 2, phaseStatus: 'awaiting_approval' });
+  story.phaseOrder.push('release');
+  story.phases.requirements.status = 'approved';
+  story.phases.requirements.generation = 1;
+  story.phases.release = {
+    ...story.phases.requirements, id: 'release', label: 'Release', status: 'not_started', generation: 0
+  };
+  story.skillVersionAmendments = [{
+    status: 'approved', affectedPhaseIds: ['intake', 'release'], preservedPhaseIds: ['requirements']
+  }];
+  const next = workflowNextSteps(story).filter((entry) => entry.timing === 'then');
+  assert.equal(next[0].command, 'singularity-flow prepare release');
+  assert.equal(next.some((entry) => entry.command === 'singularity-flow prepare requirements'), false);
+
+  story.skillVersionAmendments[0].status = 'proposed';
+  assert.equal(workflowNextSteps(story).find((entry) => entry.timing === 'then').command,
+    'singularity-flow prepare requirements', 'unapproved independence claims never skip a phase');
+});
+
+test('input preparation follows the next unused generation after abandoned rework', () => {
+  const story = workflow({ generation: 1 });
+  story.phases.intake.rejectedAt = '2026-10-02T00:00:00.000Z';
+  story.phases.intake.generationHighWatermark = 2;
+  story.resolution = { inputsMode: 'enforce', phases: [{ id: 'intake', inputs: [{ phase: 'prior' }] }] };
+  story.phases.intake.inputContext = { generation: 2 };
+  assert.equal(workflowNextSteps(story)[0].command, 'singularity-flow inputs intake');
+  story.phases.intake.inputContext.generation = 3;
+  assert.equal(workflowNextSteps(story).some((entry) => entry.command === 'singularity-flow inputs intake'), false);
+});
+
 test('rejection, pending publication, and completion produce safe action plans', () => {
   const rejectedWorkflow = workflow({ generation: 2, history: [{ phase: 'requirements', event: 'phase_rejected', at: '2026-01-02T00:00:00.000Z' }] });
   rejectedWorkflow.phases.intake.rejectedAt = '2026-01-02T00:00:00.000Z';

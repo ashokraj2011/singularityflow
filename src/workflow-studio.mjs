@@ -44,6 +44,8 @@ const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_CHANGES = 200;
 const MAX_DIFF_LINES = 400;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const agentsSha256 = (agents) => sha256(agents.filter((agent) => agent.scope === 'repository')
+  .map((agent) => `${agent.id}:${agent.sha256}`).join('\n'));
 
 /** What a step makes, in the words the Studio shows; each maps to the engine's generation contract. */
 export const STEP_OUTPUTS = Object.freeze([
@@ -195,6 +197,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase),
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
           approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
+          views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
           overridden: Boolean(type.phaseOverrides?.[phase.id]),
           authoringSkill: route.authoringSkill,
           authoringSkillSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'authoringSkill')),
@@ -214,7 +217,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     } : { kind: 'working-tree', ref: null, commit: null, remoteFingerprint: null, sourceCommit: null },
     base: {
       workflowSha256: sha256(definitionText),
-      agentsSha256: sha256(discovered.filter((agent) => agent.scope === 'repository').map((agent) => `${agent.id}:${agent.sha256}`).join('\n'))
+      agentsSha256: agentsSha256(discovered)
     },
     problems,
     workflows,
@@ -979,7 +982,7 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, output = 'document', inputs = [], approval, views = [], agent, copyOf, authoringSkill }) {
+  createPhase({ id, label, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
@@ -987,6 +990,23 @@ class StudioCandidate {
     if (copyOf) {
       const source = this.requirePhase(requireId(copyOf, 'The step to copy'));
       node = structuredClone(this.phase(source));
+      if (copyFromWorkflow != null) {
+        const workflowId = requireId(copyFromWorkflow, 'The workflow to copy the step from');
+        const workflow = this.content.workTypes?.[workflowId];
+        if (!workflow?.phases?.includes(source)) {
+          throw new SingularityFlowError(`Workflow '${workflowId}' does not use step '${source}'.`, { code: 'STUDIO_PHASE_UNKNOWN' });
+        }
+        const override = structuredClone(workflow.phaseOverrides?.[source] ?? {});
+        const base = node;
+        node = { ...base, ...override };
+        // Preserve the authored effective policy, using the same shallow field merges as resolution.
+        for (const field of ['artifact', 'worldModel', 'comparison', 'approval', 'generation']) {
+          if (override[field] && typeof override[field] === 'object' && !Array.isArray(override[field])) {
+            node[field] = { ...(typeof base[field] === 'object' ? base[field] : {}), ...override[field] };
+          }
+        }
+        if (workflow.templateOverrides?.[source] != null) node.defaultTemplate = workflow.templateOverrides[source];
+      }
       node.label = name;
       node.artifact = { ...(node.artifact ?? {}), path: `artifacts/${phaseId}/${phaseId}.md` };
       delete node.agents;
@@ -1001,16 +1021,30 @@ class StudioCandidate {
       };
     }
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
-    if (!copyOf) {
-      this.setOutput(phaseId, output);
-      this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
+    if (!copyOf || (output !== undefined && output !== outputOf(node))) this.setOutput(phaseId, output ?? 'document');
+    if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
+    if (inputs !== undefined) {
+      const entries = inputs.map((input) => {
+        const inputId = this.requirePhase(requireId(input, 'An input step'));
+        return (node.inputs ?? []).find((entry) => (typeof entry === 'string' ? entry : entry?.phase) === inputId) ?? inputId;
+      });
+      this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(entries));
     }
-    if (inputs?.length) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(inputs.map((input) => this.requirePhase(requireId(input, 'An input step')))));
-    if (views?.length) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ views: [...views], depth: 'quick' }));
-    if (copyOf && approval != null) this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(this.approvalNode(approval, node.approval)));
+    if (views !== undefined) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ depth: 'quick', ...(node.worldModel ?? {}), views: [...views] }));
+    if (copyOf && approval != null) {
+      const current = approvalSummary(node.approval);
+      const unchanged = approval === 'none' ? current.mode === 'none'
+        : current.mode !== 'none' && approval.group === current.authorities[0] && Number(approval.minimum ?? 1) === current.minimum;
+      if (!unchanged) this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(this.approvalNode(approval, node.approval)));
+    }
     if (authoringSkill !== undefined) {
       if (authoringSkill === null) this.document.deleteIn(['phases', phaseId, 'authoringSkill']);
       else this.document.setIn(['phases', phaseId, 'authoringSkill'], requireAuthoringSkill(authoringSkill));
+    }
+    if (clarification !== undefined) {
+      if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });
+      if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
+      else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ ...(node.clarification ?? {}), mode: clarification }));
     }
     const agentId = agent ?? (copyOf ? [...this.agents.values()].find((entry) => entry.defaultFor.includes(copyOf))?.id : null);
     if (!agentId) throw new SingularityFlowError(`Choose the agent that drafts ${name}.`, { code: 'STUDIO_PHASE_AGENT_REQUIRED' });
@@ -1047,7 +1081,7 @@ class StudioCandidate {
       // An input entry that stays keeps its own settings (selector, projection, preserved headings).
       const current = valueAt(scope, 'inputs') ?? this.phase(phaseId).inputs ?? [];
       const entries = ids.map((id) => (Array.isArray(current) ? current : []).find((entry) => (typeof entry === 'string' ? entry : entry?.phase) === id) ?? id);
-      if (entries.length) this.document.setIn([...scope, 'inputs'], this.document.createNode(entries));
+      if (entries.length || scope === override) this.document.setIn([...scope, 'inputs'], this.document.createNode(entries));
       else this.document.deleteIn([...scope, 'inputs']);
       changed.push('inputs');
     }
@@ -1059,7 +1093,7 @@ class StudioCandidate {
     }
     if (views != null) {
       if (views.length) this.document.setIn(['phases', phaseId, 'worldModel', 'views'], this.document.createNode([...views]));
-      else this.document.deleteIn(['phases', phaseId, 'worldModel', 'views']);
+      else if (this.document.hasIn(['phases', phaseId, 'worldModel', 'views'])) this.document.deleteIn(['phases', phaseId, 'worldModel', 'views']);
       changed.push('knowledge');
     }
     if (authoringSkill !== undefined) {
@@ -1068,7 +1102,9 @@ class StudioCandidate {
       if (authoringSkill === null) {
         // Automatic: drop the setting, or, where this workflow overrides a step that names a skill
         // of its own, say automatic explicitly so the step's own value does not show through.
-        if (scope !== override || typeof this.phase(phaseId)?.authoringSkill !== 'string') this.document.deleteIn([...scope, 'authoringSkill']);
+        if (scope !== override || typeof this.phase(phaseId)?.authoringSkill !== 'string') {
+          if (this.document.hasIn([...scope, 'authoringSkill'])) this.document.deleteIn([...scope, 'authoringSkill']);
+        }
         else this.document.setIn([...scope, 'authoringSkill'], null);
       } else this.document.setIn([...scope, 'authoringSkill'], requireAuthoringSkill(authoringSkill));
       changed.push('drafting skill');
@@ -1365,6 +1401,13 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (expected && expected !== sha256(sources.definitionText)) {
     throw new SingularityFlowError('The workflow configuration changed since Workflow Studio loaded it. Reload the Studio, review the newer configuration, and apply your changes again.', {
       code: 'STUDIO_BASE_CHANGED', details: { expected, actual: sha256(sources.definitionText) }
+    });
+  }
+  const expectedAgents = changeSet.base?.agentsSha256;
+  const actualAgents = agentsSha256(sources.agents);
+  if (expectedAgents && expectedAgents !== actualAgents) {
+    throw new SingularityFlowError('The agent configuration changed since Workflow Studio loaded it. Reload the Studio, review the newer agents, and apply your changes again.', {
+      code: 'STUDIO_BASE_CHANGED', details: { expected: expectedAgents, actual: actualAgents }
     });
   }
   const candidate = new StudioCandidate(sources);

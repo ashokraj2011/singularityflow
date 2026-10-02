@@ -1,4 +1,5 @@
 /** Lifecycle binding for configured structural predicates. */
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -51,7 +52,7 @@ function gateErrors(result) {
 }
 
 /** Evaluate configured AST policy without writing lifecycle or repository state. */
-export async function evaluateAstLifecycleGate(root, config, workflow, phase, { generation = phase.generation + 1, options = {} } = {}) {
+export async function evaluateAstLifecycleGate(root, config, workflow, phase, { generation = nextPhaseGeneration(phase), options = {} } = {}) {
   const policy = await lifecyclePolicy(config, workflow);
   if (!policy.active) {
     return { applies: false, reason: policy.reason, errors: [], warnings: [], result: null, receipt: null };

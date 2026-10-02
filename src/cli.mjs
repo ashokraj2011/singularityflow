@@ -46,6 +46,7 @@ import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import {
   assertAutoCandidateMatches, observeAutoCandidateWorktree
@@ -5519,7 +5520,7 @@ async function clarificationCommand(positionals, options) {
     const result = await verifyClarificationRecord(root, config, workflow, phase);
     const json = optionBoolean(options, 'json');
     if (!json) {
-      console.log(`Clarification checkpoint: ${phase.id} generation ${phase.generation + 1} (${result.mode})`);
+      console.log(`Clarification checkpoint: ${phase.id} generation ${nextPhaseGeneration(phase)} (${result.mode})`);
       if (result.record) {
         console.log(`Status: ${result.errors.length ? 'not ready' : 'ready'} · Responses: ${result.record.responses.length} · Recorded by: ${result.record.recordedBy?.name ?? result.record.recordedBy?.email ?? 'unknown'}`);
         console.log(`Record: ${result.path} · Prompt: ${result.record.promptSha256.slice(0, 12)}`);
@@ -5531,7 +5532,7 @@ async function clarificationCommand(positionals, options) {
     emitCommandResult(commandResult({
       operation: { id: 'clarification.status', classification: 'read' },
       subject: { kind: 'story', id: workflow.workItem.id },
-      outcome: noop('clarification.reported', { phase: phase.id, generation: phase.generation + 1 }),
+      outcome: noop('clarification.reported', { phase: phase.id, generation: nextPhaseGeneration(phase) }),
       effects: noEffects(),
       restState: 'informational',
       data: result
@@ -6720,7 +6721,7 @@ async function phaseCommand(positionals, options) {
       workId: workflow.workItem.id,
       phase: phase.id,
       fromGeneration: phase.generation,
-      toGeneration: Number(phase.generation) + 1,
+      toGeneration: nextPhaseGeneration(phase),
       confirmation: expected,
       changeSetDigest: plan.blocker.details.changeSetDigest,
       currentResultDigest: plan.blocker.details.currentResultDigest,
@@ -6735,7 +6736,7 @@ async function phaseCommand(positionals, options) {
     if (!supplied) {
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
       else {
-        console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${phase.generation + 1}.`);
+        console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${nextPhaseGeneration(phase)}.`);
         console.log(`Confirm exact current bytes: ${expected}`);
         printCommandRoutes(route, { label: 'Continue' });
         console.log('Nothing was changed.');
@@ -6768,13 +6769,13 @@ async function phaseCommand(positionals, options) {
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
     const existing = phase.generationIntent;
-    if (existing?.status === 'open' && Number(existing.generation) === Number(phase.generation) + 1) {
+    if (existing?.status === 'open' && Number(existing.generation) === nextPhaseGeneration(phase)) {
       await verifyOpenGenerationIntent(root, workflow, phase);
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(existing, null, 2));
       else console.log(`Generation intent ${existing.id} is already open for ${phase.id} generation ${existing.generation}.`);
       return;
     }
-    const generation = Number(phase.generation ?? 0) + 1;
+    const generation = nextPhaseGeneration(phase);
     const intent = await storyDraftTransaction(root, config, workflow, `phase-begin:${phaseId}`, async () => {
       const opened = await beginPhaseGeneration(root, config, workflow, {
         phaseId,
@@ -6908,7 +6909,7 @@ async function phaseCommand(positionals, options) {
   const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
   const publicationArtifactContract = {
     ...requestedPhase.requiredArtifact,
-    generation: Number(requestedPhase.generation) + 1
+    generation: nextPhaseGeneration(requestedPhase)
   };
   const publicationAuthoringOptions = {
     baseline: requestedPhase.authoringBaseline ?? null,
@@ -6938,7 +6939,7 @@ async function phaseCommand(positionals, options) {
   const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
     .flatMap((item) => item.authorship ?? [])
     .flatMap((record) => record.kernelModel?.invocationIds ?? []));
-  const generation = requestedPhase.generation + 1;
+  const generation = nextPhaseGeneration(requestedPhase);
   const kernelInvocations = (await listModelInvocations(root, {
     subjectId: workflow.workItem.id,
     phase: requestedPhase.id,
@@ -7983,11 +7984,9 @@ async function decisionWorkflow(positionals, options, action) {
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
   const testingRepair = action === 'reject' && optionBoolean(options, 'repair');
-  if (testingRepair && (requestedPhase !== 'testing'
-      || optionString(options, 'to') !== 'implementation'
-      || optionString(options, 'selection-receipt'))) {
+  if (testingRepair && optionString(options, 'selection-receipt')) {
     throw new SingularityFlowError(
-      'Early Testing repair requires reject testing --to implementation --repair, without a selection receipt.',
+      'Early review repair requires an exact phase and Code target, without a selection receipt.',
       { code: 'TESTING_REPAIR_ROUTE_INVALID' }
     );
   }
@@ -7996,10 +7995,17 @@ async function decisionWorkflow(positionals, options, action) {
     allowedStatuses: testingRepair ? ['in_progress'] : ['awaiting_approval']
   });
   const testingRepairPlan = testingRepair ? await previewTestingRepair(root, config, workflow) : null;
+  if (testingRepairPlan && (requestedPhase !== testingRepairPlan.phase
+      || optionString(options, 'to') !== testingRepairPlan.targetPhase)) {
+    throw new SingularityFlowError(
+      `Early review repair requires reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair.`,
+      { code: 'TESTING_REPAIR_ROUTE_INVALID' }
+    );
+  }
   if (testingRepairPlan && optionString(options, 'confirm') !== testingRepairPlan.confirmation) {
     throw new SingularityFlowError(
-      `Testing contains source or test edits. Review ${testingRepairPlan.changedPaths.join(', ')} and return them to Code only after confirmation. `
-      + `Shell: singularity-flow reject testing --to implementation --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. `
+      `The review contains source or test edits. Review ${testingRepairPlan.changedPaths.join(', ')} and return them to Code only after confirmation. `
+      + `Shell: singularity-flow reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. `
       + 'Copilot: /sf-reject.',
       { code: 'TESTING_REPAIR_CONFIRMATION_REQUIRED', details: { plan: testingRepairPlan } }
     );

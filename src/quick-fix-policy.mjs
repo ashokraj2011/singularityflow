@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { run } from './util.mjs';
-import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { head } from './git.mjs';
+import { changedRepositoryPaths } from './specifications.mjs';
+import { applicationPathContext } from './application-paths.mjs';
 
 export const DEFAULT_QUICK_FIX_POLICY = Object.freeze({
   id: 'quick-fix-low-risk-v1',
@@ -15,25 +16,26 @@ function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-function changedPaths(root, config, workflow) {
+function changedPaths(root, config, workflow, targetCommit = 'HEAD') {
   const base = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
-  const result = run('git', ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, 'HEAD', '--'], { cwd: root, allowFailure: true });
-  if (result.status !== 0) return { paths: [], available: false };
-  const pathContext = applicationPathContext(config, workflow);
-  return {
-    paths: [...new Set(result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
-      .filter((candidate) => isApplicationPath(candidate, pathContext)))].sort(),
-    available: true
-  };
+  try {
+    return { paths: [...new Set(changedRepositoryPaths(root, {
+      base, target: targetCommit, pathContext: applicationPathContext(config, workflow)
+    }))].sort(), available: true };
+  } catch {
+    return { paths: [], available: false };
+  }
 }
 
 function truthy(value) {
   return value === true || String(value ?? '').toLowerCase() === 'true';
 }
 
-export function evaluateQuickFixWaiver(root, config, workflow, phase, policy = DEFAULT_QUICK_FIX_POLICY) {
-  const actual = changedPaths(root, config, workflow);
-  const submittedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+export function evaluateQuickFixWaiver(root, config, workflow, phase, policy = DEFAULT_QUICK_FIX_POLICY, {
+  targetCommit = 'HEAD'
+} = {}) {
+  const actual = changedPaths(root, config, workflow, targetCommit);
+  const submittedCommit = targetCommit === 'HEAD' ? head(root) : targetCommit;
   const source = workflow.workItem.source ?? {};
   const protectedPaths = [...new Set([
     ...(config.governance?.protectedPaths ?? []),

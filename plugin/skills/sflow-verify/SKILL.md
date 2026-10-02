@@ -12,14 +12,14 @@ argument-hint: "[test scope or environment]"
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow verify --json`; stop at `recovery` or `approval`. For Boundary phase `release`, never author verification. If first `NOW` is `singularity-flow prepare release`, show `Next in Copilot: /sf-release`; `Terminal equivalent: singularity-flow prepare release`; stop. Otherwise relay the returned release routes and stop.
-2. Require Boundary `ready`, phase `verification`, and exact `phaseAgent` readiness; run `singularity-flow phase show verification --json`. For another phase, relay router action and stop. Keep Story context governed.
-3. Run `singularity-flow wm compose --phase verification --evidence`; use its prompt. Missing WM is non-blocking; use repository evidence. Never derive `--task` from Story text.
-4. Read approved requirements, design, implementation, source evidence.
+1. Run `singularity-flow nextsteps --json` for any workflow. Stop at recovery, approval, completion or cancellation. For Boundary phase `release`, never author verification: relay the returned release routes and stop.
+2. Require Boundary `ready`, phase `verification`, exact `phaseAgent`; run `singularity-flow phase show verification --json`. Stop if `policyVerified` is false. Relay another phase or specialised route and stop. Keep Story context governed.
+3. Run `singularity-flow wm compose --phase verification --evidence`; use its prompt. Missing WM is non-blocking. Never derive `--task` from Story text.
+4. Read approved requirements, design, implementation and source evidence.
 5. Map each AC to evidence and qualified `@ac:WORK-ID:AC-001` in an executable test. Inspect source-bound `@clause:WORK-ID:REQ-001` as a trace witness, not a verdict. Reject bare `AC-001`; honor reviewed test-only/non-code exemptions.
-6. Run/add tests. Record exact commands and results.
+6. Run tests; record commands/results. Honor write scope; source changes require the returned governed repair/rework route and fresh evidence.
 7. Cover regression, boundaries, failures, security, accessibility, performance as applicable.
-8. Run `singularity-flow prepare verification`; fill evidence without unobserved claims and `Agent brief` with verdict, failures/omissions, risk, release recommendation.
+8. Run `singularity-flow prepare verification`; fill observed evidence and `Agent brief`: verdict, failures/omissions, risk, release recommendation.
 9. Run `singularity-flow phase draft-check verification --json`, then `singularity-flow phase prepublish verification --json`. If unready, run read-only `singularity-flow recover <WORK-ID> --phase verification --json`. Correct every agent finding now; route other producers to owner. Recheck up to three changed fingerprints; stop on an unchanged fingerprint. Never delete markers blindly, invent facts, use padding, invoke nested models, or overwrite another producer.
 10. Only when prepublish `status` is `ready`, publish with its exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 11. Run `singularity-flow phase show verification --json`; retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise reproduce every published text document in full: ID/kind/path/bytes/generation/SHA-256 and `--- BEGIN <path> ---` / `--- END <path> ---`. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review. Binary: path/metadata/open instruction. Show the current `reviewBinding`; body reuse never reuses approval consent.

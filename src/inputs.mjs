@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -79,7 +80,7 @@ export function resolvedPhaseInputs(workflow, phase) {
 }
 
 export async function collectInputs(root, workflow, phase, {
-  itemDirectory, itemRelative, generation = phase.generation + 1, definition = null
+  itemDirectory, itemRelative, generation = nextPhaseGeneration(phase), definition = null
 } = {}) {
   const selected = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
   if (selected?.kind === 'skill' && !definition) {

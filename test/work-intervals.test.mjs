@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   closeWorkInterval,
@@ -50,6 +50,16 @@ async function fixture({ protectedPaths = [] } = {}) {
   const config = { governance: {}, workTypes: { 'quick-fix': {}, feature: {} } };
   return { root, config, workflow, itemDirectory, itemRelative };
 }
+
+test('reopened work intervals reserve the next unused generation after roll-forward', async (t) => {
+  const context = await fixture();
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  Object.assign(context.workflow.phases.implement, { generation: 1, generationHighWatermark: 2 });
+  const baseline = await ensureWorkIntervalBaseline(context.root, context.config, context.workflow, context);
+  assert.match(baseline.intervalId, /^INT-implement-G3-/);
+  assert.equal(JSON.parse(await readFile(path.join(context.root, baseline.path), 'utf8')).generation, 3);
+  assert.equal((await verifyWorkIntervalBaseline(context.root, context.config, context.workflow, context)).verified, true);
+});
 
 test('a work interval keeps checkpoints local and records a final governed reconciliation', async () => {
   const context = await fixture();

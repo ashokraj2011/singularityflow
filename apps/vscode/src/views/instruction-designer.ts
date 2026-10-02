@@ -232,7 +232,7 @@ export class InstructionDesignerPanel {
         remoteTemplates: Array.isArray(message.remoteTemplates) ? message.remoteTemplates as AgentDraft['remoteTemplates'] : [],
         remoteOutputs: Array.isArray(message.remoteOutputs) ? message.remoteOutputs as AgentDraft['remoteOutputs'] : [] };
       this.agent = draft; this.errors = validateAgent(draft);
-      if (!this.errors.length) await this.save(this.selectedPath ?? agentPath(draft.id), renderAgent(draft));
+      if (!this.errors.length) await this.save(this.selectedPath ?? agentPath(draft.id), renderAgent(draft, this.sourceText));
       else this.render();
       return;
     }

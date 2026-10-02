@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 
 import { planAgentBriefs } from './agent-briefs.mjs';
@@ -80,7 +81,7 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
     }
     const changeSet = applicationChangeSetProjection(await buildRepositoryChangeSet(root, {
       baseCommit, subject: { workId: workflow.workItem.id, phase: phase.id,
-        generation: Number(phase.generation) + 1, generationIntentId: consumed ? null : phase.generationIntent.id }
+        generation: nextPhaseGeneration(phase), generationIntentId: consumed ? null : phase.generationIntent.id }
     }), applicationPathContext(config, workflow));
     const protectedPaths = new Set(evaluateProtectedPaths(changeSet, [
       ...(config.governance?.protectedPaths ?? []),
@@ -95,7 +96,7 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
         !protectedPaths.has(candidate) && !outsideBoundaryPaths.has(candidate)))
       .map(entry => entry.newPath).sort();
     return { status: 'verified', basis: consumed ? 'published-generation' : 'open-generation',
-      phaseId: phase.id, generation: Number(phase.generation) + 1, baseCommit,
+      phaseId: phase.id, generation: nextPhaseGeneration(phase), baseCommit,
       changeSetDigest: changeSet.digest, paths,
       protectedPaths: [...protectedPaths].sort(), outsideBoundaryPaths: [...outsideBoundaryPaths].sort(),
       publishedGeneration: consumed ? Number(phase.generation) : null };
@@ -132,7 +133,7 @@ export async function generationRecovery(root, workflow, phase, generationDigest
       const changeSet = await buildRepositoryChangeSet(root, {
         baseCommit,
         subject: {
-          workId: workflow.workItem.id, phase: phase.id, generation: Number(phase.generation) + 1,
+          workId: workflow.workItem.id, phase: phase.id, generation: nextPhaseGeneration(phase),
           generationIntentId: null
         }
       });
@@ -201,7 +202,7 @@ function projectionFinding(error, phase) {
     code: error.code === 'AGENT_BRIEF_HEADING_AMBIGUOUS'
       ? 'projection.agent-brief.heading-ambiguous'
       : `projection.agent-brief.${String(error.code ?? 'invalid').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
-    category: 'projection', blocking: true, phase: phase.id, generation: Number(phase.generation) + 1,
+    category: 'projection', blocking: true, phase: phase.id, generation: nextPhaseGeneration(phase),
     path: phase.requiredArtifact?.path ?? null,
     line: error.details?.lines?.[0] ?? null,
     value: error.details?.heading ?? null,
@@ -243,7 +244,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
       blockers.push({
         code: `convergence.${String(error.code ?? 'not-ready').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
         category: 'convergence', blocking: true, phase: phase.id,
-        generation: Number(phase.generation) + 1,
+        generation: nextPhaseGeneration(phase),
         path: error.details?.path ?? null, line: null, value: null,
         details: { sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}) }
       });
@@ -258,7 +259,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
   } else {
     artifactFindings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
     blockers.push(...artifactFindings.map((finding) => ({
-      ...finding, blocking: true, phase: phase.id, generation: Number(phase.generation) + 1,
+      ...finding, blocking: true, phase: phase.id, generation: nextPhaseGeneration(phase),
       details: {
         bytes: finding.bytes ?? null, minimumBytes: finding.minimumBytes ?? null
       }
@@ -271,7 +272,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
     try {
       await planAgentBriefs(root, workflow, phase, {
         itemDirectory: path.join(root, itemRelative), itemRelative,
-        generation: Number(phase.generation) + 1
+        generation: nextPhaseGeneration(phase)
       });
     } catch (error) {
       blockers.push(projectionFinding(error, phase));
@@ -349,7 +350,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
             || unsupportedRuntimeAdapter;
           blockers.push({
             code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
-            phase: phase.id, generation: Number(phase.generation) + 1,
+            phase: phase.id, generation: nextPhaseGeneration(phase),
             path: null, line: null, value: null,
             details: {
               sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),

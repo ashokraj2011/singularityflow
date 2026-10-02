@@ -1,9 +1,10 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand
 } from './manual-authorship.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
+import { assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
@@ -76,6 +77,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const artifact = reviewDraft.artifacts.find((entry) => entry.scope === 'primary');
   let findings = [];
   let convergenceReview = null;
+  let codeEvidenceRepair = null;
 
   if (phase.id === 'convergence') {
     try {
@@ -90,6 +92,18 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     }
   } else {
     findings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
+  }
+
+  try {
+    await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
+  } catch (error) {
+    codeEvidenceRepair = {
+      class: 'code-rework', guidance: error.message,
+      command: error.details?.repairCommand ?? null
+    };
+    findings.push({ code: error.code ?? 'PRIOR_CODE_TEST_EVIDENCE_UNAVAILABLE',
+      category: 'evidence', path: error.details?.changedPaths?.[0] ?? null,
+      line: null, value: null, message: error.message, fingerprint: null });
   }
 
   if (!findings.length && artifact?.exists) {
@@ -136,7 +150,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     ? await inspectUnclaimedChangedPaths(root, config, workflow, phase)
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
-  const repairClass = convergenceReview?.class ?? correctionClass(producer);
+  const repairClass = codeEvidenceRepair?.class ?? convergenceReview?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
@@ -147,7 +161,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     workId: workflow.workItem.id,
     phase: phase.id,
     generation: phase.status === 'in_progress'
-      ? Number(phase.generation ?? 0) + 1
+      ? nextPhaseGeneration(phase)
       : Number(phase.generation ?? 0),
     phaseStatus: phase.status,
     configuredProducer,
@@ -169,7 +183,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       sameTurn: repairClass === 'agent-authoring' && !awaitingApproval,
       requiresNewGeneration: awaitingApproval && !clean,
       maximumChangedFingerprints: 3,
-      guidance: clean ? null : convergenceReview?.guidance ?? correctionGuidance(repairClass, phase),
+      guidance: clean ? null : codeEvidenceRepair?.guidance ?? convergenceReview?.guidance ?? correctionGuidance(repairClass, phase),
       skill: convergenceReview?.skill ?? (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands: Object.freeze({
@@ -178,7 +192,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       // A correction-required projection is not publishable. Returning an executable publish
       // command beside the blocker made hosts offer the illegal action even when `status` was red.
       publish: clean ? phasePublicationCommand(phase) : null,
-      next: convergenceReview?.command ?? null
+      next: codeEvidenceRepair?.command ?? convergenceReview?.command ?? null
     }),
     mutates: false,
     modelInvocations: 0

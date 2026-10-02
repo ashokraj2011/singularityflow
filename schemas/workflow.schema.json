@@ -529,6 +529,16 @@
           "skillBinding": { "$ref": "workflow-definition.schema.json#/$defs/skpSkillBinding" },
           "owner": { "type": ["string", "null"] },
           "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved", "skipped", "cancelled"] },
+          "generationHighWatermark": { "type": "integer", "minimum": 0 },
+          "reworkRevalidation": {
+            "type": "object",
+            "required": ["generation", "invalidatedAt"],
+            "properties": {
+              "generation": { "type": "integer", "minimum": 0 },
+              "invalidatedAt": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
           "skippedAt": { "type": "string" },
           "skippedBy": {
             "type": "object",

@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from '../../phase-generation.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -879,7 +880,7 @@ export async function resolvePinnedStoryWorldModelGrounding(root, {
       workId: workflow.workItem.id,
       workflowInstanceId: workflow.workflowSnapshot?.snapshotHash,
       phase: phase.id,
-      generation: Number(phase.generation ?? 0) + 1
+      generation: nextPhaseGeneration(phase)
     },
     authority: {
       repositoryDomainSha256: pin.repositoryDomainSha256,

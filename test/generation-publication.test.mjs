@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { publishedGenerationCommit } from '../src/generation-publication-store.mjs';
+import { beginCodeGeneration, verifyOpenGenerationIntent } from '../src/generation-boundary.mjs';
 import { lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-event.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { generationResultDigest } from '../src/state.mjs';
@@ -117,6 +118,21 @@ async function committedGenerationPublicationV1({ tampered = false } = {}) {
     commit: git(root, ['rev-parse', 'HEAD'])
   };
 }
+
+test('a restored Code generation starts above the abandoned watermark while retaining its authenticated baseline', async (t) => {
+  const { root, workflow, phase, commit } = await committedGenerationPublicationV1();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  phase.generationPolicy = { task: 'code' };
+  phase.sourceBoundary = 'unrestricted';
+  phase.generationHighWatermark = 2;
+  workflow.workIntervals = { current: { phaseId: phase.id, status: 'open', sourceBaseCommit: commit } };
+  workflow.resolution = { codeDelivery: { generationBoundary: { dirtyStart: 'block' } } };
+  const intent = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase);
+  assert.equal(intent.generation, 3);
+  assert.equal(intent.baseline.commit, commit);
+  assert.equal((await verifyOpenGenerationIntent(root, workflow, phase)).id, intent.id);
+  assert.equal(phase.generation, 1, 'begin never relabels the restored immutable generation');
+});
 
 test('legacy subject text only enumerates candidates and exposes one verified candidate for explicit migration', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-generation-publication-'));

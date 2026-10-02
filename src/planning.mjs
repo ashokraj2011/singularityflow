@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -408,7 +409,7 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
         : currentInfo ? [{ kind: 'current-draft', path: targetPath.relative, sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
     ],
     warnings: context.warnings,
-    generation: phaseState.generation + 1,
+    generation: nextPhaseGeneration(phaseState),
     profile: initiative.initiative.profile,
     repositoryPath: itemDirectory.relative
   };
@@ -679,7 +680,7 @@ async function workItemPlanningParts(root, definition, {
       ...(currentInfo ? [{ kind: 'current-draft', path: posix(path.relative(root, target)), sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
     ],
     warnings: [...world.warnings, ...capability.warnings, ...structural.warnings, ...remote.warnings, ...inputs.warnings],
-    generation: phase.generation + 1,
+    generation: nextPhaseGeneration(phase),
     profile: workflow.workItem.workType,
     repositoryPath: itemRelative
   };
@@ -992,7 +993,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
 
     const prepared = await prepareInitiativePhase(root, initiative.initiative.id, definition.id, { agent: selectedAgent });
     const fresh = prepared.initiative;
-    const generation = fresh.phases[definition.id].generation + 1;
+    const generation = nextPhaseGeneration(fresh.phases[definition.id]);
     const auditRelative = path.join('context', 'planning', `${definition.id}-gen${generation}`, sessionId);
     const promoted = [];
     let breakdownPath = null;
@@ -1101,7 +1102,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   await writeText(target, authored);
   await registerArtifact(root, workflow, target, { phaseId: phase.id, config: definition });
   const current = await snapshot(target);
-  const auditDirectory = path.join(workDir(root, definition, workflow.workItem.id), 'context', 'planning', `${phase.id}-gen${phase.generation + 1}`, sessionId);
+  const auditDirectory = path.join(workDir(root, definition, workflow.workItem.id), 'context', 'planning', `${phase.id}-gen${nextPhaseGeneration(phase)}`, sessionId);
   await ensureDir(auditDirectory);
   const planPath = path.join(auditDirectory, 'plan.md');
   await writeText(planPath, authored);

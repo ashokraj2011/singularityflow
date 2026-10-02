@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
@@ -56,7 +57,7 @@ export function assertClarificationRecordingAllowed(definition, workflow, phase)
   );
 }
 
-export function clarificationRecordRelative(definition, workflow, phase, generation = phase.generation + 1) {
+export function clarificationRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
   return posix(path.join(
     definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
     `clarifications-${phase.id}-gen${generation}.json`
@@ -162,7 +163,7 @@ export function answeredMarkerHashes(record) {
 }
 
 export async function recordClarificationResponses(root, definition, workflow, phase, {
-  responses, actor, agent, replace = false, generation = phase.generation + 1,
+  responses, actor, agent, replace = false, generation = nextPhaseGeneration(phase),
   responseFile = null
 } = {}) {
   const policy = assertClarificationRecordingAllowed(definition, workflow, phase);
@@ -241,7 +242,7 @@ export async function recordClarificationResponses(root, definition, workflow, p
 }
 
 export async function verifyClarificationRecord(root, definition, workflow, phase, {
-  generation = phase.generation + 1, groundingRecord = null
+  generation = nextPhaseGeneration(phase), groundingRecord = null
 } = {}) {
   const policy = resolvedPolicy(definition, workflow, phase);
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);

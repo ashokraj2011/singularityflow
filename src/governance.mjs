@@ -32,7 +32,8 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
+import { exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
@@ -44,6 +45,7 @@ import { configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticRefer
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
+import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -98,6 +100,64 @@ export function generationReachedReview(workflow, phase, generation) {
   if ((phase?.approvals ?? []).some((entry) => Number(entry.generation) === Number(generation))) return true;
   return Number(phase?.generation) === Number(generation)
     && (Boolean(phase?.submittedAt) || ['awaiting_approval', 'approved'].includes(phase?.status));
+}
+
+/** Abandoned draft files may be absent only when the governed rollback proves that history. */
+export function verifiedAbandonedGenerations(root, config, workflow) {
+  const verified = new Set();
+  const identities = new Map();
+  const identityAt = (commit) => {
+    if (!identities.has(commit)) identities.set(commit, governedCommitIdentity(root, commit));
+    return identities.get(commit);
+  };
+  const relative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json'));
+  const committedWorkflow = (commit) => {
+    const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024 });
+    return bytes ? JSON.parse(bytes.toString('utf8')) : null;
+  };
+  for (const request of workflow.changeRequests ?? []) {
+    const discarded = request.resolution?.abandonedGenerations;
+    if (request.status !== 'abandoned' || request.resolution?.status !== 'abandoned'
+        || !Array.isArray(discarded) || !discarded.length) continue;
+    const events = (workflow.publicationProjections ?? []).map((entry) => entry.event).filter((event) =>
+      event?.type === 'rework-rolled-forward' && event.subject?.kind === 'story'
+      && event.subject.id === workflow.workItem.id && event.payload?.changeRequestId === request.id
+      && event.payload?.decision === 'abandoned'
+      && event.payload?.checkpointId === request.forwardCheckpoint?.id
+      && event.payload?.confirmation === request.resolution.confirmation);
+    if (events.length !== 1) continue;
+    const event = events[0];
+    let identity = identityAt(head(root));
+    // Walk immutable first-parent identities, sharing reads across rollbacks. A copied projection
+    // has no commit whose event trailer authenticates it and therefore grants no exception.
+    while (identity && identity.commit !== event.sourceCommit
+        && identity.commit !== request.forwardCheckpoint?.sourceCommit
+        && identity.eventSha256 !== `sha256:${recordSha256(event)}`) {
+      identity = identity.parents[0] ? identityAt(identity.parents[0]) : null;
+    }
+    if (!identity?.transactionId || identity.parents.length !== 1
+        || (event.sourceCommit && identity.parents[0] !== event.sourceCommit)
+        || identity.eventSha256 !== `sha256:${recordSha256(event)}`) continue;
+    const retained = committedWorkflow(identity.commit);
+    const before = committedWorkflow(identity.parents[0]);
+    const committed = retained?.changeRequests?.find((entry) => entry.id === request.id);
+    const prior = before?.changeRequests?.find((entry) => entry.id === request.id);
+    if (canonicalJson(committed?.resolution) !== canonicalJson(request.resolution)
+        || committed?.status !== 'abandoned' || prior?.status !== 'open'
+        || canonicalJson(committed.forwardCheckpoint) !== canonicalJson(prior.forwardCheckpoint)
+        || !(retained?.publicationProjections ?? []).some((entry) =>
+          canonicalJson(entry.event) === canonicalJson(event))
+        || (before?.publicationProjections ?? []).some((entry) => entry.event?.eventId === event.eventId)) continue;
+    for (const { phase: phaseId, generation } of discarded) {
+      const phase = workflow.phases?.[phaseId];
+      if (!phase || !Number.isInteger(generation) || generation < 1 || generation === Number(phase.generation)
+          || Number(before.phases?.[phaseId]?.generation ?? 0) < generation
+          || Number(retained.phases?.[phaseId]?.generation ?? 0) >= generation) continue;
+      const publication = publishedGenerationCommit(root, before, before.phases[phaseId], generation);
+      if (publication) verified.add(`${phaseId}:${generation}`);
+    }
+  }
+  return verified;
 }
 
 export async function runGovernanceGate(root, config, workflow, { terminal = false } = {}) {
@@ -217,9 +277,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
   } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseCommit ?? workflow.workItem.baseBranch}`);
 
+  const abandoned = verifiedAbandonedGenerations(root, config, workflow);
   for (const phaseId of workflow.phaseOrder) {
     const phase = workflow.phases[phaseId];
     for (let generation = 1; generation <= (phase.generation ?? 0); generation += 1) {
+      if (abandoned.has(`${phaseId}:${generation}`)) {
+        passes.push(`abandoned generation history verified: ${phaseId} generation ${generation}`);
+        continue;
+      }
       const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${generation}]`;
       const publication = (phase.generationPublications ?? [])
         .find((entry) => Number(entry.generation) === Number(generation));
@@ -384,8 +449,16 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (phase.status !== 'approved') continue;
     const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));
-    if (distinct.size < (phase.approvalPolicy.minimum ?? 1)) errors.push(`${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`);
-    const missingAuthorities = remainingRequiredAuthorities(phase.approvalPolicy, decisions);
+    let waived = false;
+    if (phase.approvalDisposition === 'policy_waived') {
+      const replay = await verifyPhaseApprovalWaiver(root, config, workflow, phase);
+      waived = replay.valid;
+      errors.push(...replay.errors.map((message) => `${phaseId} policy waiver is invalid: ${message}`));
+      if (waived) passes.push(`policy waiver verified: ${phaseId}`);
+    }
+    const requiresApproval = phase.approvalPolicy.mode !== 'none' && !waived;
+    if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) errors.push(`${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`);
+    const missingAuthorities = requiresApproval ? remainingRequiredAuthorities(phase.approvalPolicy, decisions) : [];
     if (missingAuthorities.length) errors.push(`${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`);
     for (const decision of decisions) {
       const authority = matchApprovalAuthority(

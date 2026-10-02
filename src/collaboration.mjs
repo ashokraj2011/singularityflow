@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward, untrackedFiles } from './git.mjs';
 import { applicationPathContext, isTransientTestResultPath } from './application-paths.mjs';
 import {
@@ -63,7 +64,7 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
   const current = phase?.id === workflow.currentPhase && phase.status === 'in_progress'
     && branch(root) === workflow.workItem.branch && itemRoot;
   const generation = phase?.generationIntent?.status === 'open'
-    ? Number(phase.generationIntent.generation) : Number(phase?.generation ?? 0) + 1;
+    ? Number(phase.generationIntent.generation) : nextPhaseGeneration(phase);
   const artifact = repositoryRelativePath(phase?.requiredArtifact?.path);
   const expected = current && artifact && Number.isSafeInteger(generation) && generation > 0
     ? new Set([

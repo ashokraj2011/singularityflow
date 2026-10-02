@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -243,7 +244,7 @@ async function writeMcpEvidence(root, workflow, {
       output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: downloaded.mediaType, sourceDisposition: 'remote-copy', sourceUrl: downloaded.sourceUrl, redirects: downloaded.redirects };
       if (kind === 'visual-artifact' && output.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
     }
-    const generation = Number(workflow.phases[activePhase]?.generation ?? 0) + 1;
+    const generation = nextPhaseGeneration(workflow.phases[activePhase]);
     const record = {
       schemaVersion: MCP_EVIDENCE_SCHEMA_VERSION,
       id,
@@ -351,7 +352,7 @@ export async function recordObservedMcpBrowserCapture(root, workflow, {
     label: 'Managed MCP browser snapshot output'
   });
   const outputBytes = Buffer.from(canonicalJson(snapshotResult));
-  const generation = Number(workflow.phases[activePhase]?.generation ?? 0) + 1;
+  const generation = nextPhaseGeneration(workflow.phases[activePhase]);
 
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
     if (await recordCount(recordsDirectory) > MAX_RECORDS - 2) {
@@ -546,7 +547,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
 
 export async function verifyPhaseMcpRequirements(root, workflow, phase, {
   itemDirectory = null,
-  targetGeneration = Number(phase?.generation ?? 0) + 1
+  targetGeneration = nextPhaseGeneration(phase)
 } = {}) {
   const requirements = phase?.mcp?.evidence ?? [];
   if (!requirements.length) return { errors: [], passes: [], records: [] };

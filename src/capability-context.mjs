@@ -750,7 +750,7 @@ export function applyCapabilityPolicyToWorkResolution(resolution, capability) {
           : unique([...(phase.worldModel?.views ?? []), ...(policy.requiredWorldModelViews ?? [])])
       },
       qualityCommands: unique([...(phase.qualityCommands ?? []), ...(policy.qualityCommands ?? [])]),
-      approval: {
+      approval: phase.approval?.mode === 'none' ? structuredClone(phase.approval) : {
         ...(phase.approval ?? {}),
         authorities: unique([...(phase.approval?.authorities ?? []), ...(policy.requiredAuthorityGroups ?? [])]),
         minimum: Math.max(phase.approval?.minimum ?? 1, policy.approvalMinimum ?? 1),

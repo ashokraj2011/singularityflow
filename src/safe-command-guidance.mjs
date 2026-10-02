@@ -18,16 +18,6 @@ import {
 const SAFE_EXECUTABLE = /^(?:singularity-flow|sflow)(?:\s|$)/u;
 const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/iu;
 const FORBIDDEN_SHELL_SYNTAX = /[;&|`$()*?![\]{}#~]/u;
-// Names with a stable non-code meaning in the packaged workflows cannot be relabelled by an
-// untrusted presentation assertion. Custom phase ids remain eligible for `/sf-code`; the skill
-// still re-reads their signed `generation.task: code` policy before it can act.
-const KNOWN_NON_CODE_PHASE_IDS = new Set([
-  'intake', 'requirements', 'specification', 'planning', 'plan', 'design', 'verification',
-  'verify', 'testing', 'convergence', 'release', 'conformance', 'reproduction', 'fix-design',
-  'fix-spec', 'design-intake', 'design-inventory', 'component-mapping', 'mobile-spec',
-  'visual-verification', 'poc-impact-analysis', 'poc-ui-exploration', 'poc-validation',
-  'poc-lite-plan', 'poc-lite-verify'
-]);
 // Guidance is allowed to describe a value the user must still supply.  The grammar is deliberately
 // narrower than a shell word: no whitespace, quotes, substitutions, or redirection.  Lower-case
 // names and bounded alternatives are accepted because the product's own help uses forms such as
@@ -286,7 +276,9 @@ export function safeCommandGuidance(value) {
   // A repository may name a code-delivery phase freely. The engine-selected `/sf-code` assertion
   // is safe for every prepare/begin/publish command because that skill re-reads the signed phase
   // policy before doing work; presentation does not infer code delivery from the phase name.
-  if (phaseId && !KNOWN_NON_CODE_PHASE_IDS.has(phaseId)) {
+  // Names do not confer authority: even a packaged step can have a verified code-producing
+  // override. This only renders a route; /sf-code must verify that pinned policy before acting.
+  if (phaseId) {
     allowedSkills.add('/sf-code');
   }
   if (phaseId === 'convergence') allowedSkills.add('/sf-converge');

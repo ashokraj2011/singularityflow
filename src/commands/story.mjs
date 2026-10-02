@@ -2333,7 +2333,7 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
         identityAssurance: result.identityAssurance,
         payload: {
           decision: 'abandoned',
-          reviewPacketSha256: null,
+          reviewPacketSha256: result.restoredReview?.packet.packetSha256 ?? null,
           changeRequestId: result.request.id,
           checkpointId: result.checkpoint.id,
           confirmation: result.preview.confirmation,

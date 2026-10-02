@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readlink, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -4488,7 +4489,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Work ID: \`${workflow.workItem.id}\``,
     `- Work type: \`${workflow.workItem.workType}\``,
     `- Phase: \`${phase.id}\``,
-    `- Generation to author: ${Number(phase.generation ?? 0) + 1}`,
+    `- Generation to author: ${nextPhaseGeneration(phase)}`,
     ...executionContract.lines,
     '- Repository root: `.` (the verified current repository checkout)',
     `- Work-item directory: \`${itemRelative}\``,
@@ -4677,7 +4678,7 @@ async function compose(root, options, {
       // complete the one missing half. Read-only rendering cannot repair repository state.
       if (!storyLockHeld || renderOnly || !interruptedPromptPair(error)) throw error;
       console.error(
-        `Prompt generation recovery: ${workflow.workItem.id}/${phase.id}/generation ${phase.generation + 1} has one interrupted persistence half; recomposing exact bytes before repair.`
+        `Prompt generation recovery: ${workflow.workItem.id}/${phase.id}/generation ${nextPhaseGeneration(phase)} has one interrupted persistence half; recomposing exact bytes before repair.`
       );
     }
     // A pending prompt is reused byte for byte, but not once the documents its phase is offered
@@ -4686,10 +4687,10 @@ async function compose(root, options, {
     if (drift && storyLockHeld && !renderOnly) {
       const moved = await supersedePromptGeneration(root, workflow, phase, expectedPrompt,
         `supporting documents changed: ${drift}`);
-      console.error(`Recomposing ${phase.id} generation ${phase.generation + 1}: its supporting documents changed (${drift}). The earlier prompt is kept in ${moved.directory}.`);
+      console.error(`Recomposing ${phase.id} generation ${nextPhaseGeneration(phase)}: its supporting documents changed (${drift}). The earlier prompt is kept in ${moved.directory}.`);
       existing = null;
     } else if (drift) {
-      console.error(`Warning: the prompt composed for ${phase.id} generation ${phase.generation + 1} predates a change to its supporting documents (${drift}). Run singularity-flow wm compose --phase ${phase.id} to recompose it.`);
+      console.error(`Warning: the prompt composed for ${phase.id} generation ${nextPhaseGeneration(phase)} predates a change to its supporting documents (${drift}). Run singularity-flow wm compose --phase ${phase.id} to recompose it.`);
     }
     if (existing) {
       const existingDeliveryLifecycle = workflow.resolution?.worldModelHistoryPin?.status === 'active'
@@ -5104,7 +5105,7 @@ async function compose(root, options, {
           workId: workflow.workItem.id,
           workflowInstanceId: workflowSnapshotSha256,
           phase: signals.phase,
-          generation: Number(phase?.generation ?? 0) + 1
+          generation: nextPhaseGeneration(phase)
         },
         authority: {
           tokenEconomyPolicySha256: `sha256:${tokenEconomyDigest(tokenEconomyPolicy)}`,
@@ -5120,7 +5121,7 @@ async function compose(root, options, {
   const tokenReductionScope = {
     workId: workflow?.workItem?.id ?? workId ?? null,
     phase: signals.phase,
-    generation: phase ? Number(phase.generation ?? 0) + 1 : null,
+    generation: phase ? nextPhaseGeneration(phase) : null,
     sourceRevision: required.freshness.source?.current
       ?? workSource.record?.sourceRevision
       ?? null,
@@ -5339,7 +5340,7 @@ async function compose(root, options, {
     workId: workflow?.workItem?.id ?? workId ?? null,
     workType: workflow?.workItem?.workType ?? null,
     phase: signals.phase,
-    generation: phase ? Number(phase.generation ?? 0) + 1 : null,
+    generation: phase ? nextPhaseGeneration(phase) : null,
     agent,
     promptStudy: promptStudy ? {
       studyRunId: promptStudy.studyRunId,
@@ -5487,7 +5488,7 @@ async function compose(root, options, {
       text: composedText,
       agent,
       phase: signals.phase,
-      generation: phase ? Number(phase.generation ?? 0) + 1 : null,
+      generation: phase ? nextPhaseGeneration(phase) : null,
       workId: workflow?.workItem?.id ?? workId ?? null,
       workType: workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,
@@ -5642,7 +5643,7 @@ async function showPrompt(root, options) {
       agent,
       phase,
       generation: config.workflow?.phases?.[phase]
-        ? Number(config.workflow.phases[phase].generation ?? 0) + 1 : null,
+        ? nextPhaseGeneration(config.workflow.phases[phase]) : null,
       workId: selectedWorkId,
       workType: config.workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,

@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,7 +70,7 @@ function cursorsPath(root) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'telemetry-cursors.json');
 }
 
-function cursorKey(workflow, phase, generation = phase.generation + 1) {
+function cursorKey(workflow, phase, generation = nextPhaseGeneration(phase)) {
   return `${workflow.workItem.id}:${phase.id}:${generation}`;
 }
 
@@ -141,7 +142,7 @@ export async function restoreTelemetryCursorsForWorkItem(root, workId, snapshot 
 }
 
 export async function beginTelemetryCapture(root, workflow, phase) {
-  const generation = phase.generation + 1;
+  const generation = nextPhaseGeneration(phase);
   const key = cursorKey(workflow, phase, generation);
   const raw = rawTelemetryPath(root);
   const info = await stat(raw).catch(() => null);

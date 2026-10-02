@@ -987,12 +987,6 @@
       },
       "digest": "af587d9925b29fa16c978525fe0e76edd1b91d21df48f4fddc5961de46ec7e9f"
     },
-    "src/quick-fix-policy.mjs": {
-      "counts": {
-        "command-run": 2
-      },
-      "digest": "dd5c05002cb94ab552b29ae9c2357f7ec19f8e93658ef266b41fde32647efa63"
-    },
     "src/reference-prefetch.mjs": {
       "counts": {
         "command-run": 3

@@ -98,6 +98,7 @@ export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
     affected.status = index === 0 ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
     affected.submissionArchitectureDecision = null;
+    affected.reworkRevalidation = { generation: affected.generation, invalidatedAt: at };
     clearDecisionState(affected);
     if (index === 0) { affected.rejectedAt = at; affected.rejectedBy = actor; affected.rejectionReason = reason; }
   }

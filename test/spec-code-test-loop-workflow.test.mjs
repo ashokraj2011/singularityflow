@@ -172,11 +172,25 @@ test('a new Story pins the specification-first workflow and routes its next step
   run('git', ['config', 'user.email', 'spec-code@example.test'], root);
   run(process.execPath, [CLI, '--no-model', 'init'], root);
   await writeFile(path.join(root, 'README.md'), 'Spec-code-test Story fixture.\n');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    type: 'module', private: true, scripts: { test: 'node --test readiness.test.mjs' }
+  }));
+  await writeFile(path.join(root, 'readiness.test.mjs'),
+    "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('fixture baseline', () => assert.equal(1 + 1, 2));\n");
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize spec-code-test fixture'], root);
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
+
+  const readinessPlan = JSON.parse(run(process.execPath,
+    [CLI, '--no-model', 'precheck', '--run', '--scope', 'dependency-test', '--json'], root)).data.plan;
+  assert.equal(readinessPlan.status, 'ready');
+  const readiness = JSON.parse(run(process.execPath,
+    [CLI, '--no-model', 'precheck', '--run', '--scope', 'dependency-test',
+      '--confirm-plan', readinessPlan.planId, '--json'], root)).data.receipt;
+  assert.equal(readiness.status, 'pass');
+  assert.ok(readiness.testObservations.some((entry) => entry.counts?.passed >= 1));
 
   run(process.execPath, [CLI, '--no-model', 'start', 'SPEC-CODE-1',
     '--from-branch', 'main', '--work-type', WORK_TYPE,

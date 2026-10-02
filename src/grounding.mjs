@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readlink, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
@@ -1321,7 +1322,7 @@ export function worldModelCommit(root, outputDir) {
     `World model '${outputDir}' commit`, { absentWhen: () => gitHeadIsUnborn(root) })?.trim() || null;
 }
 
-export function groundingRecordRelative(definition, workflow, phase, generation = phase.generation + 1) {
+export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
   return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }
 
@@ -1409,9 +1410,9 @@ function currentGroundingPath(definition, workflow, file) {
 async function verifyPersistedStoryGrounding(
   root, definition, workflow, phase, record, relative, generation, agent, authorityOptions = {}
 ) {
-  const generationPhase = Number(phase.generation) + 1 === Number(generation)
+  const generationPhase = nextPhaseGeneration(phase) === Number(generation)
     ? phase
-    : { ...phase, generation: Number(generation) - 1 };
+    : { ...phase, generation: Number(generation) - 1, generationHighWatermark: 0 };
   const workDir = path.join(
     root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
   );
@@ -1490,7 +1491,7 @@ async function verifyPersistedStoryGrounding(
 }
 
 export async function verifyGroundingRecord(root, definition, workflow, phase, {
-  generation = phase.generation + 1,
+  generation = nextPhaseGeneration(phase),
   // A generation a later one of the same phase replaced. What it was composed from is still
   // verified byte for byte, but a document detached after it, or the stale mark that detach left,
   // does not fail it: that work is history, and the phase was redone without the document.

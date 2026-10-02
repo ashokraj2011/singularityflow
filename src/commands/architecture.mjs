@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -232,7 +233,7 @@ export function architectureIntentTargetGeneration(workflow, phaseId) {
     fail(`Architecture intent phase '${phaseId ?? 'missing'}' has no valid published generation.`,
       'WMC_INTENT_PHASE_INVALID');
   }
-  return phase.generation + 1;
+  return nextPhaseGeneration(phase);
 }
 
 export function validateArchitectureIntentLifecyclePolicy(workflow, policy, ownerPhaseId) {

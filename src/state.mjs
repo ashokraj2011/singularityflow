@@ -1,3 +1,4 @@
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -69,7 +70,7 @@ import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
-  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
@@ -2063,6 +2064,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   }
   const explicitlyReopened = (workflow.changeRequests ?? []).some((request) =>
     request.status === 'open' && request.targetPhase === phase.id)
+    || (phase.reworkRevalidation && phaseNeedsGeneration(workflow, phase))
     || (phase.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
   if (!dryRun
       && phaseRequiresCodeDelivery(phase)
@@ -2175,13 +2177,13 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       if (remote.outputs.length) {
         phase.agentContext = {
           agent: session.agent,
-          generation: phase.generation + 1,
+          generation: nextPhaseGeneration(phase),
           outputs: remote.outputs.map((item) => item.resource),
           warnings: remote.warnings
         };
         await updateArtifactMetadata(root, config, workflow, phase);
         await updateRemoteOutputRenderedHashes(root, workflow, phase, {
-          itemDirectory, generation: phase.generation + 1
+          itemDirectory, generation: nextPhaseGeneration(phase)
         });
       }
       return {
@@ -2268,7 +2270,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       metadataRepair = initialized.status;
     }
     await writeText(target, text);
-    const targetGeneration = Number(phase.generation) + 1;
+    const targetGeneration = nextPhaseGeneration(phase);
     // Capture only bytes the kernel itself just rendered. Capturing an existing generation-one
     // artifact after an upgrade or repeated prepare would redefine completed authoring as the
     // baseline and make a valid artifact fail until it changed again. Every path that actually
@@ -2292,9 +2294,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       await updateArtifactMetadata(root, config, workflow, phase);
     }
     if (remote.outputs.length) {
-      phase.agentContext = { agent: session.agent, generation: phase.generation + 1, outputs: remote.outputs.map((output) => output.resource), warnings: remote.warnings };
+      phase.agentContext = { agent: session.agent, generation: nextPhaseGeneration(phase), outputs: remote.outputs.map((output) => output.resource), warnings: remote.warnings };
       await updateArtifactMetadata(root, config, workflow, phase);
-      await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory, generation: phase.generation + 1 });
+      await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory, generation: nextPhaseGeneration(phase) });
     }
   }
   return {
@@ -3114,7 +3116,8 @@ export async function publishGeneration(root, config, workflow, {
   if (phaseRequiresCodeDelivery(phase)
       && phase.generationIntent?.status === 'consumed'
       && Number(phase.generationIntent.generation) === Number(phase.generation)) {
-    if (await generationResultMatches(root, config, workflow, phase)) return phase;
+    if (!phaseNeedsGeneration(workflow, phase)
+        && await generationResultMatches(root, config, workflow, phase)) return phase;
     throw new SingularityFlowError(
       `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phase.id} to preview the exact guarded next-generation command.`,
       { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
@@ -3123,6 +3126,7 @@ export async function publishGeneration(root, config, workflow, {
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
   await assertMcpPhaseReadiness(root, workflow, phase);
   // Resolve and validate authorship before any content, test, brief, input, telemetry, or lifecycle
   // write. A wrong producer is a preflight refusal and must not leave partial recovery state.
@@ -3247,7 +3251,7 @@ export async function publishGeneration(root, config, workflow, {
   await planAgentBriefs(root, workflow, phase, {
     itemDirectory: workDir(root, config, workflow.workItem.id),
     itemRelative: workDirRelative(config, workflow.workItem.id),
-    generation: phase.generation + 1
+    generation: nextPhaseGeneration(phase)
   });
   await preparePhaseInputs(root, config, workflow, phase.id);
   // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
@@ -3267,7 +3271,7 @@ export async function publishGeneration(root, config, workflow, {
   if (clarification.errors.length) throw new SingularityFlowError(`Phase ${phase.id} clarification is not ready:\n- ${clarification.errors.join('\n- ')}`);
   const mcpEvidence = await verifyPhaseMcpRequirements(root, workflow, phase, {
     itemDirectory: workDir(root, config, workflow.workItem.id),
-    targetGeneration: phase.generation + 1
+    targetGeneration: nextPhaseGeneration(phase)
   });
   if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED' });
   // Code delivery has already evaluated protected paths and source boundaries against its one
@@ -3301,7 +3305,7 @@ export async function publishGeneration(root, config, workflow, {
   /**
    * The specification gate `[SPK:REQ-065]`.
    *
-   * Deliberately the last thing before the first mutation on line `phase.generation += 1`. A
+   * Deliberately before assigning the next publication generation to `phase.generation`. A
    * blocking marker has to cost nothing but the answer — if an honest `[NEEDS CLARIFICATION: ...]`
    * left a half-published generation to unwind, the rational move would be to delete the question
    * and write a plausible sentence, which is precisely the behaviour the marker exists to prevent.
@@ -3310,7 +3314,7 @@ export async function publishGeneration(root, config, workflow, {
    * did and behaves identically.
    */
   const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
-    generation: phase.generation + 1,
+    generation: nextPhaseGeneration(phase),
     artifactRelativePath: requiredRepoPath(config, workflow, phase),
     namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null,
     pendingClarification: clarification.record
@@ -3379,7 +3383,7 @@ export async function publishGeneration(root, config, workflow, {
         || codeModelObservation?.source !== 'model-invocation-audit'
         || !codeModelObservation?.observedAt
         || codeModelObservation?.observationIntegrity !== 'external-host-attested'
-        || Number(codeModelObservation?.generation) !== Number(phase.generation + 1))) {
+        || Number(codeModelObservation?.generation) !== Number(nextPhaseGeneration(phase)))) {
       throw new SingularityFlowError('Code-model assurance is missing its provider, model, host audit source, timestamp, or generation binding.', {
         code: 'CODE_MODEL_ASSURANCE_REQUIRED'
       });
@@ -3389,7 +3393,7 @@ export async function publishGeneration(root, config, workflow, {
   // AST is optional. This boundary may collect structural diagnostics, but it never blocks or
   // mutates publication when AST, a language pack, an adapter, or its evidence store is absent.
   const astGate = await evaluateAstLifecycleGate(root, config, workflow, phase, {
-    generation: phase.generation + 1
+    generation: nextPhaseGeneration(phase)
   });
   assertAstLifecycleGate(astGate, `publication of phase '${phase.id}'`);
 
@@ -3402,7 +3406,7 @@ export async function publishGeneration(root, config, workflow, {
   if (capture.pending) capture.warnings.push('The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.');
   capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
   const normalizedUsage = modelAssisted
-    ? (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, phase.generation + 1))
+    ? (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, nextPhaseGeneration(phase)))
     : [];
   const capabilityBudget = workflow.resolution?.capability?.policy?.tokenBudget;
   if (capabilityBudget) {
@@ -3413,7 +3417,7 @@ export async function publishGeneration(root, config, workflow, {
       throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
     }
   }
-  const targetGeneration = phase.generation + 1;
+  const targetGeneration = nextPhaseGeneration(phase);
   const architectureIntentBinding = await resolveArchitectureIntentPublicationBinding(
     root, config, workflow, phase, targetGeneration
   );
@@ -4387,7 +4391,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     if (trpSelection.reference) deliveryEvidence.trpSelection = trpSelection.reference;
   }
   const retainedRisk = await retainedStoryTestRisk(root, config, workflow, phase, {
-    operation: 'publish', generation: trpSelection?.selection?.subject.generation ?? Number(phase.generation ?? 0) + 1,
+    operation: 'publish', generation: trpSelection?.selection?.subject.generation ?? nextPhaseGeneration(phase),
     selection: trpSelection?.selection });
   if (retainedRisk) {
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
@@ -4537,6 +4541,7 @@ async function submitPhaseTransition(root, config, workflow, {
   assertSkillPhaseHostReady(workflow, phase, 'submit');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
   const session = actor
     ? { actor, agent: agent ?? null }
     : await loadSession(root);
@@ -5123,6 +5128,10 @@ async function submitPhaseTransition(root, config, workflow, {
       actor: actorKey(session.actor),
       agent: session.agent
     });
+    resolvePhaseChangeRequests(workflow, phase, {
+      at: phase.submittedAt, actor: actorKey(session.actor),
+      completionDisposition: phase.approvalDisposition
+    });
     const { upcoming, pending: automaticPending } = applyCompletionOutcome(workflow, phase, automaticOutcome, {
       at: phase.submittedAt, actor: session.actor, agent: session.agent
     });
@@ -5238,6 +5247,7 @@ export async function approvePhase(root, config, workflow, {
   assertSkillPhaseHostReady(workflow, phase, 'approve');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'be approved');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
   if (phase.id === 'convergence') {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   } else {
@@ -5742,21 +5752,8 @@ export async function approvePhase(root, config, workflow, {
       actor: key,
       agent: session.agent
     });
-    const resolved = (workflow.changeRequests ?? []).filter((request) =>
-      request.status === 'open' && request.targetPhase === phase.id
-    );
-    for (const request of resolved) {
-      request.status = 'resolved';
-      request.resolvedAt = decision.at;
-      request.resolvedBy = key;
-      request.resolution = {
-        phase: phase.id,
-        generation: phase.generation,
-        artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
-        approvalDecisionAt: decision.at
-      };
-    }
-    if (resolved.length) decision.resolvedChangeRequests = resolved.map((request) => request.id);
+    const resolved = resolvePhaseChangeRequests(workflow, phase, { at: decision.at, actor: key });
+    if (resolved.length) decision.resolvedChangeRequests = resolved;
     let upcoming = null;
 
     if (approvalOutcome?.kind === 'loop') {
@@ -6067,39 +6064,48 @@ async function createReworkForwardCheckpoint(root, config, workflow, {
  */
 export async function previewTestingRepair(root, config, workflow) {
   await assertNoPendingPublication(root, config, workflow, 'return Testing changes to Code');
-  if (!['classic-delivery', 'spec-code-test-loop'].includes(workflow.workItem?.workType)
-      || workflow.currentPhase !== 'testing' || workflow.phases?.testing?.status !== 'in_progress'
-      || workflow.phaseOrder?.indexOf('implementation') >= workflow.phaseOrder?.indexOf('testing')) {
+  const review = workflow.phases?.[workflow.currentPhase];
+  const predecessors = (workflow.phaseOrder ?? []).slice(0, workflow.phaseOrder?.indexOf(review?.id));
+  const code = predecessors.reverse().map((id) => workflow.phases[id])
+    .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate));
+  if (!review || review.status !== 'in_progress' || phaseRequiresCodeDelivery(review)
+      || !code || !(review.approvalPolicy?.rejectTo ?? []).includes(code.id)) {
     throw new SingularityFlowError(
-      'A pre-submission Testing repair is available only in the active Testing phase of Classic Delivery or Spec → Code → Test.',
+      'A pre-submission review repair requires an active non-code review with an allowed return to its earlier approved Code phase.',
       { code: 'TESTING_REPAIR_NOT_APPLICABLE' }
     );
   }
-  const code = workflow.phases.implementation;
   const evidence = code?.deliveryEvidence;
   const approval = [...(code?.approvals ?? [])].reverse().find((decision) =>
     decision.decision === 'approved' && !decision.invalidatedAt
       && Number(decision.generation) === Number(code.generation));
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
-    entry.phase === 'implementation' && Number(entry.generation) === Number(code?.generation));
-  if (code?.status !== 'approved' || !approval || !submission || !evidence
-      || evidence.status !== 'ready' || evidence.validation?.status !== 'passed'
+    entry.phase === code.id && Number(entry.generation) === Number(code?.generation));
+  const approvalNotRequired = code.approvalPolicy?.mode === 'none' && code.approvalDisposition === 'not_required';
+  const approvalWaived = code.approvalPolicy?.mode === 'policy' && code.approvalDisposition === 'policy_waived'
+    && (await (await import('./approval-waiver.mjs')).verifyPhaseApprovalWaiver(root, config, workflow, code)).valid;
+  const riskReference = evidence?.testRecovery;
+  const retainedRiskOutcome = riskReference && ['unavailable', 'failed'].includes(evidence.validation?.status)
+    && evidence.validation.status === riskReference.observedOutcome;
+  if (code?.status !== 'approved' || (!approval && !approvalNotRequired && !approvalWaived) || !submission || !evidence
+      || evidence.status !== 'ready' || (evidence.validation?.status !== 'passed' && !retainedRiskOutcome)
       || !code.generationCommit || !evidence.receiptPath || !evidence.receiptSha256) {
     throw new SingularityFlowError(
-      'Testing repair needs an approved Code generation with its committed passing test receipt.',
+      'Review repair needs an approved Code generation with committed passing or historically authorized risk evidence.',
       { code: 'TESTING_REPAIR_CODE_EVIDENCE_REQUIRED' }
     );
   }
   const { readStoryReviewPacket } = await import('./story-lineage.mjs');
   const packet = await readStoryReviewPacket(root, config, workflow, submission.packetSha256);
   const receiptBinding = packet.submissionEvidence?.codeDelivery;
-  if (approval.reviewPacketSha256 !== packet.packetSha256
-      || approval.evidenceCommit !== packet.evidenceCommit
+  if ((!approvalNotRequired && !approvalWaived && (approval.reviewPacketSha256 !== packet.packetSha256
+      || approval.evidenceCommit !== packet.evidenceCommit))
+      || (approvalNotRequired && packet.status !== 'complete_no_review')
       || receiptBinding?.path !== evidence.receiptPath
       || String(receiptBinding?.sha256 ?? '').replace(/^sha256:/u, '')
         !== String(evidence.receiptSha256).replace(/^sha256:/u, '')) {
     throw new SingularityFlowError(
-      'The approved Code packet does not bind its recorded passing test receipt.',
+      'The approved Code packet does not bind its recorded test receipt.',
       { code: 'TESTING_REPAIR_CODE_EVIDENCE_REQUIRED' }
     );
   }
@@ -6116,12 +6122,15 @@ export async function previewTestingRepair(root, config, workflow) {
     }
     receipt = readRecord('code-delivery', stored).record;
     if (receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id
-        || receipt.phase !== 'implementation'
+        || receipt.phase !== code.id
+        || (riskReference && canonicalJson(receipt.testRecovery) !== canonicalJson(riskReference))
         || Number(receipt.generation) !== Number(code.generation)
         || receipt.tree?.generationCommit !== code.generationCommit
         || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
-        || receipt.testExecutions.some((execution) => execution.status !== 'passed')) {
-      throw new Error('receipt does not describe the approved, passing Code generation');
+        || receipt.testExecutions.some((execution) => execution.status !== 'passed'
+          && !(retainedRiskOutcome && execution.kind === 'phase-validation-observation'
+            && execution.status === riskReference.observedOutcome))) {
+      throw new Error('receipt does not describe the approved Code generation and passing or historically authorized risk evidence');
     }
   } catch (error) {
     throw new SingularityFlowError(
@@ -6129,10 +6138,15 @@ export async function previewTestingRepair(root, config, workflow) {
       { code: 'TESTING_REPAIR_CODE_EVIDENCE_REQUIRED' }
     );
   }
+  if (riskReference) await assertStoryTestRiskGate(root, config, workflow, {
+    phaseId: code.id, generation: code.generation, operation: 'submit', mode: 'historical',
+    at: receipt.validatedAt, observationSha256: riskReference.observationSha256,
+    evidenceCommit: packet.evidenceCommit
+  });
   const changeSet = await buildRepositoryChangeSet(root, {
     baseCommit: code.generationCommit,
     subject: { kind: 'testing-repair', id: workflow.workItem.id,
-      testingGeneration: workflow.phases.testing.generation }
+      phase: review.id, testingGeneration: review.generation }
   });
   const protectedPaths = [...new Set([
     ...(config.governance?.protectedPaths ?? []),
@@ -6160,10 +6174,10 @@ export async function previewTestingRepair(root, config, workflow) {
     workType: workflow.workItem.workType,
     branch: branch(root),
     head: head(root),
-    phase: 'testing',
-    phaseStatus: workflow.phases.testing.status,
-    testingGeneration: workflow.phases.testing.generation,
-    targetPhase: 'implementation',
+    phase: review.id,
+    phaseStatus: review.status,
+    testingGeneration: review.generation,
+    targetPhase: code.id,
     codeGeneration: code.generation,
     codeGenerationCommit: code.generationCommit,
     codeEvidenceCommit: packet.evidenceCommit,
@@ -6214,6 +6228,25 @@ function recordSubmittedDecisionInputs(workflow, phase, supplied, actor) {
 function upcomingAfterOutcome(workflow, phase, outcome) {
   if (!outcome || outcome.kind === 'next') return nextPhaseAfterSkillAmendment(workflow, phase);
   return outcome.kind === 'forward' ? workflow.phases[outcome.target] ?? null : null;
+}
+
+function resolvePhaseChangeRequests(workflow, phase, { at, actor, completionDisposition = null }) {
+  const resolved = (workflow.changeRequests ?? []).filter((request) =>
+    request.status === 'open' && request.targetPhase === phase.id);
+  for (const request of resolved) {
+    request.status = 'resolved';
+    request.resolvedAt = at;
+    request.resolvedBy = actor;
+    request.resolution = {
+      phase: phase.id,
+      generation: phase.generation,
+      artifactSha256: (phase.artifacts ?? []).map((artifact) => ({
+        path: artifact.path, sha256: artifact.sha256 ?? null
+      })),
+      ...(completionDisposition ? { completedAt: at, completionDisposition } : { approvalDecisionAt: at })
+    };
+  }
+  return resolved.map((request) => request.id);
 }
 
 function advanceDetail(workflow, pending) {
@@ -6433,7 +6466,7 @@ export async function rejectPhase(root, config, workflow, {
   const testingRepair = testingRepairConfirm
     ? await previewTestingRepair(root, config, workflow)
     : null;
-  if (testingRepair && (phaseId !== 'testing' || target !== 'implementation'
+  if (testingRepair && (phaseId !== testingRepair.phase || target !== testingRepair.targetPhase
       || testingRepair.confirmation !== testingRepairConfirm || convergenceRework)) {
     throw new SingularityFlowError(
       `Testing repair requires the current change-set confirmation: --confirm ${testingRepair.confirmation}.`,
@@ -6853,7 +6886,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
 
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
-  const amendmentGeneration = priorGeneration + 1;
+  const amendmentGeneration = nextPhaseGeneration(specification);
   const amendmentArchitectureIntent = await resolveArchitectureIntentPublicationBinding(
     root, config, workflow, specification, amendmentGeneration
   );
@@ -7246,6 +7279,7 @@ export async function reopenWorkflow(root, config, workflow, {
     affected.status = index === targetIndex ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
     affected.submissionArchitectureDecision = null;
+    affected.reworkRevalidation = { generation: affected.generation, invalidatedAt: timestamp };
     clearDecisionState(affected);
     if (index === targetIndex) {
       affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment;
@@ -7489,10 +7523,43 @@ async function restoreReworkPaths(root, preview) {
 }
 
 /**
- * Abandon changes made after an authorized phase return and restore its exact forward state.
- *
- * This never resets or rewrites Git history. The rejection and every rework commit remain ancestors;
- * the result is a new governed commit whose tree restores the captured bytes and lifecycle cone.
+ * Re-establish review only when restoring the original immutable submission's exact evidence.
+ */
+async function refreshRestoredReview(root, config, workflow, at) {
+  const phase = workflow.phases[workflow.currentPhase];
+  if (phase?.status !== 'awaiting_approval') return null;
+  const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
+    candidate.phase === phase.id && Number(candidate.generation) === Number(phase.generation));
+  if (!entry) return null;
+  const { readStoryReviewPacket, createStoryReviewPacket, reviewArtifactSetSha256 } = await import('./story-lineage.mjs');
+  const original = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+  // A rejection may capture already-dirty work. Restoring that checkpoint is allowed, but it
+  // cannot turn bytes that were never submitted into reviewed evidence. Keep the original packet
+  // (and its normal approval refusals) unless every reviewed identity is restored exactly.
+  if (original.phase !== phase.id || Number(original.generation) !== Number(phase.generation)
+      || original.sourceTreeSha256 !== await sourceTreeHash(root, config, workflow)
+      || original.submissionEvidence.checksSha256 !== createHash('sha256').update(JSON.stringify(phase.checks ?? [])).digest('hex')
+      || original.submissionEvidence.artifactSetSha256 !== reviewArtifactSetSha256(phase.artifacts)) return null;
+  for (const artifact of original.artifacts ?? []) {
+    const actual = await repositoryArtifactSnapshot(root, artifact.path);
+    if (actual.sha256 !== artifact.sha256 || actual.size !== artifact.size) return null;
+  }
+  // Roll-forward is a new review boundary, not a bypass of the intervening-commit guard. Retain
+  // the original immutable packet and approvals, then bind a fresh packet into this governed
+  // publication; abandoned generation commits can no longer strand this restored review.
+  for (const approval of phase.approvals ?? []) {
+    if (!approval.invalidatedAt) approval.invalidatedAt = at;
+  }
+  phase.submittedAt = at;
+  await updateArtifactMetadata(root, config, workflow, phase);
+  await refreshRequiredArtifact(root, config, workflow, phase);
+  await refreshSkillLifecycleArtifactIdentities(root, config, workflow, phase, { stage: 'submitted' });
+  return createStoryReviewPacket(root, config, workflow, phase);
+}
+
+/**
+ * Abandon rework by publishing the captured forward state, never resetting Git history.
+ * The rejection and every abandoned generation remain immutable ancestors.
  */
 export async function rollForwardRework(root, config, workflow, {
   changeRequestId = null,
@@ -7539,8 +7606,23 @@ export async function rollForwardRework(root, config, workflow, {
   else workflow.measurement = structuredClone(checkpoint.state.measurement);
   if (checkpoint.state.spec == null) delete workflow.spec;
   else workflow.spec = structuredClone(checkpoint.state.spec);
+  const abandonedGenerations = [];
   for (const phaseId of checkpoint.state.affectedPhaseIds) {
+    const restoredGeneration = Number(checkpoint.state.phases[phaseId]?.generation ?? 0);
+    for (const generation of new Set([
+      Number(workflow.phases[phaseId]?.generation ?? 0),
+      ...(workflow.phases[phaseId]?.generationPublications ?? []).map((entry) => Number(entry.generation))
+    ])) {
+      if (generation > restoredGeneration) abandonedGenerations.push({ phase: phaseId, generation });
+    }
+    const highWatermark = Math.max(
+      Number(workflow.phases[phaseId]?.generation ?? 0),
+      Number(workflow.phases[phaseId]?.generationHighWatermark ?? 0)
+    );
     workflow.phases[phaseId] = structuredClone(checkpoint.state.phases[phaseId]);
+    if (highWatermark > Number(workflow.phases[phaseId].generation ?? 0)) {
+      workflow.phases[phaseId].generationHighWatermark = highWatermark;
+    }
   }
   rebuildUsageAggregates(workflow);
   const rolledAt = nowIso();
@@ -7561,6 +7643,7 @@ export async function rollForwardRework(root, config, workflow, {
     confirmation: preview.confirmation,
     restoredCommit: checkpoint.sourceCommit,
     restoredPhase: checkpoint.sourcePhase,
+    abandonedGenerations,
     backup: { local: true, id: path.basename(backupPath) },
     ...(actionContext ? { actionContext } : {})
   };
@@ -7573,6 +7656,8 @@ export async function rollForwardRework(root, config, workflow, {
     phase: checkpoint.sourcePhase,
     detail: `${request.id} abandoned; restored ${preview.paths.length} path(s) and returned to ${checkpoint.sourcePhase}`
   });
+  const restoredReview = await refreshRestoredReview(root, config, workflow, rolledAt);
+  if (restoredReview) request.resolution.reviewPacketSha256 = restoredReview.packet.packetSha256;
   for (const phaseId of checkpoint.state.affectedPhaseIds) {
     await writeJson(approvalPath(root, config, workflow.workItem.id, phaseId), {
       schemaVersion: currentSchemaVersion('phase-approval'),
@@ -7586,6 +7671,7 @@ export async function rollForwardRework(root, config, workflow, {
     checkpoint,
     preview,
     backupPath,
+    restoredReview,
     actor: session.actor,
     agent: session.agent,
     authorityGroup: authority.authorityGroup,
@@ -7620,6 +7706,7 @@ export async function promoteDesignSource(root, config, workflow, {
     affected.status = index === targetIndex ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
     affected.submissionArchitectureDecision = null;
+    affected.reworkRevalidation = { generation: affected.generation, invalidatedAt: timestamp };
     clearDecisionState(affected);
     await updateArtifactMetadata(root, config, workflow, affected);
   }

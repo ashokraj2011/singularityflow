@@ -155,6 +155,21 @@ test('policy waivers are reported distinctly and never count as human approval w
   assert.match(renderHtml(report), /policy waived/);
 });
 
+test('a waiver left by an earlier round does not relabel a phase people approved, or one in progress', () => {
+  // Older builds kept the record when the phase was reopened.
+  const workflow = fixtureWorkflow();
+  workflow.phases.requirements.approvalDisposition = 'policy_waived';
+  workflow.phases.requirements.approvalWaiver = { policyId: 'quick-fix-low-risk-v1' };
+  workflow.phases.design.approvalDisposition = 'policy_waived';
+  workflow.phases.design.status = 'in_progress';
+  workflow.phases.design.approvals = [];
+  const report = deriveReport(workflow, { now: at(480) });
+  assert.equal(report.phases[0].approvalDisposition, 'human_approved');
+  assert.equal(report.phases[0].waitingMs, 60 * 60_000, 'the human review wait is still measured');
+  assert.equal(report.phases[1].approvalDisposition, null);
+  assert.doesNotMatch(renderMarkdown(report), /policy waived/);
+});
+
 test('markdown and HTML render escaped, script-free report summaries and limitations', () => {
   const report = deriveReport(fixtureWorkflow(), { now: at(480) });
   const markdown = renderMarkdown(report);

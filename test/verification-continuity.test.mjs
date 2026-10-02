@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 import { runFirstRunGuide } from '../src/first-run-guide.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { runGovernanceGate } from '../src/governance.mjs';
@@ -175,4 +179,117 @@ test('first-run completion has replayable authority and verification cannot repl
     assert.equal(replay.valid, false);
     assert.match(replay.errors.join('\n'), /reconciliation hash mismatch/i);
   });
+});
+
+const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+
+/** A low-risk quick-fix Story whose verify phase its approval policy may waive. */
+async function quickFixStory(t, id, { configure = () => {} } = {}) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-waiver-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = path.join(directory, 'repo');
+  const machine = path.join(directory, 'machine');
+  await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests')); await mkdir(machine);
+  const env = { ...process.env, HOME: machine, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Waiver Tester' };
+  const execute = (command, args, allowFailure = false) => {
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8' });
+    if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result;
+  };
+  const git = (...args) => execute('git', args).stdout.trim();
+  const flow = (args, allowFailure = false) => execute(process.execPath, [bin, ...args, '--no-model'], allowFailure);
+  const source = async (value, { tagged = true } = {}) => {
+    await writeFile(path.join(root, 'src/value.mjs'), `export const value = ${value};\n`);
+    await writeFile(path.join(root, 'tests/value.test.mjs'), [
+      "import test from 'node:test';", "import assert from 'node:assert/strict';", "import { value } from '../src/value.mjs';",
+      ...(tagged ? [`/** @ac:${id}:AC-001 */`] : []), `test('exact value', () => assert.equal(value, ${value}));`, ''
+    ].join('\n'));
+  };
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify({ private: true, type: 'module', scripts: { test: 'node --test' } }, null, 2)}\n`);
+  await source(1, { tagged: false });
+  git('init', '-b', 'main'); git('config', 'user.name', 'Waiver Tester'); git('config', 'user.email', 'waiver@example.test');
+  flow(['init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.worldModel.grounding = 'off';
+  config.repositoryReadiness.requiredBeforeStory = false;
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  configure(config);
+  await writeFile(configPath, YAML.stringify(config));
+  git('add', '.'); git('commit', '-m', 'Waiver fixture configuration');
+  git('init', '--bare', '-b', 'main', path.join(directory, 'remote.git'));
+  git('remote', 'add', 'origin', path.join(directory, 'remote.git')); git('push', '-q', '-u', 'origin', 'main');
+  const plan = JSON.parse(flow(['precheck', '--run', '--scope', 'dependency-test', '--json']).stdout).data.plan;
+  flow(['precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', plan.planId, '--json']);
+  const story = path.join(directory, 'story.yml');
+  await writeFile(story, YAML.stringify({
+    title: 'Waiver lifecycle', description: 'Change one value through the governed quick-fix path.',
+    desiredOutcome: 'The value changes exactly.', acceptanceCriteria: ['The value is exact.'], risk: 'low', repositoryCount: 1
+  }));
+  flow(['start', id, '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer']);
+  const file = path.join(root, 'singularity/work-items', id, 'workflow.json');
+  const state = async () => JSON.parse(await readFile(file, 'utf8'));
+  const publish = (phase) => { flow(['prepare', phase]); flow(['phase', 'publish', phase, '--authored', 'deterministic']); };
+  const complete = async (value) => {
+    await source(value); publish('implement'); flow(['submit', 'implement']);
+    publish('verify'); return flow(['submit', 'verify']);
+  };
+  return { root, file, flow, state, publish, source, complete };
+}
+
+const gateResult = (result) => JSON.parse(result.stdout);
+const holdsDisposition = (phase) => Object.hasOwn(phase, 'approvalDisposition') || Object.hasOwn(phase, 'approvalWaiver');
+
+test('a waiver from an earlier round never outlives rework, and a stale one never fails a phase people approved', async (t) => {
+  const { root, file, flow, state, publish, source, complete } = await quickFixStory(t, 'QF-STALE');
+  await complete(2);
+  let workflow = await state();
+  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.phases.verify.approvalDisposition, 'policy_waived');
+  const stale = { approvalDisposition: 'policy_waived', approvalWaiver: workflow.phases.verify.approvalWaiver };
+  flow(['reopen', '--to', 'implement', '--reason', 'Broaden the fix after review.']);
+  workflow = await state();
+  for (const id of ['implement', 'verify']) assert.equal(holdsDisposition(workflow.phases[id]), false, `${id} kept its earlier completion`);
+
+  // Round two touches an authorization path, so the policy cannot waive it and people review it.
+  flow(['prepare', 'implement']);
+  await source(3);
+  await mkdir(path.join(root, 'src/auth'), { recursive: true });
+  await writeFile(path.join(root, 'src/auth/guard.mjs'), 'export const guarded = true;\n');
+  flow(['phase', 'publish', 'implement', '--authored', 'deterministic']); flow(['submit', 'implement']);
+  publish('verify');
+  // Older builds kept the record through a reopen; review and approval drop it.
+  const leaveStaleRecord = async (change = () => {}) => {
+    const value = JSON.parse(await readFile(file, 'utf8'));
+    Object.assign(value.phases.verify, structuredClone(stale));
+    change(value);
+    await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
+  };
+  await leaveStaleRecord();
+  flow(['submit', 'verify']);
+  workflow = await state();
+  assert.equal(workflow.phases.verify.status, 'awaiting_approval');
+  assert.equal(holdsDisposition(workflow.phases.verify), false, 'submission for review kept a waiver it was not granted');
+  await leaveStaleRecord();
+  flow(['approve', 'verify', '--yes']);
+  workflow = await state();
+  assert.equal(workflow.status, 'complete');
+  assert.equal(holdsDisposition(workflow.phases.verify), false, 'a human approval kept the earlier waiver');
+  let gate = gateResult(flow(['gate', '--terminal', '--json']));
+  assert.deepEqual(gate.errors, []);
+  assert.equal(gate.warnings.some((warning) => /policy waiver/.test(warning)), false);
+
+  // A Story an older build completed this way still carries the record, and its approvals authorize it.
+  await leaveStaleRecord();
+  gate = gateResult(flow(['gate', '--terminal', '--json']));
+  assert.deepEqual(gate.errors, []);
+  assert.ok(gate.warnings.some((warning) => /^verify policy waiver record is stale and was not relied on/.test(warning)), gate.warnings.join('\n'));
+  // Without those approvals the stale waiver is what would authorize the phase; it never counts as one.
+  await leaveStaleRecord((value) => value.phases.verify.approvals.forEach((approval) => { approval.invalidatedAt ??= approval.at; }));
+  const refused = flow(['gate', '--terminal', '--json'], true);
+  assert.notEqual(refused.status, 0);
+  gate = gateResult(refused);
+  assert.ok(gate.errors.some((error) => /^verify policy waiver is invalid: /.test(error)), gate.errors.join('\n'));
+  assert.ok(gate.errors.some((error) => /^verify has 0 distinct approvals/.test(error)), gate.errors.join('\n'));
 });

@@ -1,4 +1,5 @@
 import { nowIso } from './util.mjs';
+import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
 
 const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected', 'phase-approval-waived']);
 
@@ -150,10 +151,13 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
     const phase = workflow.phases[id];
     const events = phaseEvents(history, id);
     const measuredWait = waitingTime(events, reportTime);
+    // Only the disposition of the phase's current completion counts: a waiver an earlier round
+    // recorded does not describe a phase people approved since, or one still in progress.
+    const disposition = automaticApprovalDisposition(phase);
     // A deterministic policy waiver is not a human review queue. Older event streams may contain
     // a submission immediately before the waiver, so make the reporting distinction explicit
     // instead of allowing that interval to inflate approval latency.
-    const wait = phase.approvalDisposition === 'policy_waived'
+    const wait = disposition === 'policy_waived'
       ? { waitingMs: 0, cycles: [], openSubmission: null }
       : measuredWait;
     const window = phaseWindow(phase, events, reportTime);
@@ -181,7 +185,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       id,
       label: phase.label,
       status: phase.status,
-      approvalDisposition: phase.approvalDisposition
+      approvalDisposition: disposition
         ?? ((phase.approvals ?? []).some((item) => !item.invalidatedAt && item.decision === 'approved') ? 'human_approved' : null),
       generations: phase.generation ?? 0,
       elapsedMs: window.elapsedMs,

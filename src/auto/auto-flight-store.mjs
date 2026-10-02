@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
+import { automaticApprovalDisposition } from '../lifecycle-transitions.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { subjectLockPath, withSubjectLock } from '../subject-lock.mjs';
 import { nowIso, run, SingularityFlowError } from '../util.mjs';
@@ -1231,7 +1232,8 @@ function phaseApprovalSnapshot(workflow) {
       phase: phaseId,
       generation: Number.isSafeInteger(phase.generation) ? phase.generation : null,
       status: phase.status ?? null,
-      disposition: phase.approvalDisposition ?? null,
+      // The current completion's automatic disposition, never one an earlier round left behind.
+      disposition: automaticApprovalDisposition(phase),
       decisions: structuredClone(phase.approvals ?? [])
     };
   });

@@ -449,17 +449,26 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (phase.status !== 'approved') continue;
     const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));
+    const policyRequiresPeople = phase.approvalPolicy.mode !== 'none';
+    const missingAuthorities = remainingRequiredAuthorities(phase.approvalPolicy, decisions);
+    const peopleSatisfyPolicy = distinct.size >= (phase.approvalPolicy.minimum ?? 1) && !missingAuthorities.length;
     let waived = false;
     if (phase.approvalDisposition === 'policy_waived') {
       const replay = await verifyPhaseApprovalWaiver(root, config, workflow, phase);
       waived = replay.valid;
-      errors.push(...replay.errors.map((message) => `${phaseId} policy waiver is invalid: ${message}`));
       if (waived) passes.push(`policy waiver verified: ${phaseId}`);
+      else if (policyRequiresPeople && !peopleSatisfyPolicy) {
+        errors.push(...replay.errors.map((message) => `${phaseId} policy waiver is invalid: ${message}`));
+      } else {
+        // A waiver that does not replay never counts as approval, and fails the gate only when it
+        // is what authorizes the phase. Approvals that satisfy the pinned policy authorize it
+        // without one, so a record an earlier round left behind (older builds kept it) is reported.
+        warnings.push(...replay.errors.map((message) => `${phaseId} policy waiver record is stale and was not relied on; the approval policy is met without it: ${message}`));
+      }
     }
-    const requiresApproval = phase.approvalPolicy.mode !== 'none' && !waived;
+    const requiresApproval = policyRequiresPeople && !waived;
     if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) errors.push(`${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`);
-    const missingAuthorities = requiresApproval ? remainingRequiredAuthorities(phase.approvalPolicy, decisions) : [];
-    if (missingAuthorities.length) errors.push(`${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`);
+    if (requiresApproval && missingAuthorities.length) errors.push(`${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`);
     for (const decision of decisions) {
       const authority = matchApprovalAuthority(
         workflow.resolution.approvalAuthorities,

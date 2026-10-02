@@ -1,8 +1,34 @@
 # TRP qualification ledger
 
-Observed on 2026-10-02. These are actual checkout-fixture executions, not a signed release approval, installed VS Code/Copilot qualification, or human-team pilot. The nine-file matrix below precedes the raw runner-path and directory-snapshot hardening; affected-suite reruns are recorded separately.
+Observed on 2026-10-02. Current implementation: `7f0c4894ec79debf7f6cf5dbfc5de78f37f4897c`. The evidence below distinguishes actual engine fixtures, an installed extension-host smoke, and remaining visual/platform/human qualification. It is not a signed release approval or human-team pilot. Historical matrices are retained under explicitly historical headings; they are not substituted for the current runs.
 
-## Installed extension-host smoke and remaining visual qualification
+## Current qualification summary
+
+- macOS Node 22.14.0, macOS Node 24.19.0 and offline Linux Node 24.21.0 each passed 303 tests in the expanded 28-file matrix, with zero failures and four deliberate optional-runner skips. The final isolated-intake correction then passed all 26 affected tests on each runtime. Repeated cases are not summed.
+- The actual native pytest/Maven adapter file separately passed 8/8 with zero skips on macOS Node 22 and Node 24. Linux pytest/Maven runtimes were not qualified.
+- The final VSIX built from clean commit `7f0c4894` passed the actual installed VS Code extension-host smoke described next. The legacy editor suite passed 324/324; TypeScript checks passed. These are distinct evidence sets, not additional unique matrix counts.
+- Native rendered-control interaction/accessibility, Copilot-host behavior, Windows execution and a real human-team pilot remain **not qualified**. The Windows VM is left untouched at the user's request.
+
+## Final committed installed extension-host result
+
+The final `apps/vscode/singularity-flow-vscode-0.9.0.vsix` passed on native macOS arm64 using VS Code 1.140.0 (`07f806f999227108933c2e30515b26eecc1fda74`) and engine Node 24.19.0. The package was built from a clean implementation commit; its native output reports build `7f0c489`. The final smoke started at `2026-10-02T03:13:04.102Z` and exited successfully.
+
+| Evidence | Exact binding |
+| --- | --- |
+| Implementation source commit | `7f0c4894ec79debf7f6cf5dbfc5de78f37f4897c` |
+| Final VSIX SHA-256 | `b0ef211254d6e8280becb7a492a72b0d0bc31f3413bdb5f8d3d37b284e349ec3` |
+| Host report SHA-256 | `c9076cbcb7e4f40907ecad68e3c48a10b3b4fcaad342b27d8097c0350b52cf9e` |
+| Installed-package evidence SHA-256 | `f31093783d31bd0f0be664494eb4453f99977d1a1b4cefd93f6b29d19e845ff3` |
+| Host-process log SHA-256 | `df647a3983a77a5db8bb582145c9c10074b611e176e77e7aca3583a4ed70cd01` |
+| Complete harness log SHA-256 | `15eb418b97a7484e3c8d1ed401dfbb3964240aad81b1235cedac7abf2425d833` |
+
+The report, package evidence and host-process log are `/private/tmp/sftrp-ui-rSfk8E/installed-host-report.json`, `installed-package.json` and `installed-host-process.log`; the complete harness log is `/tmp/sftrp-final-matrix-Cw5nhw/installed-host-committed.log`. The installed extension was loaded from the fixture's isolated `e/singularityflow.singularity-flow-vscode-0.9.0` directory. Actual registered VS Code commands opened the intake webview, recovery-policy JSON, the non-waivable unreviewed-agreement risk preview, and its exact live-review plan, then staged the bound command in a native terminal without submitting it. Both fixture Git HEAD and Story bytes remained unchanged. No risk acceptance or normal approval was performed. The report explicitly retains `nativeVisualInteractionQualified: false` and `humanApprovalQualified: false`.
+
+The package's recovery topic and documentation manifest were extracted and compared with the committed files. Their SHA-256 values matched exactly: topic `10bb2db28318eb92cd3c7121bf186c3f4bb39cb9b7a8746000340a6791088ccc`; manifest `466b61529e3ca398fa33d9cb33a5e0c70b21335760dd40b17c5a1c1cfc829d45`. This ledger update is evidence-only and follows the implementation build; it does not claim the VSIX contains its own final hash.
+
+The earlier final-build attempt at `03:04Z` timed out before activation completed; its isolated authentication log stopped at reading native Keychain sessions. It is not counted as a pass. The committed harness uses the editor's `--use-inmemory-secretstorage` flag only in the disposable test process, alongside isolated HOME, user-data, extensions and machine registries. This neither reads saved credentials for the test nor changes the user's profile or Keychain configuration. The retried committed package passed, and its fixture editor process exited normally. Both that process and the timed-out attempt's own process were confirmed gone; fixture logs remain available.
+
+## Earlier installed smoke and remaining visual qualification
 
 At 2026-10-02T02:27:24Z, the packaged 0.9.0 extension passed a real installed-host smoke on native macOS arm64, VS Code 1.140.0 (`07f806f999227108933c2e30515b26eecc1fda74`), using Node 24.19.0 for the engine. The VSIX SHA-256 was `a1021a0f69fbd5a99acb7f2661cb733202b3fa70e667af3b3d854ecd8a9a5bc1`. This package was built from the earlier `ef555cb` source, so this cell does not qualify later intake/document/risk UI edits until a final package is rerun.
 
@@ -16,7 +42,7 @@ A later explicitly authorized ordinary resume of the exact Windows 11 VM succeed
 
 A genuine native Node skipped-case lifecycle fixture also passed on Node 24.19.0 (one test, 24.98 s): one case passed and one remained skipped through separately reviewed publication, submission, normal independent approval, replay and downstream use. This development result is additional evidence for reduced coverage, not part of the historical nine-file matrix or a final cross-platform rerun.
 
-Separate exploratory native adapter qualification on macOS used Node 25.5.0 with real Python 3.14.4 / isolated-venv pytest 9.0.2, and Maven 3.9.16 / Temurin 25 / Surefire 3.2.5 / JUnit 4.13.2 (compiler release 17). Six adapter tests passed with zero skips, including real failing report capture and baseline compatibility; subsequent hardening needs its final rerun. This is not Linux or Windows adapter qualification. Without the explicit `SF_TRP_PYTEST_*` / `SF_TRP_MAVEN_*` runtime bindings, the installed-runner tests intentionally skip and are not qualification evidence.
+Separate exploratory native adapter qualification on macOS used Node 25.5.0 with real Python 3.14.4 / isolated-venv pytest 9.0.2, and Maven 3.9.16 / Temurin 25 / Surefire 3.2.5 / JUnit 4.13.2 (compiler release 17). Six adapter tests passed with zero skips, including real failing report capture and baseline compatibility; the final eight-case Node 22/24 reruns below supersede this exploratory result. This is not Linux or Windows adapter qualification. Without the explicit `SF_TRP_PYTEST_*` / `SF_TRP_MAVEN_*` runtime bindings, the installed-runner tests intentionally skip and are not qualification evidence.
 
 ## Native pytest and Maven adapter rerun
 
@@ -161,4 +187,4 @@ The matrix covers the bounded native-launch-unavailable path and the narrowly de
 
 The failed-test adapter is deliberately narrow: repository-local and Node-builtins-only dependency scope must be explicitly approved. It is not a hermetic runner. Local dependency snapshots include ignored files/data and ordinary directories (including empty ones) and fail closed above 16,384 entries, 4 MiB per file or 64 MiB total, or on symlinks/hardlinks. General npm installations and external/live-service dependencies are not qualified. The exact effective child environment is bound; framework transport controls are omitted from the actual child, not merely ignored by hashing. Old Node reporters without testcase file attributes qualify only a single independently declared explicit source file; multiple-file identity cannot be inferred from names. Flat top-level cases only are supported. No genuine Jest or Vitest qualification is claimed, and Node's native JUnit output does not qualify arbitrary JUnit-producing runners.
 
-The historical matrix above does not qualify the later known-failure carry-forward, reduced-coverage, document-exception or additional runner implementations. Their implementation and targeted tests must be reported separately and included in a final native matrix before broader release claims. Actual Windows wrapper/path/locking/cleanup tests, installed visual/Copilot checks and a real human-team pilot with independent normal phase approval remain outstanding. Interrupted initial creation/amendment and pending-publication risk recovery still need scenario-specific failure-injection evidence; copied-checkout refusal alone does not prove a complete fresh local observation recovery route.
+The historical nine-file matrix does not qualify the later known-failure carry-forward, reduced-coverage, document-exception or additional runner implementations; their current evidence is the expanded 28-file matrix, final isolated-intake rerun and separately identified native adapter runs above. Actual Windows wrapper/path/locking/cleanup tests, installed visual/Copilot checks and a real human-team pilot with independent normal phase approval remain outstanding. Interrupted initial creation/amendment and pending-publication risk recovery still need scenario-specific failure-injection evidence; copied-checkout refusal alone does not prove a complete fresh local observation recovery route.

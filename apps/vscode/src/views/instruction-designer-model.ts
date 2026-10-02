@@ -399,6 +399,9 @@ function renderHeader(source: string, draft: AgentDraft, unchanged: (key: AgentF
     ['defaultFor', 'sflow-default-for', draft.defaultFor.join(',')],
     ['worldModelViews', 'sflow-world-model-views', draft.worldModelViews.join(',')]
   ] as const).filter(([key]) => !unchanged(key));
+  // `metadata:` with no value is an empty map to the CLI; make it one before writing into it.
+  const map = document.get('metadata', true);
+  if (metadata.length && YAML.isScalar(map) && map.value == null) document.set('metadata', document.createNode({}));
   for (const [, field, value] of metadata) write(['metadata', field], value, true);
   return document.toString(YAML_OUTPUT);
 }

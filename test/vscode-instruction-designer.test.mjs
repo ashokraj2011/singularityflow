@@ -306,3 +306,21 @@ test('a new agent created in the designer gets the block frontmatter packaged ag
   await designer.save({ values: { 'data-agent-label': 'Security lead' } });
   assert.equal(designer.saves[1].content, created.replace('sflow-label: "Security reviewer"', 'sflow-label: "Security lead"'));
 });
+
+test('an agent whose metadata key has no value is edited like one with empty metadata', async (t) => {
+  // The CLI reads `metadata:` with no value as no metadata. Writing a label, phase, default or view
+  // into it threw "Expected YAML collection at metadata", and the save silently did nothing.
+  const bare = '---\nname: bare-reviewer\ndescription: Reviews.\ntools: [read]\nmetadata:\n---\n\n# Bare reviewer\n\nUse evidence.\n';
+  assert.equal(parseAgentDependencies(bare, { source: '.github/agents/bare-reviewer.agent.md' }).label, 'bare-reviewer');
+  const designer = await openDesigner(t, [['bare-reviewer', bare]]);
+  await designer.save({ values: { 'data-agent-label': 'Bare lead' }, checked: { 'agent-phases': ['design'] } });
+  assert.equal(designer.saves.length, 1, 'the save reaches the CLI');
+  assert.equal(designer.saves[0].content,
+    bare.replace('metadata:\n', 'metadata:\n  sflow-label: "Bare lead"\n  sflow-phases: "design"\n'));
+  const saved = parseAgentDependencies(designer.saves[0].content, { source: designer.saves[0].path });
+  assert.deepEqual({ label: saved.label, phases: saved.phases }, { label: 'Bare lead', phases: ['design'] });
+
+  const draft = { ...parseAgent(bare, 'bare-reviewer'), defaultFor: ['design'], phases: ['design'], worldModelViews: ['architecture'] };
+  const rendered = parseAgentDependencies(renderAgent(draft, bare), { source: designer.saves[0].path });
+  assert.deepEqual({ defaultFor: rendered.defaultFor, worldModelViews: rendered.worldModelViews }, { defaultFor: ['design'], worldModelViews: ['architecture'] });
+});

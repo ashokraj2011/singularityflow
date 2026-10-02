@@ -51,13 +51,13 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
     }
     if (outcome.kind === 'end' || !outcome.target) return completionActions(workflow.workItem.id, 'then');
     const target = workflow.phases[outcome.target];
-    return [action('then', generationSkillForPhase(target), `singularity-flow prepare ${target.id}`,
+    return [action('then', generationSkillForPhase(target, workflow), `singularity-flow prepare ${target.id}`,
       `${when}, ${describeOutcome(workflow, outcome)}`)];
   }
   const upcoming = nextPhase(workflow, phase.id);
   if (!upcoming) return completionActions(workflow.workItem.id, 'then');
   return [action(
-    'then', generationSkillForPhase(upcoming), `singularity-flow prepare ${upcoming.id}`,
+    'then', generationSkillForPhase(upcoming, workflow), `singularity-flow prepare ${upcoming.id}`,
     withoutApproval
       ? `After ${phase.id} submission completes its no-approval phase, generate and publish ${upcoming.label}.`
       : `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`
@@ -117,7 +117,7 @@ export function workflowNextSteps(workflow, {
   const actions = [...prerequisites.map(copilotAction), ...immediate];
   if (needsGeneration && !modelMode.enabled) {
     if (modelFreeProducer === 'human') actions.unshift(action(
-      'now', generationSkillForPhase(phase), phasePublicationCommandForProducer(
+      'now', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
         phase, 'human', { source: '<FILE>', noModel: true }
       ),
       `Import and publish ${phase.label} without invoking a model.`,
@@ -125,7 +125,7 @@ export function workflowNextSteps(workflow, {
     ));
     else if (modelFreeProducer === 'deterministic') {
       if (!convergenceProjectionRequired) actions.push(action(
-        'then', generationSkillForPhase(phase), phasePublicationCommandForProducer(phase, 'deterministic'),
+        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(phase, 'deterministic'),
         `Publish the deterministically generated ${phase.label} without invoking a model.`,
         { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
       ));
@@ -139,7 +139,7 @@ export function workflowNextSteps(workflow, {
       { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
     ));
   } else if (needsGeneration && !convergenceProjectionRequired) actions.push(action(
-    'then', generationSkillForPhase(phase), phasePublicationCommand(phase),
+    'then', generationSkillForPhase(phase, workflow), phasePublicationCommand(phase),
     `Publish ${phase.label} with its configured producer and channel.`,
     { operationId: 'phase', route: 'configured-producer' }
   ));

@@ -1,3 +1,4 @@
+import { workflowAuthoringRoutes } from '../code-delivery-policy.mjs';
 import { branch } from '../git.mjs';
 import { executeGitQuery } from '../git-query.mjs';
 import { ledgerStatus } from '../ledger.mjs';
@@ -104,9 +105,12 @@ export async function run(_argv, { positionals, options }) {
     const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
     gitShadowSummary = summarizeFosGitShadowObservations(gitShadowObservations);
   }
+  // Each step's drafting route, from the pinned resolution, beside the record and never inside its
+  // steps, so the printed state still reads as the record it is.
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
     ...workflow,
-    ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {})
+    ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {}),
+    authoringRoutes: workflowAuthoringRoutes(workflow)
   }, null, 2));
 
   summary(workflow);

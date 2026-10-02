@@ -2,6 +2,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { operationCatalog } from '../src/command-registry.mjs';
+import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 
 const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',
@@ -363,6 +364,12 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
   for (const missing of directories.filter((name) => !registered.includes(name))) errors.push(`${missing}: missing from skill registry`);
   for (const stale of registered.filter((name) => !directories.includes(name))) errors.push(`${stale}: registry entry has no skill directory`);
   for (const name of automatic) if (!registered.includes(name)) errors.push(`${name}: automatic allowlist entry is not registered`);
+  // Every skill a step may name as its drafter must be a packaged, registered skill.
+  try {
+    parseAuthoringSkills(AUTHORING_SKILL_DECLARATION, { registeredSkills: new Set(registered) });
+  } catch (error) {
+    errors.push(`src/authoring-skills.mjs: ${error.message}`);
+  }
 
   for (const name of directories) {
     const rule = policy.skills?.[name];

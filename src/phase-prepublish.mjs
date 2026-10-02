@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   catalogArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
 } from './artifact-sets.mjs';
-import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { configuredAuthoringSkill, generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
@@ -77,7 +77,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
   const artifactPath = draft.artifact.path;
   const repair = {
     command: `singularity-flow phase show ${phase.id} --show-artifact`,
-    skill: directCopilotSkill(generationSkillForPhase(phase)),
+    skill: directCopilotSkill(generationSkillForPhase(phase, workflow)),
     detail: `Correct the cited specification or planned-test findings in ${artifactPath}, then rerun prepublish.`
   };
   let needsHumanClarification = false;
@@ -316,8 +316,10 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
     }
     if (catalog.missingRequired.length || unpublishable.length) actions.push({
       command: `singularity-flow phase prepublish ${phase.id} --json`,
-      skill: phase.id === 'release' ? '/sf-release'
-        : directCopilotSkill(generationSkillForPhase(phase)),
+      // The built-in release step keeps its evidence corrections with the release skill unless the
+      // step names its own authoring skill.
+      skill: phase.id === 'release' && !configuredAuthoringSkill(phase, workflow) ? '/sf-release'
+        : directCopilotSkill(generationSkillForPhase(phase, workflow)),
       detail: 'Complete the required members in the current phase artifact directory, then recheck.'
     });
   }

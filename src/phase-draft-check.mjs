@@ -137,7 +137,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
   const repairClass = convergenceReview?.class ?? correctionClass(producer);
-  const generationSkill = directCopilotSkill(generationSkillForPhase(phase));
+  const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
   return Object.freeze({

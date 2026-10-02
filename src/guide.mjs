@@ -11,37 +11,12 @@ function currentPhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
 }
 
-function nextActions(workflow, phase) {
-  if (workflow.status === 'cancelled') return [
-    copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
-  ];
-  // A Story waiting for a person moves only by their choice; the approved phase has nothing to submit.
-  const pending = workflow.pendingDecision;
-  if (pending) return [
-    copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision show ${workflow.workItem.id}`, reason: `See what '${pending.label}' offers and who may choose.` }),
-    ...pending.options.map((option) => copilotAction({
-      skill: '/sflow-decide',
-      command: `singularity-flow decision choose ${workflow.workItem.id} --option ${option.id} --reason <reason> --expected ${pending.key}`,
-      reason: `Choose '${option.label}' for '${pending.label}'.`
-    }))
-  ];
-  if (!phase) return [
-    copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' })
-  ];
-  if (phase.status === 'awaiting_approval') return [
-    copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
-    copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` })
-  ];
-  const regenerate = phaseNeedsGeneration(workflow, phase);
-  if (regenerate) return [
-    copilotAction({
-      skill: generationSkillForPhase(phase),
-      command: `singularity-flow prepare ${phase.id}`,
-      reason: phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase)
-        ? 'Compute the deterministic convergence projection, then follow its returned adjudication, rework, amendment, or publication action.'
-        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
-    })
-  ];
+/**
+ * What comes after a step's publication: source review when it is enforced for the step, then
+ * submission, which completes the step when it has no sign-off. The guide and `phase show` share
+ * it, so a skill's closing handoff is the engine's own next action instead of text it hard-codes.
+ */
+export function phaseHandoff(workflow, phase) {
   const noApproval = phase.approvalPolicy?.mode === 'none';
   if (phase.id === 'convergence') return [
     copilotAction({
@@ -66,6 +41,40 @@ function nextActions(workflow, phase) {
     submit
   ];
   return [submit];
+}
+
+function nextActions(workflow, phase) {
+  if (workflow.status === 'cancelled') return [
+    copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
+  ];
+  // A Story waiting for a person moves only by their choice; the approved phase has nothing to submit.
+  const pending = workflow.pendingDecision;
+  if (pending) return [
+    copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision show ${workflow.workItem.id}`, reason: `See what '${pending.label}' offers and who may choose.` }),
+    ...pending.options.map((option) => copilotAction({
+      skill: '/sflow-decide',
+      command: `singularity-flow decision choose ${workflow.workItem.id} --option ${option.id} --reason <reason> --expected ${pending.key}`,
+      reason: `Choose '${option.label}' for '${pending.label}'.`
+    }))
+  ];
+  if (!phase) return [
+    copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' })
+  ];
+  if (phase.status === 'awaiting_approval') return [
+    copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
+    copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` })
+  ];
+  const regenerate = phaseNeedsGeneration(workflow, phase);
+  if (regenerate) return [
+    copilotAction({
+      skill: generationSkillForPhase(phase, workflow),
+      command: `singularity-flow prepare ${phase.id}`,
+      reason: phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase)
+        ? 'Compute the deterministic convergence projection, then follow its returned adjudication, rework, amendment, or publication action.'
+        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
+    })
+  ];
+  return phaseHandoff(workflow, phase);
 }
 
 export function workflowGuide(workflow) {

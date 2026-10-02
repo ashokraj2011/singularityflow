@@ -232,6 +232,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'mcp-client.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'mcp-import.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'mcp-descriptor.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'authoring-skills.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
     ), '// fixture\n'),
@@ -309,6 +310,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/mcp-client.mjs',
     'src/mcp-import.mjs',
     'src/mcp-descriptor.mjs',
+    'src/authoring-skills.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',

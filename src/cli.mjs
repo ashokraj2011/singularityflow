@@ -38,9 +38,9 @@ import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
 import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake,
   testRecoveryChoices } from './test-recovery-intake.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
+import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, pinnedResolutionVerification, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
-  generationSkillForPhase, phaseRequiresCodeDelivery, workflowCodeGeneration
+  authoringRoute, generationSkillForPhase, phaseRequiresCodeDelivery, workflowAuthoringRoutes, workflowCodeGeneration
 } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
@@ -130,7 +130,7 @@ import {
 import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
-import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { guideText, phaseHandoff, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
@@ -3642,7 +3642,7 @@ async function resumeCommand(positionals, options) {
   }
   const active = currentPhase(workflow);
   if (active && !json) {
-    console.log(`\n${phasePreparationCommandLines(active).join('\n')}`);
+    console.log(`\n${phasePreparationCommandLines(active, 'Run', workflow).join('\n')}`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'resume', classification: 'mutation' },
@@ -3792,7 +3792,7 @@ async function returnCommand(positionals, options) {
   }
   const active = currentPhase(workflow);
   if (active && !json) {
-    console.log(phasePreparationCommandLines(active, 'Next').join('\n'));
+    console.log(phasePreparationCommandLines(active, 'Next', workflow).join('\n'));
   }
   emitCommandResult(commandResult({
     operation: { id: 'return', classification: 'mutation' },
@@ -3846,7 +3846,7 @@ export async function statusCommand(positionals, options) {
   }
   const wel = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   if (optionBoolean(options, 'json')) {
-    console.log(JSON.stringify({ ...workflow, welStatus: wel }, null, 2));
+    console.log(JSON.stringify({ ...workflow, welStatus: wel, authoringRoutes: workflowAuthoringRoutes(workflow) }, null, 2));
     return;
   }
   summary(workflow);
@@ -4783,7 +4783,7 @@ async function nextCommand(options) {
   } else {
     console.log('\nAfter authoring and validation, publish the generation:');
     const configuredCommand = phasePublicationCommand(phase);
-    const generationSkill = generationSkillForPhase(phase);
+    const generationSkill = generationSkillForPhase(phase, workflow);
     printCommandRoutes(configuredCommand, {
       skill: generationSkill, indent: '  ', label: 'Configured producer'
     });
@@ -5421,7 +5421,7 @@ function preparedPhaseNextActions(workflow, phase, prepared) {
       id: 'prepare.author',
       label: 'Fill the artifact in, then publish this generation of it',
       command: phasePublicationCommand(phase),
-      skill: generationSkillForPhase(phase)
+      skill: generationSkillForPhase(phase, workflow)
     }),
     inputs
   ];
@@ -5472,7 +5472,7 @@ function preparedPhaseNextActions(workflow, phase, prepared) {
       command: phasePublicationCommandForProducer(
         phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer
       ),
-      skill: generationSkillForPhase(phase)
+      skill: generationSkillForPhase(phase, workflow)
     }),
     inputs
   ];
@@ -6588,7 +6588,27 @@ async function phaseReview(root, config, workflow, phase) {
       notice: 'module execution remains the authoritative delivery evidence; testcase observation is diagnostic and non-blocking'
     } : null,
     witnessReview,
-    documents
+    documents,
+    ...(await phaseAuthoringSummary(root, config, workflow, phase))
+  };
+}
+
+/**
+ * Which skill drafts a step and what follows its publication, for the skills that re-read the
+ * step before working. The route comes from the Story's pinned resolution and is withheld when
+ * that resolution no longer matches its creation or accepted amendment anchor.
+ */
+async function phaseAuthoringSummary(root, config, workflow, phase) {
+  const route = authoringRoute(phase, workflow);
+  const policy = await pinnedResolutionVerification(root, config, workflow);
+  return {
+    authoringSkill: route.authoringSkill,
+    effectiveAuthoringSkill: policy.verified ? route.effectiveAuthoringSkill : null,
+    authoringSkillSource: route.authoringSkillSource,
+    ...(route.warning ? { authoringSkillWarning: route.warning } : {}),
+    policyVerified: policy.verified,
+    ...(policy.reason ? { policyReason: policy.reason } : {}),
+    handoff: phaseHandoff(workflow, phase).map(({ skill, command, copilotCommand, reason }) => ({ skill, command, copilotCommand, reason }))
   };
 }
 
@@ -6604,6 +6624,9 @@ async function phaseReview(root, config, workflow, phase) {
  */
 function printPhaseReview(review, { showArtifact = false } = {}) {
   console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
+  if (review.policyVerified === false) console.log(`Drafting route withheld: ${review.policyReason}`);
+  else if (review.effectiveAuthoringSkill) console.log(`Drafted with: ${review.effectiveAuthoringSkill} (${review.authoringSkillSource})`);
+  if (review.authoringSkillWarning) console.log(`  ${review.authoringSkillWarning}`);
   if (review.testEvidence) {
     console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s)`);
     console.log(`  ${review.testEvidence.notice}`);
@@ -6889,7 +6912,7 @@ async function phaseCommand(positionals, options) {
   };
   const publicationAuthoringOptions = {
     baseline: requestedPhase.authoringBaseline ?? null,
-    retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase))
+    retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase, workflow))
   };
   const deterministicConvergence = requestedPhase.id === 'convergence';
   const inspectPublicationArtifact = deterministicConvergence

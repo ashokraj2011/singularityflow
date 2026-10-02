@@ -71,9 +71,9 @@ export function sequenceGuidance(workflow) {
       ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
       : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
     actions: [
-      copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}` }),
+      copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}` }),
       ...(phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase) ? [] : [
-        copilotAction({ skill: generationSkillForPhase(phase), command: phasePublicationCommand(phase) })
+        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: phasePublicationCommand(phase) })
       ])
     ]
   };

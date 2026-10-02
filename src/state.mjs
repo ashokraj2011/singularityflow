@@ -616,6 +616,32 @@ function committedResolutionPolicySha256(root, config, workId) {
   return resolutionPolicySha256(migratedCreation.resolution);
 }
 
+/**
+ * Whether a Story's pinned resolution is the one it was created with, or the one its accepted
+ * amendment chain produced. This is the anchor `validateWorkflow` checks before every publication;
+ * read commands that decide behaviour from pinned policy, such as which skill drafts a step, check
+ * it without running every other lifecycle rule.
+ */
+export async function pinnedResolutionVerification(root, config, workflow) {
+  if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
+    try {
+      const status = await verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true });
+      if (status.enrolled) return { verified: true, reason: null };
+    } catch (error) {
+      return { verified: false, reason: `Workflow snapshot: ${error.message}` };
+    }
+  }
+  try {
+    const creation = committedResolutionPolicySha256(root, config, workflow.workItem.id);
+    if (creation && creation !== resolutionPolicySha256(workflow.resolution)) {
+      return { verified: false, reason: 'Resolved Story policy differs from the immutable creation commit.' };
+    }
+    return { verified: true, reason: null };
+  } catch (error) {
+    return { verified: false, reason: `Story policy anchor: ${error.message}` };
+  }
+}
+
 /** Classify WEL only from the immutable creation commit; migrated working-tree defaults never enroll. */
 export function storyWelEnrollmentStatus(root, config, workId) {
   let initial;
@@ -3148,7 +3174,7 @@ export async function publishGeneration(root, config, workflow, {
           findings: contentFindings,
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
-            skill: directCopilotSkill(generationSkillForPhase(phase)), maximumAttempts: 1, requiresFingerprintChange: true,
+            skill: directCopilotSkill(generationSkillForPhase(phase, workflow)), maximumAttempts: 1, requiresFingerprintChange: true,
             command: phasePublicationCommand(phase)
           }
         }

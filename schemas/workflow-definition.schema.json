@@ -481,6 +481,7 @@
               "properties": {
                 "inputs": { "$ref": "#/$defs/phaseInputs" },
                 "clarification": { "$ref": "#/$defs/clarificationPolicy" },
+                "authoringSkill": { "$ref": "#/$defs/authoringSkill" },
                 "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
               }
             }
@@ -507,6 +508,7 @@
           "inputs": { "$ref": "#/$defs/phaseInputs" },
           "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
           "clarification": { "$ref": "#/$defs/clarificationPolicy" },
+          "authoringSkill": { "$ref": "#/$defs/authoringSkill" },
           "generation": { "$ref": "#/$defs/generationPolicy" },
           "mcp": { "$ref": "#/$defs/phaseMcpPolicy" },
           "repairBudget": { "$ref": "#/$defs/repairBudget" },
@@ -754,6 +756,11 @@
     }
   ],
   "$defs": {
+    "authoringSkill": {
+      "type": "string",
+      "pattern": "^sf-[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "The packaged Copilot skill that drafts this step, such as sf-design. Absent means automatic: /sf-code for code steps, /sf-phase otherwise. Only the skills listed in src/authoring-skills.mjs can be chosen, and the step's output must be one the skill drafts."
+    },
     "skpSkillBinding": {
       "type": "object",
       "required": ["schemaVersion", "compiler", "compilationSha256", "parserProfile", "bindingRefs"],

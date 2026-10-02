@@ -69,6 +69,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/mcp-client.mjs',
   'src/mcp-import.mjs',
   'src/mcp-descriptor.mjs',
+  'src/authoring-skills.mjs',
   'plugin/skills/sflow-code-docs/SKILL.md',
   'plugin/skills/sflow-decide/SKILL.md',
   'plugin/skills/sflow-import/SKILL.md'

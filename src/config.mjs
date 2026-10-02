@@ -65,8 +65,10 @@ import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
-  assertCodeDeliveryConfiguration, normalizeCodeDeliveryPolicy, phaseRequiresCodeDelivery, pinCodeDeliveryTask
+  assertCodeDeliveryConfiguration, normalizeCodeDeliveryPolicy, phaseRequiresCodeDelivery, pinCodeDeliveryTask,
+  stepOutputKind
 } from './code-delivery-policy.mjs';
+import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
 import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
 } from './intelligence-policy.mjs';
@@ -152,6 +154,41 @@ function assertSupportedPhaseProducer(value, label) {
         && !LEGACY_GENERATION_PRODUCER_FIELDS.has(field)) {
       refuse(`generation.${field}`);
     }
+  }
+}
+
+/** The form of a step's `authoringSkill`: a direct skill id, or absent for the automatic route. */
+function assertAuthoringSkillValue(value, label) {
+  if (value == null) return;
+  if (typeof value !== 'string' || !AUTHORING_SKILL_ID.test(value)) {
+    const direct = typeof value === 'string' ? value.trim().replace(/^\//, '').replace(/^sflow-/, 'sf-') : null;
+    const hint = direct && AUTHORING_SKILL_ID.test(direct) ? ` Write it as '${direct}'.` : '';
+    throw new SingularityFlowError(`${label} authoringSkill must be a direct skill id such as 'sf-design'.${hint}`, {
+      code: 'PHASE_AUTHORING_SKILL_UNKNOWN', details: { location: label, value }
+    });
+  }
+}
+
+/**
+ * Whether a resolved step may be drafted by the skill it names. Runs on every step of every
+ * workflow, after per-workflow overrides, so the same rules hold in YAML and in Workflow Studio.
+ */
+function assertStepAuthoringSkill(phase, label) {
+  const id = phase.authoringSkill;
+  if (id == null) return;
+  assertAuthoringSkillValue(id, label);
+  const refuse = (code, message) => {
+    throw new SingularityFlowError(`${label} ${message}`, { code, details: { location: label, authoringSkill: id } });
+  };
+  if (phase.kind === 'skill') refuse('SKP_PHASE_BINDING_INVALID', 'is a compiled skill phase; its binding decides how it is drafted, so it cannot name an authoring skill.');
+  const output = stepOutputKind(phase);
+  if (output === 'none') refuse('PHASE_AUTHORING_SKILL_NOT_APPLICABLE', 'drafts nothing (sign-off only), so it cannot name an authoring skill.');
+  if (phase.id === 'convergence') refuse('PHASE_AUTHORING_SKILL_NOT_APPLICABLE', 'is deterministic convergence, which always uses /sf-converge, so it cannot name an authoring skill.');
+  const catalog = authoringSkillCatalog();
+  const entry = catalog.find((candidate) => candidate.id === id);
+  if (!entry) refuse('PHASE_AUTHORING_SKILL_UNKNOWN', `names authoring skill '${id}', which a step cannot choose. Choose one of: ${catalog.map((candidate) => candidate.id).join(', ')}.`);
+  if (!entry.produces.includes(output)) {
+    refuse('PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH', `produces ${output === 'analysis' ? 'an analysis' : output === 'code' ? 'code' : 'a document'}, but authoring skill '${id}' drafts only ${entry.produces.join(' or ')} steps.`);
   }
 }
 
@@ -984,9 +1021,11 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
     assertConfiguredPhaseProducer(phase, `Phase '${phaseId}'`, phaseId, definition.version);
+    assertAuthoringSkillValue(phase?.authoringSkill, `Phase '${phaseId}'`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
+      assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
       if (definition.version === 3 && definition.phases[phaseId]?.kind === 'skill') {
         assertNoSkillPhaseOverride(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
       } else assertSupportedPhaseProducer(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
@@ -2200,6 +2239,7 @@ export function resolveWorkType(definition, workTypeId) {
     const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
     const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
     assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
+    assertStepAuthoringSkill(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     return resolvedPhase;
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));

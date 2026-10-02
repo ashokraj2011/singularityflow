@@ -1,4 +1,5 @@
 import { SingularityFlowError } from './util.mjs';
+import { authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { WEL_EXACT_TEST_ADAPTERS } from './wel-adapters.mjs';
 import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
@@ -229,9 +230,81 @@ export function workflowCodeGeneration(resolvedWorkflow) {
   return { generatesCode: codePhases.length > 0, codePhases };
 }
 
-/** One deterministic authoring route for every code task, independent of phase name. */
-export function generationSkillForPhase(phase) {
+function generationRequirement(phase) {
+  const generation = phase?.generationPolicy ?? phase?.generation;
+  return typeof generation === 'string' ? generation : generation?.requirement ?? null;
+}
+
+/**
+ * What a step produces, by the engine's own contract: `none`, `code`, `analysis` or `document`.
+ *
+ * Configuration validation, routing, Workflow Studio and its picker all use this one
+ * classification. Write scope is deliberately not consulted: a verification or testing step may
+ * write tests against source without delivering code, and an explicit `analyze` task is an
+ * analysis whatever its scope.
+ */
+export function stepOutputKind(phase) {
+  if (!phase) return 'document';
+  if (generationRequirement(phase) === 'none') return 'none';
+  if (phaseRequiresCodeDelivery(phase)) return 'code';
+  return generationTask(phase) === 'analyze' ? 'analysis' : 'document';
+}
+
+/**
+ * The authoring skill a step names. In a Story it comes from the pinned resolution, which is hashed
+ * and anchored to the Story's creation commit, never from the mutable step state; outside a Story
+ * (a resolved workflow being validated, simulated or shown) it comes from the resolved step.
+ */
+export function configuredAuthoringSkill(phase, workflow = null) {
+  if (workflow?.resolution) {
+    const pinned = (workflow.resolution.phases ?? []).find((entry) => entry?.id === phase?.id);
+    return typeof pinned?.authoringSkill === 'string' ? pinned.authoringSkill : null;
+  }
+  return typeof phase?.authoringSkill === 'string' ? phase.authoringSkill : null;
+}
+
+/**
+ * How a step is drafted: the configured skill, the skill drafting is routed to, and why.
+ *
+ * A step that drafts nothing has no route, and deterministic convergence is fixed. A configured
+ * skill this build does not list, or one that cannot draft the step's output, falls back to the
+ * automatic route with a warning: guidance never names a skill that has not promised to honour
+ * the choice.
+ */
+export function authoringRoute(phase, workflow = null) {
+  const authoringSkill = configuredAuthoringSkill(phase, workflow);
+  const route = (effectiveAuthoringSkill, authoringSkillSource, warning = null) => Object.freeze({
+    authoringSkill, effectiveAuthoringSkill, authoringSkillSource, ...(warning ? { warning } : {})
+  });
+  const output = stepOutputKind(phase);
+  if (output === 'none') return route(null, 'none');
+  if (phase?.id === 'convergence' && phaseUsesDeterministicGeneration(phase)) return route('/sf-converge', 'fixed');
+  const automatic = output === 'code' ? '/sf-code' : '/sf-phase';
+  if (!authoringSkill) return route(automatic, 'automatic');
+  const entry = authoringSkillEntry(authoringSkill);
+  if (!entry) {
+    return route(automatic, 'automatic', `Step '${phase.id}' names authoring skill '${authoringSkill}', which this build does not list, so ${automatic} drafts it.`);
+  }
+  if (!entry.produces.includes(output)) {
+    return route(automatic, 'automatic', `Step '${phase.id}' names authoring skill '${authoringSkill}', which cannot draft a ${output} step, so ${automatic} drafts it.`);
+  }
+  return route(`/${authoringSkill}`, 'configured');
+}
+
+/** Every step's drafting route in a Story, keyed by step id, for status output. */
+export function workflowAuthoringRoutes(workflow) {
+  return Object.fromEntries((workflow?.phaseOrder ?? []).map((id) => [id, authoringRoute(workflow.phases?.[id] ?? { id }, workflow)]));
+}
+
+/**
+ * One deterministic authoring route for every step, independent of its name: deterministic
+ * convergence, then the step's configured authoring skill, then code delivery, then `/sflow-phase`.
+ * Story callers pass the workflow so the configured skill comes from the pinned resolution.
+ */
+export function generationSkillForPhase(phase, workflow = null) {
   if (phase?.id === 'convergence' && phaseUsesDeterministicGeneration(phase)) return '/sflow-converge';
+  const route = authoringRoute(phase, workflow);
+  if (route.authoringSkillSource === 'configured') return `/${authoringSkillSourceId(route.authoringSkill)}`;
   return phaseRequiresCodeDelivery(phase) ? '/sflow-code' : '/sflow-phase';
 }
 

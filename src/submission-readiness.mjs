@@ -231,7 +231,7 @@ export function submissionReadinessSnapshot(workflow, {
       : {
           classification: 'generation-required',
           command: `singularity-flow prepare ${phase.id}`,
-          nextSkill: directCopilotSkill(generationSkillForPhase(phase)),
+          nextSkill: directCopilotSkill(generationSkillForPhase(phase, workflow)),
           reasonCode: 'PHASE_GENERATION_REQUIRED'
         })
   });

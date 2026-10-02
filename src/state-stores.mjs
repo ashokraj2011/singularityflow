@@ -233,6 +233,7 @@ export {
   previewStorySkillVersionProposal, previewTestingRepair, promoteDesignSource,
   proposeStorySkillVersion, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
   rollForwardRework, scanArtifacts,
+  pinnedResolutionVerification,
   sourceTreeHash, storyPublicationPending, storySkillVersionStatus, storyWelEnrollmentStatus,
   submitConfirmedConvergencePhase,
   submitPhase, validateId, workflowBranchAllowed,

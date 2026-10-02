@@ -8,6 +8,7 @@
  * disagree with the crosswalk the whole action is rejected instead of being silently repaired.
  */
 
+import { authoringSkillEntry } from './authoring-skills.mjs';
 import { commandDefinition } from './command-registry.mjs';
 import { skillForCommandLine } from './command-skills.mjs';
 import {
@@ -294,6 +295,13 @@ export function safeCommandGuidance(value) {
     : input.copilotCommand != null
       ? directCopilotSkillId(input.copilotCommand)
       : null;
+  // A step may name a listed authoring skill. Like `/sf-code`, it re-reads the step's verified
+  // route before doing any work, so presenting it for that step's commands is safe; the catalog
+  // is read only when such a skill is asserted. `/sf-code` keeps its own rule above.
+  if (phaseId && assertedSkill && assertedSkill !== '/sf-code' && !allowedSkills.has(assertedSkill)
+      && authoringSkillEntry(assertedSkill.slice(1))) {
+    allowedSkills.add(assertedSkill);
+  }
   const selectedSkill = assertedSkill ?? canonicalSkill;
   if (!selectedSkill || !allowedSkills.has(selectedSkill)) return null;
   const canonicalCopilotCommand = copilotCommandForCommand(safe.command, selectedSkill);

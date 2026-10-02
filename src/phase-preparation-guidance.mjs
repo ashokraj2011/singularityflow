@@ -7,8 +7,8 @@ import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
  * Phase ids are workflow data, not Copilot skill names. Custom phases therefore keep their exact
  * shell argument while routing to the generation skill selected by phase policy.
  */
-export function phasePreparationCommandLines(phase, label = 'Run') {
+export function phasePreparationCommandLines(phase, label = 'Run', workflow = null) {
   const command = `singularity-flow prepare ${phase.id}`;
-  const action = copilotAction({ skill: generationSkillForPhase(phase), command });
+  const action = copilotAction({ skill: generationSkillForPhase(phase, workflow), command });
   return actionCommandLines(action, label);
 }

@@ -214,11 +214,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow) };
+        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), compiledSkill: Boolean(step.compiledSkill) };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
     });
     (model.agents || []).forEach(function (agent) {
       draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null };
@@ -256,7 +256,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var own = home && home !== workflowId && draft.steps[home] && draft.steps[home][phaseId] ? draft.steps[home][phaseId] : phase;
     var phases = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
     return { approval: clone(own.approval || { group: null, minimum: 1 }), inputs: (own.inputs || []).filter(function (input) { return phases.indexOf(input) >= 0; }),
-      authoringSkill: own.authoringSkill || null };
+      authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), compiledSkill: Boolean(phase.compiledSkill) };
   }
 
   /** A step copy starts with the values shown in its workflow, retaining unsaved catalog edits. */
@@ -268,10 +268,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflow = draft.workflows[workflowId];
     var originalWorkflow = (model.workflows || []).find(function (entry) { return entry.id === (workflow.copyOf || workflowId) && entry.phases.indexOf(phaseId) >= 0; });
     var copyFromWorkflow = originalWorkflow ? originalWorkflow.id : workflow.installFrom && source.fromBlueprint ? workflow.installFrom : null;
+    // Whether the engine generates the step, or a compiled binding drafts it, is as this workflow
+    // runs it; the copy is created from that, so it keeps the same fixed route.
     var copy = Object.assign(clone(source), { id: id, label: source.label + ' (' + workflow.label + ')', isNew: true, copyOf: phaseId, copyFromWorkflow: copyFromWorkflow, usedBy: [workflowId], output: output, baseOutput: output,
       views: baseline && same(source.views, baseline.views) && settings.views ? settings.views.slice() : (source.views || []).slice(),
       clarification: baseline && source.clarification === baseline.clarification ? settings.clarification || 'off' : source.clarification,
-      authoringSkill: settings.authoringSkill || null });
+      authoringSkill: settings.authoringSkill || null,
+      generatedByEngine: settings.generatedByEngine !== undefined ? Boolean(settings.generatedByEngine) : Boolean(source.generatedByEngine),
+      compiledSkill: settings.compiledSkill !== undefined ? Boolean(settings.compiledSkill) : Boolean(source.compiledSkill) });
     delete copy.setAsideSkill;
     return copy;
   }
@@ -1625,14 +1629,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   /**
    * Which skill drafts a step in this workflow, as Drafted with offers it: nothing for a sign-off-only
-   * step, a fixed /sf-converge for deterministic convergence, otherwise Automatic, which follows what
-   * the step produces, and every skill that can draft that output. On a shared step the choice is
-   * this workflow's own, as sign-off is.
+   * step; a fixed line where the engine refuses a choice, for a step only its deterministic generator
+   * produces and for a compiled skill step, whose binding decides; otherwise Automatic, which follows
+   * what the step produces, and every skill that can draft that output.
+   * On a shared step the choice is this workflow's own, as sign-off is.
    */
   function skillPicker(workflowId, phaseId, settings, users) {
     var output = stepOutput(workflowId, phaseId);
     if (output === 'none') return null;
-    if (phaseId === 'convergence') return { fixed: '/sf-converge', hint: 'Deterministic convergence always uses /sf-converge.' };
+    // How this workflow runs the step, where its settings say; otherwise how the step itself is.
+    // Convergence is refused by its name as well, as configuration refuses it.
+    var route = settings.generatedByEngine !== undefined ? settings : state.draft.phases[phaseId] || {};
+    if (route.generatedByEngine || phaseId === 'convergence') {
+      return phaseId === 'convergence'
+        ? { fixed: '/sf-converge', hint: 'Deterministic convergence always uses /sf-converge.' }
+        : { fixed: 'Generated by the engine', hint: 'Only the engine\'s deterministic generator produces this step, so no drafting skill can be chosen.' };
+    }
+    if (route.compiledSkill) return { fixed: 'Its compiled skill', hint: 'This step\'s compiled skill binding decides how it is drafted, so no drafting skill can be chosen.' };
     var automatic = output === 'code' ? '/sf-code' : '/sf-phase';
     var choices = (state.model.choices.authoringSkills || []).filter(function (choice) { return choice.produces.indexOf(output) >= 0 && choice.label !== automatic; });
     var current = settings.authoringSkill || '';

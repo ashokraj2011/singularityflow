@@ -672,3 +672,36 @@ test('the page offers no drafting skill where the engine refuses one, and a copy
   compiledPage.addExistingStep('chore', 'design', 'intake');
   assert.deepEqual(picker(compiledPage, 'chore', 'design'), fixed);
 });
+
+test('a workflow that sets what a step produces keeps it when the step\'s own output changes', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'phase.create', id: 'own-input', label: 'Own input', agent: 'architect', approval: 'none' },
+    { op: 'phase.create', id: 'own-step', label: 'Own step', agent: 'architect', approval: 'none', inputs: ['own-input'] },
+    ...['own-a', 'own-b', 'own-c'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['own-input', 'own-step'] }))
+  ] }, { write: true });
+  const file = path.join(root, 'singularity/workflow.yml');
+  const configuration = YAML.parse(await readFile(file, 'utf8'));
+  configuration.workTypes['own-b'].phaseOverrides = { 'own-step': { generation: { requirement: 'none' } } };
+  configuration.workTypes['own-c'].phaseOverrides = { 'own-step': { clarification: { mode: 'required' } } };
+  await writeFile(file, YAML.stringify(configuration));
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  const outputs = (phaseId) => ['own-a', 'own-b', 'own-c'].map((workflowId) => page.stepOutput(workflowId, phaseId));
+  assert.deepEqual(outputs('own-step'), ['document', 'none', 'document']);
+  // Changed in own-a: own-b is still sign-off only, so it still offers no skill; own-c, which sets
+  // something else of its own, follows the step.
+  page.setStepOutput('own-step', 'analysis');
+  assert.deepEqual(outputs('own-step'), ['analysis', 'none', 'analysis']);
+  assert.equal(page.skillPicker('own-b', 'own-step', state.draft.steps['own-b']['own-step'], ['own-a', 'own-c']), null);
+  // A copy is the step as its workflow runs it, and then a step of its own.
+  page.copyStepForWorkflow('own-b', 'own-step');
+  page.copyStepForWorkflow('own-c', 'own-step');
+  assert.deepEqual([page.stepOutput('own-b', 'own-step-own-b'), page.stepOutput('own-c', 'own-step-own-c')], ['none', 'analysis']);
+  page.chooseAuthoringSkill('own-a', 'own-step', 'sf-design');
+  const plan = check(root, page.changeSetFrom(model, state.draft));
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+});

@@ -259,11 +259,19 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), compiledSkill: Boolean(phase.compiledSkill) };
   }
 
+  /**
+   * Whether a workflow sets what a step produces itself: it loaded with an output other than the
+   * step's own. Such a workflow keeps its output when the step's own output is edited.
+   */
+  function outputSetByWorkflow(settings, phase) {
+    return Boolean(settings && settings.overridden && settings.output && phase && settings.output !== phase.baseOutput);
+  }
+
   /** A step copy starts with the values shown in its workflow, retaining unsaved catalog edits. */
   function copiedPhaseDraft(model, draft, workflowId, phaseId, id) {
     var source = draft.phases[phaseId];
     var settings = draft.steps[workflowId][phaseId] || {};
-    var output = !settings.output || source.output !== source.baseOutput ? source.output : settings.output;
+    var output = outputSetByWorkflow(settings, source) ? settings.output : source.output;
     var baseline = (model.phases || []).find(function (phase) { return phase.id === phaseId; });
     var workflow = draft.workflows[workflowId];
     var originalWorkflow = (model.workflows || []).find(function (entry) { return entry.id === (workflow.copyOf || workflowId) && entry.phases.indexOf(phaseId) >= 0; });
@@ -476,12 +484,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return steps[phaseId];
   }
   function stepSettings(workflowId, phaseId) { return settingsIn(state.draft, workflowId, phaseId); }
-  /** What a step produces in one workflow: that workflow's own value, unless the step itself was edited. */
+  /**
+   * What a step produces in one workflow: the workflow's own output where it sets one, which an edit
+   * to the step's own output does not change, and the step's own output otherwise.
+   */
   function stepOutput(workflowId, phaseId) {
     var phase = state.draft.phases[phaseId] || { output: 'document' };
     var settings = state.draft.steps[workflowId] && state.draft.steps[workflowId][phaseId];
-    if (!settings || !settings.output || phase.output !== phase.baseOutput) return phase.output;
-    return settings.output;
+    return outputSetByWorkflow(settings, phase) ? settings.output : phase.output;
   }
   function changesNow() { return state.draft && state.model ? changeSetFrom(state.model, state.draft).changes : []; }
   function changed() { state.plan = null; state.planKey = null; if (/^Checked:/.test(state.status)) setStatus(''); requestRender(); }
@@ -540,7 +550,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflow = draft.workflows[workflowId];
     workflow.phases = workflow.phases.map(function (phase) { return phase === phaseId ? id : phase; });
     draft.steps[workflowId][id] = settings;
+    // The copy is a step of its own: what it produces and its drafting skill are its own values.
     draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
+    draft.steps[workflowId][id].overridden = false;
     delete draft.steps[workflowId][id].setAsideSkill;
     draft.phases[id].authoringSkill = draft.steps[workflowId][id].authoringSkill || null;
     delete draft.steps[workflowId][phaseId];
@@ -1730,7 +1742,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var look = OUTPUT_LOOK[stepOutput(workflowId, phaseId)] || OUTPUT_LOOK.document;
     aside.appendChild(propTitle(look.tone, look.icon, 'STEP ' + (index + 1) + ' OF ' + workflow.phases.length, phase.label));
 
-    var ownOutput = settings.overridden && settings.output && settings.output !== phase.output && phase.output === phase.baseOutput;
+    var ownOutput = outputSetByWorkflow(settings, phase);
     aside.appendChild(section('step', 'Step', [
       field('step-name', 'Name', textInput('step-name', phase.label, function (value) { if (value.trim()) { phase.label = value.trim(); changed(); } }), users.length ? 'Renames it in ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' too.' : null),
       field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { setStepOutput(phaseId, value); }, { disabled: ownOutput }),

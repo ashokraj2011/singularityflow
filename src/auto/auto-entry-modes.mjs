@@ -184,10 +184,10 @@ function continuationAction(workflow, flight) {
       };
     }
     return {
-      status: workflow.status === 'complete' ? 'complete' : 'new-plan-required',
+      status: workflow.status === 'closed' ? 'closed' : 'new-plan-required',
       command: null,
-      reason: workflow.status === 'complete'
-        ? 'The Story is already complete.'
+      reason: workflow.status === 'closed'
+        ? 'The Story is already closed.'
         : 'This Story has no ratified Auto origin. Attaching automation requires a new exact intake and governed origin transition.'
     };
   }

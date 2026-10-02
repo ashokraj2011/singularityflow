@@ -58,13 +58,13 @@ export function advanceCompletedPhase(workflow, phase, at, outcome = null) {
     }
     if (target) {
       target.status = 'in_progress'; target.startedAt = at; workflow.currentPhase = target.id;
-    } else { workflow.currentPhase = null; workflow.status = 'complete'; }
+    } else { workflow.currentPhase = null; workflow.status = 'closed'; }
     return target;
   }
   const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
   if (upcoming) {
     upcoming.status = 'in_progress'; upcoming.startedAt = at; workflow.currentPhase = upcoming.id;
-  } else { workflow.currentPhase = null; workflow.status = 'complete'; }
+  } else { workflow.currentPhase = null; workflow.status = 'closed'; }
   return upcoming;
 }
 

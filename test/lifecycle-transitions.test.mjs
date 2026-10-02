@@ -54,7 +54,7 @@ test('terminal completion has no synthetic phase or generation mutation', () => 
   const phases = structuredClone(workflow.phases);
   assert.equal(advanceCompletedPhase(workflow, phase, at), null);
   assert.equal(workflow.currentPhase, null);
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.deepEqual(workflow.phases, phases);
 });
 
@@ -95,13 +95,13 @@ test('an amendment can complete a source while retaining all remaining approved 
     preservedPhaseIds: ['verification', 'release'] }];
   const preserved = structuredClone(workflow.phases);
   assert.equal(advanceCompletedPhase(workflow, workflow.phases.implementation, at), null);
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.deepEqual(workflow.phases, preserved);
 });
 
 test('rejection resets the full target-to-end range without discarding generations or audit evidence', () => {
   const workflow = fixture();
-  workflow.status = 'complete';
+  workflow.status = 'closed';
   // An automatic completion's record: once the phase is reopened it no longer describes it.
   for (const phase of Object.values(workflow.phases)) {
     phase.approvalDisposition = 'policy_waived';
@@ -169,7 +169,7 @@ test('malformed later phases or decisions cannot leave a partially reopened rang
 
 test('every reopen path resets its range through one helper, adding only what that path records', () => {
   const workflow = fixture();
-  workflow.status = 'complete'; workflow.currentPhase = null;
+  workflow.status = 'closed'; workflow.currentPhase = null;
   workflow.phases.verification.approvalDisposition = 'policy_waived';
   workflow.phases.verification.approvalWaiver = { policyId: 'quick-fix-low-risk-v1' };
   workflow.phases.release.skippedAt = at; workflow.phases.release.skippedBy = { decision: 'ship', route: 'end' };

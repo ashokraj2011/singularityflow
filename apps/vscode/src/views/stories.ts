@@ -16,7 +16,7 @@ const STATE_PILL: Record<string, { className: string; label: string }> = {
   planned: { className: '', label: 'planned' },
   seeded: { className: 'wait', label: 'branch created' },
   'in-progress': { className: 'wait', label: 'in progress' },
-  complete: { className: 'ok', label: 'complete' },
+  closed: { className: 'ok', label: 'closed' },
   merged: { className: 'ok', label: 'merged' },
   blocked: { className: 'bad', label: 'blocked' }
 };

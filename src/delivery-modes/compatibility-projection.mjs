@@ -25,9 +25,9 @@ export const GDP_FEATURE_DEFAULTS = Object.freeze({
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40,64}$/;
 const WORKFLOW_STATUSES = new Set([
-  'in_progress', 'complete', 'completed', 'cancelled', 'interrupted', 'recovery-required'
+  'in_progress', 'closed', 'complete', 'completed', 'cancelled', 'interrupted', 'recovery-required'
 ]);
-const WORKFLOW_TERMINAL = new Set(['complete', 'completed', 'cancelled']);
+const WORKFLOW_TERMINAL = new Set(['closed', 'complete', 'completed', 'cancelled']);
 const AUTO_TERMINAL = new Set(['halted', 'completed', 'discarded']);
 const AUTO_STATUSES = new Set([
   'running', 'paused', 'waiting-human', 'manual-takeover', 'recovery-required',
@@ -119,7 +119,7 @@ function workflowProjection(record) {
     && record.history.some((entry) => entry?.event === 'workflow_reopened');
   let normalizedStatus = WORKFLOW_STATUSES.has(sourceStatus) ? 'active' : 'unavailable';
   if (sourceStatus === 'cancelled') normalizedStatus = 'cancelled';
-  else if (sourceStatus === 'complete' || sourceStatus === 'completed') {
+  else if (sourceStatus === 'closed' || sourceStatus === 'complete' || sourceStatus === 'completed') {
     normalizedStatus = 'completed';
   } else if (reopened) normalizedStatus = 'reopened';
   const profile = String(record.resolution?.workflowId ?? record.workItem?.workType ?? '').trim();

@@ -561,7 +561,7 @@ async function workItemPlanningParts(root, definition, {
   workflow ??= await loadWorkflow(root, definition, id);
   const selectedPhase = phaseId ?? workflow.currentPhase;
   if (!selectedPhase || selectedPhase !== workflow.currentPhase) {
-    throw new SingularityFlowError(`Planning is sequence-aware: work item '${id}' is currently at '${workflow.currentPhase ?? 'complete'}', not '${selectedPhase ?? 'none'}'.`);
+    throw new SingularityFlowError(`Planning is sequence-aware: work item '${id}' is currently at '${workflow.currentPhase ?? 'closed'}', not '${selectedPhase ?? 'none'}'.`);
   }
   const phase = workflow.phases[selectedPhase];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Work-item phase '${selectedPhase}' must be in_progress to start a planning session.`);
@@ -1094,7 +1094,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   const definition = accepted.definition;
   const workflow = accepted.workflow;
   const phase = workflow.phases[pack.manifest.phase.id];
-  if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') throw new SingularityFlowError(`Work item advanced to '${workflow.currentPhase ?? 'complete'}'; rebuild the planning context.`);
+  if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') throw new SingularityFlowError(`Work item advanced to '${workflow.currentPhase ?? 'closed'}'; rebuild the planning context.`);
   await preparePhaseInputs(root, definition, workflow, phase.id);
   const target = path.join(workDir(root, definition, workflow.workItem.id), phase.requiredArtifact.path);
   const previous = await existingText(target);

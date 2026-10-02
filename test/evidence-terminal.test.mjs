@@ -21,7 +21,7 @@ function pocStory({ finalize = 'approved', status = 'in_progress', applicability
   return {
     workItem: { id: W, title: 'Lifecycle demonstration' },
     status,
-    currentPhase: status === 'complete' ? null : 'finalize',
+    currentPhase: status === 'closed' ? null : 'finalize',
     phaseOrder: ['plan', 'act', 'verify', 'finalize'],
     ...(applicability ? { applicability } : {}),
     ...(decisionLog ? { decisionLog } : {}),
@@ -107,7 +107,7 @@ test('only the group an omission names may decide it, with a real reason, and a 
 });
 
 test('an omitted responsibility nobody decided blocks the final evaluation; once decided it is not applicable', () => {
-  const undecided = evaluate(pocStory({ status: 'complete' }));
+  const undecided = evaluate(pocStory({ status: 'closed' }));
   const scope = undecided.rows.find((row) => row.id === 'story:scope');
   assert.equal(scope.result, 'pending');
   assert.equal(scope.obligations[0].id, 'OBL:POC-1:scope:story');
@@ -117,7 +117,7 @@ test('an omitted responsibility nobody decided blocks the final evaluation; once
   assert.equal(undecided.decision.gate, 'block');
   assert.ok(!undecided.findings.some((entry) => entry.code === 'EVIDENCE_NO_CRITERIA'), 'an omitted scope is not a missing one');
 
-  const workflow = pocStory({ status: 'complete' });
+  const workflow = pocStory({ status: 'closed' });
   decide(workflow);
   const decided = evaluate(workflow);
   assert.equal(decided.rows.find((row) => row.id === 'story:scope').result, 'not-applicable');
@@ -135,7 +135,7 @@ test('a Story without clauses still owes its route: unreviewed or untested work 
   assert.equal(unapproved.rows.find((row) => row.id === 'story:review').result, 'pending');
   assert.equal(unapproved.decision.gate, 'block');
 
-  const workflow = pocStory({ status: 'complete' });
+  const workflow = pocStory({ status: 'closed' });
   decide(workflow);
   const failed = evaluateEvidence(evidenceGraph({
     workflow, records: noRecords,
@@ -147,7 +147,7 @@ test('a Story without clauses still owes its route: unreviewed or untested work 
 });
 
 test('the recorded final evaluation labels a Story only while it still matches the evidence', () => {
-  const workflow = pocStory({ status: 'complete' });
+  const workflow = pocStory({ status: 'closed' });
   decide(workflow);
   const first = evaluate(workflow);
   workflow.completion = {
@@ -165,9 +165,9 @@ test('the recorded final evaluation labels a Story only while it still matches t
 
 test('completion reads the record the ending transition made, and a refusal says what to do', () => {
   assert.equal(recordedCompletion({ status: 'in_progress', completion: { evaluatedAt: 'x' } }), null);
-  assert.equal(recordedCompletion({ status: 'complete' }), null, 'an ending without the evaluation is never reported as passed');
+  assert.equal(recordedCompletion({ status: 'closed' }), null, 'an ending without the evaluation is never reported as passed');
   const verdict = recordedCompletion({
-    status: 'complete',
+    status: 'closed',
     completion: { label: COMPLETION_LABELS.completeWithExceptions, kind: 'complete-with-exceptions', assuranceFloor: 'module-observed', evaluatedAt: '2026-10-02T03:00:00Z' }
   });
   assert.equal(verdict.verified, true);

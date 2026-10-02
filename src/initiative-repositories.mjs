@@ -974,7 +974,7 @@ function milestoneReached(workflow, phaseId) {
   return phase?.status === 'approved';
 }
 
-const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'complete', 'cancelled']);
+const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'closed', 'cancelled']);
 // `skipped`: a phase a workflow decision passed over (Story state v12).
 const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved', 'skipped', 'cancelled']);
 
@@ -1027,7 +1027,7 @@ function parseChildWorkflow(text, story) {
       throw new SingularityFlowError(`Child workflow '${story.id}' has invalid phase '${phaseId}'.`);
     }
   }
-  if (workflow.status === 'complete') {
+  if (workflow.status === 'closed') {
     if (workflow.currentPhase != null
         || phaseOrder.some((phaseId) => !['approved', 'skipped'].includes(workflow.phases[phaseId].status))) {
       throw new SingularityFlowError(`Completed child workflow '${story.id}' must have no current phase and every phase approved or skipped.`);
@@ -1108,7 +1108,7 @@ export async function initiativeMergeState(root, initiativeId) {
     const workflowText = childWorkflowAtCommit(cache, storyHead.stdout.trim(), workId);
     if (workflowText.status === 0) {
       try {
-        if (readRecord('story-workflow', workflowText.stdout).record.status === 'complete') complete.push(story.id);
+        if (readRecord('story-workflow', workflowText.stdout).record.status === 'closed') complete.push(story.id);
       } catch (error) {
         if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
         /* An unreadable child workflow simply leaves the story not-complete. */
@@ -1241,7 +1241,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       progress: {
         completed: completedPhases,
         total: phaseOrder.length,
-        percentage: workflow?.status === 'complete'
+        percentage: workflow?.status === 'closed'
           ? 100
           : phaseOrder.length ? Math.round((completedPhases / phaseOrder.length) * 100) : 0
       },
@@ -1286,7 +1286,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     if (!current) continue;
     current.blocked = current.status === 'invalid' || story.dependsOn.some((dependency) => {
       const dependencyState = initiative.childStories[dependency.story];
-      if (dependency.requiredPhase === 'complete') return dependencyState?.status !== 'complete';
+      if (dependency.requiredPhase === 'complete') return dependencyState?.status !== 'closed';
       const camelMilestone = dependency.requiredPhase.replace(/-([a-z])/g, (_, character) => character.toUpperCase());
       return !dependencyState?.approvedPhases?.includes(dependency.requiredPhase)
         && !dependencyState?.milestones?.[camelMilestone];

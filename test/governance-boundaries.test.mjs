@@ -117,7 +117,7 @@ test('gate-recovery reopen confirmation is bound to HEAD, target, state, and exa
   execFileSync('git', ['add', '.'], { cwd: root });
   execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: root });
   const workflow = {
-    workItem: { id: 'GATE-1' }, status: 'complete', currentPhase: null,
+    workItem: { id: 'GATE-1' }, status: 'closed', currentPhase: null,
     phases: { convergence: { id: 'convergence' }, release: { id: 'release' } }
   };
   const finding = {

@@ -27,7 +27,7 @@ function workflow() {
     workItem: { id: 'SKP-SELECTIVE-1' },
     workflowSnapshot: { revision: 2 },
     resolution: { phases: [] },
-    status: 'complete', currentPhase: null,
+    status: 'closed', currentPhase: null,
     phaseOrder: ['a', 'b', 'c', 'd'],
     phases: {
       a: phase('a', 'approved', 'a-receipt'),

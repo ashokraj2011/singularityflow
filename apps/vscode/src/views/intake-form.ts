@@ -1161,7 +1161,7 @@ function inFlightHtml(form: IntakeForm): string {
     ${table(active)}
   </section>` : ''}${completed.length ? `
   <section class="plain">
-    <h2>${icon('ok')}Completed</h2>
+    <h2>${icon('ok')}Closed</h2>
     ${table(completed)}
   </section>` : ''}`;
 }

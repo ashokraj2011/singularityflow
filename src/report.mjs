@@ -213,7 +213,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
   const startCandidates = [timestamp(history[0]?.at), ...workflow.phaseOrder.map((id) => timestamp(workflow.phases[id].startedAt))].filter((value) => value != null);
   const startedAt = startCandidates.length ? Math.min(...startCandidates) : null;
   const approvalTimes = workflow.phaseOrder.map((id) => timestamp(workflow.phases[id].approvedAt)).filter((value) => value != null);
-  const completedAt = workflow.status === 'complete' && approvalTimes.length
+  const completedAt = workflow.status === 'closed' && approvalTimes.length
     ? Math.max(...approvalTimes)
     : workflow.status === 'cancelled'
       ? timestamp(workflow.cancellation?.cancelledAt)

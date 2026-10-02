@@ -75,10 +75,10 @@ test('progress flow marks active generation and completed workflow', () => {
 });
 
 test('status words keep the stored complete state to its lifecycle meaning', () => {
-  assert.equal(storyStatusLabel('complete'), 'every step decided');
+  assert.equal(storyStatusLabel('closed'), 'every step decided');
   assert.equal(storyStatusLabel('cancelled'), 'cancelled');
   assert.equal(storyStatusLabel('active'), 'active');
-  assert.equal(noCurrentPhaseLabel('complete'), 'none — every step is decided');
+  assert.equal(noCurrentPhaseLabel('closed'), 'none — every step is decided');
   assert.equal(noCurrentPhaseLabel('cancelled'), 'none — cancelled');
 });
 

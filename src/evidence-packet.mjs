@@ -442,7 +442,7 @@ function mandatoryGovernanceCandidate(definition, workflow, phaseId) {
   };
   return {
     kind: 'governance-policy-binding',
-    subject: `${workflow.workItem.id}:${phaseId ?? 'complete'}`,
+    subject: `${workflow.workItem.id}:${phaseId ?? 'closed'}`,
     classification: 'proven', representation: 'policy-binding',
     content: JSON.stringify(policy), relationship: 'applicable-governance',
     reason: { code: 'governance.mandatory', findingIds: [] },
@@ -467,7 +467,7 @@ function lifecycleOutcome(workflow, phaseId) {
         : phase?.status === 'approved' ? 'passed'
           : phase?.status === 'skipped' ? 'skipped' : 'not-run';
   return {
-    completed: workflow.status === 'complete' || phase?.status === 'approved',
+    completed: workflow.status === 'closed' || phase?.status === 'approved',
     verification,
     gates: { passed, failed },
     agentRetries: (workflow.history ?? []).filter((entry) => entry.event === 'phase_rejected'
@@ -624,7 +624,7 @@ export async function compileEvidencePacket(root, request = {}) {
     candidates.push({
       kind: 'current-work-context', subject: workflow.workItem.id,
       classification: 'proven', representation: 'L0-work-identity',
-      content: `${workflow.workItem.id} is ${workflow.status} in ${phase ?? 'complete'}.`,
+      content: `${workflow.workItem.id} is ${workflow.status}${phase ? ` in ${phase}` : ''}.`,
       relationship: 'current-phase', reason: { code: 'phase.required-context', findingIds: [] },
       source: { type: 'governed-workflow', reference: `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/workflow.json` },
       sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'

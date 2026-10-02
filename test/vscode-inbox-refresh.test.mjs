@@ -211,7 +211,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
     { repositoryId: 'accounts', repositoryPath: '/repo/c', id: 'STORY-8', title: 'Same ID in another repository',
       status: 'in_progress', currentPhase: 'design', branch: 'sflow/story/STORY-8' },
     { repositoryId: 'payments', repositoryPath: '/repo/b', id: 'STORY-9', title: 'Finished on another laptop',
-      status: 'completed', currentPhase: null, branch: 'sflow/story/STORY-9' },
+      status: 'closed', currentPhase: null, branch: 'sflow/story/STORY-9' },
     { repositoryId: 'shipping', repositoryPath: '', repositoryUrl: 'https://example.test/shipping.git',
       id: 'STORY-11', title: 'Remote-only shipping Story', status: 'in_progress',
       currentPhase: 'design', branch: 'sflow/story/STORY-11' },
@@ -228,7 +228,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   assert.match(panel.webview.html, /payments/);
   assert.match(panel.webview.html, /accounts/);
   assert.match(panel.webview.html, /Workspace Stories/);
-  assert.match(panel.webview.html, /STORY-9[\s\S]*?completed/);
+  assert.match(panel.webview.html, /STORY-9[\s\S]*?closed/);
   assert.match(panel.webview.html, /STORY-10[\s\S]*?cancelled/);
   assert.equal([...panel.webview.html.matchAll(/data-story="STORY-11"/g)].length, 2);
   assert.match(panel.webview.html, /data-story="STORY-11" data-repository-id="shipping"/);

@@ -76,13 +76,13 @@ function phaseFlowAppearance(phase) {
  */
 export function noCurrentPhaseLabel(status) {
   if (status === 'cancelled') return 'none — cancelled';
-  if (status === 'complete') return 'none — every step is decided';
+  if (status === 'closed') return 'none — every step is decided';
   return 'none';
 }
 
 /** A Story's lifecycle state in words; the stored `complete` state only means every step is decided. */
 export function storyStatusLabel(status) {
-  return status === 'complete' ? 'every step decided' : status;
+  return status === 'closed' ? 'every step decided' : status;
 }
 
 export function progressFlow(progress) {
@@ -167,6 +167,6 @@ export function progressMarkdown(progress) {
     '',
     '| # | Phase | Status | Generation | Approvals | Tokens |',
     '|---:|---|---|---:|---:|---|',
-    ...(rows.length ? rows : ['| — | No phases | complete | — | — | Not recorded |'])
+    ...(rows.length ? rows : ['| — | No phases | closed | — | — | Not recorded |'])
   ].join('\n');
 }

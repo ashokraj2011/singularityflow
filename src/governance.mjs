@@ -83,7 +83,7 @@ export async function terminalPublicationObservation(root, remote, publicationBr
  * judged at this moment, so a later audit of a finished Story still sees what held when it finished.
  */
 export function terminalTransitionAt(workflow) {
-  if (workflow?.status !== 'complete') return nowIso();
+  if (workflow?.status !== 'closed') return nowIso();
   const settled = (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])
     .flatMap((phase) => [phase?.approvedAt, phase?.skippedAt])
     .map((value) => Date.parse(value ?? '')).filter(Number.isFinite);
@@ -762,7 +762,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
     errors.push(...lapsedWitnessExceptions(workflow));
     if (workflow.pendingDecision) errors.push(`terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`);
-    if (workflow.status !== 'complete' || currentPhase(workflow)) errors.push('terminal: workflow is not complete'); else passes.push('terminal lifecycle');
+    if (workflow.status !== 'closed' || currentPhase(workflow)) errors.push('terminal: workflow is not closed'); else passes.push('terminal lifecycle');
   }
   return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, errors) };
 }

@@ -149,7 +149,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     const status = command(cli, repository, ['status', 'TOY-001', '--json'], env);
     steps.push(status);
     const workflow = JSON.parse(status.rawOutput);
-    if (workflow.status !== 'complete') throw new SingularityFlowError(`Guide finished with state '${workflow.status ?? 'unknown'}', not complete.`);
+    if (workflow.status !== 'closed') throw new SingularityFlowError(`Guide finished with state '${workflow.status ?? 'unknown'}', not closed.`);
     const finalStateBytes = await readFile(path.join(repository, 'singularity/work-items/TOY-001/workflow.json'));
     completed = true;
     return {

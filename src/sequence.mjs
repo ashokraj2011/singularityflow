@@ -53,7 +53,7 @@ export function sequenceGuidance(workflow) {
     ]
   };
   if (!phase) return {
-    summary: 'The workflow is complete; no further lifecycle transition is normally allowed.',
+    summary: 'The Story is closed; no further lifecycle transition is normally allowed.',
     actions: [
       copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workId}` }),
       copilotAction({ skill: '/sflow-report', command: `singularity-flow report ${workId}` }),

@@ -150,7 +150,7 @@ export function watchSnapshot(workflow) {
 }
 
 export function watchText(item) {
-  const phase = item.currentPhase ? `${item.currentPhase.label} (${item.currentPhase.status})` : 'complete';
+  const phase = item.currentPhase ? `${item.currentPhase.label} (${item.currentPhase.status})` : 'closed';
   return `${item.workId} — ${item.title}\nPhase: ${phase}\nAssignment: ${item.assignment?.assignee ?? 'unassigned'}${item.reminder ? `\n! Approval reminder: waiting ${item.reminder.waitingHours}h (threshold ${item.reminder.thresholdHours}h)` : ''}\nLast event: ${item.lastEvent?.event ?? 'none'}${item.lastEvent?.detail ? ` — ${item.lastEvent.detail}` : ''}\nUpdated: ${item.updatedAt}\n`;
 }
 
@@ -220,7 +220,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   // state. Run that read-only gate here and preserve its explicit phase ownership. The gate cannot
   // mutate state; a reopen remains a reviewed guided action governed by the completion policy.
   let terminalGate = null;
-  if (workflow.status === 'complete' && workflow.currentPhase == null) {
+  if (workflow.status === 'closed' && workflow.currentPhase == null) {
     terminalGate = await runGovernanceGate(root, config, workflow, { terminal: true });
     blockers.push(...terminalGate.findings);
     actions.push(...recoveryActionsForFindings(terminalGate.findings));

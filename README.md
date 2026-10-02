@@ -1066,7 +1066,7 @@ required just to select a workspace.
 
 Workspace display names can be changed locally. Before archiving, Singularity
 Flow refreshes every participating repository and proves that every governed
-Story is `complete` or `cancelled`; inaccessible repositories and active Stories
+Story is `closed` or `cancelled`; inaccessible repositories and active Stories
 block the action. Archived workspaces move into a separate VS Code folder while
 their checkouts, branches, generated artifacts, approvals, and history remain
 available for inspection and restore.
@@ -2235,7 +2235,7 @@ Every individual approval is an atomic lifecycle decision: it updates the decisi
 
 Only a Git/GitHub identity matched to one of the phase's configured `approvalAuthorities` may decide a phase. The active governed agent is recorded as prompt/audit context but never grants permission. If the authenticated generator and approver are the same person, the approval is allowed when policy permits but is visibly recorded as `selfApproval: true`; it is never represented as independent review.
 
-Requesting changes may target only a phase listed in the deciding phase's `rejectTo` policy. While a phase is awaiting approval, `reject` reopens that target. After a Story is complete, `reopen` uses the final phase's same policy. Both create a structured `CR-nnn` record containing the exact comment, requester identity, authority group, governed agent, source artifact hashes, target phase, timestamp, and invalidated approval cone. Prior artifacts and decisions remain in Git history.
+Requesting changes may target only a phase listed in the deciding phase's `rejectTo` policy. While a phase is awaiting approval, `reject` reopens that target. After a Story is closed, `reopen` uses the final phase's same policy. Both create a structured `CR-nnn` record containing the exact comment, requester identity, authority group, governed agent, source artifact hashes, target phase, timestamp, and invalidated approval cone. Prior artifacts and decisions remain in Git history.
 
 Open requests appear in `STATUS.md`, the VS Code Lifecycle tree, and the next governed Copilot prompt for the reopened phase. A new generation does not silently close the request: it becomes resolved only when the reopened phase is approved, with the resolving generation and artifact hashes recorded.
 
@@ -2861,7 +2861,7 @@ evidence workflow.
 | `singularity-flow submit [PHASE] [--work-id WORK-ID]` | Run checks and publish an approval request for the explicitly selected Story. |
 | `singularity-flow approve [PHASE] --work-id ID --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. Omit `--work-id` for the active Story. |
 | `singularity-flow reject [PHASE] --work-id ID --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. Omit `--work-id` for the active Story. |
-| `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT [--gate-recovery --confirm SHA256]` | Return a completed Story to an allowed phase. `--gate-recovery` previews a content-bound exception only when the final gate assigns a blocker to a phase outside ordinary `rejectTo`; repeat it with the emitted digest to commit and push the governed reopen. |
+| `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT [--gate-recovery --confirm SHA256]` | Return a closed Story to an allowed phase. `--gate-recovery` previews a content-bound exception only when the final gate assigns a blocker to a phase outside ordinary `rejectTo`; repeat it with the emitted digest to commit and push the governed reopen. |
 | `singularity-flow cancel [ID] --fetch --reason TEXT --confirm ID` | Stop active work without claiming completion; preserve all artifacts and approvals, commit and push the decision, and show the Story under Archived. |
 | `singularity-flow cancel ID --release [--apply --confirm ID]` | Preview or apply a reversible release of a cancelled checkout: preserve remaining edits in a named stash, return to the recorded base branch, and keep the archived branch intact. |
 | `singularity-flow sync` | Restore a dead pre-commit transaction from its durable preimage, or retry an existing post-commit publication without rewriting it. |

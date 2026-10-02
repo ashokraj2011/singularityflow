@@ -186,7 +186,7 @@ export function buildLifecycleAnalytics(report: StoryWorkflowReport | null | und
     id: report.workItem.id,
     title: report.workItem.title,
     workType: report.workItem.workType,
-    status: report.workItem.status ?? (report.completedAt ? 'complete' : 'in_progress'),
+    status: report.workItem.status ?? (report.completedAt ? 'closed' : 'in_progress'),
     completedPhases,
     totalPhases: report.phases.length,
     completionPercent: report.phases.length ? Math.round((completedPhases / report.phases.length) * 100) : 0,

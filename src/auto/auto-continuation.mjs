@@ -127,7 +127,7 @@ export async function verifyAutoFlightContinuation(root, state) {
       && skippedOnly(rail.slice(previousIndex + 1, nextIndex));
     const terminal = workflow.currentPhase == null && previousIndex >= 0
       && skippedOnly(rail.slice(previousIndex + 1))
-      && ['complete', 'completed'].includes(workflow.status);
+      && workflow.status === 'closed';
     if ((!adjacent && !terminal) || previousPhase?.status !== 'approved') {
       throw new SingularityFlowError(
         `The governed Story moved from phase '${state.story.phase}' to '${workflow.currentPhase}'. Create a continuation Plan before Auto resumes.`,

@@ -326,7 +326,7 @@ test('phase bundles pin required milestones without churning on later child prog
     }
   };
   const original = await initiativeBundle(root, loaded.portfolio, loaded.initiative, 'build');
-  loaded.initiative.childStories['API-1'].status = 'complete';
+  loaded.initiative.childStories['API-1'].status = 'closed';
   loaded.initiative.childStories['API-1'].currentPhase = null;
   loaded.initiative.childStories['API-1'].observedCommit = 'b'.repeat(40);
   loaded.initiative.childStories['API-1'].milestones.conformance = true;

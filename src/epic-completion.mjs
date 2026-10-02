@@ -150,7 +150,7 @@ function storyReadiness(story, observed) {
   else {
     if (observed.stale) problems.push('Story context is stale');
     if (observed.blocked) problems.push('Story has a blocking dependency or invalid workflow');
-    if (observed.status !== 'complete') problems.push(`Story workflow is ${observed.status ?? 'not started'}`);
+    if (observed.status !== 'closed') problems.push(`Story workflow is ${observed.status ?? 'not started'}`);
     if (!observed.milestones?.conformance || observed.conformance?.status !== 'approved') {
       problems.push('approved spec-to-code conformance is missing');
     }

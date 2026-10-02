@@ -90,7 +90,7 @@ for (const [label, mutate] of [
   ['stale passing pointer', value => { value.next.phases.implementation.testCommandValidation = { path: 'old.json', sha256: H }; }],
   ['modified draft registration', value => { value.next.phases.implementation.artifacts[0].sha256 = `sha256:${'c'.repeat(64)}`; }],
   ['unrelated completed phase', value => { value.next.phases.specification.status = 'in_progress'; }],
-  ['terminal Story', value => { value.prior.status = 'complete'; }],
+  ['terminal Story', value => { value.prior.status = 'closed'; }],
   ['completed affected phase', value => { value.prior.phases.implementation.status = 'approved'; }],
   ['phase topology', value => { value.next.phaseOrder.reverse(); }],
   ['current phase return', value => { value.next.currentPhase = 'specification'; }]

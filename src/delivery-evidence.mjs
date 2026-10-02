@@ -67,7 +67,7 @@ export function reviewMayReturnToCode(review, code) {
  */
 export function reviewRepairTarget(workflow, phase) {
   const code = reviewCodeSource(workflow, phase);
-  return code?.status === 'approved' && workflow.status !== 'complete'
+  return code?.status === 'approved' && workflow.status !== 'closed'
     && workflow.currentPhase === phase.id && phase.status === 'in_progress'
     && reviewMayReturnToCode(phase, code) ? code : null;
 }
@@ -162,7 +162,7 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
   const source = reviewCodeSource(workflow, phase);
   if (!source) return null;
   const entry = currentSubmission(workflow, source);
-  const repairCommand = workflow.status === 'complete'
+  const repairCommand = workflow.status === 'closed'
     ? `singularity-flow reopen ${workflow.workItem.id} --to ${source.id} --reason <REASON>`
     : reviewRepairTarget(workflow, phase)?.id === source.id
       ? `singularity-flow reject ${phase.id} --to ${source.id} --repair --reason <REASON>`

@@ -187,7 +187,7 @@ function phaseGroups(
     }));
 }
 
-const TERMINAL_STORY_STATUSES = new Set(['complete', 'completed', 'cancelled', 'invalid']);
+const TERMINAL_STORY_STATUSES = new Set(['closed', 'cancelled', 'invalid']);
 
 function storiesOf(
   snapshot: RepositorySnapshot | null,

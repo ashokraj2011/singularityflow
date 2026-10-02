@@ -493,7 +493,7 @@ function publicationReport(initiative, breakdown, attempt, jiraPlan) {
   }
   lines.push(
     '',
-    'The planning workflow is complete. Developers now fetch a governed Story with',
+    'The planning workflow has finished. Developers now fetch a governed Story with',
     '`/sf-story-fetch <JIRA-KEY>` and complete its repository workflow independently.',
     '',
     'Product Owner completion remains open until every blocking Story has a finalized review',

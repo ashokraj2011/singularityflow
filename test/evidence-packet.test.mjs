@@ -490,7 +490,7 @@ test('history uses exact same-repository overlap and expands only the governed r
   const historicalRoot = path.join(root, 'singularity/work-items/PAY-OLD');
   await mkdir(path.join(historicalRoot, 'context/change-flight-plan'), { recursive: true });
   await writeFile(path.join(historicalRoot, 'workflow.json'), `${JSON.stringify({
-    schemaVersion: 2, status: 'completed', workItem: { id: 'PAY-OLD' }
+    schemaVersion: 2, status: 'closed', workItem: { id: 'PAY-OLD' }
   }, null, 2)}\n`);
   await writeFile(path.join(historicalRoot, 'context/change-flight-plan/receipt.json'), `${JSON.stringify({
     schemaVersion: 1,

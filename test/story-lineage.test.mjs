@@ -255,7 +255,7 @@ test('finalize refuses a Story whose final governance check fails, and the packe
     await writeFile(artifact, `# ${phase.label}\n\nApproved governed evidence for ${phaseId}.\n`);
   }
   workflow.currentPhase = null;
-  workflow.status = 'complete';
+  workflow.status = 'closed';
   workflow.lineage.submissions = [{
     packetSha256: 'a'.repeat(64),
     phase: 'conformance',

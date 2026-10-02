@@ -17,7 +17,7 @@ export const COMPLETION_LABELS = Object.freeze({
 /** Where the Story stands, in words that never claim its obligations were met. */
 export function lifecycleWords(workflow) {
   if (workflow?.status === 'cancelled') return 'Cancelled';
-  if (workflow?.status === 'complete' || workflow?.status === 'closed') return 'Every step decided';
+  if (workflow?.status === 'closed') return 'Every step decided';
   if (workflow?.pendingDecision) {
     return `Waiting for a decision: ${workflow.pendingDecision.label ?? workflow.pendingDecision.after ?? 'unnamed'}`;
   }
@@ -46,7 +46,7 @@ export function completionLabel({ workflow, rows = [], terminal = null, gate = n
       };
     }
   }
-  const closed = workflow?.status === 'complete' || workflow?.status === 'closed';
+  const closed = workflow?.status === 'closed';
   if (closed && !decisive) {
     return {
       label: COMPLETION_LABELS.notEvaluated, kind: 'not-evaluated',

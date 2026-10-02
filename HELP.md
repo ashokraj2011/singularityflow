@@ -943,7 +943,7 @@ In VS Code:
 
 The Workspaces detail page also supports local rename, archive, and restore.
 Archive performs a fresh cross-repository check and refuses when any Story is not
-`complete` or `cancelled`, or when a repository cannot be inspected. It never
+`closed` or `cancelled`, or when a repository cannot be inspected. It never
 deletes the checkout, branches, artifacts, approvals, or history.
 
 Useful commands:

@@ -403,7 +403,7 @@ test('repository sync isolates malformed and identity-mismatched child workflow 
   await writeFile(workflowPath, JSON.stringify({
     schemaVersion: 2,
     workItem: { id: 'OTHER-1', branch: 'OTHER-1' },
-    status: 'complete',
+    status: 'closed',
     currentPhase: null,
     phaseOrder: ['conformance'],
     phases: { conformance: { status: 'approved' } }
@@ -422,7 +422,7 @@ test('repository sync isolates malformed and identity-mismatched child workflow 
   await writeFile(workflowPath, JSON.stringify({
     schemaVersion: 2,
     workItem: { id: 'API-1', branch: 'API-1', workType: 'feature' },
-    status: 'complete',
+    status: 'closed',
     currentPhase: null,
     phaseOrder: ['conformance'],
     phases: { conformance: { status: 'approved' } }

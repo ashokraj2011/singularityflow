@@ -396,7 +396,7 @@
       },
       "additionalProperties": true
     },
-    "status": { "enum": ["in_progress", "complete", "cancelled"] },
+    "status": { "enum": ["in_progress", "closed", "cancelled"] },
     "cancellation": {
       "type": "object",
       "required": ["schemaVersion", "status", "phase", "reason", "cancelledAt", "cancelledBy"],

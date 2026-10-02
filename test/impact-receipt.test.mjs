@@ -50,7 +50,7 @@ async function fixture() {
   await writeJson(path.join(root, relativePlan), plan);
   const study = normalizedStudy();
   const workflow = {
-    schemaVersion: 2, status: 'complete', currentPhase: null,
+    schemaVersion: 2, status: 'closed', currentPhase: null,
     workItem: { id: 'STORY-9', title: 'Measured work', workType: 'feature', branch: 'STORY-9', createdAt: startedAt },
     resolution: { impact: { path: 'singularity/impact.yml', sha256: 'b'.repeat(64), studies: [study] } },
     phaseOrder: ['implementation'],

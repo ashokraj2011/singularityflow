@@ -382,7 +382,7 @@ test('hypothetical package amendment shares the owner dependency proof and reval
   assert.equal(amendment.priorGenerations, 'retained-but-not-fresh');
   const progression = amendment.events.filter((event) => event.action === 'new-publication-and-review-assumed');
   assert.equal(progression[0].to, 'review', 'the transition owner skips the approved independent audit');
-  assert.equal(progression.at(-1).to, 'complete');
+  assert.equal(progression.at(-1).to, 'closed');
   assert.equal(amendment.actualAmendment, 'not-created'); assert.equal(amendment.actualReceiptAcceptance, 'not-assessed');
   assert.equal(amendment.observed, false); assert.equal(report.effects.executed, false);
   assert.ok(report.coverage.dimensions.includes('skill-amendment-invalidation'));

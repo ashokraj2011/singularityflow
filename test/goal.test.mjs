@@ -107,7 +107,7 @@ test('Goal links are idempotent and open governed work blocks completion', async
   await assert.rejects(
     () => completeGoal(context, created.goal.id, {
       confirmation: 'wrong',
-      linkStates: [{ ...link, availability: 'available', status: 'complete', terminal: true }]
+      linkStates: [{ ...link, availability: 'available', status: 'closed', terminal: true }]
     }, { now: secondDay }),
     (error) => error.code === 'GOAL_CONFIRMATION_REQUIRED'
   );
@@ -115,7 +115,7 @@ test('Goal links are idempotent and open governed work blocks completion', async
   const completed = await completeGoal(context, created.goal.id, {
     confirmation: created.goal.id,
     completionNote: 'Confirmed against the approved Story result.',
-    linkStates: [{ ...link, availability: 'available', status: 'complete', terminal: true, commit: 'abc123' }]
+    linkStates: [{ ...link, availability: 'available', status: 'closed', terminal: true, commit: 'abc123' }]
   }, { now: secondDay });
   assert.equal(completed.goal.status, 'achieved');
   assert.equal(completed.state.activeGoalId, null);

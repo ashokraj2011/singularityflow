@@ -313,7 +313,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       return [archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
         ...(activeStories ? [activeStories] : []), ...(completedArchive ? [completedArchive] : []), workspaceImpact];
     }
-    if (snapshot.workflow.status === 'complete') {
+    if (snapshot.workflow.status === 'closed') {
       const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
       const siblings = completedStorySummaries(snapshot, snapshot.workflow.workItem.id);
       return [completedFolder([completed, ...siblings], countArtifacts(completed)),
@@ -382,7 +382,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
 function activeStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
   return (snapshot.workItems ?? [])
     .filter((item) => item.id !== excludeId
-      && !['complete', 'completed', 'cancelled', 'invalid'].includes(String(item.status)))
+      && !['closed', 'cancelled', 'invalid'].includes(String(item.status)))
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((item) => ({
       kind: 'story' as const,
@@ -446,13 +446,13 @@ function completedFolder(subjects: TreeNode[], artifactCount: number): TreeNode 
 /** Completed sibling Stories are catalogued from Git refs even when another Story is checked out. */
 function completedStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
   return (snapshot.workItems ?? [])
-    .filter((item) => item.id !== excludeId && ['complete', 'completed'].includes(String(item.status)))
+    .filter((item) => item.id !== excludeId && String(item.status) === 'closed')
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((item) => ({
       kind: 'story' as const,
       id: `completed-story-summary:${item.id}`,
       label: item.id,
-      description: item.title ?? 'Completed Story',
+      description: item.title ?? 'Closed Story',
       tooltip: `Completed on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its artifacts.`,
       icon: 'statusSuccess',
       command: ['session', 'attach', item.id],

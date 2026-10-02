@@ -186,7 +186,7 @@ export function intakeInFlight(snapshot: {
   const where = (status?: string, phase?: string | null): string =>
     (phase ? `${status ?? 'in progress'} · ${phase}` : status ?? 'in progress');
   const completed = (status?: string): boolean =>
-    ['complete', 'completed'].includes(status?.toLowerCase() ?? '');
+    ['closed', 'complete', 'completed'].includes(status?.toLowerCase() ?? '');
   const initiatives = (snapshot?.initiatives ?? []).filter((entry) => entry.id).map((entry) => ({
     shape: 'initiative' as Shape,
     id: entry.id!,

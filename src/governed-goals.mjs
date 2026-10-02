@@ -293,7 +293,7 @@ function oracleFor(criterion, link, actor) {
   if (link) {
     return {
       type: 'governed-work', subject: { kind: link.kind, id: link.id, repositoryId: link.repositoryId },
-      allowedTerminalStates: ['complete', 'completed', 'archived']
+      allowedTerminalStates: ['closed', 'complete', 'completed', 'archived']
     };
   }
   return {

@@ -25,7 +25,7 @@ function story(phaseOrder, { complete = false } = {}) {
     phaseOrder,
     phases,
     currentPhase: complete ? null : phaseOrder[0],
-    status: complete ? 'complete' : 'in_progress'
+    status: complete ? 'closed' : 'in_progress'
   };
 }
 

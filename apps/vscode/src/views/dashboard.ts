@@ -102,7 +102,7 @@ function analyticsHtml(analytics: LifecycleAnalytics | null): string {
         <span class="eyebrow">Story lifecycle</span>
         <h2>${icon('story', { size: 20 })}${escape(analytics.id)}${analytics.title ? ` — ${escape(analytics.title)}` : ''}</h2>
       </div>
-      <span class="pill ${analytics.status === 'complete' ? 'ok' : ''}">${escape(label(analytics.status))}</span>
+      <span class="pill ${analytics.status === 'closed' ? 'ok' : ''}">${escape(label(analytics.status))}</span>
     </div>
     <div class="summary-grid lifecycle-kpis">
       <div class="summary-card important"><strong>${analytics.completionPercent}%</strong><span>${analytics.completedPhases} of ${analytics.totalPhases} phases approved</span></div>

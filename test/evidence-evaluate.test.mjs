@@ -153,13 +153,13 @@ test('zero criteria, a cancelled Story or a closed one with no final evaluation 
   assert.equal(cancelled.completion.label, COMPLETION_LABELS.incomplete);
   assert.ok(cancelled.completion.reasons.includes('the Story was cancelled'));
 
-  const closed = evaluate({ workflow: story({ status: 'complete', currentPhase: null }), records: records(), deliveries: [delivery()] });
+  const closed = evaluate({ workflow: story({ status: 'closed', currentPhase: null }), records: records(), deliveries: [delivery()] });
   assert.equal(closed.lifecycle.words, 'Every step decided');
   assert.equal(closed.completion.label, COMPLETION_LABELS.notEvaluated);
 });
 
 test('only a decision-mode terminal evaluation that allows the end can produce the Complete labels', () => {
-  const parts = { workflow: story({ status: 'complete', currentPhase: null }), records: records(), deliveries: [delivery()] };
+  const parts = { workflow: story({ status: 'closed', currentPhase: null }), records: records(), deliveries: [delivery()] };
   const terminal = { mode: 'decision', boundary: 'terminal', decision: { gate: 'allow' } };
   assert.equal(evaluate({ ...parts, terminal }).completion.label, COMPLETION_LABELS.complete);
   assert.equal(evaluate({ ...parts, terminal: { ...terminal, mode: 'projection' } }).completion.label, COMPLETION_LABELS.notEvaluated);

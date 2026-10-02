@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { guideText, workflowGuide } from '../src/guide.mjs';
 
 function workflow(status = 'in_progress', generation = 0) {
-  const currentPhase = status === 'complete' ? null : 'intake';
+  const currentPhase = status === 'closed' ? null : 'intake';
   return {
     workItem: { id: 'GUIDE-1', workType: 'feature', workTypeLabel: 'Feature', source: { type: 'manual', key: null } },
     status,
@@ -11,13 +11,13 @@ function workflow(status = 'in_progress', generation = 0) {
     phaseOrder: ['intake', 'requirements'],
     phases: {
       intake: {
-        id: 'intake', label: 'Intake', status: status === 'complete' ? 'approved' : status,
+        id: 'intake', label: 'Intake', status: status === 'closed' ? 'approved' : status,
         generation, requiredArtifact: { path: 'artifacts/intake/intake.md' },
         defaultAgent: 'product-owner', approvalPolicy: { authorities: ['product-approvers'], minimum: 1 }
       },
       requirements: {
-        id: 'requirements', label: 'Requirements', status: status === 'complete' ? 'approved' : 'not_started',
-        generation: status === 'complete' ? 1 : 0, requiredArtifact: { path: 'artifacts/requirements/requirements.md' },
+        id: 'requirements', label: 'Requirements', status: status === 'closed' ? 'approved' : 'not_started',
+        generation: status === 'closed' ? 1 : 0, requiredArtifact: { path: 'artifacts/requirements/requirements.md' },
         defaultAgent: 'product-owner', approvalPolicy: { authorities: ['product-approvers'], minimum: 1 }
       }
     },
@@ -36,7 +36,7 @@ test('workflow guide recommends the valid next skill for each lifecycle state', 
   guide = workflowGuide(workflow('awaiting_approval', 1));
   assert.deepEqual(guide.nextActions.map((item) => item.skill), ['/sf-approve', '/sf-reject']);
 
-  guide = workflowGuide(workflow('complete', 1));
+  guide = workflowGuide(workflow('closed', 1));
   assert.equal(guide.nextActions[0].skill, '/sf-progress');
 });
 

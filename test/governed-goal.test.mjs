@@ -102,15 +102,15 @@ test('governed Goals publish on their own branch without switching the Story che
   assert.equal(first.state.status, 'waiting');
 
   const second = await runGovernedGoalNext(context, id, [
-    { kind: 'story', id: 'PAY-101', repositoryId: 'app', availability: 'available', status: 'complete', terminal: true },
+    { kind: 'story', id: 'PAY-101', repositoryId: 'app', availability: 'available', status: 'closed', terminal: true },
     { kind: 'story', id: 'PAY-102', repositoryId: 'app', availability: 'available', status: 'in_progress', terminal: false }
   ], { config: policy, now: fixedNow });
   assert.deepEqual(second.state.completedStepIds, ['step-001']);
   assert.equal(second.value.step.subject.id, 'PAY-102');
 
   const verified = await verifyGovernedGoal(context, id, [
-    { kind: 'story', id: 'PAY-101', repositoryId: 'app', availability: 'available', status: 'complete', terminal: true },
-    { kind: 'story', id: 'PAY-102', repositoryId: 'app', availability: 'available', status: 'complete', terminal: true }
+    { kind: 'story', id: 'PAY-101', repositoryId: 'app', availability: 'available', status: 'closed', terminal: true },
+    { kind: 'story', id: 'PAY-102', repositoryId: 'app', availability: 'available', status: 'closed', terminal: true }
   ], { config: policy, now: fixedNow });
   assert.equal(verified.state.status, 'achieved');
   assert.equal(verified.state.assurance, 'verified');

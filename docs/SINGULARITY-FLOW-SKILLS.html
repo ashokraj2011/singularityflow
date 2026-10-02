@@ -1409,7 +1409,7 @@ argument-hint: &quot;plan &lt;requirement&gt; [--until &lt;phase&gt;] | plan --s
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~514 body tokens</span>
+          <span class="pill">~513 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-cancel</code></dd></div>
@@ -1441,7 +1441,7 @@ This is an explicit human lifecycle decision, not an artifact-generation task.
 3. Explain that cancellation stops the lifecycle but preserves the Story branch, state, artifacts, approvals, telemetry, and Git history. It does not claim successful completion and does not delete files.
 4. Ask the human for explicit confirmation of the exact Work ID.
 5. Run `singularity-flow cancel &lt;WORK-ID&gt; --fetch --reason &quot;&lt;exact reason&gt;&quot; --confirm &lt;WORK-ID&gt;`.
-6. Stop on a stale/diverged branch, pending publication, completed Story, already-cancelled Story, or confirmation mismatch. Never reset, rebase, force-push, or delete the branch.
+6. Stop on a stale/diverged branch, pending publication, closed Story, already-cancelled Story, or confirmation mismatch. Never reset, rebase, force-push, or delete the branch.
 7. If cancellation reports remaining uncommitted paths, explain that a new Story will remain blocked until they are preserved. Run `singularity-flow cancel &lt;WORK-ID&gt; --release --json` to preview the exact paths, stash consequence, and recorded base branch. Ask separately whether to apply that release; never infer this authority from the cancellation confirmation.
 8. Only after explicit release approval, run `singularity-flow cancel &lt;WORK-ID&gt; --release --apply --confirm &lt;WORK-ID&gt; --json`. Report the durable stash SHA and recovery command exactly. The archived branch and governed history remain intact.
 9. Report the cancellation reason, human Git identity, governed agent audit context, phase, commit, push, and that the Story is now visible under **Archived** in VS Code.
@@ -4248,7 +4248,7 @@ Hooks are host integration points, not shortcuts for lifecycle commands.
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~505 body tokens</span>
+          <span class="pill">~504 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-impact</code></dd></div>
@@ -4278,7 +4278,7 @@ argument-hint: &quot;[status|study|enroll|exposure|evidence|finalize|verify|comp
 2. Before `enroll`, show the engine&#39;s suggested complexity/risk signals. Require the user to supply both bands and explicitly request `--confirm`; never confirm or opt out on their behalf.
 3. Before `exposure attest`, explain that an attestation is self-reported evidence. Require the phase, exposure level, assurance, and a reason when supplied by the user.
 4. Import only a user-selected JSON or YAML evidence envelope. For a raw provider observation, use `singularity-flow impact evidence collect &lt;PROVIDER&gt; &lt;FILE&gt; --commit &lt;FULL-SHA&gt; --run-id &lt;ID&gt;` so the engine creates the strict envelope. Do not rewrite provider observations or replace `unavailable` with estimates.
-5. `finalize` is valid only for a completed Story and creates a hash-bound Impact Receipt through the normal publication transaction.
+5. `finalize` is valid only for a closed Story and creates a hash-bound Impact Receipt through the normal publication transaction.
 6. For `compare`, preserve the engine&#39;s method, evidence grade, privacy-floor refusal, uncertainty interval, guardrail result, and exact inference label. Matched observational and before/after results are not causal.
 7. For a prompt-set study, use `singularity-flow impact study prompt-hash &lt;singularity/prompts/FILE.md&gt;` for each reviewed prompt. Never calculate or substitute a hash yourself. Explain that Story assignment is deterministic, the assigned variant is disclosed, and an agent override would contaminate and therefore block the comparison.
 8. Mutating operations commit and push through Singularity Flow. Report the commit or pending-publication state and the next valid action.
@@ -7420,7 +7420,7 @@ prior bytes recovers forward from the verified candidate; do not claim rollback.
     <details>
       <summary>
         <span class="skill-number">112</span>
-        <span class="skill-title"><strong>sflow-reject</strong><span>Request changes to a submitted or completed Story, return an in-progress review step&#39;s source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.</span></span>
+        <span class="skill-title"><strong>sflow-reject</strong><span>Request changes to a submitted or closed Story, return an in-progress review step&#39;s source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -7429,7 +7429,7 @@ prior bytes recovers forward from the verified candidate; do not claim rollback.
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~742 body tokens</span>
+          <span class="pill">~741 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-reject</code></dd></div>
@@ -7443,7 +7443,7 @@ prior bytes recovers forward from the verified candidate; do not claim rollback.
         </div>
         <pre data-source="sflow-reject"><code>---
 name: sflow-reject
-description: Request changes to a submitted or completed Story, return an in-progress review step&#39;s source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.
+description: Request changes to a submitted or closed Story, return an in-progress review step&#39;s source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
 argument-hint: &quot;[WORK-ID] [--fetch] --to PHASE --reason &#39;explanation&#39; [--repair] | roll-forward [CR-ID]&quot;
 
@@ -7465,7 +7465,7 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
    in the bound worktree. Show paths and digest; request human confirmation. Only then
    rerun with `--confirm &lt;sha256&gt;`. Do not `--fetch` a dirty bound worktree. The return opens a new
    Code generation; retest and approve it before repeating the review.
-4. For a completed Story, run `singularity-flow reopen &lt;WORK-ID&gt; --fetch --to &lt;phase&gt; --reason &quot;...&quot;`.
+4. For a closed Story, run `singularity-flow reopen &lt;WORK-ID&gt; --fetch --to &lt;phase&gt; --reason &quot;...&quot;`.
 5. Stop on an unauthorized identity, disallowed target, disabled post-completion reopening, stale branch, or pending publication. Changing agents never grants decision authority.
 6. Show which approvals and later phases will be invalidated before recording the decision.
 7. Report the change-request ID, comment, human identity, authority group, governed agent, reopened target, invalidated phases, commit, and push.

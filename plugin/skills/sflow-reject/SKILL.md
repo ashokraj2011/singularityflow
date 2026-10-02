@@ -1,6 +1,6 @@
 ---
 name: sflow-reject
-description: Request changes to a submitted or completed Story, return an in-progress review step's source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.
+description: Request changes to a submitted or closed Story, return an in-progress review step's source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
 argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | roll-forward [CR-ID]"
 
@@ -22,7 +22,7 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
    in the bound worktree. Show paths and digest; request human confirmation. Only then
    rerun with `--confirm <sha256>`. Do not `--fetch` a dirty bound worktree. The return opens a new
    Code generation; retest and approve it before repeating the review.
-4. For a completed Story, run `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
+4. For a closed Story, run `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
 5. Stop on an unauthorized identity, disallowed target, disabled post-completion reopening, stale branch, or pending publication. Changing agents never grants decision authority.
 6. Show which approvals and later phases will be invalidated before recording the decision.
 7. Report the change-request ID, comment, human identity, authority group, governed agent, reopened target, invalidated phases, commit, and push.

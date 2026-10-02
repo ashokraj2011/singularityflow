@@ -3884,7 +3884,7 @@ async function progressCommand(positionals, options) {
   if (optionBoolean(options, 'markdown')) return console.log(progressMarkdown(progress));
   console.log(`\n${progress.workId} — ${progress.workType}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}%`);
-  console.log(`${progress.approvedPhases} of ${progress.totalPhases} phases approved; current: ${progress.currentPhase ?? 'complete'} (${progress.currentPosition}/${progress.totalPhases})`);
+  console.log(`${progress.approvedPhases} of ${progress.totalPhases} phases approved; current: ${progress.currentPhase ?? 'none'} (${progress.currentPosition}/${progress.totalPhases})`);
   console.log(`Documents: ${progress.documents}  Tokens: ${progress.tokens.totalTokens || 'unavailable'}`);
   console.log(`\nWorkflow flow:\n${progressFlow(progress)}`);
   console.log(`\n${table(progress.phases, [
@@ -7705,7 +7705,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded(phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
       phase: phase.id, documents: phase.artifacts.length,
-      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
+      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     ...completionContinuation(completion),
@@ -8303,7 +8303,7 @@ async function approveCommand(positionals, options) {
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('approve.succeeded', {
       phase: result.phase.id, next: result.next?.id ?? null, reached: result.reached !== false,
-      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
+      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     ...completionContinuation(completion),
@@ -8775,7 +8775,7 @@ async function decisionApplicabilityCommand(positionals, options) {
   const id = workflow.workItem.id;
   if (workflow.status !== 'in_progress') {
     throw new SingularityFlowError(
-      `Story ${id} is ${workflow.status === 'complete' ? 'already finished' : workflow.status}; applicability is decided while it is in progress.`,
+      `Story ${id} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`,
       { code: 'APPLICABILITY_STORY_CLOSED' }
     );
   }
@@ -8940,7 +8940,7 @@ async function decisionChooseCommand(positionals, options) {
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('decision.choose.succeeded', {
       decision: pending.decision, route: outcome.route, kind: outcome.kind, target: outcome.target ?? null,
-      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
+      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     ...completionContinuation(completion),
@@ -10861,7 +10861,7 @@ async function runCommand(positionals, options) {
     return result;
   }
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
-  if (!phase) { console.log('Workflow is complete. Running the final governance gate.'); return gateCommand({ terminal: true }); }
+  if (!phase) { console.log('Every step is decided. Running the final governance gate.'); return gateCommand({ terminal: true }); }
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
     printCommandRoutes(`singularity-flow review ${phase.id}`, { label: 'Review' });
@@ -10944,7 +10944,7 @@ async function cockpitCommand() {
   console.log(`Singularity Flow cockpit — ${workflow.workItem.id}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}% · ${progress.approvedPhases}/${progress.totalPhases} phases`);
   console.log(`governed agent: ${session?.workId === workflow.workItem.id ? session.agent : 'not selected'} · Branch: ${workflow.workItem.branch}`);
-  console.log(`Current: ${active ? `${active.label} (${active.status})` : 'workflow complete'}`);
+  console.log(`Current: ${active ? `${active.label} (${active.status})` : 'none — every step is decided'}`);
   console.log(`Assignment: ${active ? workflow.collaboration?.assignments?.[active.id]?.assignee ?? 'unassigned' : 'none'}`);
   console.log('\nNext actions:');
   const prerequisites = active && workflow.resolution?.collaboration?.assignmentMode !== 'off' && !workflow.collaboration?.assignments?.[active.id]
@@ -11872,7 +11872,7 @@ async function sessionCommand(positionals, options) {
       console.log(JSON.stringify({ items: context.items, omissions: context.omissions, unavailable: context.unavailable }, null, 2));
       return;
     }
-    console.log(`${context.work.id} · ${context.phase?.id ?? 'complete'} · ${context.slice} context`);
+    console.log(`${context.work.id} · ${context.phase?.id ?? 'closed'} · ${context.slice} context`);
     console.log(`Revision: ${(context.sourceRevision.commit ?? 'unavailable').slice(0, 12)}`);
     console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);
     if (context.omissions.length) console.log(`Omitted: ${context.omissions.join(', ')}`);
@@ -12028,7 +12028,7 @@ async function sessionCommand(positionals, options) {
     if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace)`);
     if (managedWorktree) console.log(`Story worktree: ${attachmentRoot}`);
     console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
-    console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
+    console.log(`Current phase: ${workflow.currentPhase ?? 'none'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
     if (managedWorktree && path.resolve(process.cwd()) !== path.resolve(attachmentRoot)) {

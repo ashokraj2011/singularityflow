@@ -906,7 +906,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
     }
     flow(root, ['approve', '--yes'], { selection: selection('feature', agents[phaseId]) });
   }
-  const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.status, 'complete'); assert.equal(workflow.usage.totalTokens, 105);
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.status, 'closed'); assert.equal(workflow.usage.totalTokens, 105);
   assert.equal(workflow.usage.byWorkType.feature.totalTokens, 105); assert.equal(workflow.usage.byWorkItem[workId].records, 7);
   assert.equal(workflow.usage.byAgent.architect.totalTokens, 30); assert.equal(workflow.usage.byPhase.verification.totalTokens, 15);
   assert.equal(workflow.usage.exactRecords, 7); assert.equal(workflow.usage.unavailableRecords, 0);
@@ -923,7 +923,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   assert.deepEqual(implementationInputRecord.inputs.map((input) => input.phase), ['design', 'implementation-spec']);
   assert.ok(implementationInputRecord.inputs.every((input) => input.status === 'captured'));
   assert.match(designArtifact, /singularity-flow:inputs:start/);
-  const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout); assert.equal(report.workItem.id, workId); assert.equal(report.workItem.status, 'complete'); assert.equal(report.tokens.total, 105); assert.equal(report.phases.length, 7); assert.equal(report.cost, null);
+  const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout); assert.equal(report.workItem.id, workId); assert.equal(report.workItem.status, 'closed'); assert.equal(report.tokens.total, 105); assert.equal(report.phases.length, 7); assert.equal(report.cost, null);
   assert.match(flow(root, ['report', workId]).stdout, /wall-clock elapsed time/);
   const htmlReport = path.join(root, '.git', 'workflow-report.html'); flow(root, ['report', workId, '--format', 'html', '--out', htmlReport]); assert.match(await readFile(htmlReport, 'utf8'), /<svg/);
   assert.equal(flow(root, ['gate', '--terminal']).status, 0);
@@ -1002,7 +1002,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     }
   }
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.equal(workflow.phases['design-intake'].designSourceSets.length, 1);
   assert.match(workflow.phases['mobile-spec'].claimMaps?.planned?.sha256 ?? '', /^[0-9a-f]{64}$/);
   assert.equal(workflow.phases['design-intake'].approvals.at(-1).designSourceSet.records[0].fileVersion, 'v1');
@@ -1085,7 +1085,7 @@ test('completed work can be reopened only through an authorized governed change 
     await mkdir(path.dirname(artifact), { recursive: true });
     if (!existsSync(artifact)) await writeFile(artifact, `# ${phaseId}\n\n${'Reviewed lifecycle evidence. '.repeat(20)}\n`);
   }
-  workflow.status = 'complete'; workflow.currentPhase = null;
+  workflow.status = 'closed'; workflow.currentPhase = null;
   for (const phaseId of workflow.phaseOrder) workflow.phases[phaseId].status = 'approved';
   await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
   execute('git', ['add', path.join(root, 'singularity/work-items', workId)], root); execute('git', ['commit', '-m', 'simulate completed story'], root);
@@ -1108,7 +1108,7 @@ test('completed work can be reopened only through an authorized governed change 
   assert.equal(reopened.history.at(-1).event, 'workflow_reopened');
   assert.match(await readFile(path.join(root, 'singularity/work-items', workId, 'STATUS.md'), 'utf8'),
     /CR-001.*Production feedback requires safer rollback behavior/);
-  assert.equal(reopened.changeRequests[0].forwardCheckpoint.state.status, 'complete');
+  assert.equal(reopened.changeRequests[0].forwardCheckpoint.state.status, 'closed');
   assert.equal(reopened.changeRequests[0].forwardCheckpoint.state.currentPhase, null);
 
   await mkdir(path.join(root, 'src'), { recursive: true });
@@ -1123,7 +1123,7 @@ test('completed work can be reopened only through an authorized governed change 
   assert.equal(rollForwardResult.phase, null);
   assert.equal(existsSync(path.join(root, 'src/reopened-only.mjs')), false);
   const restored = JSON.parse(await readFile(workflowFile, 'utf8'));
-  assert.equal(restored.status, 'complete');
+  assert.equal(restored.status, 'closed');
   assert.equal(restored.currentPhase, null);
   assert.equal(restored.changeRequests[0].status, 'abandoned');
 });
@@ -1139,7 +1139,7 @@ test('a final-gate-owned phase outside rejectTo reopens only after exact recover
     if (!existsSync(artifact)) await writeFile(artifact, `# ${phaseId}\n\n${'Reviewed evidence. '.repeat(30)}\n`);
     workflow.phases[phaseId].status = 'approved';
   }
-  workflow.status = 'complete'; workflow.currentPhase = null;
+  workflow.status = 'closed'; workflow.currentPhase = null;
   const completion = workflow.phases[workflow.phaseOrder.at(-1)];
   completion.approvalPolicy.rejectTo = completion.approvalPolicy.rejectTo.filter((phaseId) => phaseId !== 'intake');
   await writeFile(workflowFile, JSON.stringify(workflow, null, 2));

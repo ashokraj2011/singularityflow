@@ -174,7 +174,7 @@ function continuationCard(value) {
   const proposal = value.proposal;
   return [
     `Auto continuation proposal ${proposal.proposalSha256}`,
-    `Story: ${proposal.story.workId} · ${proposal.story.status} · phase ${proposal.story.currentPhase ?? 'complete'}`,
+    `Story: ${proposal.story.workId} · ${proposal.story.status} · phase ${proposal.story.currentPhase ?? 'none'}`,
     `Workflow: ${proposal.story.workflowSha256}`,
     `Flight: ${proposal.flight?.flightId ?? 'none'}${proposal.flight ? ` · checkpoint ${proposal.flight.checkpointSha256}` : ''}`,
     `Status: ${proposal.proposal.status}`,

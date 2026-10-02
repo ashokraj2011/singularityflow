@@ -689,7 +689,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   await completePhase(root, 'release');
 
   const complete = await workflowOf(root);
-  assert.equal(complete.status, 'complete', `the Story did not complete: ${complete.status} at ${complete.currentPhase}`);
+  assert.equal(complete.status, 'closed', `the Story did not complete: ${complete.status} at ${complete.currentPhase}`);
   assert.equal(complete.currentPhase, null);
   for (const phase of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release']) {
     assert.equal(complete.phases[phase].status, 'approved', `${phase} is ${complete.phases[phase].status}`);

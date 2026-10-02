@@ -34,7 +34,7 @@ export async function findHistoricalAnalogues(root, definition, { workId = null,
   const analogues = [];
   for (const workflowPath of tracked) {
     const candidate = await jsonAt(root, workflowPath, 'story-workflow').catch(() => null);
-    if (!candidate?.workItem?.id || candidate.workItem.id === workId || candidate.status !== 'completed') continue;
+    if (!candidate?.workItem?.id || candidate.workItem.id === workId || candidate.status !== 'closed') continue;
     const directory = path.posix.dirname(workflowPath);
     const receiptPath = `${directory}/context/change-flight-plan/receipt.json`;
     const receipt = await jsonAt(root, receiptPath, 'change-flight-plan-receipt').catch(() => null);

@@ -4,7 +4,7 @@ import test from 'node:test';
 import { lapsedWitnessExceptions, terminalTransitionAt } from '../src/governance.mjs';
 
 const finished = {
-  status: 'complete',
+  status: 'closed',
   phaseOrder: ['spec', 'code', 'release'],
   phases: {
     spec: { approvedAt: '2026-09-01T10:00:00.000Z', approvals: [] },

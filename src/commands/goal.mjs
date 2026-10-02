@@ -28,7 +28,7 @@ import { recordSha256 } from '../records.mjs';
 import { workspaceRepositoryPath } from '../workspace.mjs';
 
 function terminalStatus(state) {
-  return ['complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
+  return ['closed', 'complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
 }
 
 function repositoryFor(context, repositoryId) {

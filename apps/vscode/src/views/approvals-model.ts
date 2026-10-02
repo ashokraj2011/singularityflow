@@ -238,7 +238,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
   if (!phase || phase.status !== 'awaiting_approval') {
     return {
       initiativeId: workflow.workItem.id, actor, pending: [], obstacles: [],
-      empty: workflow.status === 'complete'
+      empty: workflow.status === 'closed'
         ? 'Every step of this Story is decided.'
         : 'Nothing is waiting for a decision.'
     };

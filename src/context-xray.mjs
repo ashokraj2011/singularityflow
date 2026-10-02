@@ -178,7 +178,7 @@ export function contextXrayText(xray) {
   const lines = [
     `CONTEXT X-RAY · ${xray.work.id}`,
     '',
-    `Phase             ${xray.work.phase ?? 'complete'}${xray.work.generation == null ? '' : ` · generation ${xray.work.generation}`}`,
+    `Phase             ${xray.work.phase ?? 'none'}${xray.work.generation == null ? '' : ` · generation ${xray.work.generation}`}`,
     `Agent surface     ${xray.launches.at(-1)?.surface ?? 'unavailable'}`,
     `Requested model   ${model?.requested ?? 'unavailable'}`,
     `Resolved model    ${model?.resolved ?? 'unavailable'}${model ? ` (${model.resolvedAssurance})` : ''}`,

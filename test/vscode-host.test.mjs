@@ -3653,7 +3653,7 @@ test('the packaged POC release candidate journey survives publication, review, C
     }
   }
   const completed = JSON.parse(await readFile(workflowStateFile, 'utf8'));
-  assert.equal(completed.status, 'complete');
+  assert.equal(completed.status, 'closed');
   assert.equal(completed.currentPhase, null);
   assert.deepEqual(
     completed.phases['poc-publication-review'].approvals.filter((entry) => !entry.invalidatedAt).map((entry) => entry.authorityGroup),

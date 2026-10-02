@@ -34,7 +34,7 @@ export function summary(workflow) {
   console.log(`Branch: ${workflow.workItem.branch}`);
   console.log(`World-model grounding: ${workflow.resolution?.worldModelGrounding ?? 'off'}`);
   console.log(`Status: ${workflow.status}`);
-  console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'complete'}`);
+  console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'none'}`);
   if (active) {
     console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);

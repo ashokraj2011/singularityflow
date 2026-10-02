@@ -283,7 +283,7 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
         happyEvents.push(event('review-assumed', 'awaiting_approval', 'approved', 'hypothetical-human-results', 'approval:approvalRequirementsMet'));
       }
       const upcoming = advanceCompletedPhase(happy, state, at(happyEvents.length));
-      happyEvents.push(event('advance', phase.id, upcoming?.id ?? 'complete', 'projected-owner-transition', 'lifecycle:advanceCompletedPhase'));
+      happyEvents.push(event('advance', phase.id, upcoming?.id ?? 'closed', 'projected-owner-transition', 'lifecycle:advanceCompletedPhase'));
       scenario(`output-required:${phase.id}`, phase.id, 'missing-or-stale-output-refuses', 'expected-refusal', [
         event('publish-missing-required-output', 'in_progress', 'in_progress', 'refused', 'state:validatePhase'),
         event('submit-stale-output-identity', 'published', 'published', 'refused', 'state:validatePhase')
@@ -355,12 +355,12 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
         event('missing-external-prerequisite', 'in_progress', 'in_progress', 'wait-or-refuse-no-effect', phase.kind === 'skill' ? 'state:assertSkillPhaseHostReady' : 'state:publication-and-external-evidence-gates')
       ], { host: phase.kind === 'skill' ? 'enforcement-unavailable' : 'not-qualified', observed: false });
     }
-    scenario('happy-path', null, 'conditional-completion', happy.status === 'complete' ? 'expected-transition' : 'unexpected-block', happyEvents,
+    scenario('happy-path', null, 'conditional-completion', happy.status === 'closed' ? 'expected-transition' : 'unexpected-block', happyEvents,
       { conditions: ['exact-outputs-published', 'checks-pass', 'real-distinct-eligible-human-decisions-when-required', 'external-prerequisites-available'], actualExecution: 'not-run' });
-    if (happy.status !== 'complete') finding('WCA_SIMULATION_COMPLETION_UNREACHABLE');
+    if (happy.status !== 'closed') finding('WCA_SIMULATION_COMPLETION_UNREACHABLE');
     const completed = evaluateSequence(happy, { requestedPhase: order[0] });
     scenario('completion', null, 'completion-refuses-new-transition', !completed.allowed && completed.gate === 'completion' ? 'expected-refusal' : 'unexpected-transition', [
-      event('prepare-after-completion', 'complete', 'complete', sequenceGateMode(happy, 'completion') === 'soft' ? 'human-reopen-override-required' : 'refused', 'sequence:evaluateSequence')
+      event('prepare-after-completion', 'closed', 'closed', sequenceGateMode(happy, 'completion') === 'soft' ? 'human-reopen-override-required' : 'refused', 'sequence:evaluateSequence')
     ]);
     if (order.length > 1) {
       const outOfOrder = evaluateSequence(initial, { requestedPhase: order[1] });
@@ -427,12 +427,12 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
         phase.approvals = phase.approvalPolicy.mode === 'none' ? [] : symbolicApprovals(phase.approvalPolicy);
         phase.status = 'approved'; revalidatedPhases.push(id);
         const upcoming = advanceCompletedPhase(projected, phase, at(1001 + revalidatedPhases.length));
-        amendmentEvents.push(event('new-publication-and-review-assumed', id, upcoming?.id ?? 'complete',
+        amendmentEvents.push(event('new-publication-and-review-assumed', id, upcoming?.id ?? 'closed',
           'conditional-on-fresh-evidence-skips-only-approved-independent-phases', 'lifecycle:advanceCompletedPhase'));
       }
       const preservedUnchanged = impact.preservedPhaseIds.every((id, index) =>
         JSON.stringify(projected.phases[id]) === preservedBefore[index]);
-      if (!preservedUnchanged || projected.status !== 'complete') throw failure('WCA_SIMULATION_OWNER_MISMATCH');
+      if (!preservedUnchanged || projected.status !== 'closed') throw failure('WCA_SIMULATION_OWNER_MISMATCH');
       scenario(`package-amendment:${skillId}`, first, 'reviewed-replacement-revalidates-only-proven-dependents', 'expected-transition',
         amendmentEvents, { ...detail, revalidatedPhases, preservedEvidenceUnchanged: preservedUnchanged,
           priorGenerations: 'retained-but-not-fresh', priorAffectedApprovals: 'invalidated',

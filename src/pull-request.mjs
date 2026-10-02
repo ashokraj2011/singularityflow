@@ -151,7 +151,7 @@ export async function readStorySeed(root, workflow) {
 
 export function storyLifecycleBlockers(workflow) {
   const blockers = [];
-  if (workflow.status !== 'complete' || workflow.currentPhase != null) {
+  if (workflow.status !== 'closed' || workflow.currentPhase != null) {
     const current = workflow.currentPhase ? ` at ${workflow.currentPhase}` : '';
     blockers.push(`${workflow.workItem.id} workflow is ${workflow.status}${current}`);
   }

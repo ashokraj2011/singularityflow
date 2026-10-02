@@ -879,7 +879,7 @@ export function storyStatusMarkdown(workflow) {
           .join(', ')}`]
       : []),
     `- Overall status: **${workflow.status}**`,
-    `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'complete')}**`,
+    `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'none — every step is decided')}**`,
     ...(workflow.pendingDecision
       ? [`- Waiting for a decision: **${workflow.pendingDecision.label}** — ${workflow.pendingDecision.by.join(', ')} choose${workflow.pendingDecision.reason === 'limit' ? ' (its rounds are used)' : ''}`]
       : []),
@@ -5914,7 +5914,7 @@ export async function approvePhase(root, config, workflow, {
   const contextBoundary = reached
     ? contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       nextPhase: next?.id ?? null,
-      complete: workflow.status === 'complete'
+      complete: workflow.status === 'closed'
     })
     : null;
   return { phase, next, approval: { approvedBy: key, ...decision }, reached, contextBoundary, decision: approvalOutcome ?? null };
@@ -6354,7 +6354,7 @@ function resolvePhaseChangeRequests(workflow, phase, { at, actor, completionDisp
 
 function advanceDetail(workflow, pending) {
   if (pending) return `; waiting for a decision: ${pending.label}`;
-  return workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete';
+  return workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; closed';
 }
 
 /** Append one routed, pending or chosen decision to the Story's log and history. */
@@ -6555,7 +6555,7 @@ export async function decideStory(root, config, workflow, {
     contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       event: outcome.kind === 'loop' ? 'rejection' : undefined,
       nextPhase: workflow.currentPhase ?? null,
-      complete: workflow.status === 'complete'
+      complete: workflow.status === 'closed'
     })
   };
 }
@@ -7333,8 +7333,8 @@ export async function reopenWorkflow(root, config, workflow, {
   actor = null, agent = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reopen completed work');
-  if (workflow.status !== 'complete' || workflow.currentPhase != null) {
-    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not complete; use reject while a phase is awaiting approval.`);
+  if (workflow.status !== 'closed' || workflow.currentPhase != null) {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not closed; use reject while a phase is awaiting approval.`);
   }
   const completionPhase = completionPhaseOf(workflow);
   if (completionPhase.approvalPolicy.changeRequests?.reopenCompleted === false) {
@@ -7345,7 +7345,7 @@ export async function reopenWorkflow(root, config, workflow, {
   const gateRecoveryAuthorized = gateRecovery?.targetPhase === targetId
     && verifyGateRecoveryReopenPlan(root, workflow, gateRecovery);
   if (!allowed.includes(targetId) && !gateRecoveryAuthorized) {
-    throw new SingularityFlowError(`Completed Story '${workflow.workItem.id}' cannot be reopened to '${targetId}'. Allowed: ${allowed.join(', ')}.`);
+    throw new SingularityFlowError(`Closed Story '${workflow.workItem.id}' cannot be reopened to '${targetId}'. Allowed: ${allowed.join(', ')}.`);
   }
   const targetIndex = workflow.phaseOrder.indexOf(targetId);
   if (targetIndex < 0) throw new SingularityFlowError(`Unknown reopen target '${targetId}'.`);
@@ -7846,8 +7846,8 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   if (workflow.status === 'cancelled') {
     throw new SingularityFlowError(`Story '${workflow.workItem.id}' is already cancelled and archived.`);
   }
-  if (workflow.status === 'complete' || workflow.currentPhase == null) {
-    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is complete; use reopen when post-completion changes are required.`);
+  if (workflow.status === 'closed' || workflow.currentPhase == null) {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is closed; use reopen when it needs changes after closing.`);
   }
   const comment = String(reason ?? '').trim();
   if (!comment) throw new SingularityFlowError('A cancellation reason is required.');
@@ -8923,7 +8923,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         // once. It runs after every other write of the transition (approval metadata, the approved
         // snapshot, the decision receipt), so it judges the bytes about to be committed; a refusal
         // throws before the state is written, and the publication unit rolls back.
-        if (workflow.status === 'complete' && workflow.completion?.evaluatedAt == null) {
+        if (workflow.status === 'closed' && workflow.completion?.evaluatedAt == null) {
           const { assertTerminalTransition } = await import('./evidence/terminal.mjs');
           await assertTerminalTransition(root, config, workflow);
         }
@@ -9456,7 +9456,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
     if (phase.status === 'approved' && !(await exists(path.join(root, requiredRepoPath(config, workflow, phase))))) errors.push(`Approved artifact missing: ${requiredRepoPath(config, workflow, phase)}`);
   }
   if (workflow.pendingDecision && workflow.status !== 'in_progress') errors.push(`A ${workflow.status} workflow cannot wait for a decision.`);
-  if (workflow.status === 'complete') { if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.'); if (activeCount) errors.push('Complete workflow cannot have an active phase.'); }
+  if (workflow.status === 'closed') { if (workflow.currentPhase !== null) errors.push('Closed workflow must have currentPhase null.'); if (activeCount) errors.push('Closed workflow cannot have an active phase.'); }
   else if (workflow.status === 'cancelled') {
     if (workflow.currentPhase !== null) errors.push('Cancelled workflow must have currentPhase null.');
     if (activeCount) errors.push('Cancelled workflow cannot have an active phase.');

@@ -1927,7 +1927,7 @@ test('phase pacing accepts only one governed transition and external approval re
   const uncommittedAdvance = JSON.parse(committedBytes);
   uncommittedAdvance.phases.verify.status = 'approved';
   uncommittedAdvance.currentPhase = null;
-  uncommittedAdvance.status = 'complete';
+  uncommittedAdvance.status = 'closed';
   await writeFile(workflowFile, JSON.stringify(uncommittedAdvance));
   await assert.rejects(
     () => resumeAutoFlight(root, waiting.flightId, waiting.checkpointSha256),

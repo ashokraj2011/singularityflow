@@ -21,7 +21,7 @@ function fixtureWorkflow() {
   });
   return {
     schemaVersion: 2,
-    status: 'complete',
+    status: 'closed',
     currentPhase: null,
     workItem: { id: 'ENG-1', title: 'Demo feature', workType: 'feature', branch: 'ENG-1' },
     phaseOrder: ['requirements', 'design'],

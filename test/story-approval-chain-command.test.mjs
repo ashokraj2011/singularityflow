@@ -143,7 +143,7 @@ test('a phase still waiting for a required group is not shown approved, and a ca
   assert.match(cancelled, /current phase: none — cancelled/);
   assert.doesNotMatch(cancelled, /current phase: complete/);
 
-  const decided = approvalChainText(approvalChainSnapshot(story('complete', null, 'approved')));
+  const decided = approvalChainText(approvalChainSnapshot(story('closed', null, 'approved')));
   assert.match(decided, /Story status: every step decided · current phase: none — every step is decided/);
   assert.doesNotMatch(decided, /Story status: complete/, 'the stored state is not a completion verdict');
 });

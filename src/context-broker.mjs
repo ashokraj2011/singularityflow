@@ -221,7 +221,7 @@ export async function composeContextBrief(root, {
     const briefs = await readBriefs(root, workflow, phaseId, Math.min(BRIEF_TEXT_BUDGET, budget));
     includedBytes = briefs.bytes;
     payload = {
-      summary: `${workflow.workItem.id} is ${workflow.status} in ${phaseId ?? 'complete'}.`,
+      summary: `${workflow.workItem.id} is ${workflow.status}${phaseId ? ` in ${phaseId}` : ''}.`,
       approvedBriefs: briefs.records
     };
     if (!briefs.records.length) omissions.push('approved-agent-briefs-unavailable');

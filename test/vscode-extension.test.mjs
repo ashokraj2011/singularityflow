@@ -2197,7 +2197,7 @@ test('an open stakeholder change request is visible beside the reopened Story', 
 
 test('a completed Story leaves the active rail and opens from Completed with every artifact', () => {
   const done = storySnapshot({ status: 'approved', generation: 1 });
-  done.workflow.status = 'complete';
+  done.workflow.status = 'closed';
   done.workflow.currentPhase = null;
   done.workflow.phases.design.status = 'approved';
   done.documents[0].status = 'approved';
@@ -2243,7 +2243,7 @@ test('a cancelled Story leaves the active rail and opens from Archived with its 
 test('completed sibling Stories remain visible while another Story is active', () => {
   const active = storySnapshot({ generation: 1 });
   active.workItems.push({
-    id: 'WRK-456', title: 'Change the color', status: 'complete', branch: 'WRK-456'
+    id: 'WRK-456', title: 'Change the color', status: 'closed', branch: 'WRK-456'
   });
   const tree = buildTree(active);
 
@@ -2282,7 +2282,7 @@ test('Stories remain selectable while an Initiative or Epic is checked out', () 
     selected.workItems = [
       { id: 'STORY-ACTIVE', title: 'Continue on the other laptop', status: 'in_progress',
         currentPhase: 'build', branch: 'STORY-ACTIVE' },
-      { id: 'STORY-DONE', title: 'Delivered change', status: 'complete', branch: 'STORY-DONE' },
+      { id: 'STORY-DONE', title: 'Delivered change', status: 'closed', branch: 'STORY-DONE' },
       { id: 'STORY-CANCELLED', title: 'Withdrawn change', status: 'cancelled', branch: 'STORY-CANCELLED' }
     ];
 
@@ -6282,12 +6282,12 @@ test('what is already under way is shown, and starting it again is refused', () 
 
 test('completed work is shown as completed rather than already under way', () => {
   const completed = [{
-    shape: 'story', id: 'WRK-456', title: 'Change the color', status: 'complete', completed: true
+    shape: 'story', id: 'WRK-456', title: 'Change the color', status: 'closed', completed: true
   }];
   const html = intakeHtml(intake({ inFlight: completed }));
-  assert.match(html, /Completed/);
+  assert.match(html, /Closed/);
   assert.match(html, /WRK-456/);
-  assert.match(html, /complete/);
+  assert.match(html, /closed/);
   assert.doesNotMatch(html, /Already under way/);
 
   const clash = intake({

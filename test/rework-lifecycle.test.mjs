@@ -98,7 +98,7 @@ test('published abandoned rework restores an approvable review without reusing g
   assert.notEqual(workflow.lineage.submissions.at(-1).packetSha256, originalPacket.packetSha256);
   assert.equal(await readFile(path.join(root, originalPacket.path), 'utf8'), originalBytes, 'the original review packet remains immutable');
   flow(['approve', final, '--yes']);
-  assert.equal((await state()).status, 'complete', 'restored review can be approved despite the abandoned publication remaining in history');
+  assert.equal((await state()).status, 'closed', 'restored review can be approved despite the abandoned publication remaining in history');
 
   flow(['reopen', '--to', verify, '--reason', 'Recheck completion with new evidence.']);
   publish(verify);
@@ -114,7 +114,7 @@ test('published abandoned rework restores an approvable review without reusing g
   publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
   workflow = await state();
   assert.equal(workflow.phases[final].generation, 2);
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.equal(workflow.changeRequests.filter((request) => request.status === 'open').length, 0);
   assert.deepEqual([...verifiedAbandonedGenerations(root, {}, workflow)], [`${verify}:2`]);
   for (const tamper of [
@@ -188,7 +188,7 @@ test('Code rework after abandonment retains tested source and passes terminal au
   assert.equal(workflow.changeRequests.at(-1).status, 'resolved');
   publish(final); flow(['submit', final]); flow(['approve', final, '--yes']);
   workflow = await state();
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   flow(['gate', '--terminal']);
 });
 
@@ -206,7 +206,7 @@ test('restored review invalidates partial approvals and requires the full fresh 
   flow(['approve', final, '--yes']);
   assert.equal((await state()).phases[final].status, 'awaiting_approval');
   flow(['approve', final, '--yes'], false, 'Second Reviewer');
-  assert.equal((await state()).status, 'complete');
+  assert.equal((await state()).status, 'closed');
 });
 
 test('governed repairs and later Code publications are not stale evidence; out-of-band edits are', async (t) => {

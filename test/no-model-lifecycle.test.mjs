@@ -646,7 +646,7 @@ test('a Story can complete through manual authorship with model mode disabled', 
     phase.writeScope = governedScope;
     await submitPhase(root, config, workflow, { phaseId: 'intake', runChecks: false });
 
-    assert.equal(workflow.status, 'complete');
+    assert.equal(workflow.status, 'closed');
     assert.equal(workflow.currentPhase, null);
     assert.equal(workflow.phases.intake.status, 'approved');
     assert.equal(workflow.phases.intake.authorship.at(-1).producer, 'human');

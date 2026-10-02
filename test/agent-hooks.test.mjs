@@ -143,11 +143,11 @@ test('terminal Story sessions attach without inventing a null phase agent', asyn
   const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
   await setAgentSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1', { phaseId: 'design' });
   current.currentPhase = null;
-  current.status = 'complete';
+  current.status = 'closed';
 
   const activation = await activateWorkItemSession(root, definition, current);
   assert.equal(activation.phase, null);
-  assert.equal(activation.workflowStatus, 'complete');
+  assert.equal(activation.workflowStatus, 'closed');
   assert.equal(activation.selectedAgent, null);
   assert.equal(await loadSession(root, { required: false }), null, 'the final-phase agent is no longer presented as active');
 });

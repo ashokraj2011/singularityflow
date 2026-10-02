@@ -10,16 +10,19 @@ test('a Story that runs out of steps is called complete only when the final chec
   assert.equal(approve({ phase: 'intake', next: 'intake', reached: false }),
     'Recorded an approval for intake; it still needs more approvals before the Story moves on.',
     'a vote below the threshold never claims the Story moved');
-  assert.match(approve({ phase: 'release', next: null, finalCheck: 'passed' }), /final governance check passed: the Story is complete\.$/);
+  // The sentence names the label the ending's final evaluation recorded, and nothing else.
+  assert.match(approve({ phase: 'release', next: null, finalCheck: 'passed', completionLabel: 'Complete' }), /final evaluation passed: Complete\.$/);
+  assert.match(approve({ phase: 'release', next: null, finalCheck: 'passed', completionLabel: 'Complete with accepted exceptions' }),
+    /final evaluation passed: Complete with accepted exceptions\.$/);
   const failed = approve({ phase: 'release', next: null, finalCheck: 'failed' });
-  assert.match(failed, /not complete until the final governance check passes/);
-  assert.doesNotMatch(failed, /the Story is complete/);
-  assert.doesNotMatch(approve({ phase: 'release', next: null }), /complete/, 'no verdict, no completion claim');
+  assert.match(failed, /the final evaluation has not passed/);
+  assert.doesNotMatch(failed, /Complete/);
+  assert.doesNotMatch(approve({ phase: 'release', next: null }), /complete/i, 'no verdict, no completion claim');
 
   const decided = MESSAGES['decision.choose.succeeded'].headline({ decision: 'stop', route: 'finish', kind: 'branch', target: null, finalCheck: 'failed' });
-  assert.match(decided, /^Decision stop chose finish\. Every step is decided, but the Story is not complete/);
-  const submitted = MESSAGES['submit.completed'].headline({ phase: 'release', documents: 1, finalCheck: 'passed' });
-  assert.match(submitted, /required no review\. Every step is decided and the final governance check passed/);
+  assert.match(decided, /^Decision stop chose finish\. Every step is decided, but the final evaluation has not passed/);
+  const submitted = MESSAGES['submit.completed'].headline({ phase: 'release', documents: 1, finalCheck: 'passed', completionLabel: 'Complete' });
+  assert.match(submitted, /required no review\. Every step is decided and the final evaluation passed: Complete\./);
   assert.doesNotMatch(MESSAGES['submit.completed'].headline({ phase: 'design', documents: 1 }), /complete:|Story is complete/);
 });
 

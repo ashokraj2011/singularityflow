@@ -292,7 +292,7 @@ export async function activateWorkItemSession(root, definition, workflow) {
   const existing = await loadSession(root, { required: false });
   const phaseId = workflow.currentPhase;
   if (!phaseId) {
-    if (!['complete', 'cancelled'].includes(workflow.status)) {
+    if (!['closed', 'cancelled'].includes(workflow.status)) {
       throw new SingularityFlowError(
         `Work item '${workflow.workItem.id}' has no active phase while its status is '${workflow.status ?? 'unknown'}'. `
         + 'Run singularity-flow doctor before attaching the session.'

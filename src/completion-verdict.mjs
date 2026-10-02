@@ -43,7 +43,7 @@ export async function completionVerdict(root, workId) {
  * without it never finished that way.
  */
 export function recordedCompletion(workflow) {
-  const record = workflow?.status === 'complete' ? workflow.completion : null;
+  const record = workflow?.status === 'closed' ? workflow.completion : null;
   if (!record?.evaluatedAt) return null;
   return Object.freeze({
     verified: true, label: record.label, kind: record.kind,

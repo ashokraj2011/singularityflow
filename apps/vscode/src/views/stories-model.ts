@@ -13,7 +13,7 @@
  */
 import type { BreakdownStory, RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
 
-export type StoryState = 'planned' | 'seeded' | 'in-progress' | 'complete' | 'merged' | 'blocked';
+export type StoryState = 'planned' | 'seeded' | 'in-progress' | 'closed' | 'merged' | 'blocked';
 
 export interface StoryView {
   planId: string;
@@ -59,7 +59,7 @@ function stateOf(story: BreakdownStory, child: Record<string, unknown> | undefin
   if (!child) return 'planned';
   if (child.blocked === true) return 'blocked';
   const status = String(child.status ?? 'seeded');
-  if (status === 'complete' || status === 'merged') return status as StoryState;
+  if (status === 'closed' || status === 'merged') return status as StoryState;
   return child.currentPhase ? 'in-progress' : 'seeded';
 }
 

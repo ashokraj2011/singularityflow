@@ -51,7 +51,7 @@ test('end-to-end-under-budget', async () => {
       result.repository,
       'singularity/work-items/TOY-001/workflow.json'
     ), 'utf8'));
-    assert.equal(workflow.status, 'complete');
+    assert.equal(workflow.status, 'closed');
     assert.deepEqual(workflow.phaseOrder, ['intake', 'implement', 'verify']);
     assert.equal(workflow.phases.intake.approvalPolicy.mode, 'required', 'a person signs off the scope and plan');
     assert.equal(workflow.phases.implement.approvalPolicy.mode, 'none');

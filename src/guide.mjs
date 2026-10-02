@@ -107,7 +107,7 @@ export function guideText(guide) {
     `${guide.workId} — ${guide.template.label} (${guide.template.id})`,
     `Source: ${guide.source.type}${guide.source.key ? ` / ${guide.source.key}` : ''}`,
     `Status: ${guide.status}`,
-    `Current phase: ${guide.currentPhase ?? (guide.status === 'cancelled' ? 'cancelled and archived' : 'complete')}`,
+    `Current phase: ${guide.currentPhase ?? (guide.status === 'cancelled' ? 'cancelled and archived' : 'none — every step is decided')}`,
     '',
     'Workflow template:',
     ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Governed agent: ${phase.agent ?? 'unavailable'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),

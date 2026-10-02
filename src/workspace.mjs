@@ -4897,7 +4897,7 @@ export async function forgetWorkspace(file, workspacePath) {
 }
 
 function terminalStory(state) {
-  return ['complete', 'cancelled'].includes(String(state?.status ?? '').trim());
+  return ['closed', 'cancelled'].includes(String(state?.status ?? '').trim());
 }
 
 async function repositoryWorkflowDefinition(repositoryPath) {

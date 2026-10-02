@@ -412,7 +412,7 @@ test('real dual-authority terminal amendment preserves generated work and publis
   assert.equal(value.workflow.phases.implementation.status, 'awaiting_approval');
   await approveCurrent(value);
   assert.equal(value.workflow.phases.implementation.status, 'approved');
-  assert.equal(value.workflow.status, 'complete');
+  assert.equal(value.workflow.status, 'closed');
   assert.equal(value.workflow.testRecovery.validationEpoch, 2);
   assert.equal(await readFile(path.join(value.root, 'src/service.mjs'), 'utf8'), before.source);
 });
@@ -584,7 +584,7 @@ test('a published submitted generation adopts a corrected command only through f
   await assertRetainedValidationBytes(value, retainedBytes);
   await assertRetainedValidationBytes(value, firstEpochEvidence);
   await approveCurrent(value);
-  assert.equal(value.workflow.status, 'complete');
+  assert.equal(value.workflow.status, 'closed');
   assert.equal(value.workflow.phases.implementation.generation, 1);
   assert.equal(value.workflow.testRecovery.validationEpoch, 2);
   assert.equal(await readFile(path.join(value.root, 'src/service.mjs'), 'utf8'), before.source);
@@ -603,5 +603,5 @@ test('a completed approved generation cannot be reopened by a test-command amend
   await assert.rejects(context(value.root, () => previewStoryTestCommandAmendment(value.root, value.config, value.workflow,
     { approvedConfigurationSnapshot: candidate, reason })), { code: 'TCA_PRIOR_PUBLICATION_UNSUPPORTED' });
   assert.deepEqual(await preserved(value), before);
-  assert.equal(value.workflow.status, 'complete');
+  assert.equal(value.workflow.status, 'closed');
 });

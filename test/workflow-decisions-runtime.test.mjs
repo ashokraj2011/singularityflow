@@ -194,7 +194,7 @@ test('a branch skips a phase, a loop goes back and stops at its limit, and a per
   await work(root, workId, 'implementation-spec');
   flow(root, ['approve', '--yes'], { agent: 'architect' });
   workflow = await state(root, workId);
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.deepEqual(workflow.decisionLog.map((entry) => [entry.decision, entry.kind, entry.by]), [
     ['needs-requirements', 'forward', 'rule'],
     ['until-ready', 'loop', 'rule'],
@@ -220,7 +220,7 @@ test('a person can finish a Story early, and the finished Story reopens from the
   flow(root, ['approve', '--yes'], { agent: 'product-owner' });
   flow(root, ['decision', 'choose', '--option', 'stop', '--reason', 'Out of scope for this release'], { agent: 'product-owner' });
   workflow = await state(root, workId);
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.equal(workflow.currentPhase, null);
   assert.deepEqual(['design', 'implementation-spec'].map((id) => workflow.phases[id].status), ['skipped', 'skipped']);
   flow(root, ['validate'], { agent: 'product-owner' });

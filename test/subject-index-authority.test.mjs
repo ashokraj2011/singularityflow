@@ -15,9 +15,9 @@ function story(id, status) {
     schemaVersion: 2,
     workItem: { id, title: id, branch: id, workType: 'chore' },
     status,
-    currentPhase: status === 'complete' ? null : 'intake',
+    currentPhase: status === 'closed' ? null : 'intake',
     phaseOrder: ['intake'],
-    phases: { intake: { id: 'intake', status: status === 'complete' ? 'approved' : 'in_progress', generation: 1 } },
+    phases: { intake: { id: 'intake', status: status === 'closed' ? 'approved' : 'in_progress', generation: 1 } },
     lineage: { canonicalBranch: id, childBranches: [], requiredChecks: [] },
     history: []
   };
@@ -44,9 +44,9 @@ async function repository() {
   await mkdir(path.join(root, 'singularity/work-items/STORY-1'), { recursive: true });
   await mkdir(path.join(root, 'singularity/work-items/ZZZ'), { recursive: true });
   await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 2\nworkItemRoot: singularity/work-items\n');
-  await writeFile(path.join(root, 'singularity/work-items/AAA/workflow.json'), `${JSON.stringify(story('STORY-1', 'complete'))}\n`);
+  await writeFile(path.join(root, 'singularity/work-items/AAA/workflow.json'), `${JSON.stringify(story('STORY-1', 'closed'))}\n`);
   await writeFile(path.join(root, 'singularity/work-items/STORY-1/workflow.json'), `${JSON.stringify(story('STORY-1', 'active'))}\n`);
-  await writeFile(path.join(root, 'singularity/work-items/ZZZ/workflow.json'), `${JSON.stringify(story('STORY-1', 'complete'))}\n`);
+  await writeFile(path.join(root, 'singularity/work-items/ZZZ/workflow.json'), `${JSON.stringify(story('STORY-1', 'closed'))}\n`);
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-qm', 'state'], { cwd: root });
   return root;

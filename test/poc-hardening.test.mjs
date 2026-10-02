@@ -59,7 +59,7 @@ test('pull-request preview exposes lifecycle blockers until every governed phase
   assert.ok(preview.blockedBy.some((blocker) => /workflow is in_progress at poc-intake/.test(blocker)));
   assert.ok(preview.blockedBy.includes('poc-validation is not_started'));
 
-  workflow.status = 'complete';
+  workflow.status = 'closed';
   workflow.currentPhase = null;
   for (const phase of Object.values(workflow.phases)) phase.status = 'approved';
   const ready = await storyPullRequestPlan('/tmp', {}, workflow);
@@ -167,6 +167,6 @@ Quality review must decide first and engineering review must decide independentl
   await setAgentSession(root, config, second, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
   const two = await approvePhase(root, config, workflow, { phaseId: publication.id, persist: false });
   assert.equal(two.approval.authorityGroup, 'engineering-reviewers');
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.equal(workflow.phases[publication.id].status, 'approved');
 });

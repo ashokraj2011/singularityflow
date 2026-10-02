@@ -1418,7 +1418,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     world.style.cssText = 'width:' + layout.width + 'px;height:' + layout.height + 'px';
     world.appendChild(renderEdges(layout));
     layout.nodes.forEach(function (node) { world.appendChild(renderNode(workflowId, workflow, node, layout, view)); });
-    var finish = el('div', { class: 'finish', title: 'The Story is complete' }, icon('flag', 14), 'Finish');
+    var finish = el('div', { class: 'finish', title: 'The Story ends here' }, icon('flag', 14), 'Finish');
     finish.style.cssText = 'left:' + layout.finishX + 'px;top:' + (layout.rowY + NODE_H / 2 - 18) + 'px;width:' + FINISH_W + 'px;height:36px';
     world.appendChild(finish);
     layout.edges.forEach(function (edge) {

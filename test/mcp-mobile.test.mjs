@@ -113,7 +113,7 @@ test('candidate promotion explicitly reopens capture and pins the next generatio
   workflow.phases['design-intake'].status = 'approved';
   workflow.phases['design-inventory'].status = 'approved';
   workflow.phases['design-inventory'].approvals.push({ decision: 'approved' });
-  workflow.currentPhase = null; workflow.status = 'complete';
+  workflow.currentPhase = null; workflow.status = 'closed';
 
   const result = await promoteDesignSource(root, config, workflow, {
     candidateRecordId: second.record.id, actor: { name: 'Reviewer', email: 'reviewer@example.test' }, agent: 'product-designer'

@@ -7553,13 +7553,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.reopenCompleted': async () => {
       const workflow = store.current.snapshot?.workflow;
-      if (!workflow || workflow.status !== 'complete') {
-        void vscode.window.showWarningMessage('Only a completed Story can be reopened.');
+      if (!workflow || workflow.status !== 'closed') {
+        void vscode.window.showWarningMessage('Only a closed Story can be reopened.');
         return;
       }
       const completion = workflow.phases[workflow.phaseOrder.at(-1) ?? ''];
       if (!completion) {
-        showRefusal('The completed Story has no final phase policy, so there is nothing to reopen against.',
+        showRefusal('The closed Story has no final phase policy, so there is nothing to reopen against.',
           { headline: 'No final phase policy' });
         return;
       }
@@ -7647,7 +7647,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ]);
         await refreshAfterKnownMutation();
         void vscode.window.showInformationMessage(
-          `${plan.workId} returned to ${result.phase ?? 'complete'} in ${result.commit.slice(0, 8)}. `
+          `${plan.workId} returned to ${result.phase ?? 'its closed state'} in ${result.commit.slice(0, 8)}. `
           + `${result.restoredPaths.length} path(s) were backed up locally and restored.`
         );
       } catch (error) {

@@ -17,12 +17,12 @@ function slot(value, fallback = '') {
 }
 
 /**
- * What a Story that reached its end may claim. Every step being decided is not completion: only a
- * passing whole-Story governance check makes the Story complete.
+ * What a Story that reached its end may claim. Every step being decided is not completion: only the
+ * final evaluation its ending passed may name a completion label, and the sentence names that label.
  */
 function finalCheckSentence(s) {
-  if (s.finalCheck === 'passed') return ' Every step is decided and the final governance check passed: the Story is complete.';
-  if (s.finalCheck === 'failed') return ' Every step is decided, but the Story is not complete until the final governance check passes.';
+  if (s.finalCheck === 'passed') return ` Every step is decided and the final evaluation passed: ${slot(s.completionLabel, 'Complete')}.`;
+  if (s.finalCheck === 'failed') return ' Every step is decided, but the final evaluation has not passed.';
   return '';
 }
 

@@ -186,7 +186,7 @@ test('publication and submission never require an AST receipt', async () => {
     assert.equal(committed.reason, 'optional-diagnostic');
     assert.deepEqual(committed.errors, []);
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
-    assert.equal(workflow.status, 'complete');
+    assert.equal(workflow.status, 'closed');
   });
 });
 
@@ -217,7 +217,7 @@ test('source changes do not create an AST receipt prerequisite at submission', a
     );
     await writeFile(path.join(root, 'README.md'), '# AST lifecycle fixture\n');
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
-    assert.equal(workflow.status, 'complete');
+    assert.equal(workflow.status, 'closed');
   });
 });
 
@@ -231,6 +231,6 @@ test('legacy or corrupt AST receipt summaries are ignored by lifecycle submissio
     assert.equal(verification.applies, false);
     assert.deepEqual(verification.errors, []);
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
-    assert.equal(workflow.status, 'complete');
+    assert.equal(workflow.status, 'closed');
   });
 });

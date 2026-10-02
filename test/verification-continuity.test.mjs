@@ -260,7 +260,7 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   const { root, file, flow, state, publish, source, complete } = await quickFixStory(t, 'QF-STALE');
   await complete(2);
   let workflow = await state();
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.equal(workflow.phases.verify.approvalDisposition, 'policy_waived');
   const stale = { approvalDisposition: 'policy_waived', approvalWaiver: workflow.phases.verify.approvalWaiver };
   flow(['reopen', '--to', 'implement', '--reason', 'Broaden the fix after review.']);
@@ -289,7 +289,7 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   await leaveStaleRecord();
   flow(['approve', 'verify', '--yes']);
   workflow = await state();
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.equal(holdsDisposition(workflow.phases.verify), false, 'a human approval kept the earlier waiver');
   let gate = gateResult(flow(['gate', '--terminal', '--json']));
   assert.deepEqual(gate.errors, []);
@@ -317,7 +317,7 @@ test('an approval policy that names no policy waives under the default one, and 
   const workflow = await state();
   assert.equal(workflow.phases.verify.approvalPolicy.policy, null);
   assert.equal(workflow.phases.verify.approvalDisposition, 'policy_waived');
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   const gate = gateResult(flow(['gate', '--terminal', '--json']));
   assert.deepEqual(gate.errors, []);
   assert.ok(gate.passes.includes('policy waiver verified: verify'));
@@ -334,6 +334,6 @@ test('a waiver policy this build cannot evaluate waives nothing, so people revie
   assert.equal(holdsDisposition(workflow.phases.verify), false);
   flow(['approve', 'verify', '--yes']);
   workflow = await state();
-  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.status, 'closed');
   assert.deepEqual(gateResult(flow(['gate', '--terminal', '--json'])).errors, []);
 });

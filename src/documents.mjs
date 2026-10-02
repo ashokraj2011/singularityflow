@@ -420,9 +420,9 @@ function assertStoryOpenForDocuments(workflow, action) {
     throw new SingularityFlowError(`Story '${id}' is cancelled and archived; its documents can no longer be ${action}.`,
       { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status } });
   }
-  if (workflow.status === 'complete' || workflow.currentPhase == null) {
+  if (workflow.status === 'closed' || workflow.currentPhase == null) {
     throw new SingularityFlowError(`Story '${id}' is complete; reopen it (singularity-flow reopen ${id} --to PHASE --reason TEXT) before its documents are ${action}.`,
-      { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status ?? 'complete' } });
+      { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status ?? 'closed' } });
   }
 }
 

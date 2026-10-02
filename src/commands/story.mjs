@@ -694,7 +694,7 @@ export async function storyFetchCommand(positionals, options) {
   }
   console.log(`Story ${storyKey} is ready in ${target}.`);
   console.log(`Lineage: ${property.epic?.jiraKey ?? property.epic?.id} → ${seed.story.planId} → ${storyKey}`);
-  console.log(`Workflow: ${workflow.workItem.workType} · current phase ${workflow.currentPhase ?? 'complete'}`);
+  console.log(`Workflow: ${workflow.workItem.workType} · current phase ${workflow.currentPhase ?? 'none'}`);
   printCommandRoutes('singularity-flow next', { label: 'Continue' });
 }
 
@@ -1012,7 +1012,7 @@ export async function storyCommand(positionals, options) {
         : null;
       const result = { workId: workflow.workItem.id, workType: workflow.workItem.workType, current, packet };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      if (!current) return console.log(`Story ${workflow.workItem.id} has no open governed work interval in phase ${workflow.currentPhase ?? 'complete'}.`);
+      if (!current) return console.log(`Story ${workflow.workItem.id} has no open governed work interval${workflow.currentPhase ? ` in phase ${workflow.currentPhase}` : ''}.`);
       console.log(`Story ${workflow.workItem.id} · ${current.phaseId} generation ${current.generation}`);
       console.log(`Baseline: ${current.baselineSha256.slice(0, 12)} · source ${current.sourceBaseCommit.slice(0, 12)} · ${current.status}`);
       if (current.finalReconciliation) console.log(`Final reconciliation: ${current.finalReconciliation.reconciliationSha256.slice(0, 12)}`);
@@ -2350,7 +2350,7 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
     pushed: publication.pushed
   };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Abandoned ${result.changeRequestId} and safely returned ${result.workId} to ${result.phase ?? 'complete'}.`);
+  console.log(`Abandoned ${result.changeRequestId} and safely returned ${result.workId} to ${result.phase ?? 'its closed state'}.`);
   console.log(`Restored ${result.restoredPaths.length} path(s) in governed commit ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
   console.log(`The discarded working bytes remain recoverable from local backup: ${result.backupPath}`);
 }

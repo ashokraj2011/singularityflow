@@ -26,7 +26,7 @@ export async function contextBrief({ arguments: args = {}, subject = null, root 
   const isPacket = data.kind === 'evidence-packet';
   const isExpansion = data.kind === 'evidence-packet-expansion';
   const workId = data.work?.id ?? data.binding?.workId ?? null;
-  const phaseId = data.phase?.id ?? data.binding?.phase ?? 'complete';
+  const phaseId = data.phase?.id ?? data.binding?.phase ?? 'closed';
   const sliceNavigation = isPacket
     ? CONTEXT_BRIEF_SLICES.filter((slice) => !data.requestedSlices?.includes(slice)).map((slice) => ({ slice }))
     : isExpansion ? [] : (data.expansion ?? []).map((slice) => ({ slice }));

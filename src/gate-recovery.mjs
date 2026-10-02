@@ -108,7 +108,7 @@ function storyCode(message) {
   if (/has no required Git commit/i.test(message)) return 'gate.generation.commit-missing';
   if (/not present on the remote branch|local HEAD is not published/i.test(message)) return 'gate.publication.remote-missing';
   if (/terminal: phase .* is not approved/i.test(message)) return 'gate.terminal.phase-unapproved';
-  if (/terminal: workflow is not complete/i.test(message)) return 'gate.terminal.workflow-incomplete';
+  if (/terminal: workflow is not closed/i.test(message)) return 'gate.terminal.workflow-incomplete';
   return 'gate.validation.failed';
 }
 
@@ -137,8 +137,8 @@ function storyRecovery(workflow, code, ownerPhase, path) {
     detail: 'Review the approved configuration refresh. An in-flight Story keeps its immutable snapshot; do not rewrite it silently.'
   };
 
-  const complete = workflow.status === 'complete' && workflow.currentPhase == null;
-  if (complete && ownerPhase) {
+  const closed = workflow.status === 'closed' && workflow.currentPhase == null;
+  if (closed && ownerPhase) {
     const completion = completionPhaseOf(workflow);
     const allowed = completion?.approvalPolicy?.rejectTo ?? [completion?.id].filter(Boolean);
     if (allowed.includes(ownerPhase) && completion?.approvalPolicy?.changeRequests?.reopenCompleted !== false) {
@@ -213,7 +213,7 @@ export function gateRecoveryReopenPlan(root, workflow, findings, targetPhase) {
   };
   return {
     ...plan,
-    allowed: workflow?.status === 'complete'
+    allowed: workflow?.status === 'closed'
       && workflow?.currentPhase == null
       && Boolean(workflow?.phases?.[target])
       && relevant.length > 0,
@@ -225,7 +225,7 @@ export function verifyGateRecoveryReopenPlan(root, workflow, plan) {
   return Boolean(plan?.allowed === true
     && plan.kind === 'gate-recovery-reopen-plan'
     && plan.workId === workflow?.workItem?.id
-    && plan.workflowStatus === 'complete'
+    && plan.workflowStatus === 'closed'
     && plan.currentPhase == null
     && plan.targetPhase
     && workflow?.phases?.[plan.targetPhase]

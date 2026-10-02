@@ -508,7 +508,7 @@ test('lifecycle catalog includes a completed Story stored on a sibling branch', 
   run(process.execPath, [bin, 'start', 'ARCHIVE-1', '--from-branch', 'main', '--title', 'Archived delivery'], root);
   const statePath = path.join(root, 'singularity/work-items/ARCHIVE-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
-  state.status = 'complete';
+  state.status = 'closed';
   state.currentPhase = null;
   for (const phase of Object.values(state.phases)) phase.status = 'approved';
   state.history.push({ event: 'workflow-completed', at: '2026-08-05T00:00:00.000Z' });
@@ -519,7 +519,7 @@ test('lifecycle catalog includes a completed Story stored on a sibling branch', 
 
   const scoped = await repositorySnapshot(root, null, null, { included: ['lifecycle'] });
   const archived = scoped.lifecycle.workItems.find((item) => item.id === 'ARCHIVE-1');
-  assert.equal(archived.status, 'complete');
+  assert.equal(archived.status, 'closed');
   assert.equal(archived.branch, 'ARCHIVE-1');
   assert.equal(archived.source, 'ARCHIVE-1');
   assert.equal(scoped.lifecycle.selectedWorkId, null);

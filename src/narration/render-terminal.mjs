@@ -512,7 +512,7 @@ function proofObservationText(result) {
 }
 
 const REST_STATE_LINES = Object.freeze({
-  complete: 'This work is complete. There is nothing further to do.',
+  complete: 'This work is finished. There is nothing further to do.',
   cancelled: 'This work is cancelled and archived.',
   'awaiting-others': 'Nothing to do here — this is waiting on someone else.',
   informational: null

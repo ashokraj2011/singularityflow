@@ -508,7 +508,7 @@ test('successful Jira and Git Story receipts complete the planning lifecycle aut
     path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-publish/materialization-report.md'),
     'utf8'
   );
-  assert.match(report, /planning workflow is complete/i);
+  assert.match(report, /planning workflow has finished/i);
   assert.match(report, /MOB-123/);
 });
 

@@ -107,13 +107,13 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       workId: observed.workId ?? observed.id,
       jiraKey: observed.jira?.key ?? observed.jiraKey ?? null,
       materialized: true,
-      progress: observed.progress ?? { completed: 0, total: 0, percentage: observed.status === 'complete' ? 100 : 0 }
+      progress: observed.progress ?? { completed: 0, total: 0, percentage: observed.status === 'closed' ? 100 : 0 }
     });
   }
   const epics = breakdown.epics.map((epic) => {
     const stories = children.filter((story) => story.epicId === epic.id);
-    const complete = stories.filter((story) => story.status === 'complete').length;
-    const percentages = stories.map((story) => story.progress?.percentage ?? (story.status === 'complete' ? 100 : 0));
+    const complete = stories.filter((story) => story.status === 'closed').length;
+    const percentages = stories.map((story) => story.progress?.percentage ?? (story.status === 'closed' ? 100 : 0));
     return {
       id: epic.id,
       title: epic.title,
@@ -189,7 +189,7 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       blocking: children.filter((story) => story.blocking).length,
       stale: children.filter((story) => story.stale).length,
       materialized: children.filter((story) => story.materialized).length,
-      complete: children.filter((story) => story.status === 'complete').length,
+      complete: children.filter((story) => story.status === 'closed').length,
       epics,
       stories: children
     },

@@ -112,6 +112,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
 import { storyDecisionView } from './workflow-decisions.mjs';
+import { storyApprovalView } from './approval-authority.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
@@ -984,6 +985,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     submissionReadiness: submission,
     // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
     decisions: workflow ? storyDecisionView(workflow) : null,
+    // The same for approval: the engine's verdict on the phase awaiting it.
+    approval: workflow ? storyApprovalView(workflow) : null,
     referenceRepositories,
     progress,
     report,
@@ -1094,6 +1097,8 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     submissionReadiness: submission,
     // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
     decisions: workflow ? storyDecisionView(workflow) : null,
+    // The same for approval: the engine's verdict on the phase awaiting it.
+    approval: workflow ? storyApprovalView(workflow) : null,
     referenceRepositories,
     progress,
     report,

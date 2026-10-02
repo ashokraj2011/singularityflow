@@ -175,13 +175,37 @@ export function remainingRequiredAuthorities(policy, approvals = []) {
   return (policy?.requiredAuthorities ?? []).filter((authorityId) => !decided.has(authorityId));
 }
 
-export function approvalRequirementsMet(policy, approvals = []) {
-  const active = (approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
-  const identities = new Set(active.map((item) => normalizedLogin(item.actor?.login)
+/** The distinct people among active approvals, by the identity the engine compares. */
+function approverIdentities(active) {
+  return new Set(active.map((item) => normalizedLogin(item.actor?.login)
     || normalizedEmail(item.actor?.email)
     || String(item.actor?.name ?? '').trim().toLowerCase()).filter(Boolean));
-  return identities.size >= (policy?.minimum ?? 1)
+}
+
+export function approvalRequirementsMet(policy, approvals = []) {
+  const active = (approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  return approverIdentities(active).size >= (policy?.minimum ?? 1)
     && remainingRequiredAuthorities(policy, active).length === 0;
+}
+
+/**
+ * One engine-computed view of where the approval of the phase awaiting it stands, so no surface
+ * re-implements the rule: how many distinct people approved of how many, and which required groups
+ * have not decided yet.
+ */
+export function storyApprovalView(workflow) {
+  const phaseId = workflow?.currentPhase ?? null;
+  const phase = phaseId ? workflow.phases?.[phaseId] : null;
+  if (!phase || phase.status !== 'awaiting_approval') return null;
+  const policy = phase.approvalPolicy ?? {};
+  const active = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  return {
+    phase: phaseId,
+    minimum: policy.minimum ?? 1,
+    distinct: approverIdentities(active).size,
+    remainingAuthorities: remainingRequiredAuthorities(policy, active),
+    met: approvalRequirementsMet(policy, active)
+  };
 }
 
 function memberIdentity(member = {}) {

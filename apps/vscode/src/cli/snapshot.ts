@@ -755,6 +755,8 @@ export interface RepositorySnapshot {
   /** Explicit submit/generate routing for the selected Story phase. Absent means fail closed. */
   submissionReadiness?: SubmissionReadiness | null;
   decisions?: StoryDecisionView | null;
+  /** The engine's verdict on the approval of the phase awaiting it. */
+  approval?: { phase: string; minimum: number; distinct: number; remainingAuthorities: string[]; met: boolean } | null;
   architectureIntent?: {
     workId: string; enabled: boolean; present: boolean;
     status: 'disabled' | 'absent' | 'invalid' | 'candidate' | 'approved';

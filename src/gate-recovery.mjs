@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 
 import { canonicalJson } from './records.mjs';
@@ -12,10 +13,6 @@ import { run } from './util.mjs';
  * a lifecycle decision. Keep this module free of model and AST dependencies so diagnostics remain
  * available on the least capable host.
  */
-
-function firstPhase(workflow, candidates) {
-  return candidates.find((id) => workflow.phases?.[id]) ?? null;
-}
 
 function configuredPlannedClaimOwner(workflow, referencePhaseId = null) {
   const owners = workflow.resolution?.plannedClaims?.mode === 'required'
@@ -40,76 +37,53 @@ function configuredPlannedClaimOwner(workflow, referencePhaseId = null) {
     ?? null;
 }
 
-function phaseFromMessage(workflow, message) {
-  const escaped = workflow.phaseOrder
-    .map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .sort((left, right) => right.length - left.length);
-  if (!escaped.length) return null;
-  const match = String(message).match(new RegExp(`(?:^|phase\\s+|^STALE\\s+)(${escaped.join('|')})(?:\\s|:|$)`, 'i'));
-  return match ? workflow.phaseOrder.find((id) => id.toLowerCase() === match[1].toLowerCase()) ?? null : null;
+/** The latest step whose delivery carries code, tests and observed claims. */
+function latestCodeStep(workflow) {
+  return [...(workflow.phaseOrder ?? [])].reverse().find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])) ?? null;
 }
 
-function pathFromMessage(message) {
-  const protectedPath = String(message).match(/protected process path changed on work branch:\s+([^\s]+)\s+\(/i);
-  if (protectedPath) return protectedPath[1];
-  const stalePath = String(message).match(/STALE\s+[^:]+:\s+(.+?)\s+changed after approval$/i);
-  if (stalePath) return stalePath[1];
-  const ordinary = String(message).match(/(?:missing|failed|stale|unavailable):\s+([^\s]+\.(?:md|json|ya?ml|txt|csv))/i);
-  return ordinary?.[1] ?? null;
+/** The latest step that holds a responsibility in the Story's pinned obligation graph. */
+function latestHolder(workflow, responsibility, { except = null } = {}) {
+  return [...(workflow.resolution?.obligationGraph?.nodes ?? [])].reverse()
+    .find((node) => node.responsibilities?.includes(responsibility) && workflow.phases?.[node.id] && node.id !== except)?.id ?? null;
 }
 
-function storyOwner(workflow, message) {
-  const explicit = phaseFromMessage(workflow, message);
-  // A planned-test binding is authored before implementation. Routing it to implementation makes
-  // a completed Story reopen at the wrong lifecycle boundary and cannot repair the missing claim
-  // record. Prefer the workflow's planning owner, including feature profiles that call that phase
-  // `implementation-spec`; implementation is only a compatibility fallback for shorter profiles.
-  if (/\b(?:has no planned test|missing planned test(?: evidence)?)\b/i.test(message)) {
-    return configuredPlannedClaimOwner(workflow, explicit)
-      ?? firstPhase(workflow, ['planning', 'implementation-spec', 'implementation', 'verification', 'test', 'testing']);
-  }
-  if (explicit) return explicit;
-  if (/\bconformance\b/i.test(message)) return firstPhase(workflow, ['conformance', 'release']);
-  if (/\b(?:has no observed test result|missing observed test(?: result| evidence)?)\b/i.test(message)) {
-    return firstPhase(workflow, ['verification', 'test', 'testing', 'implementation', 'conformance']);
-  }
-  if (/\b(?:allowlisted acceptance command failed|acceptance command .*failed)\b/i.test(message)) {
-    return firstPhase(workflow, ['verification', 'test', 'testing', 'implementation', 'conformance']);
-  }
-  if (/\b(?:AC coverage|acceptance coverage)\b/i.test(message)) {
-    return firstPhase(workflow, ['implementation', 'verification', 'test', 'testing', 'conformance']);
-  }
-  if (/\b(?:specification index|clause coverage|specification acceptance)\b/i.test(message)) {
-    return firstPhase(workflow, ['specification', 'implementation-spec', 'requirements', 'conformance']);
-  }
-  if (/\b(?:remote|published|publication)\b/i.test(message)) {
-    return workflow.currentPhase ?? completionPhaseOf(workflow)?.id ?? null;
-  }
+/** The step whose artifact is the conformance report, whatever it is called. */
+function conformanceStep(workflow) {
+  return [...(workflow.phaseOrder ?? [])].reverse()
+    .find((id) => workflow.phases?.[id]?.requiredArtifact?.kind === 'conformance-report') ?? null;
+}
+
+function lifecycleOwner(workflow) {
   return workflow.currentPhase
     ?? workflow.phaseOrder.find((id) => !['approved', 'skipped'].includes(workflow.phases?.[id]?.status))
     ?? completionPhaseOf(workflow)?.id
     ?? null;
 }
 
-function storyCode(message) {
-  if (/protected process path changed/i.test(message)) return 'gate.protected-path.changed';
-  if (/workflow\.yml differs|immutable work-item configuration snapshot/i.test(message)) return 'gate.configuration.snapshot-drift';
-  if (/template snapshot changed/i.test(message)) return 'gate.template.snapshot-drift';
-  if (/\b(?:has no planned test|missing planned test(?: evidence)?)\b/i.test(message)) return 'gate.acceptance.planned-test-missing';
-  if (/\b(?:has no observed test result|missing observed test(?: result| evidence)?)\b/i.test(message)) return 'gate.acceptance.observed-test-missing';
-  if (/\b(?:allowlisted acceptance command failed|acceptance command .*failed)\b/i.test(message)) return 'gate.acceptance.command-failed';
-  if (/AC coverage:/i.test(message)) return 'gate.acceptance-criteria.unbound';
-  if (/conformance report is stale/i.test(message)) return 'gate.conformance.stale';
-  if (/conformance report has no row/i.test(message)) return 'gate.conformance.missing-row';
-  if (/conformance report has no recognized verdict/i.test(message)) return 'gate.conformance.verdict-missing';
-  if (/conformance .* remains /i.test(message)) return 'gate.conformance.blocking-verdict';
-  if (/specification index is stale|specification index does not match/i.test(message)) return 'gate.specification-index.stale';
-  if (/STALE .* approval:/i.test(message)) return 'gate.approval.stale';
-  if (/has no required Git commit/i.test(message)) return 'gate.generation.commit-missing';
-  if (/not present on the remote branch|local HEAD is not published/i.test(message)) return 'gate.publication.remote-missing';
-  if (/terminal: phase .* is not approved/i.test(message)) return 'gate.terminal.phase-unapproved';
-  if (/terminal: workflow is not closed/i.test(message)) return 'gate.terminal.workflow-incomplete';
-  return 'gate.validation.failed';
+/**
+ * The step that owns a gate finding: the one the gate named, otherwise the step the evidence belongs
+ * to by structure (the planning owner, the code step, the conformance report), never by its name.
+ */
+function storyOwner(workflow, finding) {
+  const named = finding.phase && workflow.phases?.[finding.phase] ? finding.phase : null;
+  // A planned-test binding is authored before implementation: route it to the planning owner of the
+  // code step it concerns, or of the latest code interval.
+  if (finding.code === 'gate.acceptance.planned-test-missing') {
+    return configuredPlannedClaimOwner(workflow, named) ?? latestHolder(workflow, 'plan') ?? named ?? lifecycleOwner(workflow);
+  }
+  if (named) return named;
+  // A missing observed result or a failed acceptance command is the verifying step's evidence; a
+  // missing test binding or an unclaimed change is the code step's.
+  if (finding.code.startsWith('gate.acceptance.')) {
+    return latestHolder(workflow, 'verify', { except: conformanceStep(workflow) }) ?? latestCodeStep(workflow) ?? lifecycleOwner(workflow);
+  }
+  if (finding.code.startsWith('gate.acceptance-criteria.') || finding.code.startsWith('gate.clause.')) {
+    return latestCodeStep(workflow) ?? lifecycleOwner(workflow);
+  }
+  if (finding.code.startsWith('gate.conformance.')) return conformanceStep(workflow) ?? lifecycleOwner(workflow);
+  if (finding.code.startsWith('gate.specification-index.')) return latestHolder(workflow, 'scope') ?? lifecycleOwner(workflow);
+  return lifecycleOwner(workflow);
 }
 
 function categoryForCode(code) {
@@ -236,11 +210,19 @@ export function verifyGateRecoveryReopenPlan(root, workflow, plan) {
     && plan.confirmation === planConfirmation(plan));
 }
 
-export function classifyStoryGateFailures(workflow, messages) {
-  return [...new Set(messages)].map((message) => {
-    const code = storyCode(message);
-    const phase = storyOwner(workflow, message);
-    const path = pathFromMessage(message);
+/**
+ * Turn the gate's coded findings into recovery. Each finding arrives with its code, and the step and
+ * path the gate knew; a bare message (from an older caller) is an unclassified validation failure.
+ */
+export function classifyStoryGateFailures(workflow, findings) {
+  const seen = new Set();
+  return (findings ?? []).map((entry) => (typeof entry === 'string'
+    ? { code: 'gate.validation.failed', message: entry, phase: null, path: null }
+    : { code: entry.code ?? 'gate.validation.failed', message: entry.message, phase: entry.phase ?? null, path: entry.path ?? null }))
+    .filter((entry) => !seen.has(entry.message) && seen.add(entry.message))
+    .map((entry) => {
+    const { code, message, path } = entry;
+    const phase = storyOwner(workflow, entry);
     return {
       code,
       category: categoryForCode(code),
@@ -255,6 +237,14 @@ export function classifyStoryGateFailures(workflow, messages) {
       recovery: storyRecovery(workflow, code, phase, path)
     };
   });
+}
+
+// Initiative gates still report plain messages; their paths are read from the wording.
+function pathFromMessage(message) {
+  const protectedPath = String(message).match(/protected process path changed on work branch:\s+([^\s]+)\s+\(/i);
+  if (protectedPath) return protectedPath[1];
+  const ordinary = String(message).match(/(?:missing|failed|stale|unavailable):\s+([^\s]+\.(?:md|json|ya?ml|txt|csv))/i);
+  return ordinary?.[1] ?? null;
 }
 
 function initiativePhase(initiative, message) {

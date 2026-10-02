@@ -3369,6 +3369,15 @@ test('a document uploaded during a phase is never presented as the artifact that
     'the journey lists the phase output, not the evidence attached to it');
 });
 
+test('VS Code reads the engine\'s approval verdict from the snapshot instead of its own rule', () => {
+  const verdict = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  verdict.workflow.phases.design.approvals = [{ decision: 'approved', authorityGroup: 'architecture-reviewers', actor: { email: 'other@example.com' } }];
+  verdict.approval = { phase: 'design', minimum: 1, distinct: 1, remainingAuthorities: [], met: true };
+  assert.deepEqual(buildApprovals(verdict).pending, [], 'the engine says the approval is met');
+  verdict.approval = { phase: 'design', minimum: 2, distinct: 1, remainingAuthorities: [], met: false };
+  assert.equal(buildApprovals(verdict).pending.length, 1, 'the engine says it is not, whatever a local count would say');
+});
+
 test('VS Code offers and withholds a Story approval by the engine\'s own rules', () => {
   // A group open to any Git identity admits a reviewer it does not list.
   const open = storySnapshot({ status: 'awaiting_approval', generation: 1 });

@@ -73,7 +73,7 @@ export async function assertTerminalTransition(root, definition, workflow) {
       evaluation: result.evaluation.decision.gate === 'block' ? result.evaluation : null,
       findings: [
         ...result.evaluation.findings.filter((entry) => entry.blocking !== false).map(({ code, message }) => ({ code, message })),
-        ...result.gate.errors
+        ...(result.gate.findings ?? []).map((finding) => ({ code: finding.code, message: finding.details?.message }))
       ],
       actions: result.recovery
     });

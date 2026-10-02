@@ -247,10 +247,13 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
   const active = (phase.approvals ?? []).filter((approval) =>
     approval.decision === 'approved' && !approval.invalidatedAt);
   const minimum = phase.approvalPolicy?.minimum ?? 1;
-  // The engine's rule: enough distinct people, and every required group among them.
-  const requiredOutstanding = (phase.approvalPolicy?.requiredAuthorities ?? [])
+  // The engine's verdict when the snapshot carries it; this rule is only a stand-in for an older CLI.
+  const verdict = snapshot.approval?.phase === phaseId ? snapshot.approval : null;
+  const requiredOutstanding = verdict ? verdict.remainingAuthorities : (phase.approvalPolicy?.requiredAuthorities ?? [])
     .filter((authority) => !active.some((approval) => approval.authorityGroup === authority));
-  if (new Set(active.map((approval) => identityOf(approval.actor)).filter(Boolean)).size >= minimum && !requiredOutstanding.length) {
+  const met = verdict ? verdict.met
+    : new Set(active.map((approval) => identityOf(approval.actor)).filter(Boolean)).size >= minimum && !requiredOutstanding.length;
+  if (met) {
     return {
       initiativeId: workflow.workItem.id, actor, pending: [], obstacles: [],
       empty: 'Nothing is waiting for a decision.'

@@ -54,8 +54,17 @@ function traceabilitySources(workflow) {
   return workflow.phaseOrder.map((phaseId) => workflow.phases[phaseId]).filter((phase) => ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind));
 }
 
+const CONFORMANCE_CODES = Object.freeze({
+  'conformance.clause-row-missing': 'gate.conformance.missing-row',
+  'conformance.verdict-invalid': 'gate.conformance.verdict-missing',
+  'conformance.verdict-incomplete': 'gate.conformance.blocking-verdict'
+});
+
+/** A qualified conformance report's problems, each with its gate code. */
 function qualifiedConformanceErrors(report, clauseIds) {
-  return inspectQualifiedConformanceReport(report, clauseIds).map((finding) => finding.message);
+  return inspectQualifiedConformanceReport(report, clauseIds).map((finding) => ({
+    code: CONFORMANCE_CODES[finding.code] ?? `gate.${finding.code}`, message: finding.message
+  }));
 }
 
 export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
@@ -207,39 +216,47 @@ export function verifiedAbandonedGenerations(root, config, workflow, { errors = 
 export async function runGovernanceGate(root, config, workflow, { terminal = false, pendingTransition = false } = {}) {
   config = await resolveStoryExecutionDefinition(root, config, workflow);
   const errors = [], warnings = [], passes = [];
-  const base = await validateWorkflow(root, config, workflow, { strict: true }); errors.push(...base.errors); warnings.push(...base.warnings);
+  // Every error is also a coded finding naming the step and path it belongs to; recovery reads the
+  // code and the step, never the wording [E2G-024].
+  const coded = [];
+  const refuse = (code, message, { phase = null, path: file = null } = {}) => {
+    errors.push(message);
+    coded.push({ code, message, phase, path: file });
+  };
+  const refuseEach = (code, messages, options) => { for (const message of messages ?? []) refuse(code, message, options); };
+  const base = await validateWorkflow(root, config, workflow, { strict: true }); refuseEach('gate.state.invalid', base.errors); warnings.push(...base.warnings);
   for (const override of workflow.sequenceOverrides ?? []) {
     warnings.push(`soft sequence gate '${override.gate}' was overridden for ${override.requestedPhase ?? override.before?.currentPhase ?? 'workflow'} during ${override.action}`);
   }
 
   if (workflow.resolution.configSha256) {
     const current = await snapshot(path.join(root, 'singularity/workflow.yml'));
-    if (current.sha256 !== workflow.resolution.configSha256) errors.push('workflow.yml differs from the immutable work-item configuration snapshot');
+    if (current.sha256 !== workflow.resolution.configSha256) refuse('gate.configuration.snapshot-drift', 'workflow.yml differs from the immutable work-item configuration snapshot', { path: 'singularity/workflow.yml' });
     for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
       const present = await snapshot(path.join(root, template.path));
-      if (present.sha256 !== template.sha256) errors.push(`template snapshot changed for ${phaseId}: ${template.path}`);
+      if (present.sha256 !== template.sha256) refuse('gate.template.snapshot-drift', `template snapshot changed for ${phaseId}: ${template.path}`, { phase: phaseId, path: template.path });
     }
     if (workflow.resolution.sourceSha256) {
       const source = await snapshot(path.join(workDir(root, config, workflow.workItem.id), 'source.json'));
-      if (source.sha256 !== workflow.resolution.sourceSha256) errors.push('source.json differs from the immutable source snapshot');
+      if (source.sha256 !== workflow.resolution.sourceSha256) refuse('gate.source.snapshot-drift', 'source.json differs from the immutable source snapshot');
     }
     if (workflow.resolution.impact?.sha256) {
       if (workflow.measurement?.plan?.kind === 'prompt-set-randomized') {
         try {
           const binding = await verifyImpactPlanBinding(root, workflow);
-          errors.push(...binding.errors.map((error) => `prompt study: ${error}`));
+          refuseEach('gate.impact.prompt-study', binding.errors.map((error) => `prompt study: ${error}`));
           if (binding.valid) passes.push(`prompt study assignment pinned: ${workflow.measurement.plan.studyRunId}/${workflow.measurement.plan.variantId}`);
         } catch (error) {
-          errors.push(`prompt study assignment is unavailable: ${error.message}`);
+          refuse('gate.impact.prompt-study', `prompt study assignment is unavailable: ${error.message}`);
         }
       } else {
         try {
           const currentImpact = await loadImpactDefinition(root, { required: true });
           if (currentImpact.sha256 !== workflow.resolution.impact.sha256) {
-            errors.push('impact.yml differs from the immutable work-item impact-study snapshot');
+            refuse('gate.impact.snapshot-drift', 'impact.yml differs from the immutable work-item impact-study snapshot');
           } else passes.push(`impact study configuration pinned: ${currentImpact.sha256.slice(0, 12)}`);
         } catch (error) {
-          errors.push(`impact study configuration is unavailable: ${error.message}`);
+          refuse('gate.impact.unavailable', `impact study configuration is unavailable: ${error.message}`);
         }
       }
     }
@@ -247,14 +264,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
 
   if (workflow.measurement?.receipt) {
     const verification = await verifyImpactReceipt(root, workflow);
-    errors.push(...verification.errors.map((error) => `impact receipt: ${error}`));
+    refuseEach('gate.impact.receipt', verification.errors.map((error) => `impact receipt: ${error}`));
     if (verification.valid) passes.push(`impact receipt verified: ${workflow.measurement.receipt.sha256.slice(0, 12)}`);
   }
 
   const documentManifest = path.join(workDir(root, config, workflow.workItem.id), 'documents.json');
   if (await exists(documentManifest)) {
     const manifest = readRecord('document-manifest', await readFile(documentManifest)).record; const seen = new Set();
-    if (manifest.workId !== workflow.workItem.id) errors.push('document catalog work ID does not match workflow');
+    if (manifest.workId !== workflow.workItem.id) refuse('gate.documents.catalog', 'document catalog work ID does not match workflow');
     // The same phases the upload gate admits, the documents given at Story creation (part of its
     // opening record), and any phase a confirmed soft-gate override opened before the document was
     // added: that upload was audited, not outside the policy.
@@ -266,32 +283,32 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         && String(override.at ?? '') <= String(document.addedAt ?? ''));
     const names = new Map();
     for (const document of manifest.documents ?? []) {
-      if (seen.has(document.id)) errors.push(`duplicate document ID: ${document.id}`); seen.add(document.id);
+      if (seen.has(document.id)) refuse('gate.documents.catalog', `duplicate document ID: ${document.id}`); seen.add(document.id);
       // Every lookup, prompt and citation resolves a document by its name, detached ones included.
       const nameKey = typeof document.name === 'string' && document.name.trim() ? documentNameKey(document.name) : null;
-      if (!nameKey) errors.push(`${document.id} has no document name`);
-      else if (names.has(nameKey)) errors.push(`${document.id} reuses the document name of ${names.get(nameKey)}`);
+      if (!nameKey) refuse('gate.documents.catalog', `${document.id} has no document name`);
+      else if (names.has(nameKey)) refuse('gate.documents.catalog', `${document.id} reuses the document name of ${names.get(nameKey)}`);
       else names.set(nameKey, document.id);
       if (document.phases != null && (!Array.isArray(document.phases) || !document.phases.length
           || document.phases.some((phaseId) => !(workflow.phaseOrder ?? []).includes(phaseId)))) {
-        errors.push(`${document.id} is offered to phases this Story does not have`);
+        refuse('gate.documents.catalog', `${document.id} is offered to phases this Story does not have`);
       }
-      if (!admitted(document)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
-      if (!document.addedBy || !document.agent) errors.push(`${document.id} is missing actor or agent attribution`);
+      if (!admitted(document)) refuse('gate.documents.policy', `${document.id} was uploaded outside the immutable document phase policy`, { phase: document.phase ?? null });
+      if (!document.addedBy || !document.agent) refuse('gate.documents.catalog', `${document.id} is missing actor or agent attribution`);
       if (isLocalDocument(document)) {
         // Kept on one machine: the catalog commits its identity, never its bytes. Here it is either
         // the committed bytes, or not here at all, which is expected on every other machine.
-        if (document.path != null) errors.push(`${document.id} is kept on one machine but also names a repository path`);
-        else if (!validLocalDocumentKey(document.storage.key)) errors.push(`${document.id} has an invalid machine-local storage key`);
+        if (document.path != null) refuse('gate.documents.catalog', `${document.id} is kept on one machine but also names a repository path`);
+        else if (!validLocalDocumentKey(document.storage.key)) refuse('gate.documents.catalog', `${document.id} has an invalid machine-local storage key`);
         else {
           const availability = await localDocumentAvailability(root, workflow.workItem.id, document, { verify: true });
-          if (availability === 'changed') errors.push(`document integrity failed: ${document.id} (kept on this machine, but the copy no longer matches its SHA-256)`);
+          if (availability === 'changed') refuse('gate.documents.integrity', `document integrity failed: ${document.id} (kept on this machine, but the copy no longer matches its SHA-256)`);
           else if (availability === 'unavailable' && evidenceIsActive(document)) warnings.push(`${document.id} is kept on another machine; its integrity cannot be checked here`);
         }
       } else if (document.type === 'file') {
         const current = await snapshot(path.join(root, document.path));
-        if (!current.exists || current.size !== document.size || current.sha256 !== document.sha256) errors.push(`document integrity failed: ${document.id} (${document.path})`);
-      } else if (document.type === 'url' && !/^https?:\/\/\S+$/i.test(document.url ?? '')) errors.push(`${document.id} has an invalid external URL`);
+        if (!current.exists || current.size !== document.size || current.sha256 !== document.sha256) refuse('gate.documents.integrity', `document integrity failed: ${document.id} (${document.path})`, { path: document.path });
+      } else if (document.type === 'url' && !/^https?:\/\/\S+$/i.test(document.url ?? '')) refuse('gate.documents.catalog', `${document.id} has an invalid external URL`);
     }
     // `totalCount` counts every record and `count` the active ones. Older Stories wrote only `count`,
     // as the total after an upload, so a counter without `totalCount` is compared as the total.
@@ -300,9 +317,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const totalMatches = (counters.totalCount ?? counters.count ?? 0) === records.length;
     const activeMatches = counters.totalCount === undefined
       || (counters.count ?? 0) === records.filter(evidenceIsActive).length;
-    if (!totalMatches || !activeMatches) errors.push('workflow document count differs from documents.json');
+    if (!totalMatches || !activeMatches) refuse('gate.documents.catalog', 'workflow document count differs from documents.json');
     else passes.push(`document integrity: ${records.length} supporting inputs`);
-  } else if ((workflow.documents?.count ?? 0) > 0) errors.push('workflow records documents but documents.json is missing');
+  } else if ((workflow.documents?.count ?? 0) > 0) refuse('gate.documents.catalog', 'workflow records documents but documents.json is missing');
 
   const pinnedBase = workflow.workItem.baseCommit ?? null;
   const mergeBase = pinnedBase
@@ -314,14 +331,16 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       branchChangeSet, config.governance?.protectedPaths ?? [], workflow
     );
     for (const violation of protectedResult.violations) {
-      errors.push(`protected process path changed on work branch: ${violation.path} (${violation.endpoint})`);
+      refuse('gate.protected-path.changed', `protected process path changed on work branch: ${violation.path} (${violation.endpoint})`, { path: violation.path });
     }
     if (protectedResult.acceptedProtectedPaths.size) {
       passes.push(`approved configuration materialization: ${protectedResult.acceptedProtectedPaths.size} protected path(s) match the pinned configuration snapshot`);
     }
   } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseCommit ?? workflow.workItem.baseBranch}`);
 
-  const abandoned = verifiedAbandonedGenerations(root, config, workflow, { errors });
+  const abandonedErrors = [];
+  const abandoned = verifiedAbandonedGenerations(root, config, workflow, { errors: abandonedErrors });
+  refuseEach('gate.rework.abandoned-unverified', abandonedErrors);
   for (const phaseId of workflow.phaseOrder) {
     const phase = workflow.phases[phaseId];
     for (let generation = 1; generation <= (phase.generation ?? 0); generation += 1) {
@@ -343,8 +362,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           }
         } catch (error) {
           publicationInvalid = true;
-          errors.push(error?.code === 'GIT_READ_UNAVAILABLE' ? error.message
-            : `${phaseId} generation ${generation} publication record is invalid: ${error.message}`);
+          refuse('gate.generation.publication-invalid', error?.code === 'GIT_READ_UNAVAILABLE' ? error.message
+            : `${phaseId} generation ${generation} publication record is invalid: ${error.message}`, { phase: phaseId });
         }
       } else {
         try {
@@ -356,26 +375,26 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         } catch (error) {
           if (error?.code !== 'GIT_READ_UNAVAILABLE') throw error;
           publicationInvalid = true;
-          errors.push(error.message);
+          refuse('gate.generation.publication-invalid', error.message, { phase: phaseId });
         }
       }
       if (!found) {
-        if (!publicationInvalid) errors.push(`${phaseId} generation ${generation} has no required Git commit`);
+        if (!publicationInvalid) refuse('gate.generation.commit-missing', `${phaseId} generation ${generation} has no required Git commit`, { phase: phaseId });
       } else if (config.git?.publish === 'required') {
         const remoteRef = `refs/remotes/${config.git.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}`;
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
-        if (published.status !== 0) errors.push(`${phaseId} generation ${generation} is not present on the remote branch`);
+        if (published.status !== 0) refuse('gate.publication.remote-missing', `${phaseId} generation ${generation} is not present on the remote branch`, { phase: phaseId });
       }
       let grounding = { errors: [], warnings: [], passes: [], record: null, path: null };
       if (generationRequiresGrounding(phase, generation)) {
         grounding = await verifyGroundingRecord(root, config, workflow, phase, {
           generation, superseded: generation < Number(phase.generation ?? 0)
         });
-        errors.push(...grounding.errors); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
+        refuseEach('gate.grounding.invalid', grounding.errors, { phase: phaseId }); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
         if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
-          if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);
+          if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.grounding.uncommitted', `grounding composition was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
           else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
-          if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
+          if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.grounding.uncommitted', `grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
         }
       } else {
         passes.push(`grounding not applicable: ${phaseId} generation ${generation} was ${generationAuthorship(phase, generation).producer}`);
@@ -407,9 +426,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           if (v2Generation && !reachedReview) {
             warnings.push(`${phaseId} generation ${generation} was superseded before review and has no draft code-delivery receipt`);
           } else {
-            (v2Generation ? errors : warnings).push(
-              `${phaseId} generation ${generation} has ${v2Generation ? 'no required' : 'legacy inline'} code-delivery evidence instead of a v2 receipt`
-            );
+            const message = `${phaseId} generation ${generation} has ${v2Generation ? 'no required' : 'legacy inline'} code-delivery evidence instead of a v2 receipt`;
+            if (v2Generation) refuse('gate.code-delivery.receipt-missing', message, { phase: phaseId });
+            else warnings.push(message);
           }
         } else if (!reachedReview) {
           passes.push(`superseded publication retained: ${phaseId} generation ${generation} did not enter review`);
@@ -418,7 +437,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           if (receipt.legacyV1) {
             warnings.push(`${phaseId} generation ${generation} code-delivery receipt is readable legacy v1 evidence`);
           } else {
-            if (found && receipt.tree?.generationCommit !== found[0]) errors.push(`${phaseId} generation ${generation} receipt names a different generation commit`);
+            if (found && receipt.tree?.generationCommit !== found[0]) refuse('gate.code-delivery.commit-mismatch', `${phaseId} generation ${generation} receipt names a different generation commit`, { phase: phaseId });
             let riskReplay = null;
             if (receipt.testRecovery) {
               const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find(entry =>
@@ -434,7 +453,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
                   riskReplay = { evidenceCommit: packet.evidenceCommit,
                     testRecovery: { config, workflow, operation: 'submit', mode: 'historical',
                       at: terminal ? terminalTransitionAt(workflow) : receipt.validatedAt } };
-                } else errors.push(`${phaseId} generation ${generation}: TRP delivery receipt differs from its immutable review packet`);
+                } else refuse('gate.code-delivery.packet-mismatch', `${phaseId} generation ${generation}: TRP delivery receipt differs from its immutable review packet`, { phase: phaseId });
               }
             }
             const replay = await verifyCodeDeliveryReceipt(root, receipt, {
@@ -455,7 +474,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
               pathContext: applicationPathContext(config, workflow),
               ...riskReplay
             });
-            errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
+            refuseEach('gate.code-delivery.replay', replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`), { phase: phaseId });
             if (replay.valid) passes.push(`code delivery verified: ${phaseId} generation ${generation}`);
           }
         }
@@ -463,36 +482,36 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const authorship = generationAuthorship(phase, generation);
       if (authorship?.producer === 'governed-agent') {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation, groundingRecord: grounding.record });
-        errors.push(...clarification.errors); warnings.push(...clarification.warnings); passes.push(...clarification.passes);
+        refuseEach('gate.clarification.invalid', clarification.errors, { phase: phaseId }); warnings.push(...clarification.warnings); passes.push(...clarification.passes);
         if (clarification.path && clarification.record && found) {
-          if (run('git', ['cat-file', '-e', `${found[0]}:${clarification.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`clarification record was not committed with ${phaseId} generation ${generation}`);
+          if (run('git', ['cat-file', '-e', `${found[0]}:${clarification.path}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.clarification.uncommitted', `clarification record was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
           else passes.push(`clarification audit committed: ${phaseId} generation ${generation}`);
         }
       }
       if (workflow.telemetry?.mode === 'work-item-sanitized' || (phase.telemetry ?? []).some((item) => item.generation === generation)) {
         const telemetry = await verifyPhaseTelemetry(root, workflow, phase, generation);
-        errors.push(...telemetry.errors); passes.push(...telemetry.passes);
+        refuseEach('gate.telemetry.invalid', telemetry.errors, { phase: phaseId }); passes.push(...telemetry.passes);
         const telemetryPath = (phase.telemetry ?? []).find((item) => item.generation === generation)?.path;
-        if (found && telemetryPath && run('git', ['cat-file', '-e', `${found[0]}:${telemetryPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`telemetry audit was not committed with ${phaseId} generation ${generation}`);
+        if (found && telemetryPath && run('git', ['cat-file', '-e', `${found[0]}:${telemetryPath}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.telemetry.uncommitted', `telemetry audit was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
       }
       const agentContextRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {
-        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote agent context was not committed with ${phaseId} generation ${generation}`);
+        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.agents.context-uncommitted', `remote agent context was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
         else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
       }
       for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
         const outputRecord = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
-        if (!(await exists(path.join(root, outputRecord)))) errors.push(`remote output provenance is missing: ${outputRecord}`);
-        else if (found && run('git', ['cat-file', '-e', `${found[0]}:${outputRecord}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote output provenance was not committed with ${phaseId} generation ${generation}`);
+        if (!(await exists(path.join(root, outputRecord)))) refuse('gate.agents.remote-output-missing', `remote output provenance is missing: ${outputRecord}`, { phase: phaseId, path: outputRecord });
+        else if (found && run('git', ['cat-file', '-e', `${found[0]}:${outputRecord}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.agents.remote-output-uncommitted', `remote output provenance was not committed with ${phaseId} generation ${generation}`, { phase: phaseId, path: outputRecord });
       }
     }
     const inputIntegrity = await verifyInputsIntegrity(root, workflow, phase, {
       itemDirectory: workDir(root, config, workflow.workItem.id),
       itemRelative: path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id)
     });
-    errors.push(...inputIntegrity.errors); warnings.push(...inputIntegrity.warnings); passes.push(...inputIntegrity.passes);
+    refuseEach('gate.inputs.integrity', inputIntegrity.errors, { phase: phaseId }); warnings.push(...inputIntegrity.warnings); passes.push(...inputIntegrity.passes);
     const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-    errors.push(...agentIntegrity.errors); warnings.push(...agentIntegrity.warnings); passes.push(...agentIntegrity.passes);
+    refuseEach('gate.agents.integrity', agentIntegrity.errors, { phase: phaseId }); warnings.push(...agentIntegrity.warnings); passes.push(...agentIntegrity.passes);
     if (phase.status !== 'approved') continue;
     const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));
@@ -505,7 +524,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       waived = replay.valid;
       if (waived) passes.push(replay.pending ? `policy waiver recorded by this transition: ${phaseId}` : `policy waiver verified: ${phaseId}`);
       else if (policyRequiresPeople && !peopleSatisfyPolicy) {
-        errors.push(...replay.errors.map((message) => `${phaseId} policy waiver is invalid: ${message}`));
+        refuseEach('gate.approval.waiver-invalid', replay.errors.map((message) => `${phaseId} policy waiver is invalid: ${message}`), { phase: phaseId });
       } else {
         // A waiver that does not replay never counts as approval, and fails the gate only when it
         // is what authorizes the phase. Approvals that satisfy the pinned policy authorize it
@@ -514,53 +533,53 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
     }
     const requiresApproval = policyRequiresPeople && !waived;
-    if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) errors.push(`${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`);
-    if (requiresApproval && missingAuthorities.length) errors.push(`${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`);
+    if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) refuse('gate.approval.threshold', `${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`, { phase: phaseId });
+    if (requiresApproval && missingAuthorities.length) refuse('gate.approval.required-authority', `${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`, { phase: phaseId });
     for (const decision of decisions) {
       const authority = matchApprovalAuthority(
         workflow.resolution.approvalAuthorities,
         { ...phase.approvalPolicy, authorities: [decision.authorityGroup] },
         decision.actor
       );
-      if (!authority.authorized) errors.push(`${phaseId} approval by '${decision.actor?.email ?? decision.actor?.login ?? decision.actor?.name ?? 'unknown'}' lacks configured authority`);
-      else if (decision.authorityGroup !== authority.authorityGroup) errors.push(`${phaseId} approval authority record does not match the pinned policy`);
-      if (!decision.identityAssurance) errors.push(`${phaseId} approval is missing identity-assurance metadata`);
+      if (!authority.authorized) refuse('gate.approval.unauthorized', `${phaseId} approval by '${decision.actor?.email ?? decision.actor?.login ?? decision.actor?.name ?? 'unknown'}' lacks configured authority`, { phase: phaseId });
+      else if (decision.authorityGroup !== authority.authorityGroup) refuse('gate.approval.authority-mismatch', `${phaseId} approval authority record does not match the pinned policy`, { phase: phaseId });
+      if (!decision.identityAssurance) refuse('gate.approval.assurance-missing', `${phaseId} approval is missing identity-assurance metadata`, { phase: phaseId });
       if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'}; governed agent '${decision.agent ?? 'unavailable'}' is execution context, not independent review`);
     }
     for (const artifact of phase.artifacts) {
       const current = await snapshot(path.join(root, artifact.path));
-      if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) errors.push(`STALE ${phaseId} approval: ${artifact.path} changed after approval`);
+      if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) refuse('gate.approval.stale', `STALE ${phaseId} approval: ${artifact.path} changed after approval`, { phase: phaseId, path: artifact.path });
     }
     const required = path.join(root, config.workItemRoot, workflow.workItem.id, phase.requiredArtifact.path);
     const text = await readFile(required, 'utf8').catch(() => '');
-    if (decisions.some((item) => item.selfApproval) && !/"selfApproval": true/.test(text)) errors.push(`${phaseId} artifact does not expose its self-approval warning`);
+    if (decisions.some((item) => item.selfApproval) && !/"selfApproval": true/.test(text)) refuse('gate.approval.self-approval-undisclosed', `${phaseId} artifact does not expose its self-approval warning`, { phase: phaseId });
     passes.push(`approval integrity: ${phaseId}`);
   }
 
   const mcpIntegrity = await verifyMcpEvidence(root, workflow, {
     itemDirectory: workDir(root, config, workflow.workItem.id)
   });
-  errors.push(...mcpIntegrity.errors); warnings.push(...mcpIntegrity.warnings); passes.push(...mcpIntegrity.passes);
+  refuseEach('gate.mcp.integrity', mcpIntegrity.errors); warnings.push(...mcpIntegrity.warnings); passes.push(...mcpIntegrity.passes);
 
   const designSourceIntegrity = await verifyDesignSourceLifecycle(root, workflow, {
     itemDirectory: workDir(root, config, workflow.workItem.id)
   });
-  errors.push(...designSourceIntegrity.errors);
+  refuseEach('gate.design-source.integrity', designSourceIntegrity.errors);
   warnings.push(...designSourceIntegrity.warnings);
   passes.push(...designSourceIntegrity.passes);
 
   const visualCoverage = await evaluateVisualCoverage(root, workflow, {
     itemDirectory: workDir(root, config, workflow.workItem.id)
   });
-  if (visualCoverage.mode === 'enforce') errors.push(...visualCoverage.errors); else warnings.push(...visualCoverage.errors);
+  if (visualCoverage.mode === 'enforce') refuseEach('gate.visual.coverage', visualCoverage.errors); else warnings.push(...visualCoverage.errors);
   warnings.push(...visualCoverage.warnings);
   if (visualCoverage.status === 'pass') passes.push(`visual coverage: ${visualCoverage.covered.length}/${visualCoverage.profiles.length} profiles`);
   const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   for (const comparison of comparisons) {
     // Evidence that will not parse is an integrity failure, not a threshold decision, so it fails
     // the gate whatever the comparison mode says. Otherwise damaging a record is a way past it.
-    if (comparison.unreadable) errors.push(`visual comparison evidence ${comparison.path} could not be read: ${comparison.error}`);
-    else if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') errors.push(`visual comparison ${comparison.id} exceeds policy thresholds`);
+    if (comparison.unreadable) refuse('gate.visual.evidence-unreadable', `visual comparison evidence ${comparison.path} could not be read: ${comparison.error}`, { path: comparison.path });
+    else if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') refuse('gate.visual.threshold', `visual comparison ${comparison.id} exceeds policy thresholds`);
     else if (comparison.status !== 'pass') warnings.push(`visual comparison ${comparison.id}: ${comparison.status}`);
   }
   if (comparisons.length) passes.push(`visual comparisons: ${comparisons.length} deterministic result(s)`);
@@ -571,13 +590,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const records = terminal && workflow.resolution?.plannedClaims?.mode === 'required'
       ? await loadBoundActiveSpecRecords(root, itemDirectory, workflow, specPolicy)
       : await loadActiveSpecRecords(itemDirectory, workflow);
-    const fail = (message) => (specPolicy.mode === 'enforce' ? errors : warnings).push(message);
+    const fail = (code, message, phase) => (specPolicy.mode === 'enforce' ? refuse(code, message, { phase }) : warnings.push(message));
     for (const phaseId of workflow.phaseOrder) {
       const phase = workflow.phases[phaseId];
       if (!(phase.generation > 0) || !isSpecificationDefinitionPhase(phase)) continue;
       const index = records.indexes.find((candidate) => candidate.phase === phaseId && candidate.generation === phase.generation);
       if (!index) {
-        fail(`${phaseId} generation ${phase.generation} has no deterministic specification index`);
+        fail('gate.specification-index.missing', `${phaseId} generation ${phase.generation} has no deterministic specification index`, phaseId);
         continue;
       }
       const artifact = await snapshot(path.join(root, index.source.path));
@@ -590,11 +609,11 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const drift = anchor && (anchor.sourceSha256 !== index.source.sha256
         || anchor.clauses !== index.clauses.length
         || (anchor.indexSha256 && index.indexSha256 && anchor.indexSha256 !== index.indexSha256));
-      if (!artifact.exists || artifact.sha256 !== index.source.sha256) fail(`${phaseId} specification index is stale for ${index.source.path}`);
+      if (!artifact.exists || artifact.sha256 !== index.source.sha256) fail('gate.specification-index.stale', `${phaseId} specification index is stale for ${index.source.path}`, phaseId);
       else if (drift) {
-        fail(`${phaseId} specification index does not match the generation recorded in the workflow: `
+        fail('gate.specification-index.stale', `${phaseId} specification index does not match the generation recorded in the workflow: `
           + `expected ${anchor.clauses} clause(s) for source ${String(anchor.sourceSha256).slice(0, 12)}, `
-          + `found ${index.clauses.length} for ${String(index.source.sha256).slice(0, 12)}`);
+          + `found ${index.clauses.length} for ${String(index.source.sha256).slice(0, 12)}`, phaseId);
       }
       else passes.push(`specification clauses: ${phaseId} generation ${phase.generation} · ${index.clauses.length}`);
     }
@@ -617,26 +636,21 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           && !observedCoverage.invalidEvidence.length;
         return { ...observedCoverage, unimplemented: [], complete, severity: complete ? 'pass' : observedCoverage.severity };
       })();
-      const messages = [
-        ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
-        ...coverage.unclaimedChangedPaths.map((file) => `changed path is not claimed by a clause: ${file}`),
-        ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
-        ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
-      ];
-      if (coverage.severity === 'error') errors.push(...messages);
+      const unimplemented = coverage.unimplemented.map((id) => ({ code: 'gate.clause.unimplemented', message: `clause ${id} is not fully implemented` }));
+      const unclaimed = coverage.unclaimedChangedPaths.map((file) => ({ code: 'gate.clause.unclaimed-path', message: `changed path is not claimed by a clause: ${file}`, path: file }));
+      const withdrawn = coverage.withdrawnButClaimed.map((id) => ({ code: 'gate.clause.withdrawn-claimed', message: `withdrawn clause still has an observed claim: ${id}` }));
+      const invalid = coverage.invalidEvidence.map((message) => ({ code: 'gate.clause.invalid-evidence', message: `invalid clause evidence: ${message}` }));
+      const refuseCoded = (entries) => { for (const entry of entries) refuse(entry.code, entry.message, { path: entry.path ?? null }); };
+      if (coverage.severity === 'error') refuseCoded([...unimplemented, ...unclaimed, ...withdrawn, ...invalid]);
       else if (coverage.severity === 'warning') {
         // Record-mode coverage remains advisory during Code, but a new qualified terminal
         // conformance report cannot claim `matched` where observed clause evidence is absent.
         const terminalClauseContract = terminal && specPolicy.conformanceRows === 'qualified'
           && records.indexes.some((index) => (index.clauses ?? []).length > 0);
         if (terminalClauseContract) {
-          errors.push(
-            ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
-            ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
-            ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
-          );
-          warnings.push(...coverage.unclaimedChangedPaths.map((file) => `changed path is not claimed by a clause: ${file}`));
-        } else warnings.push(...messages);
+          refuseCoded([...unimplemented, ...withdrawn, ...invalid]);
+          warnings.push(...unclaimed.map((entry) => entry.message));
+        } else warnings.push(...[...unimplemented, ...unclaimed, ...withdrawn, ...invalid].map((entry) => entry.message));
       }
       if (coverage.complete) passes.push(`clause coverage: ${coverage.totals.observed}/${coverage.totals.clauses} clauses, ${coverage.totals.changedPaths} changed paths`);
     }
@@ -648,16 +662,16 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         ),
         commandSetSha256: configuredAcceptanceCommandSetSha256(specPolicy)
       });
-      const messages = [
-        ...acceptance.missingPlannedTests.map((id) => `clause ${id} has no planned test`),
-        ...acceptance.missingObservedTests.map((id) => `clause ${id} has no observed test result`),
-        ...acceptance.failedCommands.map((id) => `allowlisted acceptance command failed: ${id}`),
-        ...(acceptance.missingRun ? ['no specification acceptance run is recorded'] : []),
-        ...acceptance.staleRunReasons.map((reason) => `specification acceptance is stale: ${reason}`)
+      const entries = [
+        ...acceptance.missingPlannedTests.map((id) => ({ code: 'gate.acceptance.planned-test-missing', message: `clause ${id} has no planned test` })),
+        ...acceptance.missingObservedTests.map((id) => ({ code: 'gate.acceptance.observed-test-missing', message: `clause ${id} has no observed test result` })),
+        ...acceptance.failedCommands.map((id) => ({ code: 'gate.acceptance.command-failed', message: `allowlisted acceptance command failed: ${id}` })),
+        ...(acceptance.missingRun ? [{ code: 'gate.acceptance.run-missing', message: 'no specification acceptance run is recorded' }] : []),
+        ...acceptance.staleRunReasons.map((reason) => ({ code: 'gate.acceptance.run-stale', message: `specification acceptance is stale: ${reason}` }))
       ];
       if (acceptance.complete) passes.push(`specification acceptance: ${acceptance.mode}`);
-      else if (specPolicy.mode === 'enforce') errors.push(...messages);
-      else warnings.push(...messages);
+      else if (specPolicy.mode === 'enforce') for (const entry of entries) refuse(entry.code, entry.message);
+      else warnings.push(...entries.map((entry) => entry.message));
     }
   }
 
@@ -668,7 +682,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       for (const id of phase.deliveryEvidence?.acceptanceCriteria?.required ?? []) required.add(id);
       for (const id of phase.deliveryEvidence?.acceptanceCriteria?.tagged ?? []) bound.add(id);
     }
-    for (const id of required) if (!bound.has(id)) errors.push(`AC coverage: ${id} has no module test-source binding`);
+    for (const id of required) if (!bound.has(id)) refuse('gate.acceptance-criteria.unbound', `AC coverage: ${id} has no module test-source binding`);
     if (required.size && [...required].every((id) => bound.has(id))) passes.push(`acceptance coverage: ${required.size} namespaced criteria mapped`);
   }
 
@@ -677,7 +691,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       ?? config.architectureIntent?.blockRequiredUnfulfilledAt ?? [];
     for (const phaseId of configuredArchitectureGates) {
       const result = await evaluateArchitectureIntentGate(root, config, workflow, phaseId);
-      errors.push(...result.errors.map((message) => `${phaseId}: ${message}`));
+      refuseEach('gate.architecture.intent', result.errors.map((message) => `${phaseId}: ${message}`), { phase: phaseId });
       warnings.push(...result.warnings.map((message) => `${phaseId}: ${message}`));
       passes.push(...result.passes);
     }
@@ -695,27 +709,27 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       : [];
     if (qualifiedRows.length) {
       qualifiedRows.forEach((id) => expected.add(id));
-      errors.push(...qualifiedConformanceErrors(report, qualifiedRows));
+      for (const entry of qualifiedConformanceErrors(report, qualifiedRows)) refuse(entry.code, entry.message, { phase: 'conformance' });
     } else {
       for (const source of traceabilitySources(workflow)) {
         const text = await readFile(path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path), 'utf8').catch(() => '');
         ids(text, /\b(?:AC|SPEC)-\d+\b/g).forEach((id) => expected.add(id));
       }
-      for (const id of expected) if (!report.includes(id)) errors.push(`conformance report has no row for ${id}`);
+      for (const id of expected) if (!report.includes(id)) refuse('gate.conformance.missing-row', `conformance report has no row for ${id}`, { phase: 'conformance' });
     }
     for (const [phaseId, prior] of Object.entries(workflow.phases)) {
       for (const approval of prior.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) {
         const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name;
-        if (!report.includes(phaseId) || (actor && !report.includes(actor))) errors.push(`conformance report does not disclose self-approval for ${phaseId} by ${actor}`);
+        if (!report.includes(phaseId) || (actor && !report.includes(actor))) refuse('gate.conformance.self-approval-undisclosed', `conformance report does not disclose self-approval for ${phaseId} by ${actor}`, { phase: 'conformance' });
       }
     }
-    if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) errors.push('conformance report has no recognized verdict');
+    if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) refuse('gate.conformance.verdict-missing', 'conformance report has no recognized verdict', { phase: 'conformance' });
     if (!qualifiedRows.length) {
       for (const finding of blockingConformanceVerdicts(report)) {
-        errors.push(`conformance ${finding.clauseId} remains ${finding.verdict}`);
+        refuse('gate.conformance.blocking-verdict', `conformance ${finding.clauseId} remains ${finding.verdict}`, { phase: 'conformance' });
       }
     }
-    if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) errors.push('conformance report is stale: source/test tree changed after comparison');
+    if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) refuse('gate.conformance.stale', 'conformance report is stale: source/test tree changed after comparison', { phase: 'conformance' });
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
   }
 
@@ -732,7 +746,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (clauseIds.length) {
         for (const phase of reportPhases) {
           const report = await readFile(path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path), 'utf8');
-          errors.push(...qualifiedConformanceErrors(report, clauseIds).map((message) => `${phase.id}: ${message}`));
+          for (const entry of qualifiedConformanceErrors(report, clauseIds)) refuse(entry.code, `${phase.id}: ${entry.message}`, { phase: phase.id });
         }
       }
     }
@@ -744,7 +758,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const remote = config.git.remote ?? 'origin';
     const publicationBranch = workflowPublicationBranch(root, workflow);
     const observation = await terminalPublicationObservation(root, remote, publicationBranch);
-    if (!observation.published) errors.push(`terminal: ${observation.reason ?? `local HEAD is not published to ${remote}/${publicationBranch}`}`);
+    if (!observation.published) refuse('gate.publication.remote-missing', `terminal: ${observation.reason ?? `local HEAD is not published to ${remote}/${publicationBranch}`}`);
     else passes.push('remote publication');
   }
 
@@ -756,13 +770,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       // already accepted or planned; otherwise the Story would finish with those obligations unmet.
       if (phase?.status === 'skipped') {
         const route = phase.skippedBy ? ` (${phase.skippedBy.decision} → ${phase.skippedBy.route})` : '';
-        if (dropped.has(phaseId)) errors.push(`terminal: phase ${phaseId} was skipped by decision${route}, so ${dropped.get(phaseId)}`);
+        if (dropped.has(phaseId)) refuse('gate.terminal.phase-skipped', `terminal: phase ${phaseId} was skipped by decision${route}, so ${dropped.get(phaseId)}`, { phase: phaseId });
         else passes.push(`skipped by decision: ${phaseId}${route}`);
-      } else if (phase?.status !== 'approved') errors.push(`terminal: phase ${phaseId} is not approved`);
+      } else if (phase?.status !== 'approved') refuse('gate.terminal.phase-unapproved', `terminal: phase ${phaseId} is not approved`, { phase: phaseId });
     }
-    errors.push(...lapsedWitnessExceptions(workflow));
-    if (workflow.pendingDecision) errors.push(`terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`);
-    if (workflow.status !== 'closed' || currentPhase(workflow)) errors.push('terminal: workflow is not closed'); else passes.push('terminal lifecycle');
+    refuseEach('gate.witness.exception-lapsed', lapsedWitnessExceptions(workflow));
+    if (workflow.pendingDecision) refuse('gate.terminal.decision-pending', `terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`, { phase: workflow.pendingDecision.after ?? null });
+    if (workflow.status !== 'closed' || currentPhase(workflow)) refuse('gate.terminal.workflow-incomplete', 'terminal: workflow is not closed'); else passes.push('terminal lifecycle');
   }
-  return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, errors) };
+  return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, coded) };
 }

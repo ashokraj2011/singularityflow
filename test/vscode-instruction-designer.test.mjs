@@ -88,9 +88,15 @@ function click(html, button, { values = {}, checked = {} } = {}) {
   const messages = [];
   const document = {
     addEventListener(name, handler) { if (name === 'click') listener = handler; },
+    // As a browser answers: the first element in document order with the attribute, of the named
+    // tag when there is one. A button carrying the same attribute ahead of the field answers first.
     querySelector(selector) {
-      const name = /^\[([a-z-]+)\]$/.exec(selector)?.[1];
-      const found = !name ? null : Object.hasOwn(values, name) ? { value: values[name] } : control(markup, name);
+      const [, tag = '', name] = /^([a-z]*)\[([a-z-]+)\]$/.exec(selector) ?? [];
+      if (!name) return null;
+      const first = [...markup.matchAll(/<([a-z]+)\b([^>]*)>/g)].find(([, element, attributes]) => (!tag || element === tag) && has(` ${attributes}`, name));
+      if (!first) return null;
+      if (!['input', 'textarea', 'select'].includes(first[1])) return { value: attribute(first[0], 'value') ?? '', addEventListener() {} };
+      const found = Object.hasOwn(values, name) ? { value: values[name] } : control(markup, name);
       return found && { ...found, addEventListener() {} };
     },
     querySelectorAll(selector) {

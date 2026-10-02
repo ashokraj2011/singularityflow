@@ -145,8 +145,11 @@ test('an imported skill is vendored with its lock entry; the agent then runs off
 test('adding to an agent that names untrusted remote resources is refused; a Studio edit re-stamps a current lock', async () => {
   const root = await repository();
   const file = path.join(root, '.github/agents/architect.agent.md');
-  const text = await readFile(file, 'utf8');
-  await writeFile(file, text.replace('|---|---|---|---|---|\n', '|---|---|---|---|---|\n| existing | https://cdn.example.com/e.md | * | no | 1024 |\n'));
+  // Packaged agents ship without empty resource tables, so add the row the way an import does:
+  // a text replacement aimed at a table that is not there would leave the agent unchanged.
+  const named = upsertAgentTableRow(await readFile(file, 'utf8'), 'skill', ['existing', 'https://cdn.example.com/e.md', '*', 'no', '1024']);
+  assert.match(named, /\| existing \| https:\/\/cdn\.example\.com\/e\.md \|/);
+  await writeFile(file, named);
   const { sha, imports } = await staged(root, '# Extra');
   const refused = await plan(root, [{ op: 'import.skill', agent: 'architect', id: 'extra', source: 'https://skills.example.org/a.md', sha256: sha }], { imports });
   assert.equal(refused.valid, false);

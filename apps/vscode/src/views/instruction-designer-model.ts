@@ -109,24 +109,48 @@ function promptId(filePath: string): string {
   return path.posix.basename(filePath, path.posix.extname(filePath));
 }
 
-function tableRows(content: string, heading: string): string[][] {
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
+const REMOTE_HEADINGS = ['Remote skills', 'Remote artifact templates', 'Remote generated artifacts'];
+
+/**
+ * Where a remote resource table sits, found the way the CLI's agent parser finds it: the first
+ * matching heading, blank lines, a header row and its separator, then every row that starts with a
+ * pipe. Markdown lets the heading and the rows be indented, and so does the CLI.
+ */
+function remoteTable(lines: string[], heading: string): { start: number; rows: number; end: number } | null {
   const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
-  if (start < 0) return [];
+  if (start < 0) return null;
   let index = start + 1;
   while (index < lines.length && !lines[index]?.trim()) index += 1;
-  if (!lines[index]?.trim().startsWith('|')) return [];
+  if (!lines[index]?.trim().startsWith('|')) return null;
   index += 2;
-  const rows: string[][] = [];
-  while (index < lines.length && lines[index]?.trim().startsWith('|')) {
-    rows.push(lines[index]!.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()));
-    index += 1;
-  }
-  return rows;
+  const rows = index;
+  while (index < lines.length && lines[index]?.trim().startsWith('|')) index += 1;
+  return { start, rows, end: index };
 }
 
+function tableRows(content: string, heading: string): string[][] {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const table = remoteTable(lines, heading);
+  return table ? lines.slice(table.rows, table.end)
+    .map((line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim())) : [];
+}
+
+/**
+ * The body without the remote resource tables the form edits as rows. It removes exactly what
+ * tableRows reads: a table left in the body is the one the CLI reads, ahead of the table a save
+ * appends. The blank lines after a table go too when a blank line precedes its heading, so the text
+ * around it closes up instead of gaining a gap.
+ */
 function withoutRemoteTables(content: string): string {
-  return content.replace(/^## Remote (?:skills|artifact templates|generated artifacts)[ \t]*\n(?:[ \t]*\n)*\|[^\n]*(?:\n\|[^\n]*)*\n?/gmi, '').trim();
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  for (const heading of REMOTE_HEADINGS) {
+    for (let table = remoteTable(lines, heading); table; table = remoteTable(lines, heading)) {
+      let end = table.end;
+      if (!lines[table.start - 1]?.trim()) while (end < lines.length && !lines[end]?.trim()) end += 1;
+      lines.splice(table.start, end - table.start);
+    }
+  }
+  return lines.join('\n').trim();
 }
 
 function bool(valueToParse: string): boolean { return ['true', 'yes'].includes(valueToParse.toLowerCase()); }

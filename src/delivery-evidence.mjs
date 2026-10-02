@@ -123,10 +123,11 @@ async function governedReviewBaseline(root, config, workflow, { phase, source, e
   const checkpoints = [];
   for (const candidate of (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])) {
     if (!candidate || candidate.id === phase.id || candidate.id === source.id) continue;
-    const boundary = phaseRequiresCodeDelivery(candidate) ? null : reviewOwnRepairBoundary(workflow, candidate);
-    const entry = phaseRequiresCodeDelivery(candidate) || boundary ? currentSubmission(workflow, candidate) : null;
-    if (!entry) continue;
     try {
+      const code = phaseRequiresCodeDelivery(candidate);
+      const boundary = code ? null : reviewOwnRepairBoundary(workflow, candidate);
+      const entry = code || boundary ? currentSubmission(workflow, candidate) : null;
+      if (!entry) continue;
       const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
       if (packet.workId === workflow.workItem.id && packet.phase === candidate.id
           && Number(packet.generation) === Number(candidate.generation) && packet.evidenceCommit

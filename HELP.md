@@ -2761,6 +2761,7 @@ The easiest way to create and change workflows is **Workflow Studio** in VS Code
 
 - start a workflow from one of yours or from a packaged blueprint, then add, remove and reorder steps;
 - choose the agent that drafts each step, what the step produces, which earlier steps it reads, who signs it off and how many approvals it needs, and where rejected work goes back to;
+- choose which skill drafts a step (**Drafted with**): automatic, or a specialised skill such as `/sf-design` that can draft what the step produces. On a shared step the choice is the open workflow's own;
 - create an agent from a role (analyst, architect, developer, tester, designer, reviewer) without editing Markdown;
 - add people to approval groups;
 - add a **decision** after a step with the diamond tool, drawn as a diamond on the arrow after the step: an if / else whose rules read values the step records, a loop that goes back until a goal is met (at most a few rounds), or a question a person answers. See [Decisions, branches and loops](docs/topics/workflow-decisions.md).
@@ -2786,6 +2787,7 @@ Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The d
 - `workTypes`: phase sequences and profile overrides
 - `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
 - `phases`: artifact contracts, approved inputs, write scope, views, checks, and approvals
+- `phases.<id>.authoringSkill` (or a work type's `phaseOverrides.<id>.authoringSkill`): the Copilot skill that drafts the step, such as `sf-design`; absent means automatic (`/sf-code` for code steps, `/sf-phase` otherwise). See [Workflow and configuration authoring](docs/topics/workflow-authoring.md)
 - agents are not part of `workflow.yml`: each lives in `.github/agents/<id>.agent.md` and names the steps it may draft (`sflow-phases`) and the steps it drafts by default (`sflow-default-for`); every step has exactly one default agent
 - `approvalAuthorities`: real-human authority groups matched to Git/GitHub identity
 - repository agent Markdown and `singularity/agents.lock.yml`: optional trust-pinned remote prompt/template/output sources

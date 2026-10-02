@@ -10,12 +10,14 @@ aliases:
   - workflow-copy
   - skill-inspect
   - skill-where-used
+  - authoring-skill
 questions:
   - How do I export or import several workflows with their dependencies?
   - How do I duplicate a workflow without duplicating its shared phase contracts?
   - How do I inspect a local skill before proposing it as a workflow phase?
   - How do I inspect a skill in approved configuration?
   - Where is an approved skill used in this repository's workflows?
+  - How do I choose which skill drafts a workflow step?
 commands:
   - workflow
   - configuration
@@ -24,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 36
+version: 37
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -42,8 +44,8 @@ from the step that sends rejected work back to the step it returns to. Drag the 
 around; zoom with Ctrl or Cmd and the mouse wheel or with the zoom buttons, and **Fit** shows the
 whole workflow.
 
-Selecting a step opens its properties on the right, in sections: the step (name, what it produces),
-the drafting agent (**Edit agent**, **Create an agent**), sign-off (a switch, the approval group,
+Selecting a step opens its properties on the right, in sections: the step (name, what it produces,
+which skill drafts it), the drafting agent (**Edit agent**, **Create an agent**), sign-off (a switch, the approval group,
 how many approvals it needs, and which earlier step rejected work goes back to), what it reads from
 earlier steps, knowledge views, clarifying questions, and what happens after it. Everything is
 chosen from lists. The tool rail on the canvas adds a step after the selected one (from the
@@ -80,13 +82,61 @@ A step's default agent is part of the agent's own file, so it applies to every w
 the step; the Studio says so before you change it. **Use a copy in this workflow** creates a new
 step copied from the shared one, so one workflow can choose its own agent.
 
+What a step produces is read from the engine's own contract, the same one that decides whether a
+step delivers code: a verification or testing step that writes tests against source is a document,
+and a step with an explicit analysis task is an analysis, whatever its write scope. Naming a step's
+output changes its write scope only when the step moves to or from code.
+
 From the shell, `singularity-flow workflow studio --json` prints the same model (workflows with
 the agent that actually drafts each step, the step catalog, agents, approval groups, blueprints and
 the `base` digest), and `singularity-flow workflow studio apply --change-set <FILE|-> [--dry-run]
 [--propose] --json` checks or applies a change set
 `{"schema":"sflow-studio-change-set@1","base":{…},"changes":[…]}`. Changes are
 `workflow.create|update|install`, `phase.create|update|agent`, `agent.create|update` and
-`group.create|update`; a stale `base` is refused with `STUDIO_BASE_CHANGED`.
+`group.create|update`; a stale `base` is refused with `STUDIO_BASE_CHANGED`. `phase.create` and
+`phase.update` accept `authoringSkill` (a skill id, or `null` for automatic).
+
+## Which skill drafts a step
+
+Each step is drafted by one Copilot skill. By default the engine chooses it from what the step
+produces: `/sf-code` for a step that delivers code, `/sf-phase` for every other step, and
+`/sf-converge` for the deterministic convergence step. A step can name a specialised skill instead:
+
+```yaml
+phases:
+  vendor-analysis:
+    label: Vendor analysis
+    authoringSkill: sf-design        # absent means automatic
+workTypes:
+  vendor-review:
+    phaseOverrides:
+      vendor-analysis:
+        authoringSkill: sf-phase     # this workflow's own choice
+```
+
+A step can name `sf-phase`, `sf-requirements` or `sf-design` when it produces a document or an
+analysis, `sf-release` when it produces a document, and `sf-code` when it delivers code.
+Configuration refuses a skill a step cannot name (`PHASE_AUTHORING_SKILL_UNKNOWN`), one that cannot
+draft what the step produces (`PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH`, checked on every workflow
+after its overrides), and a setting on a sign-off-only or convergence step
+(`PHASE_AUTHORING_SKILL_NOT_APPLICABLE`). `/sf-specify`, `/sf-plan`, `/sf-verify` and
+`/sf-converge` drive the spec-driven routers and run only on their own steps, so they cannot be
+chosen.
+
+A Story pins the choice with the rest of its workflow when it starts, so changing the workflow later
+never changes a running Story. Every "Next in Copilot" suggestion for the step names the chosen
+skill. `singularity-flow phase show <step> --json` reports `authoringSkill` (the configured value),
+`effectiveAuthoringSkill` (the skill drafting is routed to), `authoringSkillSource` (`configured`,
+`automatic`, `fixed` or `none`), `policyVerified` and the `handoff` that follows publication;
+`status --json` lists every step's route under `authoringRoutes`. A chosen skill re-reads that route
+before it works and follows the step's own clarification mode, inputs and artifact contract. Invoked
+by hand on a step that did not choose it, it names the step's skill and stops.
+
+In Workflow Studio, the Step section's **Drafted with** list offers **Automatic** and every skill
+that can draft what the step produces, each with its description. On a step several workflows
+share, the choice is the open workflow's own and the list says **Set by this workflow**. **Use a
+copy in this workflow** keeps the skill the step had in that workflow. The deterministic convergence
+step shows a fixed `/sf-converge`, and a sign-off-only step has no drafting skill.
 
 ## Use it from each surface
 

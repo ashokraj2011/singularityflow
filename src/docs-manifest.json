@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "1f1c5bbb3c4859fab343e7da2f295332e03cf996",
+  "sourceCommit": "d81730a559ef2f519a6ca0a28fd5093c9b0b5051",
   "topicCount": 72,
-  "contentSha256": "8f2e14f8cd022f119e9897472ddd6dd521a7b5a7ac4902ed152fcf94a5016105",
+  "contentSha256": "adf97d4d716a76350a72eb38e1218c4b247abfd590cc6480ed4d7851eba7b2a3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -512,8 +512,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and phase recovery pilot",
-      "version": 7,
-      "sha256": "470b8ddcaf008e0c53f999c1a78d79d0aa214461d8ef9fbbcf1cb98c216d6245",
+      "version": 8,
+      "sha256": "007fe343f60239dc2116627d8d3a525180211ddc86d9458448457f7f06861641",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },
@@ -528,8 +528,8 @@
     {
       "id": "waivers",
       "title": "Policy waivers",
-      "version": 2,
-      "sha256": "569ce37491d0c525012144474ed28e09b14d089650b201a8cf3c841535d76b02",
+      "version": 3,
+      "sha256": "06a08192313e934ad7b3e73ec279670824865c9a5f7209f3a5c54f56289beb00",
       "routingSha256": "052f89f709367cee2eced1d501d4ef4778bb01f32e50377d28b94bfd8cc21d1e",
       "file": "waivers.md"
     },
@@ -552,8 +552,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 38,
-      "sha256": "62359382031043ceb42594fbce7c91e2bf39e0c75ccf818035c76018dce01f72",
+      "version": 39,
+      "sha256": "8bce6d8ce9aa05d17030a9bec90ecdebc294359ebb68883d2740bd9d676c03c8",
       "routingSha256": "25c925112c289edeba995ffffdd169d16e2fe749adf07f938a72219d78a66c4d",
       "file": "workflow-authoring.md"
     },

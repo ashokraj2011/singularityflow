@@ -8,6 +8,7 @@ import test from 'node:test';
 import YAML from 'yaml';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
 import { verifiedAbandonedGenerations } from '../src/governance.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const verify = 'poc-lite-verify';
@@ -119,6 +120,27 @@ test('published abandoned rework restores an approvable review without reusing g
     const forged = structuredClone(workflow); tamper(forged);
     assert.deepEqual([...verifiedAbandonedGenerations(root, {}, forged)], [], 'mutable abandonment cannot exempt historical evidence');
   }
+  // One request whose verification fails is reported for itself; the others are still verified.
+  const unreadable = structuredClone(workflow);
+  const rolledForward = unreadable.publicationProjections.find((entry) => entry.event.type === 'rework-rolled-forward').event;
+  unreadable.changeRequests.push({ ...structuredClone(unreadable.changeRequests[0]), id: 'CR-999' });
+  unreadable.publicationProjections.push({ event: { ...structuredClone(rolledForward),
+    payload: { ...structuredClone(rolledForward.payload), changeRequestId: 'CR-999', unhashable: 1n } } });
+  const errors = [];
+  assert.deepEqual([...verifiedAbandonedGenerations(root, {}, unreadable, { errors })], [`${verify}:2`]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^abandoned rework CR-999 could not be verified: /);
+  // A rollback commit absent from history, with bounds outside it, costs one bounded Git walk rather
+  // than reading the identity of every commit down to the root.
+  const unanchored = structuredClone(workflow);
+  unanchored.publicationProjections.find((entry) => entry.event.type === 'rework-rolled-forward').event.sourceCommit = 'f'.repeat(40);
+  unanchored.changeRequests[0].forwardCheckpoint.sourceCommit = 'e'.repeat(40);
+  const timer = commandTimer('abandoned-generation-walk', { commandClass: 'read' });
+  assert.deepEqual([...withCommandTiming(timer, () => verifiedAbandonedGenerations(root, {}, unanchored))], []);
+  const spawns = timer.finish().counters['git.spawns'] ?? 0;
+  assert.ok(spawns <= 3, `the walk spawned ${spawns} Git processes for ${git('rev-list', '--count', 'HEAD')} commits`);
+  // A build that reads at most Story v12 ignores the high-water mark, so it must refuse this Story.
+  assert.ok(workflow.schemaVersion >= 13, `Story recorded a generation high-water mark at v${workflow.schemaVersion}`);
   flow(['gate', '--terminal']);
   const staleRollback = flow(['story', 'rework', 'roll-forward', '--work-id', 'REWORK-ORDINAL', '--json'], true);
   assert.notEqual(staleRollback.status, 0, 'completed rework cannot later be abandoned via a stale open request');

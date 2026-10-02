@@ -5874,6 +5874,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.match(intakeHtml(form), /reproduction/);
   assert.deepEqual(storyPreflightCommand(form), [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
+    '--isolated-worktree',
     '--from-branch', 'main', '--selected-base-only', '--work-type', 'feature', '--mint-intake-receipt'
   ]);
   // The receipt binds the exact request, so complete reference rows ride along; incomplete ones do not.
@@ -6181,6 +6182,7 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
     'the workflow authority failure is explained once rather than repeated in the footer');
   assert.deepEqual(storyPreflightCommand(missing), [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
+    '--isolated-worktree',
     '--from-branch', 'main', '--selected-base-only'
   ], 'the selected base can recover its exact workflow catalog without a launch-checkout choice');
 

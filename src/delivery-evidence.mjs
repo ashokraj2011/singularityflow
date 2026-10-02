@@ -549,14 +549,20 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   );
   // A correction generation may exercise acceptance tests delivered by its previous generation
   // without changing their source merely to satisfy the gate. Reuse only the exact governed test
-  // paths from the prior receipt; first generations still have to introduce/change their tests.
+  // paths from the prior receipt. First generations normally introduce/change their
+  // tests; the independently authenticated TRP baseline route below is explicit.
   const reusableTestCandidates = Number(phase.generation ?? 0) > 0
     ? (phase.deliveryEvidence?.testPaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
     : [];
   const reusableTestPaths = await validatedReusablePaths(
     root, reusableTestCandidates, phase.deliveryEvidence?.paths, { role: 'test', sourceExtensions }
   );
-  const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths])].sort();
+  // A reviewed pre-feature baseline may supply already-existing test source to the
+  // first generation. This only plans the cohort: current execution, exact risk
+  // matching, acceptance tags and ordinary source safety remain mandatory below.
+  const { qualifiedTrpBaselineTestPaths } = await import('./test-recovery-admission.mjs');
+  const baselineTestPaths = await qualifiedTrpBaselineTestPaths(root, config, workflow, phase);
+  const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths, ...baselineTestPaths])].sort();
   const deletedSourcePaths = applicationEntries
     .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath
       && !isAllowedTestAutomationPath(entry.oldPath) && !isDocumentationPath(entry.oldPath))
@@ -656,7 +662,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       pathContext
     }),
     paths: await pathEvidence(root, [...new Set([
-      ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths
+      ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths, ...baselineTestPaths
     ])].sort(), { changeSet }),
     sourcePaths,
     deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
@@ -986,7 +992,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     if (execution.kind === 'phase-validation-observation') {
       try {
         if (!testRecovery?.config || !testRecovery?.workflow || !evidenceCommit || !receipt.testRecovery
-          || !['unavailable', 'failed'].includes(execution.status) || receipt.testRecovery.observedOutcome !== execution.status
+          || !['unavailable', 'failed', 'passed'].includes(execution.status) || receipt.testRecovery.observedOutcome !== execution.status
           || receipt.testRecovery.disposition !== 'accepted-risk') throw new Error('authenticated TRP runtime context is required');
         const { assertStoryTestRiskGate } = await import('./test-recovery-runtime.mjs');
         const context = await assertStoryTestRiskGate(root, testRecovery.config, testRecovery.workflow, {
@@ -995,6 +1001,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           ...(testRecovery.mode === 'historical' ? { mode: 'historical', at: testRecovery.at } : {}) });
         const observation = context.observations[0];
         if (!observation || context.evaluation.gateDecision !== 'allow-with-risk'
+          || (observation.observedOutcome === 'passed' && observation.counts.skipped <= 0)
           || observation.obligationId !== execution.commandId || observation.observedOutcome !== execution.status
           || observation.sourceManifestSha256 !== receipt.tree.workingStateDigest
           || execution.receiptPath !== `${testRecovery.config.workItemRoot ?? 'singularity/work-items'}/${receipt.workId}/context/test-recovery/runs/${observation.id}.json`

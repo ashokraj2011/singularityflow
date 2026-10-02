@@ -282,6 +282,13 @@
       },
       "digest": "3877242de9af64a90e0c14f29986cf5867ad062cafc58d773e2884ac74452804"
     },
+    "scripts/trp-installed-ui.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 5
+      },
+      "digest": "1c57ece976b9566f97bae59d248642634b6e9b50c1fefac22e052376a15ff88c"
+    },
     "scripts/verification-receipt.mjs": {
       "counts": {
         "command-run": 4,

@@ -12,6 +12,7 @@ import path from 'node:path';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { gitCommonDir, refExists, remoteNames } from './git.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
@@ -164,6 +165,75 @@ async function storyWorktreeLocations(root, id) {
 /** Resolve a deterministic machine-local path without writing into the source repository. */
 export async function storyWorktreePath(root, workId) {
   return (await storyWorktreeLocations(root, portableId(workId))).compact;
+}
+
+/**
+ * Locate an already prepared launch checkout without creating, switching or cleaning anything.
+ * A completed Story branch is deliberately not a prepared pre-feature baseline checkout.
+ */
+export async function preparedStoryWorktreePath(root, workId, { baseCommit = null } = {}) {
+  const id = portableId(workId);
+  if (baseCommit !== null && !/^[a-f0-9]{40,64}$/u.test(baseCommit)) {
+    throw new SingularityFlowError('Prepared Story lookup requires an exact base commit.', { code: 'STORY_WORKTREE_INVALID' });
+  }
+  const locations = await storyWorktreeLocations(root, id);
+  const common = executeGitQuery(root, 'repository.paths').commonDir;
+  const canonicalCommon = await realpath(common);
+  const stagingBranches = new Set([common, canonicalCommon].map(value => `sflow-start-${digest(`${value}\0${id}`).slice(0, 16)}`));
+  const inventory = worktreeInventory(root);
+  const candidates = [];
+  const managedParent = await realpath(path.dirname(locations.compact)).catch(error => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  const canonicalRoot = await realpath(root);
+  for (const entry of inventory) {
+    const exact = await sameRegisteredPath(entry.path, locations.compact)
+      || await sameRegisteredPath(entry.path, locations.legacy);
+    const canonicalEntry = await realpath(entry.path).catch(() => null);
+    const legacy = Boolean(canonicalEntry && managedParent
+      && legacyStoryPath(managedParent, canonicalEntry, id, locations.legacyRepositoryId));
+    // A caller already inside this exact managed launch may inspect itself. This adds no
+    // adoption of arbitrary worktrees: the namespace, deterministic basename and staging ref
+    // must still bind the same canonical Git common directory and Story ID below.
+    const ownCompact = canonicalEntry && samePlatformPath(canonicalEntry, canonicalRoot)
+      && path.basename(canonicalEntry) === path.basename(locations.compact)
+      && path.basename(path.dirname(canonicalEntry)) === 'story-worktrees'
+      && path.basename(path.dirname(path.dirname(canonicalEntry))) === '.singularity-flow';
+    if (exact || legacy || ownCompact) candidates.push(entry);
+  }
+  const refuse = message => { throw new SingularityFlowError(message, { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }); };
+  if (candidates.length > 1) refuse(`Story '${id}' has multiple managed launch checkouts; resolve the exact owner before reviewing baseline evidence.`);
+  if (!candidates.length) {
+    for (const candidate of [locations.compact, locations.legacy]) {
+      if (await lstat(candidate).catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error))) {
+        refuse(`Managed Story path exists without matching Git registration: ${candidate}.`);
+      }
+    }
+    return null;
+  }
+  const registered = candidates[0];
+  try {
+    const info = await lstat(registered.path);
+    if (!info.isDirectory() || info.isSymbolicLink()) refuse('The prepared Story path is not an ordinary registered worktree directory.');
+    const registeredCommon = executeGitQuery(registered.path, 'repository.paths').commonDir;
+    if (!samePlatformPath(await realpath(registeredCommon), canonicalCommon)) refuse('The prepared Story checkout belongs to a different Git common directory.');
+    stagingBranches.add(`sflow-start-${digest(`${registeredCommon}\0${id}`).slice(0, 16)}`);
+    const actualBranch = executeGitQuery(registered.path, 'repository.branch');
+    if (!stagingBranches.has(actualBranch) || actualBranch !== registered.branch) {
+      refuse(`Managed checkout is not on the exact prepared staging branch for Story '${id}'.`);
+    }
+    const actualHead = executeGitQuery(registered.path, 'repository.head');
+    if (actualHead !== registered.head || baseCommit !== null && actualHead !== baseCommit) {
+      refuse(`Prepared Story '${id}' no longer points at the exact requested pre-feature base.`);
+    }
+    return registered.path;
+  } catch (error) {
+    if (error.code === 'STORY_WORKTREE_RECOVERY_REQUIRED') throw error;
+    throw new SingularityFlowError(`Prepared Story '${id}' could not be verified without changing it.`, {
+      code: 'STORY_WORKTREE_RECOVERY_REQUIRED', cause: error
+    });
+  }
 }
 
 /**

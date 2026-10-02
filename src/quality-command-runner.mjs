@@ -10,15 +10,17 @@ const unavailableLaunches = new WeakMap();
 const completedLaunches = new WeakMap();
 
 /** A report may describe execution only when its bytes came from this native invocation. */
-export function verifyCompletedQualityLaunch(result, { command, args, cwd, environmentSha256, stdoutFile }) {
+export function verifyCompletedQualityLaunch(result, { command, args, cwd, environmentSha256, stdoutFile, reportCapture = null }) {
   const observed = completedLaunches.get(result);
   return observed && observed.command === command && observed.cwd === cwd
     && JSON.stringify(observed.args) === JSON.stringify(args)
     && typeof environmentSha256 === 'string' && environmentSha256 === observed.environmentSha256
-    && stdoutFile === observed.stdoutFile && !result.error && !result.signal
+    && stdoutFile === observed.stdoutFile && JSON.stringify(reportCapture) === JSON.stringify(observed.reportCapture)
+    && !result.error && !result.signal
     && result.status === observed.status && result.timedOut === false && result.aborted === false
     ? Object.freeze({ startedAt: observed.startedAt, completedAt: observed.completedAt,
-      status: observed.status, stdoutSha256: observed.stdoutSha256, stdoutBytes: observed.stdoutBytes }) : null;
+      status: observed.status, stdoutSha256: observed.stdoutSha256, stdoutBytes: observed.stdoutBytes,
+      reports: observed.reports ? structuredClone(observed.reports) : null }) : null;
 }
 
 /** Opaque, native-spawn provenance. Injected test transports cannot mint execution evidence. */
@@ -75,13 +77,14 @@ function boundedCapture(maxBytes) {
  * diagnostic prefix/tail is retained in memory; output volume can never turn a passing check into
  * ENOBUFS.
  */
-export function runQualityCommand(command, args = [], {
+export async function runQualityCommand(command, args = [], {
   cwd = process.cwd(),
   env = process.env,
   shell = false,
   timeoutMs,
   captureBytes = DEFAULT_CAPTURE_BYTES,
   stdoutFile = null,
+  reportCapture = null,
   input = null,
   signal = null,
   killTree = true,
@@ -91,6 +94,15 @@ export function runQualityCommand(command, args = [], {
   platformLstatCommand = undefined,
   platformRealpathCommand = undefined
 } = {}) {
+  if (reportCapture) {
+    try {
+      const { assertTestReportTargetEmpty } = await import('./code-delivery-tests.mjs');
+      await assertTestReportTargetEmpty(reportCapture.root, reportCapture.command);
+    } catch (error) {
+      return { status: 1, signal: null, error, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0,
+        stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false };
+    }
+  }
   return new Promise((resolve) => {
     const startedAt = new Date().toISOString();
     const executionEnvironment = { ...env };
@@ -218,9 +230,18 @@ export function runQualityCommand(command, args = [], {
             environmentSha256 });
         }
         if (native && child.pid && !error && !terminationSignal && Number.isInteger(code)) {
+          let reports = null;
+          if (reportCapture) {
+            try {
+              const { parseTestResult } = await import('./code-delivery-tests.mjs');
+              const parsed = await parseTestResult(reportCapture.root, reportCapture.command, { startedAt });
+              reports = parsed.rawReports.map(({ sourcePath, sha256, bytes }) => ({ sourcePath, sha256, bytes }));
+            } catch { /* A native completion with absent/invalid reports grants no report provenance. */ }
+          }
           completedLaunches.set(result, { command, args: executionArgs, cwd, status: code,
             startedAt, completedAt: new Date().toISOString(), environmentSha256, stdoutFile,
-            stdoutSha256: `sha256:${stdoutDigest.digest('hex')}`, stdoutBytes: out.bytes });
+            stdoutSha256: `sha256:${stdoutDigest.digest('hex')}`, stdoutBytes: out.bytes,
+            reportCapture: structuredClone(reportCapture), reports });
         }
         resolve(result);
       };

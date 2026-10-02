@@ -3,11 +3,19 @@ import type { TestRecoverySubject } from './story-test-recovery.ts';
 export type StoryRiskAction = 'risks' | 'accept-risk' | 'revoke-risk' | 'attest-risk';
 export interface StoryRiskTerms {
   operation?: 'publish' | 'submit' | 'approve' | 'downstream' | 'replay';
+  obligationId?: string;
   issueId?: string; recordSha256?: string; reason?: string; followUpOwner?: string; remediationRef?: string;
 }
 const digest = /^sha256:[a-f0-9]{64}$/u;
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
-const supportedRisk = (value: unknown) => value === 'validation-unavailable' || value === 'new-test-failure';
+const riskLabels: Record<string, { title: string; outcome: string }> = {
+  'validation-unavailable': { title: 'Review unavailable validation', outcome: 'validation stays unavailable' },
+  'new-test-failure': { title: 'Review failed tests', outcome: 'tests stay failed' },
+  'known-test-failure': { title: 'Review known failed tests', outcome: 'tests stay failed' },
+  'reduced-coverage': { title: 'Review reduced coverage', outcome: 'coverage stays incomplete; skipped cases do not pass' },
+  'nonessential-document': { title: 'Review nonessential document gap', outcome: 'document obligation stays unmet' }
+};
+const supportedRisk = (value: unknown): value is string => typeof value === 'string' && Object.hasOwn(riskLabels, value);
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
@@ -29,6 +37,11 @@ export function storyRiskPreviewArgs(action: StoryRiskAction, subject: TestRecov
     const operation = terms.operation ?? 'publish';
     if (!['publish', 'submit', 'approve', 'downstream', 'replay'].includes(operation)) throw new Error('Unsupported risk transition.');
     args.push('--phase', subject.phaseId, '--operation', operation);
+    if (terms.obligationId !== undefined) {
+      const obligation = text(terms.obligationId, 'Obligation');
+      if (!identifier.test(obligation) || obligation.includes('..')) throw new Error('Select an exact document obligation.');
+      args.push('--obligation', obligation);
+    }
   }
   if (action === 'accept-risk') {
     const issueId = text(terms.issueId, 'Issue');
@@ -45,6 +58,23 @@ export function storyRiskPreviewArgs(action: StoryRiskAction, subject: TestRecov
     if (action === 'revoke-risk') args.push('--reason', text(terms.reason, 'Reason', 15, 2000));
   }
   return [...args, '--json'];
+}
+
+/** A document is a separate obligation, never a synthetic test count or arbitrary report command. */
+export function storyRiskObligationChoices(result: unknown, subject: TestRecoverySubject): Array<{
+  label: string; description: string; obligationId?: string;
+}> {
+  const data = storyRiskData(result);
+  if (data?.schemaVersion !== 1 || data.workId !== subject.workId || data.phaseId !== subject.phaseId
+      || data.executed !== false || data.stateChanged !== false || !Array.isArray(data.documentObligations)) return [];
+  const documents = data.documentObligations.slice(0, 64).flatMap(value => {
+    const row = object(value);
+    return row?.phaseId === subject.phaseId && typeof row.id === 'string' && identifier.test(row.id)
+      && !row.id.includes('..') && typeof row.path === 'string' && !/[\x00-\x1f\x7f]/u.test(row.path)
+      ? [{ label: `Document: ${row.id}`, description: row.path, obligationId: row.id }] : [];
+  });
+  return documents.length ? [...(data.testValidationAvailable === true
+    ? [{ label: 'Test validation', description: 'Configured test evidence; no document exception' }] : []), ...documents] : [];
 }
 
 export function storyRiskChoices(result: unknown, subject: TestRecoverySubject): Array<{
@@ -67,9 +97,13 @@ export function storyRiskChoices(result: unknown, subject: TestRecoverySubject):
     // Only qualified exact-observation adapters are presented; no generic skip or pass button.
     const operation = data.operation;
     if (!['publish', 'submit', 'approve', 'downstream', 'replay'].includes(String(operation))) continue;
-    choices.push({ label: `${row.category === 'new-test-failure' ? 'Review failed tests' : 'Review unavailable validation'} ${row.id}`,
-      description: `Exact candidate and transition only; ${row.category === 'new-test-failure' ? 'tests stay failed' : 'validation stays unavailable'}`,
-      action: 'accept-risk', terms: { issueId: row.id, operation: operation as StoryRiskTerms['operation'] } });
+    const obligationId = typeof data.obligationId === 'string' ? data.obligationId : undefined;
+    if (row.category === 'nonessential-document' && (!obligationId || !identifier.test(obligationId)
+        || obligationId.includes('..'))) continue;
+    choices.push({ label: `${riskLabels[row.category]!.title} ${row.id}`,
+      description: `Exact candidate and transition only; ${riskLabels[row.category]!.outcome}`,
+      action: 'accept-risk', terms: { issueId: row.id, operation: operation as StoryRiskTerms['operation'],
+        ...(obligationId ? { obligationId } : {}) } });
   }
   if (Array.isArray(data.decisions)) for (const value of data.decisions.slice(0, 100)) {
     const row = object(value);
@@ -94,6 +128,7 @@ export function storyRiskApplyArgs(result: unknown, action: StoryRiskAction,
     const decision = object(data.decision);
     if (!decision || data.resultType !== 'story-test-risk-plan' || data.phaseId !== subject.phaseId
         || data.operation !== (terms.operation ?? 'publish') || decision.issueId !== terms.issueId
+        || (data.obligationId ?? undefined) !== terms.obligationId
         || !supportedRisk(decision.category) || decision.reason !== terms.reason?.trim()
         || decision.followUpOwner !== terms.followUpOwner?.trim() || decision.remediationRef !== terms.remediationRef?.trim()) return null;
   } else if (data.resultType !== 'story-test-risk-record-plan'

@@ -352,8 +352,8 @@ const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'deci
 const STORY_SKILL_VERSION_ACTIONS = Object.freeze(['status', 'preview', 'propose', 'decide']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
-const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'accept-risk', 'revoke-risk', 'attest-risk']);
-const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
+const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
+const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
 const STORY_SUBCOMMANDS = Object.freeze([
   'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy',
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
@@ -884,9 +884,9 @@ function resolveStoryOperation(definition, positionals, options) {
     if (!STORY_TEST_POLICY_ACTIONS.includes(action)) {
       return unknownSubcommand('story test-policy', action, STORY_TEST_POLICY_ACTIONS, 'action');
     }
-    const mutation = action === 'confirm' || (action === 'repair' && optionBoolean(options, 'run'))
+    const mutation = action === 'confirm' || (['repair', 'baseline'].includes(action) && optionBoolean(options, 'run'))
       || (STORY_TEST_POLICY_REVIEW_ACTIONS.includes(action) && optionBoolean(options, 'apply'));
-    return never(`story.test-policy.${action}${['repair', ...STORY_TEST_POLICY_REVIEW_ACTIONS].includes(action) && !mutation ? '.preview' : ''}`,
+    return never(`story.test-policy.${action}${['repair', 'baseline', ...STORY_TEST_POLICY_REVIEW_ACTIONS].includes(action) && !mutation ? '.preview' : ''}`,
       definition, mutation ? 'mutation' : 'read');
   }
   return unknownSubcommand('story', subcommand, STORY_SUBCOMMANDS);
@@ -1845,8 +1845,9 @@ export function operationCatalog() {
       .map((name) => never(`story.workflow.${name}`, storyDefinition, 'read')),
     ...['show', 'plan', 'risks'].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'read')),
     never('story.test-policy.repair.preview', storyDefinition, 'read'),
+    never('story.test-policy.baseline.preview', storyDefinition, 'read'),
     ...STORY_TEST_POLICY_REVIEW_ACTIONS.map((name) => never(`story.test-policy.${name}.preview`, storyDefinition, 'read')),
-    ...['confirm', 'repair', ...STORY_TEST_POLICY_REVIEW_ACTIONS].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'mutation')),
+    ...['confirm', 'repair', 'baseline', ...STORY_TEST_POLICY_REVIEW_ACTIONS].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'mutation')),
     ...STORY_REFERENCE_ACTIONS
       .map((name) => never(`story.references.${name}`, storyDefinition,
         name === 'materialize' ? 'mutation' : 'read')),

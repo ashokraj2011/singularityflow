@@ -604,6 +604,10 @@ Every public operation is classified before its implementation module is importe
 | story.test-policy.attest-risk | mutation | never | — | — |
 | story.test-policy.attest-risk.preview | read | never | — | — |
 | story.test-policy.attest.preview | read | never | — | — |
+| story.test-policy.baseline | mutation | never | — | — |
+| story.test-policy.baseline-admission | mutation | never | — | — |
+| story.test-policy.baseline-admission.preview | read | never | — | — |
+| story.test-policy.baseline.preview | read | never | — | — |
 | story.test-policy.confirm | mutation | never | — | — |
 | story.test-policy.plan | read | never | — | — |
 | story.test-policy.repair | mutation | never | — | — |

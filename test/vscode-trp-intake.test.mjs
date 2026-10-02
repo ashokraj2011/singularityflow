@@ -6,7 +6,7 @@ import {
 } from '../apps/vscode/src/views/intake-form.ts';
 import {
   testRecoveryArguments, testRecoveryCanConfirm, testRecoveryChoiceSupported, testRecoveryConfirmation,
-  testRecoveryHtml, testRecoveryProblems
+  testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview
 } from '../apps/vscode/src/views/test-recovery-intake.ts';
 
 const digest = `sha256:${'a'.repeat(64)}`;
@@ -64,6 +64,15 @@ test('default selections do not authorize Start, and a digest is sent only after
   assert.ok(storyPreflightCommand(confirmed).includes('--test-baseline-disposition'));
 });
 
+test('Story preflight and Start both bind the isolated target checkout', () => {
+  for (const testRecovery of [null, capability()]) {
+    const form = story({ testRecovery });
+    assert.equal(storyPreflightCommand(form).filter(arg => arg === '--isolated-worktree').length, 1);
+    assert.equal(intakeCommand(form).filter(arg => arg === '--isolated-worktree').length, 1);
+    assert.ok(!storyPreflightCommand(form).includes('--run'), 'preflight must remain read-only');
+  }
+});
+
 test('existing-failure disposition, ongoing execution scope and baseline scope stay independent', () => {
   const form = story({ testRecovery: capability() });
   const all = { ...form, testExecutionMode: 'all-configured' };
@@ -90,7 +99,9 @@ test('unsupported or unreviewable failure acceptance is visibly unavailable and 
   assert.equal(testRecoveryCanConfirm(forged), false);
   assert.ok(!intakeCommand(forged).includes('--test-policy-confirm'));
   const missingEligibility = { ...form, testRecovery: capability({ supportedBaselineDispositions: ['fix', 'accept-known-failures'] }) };
-  assert.equal(testRecoveryChoiceSupported(missingEligibility, 'testBaselineDisposition', 'accept-known-failures'), false);
+  assert.equal(testRecoveryChoiceSupported(missingEligibility, 'testBaselineDisposition', 'accept-known-failures'), true,
+    'advertised choice permits entering review terms without granting eligibility');
+  assert.equal(testRecoveryCanConfirm({ ...missingEligibility, testBaselineDisposition: 'accept-known-failures' }), false);
 });
 
 test('changed engine plan, malformed digest and missing readiness never reuse confirmation', () => {
@@ -126,9 +137,44 @@ test('every relevant form edit changes the host confirmation binding', () => {
     { referenceRepositories: [{ id: 'ref', repository: 'https://example.test/ref.git', branch: 'main' }] },
     { storyAttachments: [{ sourcePath: '/brief.md', name: 'Brief', displayName: 'brief.md' }] },
     { testExecutionMode: 'all-configured' }, { testBaselineDisposition: 'accept-known-failures' },
-    { testBaselineScope: 'targeted' }
+    { testBaselineScope: 'targeted' }, { testBaselineRecords: digest }, { testBaselineReason: 'Reviewed failure' },
+    { testBaselineOwner: 'Maintainer' }, { testBaselineRemediation: 'repair-1' }, { testBaselineExpiresAt: '2026-10-03T12:00:00Z' }
   ]) assert.notEqual(intakePlanInputKey(form), intakePlanInputKey({ ...form, ...change }));
   assert.equal(intakePlanInputKey(form), intakePlanInputKey({ ...form, busy: true }), 'render state is not a policy edit');
+});
+
+test('known-failure intake collects exact bounded terms but only prepares live terminal review', () => {
+  const form = story({ testRecovery: capability({ supportedBaselineDispositions: ['fix', 'accept-known-failures'],
+    acceptKnownFailuresEligible: true }), testBaselineDisposition: 'accept-known-failures',
+    testBaselineRecords: digest, testBaselineReason: 'Repair the exact pre-existing failure separately.',
+    testBaselineOwner: 'Maintainer', testBaselineRemediation: 'FIX-1', testBaselineExpiresAt: '2026-10-03T12:00:00Z',
+    testRecoveryConfirmedDigest: digest });
+  assert.equal(testRecoveryNeedsTerminalReview(form), true);
+  assert.equal(testRecoveryCanConfirm(form), true);
+  assert.match(intakeHtml(form), /Prepare exact human review in terminal/);
+  assert.match(intakeHtml(form), /Tests remain failed/);
+  assert.match(intakeHtml(form), /Preserve its <code>--isolated-worktree<\/code> flag/);
+  assert.match(intakeHtml(form), /separate confirmation; this preview never runs tests/);
+  const previewArgs = storyPreflightCommand(form);
+  assert.equal(previewArgs[previewArgs.indexOf('--test-baseline-record') + 1], digest);
+  assert.equal(previewArgs[previewArgs.indexOf('--test-baseline-owner') + 1], 'Maintainer');
+  assert.ok(!previewArgs.includes('--test-policy-confirm'));
+  for (const change of [{ testBaselineRecords: `${digest}\n${digest}` }, { testBaselineRecords: '../record' },
+    { testBaselineReason: 'short' }, { testBaselineOwner: 'bad\nowner' }, { testBaselineExpiresAt: 'tomorrow' },
+    { testRecovery: capability({ supportedBaselineDispositions: ['fix', 'accept-known-failures'], acceptKnownFailuresEligible: false }) }]) {
+    assert.equal(testRecoveryCanConfirm({ ...form, ...change }), false);
+    assert.ok(!intakeCommand({ ...form, ...change }).includes('--test-policy-confirm'));
+  }
+});
+
+test('baseline legal actions retain the engine isolated flag as read-only instructions', () => {
+  const html = testRecoveryHtml(story({ testRecovery: capability({ legalActions: [{
+    id: 'baseline', label: 'Inspect exact baseline plan', command: 'story',
+    args: ['test-policy', 'baseline', 'TRP-1', '--isolated-worktree', '--base', 'abc', '--json']
+  }] }) }));
+  assert.match(html, /Inspect exact baseline plan/);
+  assert.match(html, /--isolated-worktree/);
+  assert.doesNotMatch(html, /data-command|data-action/);
 });
 
 test('preview shows selected cohort, tools, later requirements, unknowns and read-only legal actions safely', () => {

@@ -47,6 +47,11 @@ export interface TestRecoveryDraft {
   testExecutionMode: TestExecutionMode;
   testBaselineScope: TestBaselineScope;
   testRecoveryConfirmedDigest: string | null;
+  testBaselineRecords: string;
+  testBaselineReason: string;
+  testBaselineOwner: string;
+  testBaselineRemediation: string;
+  testBaselineExpiresAt: string;
 }
 
 export const EMPTY_TEST_RECOVERY_DRAFT: TestRecoveryDraft = {
@@ -54,7 +59,9 @@ export const EMPTY_TEST_RECOVERY_DRAFT: TestRecoveryDraft = {
   testBaselineDisposition: 'fix',
   testExecutionMode: 'changed-and-affected',
   testBaselineScope: 'reuse',
-  testRecoveryConfirmedDigest: null
+  testRecoveryConfirmedDigest: null,
+  testBaselineRecords: '', testBaselineReason: '', testBaselineOwner: '',
+  testBaselineRemediation: '', testBaselineExpiresAt: ''
 };
 
 export function testRecoveryEnabled(draft: TestRecoveryDraft): boolean {
@@ -68,8 +75,7 @@ export function testRecoveryChoiceSupported(
   const capability = draft.testRecovery!;
   if (field === 'testBaselineDisposition') {
     return ['fix', 'accept-known-failures'].includes(value)
-      && capability.supportedBaselineDispositions?.includes(value) === true
-      && (value !== 'accept-known-failures' || capability.acceptKnownFailuresEligible === true);
+      && capability.supportedBaselineDispositions?.includes(value) === true;
   }
   if (field === 'testExecutionMode') return ['changed-and-affected', 'all-configured'].includes(value)
     && capability.supportedExecutionModes?.includes(value) === true;
@@ -80,9 +86,37 @@ export function testRecoveryChoiceSupported(
 
 export function testRecoveryCanConfirm(draft: TestRecoveryDraft): boolean {
   return testRecoveryEnabled(draft) && draft.testRecovery?.ready === true
+    && (draft.testBaselineDisposition !== 'accept-known-failures'
+      || draft.testRecovery.acceptKnownFailuresEligible === true && testRecoveryTermsProblems(draft).length === 0)
     && /^sha256:[a-f0-9]{64}$/u.test(draft.testRecovery.planDigest ?? '')
     && (['testBaselineDisposition', 'testExecutionMode', 'testBaselineScope'] as const)
       .every((field) => testRecoveryChoiceSupported(draft, field, draft[field]));
+}
+
+export function testRecoveryTermsProblems(draft: TestRecoveryDraft): string[] {
+  if (!testRecoveryEnabled(draft) || draft.testBaselineDisposition !== 'accept-known-failures') return [];
+  const records = draft.testBaselineRecords.trim().split(/[\s,]+/u).filter(Boolean);
+  const problems: string[] = [];
+  if (!records.length || records.length > 64 || new Set(records).size !== records.length
+      || records.some(value => !/^sha256:[a-f0-9]{64}$/u.test(value))) {
+    problems.push('Supply 1–64 distinct exact baseline record digests from the governed baseline command.');
+  }
+  for (const [value, label, minimum, maximum] of [
+    [draft.testBaselineReason, 'Baseline acceptance reason', 15, 2000],
+    [draft.testBaselineOwner, 'Follow-up owner', 1, 256],
+    [draft.testBaselineRemediation, 'Remediation reference', 1, 1000]
+  ] as const) if (value.trim().length < minimum || value.trim().length > maximum || /[\x00-\x1f\x7f]/u.test(value)) {
+    problems.push(`${label} needs ${minimum}–${maximum} ordinary characters.`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(draft.testBaselineExpiresAt.trim())
+      || !Number.isFinite(Date.parse(draft.testBaselineExpiresAt.trim()))) {
+    problems.push('Specify the exact baseline decision expiry in UTC (for example 2026-10-03T12:00:00Z).');
+  }
+  return problems;
+}
+
+export function testRecoveryNeedsTerminalReview(draft: TestRecoveryDraft): boolean {
+  return testRecoveryEnabled(draft) && draft.testBaselineDisposition === 'accept-known-failures';
 }
 
 /** Reject delayed checkbox events from a different preview; never adopt a page-supplied digest. */
@@ -102,6 +136,11 @@ export function testRecoveryArguments(draft: TestRecoveryDraft, confirmed = fals
     '--test-execution-mode', draft.testExecutionMode,
     '--test-baseline-scope', draft.testBaselineScope
   ];
+  if (testRecoveryNeedsTerminalReview(draft) && testRecoveryTermsProblems(draft).length === 0) {
+    args.push(...draft.testBaselineRecords.trim().split(/[\s,]+/u).flatMap(value => ['--test-baseline-record', value]),
+      '--test-baseline-reason', draft.testBaselineReason.trim(), '--test-baseline-owner', draft.testBaselineOwner.trim(),
+      '--test-baseline-remediation', draft.testBaselineRemediation.trim(), '--test-baseline-expires-at', draft.testBaselineExpiresAt.trim());
+  }
   if (confirmed && testRecoveryCanConfirm(draft)
     && draft.testRecoveryConfirmedDigest === draft.testRecovery!.planDigest) {
     args.push('--test-policy-confirm', draft.testRecoveryConfirmedDigest!);
@@ -111,7 +150,7 @@ export function testRecoveryArguments(draft: TestRecoveryDraft, confirmed = fals
 
 export function testRecoveryProblems(draft: TestRecoveryDraft): string[] {
   if (!testRecoveryEnabled(draft)) return [];
-  const problems: string[] = [];
+  const problems: string[] = testRecoveryTermsProblems(draft);
   if (!testRecoveryCanConfirm(draft)) problems.push('Refresh and resolve the Test and recovery plan before starting.');
   if (!draft.testRecoveryConfirmedDigest
     || draft.testRecoveryConfirmedDigest !== draft.testRecovery?.planDigest) {
@@ -152,8 +191,15 @@ export function testRecoveryHtml(draft: TestRecoveryDraft): string {
       ['targeted', 'Run a targeted baseline for the initial planned cohort'],
       ['all-configured', 'Run the full configured baseline once']
     ])}
-    ${draft.testBaselineDisposition === 'accept-known-failures'
-      ? '<p class="notice warning">Acceptance requires a substantive reason and verified human authority through the engine’s governed decision route. Plan confirmation alone cannot accept failures.</p>' : ''}
+    ${draft.testBaselineDisposition === 'accept-known-failures' ? `
+      <p class="notice warning">Tests remain failed. Supply exact authenticated baseline records and review terms. Start only prepares a terminal command; live delegated human review of the agreement and failures is still required.</p>
+      <p>To obtain baseline records, inspect the exact engine-returned baseline action below in a terminal. Preserve its <code>--isolated-worktree</code> flag when supplied: a source-checkout record cannot authorize a different Story checkout. Baseline execution requires its own reviewed plan and separate confirmation; this preview never runs tests.</p>
+      <p><label>Baseline record digests (one per line)<textarea data-field="testBaselineRecords" rows="3" maxlength="4600">${escape(draft.testBaselineRecords)}</textarea></label></p>
+      <p><label>Acceptance reason<input data-field="testBaselineReason" value="${escape(draft.testBaselineReason)}" maxlength="2000"></label></p>
+      <p><label>Follow-up owner<input data-field="testBaselineOwner" value="${escape(draft.testBaselineOwner)}" maxlength="256"></label></p>
+      <p><label>Remediation reference or action<input data-field="testBaselineRemediation" value="${escape(draft.testBaselineRemediation)}" maxlength="1000"></label></p>
+      <p><label>Decision expiry (UTC)<input data-field="testBaselineExpiresAt" value="${escape(draft.testBaselineExpiresAt)}" placeholder="2026-10-03T12:00:00Z" maxlength="30"></label></p>
+      <p class="meta">${capability.acceptKnownFailuresEligible === true ? 'The engine reports this exact baseline eligible for review.' : 'Acceptance is not yet eligible. Refresh after supplying the exact baseline and terms; incomplete coverage is not consent.'}</p>` : ''}
     ${(capability.repositories ?? []).map((repository) => `<div class="readiness-repository">
       <h3>${escape(repository.repository)}</h3>
       <p>Base <code>${escape(repository.baseCommit ?? 'unknown')}</code> · Baseline: ${escape(repository.baselineStatus ?? 'Existing failures unknown')}

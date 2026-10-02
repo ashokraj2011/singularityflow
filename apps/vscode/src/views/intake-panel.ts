@@ -28,6 +28,7 @@ import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
 import type { BackgroundHold } from '../background-governor.ts';
 import {
   testRecoveryCanConfirm, testRecoveryChoiceSupported, testRecoveryConfirmation, testRecoveryEnabled,
+  testRecoveryNeedsTerminalReview,
   type PreflightTestRecovery
 } from './test-recovery-intake.ts';
 
@@ -644,7 +645,8 @@ export class IntakePanel {
 
   /** The fields this form will write. Anything else named by the page is refused. */
   private static readonly WRITABLE = Object.freeze([
-    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl'
+    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl',
+    'testBaselineRecords', 'testBaselineReason', 'testBaselineOwner', 'testBaselineRemediation', 'testBaselineExpiresAt'
   ]);
 
   /**
@@ -837,9 +839,10 @@ export class IntakePanel {
         if (invalidatesEnhancement) this.invalidateEnhancement();
         this.formTouched = true;
         // Blur after a pause re-reports the value readiness is already checking or has checked.
-        const alreadyChecked = (field === 'id' || field === 'key') && this.preflightKey !== null
+        const affectsPreflight = field === 'id' || field === 'key' || field.startsWith('testBaseline');
+        const alreadyChecked = affectsPreflight && this.preflightKey !== null
           && this.preflightKey === JSON.stringify(storyPreflightCommand({ ...this.form, [field]: value }));
-        const invalidatesPreflight = (field === 'id' || field === 'key') && !alreadyChecked;
+        const invalidatesPreflight = affectsPreflight && !alreadyChecked;
         if (invalidatesPreflight) this.preflightVersion += 1;
         this.update({
           [field]: value,
@@ -898,6 +901,7 @@ export class IntakePanel {
 
   private writableField(message: InboundMessage): string | null {
     const field = stringField(message, 'field');
+    if (field?.startsWith('testBaseline') && !testRecoveryEnabled(this.form)) return null;
     return field && IntakePanel.WRITABLE.includes(field) ? field : null;
   }
 
@@ -1210,6 +1214,19 @@ export class IntakePanel {
       this.update({
         error: `The active repository changed to ${this.client.repository}. Close this form and start again so the target is explicit.`
       });
+      return;
+    }
+    if (this.form.shape === 'story' && testRecoveryNeedsTerminalReview(this.form)) {
+      const terminal = vscode.window.createTerminal({
+        name: `Singularity Flow · Baseline review · ${intakeIdentifier(this.form)}`,
+        cwd: this.client.repository,
+        shellPath: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
+        env: { ELECTRON_RUN_AS_NODE: '1' }
+      });
+      terminal.show(true);
+      // UI plan confirmation is not human authority. Never submit the terminal command.
+      terminal.sendText(terminalCommand(this.client.repository, intakeCommand(this.form),
+        process.platform, this.client.location), false);
       return;
     }
     this.update({ busy: true, startStep: null, error: null, recoveryCommand: null, recoveryRouteCommand: null });

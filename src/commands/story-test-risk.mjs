@@ -30,7 +30,7 @@ function textOption(options, key, minimum = 1, maximum = 256) {
 export async function storyTestRiskCommand({ root, action = 'risks', positionals = [], options = {} }, overrides = {}) {
   if (!actions.has(action)) fail('Use risks, accept-risk, revoke-risk or attest-risk.');
   const allowed = new Set(['work-id', 'json']);
-  if (action === 'risks' || action === 'accept-risk') for (const key of ['phase', 'repository', 'operation']) allowed.add(key);
+  if (action === 'risks' || action === 'accept-risk') for (const key of ['phase', 'repository', 'obligation', 'operation']) allowed.add(key);
   if (action !== 'risks') for (const key of ['apply', 'confirm']) allowed.add(key);
   if (action === 'accept-risk') for (const key of ['issue', 'reason', 'expires', 'follow-up-owner', 'remediation']) allowed.add(key);
   if (action === 'revoke-risk' || action === 'attest-risk') allowed.add('record-sha256');
@@ -41,7 +41,8 @@ export async function storyTestRiskCommand({ root, action = 'risks', positionals
   const workId = suppliedId ?? positionals[0];
   const phaseId = optionString(options, 'phase');
   const repositoryId = optionString(options, 'repository');
-  for (const [label, value] of [['Story', workId], ['phase', phaseId], ['repository', repositoryId]]) {
+  const obligationId = optionString(options, 'obligation');
+  for (const [label, value] of [['Story', workId], ['phase', phaseId], ['repository', repositoryId], ['obligation', obligationId]]) {
     if (value !== undefined && value !== null && (!identifier.test(value) || value.includes('..'))) fail(`Invalid ${label} identifier.`);
   }
   const operation = optionString(options, 'operation') ?? 'publish';
@@ -51,7 +52,8 @@ export async function storyTestRiskCommand({ root, action = 'risks', positionals
   if (confirmation && !apply) fail('--confirm selects a preview only with --apply; it is not approval.');
   if (apply && !digest.test(confirmation ?? '')) fail('Preview first; supply --apply --confirm with its exact digest in a live terminal.', 'TRP_RISK_CONFIRMATION_REQUIRED');
   const request = {};
-  if (action === 'risks' || action === 'accept-risk') Object.assign(request, { phaseId, repositoryId, operation });
+  if (action === 'risks' || action === 'accept-risk') Object.assign(request, { phaseId, repositoryId, operation,
+    ...(obligationId ? { obligationId } : {}) });
   if (action === 'accept-risk') {
     request.issueId = textOption(options, 'issue', 1, 256);
     request.reason = textOption(options, 'reason', 15, 2000);

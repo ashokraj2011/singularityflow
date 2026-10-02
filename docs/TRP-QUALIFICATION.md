@@ -2,7 +2,95 @@
 
 Observed on 2026-10-02. These are actual checkout-fixture executions, not a signed release approval, installed VS Code/Copilot qualification, or human-team pilot. The nine-file matrix below precedes the raw runner-path and directory-snapshot hardening; affected-suite reruns are recorded separately.
 
-## Nine-file matrix before final path hardening
+## Installed extension-host smoke and remaining visual qualification
+
+At 2026-10-02T02:27:24Z, the packaged 0.9.0 extension passed a real installed-host smoke on native macOS arm64, VS Code 1.140.0 (`07f806f999227108933c2e30515b26eecc1fda74`), using Node 24.19.0 for the engine. The VSIX SHA-256 was `a1021a0f69fbd5a99acb7f2661cb733202b3fa70e667af3b3d854ecd8a9a5bc1`. This package was built from the earlier `ef555cb` source, so this cell does not qualify later intake/document/risk UI edits until a final package is rerun.
+
+The smoke loaded `singularityflow.singularity-flow-vscode` from its installed extension directory, not an extension-development copy or mocked `vscode` API. A separate fixture driver used real VS Code commands and native QuickPick selection to open the actual intake webview, display engine-generated recovery JSON, inspect the non-waivable unreviewed-agreement blocker, open the exact agreement authorization preview, and stage its command in a native terminal without submitting it. Git HEAD and Story workflow bytes were identical before and after. No risk decision or human approval was made. Report: `/private/tmp/sftrp-ui-lEFS35/installed-host-report.json`; package evidence and process log are beside it.
+
+Reproduce after packaging with `node scripts/trp-installed-ui.mjs --vsix=/absolute/package.vsix`. The harness generates only disposable repositories with local bare remotes, synthetic fixture identities, isolated machine registries, a new VS Code user-data directory, a new extensions directory, and an isolated `HOME`. Model execution is disabled. Workspace trust is disabled only for this disposable extension-test process; system/VM settings are not changed. The initial interactive launch revealed that this VS Code version uses shared storage outside `--user-data-dir`; that attempt was stopped and subsequent launches isolated `HOME` as well. Homebrew Git is selected explicitly because the system Git refuses execution pending an Xcode license; the qualification did not accept that license.
+
+The native accessibility attempt reached the isolated editor and its trust screen, but subsequent exact-window bindings failed with `noWindowsAvailable` and repeated `timeoutReached` errors. A final isolated launch with the editor-supported `--force-renderer-accessibility` flag also timed out; only that fixture process was terminated afterward. A subsequent supported browser inventory returned no browser bindings, so no arbitrary debugging attachment was used as a workaround. Therefore native visual interaction, intake radio/checkbox keyboard interaction, accessibility/visual layout, and Copilot-host behavior remain **not qualified**. The host smoke does not replace those checks. Pure UI tests separately cover option independence, no default consent, exact-digest invalidation, bounded review terms, fixed terminal arguments, document-obligation binding, and non-waivable refusal, but are not counted as installed visual tests.
+
+A later explicitly authorized ordinary resume of the exact Windows 11 VM succeeded. Two bounded `cmd.exe /c ver` guest probes, separated by more than 60 seconds of independent work, both returned exit 255 because no Parallels guest session could be opened. Windows qualification stopped there. The user then requested that the VM be left untouched; no further access, probes, power actions or cleanup are permitted for this task. Resume success is not proof of a Windows desktop or runtime; no Windows test result is claimed. No force power, reset, boot-order, disk, security or guest-tools installation action was performed.
+
+A genuine native Node skipped-case lifecycle fixture also passed on Node 24.19.0 (one test, 24.98 s): one case passed and one remained skipped through separately reviewed publication, submission, normal independent approval, replay and downstream use. This development result is additional evidence for reduced coverage, not part of the historical nine-file matrix or a final cross-platform rerun.
+
+Separate exploratory native adapter qualification on macOS used Node 25.5.0 with real Python 3.14.4 / isolated-venv pytest 9.0.2, and Maven 3.9.16 / Temurin 25 / Surefire 3.2.5 / JUnit 4.13.2 (compiler release 17). Six adapter tests passed with zero skips, including real failing report capture and baseline compatibility; subsequent hardening needs its final rerun. This is not Linux or Windows adapter qualification. Without the explicit `SF_TRP_PYTEST_*` / `SF_TRP_MAVEN_*` runtime bindings, the installed-runner tests intentionally skip and are not qualification evidence.
+
+## Native pytest and Maven adapter rerun
+
+An additional development regression run of `delivery-evidence`, `story-lineage`, `environment-quality-command`, and `classic-delivery-workflow` on Node 25.5.0 passed 22/23 tests. The Classic delivery lifecycle fixture failed at its initial `start`: it never obtains the readiness receipt now required by its initialized policy. Running its unchanged file against an archive of original `ef555cb4` reproduced the identical failure (3 passed, 1 failed in that file). This is a pre-existing fixture setup failure, not a passing qualification cell or a reason to weaken the production readiness guard. Neither that fixture nor its production gate was changed for this task.
+
+The final eight-case adapter file was executed serially on macOS arm64 using the existing real Python 3.14.4 / isolated-venv pytest 9.0.2 and Maven 3.9.16 / Temurin 25 installations. Maven used its isolated offline cache, clean-plugin 3.2.0, compiler 3.11.0 (release 17), Surefire 3.2.5 and JUnit 4.13.2. No adapter runtime was installed on or inferred for Windows or Linux.
+
+| Engine runtime | Result | Duration |
+| --- | --- | --- |
+| Native macOS Node 22.14.0 | 8 passed, 0 failed, 0 skipped | 19.18 s |
+| Native macOS Node 24.19.0 | 8 passed, 0 failed, 0 skipped | 34.69 s |
+
+Each invocation ran `node --test --test-reporter=spec test/test-recovery-adapters.test.mjs` with explicit `SF_TRP_PYTEST_EXECUTABLE`, `SF_TRP_PYTEST_ROOTS`, `SF_TRP_MAVEN_EXECUTABLE`, `SF_TRP_MAVEN_ROOTS`, `SF_TRP_MAVEN_CACHE` and `JAVA_HOME` bindings to those retained disposable/installed toolchains. Four cases are always-on contract and refusal checks; four execute actual native runners, covering exact failing inventory/report retention and baseline compatibility. The adapter SHA-256 was `ce35922ed34e989d3bee31968b58829c1c24bf95e347135b57ff573ad136ba7b`, its test file `f6299f8bc3049222142e2a66c8da8b519956c9cbbd55e54c6da422648155cab9`, and shared runtime `6ddab15ba764e4ecc82dcae1e1d7e51d295a0c8caee88aa54ec2ad364ef19032`; these bytes were verified again afterward. These cells do not qualify still-changing intake orchestration or the installed UI.
+
+## Expanded cross-platform matrix and final isolated-intake correction
+
+The 28-file expanded matrix started at 2026-10-02T02:57:24Z on the working tree based on `ef555cb4`. It exercised actual fixture Git/PTY lifecycles for unavailable, failed, known-baseline, skipped/reduced-coverage and supplemental-document decisions; reviewed command amendments; readiness repair; precise selection; and UI contracts. These are fixture executions, not human participation or installed visual interaction.
+
+| Environment | Expanded matrix | Duration | Final affected rerun | Duration |
+| --- | --- | --- | --- | --- |
+| macOS arm64, Node 22.14.0 | 303 passed, 0 failed, 4 skipped | 331.59 s | 26 passed, 0 failed, 0 skipped | 55.47 s |
+| macOS arm64, Node 24.19.0 | 303 passed, 0 failed, 4 skipped | 318.64 s | 26 passed, 0 failed, 0 skipped | 54.44 s |
+| Linux aarch64/bookworm, Node 24.21.0 | 303 passed, 0 failed, 4 skipped | 275.72 s | 26 passed, 0 failed, 0 skipped | 37.17 s |
+
+All four matrix skips are the explicitly configured native pytest/Maven cases. The separate eight-case macOS runs above qualify those real installed runners; Linux does not. Repeated cases across the full matrix and affected or adapter reruns are not added together as distinct tests.
+
+During the broad runs, a final narrowly scoped correction allowed an authenticated failed readiness receipt to establish the independent non-test prerequisite passes it actually contained, while preserving failed tests and refusing missing or failed prerequisites. Therefore the broad cells alone are **not** claimed as a byte-identical final-source matrix. The final three-file rerun started at 2026-10-02T03:03:16Z after synchronizing the final CLI/intake bytes and six-case known-baseline fixture. It ran `story-test-known-baseline` (6), `test-recovery-intake` (18), and `story-test-isolated-baseline-preview` (2), including a genuinely strict dependency requirement, refusal before its proof, and successful target-native admission after independently satisfied prerequisites.
+
+Final SHA-256 bindings, checked again after the affected runs:
+
+| File | SHA-256 |
+| --- | --- |
+| `src/cli.mjs` | `d22a8fe1b61bf96f062ad0d3c167206f1c9728413316b6a5463df3d0761d8911` |
+| `src/test-recovery-intake.mjs` | `30262b14c847648e685ea69413073d09f1e90355a8f4f8921be7bb8fb29c9aa4` |
+| `src/test-recovery-runtime.mjs` | `6ddab15ba764e4ecc82dcae1e1d7e51d295a0c8caee88aa54ec2ad364ef19032` |
+| `src/test-recovery-adapters.mjs` | `ce35922ed34e989d3bee31968b58829c1c24bf95e347135b57ff573ad136ba7b` |
+| `test/story-test-known-baseline.test.mjs` | `1cf4e22399d2e4d2df684f10dad882ffa76bc582605c0d7bd6af7c127e6c75b5` |
+
+Commands used `node --experimental-strip-types --test --test-reporter=spec --test-concurrency=2` for the broad cells and the same test settings without type stripping for the three affected files. Logs are retained under `/tmp/sftrp-final-matrix-Cw5nhw`. Selected broad files (all under `test/`):
+
+```text
+story-test-command-amendment-lifecycle.test.mjs
+story-test-command-amendment.test.mjs
+test-command-amendment-contracts.test.mjs
+story-test-known-baseline.test.mjs
+story-test-risk-command.test.mjs
+story-test-risk-lifecycle.test.mjs
+story-test-selection.test.mjs
+test-recovery-adapters.test.mjs
+test-recovery-admission.test.mjs
+test-recovery-baseline-compatibility.test.mjs
+test-recovery-intake.test.mjs
+test-recovery-node.test.mjs
+test-recovery-policy.test.mjs
+test-recovery-repair-scope.test.mjs
+test-recovery-repair.test.mjs
+test-recovery-store.test.mjs
+test-selection-policy.test.mjs
+trp-delivery-selection.test.mjs
+trp-document-runtime.test.mjs
+trp-intake-cli.test.mjs
+trp-repair-lifecycle.test.mjs
+trp-selection-lifecycle.test.mjs
+vscode-story-test-recovery.test.mjs
+vscode-story-test-risk.test.mjs
+vscode-trp-intake.test.mjs
+quality-command-runner.test.mjs
+story-worktree-prepared.test.mjs
+story-test-isolated-baseline-preview.test.mjs
+```
+
+The Linux runs used official `node:24-bookworm`, image digest `sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4`, Git 2.39.5 and Expect 5.45.4. Source was copied without AppleDouble metadata. Locked dependencies used `npm ci --ignore-scripts`; tests ran as nonroot `node`, after disconnecting networking, with no mounts, host home, credentials or Docker socket. Limits were 2 CPUs, 3 GiB and 256 processes. This is runtime qualification, not containment certification. After verifying its qualification label and empty mount/network lists again, the exact disposable container `2ca46caed8c90133be37502d300e104fef927a4c388f701c3d508fc10265fc4d` was stopped and removed. The downloaded image cache and host-side logs were retained. Native macOS used Git 2.54.0 / Expect 5.45 and selected Node first in `PATH`. The separate full legacy editor suite passed 324/324 and extension typechecking passed; those are not added to the matrix counts.
+
+## Historical nine-file matrix before final path hardening
 
 | Environment | Runtime | Observed result | Scope |
 | --- | --- | --- | --- |
@@ -63,7 +151,7 @@ Earlier eight-file baseline runs passed 131 tests on each platform: macOS Node 2
 
 Early risk-lifecycle development iterations allowed read-only signed-in account resolution during identity checks. The final fixtures explicitly isolate test identities and use temporary repositories with local bare remotes; those earlier iterations are not evidence of an isolated final qualification run. No real Story or remote branch was modified by these fixtures.
 
-The macOS Node 25.5.0 development runtime is also available, but a Node 25 run does not replace the Node 22/24 cells. A simulated `win32` option or a script named `test:platform:windows` executed on macOS does not constitute Windows qualification. The Parallels VM's `running` state is not evidence that Windows has booted. An earlier visible window showed firmware, not a Windows desktop; the latest UI showed disk-space management rather than an ordinary Continue action. A final bounded `cmd.exe /c ver` guest query failed immediately with exit 255 because a guest session could not be opened. The VM was already running, so Resume was inapplicable. No Continue, Resume, shutdown, reclaim, archive, boot-order or security action was performed.
+The macOS Node 25.5.0 development runtime is also available, but a Node 25 run does not replace the Node 22/24 cells. A simulated `win32` option or a script named `test:platform:windows` executed on macOS does not constitute Windows qualification. In this historical matrix, the Parallels VM's `running` state was not evidence that Windows had booted: a visible window showed firmware, and a later UI showed disk-space management rather than an ordinary Continue action. A bounded `cmd.exe /c ver` guest query failed with exit 255 because a guest session could not be opened. The VM was already running at that point, so Resume was inapplicable and no power action was taken during that matrix. The separately authorized later ordinary resume and the subsequent stop instruction are recorded above.
 
 ## Remaining release evidence
 
@@ -73,4 +161,4 @@ The matrix covers the bounded native-launch-unavailable path and the narrowly de
 
 The failed-test adapter is deliberately narrow: repository-local and Node-builtins-only dependency scope must be explicitly approved. It is not a hermetic runner. Local dependency snapshots include ignored files/data and ordinary directories (including empty ones) and fail closed above 16,384 entries, 4 MiB per file or 64 MiB total, or on symlinks/hardlinks. General npm installations and external/live-service dependencies are not qualified. The exact effective child environment is bound; framework transport controls are omitted from the actual child, not merely ignored by hashing. Old Node reporters without testcase file attributes qualify only a single independently declared explicit source file; multiple-file identity cannot be inferred from names. Flat top-level cases only are supported. No genuine Jest or Vitest qualification is claimed, and Node's native JUnit output does not qualify arbitrary JUnit-producing runners.
 
-Known-failure carry-forward, reduced coverage, document exceptions and general evidence reuse remain unsupported production categories. Actual Windows wrapper/path/locking/cleanup tests, installed extension/Copilot checks and a real human-team pilot with independent normal phase approval remain outstanding. Interrupted initial creation/amendment and pending-publication risk recovery still need scenario-specific failure-injection evidence; copied-checkout refusal alone does not prove a complete fresh local observation recovery route.
+The historical matrix above does not qualify the later known-failure carry-forward, reduced-coverage, document-exception or additional runner implementations. Their implementation and targeted tests must be reported separately and included in a final native matrix before broader release claims. Actual Windows wrapper/path/locking/cleanup tests, installed visual/Copilot checks and a real human-team pilot with independent normal phase approval remain outstanding. Interrupted initial creation/amendment and pending-publication risk recovery still need scenario-specific failure-injection evidence; copied-checkout refusal alone does not prove a complete fresh local observation recovery route.

@@ -35,7 +35,7 @@ import {
 } from './story-intake-verification.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
-import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, previewTestRecoveryIntake,
+import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake,
   testRecoveryChoices } from './test-recovery-intake.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
@@ -1774,7 +1774,27 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     }
   }
   const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
-  const launchRepositoryReadiness = !durableLocalStory
+  let baselineTarget = null;
+  if (!durableLocalStory && optionStrings(options, 'test-baseline-record').length) {
+    const { preparedStoryWorktreePath } = await import('./story-worktree.mjs');
+    baselineTarget = await preparedStoryWorktreePath(sourceRoot, id, { baseCommit: launchBaseCommit });
+    if (!baselineTarget) throw new SingularityFlowError(
+      'Capture this Story baseline with story test-policy baseline --isolated-worktree before starting. '
+      + 'A baseline from the launch checkout cannot authenticate a test run in the Story checkout. '
+      + 'Refresh intake using the returned record digest; no Story or worktree was created.',
+      { code: 'TRP_INTAKE_BASELINE_INVALID' }
+    );
+  }
+  // This checkout already exists because the operator explicitly ran its native baseline.
+  // Defer the legacy composite readiness gate to the child's exact TRP checks and live review.
+  // The child separately authenticates required dependency/build/start results before creating
+  // the Story. No missing non-test prerequisite is waived, and rehydrating here would mutate
+  // the already captured execution environment before that validation.
+  const preparedBaselineReview = Boolean(baselineTarget)
+    && launchDefinition?.testRecovery?.enabled === true
+    && launchDefinition.testRecovery.enabledRiskCategories?.includes('known-test-failure')
+    && optionString(options, 'test-baseline-disposition') === 'accept-known-failures';
+  const launchRepositoryReadiness = !durableLocalStory && !preparedBaselineReview
     ? await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit)
     : null;
   // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
@@ -1792,7 +1812,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       ...(launchDefinition?.repositoryReadiness ?? {}),
       ...(launchDefinition?.initialization?.proof?.preStory ?? {})
     };
-    if (!durableLocalStory && readinessPolicy.requiredBeforeStory === true
+    if (!durableLocalStory && !preparedBaselineReview && readinessPolicy.requiredBeforeStory === true
         && readinessPolicy.dependencyHydration !== 'off') {
       await hydrateRepositoryDependencies(prepared.repositoryPath, {
         commit: launchBaseCommit,
@@ -2796,7 +2816,7 @@ export async function startCommand(positionals, options) {
     })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }],
     { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config) }
   ));
-  const testRecoveryPreview = previewTestRecoveryIntake({
+  const testRecoveryPreview = await prepareTestRecoveryIntake(root, {
     definition: approvedConfigurationSnapshot?.definition ?? config, workId: id,
     workType: deterministicWorkType, repositories: readinessRepositories, repositoryReadiness,
     choices: testRecoveryChoices(options),
@@ -3168,7 +3188,7 @@ export async function startCommand(positionals, options) {
     surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
   });
   if (testRecoveryPlan) {
-    const finalTestRecoveryPreview = previewTestRecoveryIntake({
+    const finalTestRecoveryPreview = await prepareTestRecoveryIntake(root, {
       definition: config, workId: id, workType,
       repositories: readinessRepositories, repositoryReadiness,
       choices: testRecoveryChoices(options), phaseDefinitions: testRecoveryIntakePhases(config,
@@ -15561,8 +15581,9 @@ async function workspaceCommand(positionals, options) {
           publicationRequired: publishRequired,
           surface: 'vscode-preflight'
         });
-        const testRecovery = previewTestRecoveryIntake({
+        const testRecovery = await prepareTestRecoveryIntake(root, {
           definition, workId: storyId, workType: preflightWorkType,
+          isolatedWorktree: optionBoolean(options, 'isolated-worktree'),
           repositories: repositories.map(entry => ({ id: entry.repository, baseCommit: entry.baseCommit })),
           repositoryReadiness, choices: testRecoveryChoices(options),
           phaseDefinitions: definition.workTypes?.[preflightWorkType]

@@ -790,6 +790,25 @@ export async function storyCommand(positionals, options) {
   if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
+    if (action === 'baseline') {
+      const { run: runBaseline } = await import('./story-test-baseline.mjs');
+      return runBaseline(positionals.slice(3), { options, root });
+    }
+    if (action === 'baseline-admission') {
+      const allowed = new Set(['work-id', 'phase', 'repository', 'record-sha256', 'reason', 'follow-up-owner', 'remediation', 'expires', 'apply', 'confirm', 'json']);
+      if (Object.keys(options).some(key => !allowed.has(key)) || positionals.length > 4) throw new SingularityFlowError('Unsupported baseline-admission review option.');
+      const loaded = await loadAcceptedStoryExecution(root, positionals[3] ?? optionString(options, 'work-id'));
+      const { reviewStoryBaselineAdmission } = await import('../story-baseline-admission.mjs');
+      const result = await reviewStoryBaselineAdmission(root, loaded.config ?? loaded.definition, loaded.workflow, {
+        phaseId: optionString(options, 'phase'), repositoryId: optionString(options, 'repository'),
+        recordSha256: optionString(options, 'record-sha256'), reason: optionString(options, 'reason'),
+        followUpOwner: optionString(options, 'follow-up-owner'), remediationRef: optionString(options, 'remediation'),
+        expiresAt: optionString(options, 'expires'), apply: optionBoolean(options, 'apply'), confirmation: optionString(options, 'confirm')
+      });
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+      else console.log(`${result.message}\nStatus: ${result.status}\nPlan: ${result.planDigest}`);
+      return result;
+    }
     if (['risks', 'accept-risk', 'revoke-risk', 'attest-risk'].includes(action)) {
       const { run: runTestRisk } = await import('./story-test-risk.mjs');
       return runTestRisk(action, positionals.slice(3), { options, root });
@@ -820,11 +839,12 @@ export async function storyCommand(positionals, options) {
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
       supported: { readinessRepair: true, selectionPreview: true, riskActivation: true,
-        riskCategories: ['validation-unavailable', 'new-test-failure'], riskScope: 'One native runner launch failure or independently inventoried native Node/JUnit failure per code-delivery phase; exact human review required', policyAmendment: false,
+        riskCategories: ['validation-unavailable', 'new-test-failure', 'known-test-failure', 'reduced-coverage', 'nonessential-document'],
+        riskScope: 'Explicitly pinned native Node, pytest or Maven/Surefire validation and supplemental document obligations; exact evidence and delegated human review required', policyAmendment: false,
         prepublicationTestCommandAmendment: true, currentPublishedPhaseTestCommandAmendment: true,
         completedStoryTestCommandAmendment: false },
       message: agreement
-        ? 'Opt-in repair and selection pilot with bounded native unavailable or failed-test review. No risk is accepted by this read.'
+        ? 'Opt-in repair, baseline, coverage and supplemental-document review. No risk is accepted by this read.'
         : 'This Story retains its original test policy; it has not opted into the pilot.'
     };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

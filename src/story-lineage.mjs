@@ -148,7 +148,7 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
     }
     if (execution.kind === 'phase-validation-observation') {
       validateTrpRecord(stored, { kind: 'phase-validation-observation' });
-      if (!['unavailable', 'failed'].includes(stored.observedOutcome) || stored.observedOutcome !== execution.status || stored.obligationId !== execution.commandId
+      if (!(['unavailable', 'failed'].includes(stored.observedOutcome) || (stored.observedOutcome === 'passed' && stored.counts.skipped > 0)) || stored.observedOutcome !== execution.status || stored.obligationId !== execution.commandId
         || stored.recordSha256 !== phase.deliveryEvidence.testRecovery?.observationSha256) {
         throw new SingularityFlowError('The risk observation differs from the submission binding.', { code: 'STORY_REVIEW_EVIDENCE_STALE' });
       }
@@ -474,7 +474,10 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
   const skillEvidence = await verifySkillPhasePublication(root, config, workflow, phase);
+  const { storyDocumentReviewSnapshot } = await import('./trp-document-runtime.mjs');
+  const documentChecks = await storyDocumentReviewSnapshot(root, config, workflow, phase);
   const submissionEvidence = {
+    ...(documentChecks.length ? { documentChecks } : {}),
     architectureIntent: structuredClone(
       publishedArchitectureIntentBinding(phase, phase.generation)
     ),
@@ -722,7 +725,8 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
         if (binding.kind === 'phase-validation-observation') {
           validateTrpRecord(replayed, { kind: binding.kind });
           if (replayed.subject.workId !== packet.workId || replayed.subject.phaseId !== packet.phase
-            || replayed.subject.generation !== Number(packet.generation) || !['unavailable', 'failed'].includes(replayed.observedOutcome)) {
+            || replayed.subject.generation !== Number(packet.generation)
+            || !(['unavailable', 'failed'].includes(replayed.observedOutcome) || (replayed.observedOutcome === 'passed' && replayed.counts.skipped > 0))) {
             throw new Error('TRP observation does not describe this submission');
           }
         }
@@ -741,7 +745,13 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
         break;
       }
     }
-    if (valid) return { ...packet, evidenceCommit };
+    if (valid) {
+      try {
+        const { verifyStoryDocumentSnapshot } = await import('./trp-document-runtime.mjs');
+        await verifyStoryDocumentSnapshot(root, config, workflow, packet, evidenceCommit);
+      } catch (error) { failures.push(`${evidenceCommit.slice(0, 12)} document evidence: ${error.message}`); continue; }
+      return { ...packet, evidenceCommit };
+    }
   }
   throw new SingularityFlowError(
     `Story review packet has no immutable Git commit containing its bound submission evidence.${failures.length ? ` ${failures[0]}` : ''}`,

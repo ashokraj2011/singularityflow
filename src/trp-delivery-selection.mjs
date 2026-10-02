@@ -16,7 +16,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { processResultSucceeded } from './process-result.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
-import { readTrpNodeCaseInventory } from './test-recovery-node.mjs';
+import { readTrpCaseInventory } from './test-recovery-adapters.mjs';
 
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const covers = (root, file) => root === '.' || file === root || file.startsWith(`${root}/`);
@@ -222,7 +222,7 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
   const inventory = [];
   const exactInventories = new Map();
   for (const command of tests) {
-    const exact = await readTrpNodeCaseInventory(root, workflow, phase, command);
+    const exact = await readTrpCaseInventory(root, workflow, phase, command);
     if (!exact) continue;
     exactInventories.set(command.id, exact);
     for (const entry of exact.tests) inventory.push({ ...entry, commandId: command.id,
@@ -262,7 +262,7 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
   // The explicit argument builds the review card only. It can never enable execution or persistence.
   const accepted = verified?.planDigest ?? (previewOnly && confirmation === preview.planDigest ? confirmation : null);
   if (accepted) preview = planTestSelection({ ...planInput, confirmation: accepted });
-  preview = { ...preview, inventoryAssurance: inventoryComplete ? 'approved-native-node-case-inventory' : 'test-source-files-only', inventoryComplete,
+  preview = { ...preview, inventoryAssurance: inventoryComplete ? 'approved-native-case-inventory' : 'test-source-files-only', inventoryComplete,
     environmentQualification: 'local-plan-binding-not-execution-evidence', phaseId: phase.id, generation, validationEpoch,
     inventoryBasis: inventoryComplete ? 'independently-pinned-case-inventory-and-current-test-source' : 'pinned-phase-and-resolved-module-command-inventory' };
   if (!preview.ready && !previewOnly) {

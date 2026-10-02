@@ -328,13 +328,22 @@ export function trpIssueIdentity({ category, obligationId, message, observation 
 }
 
 function knownFailureMatch(current, baseline, decision, selection) {
+  const baselineCompatibility = baseline?.dependencies?.filter(entry => entry.id === 'baseline-compatibility') ?? [];
+  const currentCompatibility = current.dependencies.filter(entry => entry.id === 'baseline-compatibility');
+  const boundedCompatibility = baselineCompatibility.length === 1 && currentCompatibility.length === 1
+    && baselineCompatibility[0].sha256 === currentCompatibility[0].sha256
+    && exactDependencies(decision.applicability.dependencies, baselineCompatibility)
+    && trpEnvironmentDigest({ ...current.environment, dependencySha256: baselineCompatibility[0].sha256 })
+      === trpEnvironmentDigest({ ...baseline.environment, dependencySha256: baselineCompatibility[0].sha256 });
+  const exactCompatibility = baseline && exactDependencies(decision.applicability.dependencies, baseline.dependencies)
+    && trpEnvironmentDigest(current.environment) === trpEnvironmentDigest(baseline.environment);
   if (!baseline || baseline.kind !== 'test-baseline-manifest' || baseline.identityCompleteness !== 'complete'
     || current.identityCompleteness !== 'complete' || baseline.subject.repositoryId !== current.subject.repositoryId
+    || baseline.subject.phaseId !== current.subject.phaseId
     || baseline.subject.workId !== current.subject.workId || baseline.obligationId !== current.obligationId
     || baseline.preFeatureBase !== baseline.sourceRevision
     || current.commandSha256 !== baseline.commandSha256 || current.commandInventorySha256 !== baseline.commandInventorySha256
-    || current.selectorSha256 !== baseline.selectorSha256 || trpEnvironmentDigest(current.environment) !== trpEnvironmentDigest(baseline.environment)
-    || !exactDependencies(decision.applicability.dependencies, baseline.dependencies)
+    || current.selectorSha256 !== baseline.selectorSha256 || (!boundedCompatibility && !exactCompatibility)
     || current.expectedTestIds.some((testId) => !baseline.expectedTestIds.includes(testId))) return false;
   // Disappearance/skips and changed semantics are findings even if failure counts fall.
   if (current.expectedTestIds.length !== selection.selectedTestIds.length
@@ -360,13 +369,15 @@ function knownFailureMatch(current, baseline, decision, selection) {
 export function evaluateTestRecoveryGate({
   policy, agreement, subject: evaluationSubject, operation, mode = 'current', at,
   observations = [], baselines = [], decisions = [], selection = null, candidateDependencies = [],
-  candidateEnvironment = null, verifyAuthority, verifyEvidence, integrityIssues = [], publicationPending = false
+  candidateEnvironment = null, verifyAuthority, verifyEvidence, integrityIssues = [], publicationPending = false,
+  obligationIds = null
 }) {
   assertSchema(subject, evaluationSubject);
   assertSchema(timestamp, at);
   assertSchema(str, operation);
   if (!['current', 'historical'].includes(mode)) fail('Unknown evaluation mode');
   assertSchema(dependencies, candidateDependencies);
+  if (obligationIds !== null) assertSchema(array(str, 1, true), obligationIds);
   if (candidateEnvironment) assertSchema(environment, candidateEnvironment);
   const context = { at, mode, operation, policy, subject: evaluationSubject };
   const issues = [];
@@ -388,7 +399,7 @@ export function evaluateTestRecoveryGate({
       subject: evaluationSubject, operation, mode, at, observations: observations.map((entry) => entry.recordSha256 ?? null).sort(),
       baselines: baselines.map((entry) => entry.recordSha256 ?? null).sort(), decisions: decisions.map((entry) => entry.recordSha256 ?? null).sort(),
       selection: selection?.recordSha256 ?? null, candidateDependencies: canonicalSets(candidateDependencies, dependencies),
-      candidateEnvironment, integrityIssues, publicationPending });
+      candidateEnvironment, integrityIssues, publicationPending, obligationIds });
     return sealTrpRecord({ schemaVersion: 1, kind: 'phase-gate-evaluation', id: `evaluation-${inputSha256.slice(7, 31)}`,
       subject: evaluationSubject, createdAt: at, issuer: { principal: 'trp-evaluator', channel: TRP_EVALUATOR_VERSION },
       provenance: { authorityRef: policy?.authoritySha256 ?? 'legacy-policy', evidenceRefs: [] },
@@ -420,7 +431,12 @@ export function evaluateTestRecoveryGate({
   const repo = agreement.repositories.find((entry) => entry.repositoryId === evaluationSubject.repositoryId);
   if (!repo) { addIssue('policy-integrity', 'repository', null, 'Repository is absent from the pinned agreement', policy); return finish(); }
   const obligations = repo.mandatoryObligations.filter((entry) => entry.transitions.includes(operation)
-    && (!entry.phaseIds || entry.phaseIds.includes(evaluationSubject.phaseId)));
+    && (!entry.phaseIds || entry.phaseIds.includes(evaluationSubject.phaseId))
+    && (obligationIds === null || obligationIds.includes(entry.id)));
+  if (obligationIds?.some(id => !obligations.some(entry => entry.id === id))) {
+    addIssue('policy-integrity', 'obligation-selection', null, 'The requested obligation is not pinned for this phase and transition', policy);
+    return finish();
+  }
   requiredObligations.push(...obligations.map((entry) => entry.id));
   const testObligations = obligations.filter((entry) => entry.kind === 'test');
   // Missing execution can have an authenticated attempt without a testcase
@@ -528,7 +544,8 @@ export function evaluateTestRecoveryGate({
         if (['not-run', 'unavailable', 'inconclusive'].includes(observation.observedOutcome)) raise('validation-unavailable', 'Required validation remains unverified');
         else if (observation.observedOutcome === 'failed') {
           const known = required.kind === 'test' && validBaselines.some((baseline) => repo.baselineRefs.includes(baseline.recordSha256)
-            && knownFailureMatch(observation, baseline, { applicability: { dependencies: observation.dependencies,
+            && knownFailureMatch(observation, baseline, { applicability: { dependencies: baseline.dependencies.some(entry => entry.id === 'baseline-compatibility')
+              ? baseline.dependencies.filter(entry => entry.id === 'baseline-compatibility') : observation.dependencies,
               acceptedFailures: baseline.cases.filter((entry) => entry.outcome === 'failed').map((entry) => ({ testId: entry.id,
                 semanticsSha256: entry.semanticsSha256, causeSha256: entry.causeSha256 })), maxFailed: baseline.counts.failed } }, selection));
           raise(required.kind === 'document' ? 'nonessential-document' : required.kind === 'quality' ? 'non-waivable'
@@ -564,15 +581,18 @@ export function evaluateTestRecoveryGate({
         || TRP_INTEGRITY_CATEGORIES.includes(finding.category) || !observation) continue;
       const decision = validDecisions.find((candidate) => {
         const conditions = candidate.applicability;
-        if (candidate.obligationId !== required.id || conditions.environmentSha256 !== trpEnvironmentDigest(observation.environment)
-          || !exactDependencies(conditions.dependencies, observation.dependencies)
+        const knownCandidate = candidate.category === 'known-test-failure' && finding.category === 'known-test-failure'
+          && repo.baselineDisposition === 'accept-known-failures';
+        if (candidate.obligationId !== required.id || (!knownCandidate && (conditions.environmentSha256 !== trpEnvironmentDigest(observation.environment)
+          || !exactDependencies(conditions.dependencies, observation.dependencies)))
           || (required.kind === 'test' && conditions.dependencies.length === 0)
           || conditions.commandSha256 !== observation.commandSha256 || conditions.selectorSha256 !== observation.selectorSha256
           || Date.parse(at) - Date.parse(observation.completedAt) > conditions.maxObservationAgeSeconds * 1000
           || observation.expectedTestIds.some((testId) => !conditions.allowedTestIds.includes(testId))) return false;
-        if (candidate.category === 'known-test-failure' && finding.category === 'known-test-failure' && repo.baselineDisposition === 'accept-known-failures') {
+        if (knownCandidate) {
           const baseline = validBaselines.find((entry) => entry.recordSha256 === conditions.baselineSha256);
           return baseline && candidate.anchorObservationDigest === baseline.recordSha256 && repo.baselineRefs.includes(baseline.recordSha256)
+            && conditions.environmentSha256 === trpEnvironmentDigest(baseline.environment)
             && knownFailureMatch(observation, baseline, candidate, selection);
         }
         const excludedBaseline = candidate.category === 'reduced-coverage' && selection?.exclusions.length > 0

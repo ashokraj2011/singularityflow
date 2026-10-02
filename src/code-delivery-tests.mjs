@@ -1275,6 +1275,49 @@ export function parseNativeNodeJunitReport(bytes) {
   }) };
 }
 
+/** Exact JUnit identities from bounded native pytest/Surefire output, never an expected inventory. */
+export function parseTrpJunitReport(bytes) {
+  const contents = Buffer.from(bytes);
+  if (contents.length > MAX_RESULT_FILE_BYTES) xmlFailure('TRP JUnit report exceeds its byte bound');
+  const xml = decodeXmlReport(contents);
+  const observed = junitObservation(xml, { maximumOccurrences: 10_000 });
+  const root = parseXml(xml);
+  if (!['testsuite', 'testsuites'].includes(root.name)) xmlFailure('TRP JUnit requires a testsuite or testsuites root');
+  const decode = value => {
+    if (typeof value !== 'string' || !value || value.length > 4096) xmlFailure('TRP JUnit identity is absent or oversized');
+    return value.replace(/&(?:#x[0-9a-fA-F]+|#\d+|amp|lt|gt|quot|apos);|&[^;\s]*;?/gu, entity => {
+      const named = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" };
+      if (Object.hasOwn(named, entity)) return named[entity];
+      if (!/^&#(?:x[0-9a-fA-F]+|\d+);$/u.test(entity)) xmlFailure('TRP JUnit identity contains an unknown entity');
+      const code = entity.startsWith('&#x') ? Number.parseInt(entity.slice(3, -1), 16) : Number(entity.slice(2, -1));
+      if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff || code >= 0xd800 && code <= 0xdfff) xmlFailure('TRP JUnit identity contains an invalid character');
+      return String.fromCodePoint(code);
+    });
+  };
+  return { tests: observed.tests, cases: descendants(root, 'testcase').map(node => {
+    const outcome = junitCaseState(node);
+    if (node.children.some(child => !['failure', 'error', 'skipped', 'system-out', 'system-err', 'properties'].includes(child.name))) {
+      xmlFailure('TRP JUnit testcase has unsupported nested content');
+    }
+    const failure = node.children.find(child => ['failure', 'error'].includes(child.name));
+    return { file: node.attributes.file == null ? null : decode(node.attributes.file),
+      className: decode(node.attributes.classname), name: decode(node.attributes.name),
+      outcome: outcome.failure || outcome.error ? 'failed' : outcome.skipped ? 'skipped' : 'passed',
+      causeSha256: failure ? `sha256:${sha256(xml.slice(failure.sourceStart, failure.sourceEnd))}` : null };
+  }) };
+}
+
+/** A native capture never inherits parser-visible output from an earlier invocation. */
+export async function assertTestReportTargetEmpty(root, command) {
+  const normalized = normalizeRequiredTestCommand(command);
+  const secured = await secureRepositoryPath(root, path.join(normalized.workingDirectory, normalized.result.path), {
+    label: 'Native test report target', type: undefined
+  });
+  if (secured.exists && (await resultFiles(secured.absolute, normalized.result.adapter)).length) {
+    throw new SingularityFlowError('Native report capture requires a freshly cleared output target.', { code: 'CODE_TEST_RESULT_REQUIRED' });
+  }
+}
+
 export async function parseTestResult(root, command, { startedAt = null } = {}) {
   const normalizedCommand = normalizeRequiredTestCommand(command);
   const moduleRoot = normalizedCommand.workingDirectory === '.' ? '' : normalizedCommand.workingDirectory;

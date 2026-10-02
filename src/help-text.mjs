@@ -829,9 +829,9 @@ Usage:
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]
   singularity-flow story test-policy show [--work-id ID] [--json]
-  singularity-flow story test-policy risks [--work-id ID] [--phase PHASE] [--operation publish|submit|approve|downstream|replay] [--json]
+  singularity-flow story test-policy risks [--work-id ID] [--phase PHASE] [--obligation DOCUMENT-ID] [--operation publish|submit|approve|downstream|replay] [--json]
   singularity-flow story test-policy accept-risk --issue ISSUE-ID --reason TEXT --follow-up-owner ID --remediation TEXT
-    [--work-id ID] [--phase PHASE] [--repository ID] [--operation publish|submit|approve|downstream|replay] [--expires UTC-ISO]
+    [--work-id ID] [--phase PHASE] [--repository ID] [--obligation DOCUMENT-ID] [--operation publish|submit|approve|downstream|replay] [--expires UTC-ISO]
     [--apply --confirm PLAN-DIGEST] [--json]
   singularity-flow story test-policy revoke-risk --record-sha256 RECORD-DIGEST --reason TEXT [--work-id ID]
     [--apply --confirm PLAN-DIGEST] [--json]
@@ -842,6 +842,12 @@ Usage:
   singularity-flow story test-policy confirm [--work-id ID] --phase PHASE --confirm PLAN-DIGEST
   singularity-flow story test-policy repair [--work-id ID] [--repository ID] [--plan] [--json]
   singularity-flow story test-policy repair [--work-id ID] [--repository ID] --run --confirm PLAN-DIGEST [--json]
+  singularity-flow story test-policy baseline WORK-ID --phase PHASE --repository ID --base COMMIT [--work-type TYPE] [--isolated-worktree] [--json]
+  singularity-flow story test-policy baseline WORK-ID --phase PHASE --repository ID --base COMMIT [--work-type TYPE] [--isolated-worktree] --run --confirm PLAN-DIGEST [--json]
+    (pre-Story native execution only; captures exact baseline, never accepts its failures)
+  singularity-flow story test-policy baseline-admission WORK-ID --phase PHASE --repository ID --record-sha256 RECORD-DIGEST
+    --reason TEXT --follow-up-owner ID --remediation TEXT --expires UTC-ISO [--apply --confirm PLAN-DIGEST] [--json]
+    (re-review retained baseline admission after expiry/revocation; no feature execution or automatic acceptance)
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] --apply --confirm PLAN-DIGEST [--json]
     (current active code phase; preserves published generations; fresh epoch validation; live authorized terminal review; no tests waived)

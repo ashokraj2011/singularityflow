@@ -19,7 +19,7 @@ import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import {
-  EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryHtml, testRecoveryProblems,
+  EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview,
   type TestRecoveryDraft
 } from './test-recovery-intake.ts';
 
@@ -399,7 +399,9 @@ export function intakePlanInputKey(form: IntakeForm): string {
     form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
     form.targetUrl, form.profile, form.workType, form.baseBranch,
     form.referenceRepositories.map(({ id, repository, branch }) => [id, repository, branch]),
-    form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope
+    form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope,
+    form.testBaselineRecords, form.testBaselineReason, form.testBaselineOwner,
+    form.testBaselineRemediation, form.testBaselineExpiresAt
   ]);
 }
 
@@ -591,7 +593,7 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
         '--reference-branch', `${entry.id}=${entry.branch}`]);
   } catch { references = []; }
   return [
-    'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier,
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier, '--isolated-worktree',
     '--from-branch', form.baseBranch, '--selected-base-only',
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
     ...references,
@@ -1234,7 +1236,8 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
     <p>
       <button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
-        ${form.busy ? 'Starting…' : `Start this ${escape(noun.toLowerCase())}`}
+        ${form.busy ? 'Starting…' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
+          ? 'Prepare exact human review in terminal' : `Start this ${escape(noun.toLowerCase())}`}
       </button>
       ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
     </p>

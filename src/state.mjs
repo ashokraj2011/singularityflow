@@ -11,14 +11,15 @@ import {
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { storyTestReadinessDocument } from './story-test-readiness-document.mjs';
-import { initialTestRecoveryAgreement, normalizeTestRecoveryPolicy, previewTestRecoveryIntake } from './test-recovery-intake.mjs';
+import { initialTestRecoveryAgreement, normalizeTestRecoveryPolicy, prepareTestRecoveryIntake } from './test-recovery-intake.mjs';
+import { authorizeTrpIntake, materializeTrpIntake, qualifiedTrpIntakeDecisions } from './test-recovery-admission.mjs';
 import { appendTrpRecord, appendTrpOriginalBaseline, readTrpRecord, readTrpRepairEvidence, readTrpReadinessCheckpoint, readTrpOriginalBaseline } from './test-recovery-store.mjs';
 import { assertTrpFeatureAdmission, completeTrpReadinessRepair } from './test-recovery-repair.mjs';
 import { assertTrpRepairCohortRetained, inspectTrpRepairScope } from './test-recovery-repair-scope.mjs';
 import { trpDigest } from './test-recovery-policy.mjs';
 import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObservation,
   retainedStoryTestRisk, verifiedStoryTestRiskReviewCommits } from './test-recovery-runtime.mjs';
-import { trpNodeExecutionEnvironment } from './test-recovery-node.mjs';
+import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
@@ -893,7 +894,7 @@ export async function createWorkflow(root, config, {
   const trpPolicy = normalizeTestRecoveryPolicy(trpDefinition.testRecovery);
   if (trpPolicy) resolution.testRecovery = structuredClone(trpPolicy);
   else delete resolution.testRecovery;
-  const freshTrpPlan = previewTestRecoveryIntake({ definition: trpDefinition, workId: id,
+  const freshTrpPlan = await prepareTestRecoveryIntake(root, { definition: trpDefinition, workId: id,
     workType: selectedType, repositories: readinessRepositories, repositoryReadiness,
     choices: testRecoveryPlan?.choices ?? {}, phaseDefinitions: resolution.phases });
   if (freshTrpPlan.enabled && (!testRecoveryPlan || !freshTrpPlan.ready
@@ -923,6 +924,7 @@ export async function createWorkflow(root, config, {
         }
       }
       if (status === 'accepted-known-failures') status = 'failing-tests';
+      if (freshTrpPlan.choices.baselineDisposition === 'accept-known-failures') status = 'failing-tests';
       if (readinessRepositories.length === 1 && supplied?.baselineSha256) {
         const loaded = await loadRepositoryTestBaseline(root, {
           commit: selectedRepository.baseCommit, scope: supplied.scope ?? 'dependency-test'
@@ -1119,9 +1121,21 @@ export async function createWorkflow(root, config, {
     workflow.resolution.testRecoveryInitialReadiness = structuredClone(readiness);
     workflow.testRecovery = { schemaVersion: 1, ...pin, validationEpoch: 1,
       confirmedPlanSha256: freshTrpPlan.planDigest, readiness: structuredClone(readiness), readinessHistory: [],
-      route: initialTrpRows.every((row) => row.status === 'pass') ? 'feature-coding' : 'readiness-repair' };
+      route: freshTrpPlan.choices.baselineDisposition === 'accept-known-failures' ? 'baseline-risk-publication'
+        : initialTrpRows.every((row) => row.status === 'pass') ? 'feature-coding' : 'readiness-repair' };
+    const intakeReview = await authorizeTrpIntake(root, workflow, agreement, freshTrpPlan);
+    // Review cannot turn a changed source, runtime or policy into the approved intake.
+    if (intakeReview) {
+      const reviewed = await prepareTestRecoveryIntake(root, { definition: trpDefinition, workId: id,
+        workType: selectedType, repositories: readinessRepositories, repositoryReadiness,
+        choices: freshTrpPlan.choices, phaseDefinitions: resolution.phases });
+      if (!reviewed.ready || canonicalJson(reviewed) !== canonicalJson(freshTrpPlan)) {
+        throw new SingularityFlowError('The baseline changed during human review. No Story was created.', { code: 'TRP_INTAKE_EVIDENCE_STALE' });
+      }
+    }
     await ensureSecureRepositoryDirectory(root, workDirRelative(config, id), { label: 'Story test policy' });
     await appendTrpRecord(workDir(root, config, id), agreement);
+    await materializeTrpIntake(root, config, workflow, intakeReview);
     for (const baseline of originalTrpBaselines) await appendTrpOriginalBaseline(workDir(root, config, id), baseline);
   }
   if (capability?.policy?.maxDocumentBytes) {
@@ -1183,7 +1197,7 @@ export async function createWorkflow(root, config, {
     );
   }
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
-  const firstPhaseNeedsReadinessRepair = workflow.testRecovery?.route === 'readiness-repair'
+  const firstPhaseNeedsReadinessRepair = ['readiness-repair', 'baseline-risk-publication'].includes(workflow.testRecovery?.route)
     && phaseRequiresCodeDelivery(phases[0]);
   if (!firstPhaseNeedsReadinessRepair) await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
@@ -1928,7 +1942,8 @@ export async function assertStoryTestRecoveryFeatureAdmission(root, config, work
   }
   const qualified = { ...workflow, workId: workflow.workItem.id,
     testRecovery: { ...workflow.testRecovery, readiness: { ...readiness, repositories: qualifiedRows } } };
-  const admission = assertTrpFeatureAdmission(qualified, phase, { agreement });
+  const decisions = await qualifiedTrpIntakeDecisions(root, config, workflow, agreement, phase);
+  const admission = assertTrpFeatureAdmission(qualified, phase, { agreement, ...decisions });
   return { ...admission, ...(readiness?.checkpointSha256 && qualifiedRows.length === 1 ? {
     featureBaseCommit: qualifiedRows[0].featureBaseCommit, readinessCheckpointSha256: readiness.checkpointSha256
   } : {}) };
@@ -1975,6 +1990,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'begin code generation');
   const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
+  await assertDocumentInputs(root, config, workflow, phase);
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
   if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
@@ -1999,6 +2015,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  await assertDocumentInputs(root, config, workflow, phase);
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
   if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
@@ -2935,7 +2952,18 @@ function assertRequiredAssignment(workflow, phase) {
  * Replaying the immutable review packet also protects a later Testing/Code checking approval from
  * a stale or fabricated "tests passed" paragraph.
  */
+async function assertDocumentInputs(root, config, workflow, phase) {
+  const declared = workflow.resolution?.phases?.find(item => item.id === phase.id)?.inputs ?? phase.inputs ?? [];
+  const ids = declared.map(item => typeof item === 'string' ? item : item.phaseId ?? item.phase).filter(Boolean);
+  const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
+  for (const id of new Set(ids)) {
+    const source = workflow.phases?.[id];
+    if (source?.status === 'approved') await assertStoryDocumentRiskGates(root, config, workflow, source, 'downstream');
+  }
+}
+
 export async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
+  await assertDocumentInputs(root, config, workflow, phase);
   const sourceId = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom;
   if (!sourceId) return null;
   const source = workflow.phases?.[sourceId];
@@ -3048,6 +3076,8 @@ export async function publishGeneration(root, config, workflow, {
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
+  const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
+  await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'publish');
   // Deterministic generation is kernel-owned and deliberately carries no phase-agent session.
@@ -4209,9 +4239,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // test as an internal child and emit no reporter events. External quality commands are a new
     // execution boundary, so they receive the ordinary process environment without the parent's
     // test-runner control marker.
-    const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.includes('new-test-failure')
+    const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))
       && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
-    const commandEnvironment = failedRiskCommand ? trpNodeExecutionEnvironment() : { ...process.env };
+    const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
+    const commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
     delete commandEnvironment.NODE_TEST_CONTEXT;
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {
@@ -4230,6 +4261,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         env: commandEnvironment,
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true,
+        reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
         stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
           || policy.result?.adapter === 'node-tap'
           || policy.result?.adapter === 'karma-text'
@@ -4359,14 +4391,35 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         if (['blocked', 'failed'].includes(check.status)) {
           const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
             { run: riskRun, check, result: qualityCommandResults.get(check) }) : null;
-          if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
-            operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
+          if (observation) {
+            const accepted = await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
+              operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
+            if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
+              const paths = phase.sourceBoundary === 'test-automation' ? deliveryEvidence.testPaths : deliveryEvidence.sourcePaths;
+              const uncovered = paths.filter(candidate => !commands.some(item => item.affectedRoots.some(affectedRoot =>
+                affectedRoot === '.' || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
+              if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+            }
+            const { materializeStoryTestRiskEvidence } = await import('./test-recovery-runtime.mjs');
+            await materializeStoryTestRiskEvidence(root, config, workflow, accepted);
+            await appendTrpRecord(workDir(root, config, workflow.workItem.id), accepted.evaluation);
+            deliveryEvidence.testRecovery = { observationSha256: observation.recordSha256,
+              observedOutcome: observation.observedOutcome, disposition: 'accepted-risk', evidenceUse: 'executed',
+              evaluationSha256: accepted.evaluation.recordSha256 };
+            return { commands, checks: [], testRecovery: { observation, evaluation: accepted.evaluation } };
+          }
           throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication.`, { code: 'CODE_TEST_FAILED' });
         }
         if (check.status !== 'passed' || check.exitCode !== 0) {
           throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
         }
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+        if (parsed.tests.skipped > 0 && riskRun && workflow.resolution.testRecovery.enabledRiskCategories.includes('reduced-coverage')) {
+          const observation = await captureStoryTestRiskObservation(root, config, workflow, phase,
+            { run: riskRun, check, result: qualityCommandResults.get(check) });
+          if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
+            operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
+        }
         const exactTestcaseObservation = await observeExactTestcaseIdentities(
           root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
         );
@@ -4452,6 +4505,8 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
+  await assertStoryDocumentRiskGates(root, config, workflow, phase, 'submit');
   const testCommandEpochRun = beginTestCommandEpochValidation(workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'submit');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
@@ -4788,6 +4843,12 @@ async function submitPhaseTransition(root, config, workflow, {
             throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
           }
           parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+          if (parsed.tests.skipped > 0 && riskRun && workflow.resolution.testRecovery.enabledRiskCategories.includes('reduced-coverage')) {
+            const observation = await captureStoryTestRiskObservation(root, config, workflow, phase,
+              { run: riskRun, check, result: qualityCommandResults.get(check) });
+            if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
+              operation: 'submit', generation: phase.generation, observationSha256: observation.recordSha256 });
+          }
           const exactTestcaseObservation = await observeExactTestcaseIdentities(
             root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
           );
@@ -5146,6 +5207,8 @@ export async function approvePhase(root, config, workflow, {
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
+  const documentRisks = await assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve');
   assertSkillPhaseHostReady(workflow, phase, 'approve');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'be approved');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
@@ -5264,8 +5327,8 @@ export async function approvePhase(root, config, workflow, {
   const approvalRisk = riskReference ? await assertStoryTestRiskGate(root, config, workflow, {
     phaseId: phase.id, operation: 'approve', generation: phase.generation,
     observationSha256: riskReference.observationSha256, evidenceCommit: submittedReview.evidenceCommit }) : null;
-  if (approvalRisk) {
-    for (const commit of await verifiedStoryTestRiskReviewCommits(root, config, workflow, approvalRisk,
+  for (const reviewedRisk of [approvalRisk, ...documentRisks].filter(Boolean)) {
+    for (const commit of await verifiedStoryTestRiskReviewCommits(root, config, workflow, reviewedRisk,
       interveningCommits.filter(item => !allowedReviewCommits.has(item)))) allowedReviewCommits.add(commit);
   }
   if (workflow.auto && interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {

@@ -173,12 +173,12 @@ test('decision transition, phase, repository, epoch, expiry bounds and revocatio
   }
 });
 
-test('decision carry-forward applies to explicitly listed phases and a fresh observation', () => {
+test('decision carry-forward cannot substitute a baseline captured for another phase', () => {
   const fixture = createTrpFixture();
   const subject = { ...fixture.subject, phaseId: 'release', generation: 2 };
   const selection = change(fixture.selection, (value) => { value.subject = subject; });
   const observation = change(fixture.observation, (value) => { value.subject = subject; value.selectionSha256 = selection.recordSha256; });
-  assert.equal(evaluate(fixture, { subject, selection, observations: [observation] }).gateDecision, 'allow-with-risk');
+  denied(evaluate(fixture, { subject, selection, observations: [observation] }));
   const decision = change(fixture.decision, (value) => { value.applicability.carryForward = false; });
   denied(evaluate(fixture, { subject, selection, observations: [observation], decisions: [decision] }));
 });

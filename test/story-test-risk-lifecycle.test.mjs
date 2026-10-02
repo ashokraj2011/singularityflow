@@ -47,7 +47,9 @@ function setActor(root, actor) {
 }
 
 /** Real Git/CLI/PTY fixture with native ENOENT or genuine Node JUnit failure, never a fabricated current report. */
-async function fixture(t, { unavailable = true, danglingRuntime = false, downstream = false, failedRisk = false, testOnly = false } = {}) {
+async function fixture(t, { unavailable = true, danglingRuntime = false, downstream = false, failedRisk = false, skippedRisk = false, testOnly = false, docRisk = false } = {}) {
+  failedRisk ||= skippedRisk;
+  if (docRisk) unavailable = false;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-risk-lifecycle-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'application');
@@ -82,10 +84,11 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
     definition.approvalAuthorities[id] = { label: id, allowAnyGitIdentity: false,
       members: [{ name: actor.name, email: actor.email, githubLogin: null }] };
   }
-  const riskCategory = failedRisk ? 'new-test-failure' : 'validation-unavailable';
+  const riskCategory = docRisk ? 'nonessential-document' : skippedRisk ? 'reduced-coverage' : failedRisk ? 'new-test-failure' : 'validation-unavailable';
   const reportRelative = failedRisk ? '.sflow/results/required.xml' : '.sflow/results/required.tap';
   definition.testRecovery = { enabled: true, riskAuthorities: ['risk-reviewers'],
     enabledRiskCategories: [riskCategory], allowEvidenceReuse: failedRisk, maxRiskDays: 7,
+    ...(docRisk ? { documentObligations: [{ id: 'release-notes', phaseId: 'implementation', path: 'docs/release.md', requiredSections: ['Usage'] }] } : {}),
     ...(failedRisk ? { caseInventory: [{ phaseId: 'implementation', commandId: '.-python-tests',
       dependencyScope: 'repository-and-node-builtins-only',
       tests: [{ id: 'service-contract', path: 'test/service.test.mjs', name: 'service contract' },
@@ -107,7 +110,7 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
       : [process.execPath, '--test', '--test-reporter=tap', 'test/service.test.mjs'],
     workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
     result: { adapter: failedRisk ? 'junit-xml' : 'node-tap', path: reportRelative,
-      minimumDiscovered: failedRisk ? 2 : 1, minimumPassed: failedRisk ? 2 : 1 } }];
+      minimumDiscovered: failedRisk ? 2 : 1, minimumPassed: failedRisk && !skippedRisk ? 2 : 1 } }];
   await writeFile(definitionPath, YAML.stringify(definition));
   if (danglingRuntime) {
     await mkdir(path.join(root, 'tools'));
@@ -143,11 +146,11 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
     readinessRepositories, repositoryReadiness, testRecoveryPlan, approvedConfigurationSnapshot: approved }));
   await invoke(root, () => commitAndPublish(root, config, workflow, { type: 'binding' }, 'Bind the exact Story risk policy'));
   const artifact = path.join(workDir(root, config, workId), workflow.phases.implementation.requiredArtifact.path);
-  await writeFile(artifact, `# Implementation\n\nImplemented the requested service value and an executable assertion.\n\n## Validation limitation\n\n${failedRisk ? 'The independently inventoried service test fails its assertion.' : 'The configured test runtime is unavailable.'} No current candidate test pass is claimed. Each permitted transition requires its exact reviewed decision; ordinary phase approval remains separate.\n`);
+  await writeFile(artifact, `# Implementation\n\nImplemented the requested service value and an executable assertion.\n\n## Validation limitation\n\n${skippedRisk ? 'The independently inventoried service-contract case is skipped; only the separate smoke case passes.' : failedRisk ? 'The independently inventoried service test fails its assertion.' : 'The configured test runtime is unavailable.'} No complete current candidate validation pass is claimed. Each permitted transition requires its exact reviewed decision; ordinary phase approval remains separate.\n`);
   if (!testOnly) await writeFile(path.join(root, 'src/service.mjs'), 'export const value = 2;\n');
   await writeFile(path.join(root, 'test/service.test.mjs'), [
     "import test from 'node:test'; import assert from 'node:assert/strict'; import {value} from '../src/service.mjs';",
-    `test('service contract', () => { assert.equal(value, ${unavailable && !failedRisk ? '2' : '3'}); });`,
+    `test('service contract', ${skippedRisk ? '{skip: true}, ' : ''}() => { assert.equal(value, ${docRisk || (unavailable && !failedRisk) ? '2' : '3'}); });`,
     ...(failedRisk ? ["test('service smoke', () => { assert.equal(typeof value, 'number'); });"] : []), ''
   ].join('\n'));
   git(root, 'add', 'src/service.mjs', 'test/service.test.mjs');
@@ -156,7 +159,7 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
   const oldReport = failedRisk ? '<?xml version="1.0"?><testsuites><testcase name="historical unrelated execution"/></testsuites>\n'
     : 'TAP version 13\n1..1\nok 1 - historical unrelated execution\n';
   await writeFile(path.join(root, reportRelative), oldReport);
-  const value = { root, remote, config, workflow, artifact, baseCommit, oldReport, runtimeTarget, reportRelative, failedRisk, riskCategory };
+  const value = { root, remote, config, workflow, artifact, baseCommit, oldReport, runtimeTarget, reportRelative, failedRisk, skippedRisk, riskCategory };
   value.reload = async () => {
     const loaded = await loadAcceptedStoryExecution(root, workId);
     value.config = loaded.config; value.workflow = loaded.workflow;
@@ -241,7 +244,9 @@ async function confirmTestScope(value) {
 }
 
 async function riskPlan(value, operation, extra = {}) {
-  const common = { ...terms, ...(value.failedRisk ? { reason: 'The independently approved service-contract testcase failed on this exact candidate. Accept only this displayed transition while its assertion failure is remediated.' } : {}) };
+  const common = { ...terms, ...(value.skippedRisk
+    ? { reason: 'The independently approved service-contract testcase was skipped on this exact candidate. Retain the coverage gap while its execution is restored; only the smoke case passed.' }
+    : value.failedRisk ? { reason: 'The independently approved service-contract testcase failed on this exact candidate. Accept only this displayed transition while its assertion failure is remediated.' } : {}) };
   const inspected = await planStoryTestRisk(value.root, value.config, value.workflow, { ...common, ...extra, operation });
   const issue = inspected.issues.find(entry => entry.category === value.riskCategory && entry.riskEligible);
   assert.ok(issue, JSON.stringify(inspected));
@@ -281,9 +286,57 @@ function detachedReviewMutation(value, reviewedCommit, relative, contents) {
     git(value.root, 'show', '-s', '--format=%B', reviewedCommit));
 }
 
-async function exerciseRiskLifecycle(t, { failedRisk = false, testOnly = false } = {}) {
-    const value = await fixture(t, { downstream: true, failedRisk, testOnly });
-    const observedOutcome = failedRisk ? 'failed' : 'unavailable';
+test('supplemental document risk is exact, terminal-reviewed, transition-specific and independently approved',
+  { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
+    const value = await fixture(t, { docRisk: true, downstream: true });
+    const { assertStoryDocumentRiskGates, loadStoryDocumentRiskContext } = await import('../src/trp-document-runtime.mjs');
+    const phase = () => value.workflow.phases.implementation;
+    const docOptions = { obligationId: 'release-notes', reason: 'The supplemental usage note is deferred to the documentation owner; no essential specification or validation is waived.' };
+    await assert.rejects(value.publish(), { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
+    await value.reload(); await authorizeAgreement(value);
+    await acceptRisk(value, 'publish', docOptions);
+    await value.publish(); await value.reload();
+    assert.equal(phase().generation, 1);
+    await assert.rejects(submit(value), { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
+    await value.reload(); await acceptRisk(value, 'submit', docOptions);
+    await submit(value); await value.reload();
+    assert.equal(phase().deliveryEvidence.validation.status, 'passed', 'real Node tests still execute and pass');
+    await assert.rejects(invoke(value.root, () => approvePhase(value.root, value.config, value.workflow,
+      { phaseId: 'implementation', actor: phaseReviewer, agent: null, persist: false })), { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
+    await acceptRisk(value, 'approve', docOptions);
+    setActor(value.root, phaseReviewer);
+    await invoke(value.root, () => commitAndPublish(value.root, value.config, value.workflow,
+      { type: 'phase-approved', phaseId: 'implementation', generation: 1, actor: phaseReviewer, agent: null,
+        authorityGroup: 'engineering-reviewers' }, 'Approve with explicit supplemental documentation exception', [], {
+        beforeStateWrite: () => approvePhase(value.root, value.config, value.workflow,
+          { phaseId: 'implementation', actor: phaseReviewer, agent: null, persist: false })
+      }));
+    await value.reload();
+    assert.equal(phase().status, 'approved');
+    await assert.rejects(assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'downstream'),
+      { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
+    await acceptRisk(value, 'downstream', docOptions);
+    assert.equal((await assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'downstream')).length, 1);
+    await assert.rejects(assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'replay'),
+      { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
+    await acceptRisk(value, 'replay', docOptions);
+    const context = await loadStoryDocumentRiskContext(value.root, value.config, value.workflow,
+      { phaseId: 'implementation', obligationId: 'release-notes', operation: 'replay' });
+    assert.equal(context.evaluation.gateDecision, 'allow-with-risk');
+    assert.equal(context.observations[0].observedOutcome, 'failed');
+    await mkdir(path.join(value.root, 'docs'));
+    await writeFile(path.join(value.root, 'docs/release.md'), '# Changed but still missing its required section\n');
+    await assert.rejects(assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'replay'),
+      { code: 'TRP_DOCUMENT_GATE_BLOCKED' }, 'old exception cannot authorize a different document or candidate');
+    await writeFile(path.join(value.root, 'docs/release.md'), '# Release\n\n## Usage\n\nRun the documented command.\n');
+    assert.equal((await assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'replay')).length, 0,
+      'a real repaired document needs no exception, but normal publication/approval freshness still applies');
+  });
+
+async function exerciseRiskLifecycle(t, { failedRisk = false, skippedRisk = false, testOnly = false } = {}) {
+    failedRisk ||= skippedRisk;
+    const value = await fixture(t, { downstream: true, failedRisk, skippedRisk, testOnly });
+    const observedOutcome = skippedRisk ? 'passed' : failedRisk ? 'failed' : 'unavailable';
     const source = await readFile(path.join(value.root, 'src/service.mjs'), 'utf8');
     if (failedRisk) await confirmTestScope(value);
     await assert.rejects(value.publish(), { code: 'TRP_PHASE_GATE_BLOCKED' });
@@ -297,14 +350,15 @@ async function exerciseRiskLifecycle(t, { failedRisk = false, testOnly = false }
     assert.equal(initial.observations.length, 1);
     const observation = initial.observations[0];
     assert.equal(observation.observedOutcome, observedOutcome);
-    assert.equal(observation.processExitCode, failedRisk ? 1 : null);
+    assert.equal(observation.processExitCode, skippedRisk ? 0 : failedRisk ? 1 : null);
     assert.equal(observation.identityCompleteness, failedRisk ? 'complete' : 'incomplete');
     if (failedRisk) {
       assert.deepEqual([...observation.expectedTestIds].sort(), ['a-service-smoke', 'service-contract']);
       assert.equal(observation.cases.length, 2);
-      assert.equal(observation.cases.find(entry => entry.id === 'service-contract').outcome, 'failed');
+      assert.equal(observation.cases.find(entry => entry.id === 'service-contract').outcome, skippedRisk ? 'skipped' : 'failed');
       assert.equal(observation.cases.find(entry => entry.id === 'a-service-smoke').outcome, 'passed');
-      assert.equal(observation.counts.failed, 1); assert.equal(observation.counts.passed, 1);
+      assert.equal(observation.counts.failed, skippedRisk ? 0 : 1); assert.equal(observation.counts.passed, 1);
+      assert.equal(observation.counts.skipped, skippedRisk ? 1 : 0);
       assert.equal(observation.reportSha256s.length, 1, 'the genuine JUnit report remains retained evidence');
     } else {
       assert.deepEqual(observation.cases, []); assert.deepEqual(observation.reportSha256s, []);
@@ -405,6 +459,9 @@ test('a genuine independently inventoried Node JUnit failure remains failed thro
 
 test('a test-only change confirms the complete approved cohort before its genuine failure can receive risk review',
   { skip: !TRP_TERMINAL_AVAILABLE }, t => exerciseRiskLifecycle(t, { failedRisk: true, testOnly: true }));
+
+test('a genuine Node skipped case remains incomplete coverage through every separately authorized lifecycle transition',
+  { skip: !TRP_TERMINAL_AVAILABLE }, t => exerciseRiskLifecycle(t, { skippedRisk: true }));
 
 for (const variant of ['extra', 'missing', 'skipped', 'duplicate']) {
   test(`native Node JUnit ${variant} testcase evidence cannot become accepted new-test-failure risk`,

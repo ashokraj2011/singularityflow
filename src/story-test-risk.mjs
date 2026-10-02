@@ -8,11 +8,12 @@ import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTr
 import { loadTrpDeliveryAgreement } from './trp-delivery-selection.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
+import { documentObligationsForPhase } from './trp-document-policy.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const OPERATIONS = ['publish', 'submit', 'approve', 'downstream', 'replay'];
-const SUPPORTED = ['validation-unavailable', 'new-test-failure'];
+const SUPPORTED = ['validation-unavailable', 'new-test-failure', 'known-test-failure', 'reduced-coverage', 'nonessential-document'];
 const fail = (message, code = 'TRP_RISK_ARGUMENT_INVALID', details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const reference = ({ kind, id, recordSha256 }) => ({ kind, id, recordSha256 });
 const actorPrincipal = (actor) => String(actor.email ?? actor.login ?? '').trim().toLowerCase();
@@ -29,14 +30,14 @@ export function storyTestRiskAuthorityContext(workflow, agreement) {
     allowEvidenceReuse: pin.allowEvidenceReuse ?? false, maxEvidenceAgeSeconds: pin.maxEvidenceAgeSeconds ?? 86400,
     requiredApproval: true }, pinnedAuthorities: workflow.resolution.approvalAuthorities,
     delegation: { minimum: 1, minimumAssurance: 'configured-local-review', authorities: pin.riskAuthorities,
-      categories: pin.enabledRiskCategories ?? [], transitions: OPERATIONS } };
+      categories: pin.enabledRiskCategories ?? [], transitions: [...OPERATIONS, 'generation-admission'] } };
 }
 
 function validateOptions(options, extra = []) {
-  const allowed = new Set(['phaseId', 'repositoryId', 'operation', 'issueId', 'reason', 'expiresAt', 'followUpOwner', 'remediationRef', ...extra]);
+  const allowed = new Set(['phaseId', 'repositoryId', 'obligationId', 'operation', 'issueId', 'reason', 'expiresAt', 'followUpOwner', 'remediationRef', ...extra]);
   if (!options || typeof options !== 'object' || Array.isArray(options)
     || Object.keys(options).some((key) => !allowed.has(key))) fail('Unsupported Story risk options.');
-  for (const key of ['phaseId', 'repositoryId', 'issueId']) {
+  for (const key of ['phaseId', 'repositoryId', 'issueId', 'obligationId']) {
     if (options[key] != null && (!ID.test(options[key]) || options[key].includes('..'))) fail(`Invalid ${key}.`);
   }
   if (options.operation != null && !OPERATIONS.includes(options.operation)) fail('Select a supported exact transition.');
@@ -74,11 +75,16 @@ function reviewIdentity(root, authority, record = null) {
 function decisionTerms(context, options) {
   const issue = context.evaluation.issues.find((entry) => entry.id === options.issueId);
   const observation = context.observations.find((entry) => entry.recordSha256 === issue?.observationRef);
+  const knownBaseline = issue?.category === 'known-test-failure' ? context.baselines.find(entry =>
+    context.agreement.repositories.some(repo => repo.repositoryId === context.subject.repositoryId && repo.baselineRefs.includes(entry.recordSha256))
+    && entry.subject.phaseId === context.subject.phaseId && entry.obligationId === observation?.obligationId
+    && entry.commandSha256 === observation?.commandSha256 && entry.selectorSha256 === observation?.selectorSha256) : null;
   const blockers = [];
   if (!issue) blockers.push('Select an issue from the current phase risk inspection.');
   if (issue && (!issue.riskEligible || issue.severity !== 'noncritical' || !SUPPORTED.includes(issue.category))) blockers.push(issue.riskReason || 'This issue has no supported risk adapter.');
   if (issue && !context.policy.enabledRiskCategories.includes(issue.category)) blockers.push('This category is not enabled by the pinned repository policy.');
   if (!observation) blockers.push('An authenticated exact current observation is required.');
+  if (issue?.category === 'known-test-failure' && !knownBaseline) blockers.push('An authenticated immutable intake baseline is required for known-failure review.');
   if ((options.reason ?? '').trim().length < 15) blockers.push('Provide a substantive reason of at least 15 characters.');
   if (!(options.followUpOwner ?? '').trim()) blockers.push('Name the follow-up owner.');
   if (!(options.remediationRef ?? '').trim()) blockers.push('Name the remediation reference.');
@@ -89,30 +95,51 @@ function decisionTerms(context, options) {
   const terms = { subject: context.subject, agreementSha256: context.agreement.recordSha256,
     policyAuthoritySha256: context.policy.authoritySha256, issueId: issue?.id ?? null,
     category: issue?.category ?? null, severity: issue?.severity ?? null,
-    anchorObservationDigest: observation?.recordSha256 ?? null, obligationId: issue?.obligationId ?? null,
+    anchorObservationDigest: knownBaseline?.recordSha256 ?? observation?.recordSha256 ?? null, obligationId: issue?.obligationId ?? null,
     transitions: [options.operation ?? 'publish'], reason: (options.reason ?? '').trim(), expiresAt,
     followUpOwner: (options.followUpOwner ?? '').trim(), remediationRef: (options.remediationRef ?? '').trim(),
-    applicability: observation ? { carryForward: false, phaseIds: [context.subject.phaseId],
-      dependencies: observation.dependencies, environmentSha256: trpEnvironmentDigest(observation.environment), baselineSha256: null,
+    applicability: observation ? { carryForward: Boolean(knownBaseline), phaseIds: [context.subject.phaseId],
+      dependencies: knownBaseline?.dependencies.some(entry => entry.id === 'baseline-compatibility')
+        ? knownBaseline.dependencies.filter(entry => entry.id === 'baseline-compatibility') : observation.dependencies,
+      environmentSha256: trpEnvironmentDigest(knownBaseline?.environment ?? observation.environment), baselineSha256: knownBaseline?.recordSha256 ?? null,
       acceptedFailures: observation.cases.filter((entry) => entry.outcome === 'failed').map((entry) => ({
         testId: entry.id, semanticsSha256: entry.semanticsSha256, causeSha256: entry.causeSha256 })),
-      allowedTestIds: observation.expectedTestIds, excludedTestIds: [], maxFailed: observation.counts.failed,
+      allowedTestIds: observation.expectedTestIds,
+      excludedTestIds: issue?.category === 'reduced-coverage'
+        ? [...new Set([...(context.selection?.exclusions ?? []).map(entry => entry.testId),
+          ...observation.cases.filter(entry => ['skipped', 'not-run'].includes(entry.outcome)).map(entry => entry.id)])] : [],
+      maxFailed: observation.counts.failed,
       commandSha256: observation.commandSha256, selectorSha256: observation.selectorSha256,
       maxObservationAgeSeconds: context.policy.maxEvidenceAgeSeconds } : null };
   return { terms, issue, observation, blockers };
 }
 
 async function resolveRiskPlan(root, config, workflow, options) {
-  const { loadStoryTestRiskContext } = await import('./test-recovery-runtime.mjs');
-  const context = await loadStoryTestRiskContext(root, config, workflow, {
-    phaseId: options.phaseId, repositoryId: options.repositoryId, operation: options.operation ?? 'publish' });
+  const documentObligations = documentObligationsForPhase(workflow, options.phaseId ?? workflow.currentPhase);
+  const phase = workflow.phases?.[options.phaseId ?? workflow.currentPhase];
+  const testValidationAvailable = Boolean(phase?.qualityCommands?.some(command => command?.kind === 'test'));
+  const obligationId = options.obligationId ?? null;
+  if (!obligationId && !testValidationAvailable && documentObligations.length) return { preview: {
+    schemaVersion: 1, resultType: 'story-test-risk-plan', workId: workflow.workItem.id,
+    phaseId: phase.id, operation: options.operation ?? 'publish', obligationId: null,
+    testValidationAvailable, documentObligations, status: 'choose-obligation', ready: false,
+    blockers: ['Select a supplemental document obligation to inspect.'], issues: [], decisions: [],
+    executed: false, stateChanged: false
+  } };
+  const loader = obligationId
+    ? (await import('./trp-document-runtime.mjs')).loadStoryDocumentRiskContext
+    : (await import('./test-recovery-runtime.mjs')).loadStoryTestRiskContext;
+  const context = await loader(root, config, workflow, {
+    phaseId: options.phaseId, repositoryId: options.repositoryId, obligationId,
+    operation: options.operation ?? 'publish' });
   const { terms, issue, observation, blockers } = decisionTerms(context, options);
   const planDigest = trpDigest({ kind: 'story-test-risk-plan', action: 'accept', ...terms });
   const agreementAuthority = context.verifyAuthority?.(context.agreement, { policy: context.policy, capability: 'trp-agreement' });
   if (!agreementAuthority || agreementAuthority.revokedAt) blockers.push('Authorize the current immutable agreement in a direct terminal before accepting a risk.');
   return { context, terms, observation, preview: { schemaVersion: 1, resultType: 'story-test-risk-plan',
     workId: workflow.workItem.id, phaseId: context.subject.phaseId, repositoryId: context.subject.repositoryId,
-    operation: options.operation ?? 'publish', status: blockers.length ? 'blocked' : 'ready', ready: blockers.length === 0,
+    operation: options.operation ?? 'publish', obligationId: obligationId ?? null, testValidationAvailable, documentObligations,
+    status: blockers.length ? 'blocked' : 'ready', ready: blockers.length === 0,
     planDigest, decision: terms, issues: context.evaluation.issues, decisions: context.decisions,
     observedOutcome: observation?.observedOutcome ?? 'not-run', remainingBlockers: context.evaluation.remainingBlockers,
     blockers, agreementAuthorization: { recordSha256: context.agreement.recordSha256, principal: context.agreement.issuer.principal,
@@ -188,8 +215,10 @@ export async function acceptStoryTestRisk(root, config, workflow, options = {}) 
     initialHead, action: 'accepted', refresh: async (current) => {
       const fresh = await resolveRiskPlan(root, config, current, options);
       if (!fresh.preview.ready || fresh.preview.planDigest !== options.confirmation) fail('Candidate, evidence, policy or issue changed during review.', 'TRP_RISK_REVIEW_STALE');
-      const { materializeStoryTestRiskEvidence } = await import('./test-recovery-runtime.mjs');
-      await materializeStoryTestRiskEvidence(root, config, current, fresh.context);
+      const materialize = fresh.context.adapter === 'document'
+        ? (await import('./trp-document-runtime.mjs')).materializeStoryDocumentRiskEvidence
+        : (await import('./test-recovery-runtime.mjs')).materializeStoryTestRiskEvidence;
+      await materialize(root, config, current, fresh.context);
       return storyTestRiskAuthorityContext(current, fresh.context.agreement);
     } });
 }

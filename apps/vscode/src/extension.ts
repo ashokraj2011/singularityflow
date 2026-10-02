@@ -39,7 +39,7 @@ import {
 } from './views/submission-presentation.ts';
 import { phasePrepublishDecision } from './views/phase-prepublish.ts';
 import { testRecoveryPreviewArgs, testRecoveryReviewActions, type TestRecoveryAction } from './views/story-test-recovery.ts';
-import { storyRiskPreviewArgs, storyRiskChoices, storyRiskApplyArgs, type StoryRiskTerms } from './views/story-test-risk.ts';
+import { storyRiskPreviewArgs, storyRiskChoices, storyRiskObligationChoices, storyRiskApplyArgs, type StoryRiskTerms } from './views/story-test-risk.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
@@ -7378,8 +7378,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const args = riskTransition ? storyRiskPreviewArgs('risks', subject, riskTransition)
           : testRecoveryPreviewArgs(choice.action, subject, reason);
-        const result = await client.run<unknown>(args);
+        let result = await client.run<unknown>(args);
         if (!stillCurrent()) return;
+        if (choice.action === 'risks' && riskTransition) {
+          const obligations = storyRiskObligationChoices(result, subject);
+          if (obligations.length) {
+            const selected = await vscode.window.showQuickPick(obligations, {
+              title: 'Inspect test validation or an exact document obligation', ignoreFocusOut: true
+            });
+            if (!selected || !stillCurrent()) return;
+            if (selected.obligationId) result = await client.run<unknown>(storyRiskPreviewArgs('risks', subject,
+              { ...riskTransition, obligationId: selected.obligationId }));
+            if (!stillCurrent()) return;
+          }
+        }
         // JSON language mode prevents repository-derived strings from becoming links or commands.
         const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(result, null, 2) });
         await vscode.window.showTextDocument(document, { preview: true });
@@ -7405,7 +7417,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 ? null : 'Name a follow-up owner (1–256 ordinary characters).' });
             if (terms.followUpOwner === undefined || !stillCurrent()) return;
             terms.remediationRef = await vscode.window.showInputBox({ title: 'Remediation reference or action', ignoreFocusOut: true,
-              prompt: 'Validation remains unavailable. Record how it will be repaired.',
+              prompt: 'The observed failure, gap or unavailable result stays unchanged. Record its remediation.',
               validateInput: value => value.trim().length > 0 && value.length <= 1000 && !/[\x00-\x1f\x7f]/u.test(value)
                 ? null : 'Give a remediation reference or action (1–1000 ordinary characters).' });
             if (terms.remediationRef === undefined || !stillCurrent()) return;

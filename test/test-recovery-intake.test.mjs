@@ -140,14 +140,15 @@ test('TRP CLI operations classify plans as read-only and confirmations/execution
   }
 });
 
-test('unavailable-runner review remains opt-in; unsupported categories and unqualified failures stay disabled', () => {
+test('risk review remains opt-in and evidence-bearing categories require their declared contracts', () => {
   const policy = normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['validation-unavailable'] });
   assert.deepEqual(policy.enabledRiskCategories, ['validation-unavailable']);
   assert.equal(policy.allowEvidenceReuse, false);
   assert.throws(() => normalizeTestRecoveryPolicy({ enabled: true, enabledRiskCategories: ['validation-unavailable'] }), { code: 'TRP_POLICY_INVALID' });
-  for (const category of ['new-test-failure', 'known-test-failure', 'reduced-coverage', 'nonessential-document']) {
+  for (const category of ['new-test-failure', 'known-test-failure', 'reduced-coverage']) {
     assert.throws(() => normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: [category] }), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
   }
+  assert.throws(() => normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['nonessential-document'] }), { code: 'TRP_POLICY_INVALID' });
 });
 
 function failedPolicy() {
@@ -171,11 +172,13 @@ test('native failed-test opt-in pins an independent case inventory and explicit 
 
 test('shipped editor schema advertises only supported test risks and closed independently declared case inventory', async () => {
   const schema = JSON.parse(await readFile(new URL('../schemas/workflow-definition.schema.json', import.meta.url), 'utf8')).properties.testRecovery;
-  assert.deepEqual(schema.properties.enabledRiskCategories.items.enum, ['validation-unavailable', 'new-test-failure']);
+  assert.deepEqual(schema.properties.enabledRiskCategories.items.enum,
+    ['validation-unavailable', 'new-test-failure', 'known-test-failure', 'reduced-coverage', 'nonessential-document']);
   assert.equal(schema.properties.allowEvidenceReuse.type, 'boolean');
   assert.equal(schema.properties.caseInventory.items.additionalProperties, false);
   assert.deepEqual(schema.properties.caseInventory.items.required, ['phaseId', 'commandId', 'dependencyScope', 'tests']);
-  assert.equal(schema.properties.caseInventory.items.properties.dependencyScope.const, 'repository-and-node-builtins-only');
+  assert.deepEqual(schema.properties.caseInventory.items.properties.dependencyScope.enum,
+    ['repository-and-node-builtins-only', 'repository-and-declared-runtime-only']);
   assert.deepEqual(schema.allOf[1].then.required, ['caseInventory', 'allowEvidenceReuse']);
   assert.equal(schema.allOf[1].then.properties.allowEvidenceReuse.const, true);
 });

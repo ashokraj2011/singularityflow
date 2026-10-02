@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 import { nextStepsSnapshot, nextStepsText, workflowNextSteps } from '../src/nextsteps.mjs';
+import { storyPrerequisites } from '../src/commands/nextsteps.mjs';
 
 function workflow({ status = 'in_progress', phaseStatus = 'in_progress', generation = 0, currentPhase = 'intake', history = [] } = {}) {
   return {
@@ -176,4 +183,50 @@ test('a consumed generation with changed bytes suppresses ordinary lifecycle ret
   assert.equal(snapshot.actions[0].skill, '/sf-recover');
   assert.equal(snapshot.actions[0].command, 'singularity-flow recover NEXT-1 --phase intake');
   assert.equal(snapshot.actions.some((entry) => /submit|publish/.test(entry.command)), false);
+});
+
+test('a step reopened by rework or a skill amendment gets the grounding prerequisites of a new generation', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-nextsteps-grounding-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = path.join(directory, 'repo');
+  const machine = path.join(directory, 'machine');
+  await mkdir(root); await mkdir(machine);
+  const env = { ...process.env, HOME: machine, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Next Steps Tester' };
+  const execute = (command, args) => {
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8' });
+    assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  };
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  execute('git', ['init', '-q', '-b', 'main']);
+  execute('git', ['config', 'user.name', 'Next Steps Tester']);
+  execute('git', ['config', 'user.email', 'next-steps@example.test']);
+  await writeFile(path.join(root, 'README.md'), '# Grounding fixture\n');
+  execute(process.execPath, [cli, '--no-model', 'init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.worldModel.grounding = 'warn';
+  config.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['add', '.']); execute('git', ['commit', '-q', '-m', 'Grounding fixture']);
+  execute('git', ['init', '-q', '--bare', '-b', 'main', path.join(directory, 'remote.git')]);
+  execute('git', ['remote', 'add', 'origin', path.join(directory, 'remote.git')]);
+  execute('git', ['push', '-q', '-u', 'origin', 'main']);
+  execute(process.execPath, [cli, '--no-model', 'start', 'GROUND-1', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Ground reopened work', '--description', 'A reopened step regenerates with grounding.']);
+  const story = JSON.parse(await readFile(path.join(root, 'singularity/work-items/GROUND-1/workflow.json'), 'utf8'));
+  const [first, second] = story.phaseOrder;
+  Object.assign(story.phases[first], { status: 'approved', generation: 2 });
+  Object.assign(story.phases[second], { status: 'in_progress', generation: 1 });
+  story.currentPhase = second;
+  const grounding = async (state) => (await storyPrerequisites(root, state,
+    { location: { path: 'singularity/work-items/GROUND-1/workflow.json' } }, { enabled: false }))
+    .some((entry) => entry.skill === '/sf-worldmodel' || /wm compose/.test(entry.command));
+  assert.equal(await grounding(story), false, 'a published, unreopened generation needs no new grounding');
+  // A downstream step reopened by a return to an earlier step has no rejectedAt of its own.
+  const reopened = structuredClone(story);
+  reopened.phases[second].reworkRevalidation = { generation: 1, invalidatedAt: '2026-10-02T00:00:00.000Z' };
+  assert.equal(await grounding(reopened), true);
+  const amended = structuredClone(story);
+  amended.phases[second].skillAmendmentRevalidation = { state: 'affected', generationAtAdoption: 1 };
+  assert.equal(await grounding(amended), true);
 });

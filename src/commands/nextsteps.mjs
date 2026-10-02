@@ -8,6 +8,7 @@ import { exists, optionBoolean, readJson } from '../util.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
+import { phaseNeedsGeneration } from '../sequence.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -58,7 +59,7 @@ async function initiativeSnapshot(root, selected) {
   };
 }
 
-async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }) {
+export async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }) {
   const prerequisites = [];
   const active = activePhase(workflow);
   const session = await localSession(root);
@@ -81,8 +82,9 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
     reason: 'Select the governed agent that will remain active for this terminal session before generation.'
   });
 
-  const generationRequired = active && (active.generationPolicy?.requirement !== 'none')
-    && (active.generation < 1 || (active.rejectedAt && !(workflow.history ?? []).some((event) => event.phase === active.id && event.event === 'phase_generated' && event.at > active.rejectedAt)));
+  // The lifecycle's own freshness rule: a phase reopened as downstream rework or by a skill
+  // amendment needs a new generation (and its grounding) as much as a never-published one.
+  const generationRequired = Boolean(active) && phaseNeedsGeneration(workflow, active);
   const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
   if (active?.status === 'in_progress' && generationRequired
       && groundingMode !== 'off' && !deterministicConvergence) {

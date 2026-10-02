@@ -605,3 +605,41 @@ test('a step\'s new output sends a skill that cannot draft it back to automatic 
   const reload = loadedStudio(after);
   assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
 });
+
+test('a new step two workflows use in one draft keeps each workflow\'s sign-off, inputs and drafting skill', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  for (const [made, added] of [['chore', 'feature'], ['feature', 'chore']]) {
+    const root = await repository();
+    const model = await buildStudioModel(root);
+    const page = loadedStudio(model);
+    const state = page.state();
+    const id = page.createStep(made, 'Vendor notes', 'document', 'architect', 'intake');
+    page.chooseAuthoringSkill(made, id, 'sf-design');
+    page.addExistingStep(added, id, 'intake');
+    // The second workflow starts from what the step is created with, which is what the engine gives it.
+    const second = state.draft.steps[added][id];
+    assert.deepEqual([second.authoringSkill, second.approval, second.inputs], ['sf-design', { group: 'product-approvers', minimum: 1 }, ['intake']], `${made} then ${added}`);
+    const picker = page.skillPicker(added, id, second, [made]);
+    assert.equal(picker.value, 'sf-design');
+    assert.ok(picker.hint.endsWith(`Only this workflow changes; ${state.draft.workflows[made].label} keeps its own.`), picker.hint);
+    let changes = page.changeSetFrom(model, state.draft).changes;
+    assert.equal(changes.find((change) => change.op === 'phase.create').authoringSkill, 'sf-design');
+    assert.ok(!changes.some((change) => change.op === 'phase.update' && change.id === id), 'an unchanged second workflow sends nothing of its own');
+
+    // What the second workflow sets itself is sent as its own, and the engine keeps it there.
+    page.chooseAuthoringSkill(added, id, 'sf-requirements');
+    second.approval = { group: 'quality-reviewers', minimum: 2 };
+    second.inputs = [];
+    const changeSet = page.changeSetFrom(model, state.draft);
+    changes = changeSet.changes.filter((change) => change.op === 'phase.update' && change.id === id);
+    assert.deepEqual(changes, [{ op: 'phase.update', id, workflow: added, approval: { group: 'quality-reviewers', minimum: 2 }, inputs: [], authoringSkill: 'sf-requirements' }]);
+    const plan = await planStudioChangeSet(root, changeSet, { write: true });
+    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+    const after = await buildStudioModel(root);
+    const stepIn = (workflowId) => after.workflows.find((workflow) => workflow.id === workflowId).steps.find((step) => step.id === id);
+    assert.deepEqual([stepIn(made).effectiveAuthoringSkill, stepIn(made).approval.authorities, stepIn(made).approval.minimum, stepIn(made).inputs], ['/sf-design', ['product-approvers'], 1, ['intake']]);
+    assert.deepEqual([stepIn(added).effectiveAuthoringSkill, stepIn(added).approval.authorities, stepIn(added).approval.minimum, stepIn(added).inputs], ['/sf-requirements', ['quality-reviewers'], 2, []]);
+    const reload = loadedStudio(after);
+    assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+  }
+});

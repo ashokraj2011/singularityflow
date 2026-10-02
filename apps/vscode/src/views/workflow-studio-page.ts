@@ -233,6 +233,32 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return step.approval.group ? { group: step.approval.group, minimum: step.approval.minimum || 1 } : 'none';
   }
 
+  /**
+   * The workflow a new step takes its own settings from when it is created: the one it was made in,
+   * while that workflow still uses it, otherwise the first that does. Every other workflow using it
+   * in the same draft sends its own settings where they differ.
+   */
+  function homeWorkflow(draft, phaseId) {
+    function uses(id) { return Boolean(draft.workflows[id]) && draft.workflows[id].phases.indexOf(phaseId) >= 0; }
+    var made = ((draft.phases[phaseId] || {}).usedBy || [])[0];
+    if (made && uses(made)) return made;
+    return Object.keys(draft.workflows).find(uses) || null;
+  }
+
+  /**
+   * What a workflow that takes up a step has when it sets nothing itself: the step's own sign-off,
+   * inputs (those among this workflow's steps) and drafting skill. A new step's own values are those
+   * of the workflow it is created with, so a second workflow starts from them, as the engine does.
+   */
+  function inheritedSettings(draft, workflowId, phaseId) {
+    var phase = draft.phases[phaseId] || {};
+    var home = phase.isNew ? homeWorkflow(draft, phaseId) : null;
+    var own = home && home !== workflowId && draft.steps[home] && draft.steps[home][phaseId] ? draft.steps[home][phaseId] : phase;
+    var phases = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
+    return { approval: clone(own.approval || { group: null, minimum: 1 }), inputs: (own.inputs || []).filter(function (input) { return phases.indexOf(input) >= 0; }),
+      authoringSkill: own.authoringSkill || null };
+  }
+
   /** A step copy starts with the values shown in its workflow, retaining unsaved catalog edits. */
   function copiedPhaseDraft(model, draft, workflowId, phaseId, id) {
     var source = draft.phases[phaseId];
@@ -275,8 +301,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     Object.keys(draft.phases).forEach(function (id) {
       var phase = draft.phases[id];
       if (phase.isNew) {
-        var home = Object.keys(draft.workflows).find(function (workflowId) { return draft.workflows[workflowId].phases.indexOf(id) >= 0; });
-        var step = home && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs };
+        var home = homeWorkflow(draft, id);
+        var step = home && draft.steps[home] && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs, authoringSkill: phase.authoringSkill };
         var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
         if (phase.copyOf) create.copyOf = phase.copyOf;
         if (phase.copyFromWorkflow) create.copyFromWorkflow = phase.copyFromWorkflow;
@@ -324,20 +350,30 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       workflow.phases.forEach(function (phaseId) {
         var phase = draft.phases[phaseId];
-        if (!phase || phase.isNew) return;
         var step = draft.steps[id] && draft.steps[id][phaseId];
-        var reference = before && base.steps[id] && base.steps[id][phaseId] ? base.steps[id][phaseId]
-          : copySource && base.steps[copySource] && base.steps[copySource][phaseId] ? base.steps[copySource][phaseId]
-            : { approval: (base.phases[phaseId] || phase).approval, inputs: (base.phases[phaseId] || phase).inputs };
-        if (!step) return;
+        if (!phase || !step) return;
+        // What this workflow has if it sends nothing for the step, and so what it must change.
+        var reference; var referenceSkill;
+        if (phase.isNew) {
+          // A new step is created with its home workflow's settings; another workflow using it in
+          // the same draft sends where it differs, and the engine keeps that as this workflow's own.
+          var home = homeWorkflow(draft, phaseId);
+          if (!home || home === id || !draft.steps[home] || !draft.steps[home][phaseId]) return;
+          reference = draft.steps[home][phaseId];
+          referenceSkill = reference.authoringSkill || null;
+        } else {
+          reference = before && base.steps[id] && base.steps[id][phaseId] ? base.steps[id][phaseId]
+            : copySource && base.steps[copySource] && base.steps[copySource][phaseId] ? base.steps[copySource][phaseId]
+              : { approval: (base.phases[phaseId] || phase).approval, inputs: (base.phases[phaseId] || phase).inputs };
+          // A workflow that sets the skill itself keeps it; any other follows the step's own skill as
+          // this draft leaves it, which an output change can send back to automatic. The engine
+          // writes a change where the workflow owns it: an override on a shared or already
+          // overridden step, the step itself otherwise.
+          referenceSkill = reference.authoringSkillSetByWorkflow ? reference.authoringSkill || null : phase.authoringSkill || null;
+        }
         var update = { op: 'phase.update', id: phaseId, workflow: id };
         if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
         if (!same(reference.inputs, step.inputs)) update.inputs = step.inputs;
-        // A workflow that sets the skill itself keeps it; any other follows the step's own skill as
-        // this draft leaves it, which an output change can send back to automatic. The engine
-        // writes a change where the workflow owns it: an override on a shared or already
-        // overridden step, the step itself otherwise.
-        var referenceSkill = reference.authoringSkillSetByWorkflow ? reference.authoringSkill || null : phase.authoringSkill || null;
         if ((step.authoringSkill || null) !== referenceSkill) update.authoringSkill = step.authoringSkill || null;
         if (Object.keys(update).length > 3) changes.push(update);
       });
@@ -432,11 +468,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function workflowSteps(workflowId) { var workflow = state.draft.workflows[workflowId]; return workflow ? workflow.phases : []; }
   function settingsIn(draft, workflowId, phaseId) {
     var steps = draft.steps[workflowId] || (draft.steps[workflowId] = {});
-    if (!steps[phaseId]) {
-      var phase = draft.phases[phaseId] || {};
-      var order = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
-      steps[phaseId] = { approval: clone(phase.approval || { group: null, minimum: 1 }), inputs: (phase.inputs || []).filter(function (input) { return order.indexOf(input) >= 0; }), authoringSkill: phase.authoringSkill || null };
-    }
+    if (!steps[phaseId]) steps[phaseId] = inheritedSettings(draft, workflowId, phaseId);
     return steps[phaseId];
   }
   function stepSettings(workflowId, phaseId) { return settingsIn(state.draft, workflowId, phaseId); }
@@ -1609,7 +1641,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var chosen = choices.find(function (choice) { return choice.id === current; });
     var hint = chosen && chosen.description ? chosen.description : current ? 'Drafted with /' + current + '.' : 'Chosen by what the step produces.';
     if (settings.authoringSkillSetByWorkflow) hint = 'Set by this workflow. ' + hint;
-    else if (users.length) hint += ' Only this workflow changes; ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' keep their own.';
+    else if (users.length) hint += ' Only this workflow changes; ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + (users.length === 1 ? ' keeps its own.' : ' keep their own.');
     return { options: options, value: current, hint: hint };
   }
 

@@ -92,7 +92,9 @@ test('off clarification refuses recording with a stable recovery contract', asyn
         remediation: {
           action: 'continue-without-clarification',
           instruction: 'Do not ask or record phase clarification. Continue from the approved sources and governed repository evidence.',
-          command: 'singularity-flow prepare requirements'
+          command: 'singularity-flow prepare requirements',
+          // The step's own drafting skill, so recovery never names the generic one.
+          skill: '/sf-phase'
         }
       });
       return true;

@@ -333,24 +333,48 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
 }
 
 /**
- * What a selectable authoring skill must say. A skill tied to built-in steps re-reads the step's
- * verified route before working, names no built-in step id in its commands, and ends with the
- * engine's handoff; `/sf-phase` relays any step routed elsewhere. `/sf-code` is the only code
- * skill, so it is never routed past and needs neither.
+ * What a selectable authoring skill must say, checked on every catalog entry except `/sf-code` (the
+ * only code skill, which checks code delivery itself and is never routed past).
+ *
+ * Step 1 re-reads the step's verified route: it stops, showing `policyReason`, when `policyVerified`
+ * is false, and continues only on its own route — `/sf-phase` relays any step routed elsewhere, and
+ * a specialised skill continues only when `effectiveAuthoringSkill` is itself or, for exactly its
+ * catalog `legacyPhases`, the automatic `/sf-phase` route of an unchosen built-in step. Commands
+ * name `<phase>`, never one of those step ids, and the last step ends with the engine's `handoff`.
+ * Guidance safety admits any catalog skill for a step's commands on the strength of this check.
  */
 export function authoringSkillContractErrors(entry, body) {
-  if (!entry) return [];
+  if (!entry || entry.id === 'sf-code') return [];
   const errors = [];
-  if (entry.legacyPhases.length) {
-    for (const required of ['singularity-flow phase show <phase> --json', '`policyVerified`', `\`authoringSkill\` is \`${entry.id}\``, '`effectiveAuthoringSkill`', '`handoff`']) {
-      if (!body.includes(required)) errors.push(`selectable authoring skill must include '${required}'`);
+  const steps = [...body.matchAll(/^(\d+)\. (.*)$/gmu)];
+  const first = steps.find((match) => match[1] === '1')?.[2] ?? '';
+  const last = steps.at(-1)?.[2] ?? '';
+  for (const required of ['singularity-flow phase show <phase> --json', '`policyVerified`', '`policyReason`']) {
+    if (!first.includes(required)) errors.push(`step 1 of a selectable authoring skill must include '${required}'`);
+  }
+  if (entry.id === 'sf-phase') {
+    if (!first.includes('`effectiveAuthoringSkill` is not `/sf-phase`')) {
+      errors.push("step 1 of the automatic authoring skill must relay any step whose `effectiveAuthoringSkill` is not `/sf-phase`");
     }
-    const literal = new RegExp(`(?:prepare|phase (?:draft-check|prepublish|show|publish)|wm compose --phase|clarification (?:status|record)|--phase) (?:${entry.legacyPhases.join('|')})\\b`);
-    if (literal.test(body)) errors.push(`selectable authoring skill must use <phase>, not a built-in step id, in its commands`);
-  } else if (entry.id === 'sf-phase') {
-    for (const required of ['`effectiveAuthoringSkill`', '`handoff`']) {
-      if (!body.includes(required)) errors.push(`the automatic authoring skill must include '${required}'`);
+  } else {
+    const own = `\`effectiveAuthoringSkill\` is \`/${entry.id}\``;
+    if (!first.includes(own)) errors.push(`step 1 of a selectable authoring skill must continue only when ${own}`);
+    const declared = [...first.matchAll(/`<phase>` = `([a-z0-9-]+)`/gu)].map((match) => match[1]).sort();
+    if (JSON.stringify(declared) !== JSON.stringify([...entry.legacyPhases].sort())) {
+      errors.push(`step 1 must accept exactly the catalog's built-in steps (${entry.legacyPhases.join(', ') || 'none'}), not ${declared.join(', ') || 'none'}`);
     }
+    if (entry.legacyPhases.length && !first.includes('`/sf-phase` with `authoringSkill` null')) {
+      errors.push('step 1 must accept a built-in step only on its automatic `/sf-phase` route with `authoringSkill` null');
+    }
+  }
+  if (!['`handoff`', '`copilotCommand`', '`command`'].every((required) => last.includes(required))) {
+    errors.push('the last step of a selectable authoring skill must end with each engine `handoff` from its `copilotCommand` and `command`');
+  }
+  for (const span of body.matchAll(/`([^`\n]+)`/gu)) {
+    const words = span[1].trim().split(/\s+/u);
+    if (!/^(?:singularity-flow|sflow|\/sf-[a-z0-9-]+)$/u.test(words[0])) continue;
+    const literal = words.slice(1).map((word) => word.replace(/^--phase=/u, '')).find((word) => entry.legacyPhases.includes(word));
+    if (literal) errors.push(`selectable authoring skill must use <phase>, not the built-in step id '${literal}', in \`${span[1]}\``);
   }
   return errors;
 }

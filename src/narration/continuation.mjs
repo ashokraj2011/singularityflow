@@ -11,8 +11,16 @@
  * before the command has committed (continuation is a function of post-state), and assume there is
  * always a Story (`init`, `about`, a refusal before subject resolution).
  */
+import { generationSkillForPhase } from '../code-delivery-policy.mjs';
+import { directCopilotSkill } from '../copilot-guidance.mjs';
 import { workflowNextSteps } from '../nextsteps.mjs';
-import { action } from './command-result.mjs';
+import { action, plannedAction } from './command-result.mjs';
+
+/** The skill that drafts a Story step, when the result knows the Story; null otherwise. */
+function draftingSkill(workflow, phaseId) {
+  const phase = phaseId ? workflow?.phases?.[phaseId] : null;
+  return phase ? directCopilotSkill(generationSkillForPhase(phase, workflow)) : null;
+}
 
 /** Remediations keyed by the reason that blocked the command. */
 const REMEDIATIONS = Object.freeze({
@@ -37,20 +45,20 @@ const REMEDIATIONS = Object.freeze({
     rank: 'NOW',
     kind: 'remediation'
   }),
-  'artifact.missing': (subject, slots) => action({
+  'artifact.missing': (subject, slots, workflow) => plannedAction({
     id: 'prepare-artifact',
     label: 'Create the artifact this phase requires',
     command: `singularity-flow prepare ${slots?.phase ?? '<phase>'}`,
     rank: 'NOW',
     kind: 'remediation'
-  }),
-  'generation.not-published': (subject, slots) => action({
+  }, draftingSkill(workflow, slots?.phase)),
+  'generation.not-published': (subject, slots, workflow) => plannedAction({
     id: 'publish-generation',
     label: 'Publish a generation of this phase',
     command: `singularity-flow phase publish ${slots?.phase ?? '<phase>'}`,
     rank: 'NOW',
     kind: 'remediation'
-  }),
+  }, draftingSkill(workflow, slots?.phase)),
   'sequence.gate-failed': (subject) => action({
     id: 'inspect-sequence-gates',
     label: 'See which sequence gates are failing',
@@ -60,11 +68,14 @@ const REMEDIATIONS = Object.freeze({
   })
 });
 
-/** Remediations for whatever blocked this result, most specific first, deduplicated. */
-export function remediationActions(result) {
+/**
+ * Remediations for whatever blocked this result, most specific first, deduplicated. The Story, when
+ * known, routes a step's own drafting skill instead of the generic one for its command family.
+ */
+export function remediationActions(result, workflow = null) {
   const seen = new Set();
   return result.why
-    .map((entry) => REMEDIATIONS[entry.code]?.(result.subject, entry.slots))
+    .map((entry) => REMEDIATIONS[entry.code]?.(result.subject, entry.slots, workflow))
     .filter(Boolean)
     .filter((entry) => (seen.has(entry.id) ? false : seen.add(entry.id)));
 }
@@ -80,7 +91,8 @@ const PLANNER_RANKS = Object.freeze({ now: 'NOW', alternative: 'NOW', then: 'SOO
  */
 function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode } = {}) {
   return workflowNextSteps(workflow, { publicationPending, modelMode })
-    .map((step, index) => action({
+    // The planner's skill is the step's own route; it is kept whenever the pair is safe to show.
+    .map((step, index) => plannedAction({
       id: step.command ? step.command.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 64) : `step-${index}`,
       label: step.reason ?? step.command ?? 'Continue',
       command: step.command ?? `singularity-flow nextsteps ${workflow.workItem.id}`,
@@ -88,7 +100,7 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode }
       rank: PLANNER_RANKS[step.timing ?? step.rank] ?? (index === 0 ? 'NOW' : 'SOON'),
       kind: 'workflow',
       modelPolicy: step.modelPolicy ?? 'never'
-    }));
+    }, step.skill));
 }
 
 /**
@@ -102,7 +114,7 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode }
 export function attachContinuation(result, { postState = null, publicationPending = false, modelMode, restStateWhenIdle = null } = {}) {
   if (result.next.length || result.restState) return result;
 
-  const remediation = remediationActions(result);
+  const remediation = remediationActions(result, postState);
   if (remediation.length) return { ...result, next: Object.freeze(remediation) };
 
   if (result.subject?.kind === 'story' && postState) {

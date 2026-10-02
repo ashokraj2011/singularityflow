@@ -548,12 +548,13 @@ const KNOWN = Object.freeze({
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
-    return [step(
-      'continue-phase-without-clarification',
-      'Skip clarification questions and recording; continue the phase from approved sources and governed repository evidence.',
-      phase ? `singularity-flow prepare ${phase}` : null,
-      'remediation'
-    )];
+    const label = 'Skip clarification questions and recording; continue the phase from approved sources and governed repository evidence.';
+    const command = phase ? `singularity-flow prepare ${phase}` : null;
+    // The refusal names the step's own drafting skill; the generic one for `prepare` is the fallback.
+    const skill = /^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.remediation?.skill ?? '')
+      ? error.details.remediation.skill : null;
+    return [(skill && step('continue-phase-without-clarification', label, command, 'remediation', skill))
+      ?? step('continue-phase-without-clarification', label, command, 'remediation')];
   }
 });
 

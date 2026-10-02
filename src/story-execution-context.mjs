@@ -228,6 +228,19 @@ function parsedPlanningPrompt(closure) {
 }
 
 /**
+ * Whether this exact effective definition carries the accepted-closure verification its Story got
+ * when it was loaded in this operation. That load proved the persisted resolution equals the
+ * accepted snapshot policy. No Git read; a cloned or reloaded definition answers false.
+ */
+export function storyExecutionVerified(root, definition, workflow) {
+  const retained = definition && typeof definition === 'object'
+    ? VERIFIED_CATALOG_BY_DEFINITION.get(definition)
+    : null;
+  if (!retained || !workflow?.workflowSnapshot) return false;
+  try { return Boolean(verifiedCatalogFor(root, workflow, retained)); } catch { return false; }
+}
+
+/**
  * Verify and retain the complete portable catalog before any Story consumer selects an agent.
  * No live agent path, installed cache, remote URL, or previous checkout participates in this read.
  */

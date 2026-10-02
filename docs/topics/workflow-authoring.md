@@ -108,7 +108,9 @@ with `copyOf` names the step to copy and `copyFromWorkflow` the workflow whose s
 
 Each step is drafted by one Copilot skill. By default the engine chooses it from what the step
 produces: `/sf-code` for a step that delivers code, `/sf-phase` for every other step, and
-`/sf-converge` for the deterministic convergence step. A step can name a specialised skill instead:
+`/sf-converge` for the deterministic convergence step. A step that only the engine's deterministic
+generator produces, such as convergence or the quick-fix and POC-lite steps, is fixed. Any other
+step can name a specialised skill instead:
 
 ```yaml
 phases:
@@ -125,26 +127,34 @@ workTypes:
 A step can name `sf-phase`, `sf-requirements` or `sf-design` when it produces a document or an
 analysis, `sf-release` when it produces a document, and `sf-code` when it delivers code.
 Configuration refuses a skill a step cannot name (`PHASE_AUTHORING_SKILL_UNKNOWN`), one that cannot
-draft what the step produces (`PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH`, checked on every workflow
-after its overrides), and a setting on a sign-off-only or convergence step
-(`PHASE_AUTHORING_SKILL_NOT_APPLICABLE`). `/sf-specify`, `/sf-plan`, `/sf-verify` and
-`/sf-converge` drive the spec-driven routers and run only on their own steps, so they cannot be
-chosen.
+draft what the step produces (`PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH`, checked on the step itself
+and on every workflow after its overrides), and a setting on a sign-off-only step or one the
+deterministic generator produces (`PHASE_AUTHORING_SKILL_NOT_APPLICABLE`). A compiled skill step's
+binding decides how it is drafted, so it cannot name one either. `/sf-specify`, `/sf-plan` and
+`/sf-converge` drive the spec-driven routers, and `/sf-verify` drafts the verification step; each
+runs only on its own steps, so none of them can be chosen.
 
 A Story pins the choice with the rest of its workflow when it starts, so changing the workflow later
 never changes a running Story. Every "Next in Copilot" suggestion for the step names the chosen
-skill. `singularity-flow phase show <step> --json` reports `authoringSkill` (the configured value),
-`effectiveAuthoringSkill` (the skill drafting is routed to), `authoringSkillSource` (`configured`,
-`automatic`, `fixed` or `none`), `policyVerified` and the `handoff` that follows publication;
-`status --json` lists every step's route under `authoringRoutes`. A chosen skill re-reads that route
-before it works and follows the step's own clarification mode, inputs and artifact contract. Invoked
-by hand on a step that did not choose it, it names the step's skill and stops.
+skill, and so does the prompt **Open Native Copilot Chat** hands Copilot. `singularity-flow phase show
+<step> --json` reports `authoringSkill` (the configured value), `effectiveAuthoringSkill` (the skill
+drafting is routed to), `authoringSkillSource` (`configured`, `automatic`, `fixed` or `none`),
+`policyVerified` and, while the step is in progress, the `handoff` that follows publication. When
+the Story's pinned policy cannot be verified, every route field is withheld (`authoringSkillSource`
+`unverified`) and `policyReason` says why. `status --json` lists every step's configured route under
+`authoringRoutes` without verifying it. A chosen skill re-reads the verified route before it works
+and follows the step's own clarification mode, inputs and artifact contract. It continues only on
+its own route: run by hand on a step routed elsewhere, including its own built-in step after that
+step was changed into code or sign-off only, it names the step's skill and stops. A built-in step
+with no setting, such as `design`, still accepts its original skill.
 
 In Workflow Studio, the Step section's **Drafted with** list offers **Automatic** and every skill
-that can draft what the step produces, each with its description. On a step several workflows
-share, the choice is the open workflow's own and the list says **Set by this workflow**. **Use a
-copy in this workflow** keeps the skill the step had in that workflow. The deterministic convergence
-step shows a fixed `/sf-converge`, and a sign-off-only step has no drafting skill.
+that can draft what the step produces. On a step several workflows share, the choice is the open
+workflow's own and the list says **Set by this workflow**. **Use a copy in this workflow** keeps the
+skill the step had in that workflow. A step the engine generates shows its fixed route (`/sf-converge`
+for convergence), a compiled skill step shows that its binding decides, and a sign-off-only step has
+no drafting skill. When a step's output changes so that its chosen skill can no longer draft it, the
+choice goes back to **Automatic**; changing the output back before publishing restores it.
 
 ## Use it from each surface
 

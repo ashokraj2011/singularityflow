@@ -1,5 +1,5 @@
 import { SingularityFlowError } from './util.mjs';
-import { authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
+import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { WEL_EXACT_TEST_ADAPTERS } from './wel-adapters.mjs';
 import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
@@ -332,6 +332,18 @@ export function authoringRoute(phase, workflow = null) {
     return route(automatic, 'automatic', `Step '${phase.id}' names authoring skill '${authoringSkill}', which cannot draft ${output === 'analysis' ? 'an analysis' : `a ${output}`} step, so ${automatic} drafts it.`);
   }
   return route(`/${authoringSkill}`, 'configured');
+}
+
+/**
+ * The specialised skill that still accepts a built-in step it was written for (`sf-design` for
+ * `design`) when the step names no skill and drafts on the automatic `/sf-phase` route, or null.
+ * The skills' own selection check uses exactly this rule, so a step changed into code or sign-off
+ * only is never sent back to them.
+ */
+export function legacyAuthoringSkill(phase, workflow = null) {
+  const route = authoringRoute(phase, workflow);
+  if (route.authoringSkill || route.authoringSkillSource !== 'automatic' || route.effectiveAuthoringSkill !== '/sf-phase') return null;
+  return authoringSkillCatalog().find((entry) => entry.legacyPhases.includes(phase?.id))?.id ?? null;
 }
 
 /** Every step's drafting route in a Story, keyed by step id, for status output. */

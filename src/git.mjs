@@ -750,6 +750,21 @@ export function validBranch(root, name) {
   }
 }
 
+/**
+ * Whether a commit sits on a shallow clone's boundary: the clone is shallow and at least one parent
+ * the commit records was never fetched. History before such a commit cannot be proven locally.
+ */
+export function shallowBoundaryCommit(root, commit) {
+  const shallow = git(['rev-parse', '--is-shallow-repository'], { cwd: root, allowFailure: true });
+  if (shallow.status !== 0 || shallow.stdout.trim() !== 'true') return false;
+  const object = git(['cat-file', '-p', commit], { cwd: root, allowFailure: true });
+  if (object.status !== 0) return true;
+  const parents = [...object.stdout.matchAll(/^parent ([0-9a-f]{40,64})$/gmu)].map((match) => match[1]);
+  return parents.some((parent) => git(['cat-file', '-e', `${parent}^{commit}`], {
+    cwd: root, allowFailure: true, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }
+  }).status !== 0);
+}
+
 export function refExists(root, ref) {
   return git(['show-ref', '--verify', '--quiet', ref], { cwd: root, allowFailure: true }).status === 0;
 }

@@ -273,24 +273,20 @@ export function safeCommandGuidance(value) {
     : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'prepublish', 'show'].includes(safe.argv[1])
       ? safe.argv[2]
       : null;
-  // A repository may name a code-delivery phase freely. The engine-selected `/sf-code` assertion
-  // is safe for every prepare/begin/publish command because that skill re-reads the signed phase
-  // policy before doing work; presentation does not infer code delivery from the phase name.
-  // Names do not confer authority: even a packaged step can have a verified code-producing
-  // override. This only renders a route; /sf-code must verify that pinned policy before acting.
-  if (phaseId) {
-    allowedSkills.add('/sf-code');
-  }
+  // A repository may name a code-delivery phase freely, and names confer no authority: even a
+  // packaged step can have a verified code-producing override. `/sf-code` and every listed
+  // authoring skill re-read the step's verified route before doing any work, so presenting one for
+  // that step's prepare/phase commands only renders a route. Convergence is the exception: only the
+  // deterministic generator produces it and it cannot name a skill, so only `/sf-converge` joins
+  // its canonical route. The catalog is read only when a skill is asserted.
   if (phaseId === 'convergence') allowedSkills.add('/sf-converge');
+  else if (phaseId) allowedSkills.add('/sf-code');
   const assertedSkill = input.skill != null
     ? normalizedSkill(input.skill)
     : input.copilotCommand != null
       ? directCopilotSkillId(input.copilotCommand)
       : null;
-  // A step may name a listed authoring skill. Like `/sf-code`, it re-reads the step's verified
-  // route before doing any work, so presenting it for that step's commands is safe; the catalog
-  // is read only when such a skill is asserted. `/sf-code` keeps its own rule above.
-  if (phaseId && assertedSkill && assertedSkill !== '/sf-code' && !allowedSkills.has(assertedSkill)
+  if (phaseId && phaseId !== 'convergence' && assertedSkill && !allowedSkills.has(assertedSkill)
       && authoringSkillEntry(assertedSkill.slice(1))) {
     allowedSkills.add(assertedSkill);
   }

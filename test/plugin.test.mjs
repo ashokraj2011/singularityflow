@@ -299,7 +299,7 @@ test('initial phase skills require interactive clarification instead of silently
   for (const content of [phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
     assert.match(content, /wait/i);
-    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); stop if unavailable)/i);
+    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); (?:stop if unavailable|if unavailable, display the questions and stop))/i);
   }
   for (const content of [phase, code]) {
     assert.match(content, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
@@ -437,7 +437,8 @@ test('verify skill routes release to its phase skill without running verificatio
   assert.match(content, /singularity-flow nextsteps --json/);
   assert.doesNotMatch(content, /singularity-flow verify --json/,
     'ordinary Feature/Bugfix/Chore verification must not require a fast-path verb');
-  assert.match(content, /Stop if `policyVerified` is false/);
+  assert.match(content, /If `policyVerified` is false, show `policyReason`; stop/);
+  assert.match(content, /If `effectiveAuthoringSkill` is not `\/sf-phase`, relay it and stop/);
   assert.match(content, /source changes require the returned governed repair\/rework route and fresh evidence/);
 });
 

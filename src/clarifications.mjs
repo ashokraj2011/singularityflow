@@ -1,4 +1,6 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
@@ -50,7 +52,8 @@ export function assertClarificationRecordingAllowed(definition, workflow, phase)
         remediation: {
           action: 'continue-without-clarification',
           instruction: 'Do not ask or record phase clarification. Continue from the approved sources and governed repository evidence.',
-          command: `singularity-flow prepare ${phaseId}`
+          command: `singularity-flow prepare ${phaseId}`,
+          skill: directCopilotSkill(generationSkillForPhase(phase, workflow))
         }
       }
     }

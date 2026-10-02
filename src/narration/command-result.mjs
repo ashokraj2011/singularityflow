@@ -90,6 +90,17 @@ export function action({ id, label, command, skill = null, rank = 'NOW', kind = 
   };
 }
 
+/**
+ * An action that keeps the skill its planner chose — a step's drafting skill, `/sf-code`,
+ * `/sf-converge` — when that Shell/Copilot pair is safe to show, and otherwise the command's own
+ * skill. `prepare` and `phase` are shared command families: re-inferring their skill from the
+ * command alone names the generic `/sf-phase` whatever the step's policy routes to.
+ */
+export function plannedAction(fields, skill) {
+  const planned = skill ? action({ ...fields, skill }) : null;
+  return planned && safeCommandGuidance(planned) ? planned : action(fields);
+}
+
 function invalid(message) {
   throw new SingularityFlowError(`Command result is not well formed: ${message}`, { code: 'COMMAND_RESULT_INVALID' });
 }

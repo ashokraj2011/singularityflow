@@ -8,7 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { authoringSkillCatalog, parseAuthoringSkills } from '../src/authoring-skills.mjs';
-import { authoringRoute, deterministicOnlyGeneration, generationSkillForPhase, stepOutputKind } from '../src/code-delivery-policy.mjs';
+import { authoringRoute, deterministicOnlyGeneration, generationSkillForPhase, legacyAuthoringSkill, stepOutputKind } from '../src/code-delivery-policy.mjs';
+import { phaseAuthoringSummary } from '../src/cli.mjs';
+import { attachContinuation } from '../src/narration/continuation.mjs';
+import { plannedAction } from '../src/narration/command-result.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 import { loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { pinnedResolutionVerification } from '../src/state.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
@@ -168,6 +173,29 @@ test('a specialised skill a step chose is routed, kept in guidance, and checks t
   }
 });
 
+test('the authoring contract audit checks the route, the built-in steps and the handoff, not just words', async () => {
+  const design = authoringSkillCatalog().find((entry) => entry.id === 'sf-design');
+  const body = await readFile(path.join(packageRoot, 'plugin', 'skills', 'sflow-design', 'SKILL.md'), 'utf8');
+  const errors = (text, entry = design) => authoringSkillContractErrors(entry, text);
+  assert.deepEqual(errors(body), []);
+  // Moving the selection check out of step 1 leaves the skill working before it re-reads its route.
+  const [firstStep] = body.match(/^1\. .*$/m);
+  assert.ok(errors(body.replace(firstStep, '1. Read the inputs.').replace(/^2\. /m, `2. ${firstStep.slice(3)} `)).some((error) => error.startsWith('step 1')));
+  assert.ok(errors(body.replace('show `policyReason`; stop', 'stop')).some((error) => error.includes('policyReason')));
+  // Continuing on a built-in step whatever its route, or on the wrong built-in step, is refused.
+  assert.ok(errors(body.replace('`effectiveAuthoringSkill` is `/sf-design`', '`authoringSkill` is `sf-design`')).length);
+  assert.ok(errors(body.replace('`<phase>` = `design`', '`<phase>` = `requirements`')).some((error) => error.includes('built-in steps')));
+  // A literal built-in step id in any command, including a hard-coded handoff, is refused.
+  for (const literal of ['`singularity-flow submit design`', '`/sf-submit design`', '`singularity-flow wm compose --phase=design`', '`singularity-flow review-source status design`']) {
+    assert.ok(errors(`${body}\n\nAlso run ${literal}.`).some((error) => error.includes("built-in step id 'design'")), literal);
+  }
+  assert.deepEqual(errors(`${body}\n\nAlso run \`singularity-flow prepare design-review\`.`), [], 'a longer step id is not a built-in one');
+  assert.ok(errors(body.replace(/End with each returned `handoff`.*$/m, 'End with `Next in Copilot: /sf-submit`.')).some((error) => error.includes('handoff')));
+  // A future selectable skill without built-in steps is checked too.
+  const future = { id: 'sf-review-plan', sourceId: 'sflow-review-plan', produces: ['document'], legacyPhases: [] };
+  assert.ok(errors('1. Draft the document.\n2. Publish it.', future).length >= 3);
+});
+
 test('guidance renders verified code routes regardless of the phase name and drops unlisted skills', () => {
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare vendor-analysis', skill: '/sf-jira-board' }), null);
   const definition = starter();
@@ -182,6 +210,38 @@ test('guidance renders verified code routes regardless of the phase name and dro
   assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare build-api', skill: '/sf-code' }).copilotCommand, '/sf-code');
   assert.equal(safeCommandGuidance({ command: 'singularity-flow next', skill: '/sf-code' }), null,
     'a phase authoring route must not be asserted for the generic router');
+  // Only the deterministic generator produces convergence, so no code or chosen skill is shown for it.
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare convergence', skill: '/sf-code' }), null);
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare convergence', skill: '/sf-design' }), null);
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow prepare convergence', skill: '/sf-converge' }).copilotCommand, '/sf-converge');
+  // A narrated next action keeps a safe planned skill and falls back to the command's own skill.
+  const fields = { id: 'prepare', label: 'Prepare', command: 'singularity-flow prepare vendor-analysis' };
+  assert.equal(plannedAction(fields, '/sf-design').skill, '/sf-design');
+  assert.equal(plannedAction(fields, '/sf-jira-board').skill, '/sf-phase');
+  assert.equal(plannedAction(fields, null).skill, '/sf-phase');
+  // A refusal that names the step's skill keeps it in its recovery step.
+  const refusal = refusalRemediationPlan(new SingularityFlowError('Clarification is off.', {
+    code: 'CLARIFICATION_MODE_OFF',
+    details: { phase: 'vendor-analysis', remediation: { command: 'singularity-flow prepare vendor-analysis', skill: '/sf-design' } }
+  }), ['clarification', 'record', 'vendor-analysis']);
+  const continueStep = JSON.stringify(refusal).match(/"command":"singularity-flow prepare vendor-analysis"[^}]*/)?.[0] ?? '';
+  assert.match(continueStep, /"skill":"\/sf-design"/);
+});
+
+test('a built-in step goes back to its specialised skill only on its automatic document route', () => {
+  const definition = starter();
+  definition.workTypes.feature.phaseOverrides = {
+    ...(definition.workTypes.feature.phaseOverrides ?? {}),
+    design: { inputs: ['requirements'], writeScope: 'source-and-artifact', generation: { requirement: 'required', producer: 'agent', task: 'code' } }
+  };
+  definition.workTypes.feature.plannedClaims.owners.design = 'requirements';
+  const feature = resolveWorkType(validateDefinition(definition), 'feature').phases;
+  assert.equal(legacyAuthoringSkill(feature.find((phase) => phase.id === 'requirements')), 'sf-requirements');
+  assert.equal(legacyAuthoringSkill(feature.find((phase) => phase.id === 'design')), null, 'a design step changed into code goes to /sf-code');
+  assert.equal(legacyAuthoringSkill({ id: 'release', generation: { requirement: 'none' } }), null, 'a sign-off-only release drafts nothing');
+  assert.equal(legacyAuthoringSkill({ id: 'release', authoringSkill: 'sf-phase' }), null, 'a step that chose a skill keeps it');
+  assert.equal(legacyAuthoringSkill({ id: 'release' }), 'sf-release');
+  assert.equal(legacyAuthoringSkill({ id: 'vendor-analysis' }), null);
 });
 
 function execute(command, args, cwd, { allowFailure = false, agent = null } = {}) {
@@ -255,12 +315,41 @@ test('a Story pins the step setting, routes from it, verifies it, and keeps its 
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /WFA_SNAPSHOT_INVALID/);
   const anchor = await pinnedResolutionVerification(root, await loadDefinition(root), stored);
-  assert.deepEqual(anchor, { verified: false, reason: 'Resolved Story policy differs from the immutable creation commit.' });
+  assert.deepEqual(anchor, { verified: false, reason: 'Resolved Story policy differs from the immutable creation commit. Run singularity-flow validate to see the difference.' });
   assert.notEqual(flow(root, ['validate'], { allowFailure: true }).status, 0, 'publication-time validation refuses it too');
+  // An unverified route is withheld whole: no configured value, source or handoff to act on.
+  const unenrolled = { ...stored, workflowSnapshot: undefined };
+  assert.deepEqual(await phaseAuthoringSummary(root, await loadDefinition(root), unenrolled, unenrolled.phases.intake), {
+    authoringSkill: null, effectiveAuthoringSkill: null, authoringSkillSource: 'unverified', policyVerified: false,
+    policyReason: 'Resolved Story policy differs from the immutable creation commit. Run singularity-flow validate to see the difference.',
+    handoff: []
+  });
+});
+
+test('phase show reports the handoff only while the step is in progress, and a shallow clone cannot verify', async () => {
+  const root = await storyRepository();
+  flow(root, ['start', 'AUT-3', '--from-branch', 'main'], { agent: 'product-owner' });
+  const design = JSON.parse(flow(root, ['phase', 'show', 'design', '--json']).stdout);
+  assert.equal(design.policyVerified, true);
+  assert.equal(design.effectiveAuthoringSkill, '/sf-phase');
+  assert.deepEqual(design.handoff, [], 'nothing follows a publication the step has not started');
+  assert.ok(JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout).handoff.length);
+  const text = flow(root, ['phase', 'show', 'intake']).stdout;
+  assert.match(text, /Drafting skill: \/sf-phase \(configured\)/);
+  assert.doesNotMatch(text, /Drafted with/);
+
+  // In a shallow clone the oldest commit that adds the Story record is only the clone's boundary.
+  const shallow = `${root}-shallow`;
+  execute('git', ['clone', '--quiet', '--depth', '1', `file://${root}`, shallow], os.tmpdir());
+  const stored = JSON.parse(await readFile(path.join(shallow, 'singularity/work-items/AUT-3/workflow.json'), 'utf8'));
+  const verification = await pinnedResolutionVerification(shallow, await loadDefinition(shallow), { ...stored, workflowSnapshot: undefined });
+  assert.equal(verification.verified, false);
+  assert.match(verification.reason, /history is shallow/);
 });
 
 test('a new step that chose /sf-design is offered it by the engine once the step before it is done', async () => {
   const root = await storyRepository(async (config, repository) => {
+    config.phases.intake.authoringSkill = 'sf-requirements';
     config.phases['vendor-analysis'] = {
       ...structuredClone(config.phases.design),
       label: 'Vendor analysis',
@@ -278,7 +367,22 @@ test('a new step that chose /sf-design is offered it by the engine once the step
       .replace('sflow-phases: "design,', 'sflow-phases: "vendor-analysis,design,')
       .replace('sflow-default-for: "design,', 'sflow-default-for: "vendor-analysis,design,'));
   });
-  flow(root, ['start', 'AUT-2', '--from-branch', 'main'], { agent: 'product-owner' });
+  const started = JSON.parse(flow(root, ['start', 'AUT-2', '--from-branch', 'main', '--json'], { agent: 'product-owner' }).stdout);
+  // Every surface names the step's own skill: start, the planner-backed trailers and the native prompt.
+  const startPrepare = started.next.find((action) => action.id === 'start.prepare');
+  assert.deepEqual([startPrepare.skill, startPrepare.copilotCommand], ['/sf-requirements', '/sf-requirements']);
+  const stored = JSON.parse(await readFile(path.join(root, 'singularity/work-items/AUT-2/workflow.json'), 'utf8'));
+  const continued = attachContinuation({
+    next: [], restState: null, why: [], subject: { kind: 'story', id: 'AUT-2' }, outcome: { status: 'succeeded' }
+  }, { postState: stored });
+  assert.equal(continued.next.find((action) => action.command === 'singularity-flow prepare intake')?.skill, '/sf-requirements');
+  const remediated = attachContinuation({
+    next: [], restState: null, why: [{ code: 'artifact.missing', slots: { phase: 'intake' } }], subject: { kind: 'story', id: 'AUT-2' }, outcome: { status: 'refused' }
+  }, { postState: stored });
+  assert.equal(remediated.next[0].skill, '/sf-requirements');
+  const prompt = flow(root, ['wm', 'show-prompt']).stdout;
+  assert.match(prompt, /- Skill: `\/sflow-requirements`/);
+  assert.match(prompt, /--- BEGIN plugin\/skills\/sflow-requirements\/SKILL\.md ---/);
   const shown = JSON.parse(flow(root, ['phase', 'show', 'vendor-analysis', '--json']).stdout);
   assert.equal(shown.effectiveAuthoringSkill, '/sf-design');
   assert.equal(shown.authoringSkillSource, 'configured');

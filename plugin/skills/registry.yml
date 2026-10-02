@@ -131,7 +131,7 @@ skills:
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }
-  sflow-design: { class: generative, maximumTokenOverride: 860, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step." }
+  sflow-design: { class: generative, maximumTokenOverride: 905, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
   sflow-docs: { class: echo, executionBoundary: machine }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
@@ -212,7 +212,7 @@ skills:
   sflow-mcp: { class: mutation, executionBoundary: repository }
   sflow-next: { class: mutation, kernelModelPolicy: conditional }
   sflow-nextsteps: { class: conversational, executionBoundary: repository }
-  sflow-phase: { class: generative }
+  sflow-phase: { class: generative, maximumTokenOverride: 840, exception: "It drafts every step on the automatic route, so it relays any step routed to another skill with its terminal equivalent and shows why an unverified route was withheld; a chosen skill is never bypassed." }
   sflow-plugin: { class: mutation, executionBoundary: machine }
   sflow-pr: { class: mutation }
   sflow-progress: { class: echo, executionBoundary: repository }
@@ -227,9 +227,9 @@ skills:
   sflow-regression-investigate: { class: conversational }
   sflow-recover: { class: mutation }
   sflow-reject: { class: review }
-  sflow-release: { class: generative, maximumTokenOverride: 840, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step." }
+  sflow-release: { class: generative, maximumTokenOverride: 875, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
   sflow-report: { class: echo, executionBoundary: repository }
-  sflow-requirements: { class: generative, maximumTokenOverride: 880, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step." }
+  sflow-requirements: { class: generative, maximumTokenOverride: 920, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
   sflow-reset-all: { class: mutation, executionBoundary: repository }
   sflow-resume: { class: interactive, executionBoundary: repository }
   sflow-return: { class: interactive, executionBoundary: repository }
@@ -259,7 +259,7 @@ skills:
   sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: delegation, executionBoundary: machine, delegatesTo: sflow-documents }
   sflow-validate: { class: echo, executionBoundary: repository }
-  sflow-verify: { class: generative }
+  sflow-verify: { class: generative, maximumTokenOverride: 815, exception: "It relays a verification step routed to another skill and ends with the engine-computed handoff, which carries any decision arguments a hard-coded submit lacked." }
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo, executionBoundary: repository }
   sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional, executionBoundary: repository }

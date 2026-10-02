@@ -24,7 +24,7 @@ import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCa
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
-  publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
+  publicationPushOutcome, pushCommitToBranchAsync, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
   WORKFLOW_PATH, assertPlannedClaimsReady, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
@@ -223,7 +223,7 @@ import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
 import {
-  resolveStoryExecutionCatalog, resolveStoryExecutionContext
+  resolveStoryExecutionCatalog, resolveStoryExecutionContext, storyExecutionVerified
 } from './story-execution-context.mjs';
 import { resolveStorySkillPackage } from './story-execution-context.mjs';
 import {
@@ -604,6 +604,11 @@ function verifiedInitialPolicyAnchor(initial, workId) {
 }
 
 function committedResolutionPolicySha256(root, config, workId) {
+  return committedResolutionPolicy(root, config, workId)?.sha256 ?? null;
+}
+
+/** The creation commit's migrated policy identity, with the commit that holds it. */
+function committedResolutionPolicy(root, config, workId) {
   const initial = initialWorkflowRecord(root, config, workId);
   const storedAnchor = verifiedInitialPolicyAnchor(initial, workId);
   if (!storedAnchor) return null;
@@ -614,16 +619,34 @@ function committedResolutionPolicySha256(root, config, workId) {
   // the stored anchor above, then derive the policy identity from the registry-migrated creation
   // record so both sides of the immutable-policy comparison use the same current schema.
   const migratedCreation = readRecord('story-workflow', initial.record).record;
-  return resolutionPolicySha256(migratedCreation.resolution);
+  return { sha256: resolutionPolicySha256(migratedCreation.resolution), commit: initial.commit };
 }
+
+const PINNED_RESOLUTION_VERIFICATIONS = new Map();
 
 /**
  * Whether a Story's pinned resolution is the one it was created with, or the one its accepted
  * amendment chain produced. This is the anchor `validateWorkflow` checks before every publication;
  * read commands that decide behaviour from pinned policy, such as which skill drafts a step, check
  * it without running every other lifecycle rule.
+ *
+ * Loading a WFA-enrolled Story already proved its resolution against the accepted closure, so that
+ * proof is reused instead of repeating a full-history search on every phase show, publish, submit
+ * and approve. A Story without a snapshot is compared with its creation commit once per process for
+ * each resolution it presents.
  */
 export async function pinnedResolutionVerification(root, config, workflow) {
+  if (workflow.workflowSnapshot && storyExecutionVerified(root, config, workflow)) {
+    return { verified: true, reason: null };
+  }
+  const key = `${path.resolve(root)}\0${workflow.workItem.id}\0${resolutionPolicySha256(workflow.resolution)}\0${canonicalJson(workflow.workflowSnapshot ?? null)}`;
+  if (!PINNED_RESOLUTION_VERIFICATIONS.has(key)) {
+    PINNED_RESOLUTION_VERIFICATIONS.set(key, await verifyPinnedResolution(root, config, workflow));
+  }
+  return PINNED_RESOLUTION_VERIFICATIONS.get(key);
+}
+
+async function verifyPinnedResolution(root, config, workflow) {
   if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
     try {
       const status = await verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true });
@@ -633,9 +656,14 @@ export async function pinnedResolutionVerification(root, config, workflow) {
     }
   }
   try {
-    const creation = committedResolutionPolicySha256(root, config, workflow.workItem.id);
-    if (creation && creation !== resolutionPolicySha256(workflow.resolution)) {
-      return { verified: false, reason: 'Resolved Story policy differs from the immutable creation commit.' };
+    const creation = committedResolutionPolicy(root, config, workflow.workItem.id);
+    // In a shallow clone the oldest commit that adds the Story record may be only the clone's
+    // boundary, not its creation; WFA-enrolled Stories already refuse to load from such history.
+    if (creation && shallowBoundaryCommit(root, creation.commit)) {
+      return { verified: false, reason: 'Story history is shallow, so its creation commit cannot be proven. Fetch the full history (git fetch --unshallow), then retry.' };
+    }
+    if (creation && creation.sha256 !== resolutionPolicySha256(workflow.resolution)) {
+      return { verified: false, reason: 'Resolved Story policy differs from the immutable creation commit. Run singularity-flow validate to see the difference.' };
     }
     return { verified: true, reason: null };
   } catch (error) {

@@ -31,6 +31,7 @@ import {
 } from './repository-facts.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import {
@@ -5544,13 +5545,9 @@ export async function composePhasePrompt(root, {
 }
 
 async function showPrompt(root, options) {
-  const skillId = optionString(options, 'skill', 'sflow-phase');
-  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(skillId)) {
+  const requestedSkill = optionString(options, 'skill');
+  if (requestedSkill != null && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(requestedSkill)) {
     throw new SingularityFlowError('Option --skill must be a valid Copilot skill ID containing lowercase letters, numbers, or hyphens.');
-  }
-  const skillFile = path.join(PACKAGE_ROOT, 'plugin', 'skills', skillId, 'SKILL.md');
-  if (!existsSync(skillFile)) {
-    throw new SingularityFlowError(`Unknown packaged Copilot skill '${skillId}'.`);
   }
 
   const requestedPhase = optionString(options, 'phase');
@@ -5562,6 +5559,15 @@ async function showPrompt(root, options) {
   const phase = requestedPhase ?? config.workflow?.currentPhase;
   if (!phase) {
     throw new SingularityFlowError('No active Story phase was found. Resume a work item or provide --phase and --work-id.');
+  }
+  // Without --skill, hand Copilot the skill that drafts this step (a chosen drafting skill,
+  // /sf-code, /sf-converge), never the generic one: VS Code's native handoff passes no --skill.
+  const storyPhase = config.workflow?.phases?.[phase];
+  const skillId = requestedSkill
+    ?? (storyPhase ? generationSkillForPhase(storyPhase, config.workflow).replace(/^\//, '') : 'sflow-phase');
+  const skillFile = path.join(PACKAGE_ROOT, 'plugin', 'skills', skillId, 'SKILL.md');
+  if (!existsSync(skillFile)) {
+    throw new SingularityFlowError(`Unknown packaged Copilot skill '${skillId}'.`);
   }
 
   const skill = await readFile(skillFile, 'utf8');

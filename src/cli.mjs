@@ -281,7 +281,7 @@ import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityRec
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
-import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
+import { action as narrationAction, commandResult, effects, noEffects, noop, plannedAction as plannedNarrationAction, succeeded } from './narration/command-result.mjs';
 import {
   decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, parseDecisionAssignments,
   recordedDecisionValues, resolveDecisionChoice, storyDecisionView, upcomingDecision
@@ -3448,11 +3448,11 @@ export async function startCommand(positionals, options) {
       } : {})
     },
     next: [
-      narrationAction({
+      plannedNarrationAction({
         id: 'start.prepare',
         label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,
         command: `singularity-flow prepare ${workflow.currentPhase}`
-      }),
+      }, directCopilotSkill(generationSkillForPhase(workflow.phases[workflow.currentPhase], workflow))),
       narrationAction({
         id: 'start.help',
         label: 'See what this phase expects',
@@ -6596,20 +6596,29 @@ async function phaseReview(root, config, workflow, phase) {
 
 /**
  * Which skill drafts a step and what follows its publication, for the skills that re-read the
- * step before working. The route comes from the Story's pinned resolution and is withheld when
- * that resolution no longer matches its creation or accepted amendment anchor.
+ * step before working. The route comes from the Story's pinned resolution; when that resolution no
+ * longer matches its creation or accepted amendment anchor, every route field is withheld, so no
+ * reader acts on an unverified choice. `handoff` is what follows publishing the step, so it is
+ * empty once the step is no longer in progress.
  */
-async function phaseAuthoringSummary(root, config, workflow, phase) {
+export async function phaseAuthoringSummary(root, config, workflow, phase) {
   const route = authoringRoute(phase, workflow);
   const policy = await pinnedResolutionVerification(root, config, workflow);
+  if (!policy.verified) {
+    return {
+      authoringSkill: null, effectiveAuthoringSkill: null, authoringSkillSource: 'unverified',
+      policyVerified: false, policyReason: policy.reason, handoff: []
+    };
+  }
   return {
     authoringSkill: route.authoringSkill,
-    effectiveAuthoringSkill: policy.verified ? route.effectiveAuthoringSkill : null,
+    effectiveAuthoringSkill: route.effectiveAuthoringSkill,
     authoringSkillSource: route.authoringSkillSource,
     ...(route.authoringSkillWarning ? { authoringSkillWarning: route.authoringSkillWarning } : {}),
-    policyVerified: policy.verified,
-    ...(policy.reason ? { policyReason: policy.reason } : {}),
-    handoff: phaseHandoff(workflow, phase).map(({ skill, command, copilotCommand, reason }) => ({ skill, command, copilotCommand, reason }))
+    policyVerified: true,
+    handoff: phase.status === 'in_progress'
+      ? phaseHandoff(workflow, phase).map(({ skill, command, copilotCommand, reason }) => ({ skill, command, copilotCommand, reason }))
+      : []
   };
 }
 
@@ -6625,9 +6634,12 @@ async function phaseAuthoringSummary(root, config, workflow, phase) {
  */
 function printPhaseReview(review, { showArtifact = false } = {}) {
   console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
+  // The step's route, not a record of who produced this generation: that is its authorship.
   if (review.policyVerified === false) console.log(`Drafting route withheld: ${review.policyReason}`);
-  else if (review.effectiveAuthoringSkill) console.log(`Drafted with: ${review.effectiveAuthoringSkill} (${review.authoringSkillSource})`);
-  if (review.authoringSkillWarning) console.log(`  ${review.authoringSkillWarning}`);
+  else if (review.effectiveAuthoringSkill) {
+    console.log(`Drafting skill: ${review.effectiveAuthoringSkill} (${review.authoringSkillSource})`);
+    if (review.authoringSkillWarning) console.log(`  ${review.authoringSkillWarning}`);
+  }
   if (review.testEvidence) {
     console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s)`);
     console.log(`  ${review.testEvidence.notice}`);

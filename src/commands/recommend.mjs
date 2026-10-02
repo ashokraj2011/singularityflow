@@ -5,7 +5,7 @@ import { createHostGateway } from '../gateway/host.mjs';
 import { gatewayPlanners } from '../gateway/planners/index.mjs';
 import { developerRepository } from '../gateway/home-context.mjs';
 import {
-  action, because, commandResult, noEffects, succeeded
+  because, commandResult, noEffects, plannedAction, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
@@ -13,14 +13,15 @@ import { optionBoolean, optionString } from '../util.mjs';
 function continuation(envelope) {
   const recommendation = envelope.data?.guidance?.recommendation ?? null;
   if (!recommendation?.command) return [];
-  return [action({
+  // Keep the recommendation's own skill (a step's drafting skill) rather than re-inferring it.
+  return [plannedAction({
     id: 'developer-recommendation',
     label: envelope.next?.[0]?.label ?? 'Continue with the next governed step',
     command: recommendation.command,
     rank: 'NOW',
     kind: 'workflow',
     modelPolicy: 'never'
-  })];
+  }, recommendation.skill ?? null)];
 }
 
 export function recommendationNarration(envelope) {

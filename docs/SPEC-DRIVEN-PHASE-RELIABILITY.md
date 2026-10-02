@@ -21,8 +21,8 @@ The contract applies to all six phases:
 | planning | `/sf-plan` or the phase authoring route selected by the router | approved Plan and clause/test map |
 | implementation | `/sf-code` | source/test change set and Implementation summary |
 | convergence | `/sf-converge` | deterministic convergence record |
-| verification | `/sf-verify` | acceptance-bound verification evidence |
-| release | `/sf-release` | convergence plus verification evidence |
+| verification | `/sf-phase` route, or `/sf-verify` run by hand | acceptance-bound verification evidence |
+| release | `/sf-phase` route, or `/sf-release` run by hand (it also owns release-evidence corrections) | convergence plus verification evidence |
 
 When an entry point does not yet have a signed phase contract, it must route through `/sf-next`
 instead of guessing an owner.

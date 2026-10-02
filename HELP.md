@@ -2787,7 +2787,7 @@ Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The d
 - `workTypes`: phase sequences and profile overrides
 - `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
 - `phases`: artifact contracts, approved inputs, write scope, views, checks, and approvals
-- `phases.<id>.authoringSkill` (or a work type's `phaseOverrides.<id>.authoringSkill`): the Copilot skill that drafts the step, such as `sf-design`; absent means automatic (`/sf-code` for code steps, `/sf-phase` otherwise). See [Workflow and configuration authoring](docs/topics/workflow-authoring.md)
+- `phases.<id>.authoringSkill` (or a work type's `phaseOverrides.<id>.authoringSkill`): the Copilot skill that drafts the step, such as `sf-design`; absent (or `null` in a work type's override) means automatic (`/sf-code` for code steps, `/sf-phase` otherwise). Sign-off-only steps, steps only the deterministic generator produces and compiled skill steps cannot name one. See [Workflow and configuration authoring](docs/topics/workflow-authoring.md)
 - agents are not part of `workflow.yml`: each lives in `.github/agents/<id>.agent.md` and names the steps it may draft (`sflow-phases`) and the steps it drafts by default (`sflow-default-for`); every step has exactly one default agent
 - `approvalAuthorities`: real-human authority groups matched to Git/GitHub identity
 - repository agent Markdown and `singularity/agents.lock.yml`: optional trust-pinned remote prompt/template/output sources

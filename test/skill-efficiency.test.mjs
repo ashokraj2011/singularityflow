@@ -48,8 +48,9 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class
     && row.bodyTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
-  // Code generation, and the specialised skills a step may choose (they follow that step's contract).
-  const overridden = ['sflow-code', 'sflow-design', 'sflow-release', 'sflow-requirements'];
+  // Code generation, the specialised skills a step may choose (they follow that step's contract),
+  // and the two skills that relay a step routed elsewhere.
+  const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements', 'sflow-verify'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
@@ -162,8 +163,9 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
     }
   }
   const verify = await readFile(path.join(root, 'plugin', 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
-  assert.match(verify, /Next in Copilot: \/sf-submit verification/);
-  assert.match(verify, /Terminal equivalent: singularity-flow submit verification/);
+  // The engine's handoff carries the decision arguments a hard-coded submit would lack.
+  assert.match(verify, /End with each `handoff`/);
+  assert.doesNotMatch(verify, /submit verification/);
 });
 
 test('approval remains explicit-only with one bound artifact review per conversation', async () => {

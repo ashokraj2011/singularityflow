@@ -277,13 +277,14 @@ test('decisions are edited on the board and checked by the engine with its own p
   const loop = model.workflows.flatMap((workflow) => workflow.reworkLoops).find((entry) => entry.resetOnPhase);
   if (loop) assert.ok(loop.resetOnPhase, 'a send-back rule keeps the step that resets its count');
 
-  // An ask after requirements may finish the Story early; a loop after verification goes back to code.
-  const ask = logic.newDecision(feature, 'requirements', 'ask');
+  // An ask may finish the Story early only before requirements are defined; a loop after
+  // verification goes back to code.
+  const ask = logic.newDecision(feature, 'intake', 'ask');
   assert.deepEqual(ask.routes.map((route) => route.to), ['next', 'end']);
   const repeat = logic.newDecision(feature, 'verification', 'loop');
   assert.equal(repeat.back, 'implementation');
   feature.decisions = [ask, repeat];
-  assert.deepEqual(logic.reachOf(feature, 'requirements', 'end').skips, ['design', 'implementation-spec', 'implementation', 'verification', 'conformance']);
+  assert.deepEqual(logic.reachOf(feature, 'intake', 'end').skips, ['requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']);
   assert.match(logic.decisionLines(feature, repeat)[0], /^↩ implementation until Done is yes \(at most 3\)$/);
   const changeSet = logic.changeSetFrom(model, draft);
   const update = changeSet.changes.find((change) => change.op === 'workflow.update' && change.id === 'feature');
@@ -294,6 +295,12 @@ test('decisions are edited on the board and checked by the engine with its own p
   const diff = plan.files.find((file) => file.path === 'singularity/workflow.yml').diff;
   assert.match(diff, /\+\s+decisions:/);
   assert.match(diff, /\+\s+kind: loop/);
+
+  // Finishing right after requirements would leave them unimplemented: the engine refuses it.
+  feature.decisions = [logic.newDecision(feature, 'requirements', 'ask')];
+  const unimplemented = check(root, logic.changeSetFrom(model, draft));
+  assert.equal(unimplemented.valid, false);
+  assert.ok(unimplemented.problems.some((problem) => /skips every code phase after 'requirements'/.test(problem.message)), JSON.stringify(unimplemented.problems));
 
   // A branch that skips requirements would strand design, which reads it: the engine refuses it.
   const branch = logic.newDecision(feature, 'intake', 'branch');

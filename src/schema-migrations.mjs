@@ -2825,7 +2825,7 @@ const families = [
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 12,
+    id: 'story-workflow', currentVersion: 13,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
@@ -2844,7 +2844,12 @@ const families = [
       migration(10, 11, identity(11)),
       // v12 registers workflow decisions: the `skipped` phase status, recorded decision inputs, a
       // pending decision and its rounds and log. A v11 Story declared no decisions, so it reads as is.
-      migration(11, 12, identity(12))
+      migration(11, 12, identity(12)),
+      // v13 registers rework identity in phase state: the generation high-water mark that keeps a
+      // generation abandoned by a roll-forward from being published again, and the generation a
+      // reopened phase must move past. A build that ignores them reuses an abandoned generation, so
+      // such a build must refuse the Story. The step infers nothing; a v12 Story reads as is.
+      migration(12, 13, identity(13))
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),

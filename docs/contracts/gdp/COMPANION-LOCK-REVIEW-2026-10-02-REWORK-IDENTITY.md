@@ -1,0 +1,20 @@
+# GDP companion authority review — rework identity — 2026-10-02
+
+Review boundary: `7e76a9340ecb2ef7a4f87462ac6dc02e891b20c0` plus the rework-identity patch reviewed below. The preceding review is `COMPANION-LOCK-REVIEW-2026-10-01-WORKFLOW-DECISIONS.md`.
+
+One GDP-locked companion changed, `migration-registry`. `main` already carried unreviewed changes to it, so the lock failed on `main`: four commits after the preceding review edited `src/schema-migrations.mjs` without a companion review (its bytes were `sha256:e8d3a6becf71f0a1ae37e28343e6d3a435a11da69cda4e907df02aedd7787c29` at the boundary). This review covers those changes after the fact, with the rework-identity change on top of them. It is not a bulk hash refresh or a new approval authority.
+
+Reviewed after the fact, all at closed paths and none adding a migration that infers state:
+
+- `843fa61d` ("Add opt-in Story test policy and bounded readiness repair") registers ten immutable version-1 Story test-recovery records, each restricted to its own directory under `singularity/work-items/<id>/context/test-recovery/`: `story-test-recovery-agreement`, `test-baseline-manifest`, `test-selection-manifest`, `phase-validation-observation`, `phase-risk-decision`, `phase-gate-evaluation`, `story-test-policy-amendment`, `phase-repair-receipt`, `trp-authority-receipt` and `trp-readiness-checkpoint`. `repository-readiness-receipt` and `repository-test-baseline` each gain one Story-owned, digest-named path (`repair-evidence/` and `original-baselines/`).
+- `b43a12e6` ("Add reviewed prepublication test-command amendments") registers `test-command-adoption-review` and `test-command-adoption-decision` as immutable version-1 records at closed `TCA-` paths, and the embedded `test-command-adoption-summary`.
+- `ff78edb1` ("Support reviewed post-publication test runner recovery") moves those three to version 2 with identity steps, so an old review gains no post-publication revalidation binding by being read; registers the immutable version-1 `test-command-epoch-validation` record at a closed `epochs/TCEV-<uuid>.json` path; and lets a `code-delivery` receipt path carry an epoch suffix.
+- `334033b9` ("Add reviewed unavailable-runner risk recovery across Story gates") adds `phase-risk-revocation` to the same test-recovery list.
+
+| Companion | Authority change reviewed | Previous digest | Accepted digest |
+| --- | --- | --- | --- |
+| `migration-registry` | `story-workflow` moves from v12 to v13 with one identity step, on top of the four registrations above. v13 registers rework identity in Story phase state: `generationHighWatermark`, which keeps a generation that a rework roll-forward abandoned from being allocated again, and `reworkRevalidation`, the generation a reopened phase must publish past before it can be submitted. `1f1c5bbb` began writing both into v12 Stories without a version change, so a build from before it, which reads v12 too, opened such a Story, ignored them, reused an abandoned generation number and left the terminal gate permanently failing with two publications for one generation. Nothing is inferred, removed or moved, and no stored path changes. | `sha256:4ba24af779b6d6ccb7cfd78f4c994166b29825acc838368c9a2a26b3f81f69fb` | `sha256:d4eaba68e8d13259857d2e077c5e0f43275009fa168f1efcd3f804914d344dc7` |
+
+A Story this build writes is stored as v13 and refused by a build that knows only v12, which is the point of the step: everyone working on a Story must upgrade together, as with every schema step in this registry. The fields add no authority. They only stop a generation number from being reused and stop a reopened phase from resubmitting the generation that was invalidated; approvals, waivers and gates are unchanged. All digests were computed from the file bytes, not copied from a failing assertion.
+
+Validation at this boundary: the schema golden corpus (with a frozen v13 `story-workflow` record), the migration read tests, the rework lifecycle, lifecycle transition, phase generation and governance tests passed. The GDP companion-lock suite must pass against these exact accepted digests.

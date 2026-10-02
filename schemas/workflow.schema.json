@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -735,7 +735,7 @@
       },
       "then": {
         "properties": {
-          "schemaVersion": { "enum": [9, 10, 11] },
+          "schemaVersion": { "enum": [9, 10, 11, 12, 13] },
           "workflowSnapshot": { "type": "object", "properties": { "schemaVersion": { "const": 2 } } }
         },
         "required": ["workflowSnapshot"]
@@ -752,7 +752,7 @@
       "then": {
         "required": ["workflowSnapshot"],
         "properties": {
-          "schemaVersion": { "enum": [10, 11] },
+          "schemaVersion": { "enum": [10, 11, 12, 13] },
           "workflowSnapshot": {
             "type": "object", "required": ["revision"],
             "properties": { "schemaVersion": { "const": 2 },
@@ -772,7 +772,7 @@
       "then": {
         "required": ["skillVersionAmendments"],
         "properties": {
-          "schemaVersion": { "enum": [10, 11] },
+          "schemaVersion": { "enum": [10, 11, 12, 13] },
           "skillVersionAmendments": {
             "contains": { "type": "object", "required": ["status"],
               "properties": { "status": { "const": "approved" } } }

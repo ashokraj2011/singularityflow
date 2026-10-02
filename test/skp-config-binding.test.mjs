@@ -100,7 +100,7 @@ test('a changed upstream output cannot satisfy the compiled input binding', asyn
   assert.throws(() => validateDefinition(definition), { code: 'SKP_INPUT_UNKNOWN' });
 });
 
-test('Story schema registers skill bindings with v9/v10/v11 and WFA v2', async () => {
+test('Story schema registers skill bindings with v9 through v13 and WFA v2', async () => {
   const schema = JSON.parse(await readFile(new URL('../schemas/workflow.schema.json', import.meta.url), 'utf8'));
   assert.ok(schema.properties.schemaVersion.enum.includes(9));
   assert.ok(schema.properties.schemaVersion.enum.includes(10));
@@ -110,7 +110,7 @@ test('Story schema registers skill bindings with v9/v10/v11 and WFA v2', async (
     'workflow-definition.schema.json#/$defs/skpSkillBinding');
   const skillVersion = schema.allOf.find((entry) =>
     entry.then?.properties?.schemaVersion?.enum?.includes(9));
-  assert.deepEqual(skillVersion.then.properties.schemaVersion.enum, [9, 10, 11]);
+  assert.deepEqual(skillVersion.then.properties.schemaVersion.enum, [9, 10, 11, 12, 13]);
   assert.equal(skillVersion.then.properties.workflowSnapshot.properties.schemaVersion.const, 2);
   assert.ok(schema.allOf.some((entry) => entry.if?.properties?.schemaVersion?.maximum === 8));
   assert.equal(schema.properties.skillVersionAmendments.items.$ref,

@@ -1839,7 +1839,7 @@ argument-hint: &quot;&lt;PATH&gt; --approver &lt;GROUP&gt;&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1115 body tokens</span>
+          <span class="pill">~1118 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1876,7 +1876,7 @@ argument-hint: &quot;[code-generation focus]&quot;
 9. Publish once with configured producer/channel only when prepublish is `ready`. On refusal report `requiredTestExecution`: command ID (not shell command), argv/cwd, exit, bounded stderr and guidance. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes. Source mutation requires review/rollover when consumed. Pre-mutation failure retains intent. No blind retries; at most three repairs. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
 10. `singularity-flow phase show &lt;phase&gt; --json` is artifact review, not readiness or task policy; bounded preview, hash-bound references; stop.
 
-TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`, never auto-waive.
+TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`; no auto-waiver or false passes.
 </code></pre>
       </div>
     </details>
@@ -7140,7 +7140,7 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~797 body tokens</span>
+          <span class="pill">~799 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recover</code></dd></div>
@@ -7166,14 +7166,14 @@ argument-hint: &quot;[WORK-ID]&quot;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. `singularity-flow recover $ARGUMENTS --fetch --json` (optional `--phase &lt;phase&gt;`): blockers, preservation, `planId`; never inspect with `--apply`.
-2. Follow action classifications, not blanket dirty-tree stops. Owned in-phase authoring routes to its producer. Preserve untracked `.sflow/results/**` without cleaning; tracked/staged reports and source require review. Stop for divergence, remote failure or human authority. `repair-publication-authority:&lt;phase&gt;`/`repair-generation-change-set:&lt;phase&gt;` require their diagnostic before rollover; never waive them.
+2. Follow action classifications, not blanket dirty-tree stops. Review `applicationPaths`: open drafts recheck prepublish; published changes require rollover. Preserve untracked `.sflow/results/**`; tracked/staged reports and source require review. Stop for divergence, remote failure or human authority. `repair-publication-authority:&lt;phase&gt;`/`repair-generation-change-set:&lt;phase&gt;` require their diagnostic before rollover; never waive them.
 3. Preserve generations/bytes/pins. `repair-repository-test-runner:&lt;phase&gt;` routes repair to `/sf-code`. For `resolve-code-delivery-test-policy:&lt;phase&gt;` or unavailable inference, preview `singularity-flow story test-policy amend &lt;WORK-ID&gt; --reason &quot;&lt;reason&gt;&quot; --json`. Returned apply requires live human terminal review. Relay preparation/fresh-validation routes without executing. Approval refusal ends its turn; `/sf-reject` later for changed bytes. Post-commit telemetry/session failures are advisory.
-4. Human-confirm exact `planId`, then `singularity-flow recover $ARGUMENTS --fetch --apply --confirm &lt;planId&gt;`. Reinspect stale plans. Rollover is separate.
+4. Human-confirm `planId`, then `singularity-flow recover $ARGUMENTS --fetch --apply --confirm &lt;planId&gt;`. Reinspect stale plans. Rollover is separate.
 5. Guided `begin-new-generation:&lt;phase&gt;` requires `generation.intent.consumed-changed`, current branch/phase, authenticated publication and no lifecycle/transport blocker. Inspect `git status --porcelain=v1 --untracked-files=all`, diffs and all untracked content, including README. `manual` `working-tree` requires human review/confirmation of owned, in-scope changes, not automatic refusal. Stop for protected, unrelated, unowned, conflicted, removed or symlink paths.
 6. Preview with `singularity-flow phase rollover &lt;phase&gt; --json`. Compare work ID, phase, command and `confirmation` digest with fresh recovery. On mismatch, re-inspect. After user confirmation of exact digest, run the returned `singularity-flow phase rollover &lt;phase&gt; --confirm &lt;digest&gt;` once. Never route to `/sf-code` before rollover succeeds.
-7. Reinspect `testExecution.commands` after publication. Use `requiredTestExecution`/logs for argv/cwd, exit, stderr, report/guidance. Authorized dependency repair permits retry without republishing unchanged source; prove the environment changed, not only source hashes. Open-intent authoring uses its producer; resume `/sf-code` after rollover clears recovery. Stop on unchanged conditions or three distinct repairs. Never submit/approve, reset, rebase, force-push, stash or discard. Report effects/preservation. Integrity cannot be risk-accepted; deviations require separate authorization.
+7. Read `testExecution.commands`. Use `requiredTestExecution`/logs for argv/cwd, exit, stderr, report/guidance. Authorized dependency repair permits retry without republishing unchanged source; prove the environment changed, not only source hashes. Open-intent authoring uses its producer; resume `/sf-code` after rollover clears recovery. Stop on unchanged conditions or three distinct repairs. Never submit/approve, reset, rebase, force-push, stash or discard. Report effects/preservation. Integrity cannot be risk-accepted; deviations require separate authorization.
 
-TRP: `singularity-flow explain test-recovery`; returned actions only. Risk needs delegated human terminal review; never impersonate or report unavailable tests passed.
+TRP: `singularity-flow explain test-recovery`; returned actions only. Risk needs delegated human terminal review; never impersonate or report failed/unavailable tests passed.
 </code></pre>
       </div>
     </details>

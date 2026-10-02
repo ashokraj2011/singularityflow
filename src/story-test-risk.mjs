@@ -12,7 +12,7 @@ import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const OPERATIONS = ['publish', 'submit', 'approve', 'downstream', 'replay'];
-const SUPPORTED = ['validation-unavailable'];
+const SUPPORTED = ['validation-unavailable', 'new-test-failure'];
 const fail = (message, code = 'TRP_RISK_ARGUMENT_INVALID', details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const reference = ({ kind, id, recordSha256 }) => ({ kind, id, recordSha256 });
 const actorPrincipal = (actor) => String(actor.email ?? actor.login ?? '').trim().toLowerCase();

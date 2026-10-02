@@ -251,10 +251,18 @@ export function planTestSelection({ agreement, repositoryId, commands = [], cand
     }
     planned.push(resolved);
   }
-  const fullSuiteEquivalent = applicable && execution.mode !== 'all' && expansions.length > 0
-    && configured.length > 0 && configured.every((command) => planned.some((entry) => entry.id === command.id && entry.selectionAdapter === 'module-suite'));
+  // A precise file selector can still execute the whole approved cohort. Only an independently
+  // complete inventory proves that fact; matching every entry in a partial/file-only inventory
+  // cannot manufacture full-suite knowledge. Whole configured-command expansion remains an
+  // independent scope proof even when exact testcase identities are unavailable.
+  const completeCohortSelected = inventoryComplete === true && inventory.length > 0
+    && inventory.every((entry) => selected.has(entry.id));
+  const allCommandsExpanded = expansions.length > 0 && configured.length > 0
+    && configured.every((command) => planned.some((entry) => entry.id === command.id && entry.selectionAdapter === 'module-suite'));
+  const fullSuiteEquivalent = applicable && execution.mode !== 'all'
+    && (completeCohortSelected || allCommandsExpanded);
   const requiredConfirmation = [];
-  if (expansions.length) {
+  if (fullSuiteEquivalent || expansions.length) {
     const rule = fullSuiteEquivalent ? execution.fullSuiteExpansion : execution.moduleExpansion;
     const category = fullSuiteEquivalent ? 'full-suite-expansion' : 'module-expansion';
     if (rule === 'deny') blockers.push({ code: 'TEST_EXPANSION_DENIED', reason: category });

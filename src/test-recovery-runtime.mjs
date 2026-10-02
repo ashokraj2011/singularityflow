@@ -1,4 +1,4 @@
-/** Production TRP adapter. An unavailable runner is an observation, never a test pass. */
+/** Production TRP adapter. Authenticated failure and unavailable outcomes never become passes. */
 import { constants } from 'node:fs';
 import { mkdir, open, readdir, lstat, realpath, stat } from 'node:fs/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -8,20 +8,23 @@ import { canonicalJson } from './records.mjs';
 import { exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitDir, governedCommitIdentity, head } from './git.mjs';
 import { appendTrpRecord, loadTrpRecords, loadTrpAuthorityVerifier } from './test-recovery-store.mjs';
 import { evaluateTestRecoveryGate, sealTrpRecord, trpDigest, validateTrpRecord } from './test-recovery-policy.mjs';
-import { nowIso, SingularityFlowError } from './util.mjs';
+import { nowIso, secureRepositoryPath, ensureSecureRepositoryDirectory, SingularityFlowError } from './util.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
-import { verifyUnavailableQualityLaunch } from './quality-command-runner.mjs';
+import { verifyCompletedQualityLaunch, verifyUnavailableQualityLaunch } from './quality-command-runner.mjs';
+import { readTrpNodeCaseInventory, matchTrpNodeReport, trpNodeExecutionEnvironment } from './test-recovery-node.mjs';
+import { parseTestResult } from './code-delivery-tests.mjs';
+import { applicationPathContext } from './application-paths.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const unsupported = (message, details = {}) => new SingularityFlowError(message, { code: 'TRP_RISK_ADAPTER_UNAVAILABLE', details });
 const workRelative = (config, workflow) => path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
 const privateWitnesses = new WeakMap();
 const capturedLaunches = new WeakSet();
-export const TRP_RUNTIME_RISK_CATEGORIES = Object.freeze(['validation-unavailable']);
+export const TRP_RUNTIME_RISK_CATEGORIES = Object.freeze(['validation-unavailable', 'new-test-failure']);
 
 export function storyTestRiskEnabled(workflow) {
   return workflow.resolution?.testRecovery?.enabled === true
-    && workflow.resolution.testRecovery.enabledRiskCategories?.includes('validation-unavailable') === true;
+    && workflow.resolution.testRecovery.enabledRiskCategories?.some(category => TRP_RUNTIME_RISK_CATEGORIES.includes(category)) === true;
 }
 
 async function boundedRead(filename) {
@@ -64,7 +67,7 @@ async function originBinding(root, workflow, observation) {
     workId: workflow.workItem.id, observationSha256: observation.recordSha256 });
 }
 
-async function retainOrigin(root, workflow, observation, selection) {
+async function retainOrigin(root, workflow, observation, selection, report = null) {
   const directory = await originDirectory(root, true);
   const key = (await installPrivate(path.join(directory, 'origin.key'), randomBytes(32).toString('hex'))).toString();
   if (!/^[a-f0-9]{64}$/u.test(key)) throw unsupported('Execution origin key is invalid.');
@@ -76,6 +79,41 @@ async function retainOrigin(root, workflow, observation, selection) {
   const bundle = canonicalJson({ observation, selection });
   const retained = await installPrivate(path.join(directory, `${observation.recordSha256.slice(7)}.capture`), bundle);
   if (retained.toString() !== bundle) throw unsupported('Retained execution capture differs from the original.');
+  if (report) {
+    const savedReport = await installPrivate(path.join(directory, `${observation.reportSha256s[0].slice(7)}.report`), report);
+    if (!savedReport.equals(report)) throw unsupported('Retained report differs from the native runner output.');
+  }
+}
+
+function reportPath(config, workflow, observation) {
+  return `${workRelative(config, workflow)}/context/test-recovery/reports/${observation.reportSha256s[0].slice(7)}.xml`;
+}
+
+async function authenticatedFailedReport(root, config, workflow, observation, { evidenceCommit = null } = {}) {
+  if (observation.observedOutcome !== 'failed' || observation.reportStatus !== 'current'
+    || observation.reportSha256s.length !== 1 || observation.identityCompleteness !== 'complete'
+    || !Number.isInteger(observation.processExitCode) || observation.processExitCode === 0
+    || observation.counts.failed < 1 || observation.counts.skipped || observation.counts.notRun) return false;
+  try {
+    let bytes;
+    const relative = reportPath(config, workflow, observation);
+    if (evidenceCommit) bytes = exactFileAtObject(root, evidenceCommit, relative, { maximumBytes: MAX_BYTES });
+    else {
+      const target = await secureRepositoryPath(root, relative, { label: 'Retained failed-test report', type: 'file' });
+      bytes = target.exists ? await boundedRead(target.absolute)
+        : await boundedRead(path.join(await originDirectory(root), `${observation.reportSha256s[0].slice(7)}.report`));
+    }
+    if (!bytes || `sha256:${createHash('sha256').update(bytes).digest('hex')}` !== observation.reportSha256s[0]) return false;
+    const inventory = workflow.resolution?.testRecovery?.caseInventory?.find(entry =>
+      entry.phaseId === observation.subject.phaseId && entry.commandId === observation.obligationId);
+    if (!inventory) return false;
+    const tests = inventory.tests.filter(entry => observation.expectedTestIds.includes(entry.id)).map(entry => ({ ...entry,
+      semanticsSha256: observation.cases.find(candidate => candidate.id === entry.id)?.semanticsSha256 }));
+    const parsed = await matchTrpNodeReport(root, { tests }, bytes);
+    const orderedCases = entries => [...entries].sort((left, right) => left.id.localeCompare(right.id));
+    return canonicalJson(orderedCases(parsed.cases)) === canonicalJson(orderedCases(observation.cases))
+      && canonicalJson(parsed.counts) === canonicalJson(observation.counts);
+  } catch { return false; }
 }
 
 async function authenticOrigin(root, workflow, observation) {
@@ -121,6 +159,49 @@ async function candidateContext(root, config, workflow, selection) {
   const phase = workflow.phases[selection.subject.phaseId];
   const { resolveDeliveryQualityCommands } = await import('./delivery-evidence.mjs');
   const commands = (await resolveDeliveryQualityCommands(root, phase)).filter(command => command?.kind === 'test');
+  const exactCases = selection.selectedTestIds.length > 0;
+  let localDependenciesSha256 = null;
+  if (exactCases) {
+    // Include ignored installed dependencies and data. Only approved framework-owned state and
+    // the exact authenticated runner output target are outside this local dependency closure.
+    const context = applicationPathContext(config, workflow);
+    const reports = new Set(commands.map(command => path.posix.normalize(path.posix.join(command.workingDirectory ?? '.', command.result.path))));
+    const manifest = []; let bytesRead = 0; let entryCount = 0;
+    const excluded = relative => relative === '.git' || relative.startsWith('.git/')
+      || context.governedRoots.some(value => relative === value || relative.startsWith(`${value}/`))
+      || context.governedPaths.includes(relative) || reports.has(relative);
+    const visit = async (absolute, relative = '') => {
+      for (const name of (await readdir(absolute)).sort()) {
+        const child = relative ? `${relative}/${name}` : name;
+        if (excluded(child)) continue;
+        if (++entryCount > 16_384) throw unsupported('The repository-local execution dependency inventory exceeds its entry bound.');
+        const filename = path.join(absolute, name); const info = await lstat(filename);
+        if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile()) throw unsupported('Execution dependency snapshots require ordinary repository-contained files and directories.');
+        if (info.isDirectory()) {
+          manifest.push({ path: child, type: 'directory', mode: info.mode & 0o7777 });
+          await visit(filename, child);
+          const after = await lstat(filename);
+          if (!after.isDirectory() || after.isSymbolicLink() || after.dev !== info.dev || after.ino !== info.ino
+            || after.mode !== info.mode || after.mtimeMs !== info.mtimeMs) throw unsupported('A local execution dependency directory changed during snapshot capture.');
+          continue;
+        }
+        if (info.nlink !== 1 || info.size > MAX_BYTES || (bytesRead += info.size) > 64 * 1024 * 1024) throw unsupported('The local execution dependency snapshot exceeds its safe file/byte bound.');
+        const contents = await boundedRead(filename); const after = await lstat(filename);
+        if (!after.isFile() || after.isSymbolicLink() || after.dev !== info.dev || after.ino !== info.ino
+          || after.mode !== info.mode || after.size !== info.size || after.mtimeMs !== info.mtimeMs) throw unsupported('A local execution dependency changed during snapshot capture.');
+        manifest.push({ path: child, type: 'file', mode: info.mode & 0o7777, sha256: `sha256:${createHash('sha256').update(contents).digest('hex')}` });
+      }
+    };
+    const canonicalRoot = await realpath(root); const beforeRoot = await lstat(canonicalRoot);
+    manifest.push({ path: '.', type: 'directory', mode: beforeRoot.mode & 0o7777 });
+    await visit(canonicalRoot);
+    const afterRoot = await lstat(canonicalRoot);
+    if (!afterRoot.isDirectory() || afterRoot.isSymbolicLink() || afterRoot.dev !== beforeRoot.dev
+      || afterRoot.ino !== beforeRoot.ino || afterRoot.mode !== beforeRoot.mode || afterRoot.mtimeMs !== beforeRoot.mtimeMs) {
+      throw unsupported('The local execution dependency root changed during snapshot capture.');
+    }
+    localDependenciesSha256 = trpDigest(manifest);
+  }
   const resolution = [];
   for (const command of commands) {
     const executable = command.argv?.[0];
@@ -140,16 +221,18 @@ async function candidateContext(root, config, workflow, selection) {
   }
   const resolutionKeys = new Set(['PATH', 'PATHEXT', 'COMSPEC', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'NODE_OPTIONS']);
   const runtimeSha256 = trpDigest({ executable: process.execPath, version: process.version,
-    environment: Object.fromEntries(Object.entries(process.env).filter(([key]) => resolutionKeys.has(key.toUpperCase())).sort()), resolution });
+    environment: exactCases ? trpNodeExecutionEnvironment()
+      : Object.fromEntries(Object.entries(process.env).filter(([key]) => resolutionKeys.has(key.toUpperCase())).sort()), resolution });
   const environment = { hostId: os.hostname(), platform: process.platform, arch: process.arch, runtimeSha256,
-    dependencySha256: sourceManifestSha256, runnerSha256: selection.commandSha256,
-    adapterSha256: trpDigest('trp-unavailable-runner-v1'), configurationSha256: selection.commandInventorySha256,
+    dependencySha256: localDependenciesSha256 ?? sourceManifestSha256, runnerSha256: selection.commandSha256,
+    adapterSha256: trpDigest(exactCases ? 'trp-native-node-failure-v1' : 'trp-unavailable-runner-v1'), configurationSha256: selection.commandInventorySha256,
     externalDependenciesSha256: null };
   return { sourceManifestSha256, environment, unresolvedExecutable: resolution.every(item => !item.resolvedAvailable), dependencies: [
     { id: 'application-source-and-dependencies', sha256: sourceManifestSha256 },
     { id: 'approved-command-inventory', sha256: selection.commandInventorySha256 },
     { id: 'approved-runner-command', sha256: selection.commandSha256 },
-    { id: 'approved-selector', sha256: selection.selectorSha256 }
+    { id: 'approved-selector', sha256: selection.selectorSha256 },
+    ...(localDependenciesSha256 ? [{ id: 'repository-local-execution-dependencies', sha256: localDependenciesSha256 }] : [])
   ] };
 }
 
@@ -158,7 +241,7 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   if (!storyTestRiskEnabled(workflow)) return null;
   const tests = commands.filter(command => command?.kind === 'test');
   if (tests.length !== 1 || !selection || selection.selectedSuites.length !== 1
-    || selection.selectedSuites[0] !== tests[0].id) throw unsupported('Validation-unavailable risk currently supports one exact structured test command per phase.');
+    || selection.selectedSuites[0] !== tests[0].id) throw unsupported('Test-risk review currently supports one exact structured test command per phase.');
   validateTrpRecord(selection, { kind: 'test-selection-manifest' });
   if (trpDigest(tests.map(({ selectionAdapter: _selectionAdapter, ...command }) => command)) !== selection.commandSha256) {
     throw unsupported('The launch command differs from the sealed test selection.');
@@ -179,35 +262,63 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   if (canonicalJson(selectionCore(selection)) !== canonicalJson(selectionCore(fresh.selection))) {
     throw unsupported('The launch selection differs from the exact current scope and generation.');
   }
+  const caseInventory = await readTrpNodeCaseInventory(root, workflow, phase, tests[0], { selected: true });
+  if (caseInventory && (selection.selectedTestIds.length !== caseInventory.tests.length
+    || caseInventory.tests.some(entry => !selection.selectedTestIds.includes(entry.id)))) {
+    throw unsupported('The selected test case identities differ from the independently approved cohort.');
+  }
+  if (caseInventory) {
+    // The execution runner already creates this exact approved output parent. Create it before
+    // sealing dependencies so its first appearance cannot invalidate the run that needs it.
+    // Read-only plans do not call this execution boundary and never create directories.
+    const report = path.posix.normalize(path.posix.join(tests[0].workingDirectory ?? '.', tests[0].result.path));
+    await ensureSecureRepositoryDirectory(root, path.posix.dirname(report), { label: 'TRP native report parent' });
+  }
   const candidate = await candidateContext(root, config, workflow, selection);
   const witness = Object.freeze({});
   const cwd = await realpath(path.resolve(root, tests[0].workingDirectory ?? '.'));
-  const environment = { ...process.env };
+  const environment = caseInventory ? trpNodeExecutionEnvironment() : { ...process.env };
   delete environment.NODE_TEST_CONTEXT;
   if (tests[0].result?.adapter === 'playwright-json') {
     for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PLAYWRIGHT_JSON_OUTPUT_FILE') delete environment[key];
     environment.PLAYWRIGHT_JSON_OUTPUT_FILE = path.resolve(cwd, tests[0].result.path);
   }
-  const captured = { selection, candidate, commandId: tests[0].id, command: tests[0].argv[0], args: tests[0].argv.slice(1),
+  const captured = { selection, candidate, caseInventory, testCommand: tests[0],
+    stdoutFile: path.resolve(cwd, tests[0].result.path), commandId: tests[0].id, command: tests[0].argv[0], args: tests[0].argv.slice(1),
     cwd, environmentSha256: createHash('sha256').update(JSON.stringify(Object.entries(environment).sort())).digest('hex'),
     startedAt: nowIso(), sourceRevision: head(root) };
   privateWitnesses.set(witness, structuredClone(captured));
   return Object.freeze({ witness, ...captured });
 }
 
-/** Only an actual launch failure qualifies. Exit-one tests, skipped commands and timeouts do not. */
+/** Native launch failures and independently inventoried actual test failures retain distinct outcomes. */
 export async function captureStoryTestRiskObservation(root, config, workflow, phase, { run, check, result }) {
   if (!run || !privateWitnesses.has(run.witness)) throw unsupported('A live runtime observation is required.');
   const expected = privateWitnesses.get(run.witness);
   privateWitnesses.delete(run.witness);
   const { witness: _witness, ...provided } = run;
   if (canonicalJson(expected) !== canonicalJson(provided)) throw unsupported('The captured execution candidate was altered.');
-  const launch = verifyUnavailableQualityLaunch(result, expected);
-  if (check?.id !== run.commandId || check.status !== 'blocked' || !launch || capturedLaunches.has(result)
-    || !check.infrastructureUnavailable || check.timedOut || !run.candidate.unresolvedExecutable
-    || Date.parse(launch.startedAt) < Date.parse(run.startedAt)) return null;
+  const unavailable = verifyUnavailableQualityLaunch(result, expected);
+  const completed = verifyCompletedQualityLaunch(result, expected);
+  if (check?.id !== run.commandId || capturedLaunches.has(result) || check.timedOut) return null;
+  let report = null; let failed = null;
+  const unavailableRun = check.status === 'blocked' && unavailable && check.infrastructureUnavailable && run.candidate.unresolvedExecutable;
+  const failedRun = check.status === 'failed' && completed?.status > 0 && run.caseInventory
+    && workflow.resolution.testRecovery.enabledRiskCategories.includes('new-test-failure');
+  if (!unavailableRun && !failedRun) return null;
+  const launch = unavailableRun ? unavailable : completed;
+  if (Date.parse(launch.startedAt) < Date.parse(run.startedAt)) return null;
+  if (failedRun) {
+    const parsed = await parseTestResult(root, run.testCommand, { startedAt: launch.startedAt });
+    if (parsed.tests.discovered < parsed.minimumDiscovered) throw unsupported('The failed run discovered fewer tests than its independently required minimum; new-test-failure cannot waive missing coverage.');
+    if (parsed.rawReports.length !== 1 || parsed.rawReports[0].contents.length > MAX_BYTES
+      || `sha256:${parsed.rawReports[0].sha256}` !== launch.stdoutSha256
+      || parsed.rawReports[0].bytes !== launch.stdoutBytes) throw unsupported('The current failed report is not the exact native runner output.');
+    report = parsed.rawReports[0].contents;
+    failed = await matchTrpNodeReport(root, run.caseInventory, report);
+  }
   const current = await candidateContext(root, config, workflow, run.selection);
-  if (canonicalJson(current) !== canonicalJson(run.candidate)) throw unsupported('Source, commands or environment changed during the unavailable runner attempt.');
+  if (canonicalJson(current) !== canonicalJson(run.candidate)) throw unsupported('Source, commands, dependencies or environment changed during the runner attempt.');
   capturedLaunches.add(result);
   const createdAt = nowIso();
   const core = { schemaVersion: 1, kind: 'phase-validation-observation',
@@ -217,15 +328,16 @@ export async function captureStoryTestRiskObservation(root, config, workflow, ph
     sourceRevision: run.sourceRevision, sourceManifestSha256: current.sourceManifestSha256,
     commandInventorySha256: run.selection.commandInventorySha256, commandSha256: run.selection.commandSha256,
     selectorSha256: run.selection.selectorSha256, dependencies: current.dependencies, environment: current.environment,
-    startedAt: launch.startedAt, completedAt: launch.completedAt, processExitCode: null,
-    reportStatus: 'missing', reportSha256s: [], expectedTestIds: [], cases: [],
-    counts: { discovered: 0, passed: 0, failed: 0, skipped: 0, notRun: 0 }, identityCompleteness: 'incomplete',
-    observedOutcome: 'unavailable', diagnostics: [redactDiagnosticText(check.stderr ?? 'Runner unavailable').slice(0, 2000)], executionOrigin: 'executed' };
+    startedAt: launch.startedAt, completedAt: launch.completedAt, processExitCode: failed ? launch.status : null,
+    reportStatus: failed ? 'current' : 'missing', reportSha256s: failed ? [failed.reportSha256] : [],
+    expectedTestIds: failed ? run.caseInventory.tests.map(entry => entry.id) : [], cases: failed?.cases ?? [],
+    counts: failed?.counts ?? { discovered: 0, passed: 0, failed: 0, skipped: 0, notRun: 0 }, identityCompleteness: failed ? 'complete' : 'incomplete',
+    observedOutcome: failed ? 'failed' : 'unavailable', diagnostics: [redactDiagnosticText(check.stderr ?? 'Runner unavailable').slice(0, 2000)], executionOrigin: 'executed' };
   const observation = sealTrpRecord({ ...core, id: `run-${trpDigest(core).slice(7, 39)}` });
   const workRoot = path.join(root, workRelative(config, workflow));
   await appendTrpRecord(workRoot, run.selection);
   await appendTrpRecord(workRoot, observation);
-  await retainOrigin(root, workflow, observation, run.selection);
+  await retainOrigin(root, workflow, observation, run.selection, report);
   return observation;
 }
 
@@ -287,9 +399,10 @@ export async function loadStoryTestRiskContext(root, config, workflow, {
   const observations = observation ? [observation] : [];
   const authenticated = new Set();
   for (const record of observations) {
-    if (record.observedOutcome !== 'unavailable' || record.processExitCode !== null || record.reportStatus !== 'missing'
-      || record.cases.length || record.expectedTestIds.length || record.reportSha256s.length || record.identityCompleteness !== 'incomplete'
-      || !await authenticOrigin(root, workflow, record)) continue;
+    if (!await authenticOrigin(root, workflow, record)) continue;
+    const unavailable = record.observedOutcome === 'unavailable' && record.processExitCode === null && record.reportStatus === 'missing'
+      && !record.cases.length && !record.expectedTestIds.length && !record.reportSha256s.length && record.identityCompleteness === 'incomplete';
+    if (!unavailable && !await authenticatedFailedReport(root, config, workflow, record, { evidenceCommit })) continue;
     if (evidenceCommit) {
       const relative = `${workRelative(config, workflow)}/context/test-recovery/runs/${record.id}.json`;
       const bytes = exactFileAtObject(root, evidenceCommit, relative, { maximumBytes: MAX_BYTES });
@@ -302,12 +415,16 @@ export async function loadStoryTestRiskContext(root, config, workflow, {
       verifiedAt: mode === 'historical' ? nowIso() : at } : null;
   const decisions = records.filter(record => record.kind === 'phase-risk-decision');
   const integrityIssues = [];
+  if (observation?.observedOutcome === 'failed' && !authority.policy.allowEvidenceReuse) {
+    integrityIssues.push({ category: 'policy-integrity', obligationId: observation.obligationId,
+      message: 'Retaining failed execution evidence requires explicit pinned evidence-reuse permission.' });
+  }
   const phaseObligations = repository.mandatoryObligations.filter(item => !item.phaseIds || item.phaseIds.includes(phaseId));
   if (!phaseObligations.some(item => item.transitions.includes(operation))) {
     integrityIssues.push({ category: 'policy-integrity', obligationId: 'operation', message: 'The pinned agreement does not declare this transition; no risk permission can be inferred.' });
   }
   if (authority.policy.enabledRiskCategories.some(category => !TRP_RUNTIME_RISK_CATEGORIES.includes(category))) {
-    integrityIssues.push({ category: 'policy-integrity', obligationId: 'runtime-adapter', message: 'This runtime supports validation-unavailable only; other risks require a qualified evidence adapter.' });
+    integrityIssues.push({ category: 'policy-integrity', obligationId: 'runtime-adapter', message: 'This runtime supports only qualified unavailable or native Node test-failure risk; other risks require a qualified evidence adapter.' });
   }
   if (selection && phaseObligations.filter(item => item.transitions.includes(operation)).some(item =>
     item.kind !== 'test' || !selection.selectedSuites.includes(item.id))) {
@@ -330,6 +447,15 @@ export async function materializeStoryTestRiskEvidence(root, config, workflow, c
       || observation.selectionSha256 !== context.selection?.recordSha256) throw unsupported('The exact captured observation is no longer available.');
     await appendTrpRecord(workRoot, context.selection);
     await appendTrpRecord(workRoot, observation);
+    if (observation.observedOutcome === 'failed') {
+      if (!await authenticatedFailedReport(root, config, workflow, observation)) throw unsupported('The authenticated failed-test report is no longer available.');
+      const relative = reportPath(config, workflow, observation);
+      await ensureSecureRepositoryDirectory(root, path.posix.dirname(relative), { label: 'TRP failed-test reports' });
+      const target = await secureRepositoryPath(root, relative, { label: 'TRP failed-test report', type: 'file' });
+      const report = await boundedRead(path.join(await originDirectory(root), `${observation.reportSha256s[0].slice(7)}.report`));
+      const saved = await installPrivate(target.absolute, report);
+      if (!saved.equals(report)) throw unsupported('The published failed-test report differs from the exact native output.');
+    }
   }
 }
 
@@ -393,7 +519,7 @@ export async function verifiedStoryTestRiskReviewCommits(root, config, workflow,
 export async function assertStoryTestRiskGate(root, config, workflow, options = {}) {
   const context = await loadStoryTestRiskContext(root, config, workflow, options);
   if (context.evaluation.gateDecision === 'block') {
-    throw new SingularityFlowError('The test runner remains unavailable. Review the exact retained risk or repair the runner before continuing.',
+    throw new SingularityFlowError('Required validation remains failed or unavailable. Review the exact retained risk or repair the check before continuing.',
       { code: 'TRP_PHASE_GATE_BLOCKED', details: { evaluation: context.evaluation,
         observedOutcome: context.observations[0]?.observedOutcome ?? 'not-run', workId: workflow.workItem.id,
         phase: context.subject.phaseId, operation: options.operation ?? 'publish' } });

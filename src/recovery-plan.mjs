@@ -7,10 +7,11 @@ import {
 import {
   normalizeRequiredTestCommand, structuredTestCommandRequiredError
 } from './code-delivery-tests.mjs';
-import { buildRepositoryChangeSet } from './repository-change-set.mjs';
+import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
 import { inspectPhaseAuthoredReviewContent } from './publication-preflight.mjs';
-import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
-import { publishedGenerationCommit } from './generation-boundary.mjs';
+import { applicationChangeSetProjection, applicationPathContext, verifyWorkIntervalBaseline } from './work-intervals.mjs';
+import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { isTestAutomationPath } from './source-boundary.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -53,6 +54,54 @@ function artifactActions(workflow, phase, findings) {
       command: phasePublicationCommand(phase)
     }
   })];
+}
+
+/**
+ * A verified authoring boundary can route an in-scope diff for review even while the artifact or
+ * tests are unfinished. This proves scope only: it grants no authorship, adoption or publication
+ * authority and deliberately does not require a passing feature-delivery contract.
+ */
+export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
+  if (!phaseRequiresCodeDelivery(phase) || phase?.id !== workflow.currentPhase
+      || phase.status !== 'in_progress' || phase.writeScope !== 'source-and-artifact') return null;
+  try {
+    const consumed = phase.generationIntent?.status === 'consumed'
+      && Number(phase.generationIntent.generation) === Number(phase.generation);
+    let baseCommit;
+    if (consumed) {
+      baseCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
+      if (!baseCommit) return null;
+    } else {
+      await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id,
+        itemDirectory: path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id) });
+      const intent = await verifyOpenGenerationIntent(root, workflow, phase);
+      baseCommit = intent?.baseline?.commit;
+      if (!baseCommit) return null;
+    }
+    const changeSet = applicationChangeSetProjection(await buildRepositoryChangeSet(root, {
+      baseCommit, subject: { workId: workflow.workItem.id, phase: phase.id,
+        generation: Number(phase.generation) + 1, generationIntentId: consumed ? null : phase.generationIntent.id }
+    }), applicationPathContext(config, workflow));
+    const protectedPaths = new Set(evaluateProtectedPaths(changeSet, [
+      ...(config.governance?.protectedPaths ?? []),
+      ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+    ]).violations.map(entry => entry.path));
+    const outsideBoundaryPaths = new Set(evaluateSourceBoundary(changeSet, phase.sourceBoundary ?? 'unrestricted', {
+      phaseId: phase.id, allowedPath: isTestAutomationPath
+    }).violations.map(entry => entry.path));
+    const paths = changeSet.entries.filter(entry => ['added', 'modified'].includes(entry.status)
+      && entry.newContent?.kind === 'regular-file'
+      && [entry.oldPath, entry.newPath].filter(Boolean).every(candidate =>
+        !protectedPaths.has(candidate) && !outsideBoundaryPaths.has(candidate)))
+      .map(entry => entry.newPath).sort();
+    return { status: 'verified', basis: consumed ? 'published-generation' : 'open-generation',
+      phaseId: phase.id, generation: Number(phase.generation) + 1, baseCommit,
+      changeSetDigest: changeSet.digest, paths,
+      protectedPaths: [...protectedPaths].sort(), outsideBoundaryPaths: [...outsideBoundaryPaths].sort(),
+      publishedGeneration: consumed ? Number(phase.generation) : null };
+  } catch (error) {
+    return { status: 'unverified', reason: error.message, code: error.code ?? 'GENERATION_BOUNDARY_UNVERIFIED', paths: [] };
+  }
 }
 
 export async function generationRecovery(root, workflow, phase, generationDigest) {

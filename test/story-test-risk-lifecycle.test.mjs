@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs'
 import { applyCapabilityPolicyToWorkResolution, resolveLifecycleCapability } from '../src/capability-context.mjs';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot, materializeConfigurationSnapshot } from '../src/configuration-branch.mjs';
+import { planStoryTestSelection } from '../src/commands/story-test-selection.mjs';
 import { verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import { governedCommitIdentity } from '../src/git.mjs';
@@ -45,8 +46,8 @@ function setActor(root, actor) {
   process.env.SINGULARITY_FLOW_TEST_IDENTITY = actor.name;
 }
 
-/** Real Git/CLI/PTY fixture with an actual ENOENT launch, not a fabricated failed test report. */
-async function fixture(t, { unavailable = true, danglingRuntime = false, downstream = false } = {}) {
+/** Real Git/CLI/PTY fixture with native ENOENT or genuine Node JUnit failure, never a fabricated current report. */
+async function fixture(t, { unavailable = true, danglingRuntime = false, downstream = false, failedRisk = false, testOnly = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-risk-lifecycle-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'application');
@@ -81,8 +82,14 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
     definition.approvalAuthorities[id] = { label: id, allowAnyGitIdentity: false,
       members: [{ name: actor.name, email: actor.email, githubLogin: null }] };
   }
+  const riskCategory = failedRisk ? 'new-test-failure' : 'validation-unavailable';
+  const reportRelative = failedRisk ? '.sflow/results/required.xml' : '.sflow/results/required.tap';
   definition.testRecovery = { enabled: true, riskAuthorities: ['risk-reviewers'],
-    enabledRiskCategories: ['validation-unavailable'], allowEvidenceReuse: false, maxRiskDays: 7 };
+    enabledRiskCategories: [riskCategory], allowEvidenceReuse: failedRisk, maxRiskDays: 7,
+    ...(failedRisk ? { caseInventory: [{ phaseId: 'implementation', commandId: '.-python-tests',
+      dependencyScope: 'repository-and-node-builtins-only',
+      tests: [{ id: 'service-contract', path: 'test/service.test.mjs', name: 'service contract' },
+        { id: 'a-service-smoke', path: 'test/service.test.mjs', name: 'service smoke' }] }] } : {}) };
   definition.workTypes.feature = { label: 'Feature', phases: downstream ? ['implementation', 'testing'] : ['implementation'],
     plannedClaims: { mode: 'opt-out', reason: 'Isolated unavailable-runner fixture without a specification phase.' },
     spec: { acceptance: 'off' } };
@@ -93,11 +100,14 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
   }
   const phase = definition.phases.implementation;
   phase.inputs = []; phase.clarification = { mode: 'off' };
+  if (testOnly) phase.sourceBoundary = 'test-automation';
   phase.qualityCommands = [{ id: '.-python-tests', kind: 'test',
-    argv: unavailable ? [path.join(root, 'tools', 'missing-test-runtime')]
+    argv: failedRisk ? [process.execPath, '--test', '--test-reporter=junit', 'test/service.test.mjs']
+      : unavailable ? [path.join(root, 'tools', 'missing-test-runtime')]
       : [process.execPath, '--test', '--test-reporter=tap', 'test/service.test.mjs'],
     workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
-    result: { adapter: 'node-tap', path: '.sflow/results/required.tap', minimumDiscovered: 1, minimumPassed: 1 } }];
+    result: { adapter: failedRisk ? 'junit-xml' : 'node-tap', path: reportRelative,
+      minimumDiscovered: failedRisk ? 2 : 1, minimumPassed: failedRisk ? 2 : 1 } }];
   await writeFile(definitionPath, YAML.stringify(definition));
   if (danglingRuntime) {
     await mkdir(path.join(root, 'tools'));
@@ -120,9 +130,9 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
   const resolved = resolveWorkType(config, 'feature');
   const testRecoveryPlan = previewTestRecoveryIntake({ definition: config, workId, workType: 'feature',
     repositories: readinessRepositories, repositoryReadiness,
-    choices: { baselineDisposition: 'fix', executionMode: 'all-configured', baselineScope: 'reuse' },
+    choices: { baselineDisposition: 'fix', executionMode: failedRisk ? 'changed-and-affected' : 'all-configured', baselineScope: 'reuse' },
     phaseDefinitions: applyCapabilityPolicyToWorkResolution(resolved, await resolveLifecycleCapability(root)).phases });
-  assert.equal(testRecoveryPlan.ready, true);
+  assert.equal(testRecoveryPlan.ready, true, JSON.stringify(testRecoveryPlan.blockers));
   git(root, 'switch', '-q', '-c', workId);
   await setAgentSession(root, config, author, 'developer', workId, { phaseId: 'implementation', source: 'test' });
   const workflow = await invoke(root, () => createWorkflow(root, config, { id: workId, title: 'Retain an unavailable test observation',
@@ -133,18 +143,20 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
     readinessRepositories, repositoryReadiness, testRecoveryPlan, approvedConfigurationSnapshot: approved }));
   await invoke(root, () => commitAndPublish(root, config, workflow, { type: 'binding' }, 'Bind the exact Story risk policy'));
   const artifact = path.join(workDir(root, config, workId), workflow.phases.implementation.requiredArtifact.path);
-  await writeFile(artifact, '# Implementation\n\nImplemented the requested service value and an executable assertion.\n\n## Validation limitation\n\nThe configured test runtime is unavailable. No current candidate test pass is claimed. Each permitted transition requires its exact reviewed decision; ordinary phase approval remains separate.\n');
-  await writeFile(path.join(root, 'src/service.mjs'), 'export const value = 2;\n');
+  await writeFile(artifact, `# Implementation\n\nImplemented the requested service value and an executable assertion.\n\n## Validation limitation\n\n${failedRisk ? 'The independently inventoried service test fails its assertion.' : 'The configured test runtime is unavailable.'} No current candidate test pass is claimed. Each permitted transition requires its exact reviewed decision; ordinary phase approval remains separate.\n`);
+  if (!testOnly) await writeFile(path.join(root, 'src/service.mjs'), 'export const value = 2;\n');
   await writeFile(path.join(root, 'test/service.test.mjs'), [
     "import test from 'node:test'; import assert from 'node:assert/strict'; import {value} from '../src/service.mjs';",
-    `test('service contract', () => { assert.equal(value, ${unavailable ? '2' : '3'}); });`, ''
+    `test('service contract', () => { assert.equal(value, ${unavailable && !failedRisk ? '2' : '3'}); });`,
+    ...(failedRisk ? ["test('service smoke', () => { assert.equal(typeof value, 'number'); });"] : []), ''
   ].join('\n'));
   git(root, 'add', 'src/service.mjs', 'test/service.test.mjs');
   git(root, 'commit', '-qm', 'Retain generated application source before risk review');
   await mkdir(path.join(root, '.sflow/results'), { recursive: true });
-  const oldReport = 'TAP version 13\n1..1\nok 1 - historical unrelated execution\n';
-  await writeFile(path.join(root, '.sflow/results/required.tap'), oldReport);
-  const value = { root, remote, config, workflow, artifact, baseCommit, oldReport, runtimeTarget };
+  const oldReport = failedRisk ? '<?xml version="1.0"?><testsuites><testcase name="historical unrelated execution"/></testsuites>\n'
+    : 'TAP version 13\n1..1\nok 1 - historical unrelated execution\n';
+  await writeFile(path.join(root, reportRelative), oldReport);
+  const value = { root, remote, config, workflow, artifact, baseCommit, oldReport, runtimeTarget, reportRelative, failedRisk, riskCategory };
   value.reload = async () => {
     const loaded = await loadAcceptedStoryExecution(root, workId);
     value.config = loaded.config; value.workflow = loaded.workflow;
@@ -164,10 +176,10 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
   return value;
 }
 
-async function terminalReview(value, method, options, label) {
+async function terminalReview(value, method, options, label, module = '../src/story-test-risk.mjs') {
   const code = `
     import {loadAcceptedStoryExecution} from ${JSON.stringify(new URL('../src/accepted-story-execution.mjs', import.meta.url).href)};
-    import * as risk from ${JSON.stringify(new URL('../src/story-test-risk.mjs', import.meta.url).href)};
+    import * as risk from ${JSON.stringify(new URL(module, import.meta.url).href)};
     import {withOperationContext} from ${JSON.stringify(new URL('../src/operation-context.mjs', import.meta.url).href)};
     const root=${JSON.stringify(value.root)};
     try { const {config,workflow}=await loadAcceptedStoryExecution(root,${JSON.stringify(workId)});
@@ -215,11 +227,25 @@ async function authorizeAgreement(value) {
   await value.reload();
 }
 
+async function confirmTestScope(value) {
+  setActor(value.root, riskReviewer);
+  const plan = await planStoryTestSelection(value.root, value.config, value.workflow, {});
+  assert.equal(plan.executed, false);
+  assert.ok(plan.preview.requiredConfirmation.includes('full-suite-expansion'), JSON.stringify(plan.preview));
+  const result = await terminalReview(value, 'confirmStoryTestSelection', { confirmation: plan.planDigest },
+    'Confirm test scope', '../src/commands/story-test-selection.mjs');
+  assert.equal(result.ok, true, result.stack ?? result.message);
+  assert.equal(result.result.status, 'confirmed');
+  assert.equal(result.result.executed, false);
+  await value.reload();
+}
+
 async function riskPlan(value, operation, extra = {}) {
-  const inspected = await planStoryTestRisk(value.root, value.config, value.workflow, { ...terms, ...extra, operation });
-  const issue = inspected.issues.find(entry => entry.category === 'validation-unavailable' && entry.riskEligible);
+  const common = { ...terms, ...(value.failedRisk ? { reason: 'The independently approved service-contract testcase failed on this exact candidate. Accept only this displayed transition while its assertion failure is remediated.' } : {}) };
+  const inspected = await planStoryTestRisk(value.root, value.config, value.workflow, { ...common, ...extra, operation });
+  const issue = inspected.issues.find(entry => entry.category === value.riskCategory && entry.riskEligible);
   assert.ok(issue, JSON.stringify(inspected));
-  const options = { ...terms, ...extra, operation, issueId: issue.id };
+  const options = { ...common, ...extra, operation, issueId: issue.id };
   const plan = await planStoryTestRisk(value.root, value.config, value.workflow, options);
   assert.equal(plan.ready, true, JSON.stringify(plan.blockers));
   return { plan, options };
@@ -255,24 +281,34 @@ function detachedReviewMutation(value, reviewedCommit, relative, contents) {
     git(value.root, 'show', '-s', '--format=%B', reviewedCommit));
 }
 
-test('actual unavailable runner stays unverified through independent approval, downstream preparation and explicit receipt replay',
-  { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
-    const value = await fixture(t, { downstream: true });
+async function exerciseRiskLifecycle(t, { failedRisk = false, testOnly = false } = {}) {
+    const value = await fixture(t, { downstream: true, failedRisk, testOnly });
+    const observedOutcome = failedRisk ? 'failed' : 'unavailable';
     const source = await readFile(path.join(value.root, 'src/service.mjs'), 'utf8');
+    if (failedRisk) await confirmTestScope(value);
     await assert.rejects(value.publish(), { code: 'TRP_PHASE_GATE_BLOCKED' });
     await value.reload();
     assert.equal(value.workflow.phases.implementation.generation, 0);
-    assert.equal(await readFile(path.join(value.root, '.sflow/results/required.tap'), 'utf8'), value.oldReport);
+    assert.equal(await readFile(path.join(value.root, value.reportRelative), 'utf8'), value.oldReport);
     await authorizeAgreement(value);
     await assert.rejects(loadStoryTestRiskContext(value.root, value.config, value.workflow,
       { repositoryId: 'different-repository', operation: 'publish' }), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
     const initial = await loadStoryTestRiskContext(value.root, value.config, value.workflow, { operation: 'publish' });
     assert.equal(initial.observations.length, 1);
     const observation = initial.observations[0];
-    assert.equal(observation.observedOutcome, 'unavailable');
-    assert.equal(observation.processExitCode, null);
-    assert.equal(observation.identityCompleteness, 'incomplete');
-    assert.deepEqual(observation.cases, []); assert.deepEqual(observation.reportSha256s, []);
+    assert.equal(observation.observedOutcome, observedOutcome);
+    assert.equal(observation.processExitCode, failedRisk ? 1 : null);
+    assert.equal(observation.identityCompleteness, failedRisk ? 'complete' : 'incomplete');
+    if (failedRisk) {
+      assert.deepEqual([...observation.expectedTestIds].sort(), ['a-service-smoke', 'service-contract']);
+      assert.equal(observation.cases.length, 2);
+      assert.equal(observation.cases.find(entry => entry.id === 'service-contract').outcome, 'failed');
+      assert.equal(observation.cases.find(entry => entry.id === 'a-service-smoke').outcome, 'passed');
+      assert.equal(observation.counts.failed, 1); assert.equal(observation.counts.passed, 1);
+      assert.equal(observation.reportSha256s.length, 1, 'the genuine JUnit report remains retained evidence');
+    } else {
+      assert.deepEqual(observation.cases, []); assert.deepEqual(observation.reportSha256s, []);
+    }
     await acceptRisk(value, 'publish');
     await value.publish(); await value.reload();
     assert.equal(value.workflow.phases.implementation.generation, 1);
@@ -285,7 +321,7 @@ test('actual unavailable runner stays unverified through independent approval, d
     assert.equal(value.workflow.phases.implementation.status, 'awaiting_approval');
     const current = await loadStoryTestRiskContext(value.root, value.config, value.workflow, { operation: 'submit' });
     assert.equal(current.observations[0].recordSha256, observation.recordSha256, 'no implicit runner retry or replacement observation');
-    assert.equal(current.evaluation.dispositions[0].observedOutcome, 'unavailable');
+    assert.equal(current.evaluation.dispositions[0].observedOutcome, observedOutcome);
     assert.equal(current.evaluation.dispositions[0].disposition, 'accepted-risk');
     assert.equal(current.evaluation.normalApprovalRequired, true);
     await assert.rejects(invoke(value.root, () => approvePhase(value.root, value.config, value.workflow,
@@ -335,12 +371,12 @@ test('actual unavailable runner stays unverified through independent approval, d
       evidenceCommit: packet.evidenceCommit, testRecovery: { config: value.config, workflow: value.workflow, operation: 'replay' } };
     const unacceptedReplay = await verifyCodeDeliveryReceipt(value.root, receipt, replayOptions);
     assert.equal(unacceptedReplay.valid, false, 'approval does not implicitly authorize direct replay');
-    assert.ok(unacceptedReplay.errors.some(message => /TRP unavailable validation/u.test(message)), JSON.stringify(unacceptedReplay));
+    assert.ok(unacceptedReplay.errors.some(message => /TRP (?:unavailable|failed|risk) validation/u.test(message)), JSON.stringify(unacceptedReplay.errors));
     await acceptRisk(value, 'replay');
     const replayed = await verifyCodeDeliveryReceipt(value.root, receipt,
       { ...replayOptions, testRecovery: { config: value.config, workflow: value.workflow, operation: 'replay' } });
     assert.equal(replayed.valid, true, JSON.stringify(replayed.errors));
-    assert.equal(replayed.executions[0].status, 'unavailable');
+    assert.equal(replayed.executions[0].status, observedOutcome);
     assert.equal(replayed.executions[0].disposition, 'accepted-risk');
     await assert.rejects(invoke(value.root, () => preparePhaseInputs(value.root, value.config, value.workflow, 'testing')),
       { code: 'TRP_PHASE_GATE_BLOCKED' }, 'approval and replay permissions do not authorize downstream preparation');
@@ -358,8 +394,42 @@ test('actual unavailable runner stays unverified through independent approval, d
       'copying Git records does not transfer private execution origin to another checkout');
     assert.equal(copiedContext.evaluation.gateDecision, 'block');
     assert.equal(await readFile(path.join(value.root, 'src/service.mjs'), 'utf8'), source);
-    assert.equal(await readFile(path.join(value.root, '.sflow/results/required.tap'), 'utf8'), value.oldReport);
+    assert.equal(await readFile(path.join(value.root, value.reportRelative), 'utf8'), value.oldReport);
+}
+
+test('actual unavailable runner stays unverified through independent approval, downstream preparation and explicit receipt replay',
+  { skip: !TRP_TERMINAL_AVAILABLE }, t => exerciseRiskLifecycle(t));
+
+test('a genuine independently inventoried Node JUnit failure remains failed through every separately authorized lifecycle transition',
+  { skip: !TRP_TERMINAL_AVAILABLE }, t => exerciseRiskLifecycle(t, { failedRisk: true }));
+
+test('a test-only change confirms the complete approved cohort before its genuine failure can receive risk review',
+  { skip: !TRP_TERMINAL_AVAILABLE }, t => exerciseRiskLifecycle(t, { failedRisk: true, testOnly: true }));
+
+for (const variant of ['extra', 'missing', 'skipped', 'duplicate']) {
+  test(`native Node JUnit ${variant} testcase evidence cannot become accepted new-test-failure risk`,
+    { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
+    const value = await fixture(t, { failedRisk: true });
+    const testFile = path.join(value.root, 'test/service.test.mjs');
+    const declaration = variant === 'missing' ? "test('different case', () => { assert.equal(value, 3); });"
+      : variant === 'skipped' ? "test('service contract', {skip: true}, () => { assert.equal(value, 3); });"
+        : "test('service contract', () => { assert.equal(value, 3); });";
+    await writeFile(testFile, [
+      "import test from 'node:test'; import assert from 'node:assert/strict'; import {value} from '../src/service.mjs';",
+      declaration,
+      "test('service smoke', () => { assert.equal(typeof value, 'number'); });",
+      ...(variant === 'extra' ? ["test('additional unapproved case', () => {});"] : []),
+      ...(variant === 'duplicate' ? ["test('service contract', () => {});"] : []), ''
+    ].join('\n'));
+    git(value.root, 'add', 'test/service.test.mjs'); git(value.root, 'commit', '-qm', `Exercise actual ${variant} testcase inventory`);
+    await confirmTestScope(value);
+    await assert.rejects(value.publish()); await value.reload();
+    const context = await loadStoryTestRiskContext(value.root, value.config, value.workflow, { operation: 'publish' });
+    assert.equal(context.observations.length, 0, 'unproven or incomplete testcase identity does not receive runtime origin');
+    assert.equal(value.workflow.phases.implementation.generation, 0);
+    assert.equal(await readFile(path.join(value.root, value.reportRelative), 'utf8'), value.oldReport);
   });
+}
 
 test('a real failing test cannot be accepted as an unavailable test runtime', async t => {
   const value = await fixture(t, { unavailable: false });
@@ -371,6 +441,67 @@ test('a real failing test cannot be accepted as an unavailable test runtime', as
   assert.equal(result.ready, false);
   assert.equal(value.workflow.phases.implementation.generation, 0);
 });
+
+test('retained genuine failure risk is invalidated by runner environment, ignored files or directories and raw report tampering',
+  { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
+    const value = await fixture(t, { failedRisk: true });
+    const runnerReport = path.join(value.root, value.reportRelative);
+    await unlink(runnerReport);
+    await rmdir(path.dirname(runnerReport));
+    const dependency = path.join(value.root, 'node_modules/trp-evidence-fixture/package.json');
+    await mkdir(path.dirname(dependency), { recursive: true });
+    await writeFile(dependency, '{"name":"unused-evidence-fixture","version":"1.0.0"}\n');
+    const preview = await planStoryTestSelection(value.root, value.config, value.workflow, {});
+    assert.equal(preview.executed, false);
+    await assert.rejects(readdir(path.dirname(runnerReport)), { code: 'ENOENT' },
+      'read-only scope planning must not create missing runner report directories');
+    await confirmTestScope(value);
+    await assert.rejects(value.publish()); await value.reload();
+    assert.deepEqual(await readdir(path.dirname(runnerReport)), [],
+      'the native run creates missing approved report-parent scaffolding without inventing an ordinary report file');
+    await authorizeAgreement(value); await acceptRisk(value, 'publish');
+    const before = await assertStoryTestRiskGate(value.root, value.config, value.workflow, { operation: 'publish' });
+    assert.equal(before.evaluation.gateDecision, 'allow-with-risk');
+    const envKey = 'SF_TRP_APPLICATION_TEST_MODE';
+    const prior = process.env[envKey];
+    process.env[envKey] = 'different-application-test-behavior';
+    try {
+      await assert.rejects(assertStoryTestRiskGate(value.root, value.config, value.workflow,
+        { operation: 'publish' }), { code: 'TRP_PHASE_GATE_BLOCKED' },
+      'full candidate child environment, not just PATH, binds retained failed execution');
+    } finally {
+      if (prior === undefined) delete process.env[envKey]; else process.env[envKey] = prior;
+    }
+    await assertStoryTestRiskGate(value.root, value.config, value.workflow, { operation: 'publish' });
+    const emptyDependency = path.join(value.root, 'node_modules/trp-empty-dependency');
+    await mkdir(emptyDependency);
+    const changedDirectory = await loadStoryTestRiskContext(value.root, value.config, value.workflow, { operation: 'publish' });
+    assert.equal(changedDirectory.candidate.sourceManifestSha256, before.candidate.sourceManifestSha256,
+      'creating an ignored empty dependency directory does not alter the normal source manifest');
+    assert.equal(changedDirectory.observations[0].recordSha256, before.observations[0].recordSha256);
+    assert.equal(changedDirectory.evaluation.gateDecision, 'block',
+      'a runner can observe an empty directory, so its creation must invalidate retained failed evidence');
+    await rmdir(emptyDependency);
+    await assertStoryTestRiskGate(value.root, value.config, value.workflow, { operation: 'publish' });
+    await writeFile(dependency, '{"name":"unused-evidence-fixture","version":"2.0.0"}\n');
+    const after = await loadStoryTestRiskContext(value.root, value.config, value.workflow, { operation: 'publish' });
+    assert.equal(after.candidate.sourceManifestSha256, before.candidate.sourceManifestSha256,
+      'ignored dependency bytes do not alter the normal source manifest');
+    assert.equal(after.observations[0].recordSha256, before.observations[0].recordSha256);
+    assert.equal(after.evaluation.gateDecision, 'block', 'retained failure cannot survive changed installed dependency bytes');
+    await writeFile(dependency, '{"name":"unused-evidence-fixture","version":"1.0.0"}\n');
+    await assertStoryTestRiskGate(value.root, value.config, value.workflow, { operation: 'publish' });
+    const report = path.join(workDir(value.root, value.config, workId), 'context/test-recovery/reports',
+      `${before.observations[0].reportSha256s[0].slice(7)}.xml`);
+    const exactReport = await readFile(report);
+    await writeFile(report, '<?xml version="1.0"?><testsuites><testcase name="forged pass"/></testsuites>\n');
+    await assert.rejects(assertStoryTestRiskGate(value.root, value.config, value.workflow,
+      { operation: 'publish' }), { code: 'TRP_PHASE_GATE_BLOCKED' },
+    'private execution origin does not hide tampering with the durable raw report');
+    await writeFile(report, exactReport);
+    await assertStoryTestRiskGate(value.root, value.config, value.workflow, { operation: 'publish' });
+    assert.equal(value.workflow.phases.implementation.generation, 0);
+  });
 
 test('public capture calls cannot authenticate a fabricated launch failure', async t => {
   const value = await fixture(t);

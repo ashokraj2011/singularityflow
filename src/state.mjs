@@ -18,6 +18,7 @@ import { assertTrpRepairCohortRetained, inspectTrpRepairScope } from './test-rec
 import { trpDigest } from './test-recovery-policy.mjs';
 import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObservation,
   retainedStoryTestRisk, verifiedStoryTestRiskReviewCommits } from './test-recovery-runtime.mjs';
+import { trpNodeExecutionEnvironment } from './test-recovery-node.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
@@ -2945,7 +2946,8 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   );
   if (!source || source.status !== 'approved' || source.deliveryEvidence?.status !== 'ready'
       || (source.deliveryEvidence?.validation?.status !== 'passed'
-        && !(riskReference && source.deliveryEvidence.validation?.status === 'unavailable'))) {
+        && !(riskReference && ['unavailable', 'failed'].includes(source.deliveryEvidence.validation?.status)
+          && source.deliveryEvidence.validation.status === riskReference.observedOutcome))) {
     throw refuse('finish and approve the Code phase with passing structured tests first.');
   }
   const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
@@ -2990,7 +2992,8 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
       || receipt.tree?.generationCommit !== source.generationCommit
       || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
       || receipt.testExecutions.some((execution) => execution.status !== 'passed'
-        && !(riskReference && execution.kind === 'phase-validation-observation' && execution.status === 'unavailable'))) {
+        && !(riskReference && execution.kind === 'phase-validation-observation'
+          && execution.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(execution.status)))) {
     throw refuse('the receipt does not describe the approved generation and passing executions.');
   }
   if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)) {
@@ -4206,7 +4209,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // test as an internal child and emit no reporter events. External quality commands are a new
     // execution boundary, so they receive the ordinary process environment without the parent's
     // test-runner control marker.
-    const commandEnvironment = { ...process.env };
+    const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.includes('new-test-failure')
+      && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
+    const commandEnvironment = failedRiskCommand ? trpNodeExecutionEnvironment() : { ...process.env };
     delete commandEnvironment.NODE_TEST_CONTEXT;
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {
@@ -4334,7 +4339,9 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
     }
     deliveryEvidence.testRecovery = { observationSha256: retainedRisk.observation.recordSha256,
-      observedOutcome: 'unavailable', disposition: 'accepted-risk', evaluationSha256: retainedRisk.evaluation.recordSha256 };
+      observedOutcome: retainedRisk.observation.observedOutcome, disposition: 'accepted-risk',
+      evidenceUse: retainedRisk.observation.observedOutcome === 'failed' ? 'reused' : 'retained-unavailable-attempt',
+      evaluationSha256: retainedRisk.evaluation.recordSha256 };
     return { commands, checks: [], testRecovery: retainedRisk };
   }
   const riskRun = await beginStoryTestRiskRun(root, config, workflow, phase, { commands, selection: trpSelection?.selection });
@@ -4349,7 +4356,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         if (!check || check.status === 'skipped-warning') {
           throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
         }
-        if (check.status === 'blocked') {
+        if (['blocked', 'failed'].includes(check.status)) {
           const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
             { run: riskRun, check, result: qualityCommandResults.get(check) }) : null;
           if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
@@ -4725,7 +4732,7 @@ async function submitPhaseTransition(root, config, workflow, {
   const retainedRisk = codeDeliveryRequired ? await retainedStoryTestRisk(root, config, workflow, phase, {
     operation: 'submit', generation: phase.generation, selection: trpSelection?.selection }) : null;
   if (retainedRisk && testCommandEpochRun) {
-    throw new SingularityFlowError('A runner amendment requires fresh passing validation; unavailable-runner risk cannot satisfy its new epoch.', { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
+    throw new SingularityFlowError('A runner amendment requires fresh passing validation; retained failed or unavailable validation cannot satisfy its new epoch.', { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
   }
   const riskRun = codeDeliveryRequired && !retainedRisk
     ? await beginStoryTestRiskRun(root, config, workflow, phase, { commands: requiredTestCommands, selection: trpSelection?.selection }) : null;
@@ -4739,10 +4746,12 @@ async function submitPhaseTransition(root, config, workflow, {
   if (retainedRisk) {
     const observation = retainedRisk.observation;
     phase.checks.push({ id: observation.obligationId, command: externalCommandText(requiredTestCommands[0], 0),
-      kind: 'test', requirement: 'required', status: 'unavailable', exitCode: null,
+      kind: 'test', requirement: 'required', status: observation.observedOutcome, exitCode: observation.processExitCode,
       sourceCommit: observation.sourceRevision, sourceTreeSha256: observation.sourceManifestSha256,
       startedAt: observation.startedAt, completedAt: observation.completedAt,
-      trpObservationSha256: observation.recordSha256, stdout: '', stderr: observation.diagnostics.join('\n') });
+      trpObservationSha256: observation.recordSha256,
+      evidenceUse: observation.observedOutcome === 'failed' ? 'reused' : 'retained-unavailable-attempt',
+      stdout: '', stderr: observation.diagnostics.join('\n') });
   }
   if (!codeDeliveryRequired) {
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
@@ -4759,7 +4768,7 @@ async function submitPhaseTransition(root, config, workflow, {
           const receiptPath = `${workDirRelative(config, workflow.workItem.id)}/context/test-recovery/runs/${observation.id}.json`;
           testExecutions.push({ commandId: command.id, receiptPath,
             receiptSha256: createHash('sha256').update(canonicalJson(observation)).digest('hex'),
-            kind: 'phase-validation-observation', status: 'unavailable', affectedRoots: command.affectedRoots });
+            kind: 'phase-validation-observation', status: observation.observedOutcome, affectedRoots: command.affectedRoots });
           continue;
         }
         let parsed;
@@ -4768,7 +4777,7 @@ async function submitPhaseTransition(root, config, workflow, {
           if (!check || check.status === 'skipped-warning') {
             throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
           }
-          if (check.status === 'blocked') {
+          if (['blocked', 'failed'].includes(check.status)) {
             const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
               { run: riskRun, check, result: qualityCommandResults.get(check) }) : null;
             if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
@@ -4841,8 +4850,10 @@ async function submitPhaseTransition(root, config, workflow, {
   });
   const validation = qualityValidationVerdict(phase.checks);
   const { failed, unavailable, unavailableRequired } = validation;
-  const reviewableFailure = Boolean(phase.repairBudget && failed.length);
-  if (failed.length && !reviewableFailure) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
+  const unacceptedFailed = failed.filter(check => !retainedRisk
+    || check.trpObservationSha256 !== retainedRisk.observation.recordSha256);
+  const reviewableFailure = Boolean(phase.repairBudget && unacceptedFailed.length);
+  if (unacceptedFailed.length && !reviewableFailure) errors.push(`Quality command failed: ${unacceptedFailed.map((check) => check.command).join(', ')}`);
   const unacceptedUnavailable = unavailableRequired.filter(check => !retainedRisk
     || check.trpObservationSha256 !== retainedRisk.observation.recordSha256);
   if (unacceptedUnavailable.length) {
@@ -4884,7 +4895,8 @@ async function submitPhaseTransition(root, config, workflow, {
     };
     phase.deliveryEvidence.status = 'ready';
     if (retainedRisk) phase.deliveryEvidence.testRecovery = {
-      observationSha256: retainedRisk.observation.recordSha256, observedOutcome: 'unavailable',
+      observationSha256: retainedRisk.observation.recordSha256, observedOutcome: retainedRisk.observation.observedOutcome,
+      evidenceUse: retainedRisk.observation.observedOutcome === 'failed' ? 'reused' : 'retained-unavailable-attempt',
       disposition: 'accepted-risk', evaluationSha256: retainedRisk.evaluation.recordSha256 };
     phase.deliveryEvidence.testExecutions = testExecutions;
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
@@ -5382,10 +5394,12 @@ export async function approvePhase(root, config, workflow, {
     required: (phase.qualityCommands ?? []).some((check) => (check.requirement ?? 'required') === 'required')
   });
   const failedChecks = validation.failed;
+  const unacceptedFailed = failedChecks.filter(check => !approvalRisk
+    || check.trpObservationSha256 !== riskReference.observationSha256);
   const unavailableRequiredChecks = validation.unavailableRequired;
   const unacceptedUnavailable = unavailableRequiredChecks.filter(check => !approvalRisk
     || check.trpObservationSha256 !== riskReference.observationSha256);
-  if (failedChecks.length || unacceptedUnavailable.length) {
+  if (unacceptedFailed.length || unacceptedUnavailable.length) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. Reject it to an allowed repair phase.`,
       { code: 'PHASE_VALIDATION_FAILED' }
@@ -5394,7 +5408,8 @@ export async function approvePhase(root, config, workflow, {
   if (phaseRequiresCodeDelivery(phase)) {
     const validation = phase.deliveryEvidence?.validation;
     const currentTree = currentSourceTreeSha256;
-    if (!validation || (validation.status !== 'passed' && !(approvalRisk && validation.status === 'unavailable'))) {
+    if (!validation || (validation.status !== 'passed' && !(approvalRisk
+      && validation.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(validation.status)))) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,
         { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
@@ -5411,7 +5426,8 @@ export async function approvePhase(root, config, workflow, {
       .digest('hex');
     if (submittedReview.sourceTreeSha256 !== currentTree
         || submittedReview.submissionEvidence?.checksSha256 !== submittedChecksSha256
-        || (submittedReview.checks ?? []).some((check) => check.status === 'failed' || check.status === 'blocked')) {
+        || (submittedReview.checks ?? []).some((check) => ['failed', 'blocked'].includes(check.status)
+          && !(approvalRisk && check.trpObservationSha256 === riskReference.observationSha256))) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' immutable review packet does not bind the currently validated source tree and passing checks.`,
         { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
@@ -5441,7 +5457,8 @@ export async function approvePhase(root, config, workflow, {
         || receiptSha256 !== submittedReview.submissionEvidence?.codeDelivery?.sha256
         || receipt.tree?.generationCommit !== phase.generationCommit
         || (receipt.testExecutions ?? []).some((execution) => execution.status !== 'passed'
-          && !(approvalRisk && execution.kind === 'phase-validation-observation' && execution.status === 'unavailable'))) {
+          && !(approvalRisk && execution.kind === 'phase-validation-observation'
+            && execution.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(execution.status)))) {
         throw new SingularityFlowError(
           `Phase '${phase.id}' code-delivery receipt is absent, stale, or does not contain passing test evidence.`,
           { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }

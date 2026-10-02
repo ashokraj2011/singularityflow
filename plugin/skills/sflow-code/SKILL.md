@@ -23,4 +23,4 @@ argument-hint: "[code-generation focus]"
 9. Publish once with configured producer/channel only when prepublish is `ready`. On refusal report `requiredTestExecution`: command ID (not shell command), argv/cwd, exit, bounded stderr and guidance. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes. Source mutation requires review/rollover when consumed. Pre-mutation failure retains intent. No blind retries; at most three repairs. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
 10. `singularity-flow phase show <phase> --json` is artifact review, not readiness or task policy; bounded preview, hash-bound references; stop.
 
-TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`, never auto-waive.
+TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`; no auto-waiver or false passes.

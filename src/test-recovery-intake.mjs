@@ -3,15 +3,55 @@ import { trpDigest, sealTrpRecord, TRP_RISK_CATEGORIES } from './test-recovery-p
 import { SingularityFlowError } from './util.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
+import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
 
 const MODES = ['changed-and-affected', 'all-configured'];
 const fail = (message, code = 'TRP_POLICY_INVALID') => { throw new SingularityFlowError(message, { code }); };
+
+/** Independent approved identities, never an inventory inferred from a test report. */
+function normalizeCaseInventory(value) {
+  if (!Array.isArray(value) || !value.length || value.length > 64) fail('testRecovery.caseInventory needs 1–64 phase/command entries.');
+  const entries = new Set();
+  let total = 0;
+  const ordinary = (text, max) => typeof text === 'string' && text.trim().length > 0
+    && text === text.trim() && text.length <= max && !/[\x00-\x1f\x7f]/u.test(text);
+  return value.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+        || Object.keys(entry).some(key => !['phaseId', 'commandId', 'dependencyScope', 'tests'].includes(key))
+        || entry.dependencyScope !== 'repository-and-node-builtins-only'
+        || !ordinary(entry.phaseId, 128) || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(entry.phaseId)
+        || entry.phaseId.includes('..') || !ordinary(entry.commandId, 256)
+        || !Array.isArray(entry.tests) || !entry.tests.length || (total += entry.tests.length) > 10_000) {
+      fail('Invalid or oversized testRecovery.caseInventory entry.');
+    }
+    const pair = JSON.stringify([entry.phaseId, entry.commandId]);
+    if (entries.has(pair)) fail('Duplicate testRecovery.caseInventory phase/command.');
+    entries.add(pair);
+    const ids = new Set(); const identities = new Set(); const files = new Set();
+    const tests = entry.tests.map(test => {
+      if (!test || typeof test !== 'object' || Array.isArray(test)
+          || Object.keys(test).some(key => !['id', 'path', 'name'].includes(key))
+          || !ordinary(test.id, 256) || !ordinary(test.name, 4096) || !ordinary(test.path, 1024)) {
+        fail('Each approved test needs an exact ID, repository-relative path and native report name.');
+      }
+      let normalized;
+      try { normalized = normalizeTestSelectionPath(test.path); } catch { fail('Approved test paths must be safe repository-relative paths.'); }
+      if (normalized !== test.path || test.path.includes('\\')) fail('Approved test paths must use canonical forward slashes.');
+      const identity = JSON.stringify([test.path, test.name]);
+      if (ids.has(test.id) || identities.has(identity)) fail('Approved test IDs and file/name pairs must be unique per command.');
+      ids.add(test.id); identities.add(identity); files.add(test.path);
+      return { id: test.id, path: test.path, name: test.name };
+    });
+    if (files.size > 256) fail('Approved test inventory exceeds 256 files per command.');
+    return { phaseId: entry.phaseId, commandId: entry.commandId, dependencyScope: entry.dependencyScope, tests };
+  });
+}
 
 export function normalizeTestRecoveryPolicy(value) {
   if (value == null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('testRecovery must be an object.');
   const allowed = new Set(['enabled', 'riskAuthorities', 'enabledRiskCategories', 'maxRiskDays',
-    'maxDistinctAutomaticAttempts', 'allowEvidenceReuse', 'maxEvidenceAgeSeconds']);
+    'maxDistinctAutomaticAttempts', 'allowEvidenceReuse', 'maxEvidenceAgeSeconds', 'caseInventory']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) fail(`Unknown testRecovery field '${key}'.`);
   if (typeof value.enabled !== 'boolean') fail('testRecovery.enabled must be explicitly true or false.');
   const list = (key, fallback) => {
@@ -27,17 +67,22 @@ export function normalizeTestRecoveryPolicy(value) {
   };
   const categories = list('enabledRiskCategories', []);
   if (categories.some(category => !TRP_RISK_CATEGORIES.includes(category))) fail('Unsupported testRecovery risk category.');
-  if (categories.some(category => category !== 'validation-unavailable')) fail('Only exact native runner-unavailable review is supported. Actual test failures, known failures, reduced coverage and document exceptions still need qualified adapters.', 'TRP_RISK_ADAPTER_UNAVAILABLE');
+  if (categories.some(category => !['validation-unavailable', 'new-test-failure'].includes(category))) fail('Only exact native runner-unavailable and independently inventoried native Node failure review are supported. Known failures, reduced coverage and document exceptions still need qualified adapters.', 'TRP_RISK_ADAPTER_UNAVAILABLE');
   const authorities = list('riskAuthorities', []);
   if (categories.length && !authorities.length) fail('Enabled risks require explicit testRecovery.riskAuthorities.');
   if (value.allowEvidenceReuse != null && typeof value.allowEvidenceReuse !== 'boolean') fail('testRecovery.allowEvidenceReuse must be boolean.');
-  if (value.allowEvidenceReuse === true) fail('Cross-gate evidence reuse is not enabled in the repair/selection pilot. Each required run remains explicit.', 'TRP_EVIDENCE_REUSE_UNAVAILABLE');
+  const caseInventory = value.caseInventory === undefined ? undefined : normalizeCaseInventory(value.caseInventory);
+  if (categories.includes('new-test-failure') && (!caseInventory || value.allowEvidenceReuse !== true)) {
+    fail('Failed-test review requires an independently approved caseInventory and explicit allowEvidenceReuse: true. Observations remain failed; each transition needs its own review.', 'TRP_RISK_ADAPTER_UNAVAILABLE');
+  }
+  if (value.allowEvidenceReuse === true && !categories.includes('new-test-failure')) fail('Evidence reuse is supported only for explicitly enabled, independently inventoried native Node failure review.', 'TRP_EVIDENCE_REUSE_UNAVAILABLE');
   return {
     enabled: value.enabled, riskAuthorities: authorities, enabledRiskCategories: categories,
     maxRiskDays: integer('maxRiskDays', 30, 1, 30),
     maxDistinctAutomaticAttempts: integer('maxDistinctAutomaticAttempts', 3, 0, 3),
     allowEvidenceReuse: value.allowEvidenceReuse ?? false,
-    maxEvidenceAgeSeconds: integer('maxEvidenceAgeSeconds', 86400, 1, 2592000)
+    maxEvidenceAgeSeconds: integer('maxEvidenceAgeSeconds', 86400, 1, 2592000),
+    ...(caseInventory ? { caseInventory } : {})
   };
 }
 
@@ -95,7 +140,7 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
     qualityCommands: phase.qualityCommands ?? [], sourceBoundary: phase.sourceBoundary ?? null }));
   const riskObligations = [];
   if (policy.enabledRiskCategories.length) {
-    if (rows.length !== 1) blockers.push('Unavailable-runner review currently requires one code-bearing repository.');
+    if (rows.length !== 1) blockers.push('Test-risk review currently requires one code-bearing repository.');
     for (const phase of phases) {
       const commands = (phase.qualityCommands ?? []).filter(isTestQualityCommand);
       if (!phaseRequiresCodeDelivery(phase)) {
@@ -104,10 +149,20 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
       }
       if (commands.length !== 1 || commands[0]?.kind !== 'test' || typeof commands[0]?.id !== 'string'
           || !commands[0].id.trim() || /[\x00-\x1f\x7f]/u.test(commands[0].id)) {
-        blockers.push(`Phase '${phase.id}' needs exactly one explicitly named structured test command for unavailable-runner review.`);
+        blockers.push(`Phase '${phase.id}' needs exactly one explicitly named structured test command for test-risk review.`);
         continue;
       }
       const commandId = commands[0].id;
+      if (policy.enabledRiskCategories.includes('new-test-failure')) {
+        const command = commands[0];
+        const inventory = policy.caseInventory.find(entry => entry.phaseId === phase.id && entry.commandId === commandId);
+        if (!inventory) blockers.push(`Phase '${phase.id}' needs an independently approved case inventory for '${commandId}'.`);
+        if (!Array.isArray(command.argv) || command.argv[1] !== '--test' || command.argv[2] !== '--test-reporter=junit'
+            || command.argv.length < 4 || command.result?.adapter !== 'junit-xml') {
+          blockers.push(`Phase '${phase.id}' needs direct native Node --test --test-reporter=junit with explicit files for failed-test review.`);
+        }
+        if (selected.executionMode === 'all-configured') blockers.push('Failed-test review currently requires changed-and-affected selection with independently proven coverage. All-configured mode needs a qualified baseline coverage record; it cannot be inferred from a passing readiness summary.');
+      }
       const existing = riskObligations.find(entry => entry.id === commandId);
       if (existing) existing.phaseIds.push(phase.id);
       else riskObligations.push({ id: commandId, kind: 'test', nonWaivable: false,

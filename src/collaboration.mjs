@@ -5,7 +5,7 @@ import {
 } from './state-stores.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { recordSha256 } from './records.mjs';
-import { inspectPhaseRecovery } from './recovery-plan.mjs';
+import { inspectPhaseRecovery, inspectPhaseWorktreeScope } from './recovery-plan.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { recoveryActionsForFindings } from './gate-recovery.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
@@ -42,7 +42,7 @@ function recoveryWorktreeDigest(root, config, workflow) {
  * This is a routing hint, not publication authority: even the workflow aggregate still needs
  * review of its diff before an agent may continue.
  */
-function workingTreeAction(root, config, workflow, phase, status) {
+async function workingTreeAction(root, config, workflow, phase, status, phaseRecovery) {
   let paths;
   try {
     paths = changedFiles(root);
@@ -85,18 +85,36 @@ function workingTreeAction(root, config, workflow, phase, status) {
   if (!relevantPaths.length && simpleStatus && statusLines.every((line) => line.startsWith('??'))) {
     return null;
   }
-  const expectedPaths = relevantPaths.filter((candidate) => expected.has(candidate)
+  const applicationScope = current && simpleStatus
+    ? await inspectPhaseWorktreeScope(root, config, workflow, phase) : null;
+  const applicationPaths = relevantPaths.filter(candidate => applicationScope?.paths.includes(candidate));
+  const expectedPaths = relevantPaths.filter((candidate) => (expected.has(candidate) || applicationPaths.includes(candidate))
     && !protectedPaths.some((guard) => pathWithin(candidate, guard)));
   const unexpectedPaths = relevantPaths.filter((candidate) => !expectedPaths.includes(candidate));
   const inPhaseAuthoring = simpleStatus && relevantPaths.length > 0 && unexpectedPaths.length === 0;
+  const rollover = phaseRecovery?.actions.find(entry => entry.id === `begin-new-generation:${phase?.id}`
+    && entry.mode === 'guided' && typeof entry.command === 'string');
+  const successorRequired = applicationScope?.basis === 'published-generation' && applicationPaths.length > 0;
+  const guided = inPhaseAuthoring && (!successorRequired || Boolean(rollover));
+  const route = guided && applicationPaths.length
+    ? successorRequired ? rollover.command : `singularity-flow phase prepublish ${phase.id} --json`
+    : null;
   return {
     id: 'working-tree', safe: false, automatic: false,
-    mode: inPhaseAuthoring ? 'guided' : 'manual',
-    classification: inPhaseAuthoring ? 'current-phase-review-required' : 'review-required',
+    mode: guided ? 'guided' : 'manual',
+    classification: guided ? successorRequired ? 'successor-generation-review-required'
+      : 'current-phase-review-required' : 'review-required',
     reviewRequired: true,
-    confirmation: inPhaseAuthoring ? 'none' : 'human-authority', command: null,
+    confirmation: guided ? successorRequired ? 'plan-hash' : 'none' : 'human-authority', command: route,
+    ...(route ? { skill: successorRequired ? '/sf-recover' : '/sf-code' } : {}),
     paths: relevantPaths, expectedPaths, unexpectedPaths, disposableUntrackedPaths,
-    detail: inPhaseAuthoring
+    applicationPaths, applicationScope,
+    preserved: ['working-tree bytes', 'Git index', 'published generations', 'approval history'],
+    detail: guided && applicationPaths.length
+      ? successorRequired
+        ? `Review the exact listed application diff since published generation ${applicationScope.publishedGeneration}, then use the returned confirmed rollover command. The prior publication stays immutable; recovery does not commit, stash or discard these edits.`
+        : 'Review the listed source, test and documentation changes within the verified open generation, then continue that draft and recheck prepublish. This scope check does not establish authorship or make unfinished artifacts or failing tests valid. Recovery does not commit, stash or discard these edits.'
+      : guided
       ? 'Only exact current-phase preparation paths changed. Review their Git diff, especially workflow.json; these are uncommitted authoring bytes, not publication authority. Continue only if the changes match the current phase. Recovery will not discard or stash them.'
       : 'Uncommitted changes include paths or Git operations outside exact current-phase preparation. Review them manually; recovery will not discard or stash them.'
   };
@@ -208,7 +226,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   }
   const worktreeStatus = changes(root);
   if (worktreeStatus.trim()) {
-    const worktreeAction = workingTreeAction(root, config, workflow, phase, worktreeStatus);
+    const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery);
     if (worktreeAction) actions.push(worktreeAction);
   }
   if (!actions.length) actions.push({

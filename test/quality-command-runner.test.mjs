@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -7,7 +7,28 @@ import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { PassThrough } from 'node:stream';
 
-import { runQualityCommand, verifyUnavailableQualityLaunch } from '../src/quality-command-runner.mjs';
+import { runQualityCommand, verifyCompletedQualityLaunch, verifyUnavailableQualityLaunch } from '../src/quality-command-runner.mjs';
+
+test('native completed provenance binds exact streamed bytes and cannot be copied or rebound', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-completed-'));
+  const stdoutFile = path.join(cwd, 'output.xml');
+  const command = process.execPath;
+  const args = ['-e', 'process.stdout.write("actual execution output");process.exitCode=1'];
+  const result = await runQualityCommand(command, args, { cwd, stdoutFile, captureBytes: 4, timeoutMs: 5000 });
+  const binding = { command, args, cwd, stdoutFile,
+    environmentSha256: createHash('sha256').update(JSON.stringify(Object.entries(process.env).sort())).digest('hex') };
+  const proof = verifyCompletedQualityLaunch(result, binding);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdoutTruncated, true);
+  assert.equal(proof.stdoutSha256, `sha256:${createHash('sha256').update(await readFile(stdoutFile)).digest('hex')}`);
+  assert.equal(proof.stdoutBytes, 23);
+  assert.equal(verifyCompletedQualityLaunch({ ...result }, binding), null);
+  assert.equal(verifyCompletedQualityLaunch(result, { ...binding, stdoutFile: `${stdoutFile}.other` }), null);
+  assert.equal(verifyCompletedQualityLaunch(result, { ...binding, environmentSha256: 'wrong' }), null);
+  assert.equal(verifyCompletedQualityLaunch(result, { ...binding, args: [] }), null);
+  result.status = 0;
+  assert.equal(verifyCompletedQualityLaunch(result, binding), null);
+});
 
 test('only an unchanged native ENOENT launch can authenticate unavailable validation', async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-launch-'));

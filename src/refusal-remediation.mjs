@@ -441,7 +441,7 @@ const KNOWN = Object.freeze({
     const operation = ['publish', 'submit', 'approve', 'downstream', 'replay'].includes(error?.details?.operation)
       ? error.details.operation : 'publish';
     return [step('inspect-exact-phase-risks',
-      'Inspect the exact unavailable-runner observation. Repair the runner, or let a delegated human review only an eligible current issue; no failed test becomes passed.',
+      'Inspect the exact failed or unavailable observation. Repair the check, or let a delegated human review only an eligible current issue; no failed test becomes passed.',
       `singularity-flow story test-policy risks${workId ? ` --work-id ${workId}` : ''}${phase ? ` --phase ${phase}` : ''} --operation ${operation} --json`, 'diagnostic'),
     step('review-risk-boundaries',
       'Agreement authorization, decision durability, expiry and normal phase approval remain separate. Do not retry unchanged publication or hand-edit the Story policy.',

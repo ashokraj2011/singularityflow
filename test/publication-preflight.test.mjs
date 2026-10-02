@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
-import { recoveryPlan, recoveryText } from '../src/collaboration.mjs';
+import { applyRecovery, recoveryPlan, recoveryText } from '../src/collaboration.mjs';
 import { phasePrepublish } from '../src/phase-prepublish.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
@@ -132,7 +132,7 @@ async function createSymlinkOrSkip(t, target, link) {
 
 async function codeFixture(name, {
   acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured',
-  configuredResult = null, configuredProvenance = null, preexistingResult = null
+  configuredResult = null, configuredProvenance = null, preexistingResult = null, sourceBoundary = null
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
@@ -236,6 +236,7 @@ async function codeFixture(name, {
   const implementation = resolved.phases.find((phase) => phase.id === 'implementation');
   const implementationPhase = {
     ...implementation,
+    ...(sourceBoundary ? { sourceBoundary } : {}),
     order: acceptance ? 1 : 0,
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
@@ -1144,6 +1145,101 @@ test('code-phase recovery keeps a prepared untouched implementation summary in a
   assert.equal(authoring?.skill, '/sf-code');
   assert.ok(plan.blockers.some((entry) => entry.code === 'artifact.placeholder.unresolved'));
   assert.equal(plan.requiresRecovery, false);
+});
+
+test('recovery guides in-scope README and test repairs inside a verified open generation without clearing artifact blockers', async (t) => {
+  const context = await codeFixture('recovery-open-source-repair', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  git(context.root, 'add', '.');
+  git(context.root, 'commit', '-m', 'baseline code Story');
+  await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  await writeFile(path.join(context.root, 'README.md'), '# Reviewed delivery notes\n');
+  await mkdir(path.join(context.root, 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'test', 'repair.test.mjs'), 'throw new Error("Unfinished test repair");\n');
+  await writeFile(context.target, '# Implementation\n\nTODO: finish the reviewed evidence.\n');
+  const originalHead = git(context.root, 'rev-parse', 'HEAD');
+  const originalStatus = git(context.root, 'status', '--porcelain=v1', '--untracked-files=all');
+  const originalIndex = git(context.root, 'write-tree');
+  const artifactBytes = await readFile(context.target, 'utf8');
+
+  const plan = await recoveryPlan(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  const action = plan.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(action.mode, 'guided');
+  assert.equal(action.classification, 'current-phase-review-required');
+  assert.equal(action.applicationScope.basis, 'open-generation');
+  assert.deepEqual(action.applicationPaths, ['README.md', 'test/repair.test.mjs']);
+  assert.deepEqual(action.unexpectedPaths, []);
+  assert.equal(action.command, 'singularity-flow phase prepublish implementation --json');
+  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-code');
+  assert.equal(action.safe, false);
+  assert.equal(action.automatic, false);
+  assert.equal(action.reviewRequired, true);
+  assert.ok(plan.blockers.some(entry => entry.code === 'artifact.placeholder.unresolved'));
+  assert.equal(plan.requiresRecovery, false, 'owned repair remains in the open generation');
+  const ordinary = await recoveryPlan(context.root, context.config, context.workflow);
+  assert.equal(ordinary.actions.find(entry => entry.id === 'working-tree').mode, 'guided',
+    'ordinary recovery must not lose the active generation scope');
+  await assert.rejects(applyRecovery(context.root, context.config, context.workflow, plan, { confirm: plan.planId }),
+    { code: 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE' });
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), originalHead);
+  assert.equal(git(context.root, 'write-tree'), originalIndex);
+  assert.equal(git(context.root, 'status', '--porcelain=v1', '--untracked-files=all'), originalStatus);
+  assert.equal(await readFile(context.target, 'utf8'), artifactBytes);
+});
+
+test('application recovery scope requires the retained generation receipt and keeps other Story edits manual', async (t) => {
+  const context = await codeFixture('recovery-source-boundary-proof', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  git(context.root, 'add', '.');
+  git(context.root, 'commit', '-m', 'baseline code Story');
+  await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  await writeFile(path.join(context.root, 'README.md'), '# Reviewed delivery notes\n');
+  const other = 'singularity/work-items/OTHER/artifacts/implementation/notes.md';
+  await mkdir(path.dirname(path.join(context.root, other)), { recursive: true });
+  await writeFile(path.join(context.root, other), '# Unrelated Story draft\n');
+  const mixed = await recoveryPlan(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  const action = mixed.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(action.mode, 'manual');
+  assert.ok(action.expectedPaths.includes('README.md'));
+  assert.ok(action.unexpectedPaths.includes(other));
+  assert.equal(action.command, null);
+
+  context.phase.generationIntent.receiptSha256 = `sha256:${'0'.repeat(64)}`;
+  const unverified = await recoveryPlan(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  const refusal = unverified.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(refusal.mode, 'manual');
+  assert.equal(refusal.applicationScope.status, 'unverified');
+  assert.ok(refusal.unexpectedPaths.includes('README.md'));
+  assert.deepEqual(refusal.applicationPaths, []);
+  assert.equal(await readFile(path.join(context.root, other), 'utf8'), '# Unrelated Story draft\n');
+});
+
+test('recovery respects a pinned test-only boundary and never treats symlinks as owned draft files', async (t) => {
+  const context = await codeFixture('recovery-test-only-scope', { acceptance: false, sourceBoundary: 'test-automation' });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  git(context.root, 'add', '.');
+  git(context.root, 'commit', '-m', 'baseline test-only Story');
+  await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  await mkdir(path.join(context.root, 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'test', 'repair.test.mjs'), '// bounded test repair\n');
+  const allowed = await recoveryPlan(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  assert.equal(allowed.actions.find(entry => entry.id === 'working-tree').mode, 'guided');
+  await writeFile(path.join(context.root, 'README.md'), '# Outside the test-only boundary\n');
+  const outside = await recoveryPlan(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  const action = outside.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(action.mode, 'manual');
+  assert.ok(action.expectedPaths.includes('test/repair.test.mjs'));
+  assert.ok(action.unexpectedPaths.includes('README.md'));
+  assert.deepEqual(action.applicationScope.outsideBoundaryPaths, ['README.md']);
+  assert.equal(action.command, null);
+  if (process.platform !== 'win32') {
+    await symlink('../README.md', path.join(context.root, 'test', 'linked.md'));
+    const linked = await recoveryPlan(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+    const linkedAction = linked.actions.find(entry => entry.id === 'working-tree');
+    assert.equal(linkedAction.mode, 'manual');
+    assert.ok(linkedAction.unexpectedPaths.includes('test/linked.md'));
+    assert.ok(!linkedAction.applicationPaths.includes('test/linked.md'));
+  }
 });
 
 test('branch recovery exposes one structured Shell and Copilot pair', () => {
@@ -2564,8 +2660,15 @@ test('an in-scope README edit after code publication routes through recovery, th
   assert.equal(rollover?.mode, 'guided');
   assert.equal(rollover?.skill, '/sf-recover');
   assert.equal(safeCommandGuidance(rollover)?.copilotCommand, '/sf-recover');
-  assert.equal(recovery.actions.find((entry) => entry.id === 'working-tree')?.mode, 'manual',
-    'dirty README must still require explicit path review');
+  const workingTree = recovery.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(workingTree?.mode, 'guided');
+  assert.equal(workingTree.classification, 'successor-generation-review-required');
+  assert.equal(workingTree.command, rollover.command, 'path review uses the exact existing successor plan');
+  assert.equal(workingTree.reviewRequired, true, 'dirty README still requires explicit path review');
+  assert.equal(workingTree.safe, false);
+  assert.equal(workingTree.automatic, false);
+  assert.equal(workingTree.applicationScope.baseCommit, publishedHead);
+  assert.deepEqual(workingTree.applicationPaths, ['README.md']);
   assert.equal(recovery.testExecution.status, 'not-run');
   assert.ok(recovery.testExecution.commands.length > 0,
     'a consumed published generation must retain a read-only required-test preview');

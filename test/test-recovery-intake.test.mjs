@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { normalizeTestRecoveryPolicy, previewTestRecoveryIntake, testRecoveryChoices,
   confirmTestRecoveryIntake, applyTestRecoveryAdmission, initialTestRecoveryAgreement
 } from '../src/test-recovery-intake.mjs';
@@ -139,7 +140,7 @@ test('TRP CLI operations classify plans as read-only and confirmations/execution
   }
 });
 
-test('only explicit unavailable-runner review can activate; other categories and evidence reuse remain disabled', () => {
+test('unavailable-runner review remains opt-in; unsupported categories and unqualified failures stay disabled', () => {
   const policy = normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['validation-unavailable'] });
   assert.deepEqual(policy.enabledRiskCategories, ['validation-unavailable']);
   assert.equal(policy.allowEvidenceReuse, false);
@@ -147,6 +148,78 @@ test('only explicit unavailable-runner review can activate; other categories and
   for (const category of ['new-test-failure', 'known-test-failure', 'reduced-coverage', 'nonessential-document']) {
     assert.throws(() => normalizeTestRecoveryPolicy({ enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: [category] }), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
   }
+});
+
+function failedPolicy() {
+  return { enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['new-test-failure'],
+    allowEvidenceReuse: true, caseInventory: [{ phaseId: 'build', commandId: '.-unit-tests', dependencyScope: 'repository-and-node-builtins-only', tests: [
+      { id: 'unit-add', path: 'test/add.test.mjs', name: 'adds two values' }
+    ] }] };
+}
+
+test('native failed-test opt-in pins an independent case inventory and explicit reuse without changing older policy hashes', () => {
+  const value = failedPolicy(); const policy = normalizeTestRecoveryPolicy(value);
+  assert.deepEqual(policy.caseInventory, value.caseInventory);
+  assert.notEqual(policy.caseInventory, value.caseInventory);
+  assert.notEqual(policy.caseInventory[0].tests, value.caseInventory[0].tests);
+  assert.equal(policy.allowEvidenceReuse, true);
+  assert.equal(Object.hasOwn(normalizeTestRecoveryPolicy({ enabled: true }), 'caseInventory'), false);
+  for (const change of [{ allowEvidenceReuse: false }, { allowEvidenceReuse: undefined }, { caseInventory: undefined }]) {
+    assert.throws(() => normalizeTestRecoveryPolicy({ ...value, ...change }), { code: 'TRP_RISK_ADAPTER_UNAVAILABLE' });
+  }
+});
+
+test('shipped editor schema advertises only supported test risks and closed independently declared case inventory', async () => {
+  const schema = JSON.parse(await readFile(new URL('../schemas/workflow-definition.schema.json', import.meta.url), 'utf8')).properties.testRecovery;
+  assert.deepEqual(schema.properties.enabledRiskCategories.items.enum, ['validation-unavailable', 'new-test-failure']);
+  assert.equal(schema.properties.allowEvidenceReuse.type, 'boolean');
+  assert.equal(schema.properties.caseInventory.items.additionalProperties, false);
+  assert.deepEqual(schema.properties.caseInventory.items.required, ['phaseId', 'commandId', 'dependencyScope', 'tests']);
+  assert.equal(schema.properties.caseInventory.items.properties.dependencyScope.const, 'repository-and-node-builtins-only');
+  assert.deepEqual(schema.allOf[1].then.required, ['caseInventory', 'allowEvidenceReuse']);
+  assert.equal(schema.allOf[1].then.properties.allowEvidenceReuse.const, true);
+});
+
+test('approved inventory rejects malformed, duplicate, unsafe and oversized identities', () => {
+  const edits = [
+    value => value.caseInventory = [],
+    value => value.caseInventory.push(structuredClone(value.caseInventory[0])),
+    value => value.caseInventory[0].extra = true,
+    value => value.caseInventory[0].dependencyScope = 'live-services',
+    value => delete value.caseInventory[0].dependencyScope,
+    value => value.caseInventory[0].phaseId = '../build',
+    value => value.caseInventory[0].commandId = 'unit\nother',
+    value => value.caseInventory[0].tests = [],
+    value => value.caseInventory[0].tests.push(structuredClone(value.caseInventory[0].tests[0])),
+    value => value.caseInventory[0].tests.push({ ...value.caseInventory[0].tests[0], id: 'different' }),
+    value => value.caseInventory[0].tests[0].observedOutcome = 'passed',
+    ...['../secret', '/tmp/test.mjs', 'C:/test.mjs', 'test\\add.test.mjs', 'test/./add.test.mjs']
+      .map(file => value => value.caseInventory[0].tests[0].path = file),
+    value => value.caseInventory[0].tests[0].name = 'bad\nname',
+    value => value.caseInventory[0].tests = Array.from({ length: 257 }, (_, n) => ({ id: `case-${n}`, name: `case ${n}`, path: `test/${n}.mjs` }))
+  ];
+  for (const edit of edits) {
+    const value = failedPolicy(); edit(value);
+    assert.throws(() => normalizeTestRecoveryPolicy(value), { code: 'TRP_POLICY_INVALID' });
+  }
+});
+
+test('failed-test intake validates selected phase adapter and binds inventory changes into human confirmation', () => {
+  const input = fixture(); input.definition.testRecovery = failedPolicy();
+  input.phaseDefinitions[0].qualityCommands = [{ id: '.-unit-tests', kind: 'test',
+    argv: ['node', '--test', '--test-reporter=junit', 'test/add.test.mjs'],
+    result: { adapter: 'junit-xml', path: '.sflow/results/unit.xml' } }];
+  const preview = previewTestRecoveryIntake(input);
+  assert.equal(preview.ready, true, preview.blockers.join(' '));
+  assert.equal(preview.riskObligations[0].id, '.-unit-tests');
+  input.definition.testRecovery.caseInventory[0].tests[0].name = 'different approved name';
+  assert.notEqual(previewTestRecoveryIntake(input).planDigest, preview.planDigest);
+  input.definition.testRecovery.caseInventory[0].phaseId = 'not-build';
+  assert.match(previewTestRecoveryIntake(input).blockers.join(' '), /independently approved case inventory/u);
+  input.phaseDefinitions[0].qualityCommands[0].argv = ['npm', 'test'];
+  assert.match(previewTestRecoveryIntake(input).blockers.join(' '), /direct native Node/u);
+  input.choices = { executionMode: 'all-configured' };
+  assert.match(previewTestRecoveryIntake(input).blockers.join(' '), /qualified baseline coverage/u);
 });
 
 test('risk intake seals exact command IDs and phase-specific obligations without changing older agreements', () => {

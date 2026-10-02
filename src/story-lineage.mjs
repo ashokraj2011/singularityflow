@@ -148,11 +148,11 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
     }
     if (execution.kind === 'phase-validation-observation') {
       validateTrpRecord(stored, { kind: 'phase-validation-observation' });
-      if (stored.observedOutcome !== 'unavailable' || stored.obligationId !== execution.commandId
+      if (!['unavailable', 'failed'].includes(stored.observedOutcome) || stored.observedOutcome !== execution.status || stored.obligationId !== execution.commandId
         || stored.recordSha256 !== phase.deliveryEvidence.testRecovery?.observationSha256) {
-        throw new SingularityFlowError('The unavailable test observation differs from the submission binding.', { code: 'STORY_REVIEW_EVIDENCE_STALE' });
+        throw new SingularityFlowError('The risk observation differs from the submission binding.', { code: 'STORY_REVIEW_EVIDENCE_STALE' });
       }
-      // This record proves no module or testcase execution; WEL receives no invented witness.
+      // Risk acceptance is not a passing WEL witness, even when individual cases really ran.
       continue;
     }
     const receipt = readRecord('test-execution', stored).record;
@@ -722,7 +722,7 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
         if (binding.kind === 'phase-validation-observation') {
           validateTrpRecord(replayed, { kind: binding.kind });
           if (replayed.subject.workId !== packet.workId || replayed.subject.phaseId !== packet.phase
-            || replayed.subject.generation !== Number(packet.generation) || replayed.observedOutcome !== 'unavailable') {
+            || replayed.subject.generation !== Number(packet.generation) || !['unavailable', 'failed'].includes(replayed.observedOutcome)) {
             throw new Error('TRP observation does not describe this submission');
           }
         }

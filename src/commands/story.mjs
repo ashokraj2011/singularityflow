@@ -820,11 +820,11 @@ export async function storyCommand(positionals, options) {
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
       supported: { readinessRepair: true, selectionPreview: true, riskActivation: true,
-        riskCategories: ['validation-unavailable'], riskScope: 'One native runner launch failure per code-delivery phase; exact human review required', policyAmendment: false,
+        riskCategories: ['validation-unavailable', 'new-test-failure'], riskScope: 'One native runner launch failure or independently inventoried native Node/JUnit failure per code-delivery phase; exact human review required', policyAmendment: false,
         prepublicationTestCommandAmendment: true, currentPublishedPhaseTestCommandAmendment: true,
         completedStoryTestCommandAmendment: false },
       message: agreement
-        ? 'Opt-in repair and selection pilot with bounded unavailable-runner review. No risk is accepted by this read.'
+        ? 'Opt-in repair and selection pilot with bounded native unavailable or failed-test review. No risk is accepted by this read.'
         : 'This Story retains its original test policy; it has not opted into the pilot.'
     };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

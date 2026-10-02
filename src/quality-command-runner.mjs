@@ -7,6 +7,19 @@ import { resolvePlatformProcess, tryWindowsTaskkill } from './platform-process.m
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
 const unavailableLaunches = new WeakMap();
+const completedLaunches = new WeakMap();
+
+/** A report may describe execution only when its bytes came from this native invocation. */
+export function verifyCompletedQualityLaunch(result, { command, args, cwd, environmentSha256, stdoutFile }) {
+  const observed = completedLaunches.get(result);
+  return observed && observed.command === command && observed.cwd === cwd
+    && JSON.stringify(observed.args) === JSON.stringify(args)
+    && typeof environmentSha256 === 'string' && environmentSha256 === observed.environmentSha256
+    && stdoutFile === observed.stdoutFile && !result.error && !result.signal
+    && result.status === observed.status && result.timedOut === false && result.aborted === false
+    ? Object.freeze({ startedAt: observed.startedAt, completedAt: observed.completedAt,
+      status: observed.status, stdoutSha256: observed.stdoutSha256, stdoutBytes: observed.stdoutBytes }) : null;
+}
 
 /** Opaque, native-spawn provenance. Injected test transports cannot mint execution evidence. */
 export function verifyUnavailableQualityLaunch(result, { command, args, cwd, environmentSha256 }) {
@@ -84,6 +97,7 @@ export function runQualityCommand(command, args = [], {
     const executionArgs = [...args];
     const environmentSha256 = createHash('sha256').update(JSON.stringify(Object.entries(executionEnvironment).sort())).digest('hex');
     const stdout = boundedCapture(captureBytes);
+    const stdoutDigest = createHash('sha256');
     const stderr = boundedCapture(captureBytes);
     let timedOut = false;
     let aborted = signal?.aborted === true;
@@ -140,6 +154,7 @@ export function runQualityCommand(command, args = [], {
     }
     child.stdout?.on('data', (chunk) => {
       stdout.add(chunk);
+      stdoutDigest.update(chunk);
       stdoutStream?.write(chunk);
     });
     child.stderr?.on('data', (chunk) => stderr.add(chunk));
@@ -194,13 +209,18 @@ export function runQualityCommand(command, args = [], {
           stdoutTruncated: out.truncated,
           stderrTruncated: err.truncated
         };
-        if (spawnCommand === spawn && platformLookupCommand === spawnSync
+        const native = spawnCommand === spawn && platformLookupCommand === spawnSync
           && platformLstatCommand === undefined && platformRealpathCommand === undefined
-          && platform === process.platform && !shell && !child.pid && error?.code === 'ENOENT'
-          && !timedOut && !aborted && !streamError) {
+          && platform === process.platform && !shell && !timedOut && !aborted && !streamError;
+        if (native && !child.pid && error?.code === 'ENOENT') {
           unavailableLaunches.set(result, { command, args: executionArgs, cwd, status: result.status,
             startedAt, completedAt: new Date().toISOString(),
             environmentSha256 });
+        }
+        if (native && child.pid && !error && !terminationSignal && Number.isInteger(code)) {
+          completedLaunches.set(result, { command, args: executionArgs, cwd, status: code,
+            startedAt, completedAt: new Date().toISOString(), environmentSha256, stdoutFile,
+            stdoutSha256: `sha256:${stdoutDigest.digest('hex')}`, stdoutBytes: out.bytes });
         }
         resolve(result);
       };

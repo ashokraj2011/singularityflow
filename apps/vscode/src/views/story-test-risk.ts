@@ -7,6 +7,7 @@ export interface StoryRiskTerms {
 }
 const digest = /^sha256:[a-f0-9]{64}$/u;
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const supportedRisk = (value: unknown) => value === 'validation-unavailable' || value === 'new-test-failure';
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
@@ -62,11 +63,12 @@ export function storyRiskChoices(result: unknown, subject: TestRecoverySubject):
   if (Array.isArray(data.issues)) for (const value of data.issues.slice(0, 100)) {
     const row = object(value);
     if (row?.riskEligible !== true || row.severity !== 'noncritical' || typeof row.id !== 'string'
-        || !identifier.test(row.id) || row.id.includes('..') || row.category !== 'validation-unavailable') continue;
-    // Only this qualified unavailable-validation adapter is presented; no generic skip or pass button.
+        || !identifier.test(row.id) || row.id.includes('..') || !supportedRisk(row.category)) continue;
+    // Only qualified exact-observation adapters are presented; no generic skip or pass button.
     const operation = data.operation;
     if (!['publish', 'submit', 'approve', 'downstream', 'replay'].includes(String(operation))) continue;
-    choices.push({ label: `Review unavailable validation ${row.id}`, description: 'Exact candidate and transition only; validation stays unavailable',
+    choices.push({ label: `${row.category === 'new-test-failure' ? 'Review failed tests' : 'Review unavailable validation'} ${row.id}`,
+      description: `Exact candidate and transition only; ${row.category === 'new-test-failure' ? 'tests stay failed' : 'validation stays unavailable'}`,
       action: 'accept-risk', terms: { issueId: row.id, operation: operation as StoryRiskTerms['operation'] } });
   }
   if (Array.isArray(data.decisions)) for (const value of data.decisions.slice(0, 100)) {
@@ -92,7 +94,7 @@ export function storyRiskApplyArgs(result: unknown, action: StoryRiskAction,
     const decision = object(data.decision);
     if (!decision || data.resultType !== 'story-test-risk-plan' || data.phaseId !== subject.phaseId
         || data.operation !== (terms.operation ?? 'publish') || decision.issueId !== terms.issueId
-        || decision.category !== 'validation-unavailable' || decision.reason !== terms.reason?.trim()
+        || !supportedRisk(decision.category) || decision.reason !== terms.reason?.trim()
         || decision.followUpOwner !== terms.followUpOwner?.trim() || decision.remediationRef !== terms.remediationRef?.trim()) return null;
   } else if (data.resultType !== 'story-test-risk-record-plan'
       || data.action !== (action === 'revoke-risk' ? 'revoked' : 'attested')

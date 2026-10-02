@@ -54,9 +54,12 @@ test('source and requirement mappings select regression tests and declared failu
   value.impact = { requirementIds: ['AC-1'] };
   value.agreement.repositories[0].knownFailureSentinelIds = ['a'];
   const plan = planTestSelection(value);
-  assert.equal(plan.ready, true);
+  assert.equal(plan.ready, false);
   assert.deepEqual(plan.manifest.selectedTests.map((entry) => entry.id), ['a', 'b', 'regression']);
   assert.equal(plan.manifest.expansions.length, 0);
+  assert.equal(plan.manifest.fullSuiteEquivalent, true);
+  assert.deepEqual(plan.requiredConfirmation, ['full-suite-expansion']);
+  assert.equal(planTestSelection({ ...value, confirmation: plan.planDigest }).ready, true);
 });
 
 test('a file selector records every case in the selected file', () => {
@@ -93,6 +96,60 @@ test('a single module equivalent to all tests needs the separate full-suite cons
   assert.equal(planTestSelection({ ...value, confirmation: preview.planDigest }).ready, true);
   policy(value, { fullSuiteExpansion: 'deny' });
   assert.ok(planTestSelection(value).blockers.some((entry) => entry.code === 'TEST_EXPANSION_DENIED'));
+});
+
+test('precise test-only selection of the complete approved cohort exposes actionable full-suite consent', () => {
+  const value = input({ commands: [command('api')], testInventory: [
+    definition('a', 'api'), definition('same-file-case', 'api', { path: 'api/a.test.mjs' })
+  ] });
+  policy(value, { moduleExpansion: 'allow' });
+  const original = structuredClone(value);
+  const preview = planTestSelection(value);
+  assert.deepEqual(value, original);
+  assert.equal(preview.commands[0].selectionAdapter, 'node-test-files');
+  assert.deepEqual(preview.commands[0].argv.slice(-2), ['--', './a.test.mjs']);
+  assert.deepEqual(preview.manifest.expansions, []);
+  assert.equal(preview.manifest.fullSuiteEquivalent, true);
+  assert.equal(preview.manifest.effectiveMode, 'all');
+  assert.match(preview.manifest.scopeLabel, /full configured suite/u);
+  assert.deepEqual(preview.requiredConfirmation, ['full-suite-expansion']);
+  assert.equal(preview.ready, false);
+  assert.equal(preview.observedOutcome, 'not-run');
+  assert.equal(preview.manifest.baselineCoverage.status, 'unknown', 'complete inventory is not baseline evidence');
+  assert.ok(preview.blockers.some(entry => entry.code === 'TEST_SELECTION_CONFIRMATION_REQUIRED'));
+  const confirmed = planTestSelection({ ...value, confirmation: preview.planDigest });
+  assert.equal(confirmed.ready, true);
+  assert.equal(confirmed.planDigest, preview.planDigest);
+  const changed = structuredClone(value);
+  changed.testInventory[0].semanticsSha256 = hash('changed-assertion-source');
+  assert.ok(planTestSelection({ ...changed, confirmation: preview.planDigest }).blockers
+    .some(entry => entry.code === 'TEST_SELECTION_CONFIRMATION_STALE'));
+  policy(value, { fullSuiteExpansion: 'deny' });
+  assert.ok(planTestSelection(value).blockers.some(entry => entry.code === 'TEST_EXPANSION_DENIED'));
+});
+
+test('partial and unqualified inventories cannot label precise selection as the full suite', () => {
+  for (const inventoryComplete of [false, undefined, 'true']) {
+    const value = input({ commands: [command('api')], testInventory: [definition('a', 'api')], inventoryComplete });
+    const preview = planTestSelection(value);
+    assert.equal(preview.manifest.fullSuiteEquivalent, false, String(inventoryComplete));
+    assert.equal(preview.manifest.effectiveMode, 'changed-and-affected');
+    assert.deepEqual(preview.requiredConfirmation, []);
+  }
+  const partial = planTestSelection(input());
+  assert.equal(partial.manifest.inventoryComplete, true);
+  assert.equal(partial.manifest.fullSuiteEquivalent, false, 'a verified but incompletely selected cohort is not the full suite');
+  assert.deepEqual(partial.requiredConfirmation, []);
+});
+
+test('explicit all-configured scope does not require expansion confirmation for precise cohort coverage', () => {
+  const value = policy(input({ commands: [command('api')], testInventory: [definition('a', 'api')] }),
+    { mode: 'all-configured', fullSuiteExpansion: 'deny' });
+  const preview = planTestSelection(value);
+  assert.equal(preview.ready, true);
+  assert.equal(preview.manifest.effectiveMode, 'all');
+  assert.equal(preview.manifest.fullSuiteEquivalent, false);
+  assert.deepEqual(preview.requiredConfirmation, []);
 });
 
 test('all configured mode selects every configured test command and exposes partial baseline', () => {

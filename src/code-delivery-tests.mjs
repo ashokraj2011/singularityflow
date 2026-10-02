@@ -598,6 +598,7 @@ function parseXml(xml) {
       const name = xml.slice(open + 2, end).trim();
       const current = stack.pop();
       if (!current || current.name !== name) xmlFailure(`closing tag '${name}' does not match the open element`);
+      current.sourceEnd = end + 1;
       index = end + 1;
       continue;
     }
@@ -608,7 +609,8 @@ function parseXml(xml) {
     if (selfClosing) body = body.slice(0, -1).trim();
     const name = body.match(/^[A-Za-z_][A-Za-z0-9_.:-]*/)?.[0];
     if (!name) xmlFailure('malformed element name');
-    const node = { name, localName: name.split(':').at(-1), attributes: parseAttributes(body.slice(name.length)), children: [] };
+    const node = { name, localName: name.split(':').at(-1), attributes: parseAttributes(body.slice(name.length)), children: [],
+      sourceStart: open, sourceEnd: selfClosing ? end + 1 : null };
     if (++elements > MAX_XML_ELEMENTS) xmlFailure(`element count exceeds ${MAX_XML_ELEMENTS}`);
     if (stack.length >= MAX_XML_DEPTH) xmlFailure(`depth exceeds ${MAX_XML_DEPTH}`);
     if (stack.length) stack.at(-1).children.push(node);
@@ -1238,6 +1240,39 @@ export function replayLocalJunitObservation(rawReports, {
       files: contents.map((content, index) => ({ sha256: digests[index], bytes: content.length }))
     }
   };
+}
+
+/** Narrow native Node reporter view; identity inventory must come from approved policy, not here. */
+export function parseNativeNodeJunitReport(bytes) {
+  const contents = Buffer.from(bytes);
+  if (contents.length > MAX_RESULT_FILE_BYTES) xmlFailure('native Node report exceeds its byte bound');
+  const xml = decodeXmlReport(contents);
+  const observed = junitObservation(xml, { maximumOccurrences: 10_000 });
+  const root = parseXml(xml);
+  if (root.name !== 'testsuites' || root.children.some(node => node.name !== 'testcase')) {
+    xmlFailure('native Node risk evidence requires flat, non-nested test cases');
+  }
+  const decode = (value) => {
+    if (typeof value !== 'string' || value.length > 4096) xmlFailure('native Node identity is missing or too long');
+    return value.replace(/&(?:#x[0-9a-fA-F]+|#\d+|amp|lt|gt|quot|apos);|&[^;\s]*;?/gu, entity => {
+      const named = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" };
+      if (Object.hasOwn(named, entity)) return named[entity];
+      if (!/^&#(?:x[0-9a-fA-F]+|\d+);$/u.test(entity)) xmlFailure('native Node identity contains an unknown entity');
+      const code = entity.startsWith('&#x') ? Number.parseInt(entity.slice(3, -1), 16) : Number(entity.slice(2, -1));
+      if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff || code >= 0xd800 && code <= 0xdfff) xmlFailure('native Node identity contains an invalid character');
+      return String.fromCodePoint(code);
+    });
+  };
+  return { tests: observed.tests, cases: root.children.map(node => {
+    const outcome = junitCaseState(node);
+    const failure = node.children.find(child => ['failure', 'error'].includes(child.localName));
+    if (node.attributes.classname !== 'test' || node.children.some(child => !['failure', 'error', 'skipped'].includes(child.name))) {
+      xmlFailure('native Node test case has an unsupported shape');
+    }
+    return { file: node.attributes.file == null ? null : decode(node.attributes.file), name: decode(node.attributes.name),
+      outcome: outcome.failure || outcome.error ? 'failed' : outcome.skipped ? 'skipped' : 'passed',
+      causeSha256: failure ? `sha256:${sha256(xml.slice(failure.sourceStart, failure.sourceEnd))}` : null };
+  }) };
 }
 
 export async function parseTestResult(root, command, { startedAt = null } = {}) {

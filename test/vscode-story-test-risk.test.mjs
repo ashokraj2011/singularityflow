@@ -22,17 +22,20 @@ test('risk UI constructs only fixed read commands and exact subject/transition/t
   assert.throws(() => storyRiskPreviewArgs('revoke-risk', subject, { reason: terms.reason }));
 });
 
-test('only eligible unavailable validation has an accept card; integrity and actual failures are not waived', () => {
+test('only qualified unavailable or failed observations have an accept card; integrity and unknown categories stay blocked', () => {
   const rows = storyRiskChoices({ ...base, issues: [
     { id: 'issue-one', category: 'validation-unavailable', riskEligible: true, severity: 'noncritical' },
     { id: 'issue-two', category: 'identity', riskEligible: true, severity: 'critical' },
     { id: 'issue-three', category: 'new-test-failure', riskEligible: true, severity: 'noncritical' },
+    { id: 'issue-known', category: 'known-test-failure', riskEligible: true, severity: 'noncritical' },
     { id: 'issue-four', category: 'validation-unavailable', riskEligible: false, severity: 'noncritical' },
     { id: 'issue-five;evil', category: 'validation-unavailable', riskEligible: true, severity: 'noncritical' }
   ], legalActions: [{ command: 'sh', args: ['-c', 'untrusted'] }] }, subject);
-  assert.equal(rows.length, 1);
+  assert.equal(rows.length, 2);
   assert.equal(rows[0].terms.issueId, 'issue-one');
   assert.equal(rows[0].action, 'accept-risk');
+  assert.equal(rows[1].terms.issueId, 'issue-three');
+  assert.match(rows[1].description, /tests stay failed/u);
 });
 
 test('agreement authorization and exact revocation/reattest cards never infer missing IDs', () => {
@@ -50,10 +53,12 @@ test('risk terminal preparation requires ready exact preview, subject, issue, te
   for (const change of [{ workId: 'other' }, { phaseId: 'verification' }, { operation: 'approve' }, { status: 'blocked' },
     { ready: false }, { stateChanged: true }, { executed: true }, { planDigest: 'bad' }, { resultType: 'other' },
     { decision: { ...preview.decision, reason: 'Different reviewed reason' } },
-    { decision: { ...preview.decision, category: 'new-test-failure' } }]) {
+    { decision: { ...preview.decision, category: 'reduced-coverage' } }]) {
     assert.equal(storyRiskApplyArgs({ ...preview, ...change }, 'accept-risk', subject, terms), null);
   }
   assert.equal(storyRiskApplyArgs(base, 'risks', subject, {}), null);
+  assert.deepEqual(storyRiskApplyArgs({ ...preview, decision: { ...preview.decision, category: 'new-test-failure' } },
+    'accept-risk', subject, terms), args);
 });
 
 test('revocation and reattestation terminal command is bound to exact record and action', () => {

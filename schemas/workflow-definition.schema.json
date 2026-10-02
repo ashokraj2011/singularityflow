@@ -294,18 +294,55 @@
       "additionalProperties": false
     },
     "testRecovery": {
-      "description": "Opt-in repair/selection pilot. Does not activate risk waivers or change existing Story pins.",
+      "description": "Opt-in repair/selection and qualified native test-risk review. No default waiver or change to existing Story pins; live delegated review is required per transition.",
       "type": "object",
       "required": ["enabled"],
       "properties": {
         "enabled": { "type": "boolean" },
         "riskAuthorities": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" } },
-        "enabledRiskCategories": { "type": "array", "maxItems": 0, "items": { "type": "string" } },
+        "enabledRiskCategories": { "type": "array", "maxItems": 2, "uniqueItems": true, "items": { "enum": ["validation-unavailable", "new-test-failure"] } },
         "maxRiskDays": { "type": "integer", "minimum": 1, "maximum": 30 },
         "maxDistinctAutomaticAttempts": { "type": "integer", "minimum": 0, "maximum": 3 },
-        "allowEvidenceReuse": { "const": false },
-        "maxEvidenceAgeSeconds": { "type": "integer", "minimum": 1, "maximum": 2592000 }
+        "allowEvidenceReuse": { "type": "boolean", "default": false },
+        "maxEvidenceAgeSeconds": { "type": "integer", "minimum": 1, "maximum": 2592000 },
+        "caseInventory": {
+          "description": "Independent approved native Node test identities, not report-discovered cases. Runtime additionally validates unique phase/command and ID/path/name pairs, canonical paths, at most 256 files per entry and 10000 cases in total.",
+          "type": "array", "minItems": 1, "maxItems": 64,
+          "items": {
+            "type": "object", "required": ["phaseId", "commandId", "dependencyScope", "tests"], "additionalProperties": false,
+            "properties": {
+              "phaseId": { "type": "string", "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+              "commandId": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "dependencyScope": { "const": "repository-and-node-builtins-only", "description": "Approved local dependency declaration; not sandbox or network-denial attestation." },
+              "tests": {
+                "type": "array", "minItems": 1, "maxItems": 10000,
+                "items": {
+                  "type": "object", "required": ["id", "path", "name"], "additionalProperties": false,
+                  "properties": {
+                    "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                    "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                    "name": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                  }
+                }
+              }
+            }
+          }
+        }
       },
+      "allOf": [
+        {
+          "if": { "required": ["enabledRiskCategories"], "properties": { "enabledRiskCategories": { "minItems": 1 } } },
+          "then": { "required": ["riskAuthorities"], "properties": { "riskAuthorities": { "minItems": 1 } } }
+        },
+        {
+          "if": { "required": ["enabledRiskCategories"], "properties": { "enabledRiskCategories": { "contains": { "const": "new-test-failure" } } } },
+          "then": { "required": ["caseInventory", "allowEvidenceReuse"], "properties": { "allowEvidenceReuse": { "const": true } } }
+        },
+        {
+          "if": { "required": ["allowEvidenceReuse"], "properties": { "allowEvidenceReuse": { "const": true } } },
+          "then": { "required": ["enabledRiskCategories"], "properties": { "enabledRiskCategories": { "contains": { "const": "new-test-failure" } } } }
+        }
+      ],
       "additionalProperties": false
     },
     "approvalAuthorities": {

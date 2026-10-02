@@ -16,6 +16,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { processResultSucceeded } from './process-result.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { readTrpNodeCaseInventory } from './test-recovery-node.mjs';
 
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const covers = (root, file) => root === '.' || file === root || file.startsWith(`${root}/`);
@@ -219,11 +220,21 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
     ...candidatePaths.filter((entry) => DEPENDENCY_FILE.test(entry))])].sort();
   const dependencies = await Promise.all(dependencyPaths.map((relative) => contentBinding(root, relative)));
   const inventory = [];
+  const exactInventories = new Map();
+  for (const command of tests) {
+    const exact = await readTrpNodeCaseInventory(root, workflow, phase, command);
+    if (!exact) continue;
+    exactInventories.set(command.id, exact);
+    for (const entry of exact.tests) inventory.push({ ...entry, commandId: command.id,
+      moduleRoot: command.workingDirectory ?? '.', sourcePaths: [], requirementIds: [] });
+  }
+  const inventoryComplete = tests.every(command => exactInventories.has(command.id));
   for (const candidate of deliveryEvidence.testPaths ?? []) {
     const relative = normalizeTestSelectionPath(candidate);
     if (!await isExecutableTestSourcePath(root, relative)) throw error('TRP_TEST_SELECTION_TEST_UNAVAILABLE', `Selected executable test source '${relative}' is missing or unsafe.`);
     const source = sources.find((entry) => entry.path === relative) ?? await contentBinding(root, relative);
     for (const command of tests) {
+      if (exactInventories.has(command.id)) continue;
       const cwd = normalizeTestSelectionPath(command.workingDirectory ?? '.', { allowRoot: true });
       const roots = (command.affectedRoots ?? [cwd]).map((entry) => normalizeTestSelectionPath(entry, { allowRoot: true }));
       if (!covers(cwd, relative) || !roots.some((entry) => covers(entry, relative))) continue;
@@ -235,7 +246,7 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
     ...(entry.oldPath ? { oldPath: entry.oldPath } : {}) })) : candidatePaths.map((relative) => ({ status: 'modified', path: relative }));
   const planInput = {
     agreement, repositoryId: repository.repositoryId, commands: tests, testInventory: inventory,
-    inventoryComplete: false,
+    inventoryComplete,
     candidate: { baseCommit, baseTree: tree, sourceManifestSha256: trpDigest(sources),
       generation, validationEpoch, delta },
     bindings: {
@@ -251,17 +262,17 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
   // The explicit argument builds the review card only. It can never enable execution or persistence.
   const accepted = verified?.planDigest ?? (previewOnly && confirmation === preview.planDigest ? confirmation : null);
   if (accepted) preview = planTestSelection({ ...planInput, confirmation: accepted });
-  preview = { ...preview, inventoryAssurance: 'test-source-files-only', inventoryComplete: false,
+  preview = { ...preview, inventoryAssurance: inventoryComplete ? 'approved-native-node-case-inventory' : 'test-source-files-only', inventoryComplete,
     environmentQualification: 'local-plan-binding-not-execution-evidence', phaseId: phase.id, generation, validationEpoch,
-    inventoryBasis: 'pinned-phase-and-resolved-module-command-inventory' };
+    inventoryBasis: inventoryComplete ? 'independently-pinned-case-inventory-and-current-test-source' : 'pinned-phase-and-resolved-module-command-inventory' };
   if (!preview.ready && !previewOnly) {
     const confirmationBlocked = preview.blockers.some((entry) => ['TEST_SELECTION_CONFIRMATION_REQUIRED', 'TEST_SELECTION_CONFIRMATION_STALE'].includes(entry.code));
     throw error(confirmationBlocked ? 'TRP_TEST_SELECTION_CONFIRMATION_REQUIRED' : 'TRP_TEST_SELECTION_BLOCKED',
       confirmationBlocked ? 'Review and confirm the exact test-selection expansion before executing this generation.' : 'The requested test cohort cannot be executed under the pinned agreement.',
       { workId: workflow.workItem.id, phase: phase.id, preview: trpSelectionPublicPreview(preview), planDigest: preview.planDigest });
   }
-  // This pilot enumerates executable files, not runner testcase identities. Record suite scope and
-  // the exact selector contract without manufacturing a complete testcase inventory.
+  // Case identities come only from independently approved inventory, never from observed reports.
+  // Unqualified runners continue to expose file/suite scope without claiming case completeness.
   const selection = verified?.selection ?? sealTrpRecord({
     schemaVersion: 1, kind: 'test-selection-manifest', id: `selection-${preview.planDigest.slice(7, 31)}-${trpDigest(createdAt).slice(7, 19)}`,
     subject: { workId: workflow.workItem.id, repositoryId: repository.repositoryId, phaseId: phase.id, generation, validationEpoch },
@@ -274,13 +285,15 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
     commandInventorySha256: preview.manifest.bindings.commandInventorySha256,
     commandSha256: trpDigest(preview.commands.map(({ selectionAdapter, ...entry }) => entry)),
     selectorSha256: trpDigest(preview.manifest.commandSelections.map((entry) => ({ id: entry.commandId, argv: entry.argv, adapter: entry.selectionAdapter }))),
-    selectedTestIds: [], selectedSuites: preview.commands.map((entry) => entry.id), inventoryTestIds: [],
+    selectedTestIds: inventoryComplete ? preview.manifest.selectedTests.map(entry => entry.id) : [],
+    selectedSuites: preview.commands.map((entry) => entry.id), inventoryTestIds: inventoryComplete ? inventory.map(entry => entry.id) : [],
     reasons: [...preview.manifest.selectedTests.flatMap((entry) => entry.reasons.map((reason) => ({ target: entry.path, reason }))),
       ...preview.commands.map((entry) => ({ target: `command:${entry.id}`,
         reason: `Execute ${JSON.stringify(displayArgv(entry.argv)).slice(0, 1600)} in ${entry.workingDirectory ?? '.'}` }))],
     expansion: preview.manifest.fullSuiteEquivalent ? 'full-suite' : preview.manifest.expansions.length ? 'module' : 'none',
     fullSuiteEquivalent: preview.manifest.fullSuiteEquivalent, confirmationSha256: accepted,
-    exclusions: [], uncoveredAreas: ['test-case-inventory-not-enumerated', ...preview.manifest.uncovered.map((entry) => entry.path ?? entry.testId ?? entry.requirementId)],
+    exclusions: [], uncoveredAreas: [...(inventoryComplete ? [] : ['test-case-inventory-not-enumerated']),
+      ...preview.manifest.uncovered.map((entry) => entry.path ?? entry.testId ?? entry.requirementId)],
     impactComplete: preview.manifest.uncovered.length === 0
   });
   let reference = null;

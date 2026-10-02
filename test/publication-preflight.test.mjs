@@ -365,8 +365,18 @@ test('required code entry trusts only its phase-bound planned claim map', async 
 
   await assert.rejects(
     () => assertPlannedSpecificationClaims(context.root, context.config, context.workflow, context.phase),
-    (error) => error.code === 'SPEC_PLANNED_CLAIM_MAP_REQUIRED',
-    'a directory candidate bypassed the missing phase pointer'
+    (error) => {
+      assert.equal(error.code, 'SPEC_PLANNED_CLAIM_MAP_REQUIRED', 'a directory candidate bypassed the missing phase pointer');
+      // Refused at implementation entry in the one gate shape, naming the plan it lacks.
+      const gate = error.details.gate;
+      assert.equal(gate.schema, 'gate-refusal/v1');
+      assert.equal(gate.gate, 'implementation-entry');
+      assert.deepEqual(gate.obligations.map((entry) => [entry.id, entry.status, entry.owningSteps]),
+        [['OBL:DELIVERY-1:plan:AC-001', 'missing', ['planning']]]);
+      assert.equal(gate.checkpoint, 'planning');
+      assert.equal(gate.recoveryClass, 'amend-scope-or-plan');
+      return true;
+    }
   );
 
   planning.claimMaps.planned = {

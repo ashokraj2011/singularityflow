@@ -237,6 +237,8 @@ import {
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
+import { gateRefusal } from './evidence/gate-refusal.mjs';
+import { obligationId } from './evidence/vocabulary.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1607,18 +1609,38 @@ async function authoritativePlannedRecordsForCodePhase(root, config, workflow, c
   return [record];
 }
 
+/** A refusal at implementation entry, in the one gate shape: the plan or scope obligations it lacks. */
+function implementationEntryRefusal(workflow, phaseId, { code, message, checkpoint, recoveryCommand, missing }) {
+  const workId = workflow.workItem.id;
+  return gateRefusal({
+    code, gate: 'implementation-entry',
+    subject: { workId, phase: phaseId, generation: workflow.phases?.[phaseId]?.generation ?? null },
+    evaluation: { rows: [{ obligations: missing.map(([responsibility, subject]) => ({
+      id: obligationId(workId, responsibility, subject), responsibility, subject, status: 'missing', owningSteps: [checkpoint].filter(Boolean)
+    })) }], findings: [] },
+    findings: [{ code, message }],
+    checkpoint,
+    actions: [recoveryCommand]
+  });
+}
+
 function noSpecificationClausesError(workflow, phaseId) {
   const clausePhases = plannedClaimsPolicy(workflow)?.clausePhases ?? [];
   const target = clausePhases.at(-1) ?? phaseId;
+  const message = `No authoritative specification clauses exist before code phase '${phaseId}'. `
+    + `Return to '${target}' and add stable fully qualified anchors such as [${workflow.workItem.id}:AC-001] before planning tests.`;
+  const recoveryCommand = `singularity-flow recover ${workflow.workItem.id} --phase ${target}`;
   return new SingularityFlowError(
-    `No authoritative specification clauses exist before code phase '${phaseId}'. `
-    + `Return to '${target}' and add stable fully qualified anchors such as [${workflow.workItem.id}:AC-001] before planning tests.`,
+    message,
     {
       code: 'SPECIFICATION_CLAUSE_SOURCE_REQUIRED',
       details: {
         phase: phaseId,
         clausePhases,
-        recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${target}`
+        recoveryCommand,
+        gate: implementationEntryRefusal(workflow, phaseId, {
+          code: 'SPECIFICATION_CLAUSE_SOURCE_REQUIRED', message, checkpoint: target, recoveryCommand, missing: [['scope', 'story']]
+        })
       }
     }
   );
@@ -1805,17 +1827,23 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
       console.warn(`Warning: ${message}`);
       return;
     }
+    const recoveryCommand = owner
+      ? `singularity-flow recover ${workflow.workItem.id} --phase ${owner.id}`
+      : `singularity-flow recover ${workflow.workItem.id} --phase ${codePhase.id}`;
+    const refusalMessage = `${message} Return to '${ownerId}', complete its exact clause/path/test table, publish, and approve it before starting implementation.`;
     throw new SingularityFlowError(
-      `${message} Return to '${ownerId}', complete its exact clause/path/test table, publish, and approve it before starting implementation.`,
+      refusalMessage,
       {
         code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED',
         details: {
           phase: codePhase.id,
           ownerPhase: owner?.id ?? null,
           clauses: gaps,
-          recoveryCommand: owner
-            ? `singularity-flow recover ${workflow.workItem.id} --phase ${owner.id}`
-            : `singularity-flow recover ${workflow.workItem.id} --phase ${codePhase.id}`
+          recoveryCommand,
+          gate: implementationEntryRefusal(workflow, codePhase.id, {
+            code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED', message: refusalMessage, checkpoint: owner?.id ?? null, recoveryCommand,
+            missing: (ownedPlanned.length ? gaps : clauseIds).map((clause) => ['plan', clause])
+          })
         }
       }
     );

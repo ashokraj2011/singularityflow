@@ -97,6 +97,7 @@ import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-str
 import {
   loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
 } from './environment-declaration.mjs';
+import { gateRefusal } from './evidence/gate-refusal.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -569,7 +570,15 @@ export function assertWorkTypeStartable(resolved) {
     + `${errors.map((entry) => entry.message).join('\n- ')}\nFix: ${errors[0].resolvingAction}`,
     {
       code: 'WORKFLOW_OBLIGATIONS_UNMET',
-      details: { workType: resolved.id, findings: errors.map(({ code, message, resolvingAction, subject }) => ({ code, message, resolvingAction, subject })) }
+      details: {
+        workType: resolved.id,
+        findings: errors.map(({ code, message, resolvingAction, subject }) => ({ code, message, resolvingAction, subject })),
+        gate: gateRefusal({
+          code: 'WORKFLOW_OBLIGATIONS_UNMET', gate: 'intake-readiness',
+          findings: errors.map(({ code, message }) => ({ code, message })),
+          actions: ['singularity-flow workflow validate']
+        })
+      }
     }
   );
 }

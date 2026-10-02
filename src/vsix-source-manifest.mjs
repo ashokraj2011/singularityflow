@@ -78,6 +78,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/evidence/labels.mjs',
   'src/evidence/matrix.mjs',
   'src/evidence/obligation-compiler.mjs',
+  'src/evidence/refusal-memory.mjs',
   'src/evidence/responsibilities.mjs',
   'src/evidence/terminal.mjs',
   'src/evidence/vocabulary.mjs',

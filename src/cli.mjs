@@ -181,7 +181,7 @@ import {
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
-import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from './evidence/gate-refusal.mjs';
+import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from './evidence/refusal-memory.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';

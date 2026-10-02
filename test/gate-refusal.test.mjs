@@ -5,9 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {
-  assertRefusalChanged, forgetRefusal, gateRefusal, GATE_REFUSAL_VERSION, projectGateRefusal, refusalFingerprint, rememberRefusal
-} from '../src/evidence/gate-refusal.mjs';
+import { gateRefusal, GATE_REFUSAL_VERSION, projectGateRefusal } from '../src/evidence/gate-refusal.mjs';
+import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from '../src/evidence/refusal-memory.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 

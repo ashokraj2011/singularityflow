@@ -129,6 +129,19 @@ test('every packaged work type compiles with no finding, and a failing one is re
   broken.workTypes.feature.decisions = [{ id: 'stop', after: 'requirements', kind: 'ask', label: 'Stop?', routes: [{ id: 'go', label: 'Go', to: 'next' }, { id: 'stop', label: 'Stop', to: 'end' }] }];
   assert.throws(() => assertWorkTypeStartable(resolveWorkType(broken, 'feature')), (error) => error.code === 'WORKFLOW_OBLIGATIONS_UNMET' || /would never be implemented/.test(error.message));
 
+  // A route that drops a responsibility is refused at intake readiness, in the one gate shape.
+  const unheld = { id: 'unheld', plannedClaims: { mode: 'required' }, obligationGraph: { findings: [{
+    severity: 'error', code: 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY', message: 'finishing after intake ends the Story without a plan.', resolvingAction: 'Route through a plan.'
+  }] } };
+  assert.throws(() => assertWorkTypeStartable(unheld), (error) => {
+    assert.equal(error.code, 'WORKFLOW_OBLIGATIONS_UNMET');
+    assert.equal(error.details.gate.schema, 'gate-refusal/v1');
+    assert.equal(error.details.gate.gate, 'intake-readiness');
+    assert.deepEqual(error.details.gate.findings.map((entry) => entry.code), ['OBLIGATION_ROUTE_DROPS_RESPONSIBILITY']);
+    assert.deepEqual(error.details.gate.actions, [{ command: 'singularity-flow workflow validate', confirmation: null }]);
+    return true;
+  });
+
   // The same early finish, declared: each responsibility it leaves undone, with who decides why.
   const declared = structuredClone(definition);
   declared.workTypes.feature.decisions = [{ id: 'stop', after: 'requirements', kind: 'ask', label: 'Stop?', routes: [

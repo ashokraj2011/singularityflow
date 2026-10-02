@@ -2878,12 +2878,14 @@ export function commitIsAncestor(root, ancestor, descendant = 'HEAD') {
  * repository bounds nothing, so the walk may then reach the root, still as one process.
  */
 export function firstParentCommitsMentioning(root, text, { tip = 'HEAD', after = [] } = {}) {
-  const bounds = after.filter((commit) => typeof commit === 'string' && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(commit));
+  const objectId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+  const bounds = after.filter((commit) => typeof commit === 'string' && objectId.test(commit));
   const output = gitReadOutput(git([
     'log', '--first-parent', '--format=%H', '--fixed-strings', `--grep=${text}`, '--ignore-missing',
     tip, ...bounds.map((commit) => `^${commit}`), '--'
   ], { cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true }), `commits mentioning ${text}`);
-  return (output ?? '').split(/\r?\n/u).filter(Boolean);
+  // Only object names: a configured log.showSignature, for one, adds lines of its own.
+  return (output ?? '').split(/\r?\n/u).filter((line) => objectId.test(line));
 }
 
 /** Read the immutable identity embedded in a governed transaction commit. */

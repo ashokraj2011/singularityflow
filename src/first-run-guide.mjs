@@ -33,6 +33,20 @@ async function configureRepository(root) {
   await writeFile(file, YAML.stringify(definition));
 }
 
+function greetingTest(expected, { story = false } = {}) {
+  return [
+    "import assert from 'node:assert/strict';",
+    "import { readFile } from 'node:fs/promises';",
+    "import test from 'node:test';",
+    '',
+    ...(story ? ['/** @ac:TOY-001:AC-001 */'] : []),
+    "test('the governed greeting is exact', async () => {",
+    `  assert.equal(await readFile(new URL('../greeting.txt', import.meta.url), 'utf8'), ${JSON.stringify(expected)});`,
+    '});',
+    ''
+  ].join('\n');
+}
+
 /**
  * Runs a real isolated quick-fix lifecycle without network access, Jira, or a model. A local bare
  * remote exercises the same explicit remote-base contract as a team repository.
@@ -61,7 +75,15 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     run('git', ['config', 'user.name', 'Singularity Flow Guide'], { cwd: repository });
     run('git', ['config', 'user.email', 'guide@localhost'], { cwd: repository });
     await writeFile(path.join(repository, 'greeting.txt'), 'Hello, world.\n');
-    run('git', ['add', 'greeting.txt'], { cwd: repository });
+    // The demo starts from a real passing baseline, just like an application repository. All
+    // tests use Node built-ins; there are no packages to restore or download for this walkthrough.
+    await writeFile(path.join(repository, 'package.json'), `${JSON.stringify({
+      name: 'sflow-guide-greeting', private: true, type: 'module',
+      scripts: { test: 'node --test' }
+    }, null, 2)}\n`);
+    await mkdir(path.join(repository, 'tests'), { recursive: true });
+    await writeFile(path.join(repository, 'tests/greeting.test.mjs'), greetingTest('Hello, world.\n'));
+    run('git', ['add', 'greeting.txt', 'package.json', 'tests/greeting.test.mjs'], { cwd: repository });
     run('git', ['commit', '-m', 'Create the guide repository'], { cwd: repository });
 
     await initializeDefinition(repository);
@@ -82,20 +104,20 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
       repositoryCount: 1
     }));
 
+    const preview = command(cli, repository, ['precheck', '--run', '--scope', 'dependency-test', '--json'], env);
+    steps.push(preview);
+    const plan = JSON.parse(preview.rawOutput).data?.plan;
+    if (plan?.status !== 'ready' || plan.scope !== 'dependency-test'
+        || plan.blockers?.length !== 0 || !/^sha256:[a-f0-9]{64}$/u.test(plan.planId)
+        || plan.commands?.length !== 1 || plan.commands[0].purpose !== 'test') {
+      throw new SingularityFlowError('The isolated guide requires one ready, dependency-free test plan before Story start.');
+    }
+    // This confirms only the fixed demo's plan, never a user's repository or a human risk decision.
+    steps.push(command(cli, repository, ['precheck', '--run', '--scope', 'dependency-test',
+      '--confirm-plan', plan.planId, '--json'], env));
     steps.push(command(cli, repository, ['start', 'TOY-001', '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
     await writeFile(path.join(repository, 'greeting.txt'), 'Hello, Singularity Flow!\n');
-    await mkdir(path.join(repository, 'tests'), { recursive: true });
-    await writeFile(path.join(repository, 'tests', 'greeting.test.mjs'), [
-      "import assert from 'node:assert/strict';",
-      "import { readFile } from 'node:fs/promises';",
-      "import test from 'node:test';",
-      '',
-      '/** @ac:TOY-001:AC-001 */',
-      "test('the governed greeting is exact', async () => {",
-      "  assert.equal(await readFile(new URL('../greeting.txt', import.meta.url), 'utf8'), 'Hello, Singularity Flow!\\n');",
-      '});',
-      ''
-    ].join('\n'));
+    await writeFile(path.join(repository, 'tests/greeting.test.mjs'), greetingTest('Hello, Singularity Flow!\n', { story: true }));
     steps.push(command(cli, repository, ['prepare', 'implement'], env));
     steps.push(command(cli, repository, ['phase', 'publish', 'implement', '--authored', 'deterministic'], env));
     steps.push(command(cli, repository, ['submit', 'implement'], env));

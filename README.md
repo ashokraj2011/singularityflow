@@ -1317,7 +1317,8 @@ singularity-flow guide --first-run
 singularity-flow guide --first-run --keep
 ```
 
-The guide creates a temporary Git repository, runs the real `start → prepare →
+The guide creates a temporary Git repository with a passing Node test, records
+readiness against its exact base commit, then runs the real `start → prepare →
 publish → submit` lifecycle through deterministic **Implement** and **Verify**
 phases, prints the sandbox boundary before execution, and removes it after
 success unless `--keep` is supplied. It makes no network request and invokes no

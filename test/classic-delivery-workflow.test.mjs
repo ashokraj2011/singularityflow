@@ -132,6 +132,19 @@ test('Classic delivery commits passing test results before Testing and Code chec
   run('git', ['push', '-u', 'origin', 'main'], root);
   const base = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
 
+  const readinessPlan = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
+  assert.equal(config.repositoryReadiness.requiredBeforeStory, true);
+  assert.equal(readinessPlan.status, 'ready');
+  assert.equal(readinessPlan.sourceCommit, base);
+  const readiness = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test',
+    '--confirm-plan', readinessPlan.planId, '--json').stdout).data.receipt;
+  assert.equal(readiness.status, 'pass');
+  assert.equal(readiness.sourceCommit, base);
+  assert.ok(readiness.commandResults.some((entry) => entry.purpose === 'test' && entry.status === 'pass'));
+  assert.ok(readiness.testObservations.some((entry) =>
+    entry.status === 'available' && entry.counts.discovered >= 1 && entry.counts.passed >= 1
+      && entry.counts.failed === 0));
+
   cli('start', workId, '--from-branch', 'main', '--work-type', 'classic-delivery',
     '--title', 'Change the value', '--description', 'Prove committed executable-test evidence.');
   const item = path.join(root, 'singularity/work-items', workId);

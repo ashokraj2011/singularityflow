@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { access, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import YAML from 'yaml';
 import { runFirstRunGuide } from '../src/first-run-guide.mjs';
+import { loadRepositoryReadinessReceipt } from '../src/initialization/runtime-readiness.mjs';
+import { run } from '../src/util.mjs';
 
 test('end-to-end-under-budget', async () => {
   const result = await runFirstRunGuide({ keep: true });
@@ -16,7 +19,32 @@ test('end-to-end-under-budget', async () => {
     assert.equal(result.typedCommandCount, 1);
     assert.match(await readFile(path.join(result.repository, 'tests/greeting.test.mjs'), 'utf8'), /@ac:TOY-001:AC-001/);
     assert.match(result.finalStateSha256, /^[0-9a-f]{64}$/);
-    assert.equal(result.steps.length, 8);
+    assert.equal(result.steps.length, 10);
+    const preview = result.steps[0];
+    const executed = result.steps[1];
+    const plan = JSON.parse(preview.rawOutput).data.plan;
+    const receipt = JSON.parse(executed.rawOutput).data.receipt;
+    assert.equal(preview.command, 'singularity-flow precheck --run --scope dependency-test --json');
+    assert.equal(executed.command,
+      `singularity-flow precheck --run --scope dependency-test --confirm-plan ${plan.planId} --json`);
+    assert.match(result.steps[2].command, /^singularity-flow start TOY-001 /u);
+    assert.equal(plan.status, 'ready');
+    assert.deepEqual(plan.commands.map((command) => command.purpose), ['test']);
+    assert.equal(receipt.status, 'pass');
+    assert.equal(receipt.planId, plan.planId);
+    assert.equal(receipt.commandResults[0].status, 'pass');
+    assert.equal(receipt.testObservations[0].counts.discovered, 1);
+    assert.equal(receipt.testObservations[0].counts.passed, 1);
+    assert.equal(receipt.testObservations[0].counts.failed, 0);
+    const base = run('git', ['rev-parse', 'main'], { cwd: result.repository }).stdout.trim();
+    assert.equal(receipt.sourceCommit, base);
+    const retained = await loadRepositoryReadinessReceipt(result.repository, {
+      commit: base, scope: 'dependency-test'
+    });
+    assert.equal(retained.receipt.receiptSha256, receipt.receiptSha256);
+    const definition = YAML.parse(await readFile(path.join(result.repository, 'singularity/workflow.yml'), 'utf8'));
+    assert.equal(definition.repositoryReadiness.requiredBeforeStory, true);
+    assert.equal(run('git', ['status', '--porcelain'], { cwd: result.repository }).stdout, '');
     assert.ok(result.steps.every((step) => step.output.length <= 4_050));
     const workflow = JSON.parse(await readFile(path.join(
       result.repository,

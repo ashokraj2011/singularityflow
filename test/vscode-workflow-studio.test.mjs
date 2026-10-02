@@ -305,9 +305,39 @@ test('the canvas lays steps out in order and draws send-back rules and decision 
   assert.equal(below[0].label, 'If rejected, back to intake');
   assert.equal(below[1].label, 'Until Done is yes');
   assert.ok(layout.rowY > 40, 'the row moves down to make room for routes above it');
-  assert.ok(layout.height > layout.rowY + 112 + 2 * 26, 'and the canvas grows for the lanes below it');
+  assert.ok(layout.height > layout.rowY + 124 + 2 * 26, 'and the canvas grows for the lanes below it');
 
   const plain = logic.canvasLayout({ phases: ['intake'], reworkLoops: [], decisions: [] });
   assert.equal(plain.rowY, 40, 'with nothing above, the row starts at the padding');
   assert.deepEqual(plain.edges.map((edge) => edge.kind), ['next']);
+});
+
+test('a drafting skill chosen in the page becomes a per-workflow change, and a copy takes it along', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  assert.ok(model.choices.authoringSkills.some((choice) => choice.id === 'sf-design'));
+  const draft = logic.initialDraft(model);
+  assert.equal(draft.steps.feature.design.authoringSkill, null, 'automatic until a skill is chosen');
+
+  draft.steps.feature.design.authoringSkill = 'sf-design';
+  let changeSet = logic.changeSetFrom(model, draft);
+  assert.deepEqual(changeSet.changes, [{ op: 'phase.update', id: 'design', workflow: 'feature', authoringSkill: 'sf-design' }]);
+  assert.equal(logic.describe(changeSet.changes[0], draft), 'Architecture and design: drafting skill changed in Feature');
+  assert.equal(check(root, changeSet).valid, true);
+
+  // "Use a copy in this workflow": the copy is created with the skill it had in that workflow.
+  const copy = logic.initialDraft(model);
+  copy.phases['design-feature'] = { ...structuredClone(copy.phases.design), id: 'design-feature', label: 'Design (Feature)', isNew: true, copyOf: 'design', usedBy: ['feature'], authoringSkill: 'sf-design' };
+  copy.workflows.feature.phases = copy.workflows.feature.phases.map((id) => (id === 'design' ? 'design-feature' : id));
+  copy.steps.feature['design-feature'] = { ...structuredClone(copy.steps.feature.design), authoringSkill: 'sf-design', authoringSkillSetByWorkflow: false };
+  delete copy.steps.feature.design;
+  // As the page's copy does: later steps read the copy, and send-back rules aim at it.
+  for (const settings of Object.values(copy.steps.feature)) settings.inputs = settings.inputs.map((input) => (input === 'design' ? 'design-feature' : input));
+  copy.workflows.feature.reworkLoops = copy.workflows.feature.reworkLoops.map((loop) => ({ ...loop, from: loop.from === 'design' ? 'design-feature' : loop.from, to: loop.to === 'design' ? 'design-feature' : loop.to }));
+  changeSet = logic.changeSetFrom(model, copy);
+  const create = changeSet.changes.find((change) => change.op === 'phase.create');
+  assert.deepEqual([create.id, create.copyOf, create.authoringSkill], ['design-feature', 'design', 'sf-design']);
+  assert.match(logic.describe(create, copy), /with \/sf-design$/);
+  assert.equal(check(root, changeSet).valid, true, JSON.stringify(check(root, changeSet).problems));
 });

@@ -36,6 +36,7 @@ const STUDIO_STYLE = `
 .muted{opacity:.75;font-size:12px}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .pill.new{background:var(--sf-accent-quiet);font-weight:700}
+.pill.skill{font-family:var(--vscode-editor-font-family);font-size:10px;padding:1px 6px;max-width:84px;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
 .rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .rail .stop{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px 3px 3px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .avatar{width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
@@ -87,7 +88,7 @@ const STUDIO_STYLE = `
 .node-main:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
 .node-head{display:flex;align-items:center;gap:8px}
 .node-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:8px;background:color-mix(in srgb,var(--tone) 28%,transparent);color:var(--tone)}
-.node-step{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.75;flex:1}
+.node-step{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.75;flex:1 0 auto;white-space:nowrap}
 .node-title{font-size:13px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .node-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;border-top:1px solid color-mix(in srgb,var(--tone) 30%,transparent);padding-top:6px}
 .node-agent{display:inline-flex;align-items:center;gap:6px;min-width:0}
@@ -213,11 +214,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, overridden: Boolean(step.overridden) };
+        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow) };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
     });
     (model.agents || []).forEach(function (agent) {
       draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null };
@@ -261,6 +262,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         var step = home && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs };
         var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent };
         if (phase.copyOf) create.copyOf = phase.copyOf;
+        if (step.authoringSkill) create.authoringSkill = step.authoringSkill;
         changes.push(create);
         return;
       }
@@ -314,6 +316,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         var update = { op: 'phase.update', id: phaseId, workflow: id };
         if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
         if (!same(reference.inputs, step.inputs)) update.inputs = step.inputs;
+        // The engine writes it where the workflow owns it: an override on a shared or already
+        // overridden step, the step itself otherwise.
+        var referenceSkill = reference.authoringSkill === undefined ? ((base.phases[phaseId] || phase).authoringSkill || null) : reference.authoringSkill;
+        if ((step.authoringSkill || null) !== (referenceSkill || null)) update.authoringSkill = step.authoringSkill || null;
         if (Object.keys(update).length > 3) changes.push(update);
       });
     });
@@ -330,8 +336,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'workflow.create': return 'New workflow ' + change.label + (change.copyOf ? ', a copy of ' + ((draft.workflows[change.copyOf] || {}).label || change.copyOf) : '') + ': ' + change.phases.map(phaseName).join(' → ');
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
       case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions' }[key] || key; }).join(', ') + ' changed';
-      case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent);
-      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
+      case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent) + (change.authoringSkill ? ' with /' + change.authoringSkill : '');
+      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
       case 'phase.agent': return phaseName(change.phase) + ' is now drafted by ' + agentName(change.agent);
       case 'agent.create': return 'New agent ' + change.label;
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
@@ -402,7 +408,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var steps = state.draft.steps[workflowId] || (state.draft.steps[workflowId] = {});
     if (!steps[phaseId]) {
       var phase = state.draft.phases[phaseId] || {};
-      steps[phaseId] = { approval: clone(phase.approval || { group: null, minimum: 1 }), inputs: (phase.inputs || []).filter(function (input) { return workflowSteps(workflowId).indexOf(input) >= 0; }) };
+      steps[phaseId] = { approval: clone(phase.approval || { group: null, minimum: 1 }), inputs: (phase.inputs || []).filter(function (input) { return workflowSteps(workflowId).indexOf(input) >= 0; }), authoringSkill: phase.authoringSkill || null };
     }
     return steps[phaseId];
   }
@@ -464,6 +470,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflow = state.draft.workflows[workflowId];
     workflow.phases = workflow.phases.map(function (phase) { return phase === phaseId ? id : phase; });
     state.draft.steps[workflowId][id] = clone(stepSettings(workflowId, phaseId));
+    state.draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
+    state.draft.phases[id].authoringSkill = state.draft.steps[workflowId][id].authoringSkill || null;
     delete state.draft.steps[workflowId][phaseId];
     workflow.phases.forEach(function (other) { var settings = state.draft.steps[workflowId][other]; if (settings) settings.inputs = settings.inputs.map(function (input) { return input === phaseId ? id : input; }); });
     workflow.reworkLoops = workflow.reworkLoops.map(function (loop) {
@@ -1063,7 +1071,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // goes back runs below it. The canvas pans and zooms; dropping a step on another moves it there,
   // because the order is still the workflow's list of steps.
 
-  var NODE_W = 176, NODE_H = 112, GAP = 64, DECISION_GAP = 104, CANVAS_PAD = 40, LOOP_STEP = 26, FINISH_W = 84;
+  var NODE_W = 176, NODE_H = 124, GAP = 64, DECISION_GAP = 104, CANVAS_PAD = 40, LOOP_STEP = 26, FINISH_W = 84;
   var OUTPUT_LOOK = {
     document: { label: 'Writes a document', icon: 'doc', tone: 'blue' },
     analysis: { label: 'Writes an analysis', icon: 'chart', tone: 'cyan' },
@@ -1238,7 +1246,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         }
       },
         el('span', { class: 'node-head' }, el('span', { class: 'node-icon' }, icon(look.icon, 16)), el('span', { class: 'node-step', text: 'STEP ' + (node.index + 1) }),
-          phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null),
+          phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+          settings.authoringSkill ? el('span', { class: 'pill skill', title: 'Drafted with /' + settings.authoringSkill, text: '/' + settings.authoringSkill }) : null),
         el('span', { class: 'node-title', text: phase.label }),
         el('span', { class: 'node-foot' },
           el('span', { class: 'node-agent', title: agent ? agent.label : 'Choose an agent' }, el('span', { class: 'avatar', text: agent ? initials(agent.label) : '?' }), el('span', { class: 'name', text: agent ? agent.label : 'Choose an agent' })),
@@ -1535,6 +1544,49 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return aside;
   }
 
+  /**
+   * Which skill drafts a step in this workflow. Automatic follows what the step produces; a chosen
+   * skill must be able to draft that output. On a shared step the choice is this workflow's own,
+   * as sign-off is. Deterministic convergence is fixed, and a sign-off-only step drafts nothing.
+   */
+  function authoringSkillControl(workflowId, phaseId, settings, users) {
+    var output = stepOutput(workflowId, phaseId);
+    if (output === 'none') return null;
+    if (phaseId === 'convergence') {
+      return field('step-skill', 'Drafted with', el('span', { class: 'pill', id: 'step-skill', text: '/sf-converge' }), 'Deterministic convergence always uses /sf-converge.');
+    }
+    var automatic = output === 'code' ? '/sf-code' : '/sf-phase';
+    var choices = (state.model.choices.authoringSkills || []).filter(function (choice) { return choice.produces.indexOf(output) >= 0 && choice.label !== automatic; });
+    var current = settings.authoringSkill || '';
+    var options = [{ value: '', label: 'Automatic (' + automatic + ')' }].concat(choices.map(function (choice) { return { value: choice.id, label: choice.label }; }));
+    if (current && !options.some(function (option) { return option.value === current; })) options.push({ value: current, label: '/' + current });
+    var chosen = choices.find(function (choice) { return choice.id === current; });
+    var hint = chosen && chosen.description ? chosen.description : current ? 'Drafted with /' + current + '.' : 'Chosen by what the step produces.';
+    if (settings.authoringSkillSetByWorkflow) hint = 'Set by this workflow. ' + hint;
+    else if (users.length) hint += ' Only this workflow changes; ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' keep their own.';
+    return field('step-skill', 'Drafted with', select('step-skill', options, current, function (value) {
+      settings.authoringSkill = value || null;
+      // The engine records a shared or already overridden step's choice as this workflow's own.
+      if (users.length || settings.authoringSkillSetByWorkflow) settings.authoringSkillSetByWorkflow = true;
+      changed();
+    }), hint);
+  }
+
+  /** After a step's output changes, a chosen skill that cannot draft it goes back to automatic. */
+  function resetIncompatibleSkills(phaseId) {
+    var reset = [];
+    Object.keys(state.draft.workflows).forEach(function (workflowId) {
+      if (state.draft.workflows[workflowId].phases.indexOf(phaseId) < 0) return;
+      var settings = state.draft.steps[workflowId] && state.draft.steps[workflowId][phaseId];
+      if (!settings || !settings.authoringSkill) return;
+      var choice = (state.model.choices.authoringSkills || []).find(function (entry) { return entry.id === settings.authoringSkill; });
+      if (choice && choice.produces.indexOf(stepOutput(workflowId, phaseId)) >= 0) return;
+      reset.push('/' + settings.authoringSkill);
+      settings.authoringSkill = null;
+    });
+    if (reset.length) setStatus('Drafted with is automatic again: ' + reset.join(', ') + ' cannot draft what this step now produces.');
+  }
+
   function renderInspector(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
     var phase = state.draft.phases[phaseId];
@@ -1550,9 +1602,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var ownOutput = settings.overridden && settings.output && settings.output !== phase.output && phase.output === phase.baseOutput;
     aside.appendChild(section('step', 'Step', [
       field('step-name', 'Name', textInput('step-name', phase.label, function (value) { if (value.trim()) { phase.label = value.trim(); changed(); } }), users.length ? 'Renames it in ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' too.' : null),
-      field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { phase.output = value; changed(); }, { disabled: ownOutput }),
+      field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { phase.output = value; resetIncompatibleSkills(phaseId); changed(); }, { disabled: ownOutput }),
         ownOutput ? 'This workflow sets what this step produces itself; change it in the Workflow Designer.'
           : stepOutput(workflowId, phaseId) === 'code' ? 'A code step needs a requirements or implementation-spec step before it; the check says so if one is missing.' : null),
+      authoringSkillControl(workflowId, phaseId, settings, users),
       users.length && !phase.isNew ? el('div', { class: 'callout wait' },
         el('div', { text: phase.label + ' is also used by ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + '. Its agent, name and output change there too.' }),
         button('Use a copy in this workflow', function () { copyStepForWorkflow(workflowId, phaseId); }, { class: 'secondary', style: 'margin-top:6px' })) : null

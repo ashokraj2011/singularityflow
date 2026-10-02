@@ -197,3 +197,73 @@ test('from a Story checkout, Studio changes become one review proposal on the ap
   assert.equal(run('git', ['rev-parse', 'HEAD'], story).stdout.trim(), storyHead, 'the Story checkout is unchanged');
   assert.equal(run('git', ['status', '--porcelain'], story).stdout, '');
 });
+
+test('the Studio shows what each step really produces and which skill drafts it', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  const step = (workflowId, id) => model.workflows.find((workflow) => workflow.id === workflowId).steps.find((entry) => entry.id === id);
+  // Write scope no longer implies code: these steps write against source without delivering it.
+  assert.equal(step('feature', 'verification').output, 'document');
+  assert.equal(step('chore', 'implementation').output, 'analysis');
+  assert.equal(step('feature', 'implementation').output, 'code');
+  assert.deepEqual(
+    [step('feature', 'design').authoringSkill, step('feature', 'design').effectiveAuthoringSkill, step('feature', 'design').authoringSkillSource],
+    [null, '/sf-phase', 'automatic']
+  );
+  assert.equal(step('feature', 'implementation').effectiveAuthoringSkill, '/sf-code');
+  assert.equal(step('spec-driven-standard', 'convergence').authoringSkillSource, 'fixed');
+  const design = model.choices.authoringSkills.find((choice) => choice.id === 'sf-design');
+  assert.deepEqual([design.label, design.produces, design.legacyPhases], ['/sf-design', ['document', 'analysis'], ['design']]);
+  assert.match(design.description, /architecture and design artifact/i);
+});
+
+test('the drafting skill of a shared step is set for one workflow, cleared again, and kept by a copy', async () => {
+  const root = await repository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const apply = async (changes) => {
+    const file = await changeSet(root, changes);
+    const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+    json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+    return YAML.parse(await readFile(workflowFile, 'utf8'));
+  };
+  // design is used by several workflows, so the choice is the Feature workflow's own.
+  let workflow = await apply([{ op: 'phase.update', id: 'design', workflow: 'feature', authoringSkill: 'sf-design' }]);
+  assert.equal(workflow.workTypes.feature.phaseOverrides.design.authoringSkill, 'sf-design');
+  assert.equal(workflow.phases.design.authoringSkill, undefined);
+  let model = json(root, ['workflow', 'studio']);
+  const designIn = (id) => model.workflows.find((entry) => entry.id === id).steps.find((entry) => entry.id === 'design');
+  assert.deepEqual([designIn('feature').effectiveAuthoringSkill, designIn('feature').authoringSkillSetByWorkflow], ['/sf-design', true]);
+  const other = model.workflows.find((entry) => entry.id !== 'feature' && entry.steps.some((candidate) => candidate.id === 'design'));
+  assert.equal(designIn(other.id).effectiveAuthoringSkill, '/sf-phase', 'other workflows are untouched');
+
+  workflow = await apply([{ op: 'phase.update', id: 'design', workflow: 'feature', authoringSkill: null }]);
+  assert.equal(Object.hasOwn(workflow.workTypes.feature.phaseOverrides.design ?? {}, 'authoringSkill'), false);
+
+  // A new step names its skill; a copy made for one workflow takes the value it had there.
+  workflow = await apply([
+    { op: 'phase.create', id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', agent: 'architect', authoringSkill: 'sf-design' },
+    { op: 'phase.create', id: 'design-feature', label: 'Design (Feature)', copyOf: 'design', authoringSkill: 'sf-design' },
+    { op: 'workflow.create', id: 'vendor-review', label: 'Vendor review', phases: ['intake', 'vendor-analysis', 'design-feature'] }
+  ]);
+  assert.equal(workflow.phases['vendor-analysis'].authoringSkill, 'sf-design');
+  assert.equal(workflow.phases['design-feature'].authoringSkill, 'sf-design');
+
+  // A skill that cannot draft the step is a problem the check names, not a silent write.
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'phase.update', id: 'implementation', workflow: 'feature', authoringSkill: 'sf-design' }
+  ]), '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.match(JSON.stringify(refused.problems), /PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH/);
+});
+
+test('naming a step\'s output keeps the write scope of a step that writes against source', async () => {
+  const root = await repository();
+  const file = await changeSet(root, [{ op: 'phase.update', id: 'verification', output: 'analysis' }]);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(workflow.phases.verification.generation.task, 'analyze');
+  assert.equal(workflow.phases.verification.writeScope, 'source-and-artifact', 'only moving to or from code changes write scope');
+});

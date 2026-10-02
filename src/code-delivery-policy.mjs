@@ -251,6 +251,16 @@ export function stepOutputKind(phase) {
 }
 
 /**
+ * Deterministic convergence, read from Story state (`generationPolicy`) or from a resolved definition
+ * (`generation`), so Workflow Studio shows the same fixed route a Story uses.
+ */
+function deterministicConvergence(phase) {
+  if (phase?.id !== 'convergence') return false;
+  if (phase.generationPolicy) return phaseUsesDeterministicGeneration(phase);
+  return phase.generation?.defaultProducer === 'deterministic';
+}
+
+/**
  * The authoring skill a step names. In a Story it comes from the pinned resolution, which is hashed
  * and anchored to the Story's creation commit, never from the mutable step state; outside a Story
  * (a resolved workflow being validated, simulated or shown) it comes from the resolved step.
@@ -278,7 +288,7 @@ export function authoringRoute(phase, workflow = null) {
   });
   const output = stepOutputKind(phase);
   if (output === 'none') return route(null, 'none');
-  if (phase?.id === 'convergence' && phaseUsesDeterministicGeneration(phase)) return route('/sf-converge', 'fixed');
+  if (deterministicConvergence(phase)) return route('/sf-converge', 'fixed');
   const automatic = output === 'code' ? '/sf-code' : '/sf-phase';
   if (!authoringSkill) return route(automatic, 'automatic');
   const entry = authoringSkillEntry(authoringSkill);

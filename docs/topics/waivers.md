@@ -8,10 +8,10 @@ related:
   - quick-fix
   - approvals
   - escalation
-version: 2
+version: 3
 commands: []
 ---
-On low-ceremony rails, low-risk changes may complete under a policy waiver: a deterministic evaluation against the pinned waiver policy (its ID and hash recorded, predicates listed, evaluated at the exact commit). Denial is automatic for protected paths, public-interface changes, migrations, security boundaries, regulated data, or any classifier that cannot run — path count alone is never sufficient. A waiver is recorded as a waiver: it is never rendered, counted, or exported as a human approval, and impact receipts keep the distinction.
+On low-ceremony rails, low-risk changes may complete under a policy waiver: a deterministic evaluation against the pinned waiver policy (its ID and hash recorded, predicates listed, evaluated at the exact commit). Denial is automatic for protected paths, public-interface changes, migrations, security boundaries, regulated data, or any classifier that cannot run — path count alone is never sufficient. A waiver is recorded as a waiver: it is never rendered, counted, or exported as a human approval, and impact receipts keep the distinction. An approval of mode `policy` that names no policy uses the default `quick-fix-low-risk-v1`; one that names a policy this build cannot evaluate waives nothing, says so at submission, and goes to people for approval. A waiver describes only the completion that recorded it: reopening the phase, submitting it for people to review, or approving it clears the record. The governance gate replays a recorded waiver; one that no longer replays fails the gate only when it is what authorizes the phase, and is reported as a warning when current approvals already satisfy the policy.
 
 ## Purpose and prerequisites
 

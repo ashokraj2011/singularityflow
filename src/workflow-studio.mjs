@@ -113,6 +113,16 @@ async function authoringSkillChoices() {
   }));
 }
 
+/**
+ * A list a change carries, such as a step's inputs or knowledge views. Absent or null leaves the list
+ * as it is, as for every other field of a change; anything else must be a list.
+ */
+function changeList(value, label, code) {
+  if (value == null) return null;
+  if (!Array.isArray(value)) throw new SingularityFlowError(`${label} must be a list.`, { code });
+  return value;
+}
+
 /** A drafting skill as a change set names it; the candidate configuration checks the rest. */
 function requireAuthoringSkill(value) {
   if (typeof value !== 'string' || !AUTHORING_SKILL_ID.test(value)) {
@@ -1087,8 +1097,11 @@ class StudioCandidate {
     // A copy's own skill that cannot draft its new output is dropped; one the change names decides.
     const dropped = !copyOf || (output !== undefined && output !== outputOf(node)) ? this.setOutput(phaseId, output ?? 'document') : null;
     if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
-    if (inputs !== undefined) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputs, node.inputs ?? [])));
-    if (views !== undefined) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ depth: 'quick', ...(node.worldModel ?? {}), views: [...views] }));
+    // Absent or null leaves a list as it is, as in phase.update: a new step has none, a copy keeps its source's.
+    const inputList = changeList(inputs, `The inputs of ${name}`, 'STUDIO_PHASE_UNKNOWN');
+    if (inputList) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputList, node.inputs ?? [])));
+    const viewList = changeList(views, `The knowledge views of ${name}`, 'STUDIO_VIEWS_INVALID');
+    if (viewList) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ depth: 'quick', ...(node.worldModel ?? {}), views: [...viewList] }));
     if (copyOf && approval != null) {
       const current = approvalSummary(node.approval);
       const unchanged = approval === 'none' ? current.mode === 'none'
@@ -1163,12 +1176,13 @@ class StudioCandidate {
     let dropped = null;
     if (label != null) { this.document.setIn(['phases', phaseId, 'label'], requireLabel(label, 'The step')); changed.push('name'); }
     if (output != null) { dropped = this.setOutput(phaseId, output); changed.push('output'); }
-    if (inputs != null) {
+    const inputList = changeList(inputs, `The inputs of ${name}`, 'STUDIO_PHASE_UNKNOWN');
+    if (inputList) {
       const scope = scopeFor('inputs');
       // An input entry that stays keeps its own settings (selector, projection, preserved headings),
       // and so does one for a step this workflow now uses a copy of.
       const current = valueAt(scope, 'inputs') ?? this.phase(phaseId).inputs ?? [];
-      const entries = this.inputEntries(inputs, current);
+      const entries = this.inputEntries(inputList, current);
       if (entries.length || scope === override) this.setKeepingStyle([...scope, 'inputs'], entries);
       else this.document.deleteIn([...scope, 'inputs']);
       changed.push('inputs');
@@ -1179,8 +1193,9 @@ class StudioCandidate {
       this.document.setIn([...scope, 'approval'], this.document.createNode(this.approvalNode(approval, existing === 'none' ? null : existing)));
       changed.push('sign-off');
     }
-    if (views != null) {
-      if (views.length) this.document.setIn(['phases', phaseId, 'worldModel', 'views'], this.document.createNode([...views]));
+    const viewList = changeList(views, `The knowledge views of ${name}`, 'STUDIO_VIEWS_INVALID');
+    if (viewList) {
+      if (viewList.length) this.document.setIn(['phases', phaseId, 'worldModel', 'views'], this.document.createNode([...viewList]));
       else if (this.document.hasIn(['phases', phaseId, 'worldModel', 'views'])) this.document.deleteIn(['phases', phaseId, 'worldModel', 'views']);
       changed.push('knowledge');
     }

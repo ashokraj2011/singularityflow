@@ -521,3 +521,37 @@ test('changing what a step produces drops a skill of its own that cannot draft t
   saved = YAML.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(Object.hasOwn(saved.phases.notes, 'authoringSkill'), false);
 });
+
+test('a change leaves a null list as it is and refuses a list that is not one', async () => {
+  const { planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const check = (changes) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes });
+  // Null means not given, as in phase.update: a new step reads nothing, a copy keeps its source's lists.
+  for (const field of ['inputs', 'views']) {
+    const plan = await check([{ op: 'phase.create', id: `null-${field}`, label: `Null ${field}`, agent: 'architect', approval: 'none', [field]: null }]);
+    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  }
+  await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'phase.create', id: 'listed', label: 'Listed', agent: 'architect', approval: 'none', inputs: ['intake'], views: ['business'] },
+    { op: 'workflow.create', id: 'listed-flow', label: 'Listed flow', phases: ['intake', 'listed'] }
+  ] }, { write: true });
+  const copy = { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'phase.create', id: 'listed-copy', label: 'Listed copy', copyOf: 'listed', inputs: null, views: null },
+    { op: 'workflow.create', id: 'copy-flow', label: 'Copy flow', phases: ['intake', 'listed-copy'] }
+  ] };
+  assert.equal((await planStudioChangeSet(root, copy)).valid, true);
+  await planStudioChangeSet(root, copy, { write: true });
+  const saved = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual([saved.phases['listed-copy'].inputs, saved.phases['listed-copy'].worldModel.views], [['intake'], ['business']]);
+  // Anything else that is not a list is refused with the Studio's own code, never a TypeError.
+  for (const [change, code] of [
+    [{ op: 'phase.create', id: 'text-inputs', label: 'Text inputs', agent: 'architect', approval: 'none', inputs: 'intake' }, 'STUDIO_PHASE_UNKNOWN'],
+    [{ op: 'phase.create', id: 'text-views', label: 'Text views', agent: 'architect', approval: 'none', views: 'business' }, 'STUDIO_VIEWS_INVALID'],
+    [{ op: 'phase.update', id: 'design', inputs: 'intake' }, 'STUDIO_PHASE_UNKNOWN'],
+    [{ op: 'phase.update', id: 'design', views: 'business' }, 'STUDIO_VIEWS_INVALID']
+  ]) {
+    const plan = await check([change]);
+    assert.deepEqual(plan.problems.map((problem) => problem.code), [code], JSON.stringify(plan.problems));
+    assert.match(plan.problems[0].message, /must be a list\.$/);
+  }
+});

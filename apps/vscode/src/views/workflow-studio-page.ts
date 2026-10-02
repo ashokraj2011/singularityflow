@@ -376,7 +376,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
     relabelRules: function () { return relabelRules.apply(null, arguments); }, buildTest: function () { return buildTest.apply(null, arguments); },
     importKey: function () { return importKey.apply(null, arguments); }, linkId: function () { return linkId.apply(null, arguments); },
-    canvasLayout: function () { return canvasLayout.apply(null, arguments); }, copyStep: function () { return copyStep.apply(null, arguments); } };
+    canvasLayout: function () { return canvasLayout.apply(null, arguments); }, copyStep: function () { return copyStep.apply(null, arguments); },
+    // The draft operations the inspector runs, against the model the host sent, and that state.
+    state: function () { return state; },
+    createStep: function () { return createStep.apply(null, arguments); }, addExistingStep: function () { return addExistingStep.apply(null, arguments); },
+    copyStepForWorkflow: function () { return copyStepForWorkflow.apply(null, arguments); }, stepSettings: function () { return stepSettings.apply(null, arguments); },
+    stepOutput: function () { return stepOutput.apply(null, arguments); }, setStepOutput: function () { return setStepOutput.apply(null, arguments); },
+    skillPicker: function () { return skillPicker.apply(null, arguments); }, chooseAuthoringSkill: function () { return chooseAuthoringSkill.apply(null, arguments); },
+    authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); } };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -1574,17 +1581,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return aside;
   }
 
+  /** The other workflows in the draft that use a step. */
+  function otherUsers(workflowId, phaseId) {
+    return Object.keys(state.draft.workflows).filter(function (id) { return id !== workflowId && state.draft.workflows[id].phases.indexOf(phaseId) >= 0; });
+  }
+
   /**
-   * Which skill drafts a step in this workflow. Automatic follows what the step produces; a chosen
-   * skill must be able to draft that output. On a shared step the choice is this workflow's own,
-   * as sign-off is. Deterministic convergence is fixed, and a sign-off-only step drafts nothing.
+   * Which skill drafts a step in this workflow, as Drafted with offers it: nothing for a sign-off-only
+   * step, a fixed /sf-converge for deterministic convergence, otherwise Automatic, which follows what
+   * the step produces, and every skill that can draft that output. On a shared step the choice is
+   * this workflow's own, as sign-off is.
    */
-  function authoringSkillControl(workflowId, phaseId, settings, users) {
+  function skillPicker(workflowId, phaseId, settings, users) {
     var output = stepOutput(workflowId, phaseId);
     if (output === 'none') return null;
-    if (phaseId === 'convergence') {
-      return field('step-skill', 'Drafted with', el('span', { class: 'pill', id: 'step-skill', text: '/sf-converge' }), 'Deterministic convergence always uses /sf-converge.');
-    }
+    if (phaseId === 'convergence') return { fixed: '/sf-converge', hint: 'Deterministic convergence always uses /sf-converge.' };
     var automatic = output === 'code' ? '/sf-code' : '/sf-phase';
     var choices = (state.model.choices.authoringSkills || []).filter(function (choice) { return choice.produces.indexOf(output) >= 0 && choice.label !== automatic; });
     var current = settings.authoringSkill || '';
@@ -1594,12 +1605,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var hint = chosen && chosen.description ? chosen.description : current ? 'Drafted with /' + current + '.' : 'Chosen by what the step produces.';
     if (settings.authoringSkillSetByWorkflow) hint = 'Set by this workflow. ' + hint;
     else if (users.length) hint += ' Only this workflow changes; ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' keep their own.';
-    return field('step-skill', 'Drafted with', select('step-skill', options, current, function (value) {
-      settings.authoringSkill = value || null;
-      // The engine records a shared or already overridden step's choice as this workflow's own.
-      if (users.length || settings.authoringSkillSetByWorkflow) settings.authoringSkillSetByWorkflow = true;
-      changed();
-    }), hint);
+    return { options: options, value: current, hint: hint };
+  }
+
+  /** A drafting skill picked for a step in one workflow. */
+  function chooseAuthoringSkill(workflowId, phaseId, value) {
+    var settings = stepSettings(workflowId, phaseId);
+    settings.authoringSkill = value || null;
+    // The engine records a shared or already overridden step's choice as this workflow's own.
+    if (otherUsers(workflowId, phaseId).length || settings.authoringSkillSetByWorkflow) settings.authoringSkillSetByWorkflow = true;
+    changed();
+  }
+
+  function authoringSkillControl(workflowId, phaseId, settings, users) {
+    var picker = skillPicker(workflowId, phaseId, settings, users);
+    if (!picker) return null;
+    if (picker.fixed) return field('step-skill', 'Drafted with', el('span', { class: 'pill', id: 'step-skill', text: picker.fixed }), picker.hint);
+    return field('step-skill', 'Drafted with', select('step-skill', picker.options, picker.value, function (value) { chooseAuthoringSkill(workflowId, phaseId, value); }), picker.hint);
   }
 
   /** After a step's output changes, a chosen skill that cannot draft it goes back to automatic. */
@@ -1617,6 +1639,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (reset.length) setStatus('Drafted with is automatic again: ' + reset.join(', ') + ' cannot draft what this step now produces.');
   }
 
+  /** What a step itself produces, chosen in the inspector; drafting skills follow (resetIncompatibleSkills). */
+  function setStepOutput(phaseId, output) {
+    state.draft.phases[phaseId].output = output;
+    resetIncompatibleSkills(phaseId);
+    changed();
+  }
+
   function renderInspector(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
     var phase = state.draft.phases[phaseId];
@@ -1632,7 +1661,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var ownOutput = settings.overridden && settings.output && settings.output !== phase.output && phase.output === phase.baseOutput;
     aside.appendChild(section('step', 'Step', [
       field('step-name', 'Name', textInput('step-name', phase.label, function (value) { if (value.trim()) { phase.label = value.trim(); changed(); } }), users.length ? 'Renames it in ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' too.' : null),
-      field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { phase.output = value; resetIncompatibleSkills(phaseId); changed(); }, { disabled: ownOutput }),
+      field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { setStepOutput(phaseId, value); }, { disabled: ownOutput }),
         ownOutput ? 'This workflow sets what this step produces itself; change it in the Workflow Designer.'
           : stepOutput(workflowId, phaseId) === 'code' ? 'A code step needs a requirements or implementation-spec step before it; the check says so if one is missing.' : null),
       authoringSkillControl(workflowId, phaseId, settings, users),

@@ -40,23 +40,46 @@ import {
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
 
+/** The Code step whose tests a review relies on: its pinned source, else the closest approved one. */
+export function reviewCodeSource(workflow, phase) {
+  if (!phase || phaseRequiresCodeDelivery(phase)) return null;
+  const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
+  if (pinned?.testEvidenceFrom) return workflow.phases?.[pinned.testEvidenceFrom] ?? null;
+  const order = workflow.phaseOrder ?? [];
+  return order.slice(0, Math.max(0, order.indexOf(phase.id))).reverse().map((id) => workflow.phases?.[id])
+    .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate)) ?? null;
+}
+
+/** A review whose own approval policy may send its source or test edits back to this Code step. */
+export function reviewMayReturnToCode(review, code) {
+  return Boolean(review && code) && !phaseRequiresCodeDelivery(review) && phaseRequiresCodeDelivery(code)
+    && (review.approvalPolicy?.rejectTo ?? []).includes(code.id);
+}
+
+/**
+ * The approved Code step an in-progress review may hand its source or test edits back to through
+ * the guarded `reject <review> --to <code> --repair` route, or null when no such return exists.
+ */
+export function reviewRepairTarget(workflow, phase) {
+  const code = reviewCodeSource(workflow, phase);
+  return code?.status === 'approved' && workflow.status !== 'complete'
+    && workflow.currentPhase === phase.id && phase.status === 'in_progress'
+    && reviewMayReturnToCode(phase, code) ? code : null;
+}
+
 /** Review may repair documents, but only a code generation can replace tested source or tests. */
 export async function assertReviewCodeEvidenceFresh(root, config, workflow, phase) {
   if (phaseRequiresCodeDelivery(phase)) return null;
-  const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
-  const order = workflow.phaseOrder ?? [];
-  const position = order.indexOf(phase.id);
-  const source = pinned?.testEvidenceFrom ? workflow.phases?.[pinned.testEvidenceFrom]
-    : order.slice(0, Math.max(0, position)).reverse().map((id) => workflow.phases[id])
-      .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate));
+  const source = reviewCodeSource(workflow, phase);
   if (!source) return null;
   const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
     candidate.phase === source.id && Number(candidate.generation) === Number(source.generation));
   const repairCommand = workflow.status === 'complete'
     ? `singularity-flow reopen ${workflow.workItem.id} --to ${source.id} --reason <REASON>`
-    : (phase.approvalPolicy?.rejectTo ?? []).includes(source.id)
-      && ['in_progress', 'awaiting_approval'].includes(phase.status)
-      ? `singularity-flow reject ${phase.id} --to ${source.id}${phase.status === 'in_progress' ? ' --repair' : ''} --reason <REASON>` : null;
+    : reviewRepairTarget(workflow, phase)?.id === source.id
+      ? `singularity-flow reject ${phase.id} --to ${source.id} --repair --reason <REASON>`
+      : phase.status === 'awaiting_approval' && reviewMayReturnToCode(phase, source)
+        ? `singularity-flow reject ${phase.id} --to ${source.id} --reason <REASON>` : null;
   const refuse = (message, changedPaths = [], evidenceAvailable = true) => new SingularityFlowError(
     `Phase '${phase.id}' requires current Code evidence from '${source.id}': ${message} `
       + `Return the changes to '${source.id}', publish and validate a fresh code generation, then resume '${phase.id}'.`
@@ -637,12 +660,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   // resources. Do not require a fake product-source edit in the new Code generation: reuse the
   // exact prior approved source bytes, but only when the latest open change request was created
   // by the guarded Testing repair route and still binds this Code generation and its old receipt.
-  const repairRequest = [...(workflow.changeRequests ?? [])].reverse().find((request) => {
-    const source = workflow.phases?.[request.sourcePhase];
-    return request.status === 'open' && request.targetPhase === phase.id
-      && request.testingRepair && source && !phaseRequiresCodeDelivery(source)
-      && source.approvalPolicy?.rejectTo?.includes(phase.id);
-  });
+  const repairRequest = [...(workflow.changeRequests ?? [])].reverse().find((request) =>
+    request.status === 'open' && request.targetPhase === phase.id && request.testingRepair
+      && reviewMayReturnToCode(workflow.phases?.[request.sourcePhase], phase));
   const repair = repairRequest?.testingRepair;
   const repairDecision = (workflow.phases?.[repairRequest?.sourcePhase]?.approvals ?? []).find((decision) =>
     decision.decision === 'rejected' && !decision.invalidatedAt

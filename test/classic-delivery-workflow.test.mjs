@@ -217,20 +217,24 @@ test('Classic delivery commits passing test results before Testing and Code chec
       `Verified ${workId}:AC-001 against ${receiptPath} and the committed passing unit-test receipt.`);
     text = text.replace(/\bTODO\b/gu, 'matched');
     await writeFile(artifact, text);
-    if (phase === 'testing') {
+    {
+      // Code checking relies on Code's tests exactly like Testing, so it is offered the same
+      // guarded return of its source edits rather than a bare "Return to Code".
       await writeFile(path.join(root, 'src/value.mjs'),
         `// @clause:${workId}:AC-001\nexport const value = 3;\n`);
       const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', phase,
         '--authored', 'human', '--channel', 'manual-in-place', '--json'], root, { allowFailure: true });
       assert.notEqual(refused.status, 0);
       assert.match(refused.stdout + refused.stderr, /PRIOR_CODE_TEST_EVIDENCE_REQUIRED|application source or tests changed after the approved execution/u);
-      const repairPreview = run(process.execPath, [CLI, '--no-model', 'reject', 'testing',
+      assert.match(refused.stdout + refused.stderr,
+        new RegExp(`singularity-flow reject ${phase} --to implementation --repair --reason <REASON>`, 'u'));
+      const repairPreview = run(process.execPath, [CLI, '--no-model', 'reject', phase,
         '--to', 'implementation', '--repair', '--reason', 'Return the changed source to Code', '--json'], root,
       { allowFailure: true });
       assert.notEqual(repairPreview.status, 0, 'an unconfirmed early return must be read-only');
       assert.match(repairPreview.stdout + repairPreview.stderr, /TESTING_REPAIR_CONFIRMATION_REQUIRED/u);
       assert.match(repairPreview.stdout + repairPreview.stderr, /src\/value\.mjs/u);
-      assert.equal((await workflow()).currentPhase, 'testing');
+      assert.equal((await workflow()).currentPhase, phase);
       await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
     }
     cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');

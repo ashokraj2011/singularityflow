@@ -71,6 +71,7 @@ import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
   assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  reviewRepairTarget,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
@@ -3081,10 +3082,9 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
     throw refuse('the receipt does not describe the approved generation and passing executions.');
   }
   if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)) {
-    const testingRepairRoute = phase.id === 'testing' && phase.status === 'in_progress'
-      && workflow.currentPhase === 'testing'
-      && ['classic-delivery', 'spec-code-test-loop'].includes(workflow.workItem?.workType)
-      ? ' Review the exact repair preview with Shell: singularity-flow reject testing --to implementation --repair --reason <REASON>. Copilot: /sf-reject. The confirmed return preserves changed bytes and requires new Code tests.'
+    const repairTarget = reviewRepairTarget(workflow, phase);
+    const testingRepairRoute = repairTarget
+      ? ` Review the exact repair preview with Shell: singularity-flow reject ${phase.id} --to ${repairTarget.id} --repair --reason <REASON>. Copilot: /sf-reject. The confirmed return preserves changed bytes and requires new Code tests.`
       : ' Return to Code.';
     throw refuse(`application source or tests changed after the approved execution.${testingRepairRoute}`);
   }
@@ -6093,11 +6093,8 @@ async function createReworkForwardCheckpoint(root, config, workflow, {
 export async function previewTestingRepair(root, config, workflow) {
   await assertNoPendingPublication(root, config, workflow, 'return Testing changes to Code');
   const review = workflow.phases?.[workflow.currentPhase];
-  const predecessors = (workflow.phaseOrder ?? []).slice(0, workflow.phaseOrder?.indexOf(review?.id));
-  const code = predecessors.reverse().map((id) => workflow.phases[id])
-    .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate));
-  if (!review || review.status !== 'in_progress' || phaseRequiresCodeDelivery(review)
-      || !code || !(review.approvalPolicy?.rejectTo ?? []).includes(code.id)) {
+  const code = reviewRepairTarget(workflow, review);
+  if (!code) {
     throw new SingularityFlowError(
       'A pre-submission review repair requires an active non-code review with an allowed return to its earlier approved Code phase.',
       { code: 'TESTING_REPAIR_NOT_APPLICABLE' }

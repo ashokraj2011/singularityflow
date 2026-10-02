@@ -127,8 +127,10 @@ test('a confirmed Testing return permits exact prior product source with a new u
   const workflow = {
     workItem: { id: 'CGA-REPAIR', workType: 'classic-delivery', branch: 'CGA-REPAIR' },
     currentPhase: 'implementation', phaseOrder: ['implementation', 'testing'],
+    // The shipped Testing step's own return route: a repair binds to a review that may return to Code.
     phases: { implementation: phase, testing: {
-      status: 'not_started', generation: 1,
+      id: 'testing', status: 'not_started', generation: 1,
+      approvalPolicy: { authorities: ['quality-reviewers'], minimum: 1, rejectTo: ['implementation', 'testing'] },
       approvals: [{ decision: 'rejected', target: 'implementation', changeRequestId: 'CR-001' }]
     } },
     changeRequests: [{
@@ -170,6 +172,12 @@ test('a confirmed Testing return permits exact prior product source with a new u
     code: 'CODE_DELIVERY_EVIDENCE_REQUIRED'
   });
   workflow.changeRequests[0].status = 'open';
+  // A return recorded against a review whose policy cannot send work back to Code is no repair.
+  workflow.phases.testing.approvalPolicy.rejectTo = ['testing'];
+  await assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), {
+    code: 'CODE_DELIVERY_EVIDENCE_REQUIRED'
+  });
+  workflow.phases.testing.approvalPolicy.rejectTo = ['implementation', 'testing'];
   await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
   const productCorrection = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
   assert.equal(productCorrection.testingRepair, null);

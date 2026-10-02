@@ -33,7 +33,7 @@ import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import {
   authoringRoute, compiledSkillStep, deterministicOnlyGeneration, stepOutputKind, workflowCodeGeneration
 } from './code-delivery-policy.mjs';
-import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
+import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -566,6 +566,23 @@ class StudioCandidate {
     // testing step that writes against source keeps its scope when its output is named.
     if (output === 'code') this.document.setIn(['phases', id, 'writeScope'], 'source-and-artifact');
     else if (wasCode) this.document.setIn(['phases', id, 'writeScope'], 'artifact-only');
+    // A skill the step names that cannot draft what it now produces goes back to automatic here,
+    // rather than staying behind for configuration to refuse, or for each workflow to hide with an
+    // explicit automatic of its own. Returns the skill it dropped.
+    const skill = this.phase(id)?.authoringSkill;
+    const entry = typeof skill === 'string' ? authoringSkillEntry(skill) : null;
+    if (!entry || entry.produces.includes(outputOf(this.phase(id)))) return null;
+    this.document.deleteIn(['phases', id, 'authoringSkill']);
+    return skill;
+  }
+
+  /** The summary line for a skill setOutput dropped, when the step still names none at the end. */
+  droppedSkillLine(id, name, dropped) {
+    if (!dropped || typeof this.phase(id)?.authoringSkill === 'string') return null;
+    const output = outputOf(this.phase(id));
+    return output === 'none'
+      ? `${name} now drafts nothing, so it no longer names /${dropped}.`
+      : `${name} now produces ${{ document: 'a document', analysis: 'an analysis', code: 'code' }[output]}, which /${dropped} cannot draft, so its drafting skill is automatic again.`;
   }
 
   writeTemplateIfMissing(relativeTemplate, id, label) {
@@ -1067,7 +1084,8 @@ class StudioCandidate {
       };
     }
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
-    if (!copyOf || (output !== undefined && output !== outputOf(node))) this.setOutput(phaseId, output ?? 'document');
+    // A copy's own skill that cannot draft its new output is dropped; one the change names decides.
+    const dropped = !copyOf || (output !== undefined && output !== outputOf(node)) ? this.setOutput(phaseId, output ?? 'document') : null;
     if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
     if (inputs !== undefined) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputs, node.inputs ?? [])));
     if (views !== undefined) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ depth: 'quick', ...(node.worldModel ?? {}), views: [...views] }));
@@ -1092,6 +1110,8 @@ class StudioCandidate {
     this.summary.push(copyOf
       ? `New step ${name}, a copy of ${this.phaseLabel(copyOf)}, drafted by ${this.agentLabel(agentId)}.`
       : `New step ${name}: drafted by ${this.agentLabel(agentId)}, ${node.approval === 'none' ? 'no sign-off' : `signed off by ${this.content.approvalAuthorities?.[approvalSummary(node.approval).authorities[0]]?.label ?? 'its group'}`}.`);
+    const droppedLine = authoringSkill === undefined ? this.droppedSkillLine(phaseId, name, dropped) : null;
+    if (droppedLine) this.summary.push(droppedLine);
   }
 
   /**
@@ -1140,8 +1160,9 @@ class StudioCandidate {
       return node?.toJSON?.() ?? node;
     };
     const changed = [];
+    let dropped = null;
     if (label != null) { this.document.setIn(['phases', phaseId, 'label'], requireLabel(label, 'The step')); changed.push('name'); }
-    if (output != null) { this.setOutput(phaseId, output); changed.push('output'); }
+    if (output != null) { dropped = this.setOutput(phaseId, output); changed.push('output'); }
     if (inputs != null) {
       const scope = scopeFor('inputs');
       // An input entry that stays keeps its own settings (selector, projection, preserved headings),
@@ -1183,6 +1204,8 @@ class StudioCandidate {
       changed.push('questions');
     }
     if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
+    const droppedLine = this.droppedSkillLine(phaseId, label ?? name, dropped);
+    if (droppedLine) this.summary.push(droppedLine);
   }
 
   assignAgent({ phase, agent }) {

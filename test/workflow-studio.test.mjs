@@ -485,3 +485,39 @@ test('a setting for a step the same change set adds to another workflow stays th
   ] });
   assert.deepEqual(refused.problems.map((problem) => problem.code), ['STUDIO_PHASE_UNKNOWN']);
 });
+
+test('changing what a step produces drops a skill of its own that cannot draft the new output', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const publish = async (changes) => {
+    const changeSet = { schema: 'sflow-studio-change-set@1', changes };
+    const plan = await planStudioChangeSet(root, changeSet);
+    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+    await planStudioChangeSet(root, changeSet, { write: true });
+    return plan;
+  };
+  await publish([
+    { op: 'phase.create', id: 'brief-input', label: 'Brief input', agent: 'architect', approval: 'none' },
+    { op: 'phase.create', id: 'brief', label: 'Brief', agent: 'architect', approval: 'none', inputs: ['brief-input'], authoringSkill: 'sf-release' },
+    { op: 'phase.create', id: 'notes', label: 'Notes', agent: 'architect', approval: 'none', inputs: ['brief-input'], authoringSkill: 'sf-design' },
+    ...['brief-one', 'brief-two'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['brief-input', 'brief', 'notes'] }))
+  ]);
+  // Only the outputs change: no workflow has to send an automatic of its own to hide the old skill.
+  const plan = await publish([{ op: 'phase.update', id: 'brief', output: 'analysis' }, { op: 'phase.update', id: 'notes', output: 'analysis' }]);
+  assert.ok(plan.summary.includes('Brief now produces an analysis, which /sf-release cannot draft, so its drafting skill is automatic again.'), plan.summary.join('\n'));
+  assert.ok(!plan.summary.some((line) => line.startsWith('Notes now')), 'a skill that drafts the new output stays');
+  let saved = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(Object.hasOwn(saved.phases.brief, 'authoringSkill'), false);
+  assert.equal(saved.phases.notes.authoringSkill, 'sf-design');
+  assert.equal(saved.workTypes['brief-one'].phaseOverrides, undefined, 'no explicit automatic is left in any workflow');
+  const model = await buildStudioModel(root);
+  assert.equal(model.phases.find((phase) => phase.id === 'brief').authoringSkill, null);
+
+  // A sign-off-only step names no skill at all, and a workflow taking the step up later is valid.
+  const none = await publish([{ op: 'phase.update', id: 'notes', output: 'none' }]);
+  assert.ok(none.summary.includes('Notes now drafts nothing, so it no longer names /sf-design.'), none.summary.join('\n'));
+  await publish([{ op: 'workflow.create', id: 'brief-three', label: 'Brief three', phases: ['brief-input', 'brief', 'notes'] }]);
+  saved = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(Object.hasOwn(saved.phases.notes, 'authoringSkill'), false);
+});

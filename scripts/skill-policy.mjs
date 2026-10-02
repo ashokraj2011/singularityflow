@@ -131,14 +131,17 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   'sflow-approve': {
     required: [
       /sflow-turn-boundary: approval-only/i,
-      /typed phase ID is only a selection answer; it is not approval by itself/i,
-      /approval CLI is the sole permitted mutation/i,
-      /never edit, create, delete, or patch repository files/i,
-      /never run tests, checks, builds, raw `git`/i,
-      /never delegate work/i,
-      /never run submit, `next`, `nextsteps`, `\/sf-next`, phase begin/i,
+      /explicit human phase ID confirms only the unchanged packet already reviewed in this conversation/i,
+      /approval CLI is the sole permitted lifecycle mutation/i,
+      /positional argument selects \*\*PHASE-ID\*\*, never Work ID/i,
+      /Render once per exact review binding/i,
+      /New chat, missing context, changed binding, omitted documents or truncated bodies require a new display/i,
+      /A phase supplied before a new or changed display is not its confirmation/i,
+      /do not ask again/i,
+      /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,
-      /immediately end this turn before the next phase/i
+      /approval CLI advances and activates the next phase when the threshold is met/i,
+      /end this turn before next-phase authoring/i
     ]
   },
   'sflow-converge': {
@@ -256,7 +259,9 @@ function withAutomaticPolicy(text, automatic, description, file) {
 function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind) {
   const skill = splitSkill(text, file);
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT[contract]}`;
+  const contractText = `**Output contract:** ${path.basename(path.dirname(file)) === 'sflow-approve'
+    ? 'Reuse only same-chat, exact-packet review; preserve explicit consent, identity warnings and CLI result.'
+    : CONTRACT_TEXT[contract]}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);

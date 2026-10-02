@@ -22,7 +22,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 6
+version: 7
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -33,7 +33,7 @@ Use this topic when the current goal matches **approvals**. Start in a governed 
 ## Use it from each surface
 
 - **Shell:** `sflow approvals [WORK-ID]` shows the phase-by-phase document and approval chain. `sflow approve`, `sflow reject`, and `sflow inbox` perform or find review work. Run `singularity-flow approvals --help` for the exact read-only form supported by this build.
-- **Copilot:** `/sf-approve`, `/sf-reject`, `/sf-inbox`. `/sf-approve` first resolves the requested Work ID and submitted phase, hash-checks that exact review packet, and reproduces every generated text artifact in the visible Copilot response. Only after the complete artifact display may it ask for the exact phase confirmation. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-approve [PHASE-ID] [--work-id WORK-ID]`, `/sf-reject`, `/sf-inbox`. The positional approval argument is a phase, not a Story ID. Submission displays the complete documents with a `reviewBinding`; approval revalidates that binding and the complete document identities/hashes. When that exact review is already visible in the same chat, typing `/sf-approve <PHASE-ID>` confirms it without another artifact dump or confirmation question. New chat, changed evidence, missing context or incomplete display requires complete review and a fresh exact phase answer. Identity, authority, receipt freshness and single consumption remain enforced.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -42,7 +42,7 @@ Use this topic when the current goal matches **approvals**. Start in a governed 
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
-5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+5. Approval automatically advances and activates the next phase when the configured threshold is met. It may instead wait for other reviewers or a workflow decision. Report the actual result; do not issue another advance command. Next-phase authoring is a separate action. In VS Code, refresh the relevant view if it has not already refreshed.
 
 ## State and safety
 

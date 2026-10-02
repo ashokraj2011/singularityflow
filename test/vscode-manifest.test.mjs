@@ -112,6 +112,17 @@ test('the participant command table is safe, unique, and has an installed skill 
     'raw CLI command strings must not become participant buttons');
   assert.match(participantSource, /result\.records\s*\?\?/,
     'the input preview consumes the CLI records contract');
+  const approve = participantCommands.find((entry) => entry.id === 'approve');
+  assert.deepEqual(approve.runtime, ['phase', 'show', '$PHASE', '--json']);
+  assert.equal(approve.confirmation, 'separate-guarded-flow');
+  const approvalRenderer = participantSource.slice(participantSource.indexOf('function renderApprovalReview('),
+    participantSource.indexOf('function renderInputs('));
+  assert.match(approvalRenderer, /commandGuidance\(\{ argv: \['approve', result\.phase/,
+    'the approval handoff uses the shared validator with exact CLI-returned selectors');
+  assert.match(approvalRenderer, /\['--work-id', result\.workId\]/);
+  assert.match(approvalRenderer, /copilot: guidance\?\.copilotCommand/);
+  assert.doesNotMatch(approvalRenderer, /client\.run|runText|executeCommand/,
+    'rendering the pinned approval handoff never performs the decision');
 });
 
 test('the activity view opens as one compact enterprise navigation surface', () => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,8 +7,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
+  approvalReviewBinding,
   beginCustomSelectionReceipt,
   consumeSelectionReceipt,
+  resolveSelectionReceipt,
   selectionReceiptStatus
 } from '../src/choices.mjs';
 
@@ -59,6 +61,8 @@ async function repository() {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
+  // These fixtures exercise selection receipts, not pre-Story test-readiness admission.
+  config.repositoryReadiness.requiredBeforeStory = false;
   // This fixture intentionally exercises the self-approval warning. The shipped normal profile is
   // team-safe; make the test's POC authority explicit instead of weakening production defaults.
   config.approvalSecurity = { profile: 'poc' };
@@ -163,6 +167,7 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   flow(root, ['phase', 'publish', 'intake']);
   flow(root, ['submit']);
 
+  const displayed = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
   const begun = JSON.parse(flow(root, ['choices', 'begin', 'approve', workId, '--fetch', '--json']).stdout);
   assert.equal(begun.action, 'approve');
   assert.equal(begun.approvalContext.phase, 'intake');
@@ -170,6 +175,17 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   assert.match(begun.approvalContext.planId, /^[0-9a-f]{24}$/);
   assert.ok(begun.approvalContext.artifacts[0].sha256);
   assert.deepEqual(begun.choiceSets.map((item) => item.id), ['phase-confirmation']);
+  assert.deepEqual(displayed.reviewBinding, {
+    repositoryPath: await realpath(root),
+    repositoryHead: begun.repositoryHead,
+    workId,
+    phase: begun.approvalContext.phase,
+    generation: begun.approvalContext.generation,
+    reviewPacketSha256: begun.approvalContext.reviewPacketSha256,
+    submittedSourceCommit: begun.approvalContext.submittedSourceCommit
+  }, 'the displayed submission and the fresh receipt bind the exact same review');
+  assert.ok(displayed.reviewBinding.reviewPacketSha256);
+  assert.ok(displayed.reviewBinding.submittedSourceCommit);
 
   const wrongConfirmation = flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'requirements'], { allowFailure: true });
   assert.equal(wrongConfirmation.status, 1);
@@ -179,11 +195,17 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   assert.match(incomplete.stderr, /incomplete: Exact phase confirmation/);
   const ready = JSON.parse(flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']).stdout);
   assert.equal(ready.ready, true);
+  const wrongPhase = flow(root, [
+    'approve', 'requirements', '--work-id', workId, '--selection-receipt', begun.token
+  ], { allowFailure: true });
+  assert.notEqual(wrongPhase.status, 0);
+  assert.match(wrongPhase.stderr, /out of sequence|current phase|not active/i);
+  assert.equal(JSON.parse(flow(root, ['choices', 'status', begun.token, '--json']).stdout).ready, true);
   const bypass = flow(root, ['approve', workId, '--yes', '--selection-receipt', begun.token], { allowFailure: true });
   assert.equal(bypass.status, 1);
   assert.match(bypass.stderr, /Do not combine --selection-receipt with --yes/);
 
-  const approved = flow(root, ['approve', workId, '--fetch', '--selection-receipt', begun.token]);
+  const approved = flow(root, ['approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token]);
   assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
   assert.match(approved.stderr, /self-approved; this is not independent review/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -195,6 +217,51 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
     begun.approvalContext.artifacts
   );
   assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1);
+  const approvedHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const repeated = flow(root, [
+    'approve', 'intake', '--work-id', workId, '--selection-receipt', begun.token
+  ], { allowFailure: true });
+  assert.notEqual(repeated.status, 0);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), approvedHead,
+    'a consumed approval cannot create a second decision commit');
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.approvals.length, 1);
+});
+
+test('approval receipts reject changed generation, packet, artifacts, and repository HEAD', async () => {
+  const root = await repository();
+  const workId = 'CHOICE-APPROVE-CONTEXT-DRIFT';
+  const workflowFile = await submitIntakeForApproval(root, workId);
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const definition = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
+  const begun = JSON.parse(flow(root, ['choices', 'begin', 'approve', workId, '--fetch', '--json']).stdout);
+  flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']);
+  const resolve = (current) => resolveSelectionReceipt(root, definition, begun.token, {
+    action: 'approve', workId, workflow: current
+  });
+  assert.equal((await resolve(workflow)).answers['phase-confirmation'], 'intake');
+  for (const [change, mutate] of [
+    ['generation', (current) => { current.phases.intake.generation += 1; }],
+    ['packet', (current) => { current.lineage.submissions.at(-1).packetSha256 = `sha256:${'a'.repeat(64)}`; }],
+    ['artifact', (current) => { current.phases.intake.artifacts[0].sha256 = 'b'.repeat(64); }]
+  ]) {
+    const current = structuredClone(workflow);
+    mutate(current);
+    await assert.rejects(() => resolve(current), /stale because the action context changed/,
+      `${change} drift must require a fresh review`);
+    await assert.rejects(() => approvalReviewBinding(root, definition, current),
+      /submitted review packet|immutable Git commit/,
+      `${change} drift cannot be displayed as a verified review binding`);
+  }
+  const submittedHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  run('git', ['commit', '--allow-empty', '-m', 'test review-time HEAD drift'], root);
+  await assert.rejects(() => resolve(workflow), /stale because the repository HEAD changed/);
+  assert.notEqual(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), submittedHead);
+  const preserved = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(preserved.currentPhase, 'intake');
+  assert.equal(preserved.phases.intake.status, 'awaiting_approval');
+  assert.deepEqual(preserved.phases.intake.approvals, []);
+  assert.equal(JSON.parse(flow(root, ['choices', 'status', begun.token, '--json']).stdout).ready, true,
+    'a refusal does not consume an unrecorded decision');
 });
 
 test('approval cannot absorb application source committed after submission', async () => {

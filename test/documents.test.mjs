@@ -158,6 +158,9 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.ok(full.stdout.length > review.stdout.length * 2, 'the full body should dominate the summary');
   const reviewJson = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
   assert.equal(reviewJson.documents.length, 1); assert.equal(reviewJson.documents[0].id, 'PHASE-INTAKE'); assert.match(reviewJson.documents[0].content, /Complete intake evidence/);
+  assert.equal(reviewJson.reviewBinding, null, 'a published draft is not submitted approval evidence');
+  assert.equal(reviewJson.documents[0].truncated, false);
+  assert.equal(reviewJson.documents[0].previewBytes, reviewJson.documents[0].size);
   const submission = flow(root, ['submit']);
   assert.match(submission.stdout, /Submitted intake phase for approval/);
   assert.match(submission.stdout, /Generated documents ready for review/);
@@ -177,9 +180,29 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.ok(approval.stdout.indexOf('Generated documents ready for review') < approval.stdout.indexOf('Reviewing DOCS-1 / intake'),
     'the reviewer sees what they are approving before being asked to approve it');
   assert.ok(submissionFull, 'submit accepts --show-artifact');
+  const approvedReview = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
+  assert.equal(approvedReview.reviewBinding, null, 'an approved historical phase cannot authorize another decision');
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 14); assert.equal(progress.approvedPhases, 1); assert.equal(progress.currentPhase, 'requirements');
   const late = flow(root, ['documents', 'upload', notes, '--name', 'Late notes'], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DOCS-1\]\[documents\]\[upload\]/);
+});
+
+test('phase review exposes partial text without changing the document size or preview policy', async () => {
+  const root = await repository((config) => { config.documents.maxPreviewBytes = 96; });
+  flow(root, ['start', 'DOCS-TRUNCATED', '--from-branch', 'main', '--title', 'Bounded document review']);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/DOCS-TRUNCATED/workflow.json'), 'utf8'));
+  const artifact = path.join(root, 'singularity/work-items/DOCS-TRUNCATED', workflow.phases.intake.requiredArtifact.path);
+  await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g,
+    'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
+  flow(root, ['phase', 'publish', 'intake']);
+  const review = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
+  const document = review.documents.find((entry) => entry.id === 'PHASE-INTAKE');
+  assert.equal(review.reviewBinding, null);
+  assert.equal(document.truncated, true);
+  assert.equal(document.previewBytes, 96);
+  assert.ok(document.size > document.previewBytes, 'size remains the complete artifact size');
+  assert.match(document.content, /preview truncated/);
+  assert.equal(Buffer.byteLength(document.content.split('\n… preview truncated')[0]), 96);
 });
 
 test('inline previews reject tampering and document paths outside the governed work item', async () => {

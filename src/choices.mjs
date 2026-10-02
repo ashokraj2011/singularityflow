@@ -92,6 +92,38 @@ async function assertApprovalBriefsReviewable(root, definition, workflow) {
   }
 }
 
+/** Identify a submitted review without issuing a selection receipt or authorizing a decision. */
+export async function approvalReviewBinding(root, definition, workflow) {
+  const context = approvalContext(workflow);
+  await assertApprovalBriefsReviewable(root, definition, workflow);
+  if (!context.reviewPacketSha256) {
+    throw new SingularityFlowError('The current phase has no immutable submitted review packet.', {
+      code: 'STORY_REVIEW_EVIDENCE_REQUIRED'
+    });
+  }
+  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+  const packet = await readStoryReviewPacket(root, definition, workflow, context.reviewPacketSha256);
+  const artifacts = (entries) => entries.map(({ path, sha256 }) => ({ path, sha256 }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (packet.workId !== workflow.workItem.id || packet.phase !== context.phase
+      || Number(packet.generation) !== Number(context.generation)
+      || packet.sourceCommit !== context.submittedSourceCommit
+      || recordSha256(artifacts(packet.artifacts ?? [])) !== recordSha256(artifacts(context.artifacts))) {
+    throw new SingularityFlowError('The current approval context does not match its immutable submitted review packet.', {
+      code: 'STORY_REVIEW_EVIDENCE_INVALID'
+    });
+  }
+  return {
+    repositoryPath: path.resolve(root),
+    repositoryHead: head(root),
+    workId: workflow.workItem.id,
+    phase: context.phase,
+    generation: context.generation,
+    reviewPacketSha256: context.reviewPacketSha256,
+    submittedSourceCommit: context.submittedSourceCommit
+  };
+}
+
 function bindActionContext(action, workId, repositoryHead, context) {
   if (!context || action !== 'approve') return context;
   const { planId: ignored, ...review } = context;

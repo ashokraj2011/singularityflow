@@ -1845,11 +1845,13 @@ that bridge is unavailable during start or approval, it records the exact `ask_u
 in a 15-minute one-time receipt under the Git directory and passes only its token
 to the lifecycle command. Approval receipts additionally pin the submitted phase,
 generation, and artifact hashes and require the reviewer to type the exact phase
-ID. The receipt is bound to the work ID, repository HEAD, and Copilot session when
+ID. An explicit `/sf-approve <PHASE-ID>` after the same complete review supplies
+that confirmation; the skill does not ask for it again. The receipt is bound to the work ID, repository HEAD, and Copilot session when
 available, and is consumed once. Concurrent answer processes are serialized by
 a short-lived local lock; schema, filename token, repository HEAD, and expiry
 timestamps are revalidated on every read. The skill never invents a default or
-uses hidden workflow-selection flags. If `ask_user` is disabled, it stops.
+uses hidden workflow-selection flags. Without `ask_user`, approval may collect
+an exact post-review phase answer in chat; it never invents the answer.
 
 Switch the active governed agent at any time without changing committed workflow state:
 
@@ -2056,8 +2058,13 @@ Use `/sf-approve` and `/sf-reject` in Copilot. These commands are explicitly use
 Submission automatically displays every generated current-phase document before
 recommending approval. It includes the stable document ID, repository path, kind,
 byte count, SHA-256, and Markdown/text content. Binary and image artifacts are
-shown as absolute paths with metadata. Approval displays the same documents again
-before the exact phase-name confirmation. Review them at any time with:
+shown as absolute paths with metadata. Approval revalidates the returned
+`reviewBinding` and document identities/hashes, reusing the complete display in
+the same conversation. `/sf-approve <PHASE-ID> [--work-id WORK-ID]` then records
+the exact human confirmation without repeating unchanged bodies. A new chat,
+changed binding or incomplete display needs fresh review and confirmation.
+The CLI advances when its approval threshold is met; next-phase authoring is
+separate. Review documents at any time with:
 
 ```bash
 singularity-flow phase show requirements

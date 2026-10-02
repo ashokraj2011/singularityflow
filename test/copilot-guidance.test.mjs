@@ -66,6 +66,50 @@ test('exact relay skills retain their command families, subcommands, and argumen
   );
 });
 
+test('approval guidance preserves exact phase and Story selectors without execution authority', () => {
+  for (const command of [
+    'singularity-flow approve poc-review-v2 --work-id CUSTOM-STORY-17 --fetch',
+    'sflow approve poc-review-v2 --work-id=CUSTOM-STORY-17 --yes --json',
+    'singularity-flow approve "poc-review-v2" --selection-receipt private-receipt --work-id CUSTOM-STORY-17',
+    'singularity-flow approve poc-review-v2 --work-id CUSTOM-STORY-17 --candidate-snapshot sha256:abc --confirm-override continue'
+  ]) {
+    assert.equal(copilotCommandForCommand(command),
+      '/sf-approve poc-review-v2 --work-id CUSTOM-STORY-17', command);
+  }
+  assert.equal(copilotCommandForCommand('singularity-flow approve review.v2_alpha'),
+    '/sf-approve review.v2_alpha');
+  assert.equal(copilotCommandForCommand('singularity-flow approve --work-id STORY-17 --fetch'),
+    '/sf-approve --work-id STORY-17');
+  assert.equal(copilotCommandForCommand('singularity-flow approve review --work-id STORY-17',
+    '/sf-approve other --work-id WRONG-1 --yes --selection-receipt private-receipt'),
+  '/sf-approve review --work-id STORY-17', 'explicit display routes cannot inject approval authority');
+  const action = copilotAction({
+    skill: '/sflow-approve', command: 'singularity-flow approve poc-review-v2 --work-id STORY-17 --fetch'
+  });
+  assert.equal(action.skill, '/sf-approve');
+  assert.equal(action.copilotCommand, '/sf-approve poc-review-v2 --work-id STORY-17');
+});
+
+test('approval guidance does not invent selectors from ambiguous or malformed command forms', () => {
+  for (const command of [
+    'singularity-flow approve',
+    'singularity-flow approve STORY-17 --phase review',
+    'singularity-flow approve STORY-17 --phase=review',
+    'singularity-flow approve <phase> --work-id STORY-17',
+    'singularity-flow approve review --work-id <WORK-ID>',
+    'singularity-flow approve review --work-id',
+    'singularity-flow approve review --work-id --yes',
+    'singularity-flow approve review --work-id ONE-1 --work-id TWO-2',
+    'singularity-flow approve review extra-phase',
+    'singularity-flow approve review;touch --work-id STORY-17',
+    'singularity-flow approve review --work-id $(token)',
+    `singularity-flow approve ${'a'.repeat(129)} --work-id STORY-17`,
+    `singularity-flow approve review --work-id ${'A'.repeat(65)}`
+  ]) assert.equal(copilotCommandForCommand(command), '/sf-approve', command);
+  assert.equal(copilotCommandForCommand('singularity-flow approve review\n--work-id STORY-17', '/sf-approve'),
+    '/sf-approve', 'control characters never become approval selectors');
+});
+
 test('Jira subcommands select their exact specialized Copilot skill', () => {
   const cases = {
     status: '/sf-jira-status',

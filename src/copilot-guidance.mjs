@@ -22,18 +22,54 @@ export function copilotSkillForCommand(command, fallback = '/sf-next') {
   return directCopilotSkill(skillForCommandLine(command)) ?? fallback;
 }
 
+function approvalSelectors(command) {
+  const match = command.match(/^(?:singularity-flow|sflow)\s+approve(?:\s+(.+))?$/u);
+  if (!match || /[\u0000-\u001f\u007f]/u.test(command)) return '';
+  const tokens = (match[1] ?? '').split(/\s+/u).filter(Boolean);
+  const literal = (value, maximum) => {
+    const unquoted = String(value ?? '').replace(/^(['"])([A-Za-z0-9._-]+)\1$/u, '$2');
+    return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(unquoted) && unquoted.length <= maximum
+      ? unquoted : null;
+  };
+  let phase = null;
+  let workId = null;
+  if (tokens[0] && !tokens[0].startsWith('--')) {
+    phase = literal(tokens.shift(), 128);
+    if (!phase) return '';
+  }
+  for (let index = 0; index < tokens.length; index += 1) {
+    const [option, ...assigned] = tokens[index].split('=');
+    // The former approve WORK-ID --phase PHASE grammar must never reinterpret a Work ID as a phase.
+    if (option === '--phase' || !/^--[a-z][a-z0-9-]*$/u.test(option)) return '';
+    if (option === '--work-id') {
+      if (workId !== null) return '';
+      workId = literal(assigned.length ? assigned.join('=') : tokens[++index], 64);
+      if (!workId) return '';
+    } else if (!assigned.length && !['--fetch', '--yes', '--json'].includes(option)
+        && tokens[index + 1] && !tokens[index + 1].startsWith('--')) {
+      index += 1;
+    }
+  }
+  return [phase, workId ? `--work-id ${workId}` : null].filter(Boolean).join(' ');
+}
+
 /**
  * Return the complete Copilot invocation for one shell command.
  *
  * Most guided skills intentionally discover their remaining inputs from governed state, so their
- * direct id is the complete invocation. The SGOS relay is different: its contract requires the
- * exact CLI family and subcommand, and therefore receives the complete argument tail.
+ * direct id is the complete invocation. Approval retains only literal phase and Story selectors;
+ * execution flags and private receipts are never transferred into its human review invocation.
+ * Exact relay skills receive the command arguments required by their individual contracts.
  */
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
   const explicit = directCopilotSkill(skill);
-  if (explicit && /\s/u.test(explicit)) return explicit;
-  const selected = explicit ?? copilotSkillForCommand(command, fallback);
+  if (explicit && /\s/u.test(explicit) && directCopilotSkillId(explicit) !== '/sf-approve') return explicit;
+  const selected = directCopilotSkillId(explicit) ?? explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
+  if (selected === '/sf-approve') {
+    const selectors = approvalSelectors(value);
+    return selectors ? `${selected} ${selectors}` : selected;
+  }
   if (selected === '/sf-sgos') {
     const match = value.match(/^(?:singularity-flow|sflow)\s+(.+)$/u);
     return match ? `${selected} ${match[1]}` : selected;

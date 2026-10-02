@@ -31,6 +31,25 @@ test('placeholder routes remain visible but cannot be copied as executable comma
   assert.doesNotMatch(html, /Copy Shell|Copy Copilot/);
 });
 
+test('approval presentation pins the phase and Story in the validated Copilot handoff', () => {
+  const command = 'singularity-flow approve poc-review-v2 --work-id STORY-17 --fetch';
+  const expected = '/sf-approve poc-review-v2 --work-id STORY-17';
+  const guidance = safeCommandPair({
+    argv: ['approve', 'poc-review-v2', '--work-id', 'STORY-17']
+  });
+  assert.equal(guidance?.copilotCommand, expected);
+  assert.equal(commandGuidanceText(command), `Shell: ${command}\nCopilot: ${expected}`);
+  assert.match(commandGuidanceHtml({ command, copilotCommand: expected }), /\/sf-approve poc-review-v2 --work-id STORY-17/);
+  assert.equal(safeCommandPair({ command, copilotCommand: '/sf-approve' }), null,
+    'an asserted route cannot discard the reviewed phase or Story');
+  assert.equal(safeCommandPair({
+    command, copilotCommand: '/sf-approve poc-review-v2 --work-id WRONG-1'
+  }), null);
+  assert.equal(safeCommandPair({
+    argv: ['approve', 'poc-review-v2; touch /tmp/pwned', '--work-id', 'STORY-17']
+  })?.copilotCommand, '/sf-approve', 'unsafe selectors cannot enter a Copilot invocation');
+});
+
 test('legacy bare placeholder routes remain visible but cannot be copied', () => {
   const guidance = safeCommandPair('singularity-flow impact start plan-1 --work-id WORK-ID --work-type TYPE --confirm plan-1');
   assert.ok(guidance);

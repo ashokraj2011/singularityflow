@@ -250,9 +250,9 @@ export function validateSafeSflowCommand(value, { shell = 'posix' } = {}) {
 /**
  * Return a canonical shell/Copilot pair, or null when any supplied route contradicts it.
  *
- * Only `/sf-sgos` and `/sf-auto` deliberately preserve CLI arguments.  That behavior lives in
- * `copilotCommandForCommand`; every other route is the bare, packaged journey selected by the
- * command crosswalk.
+ * Argument preservation is owned by `copilotCommandForCommand`: exact relays keep their required
+ * arguments, while approval retains only literal phase and Story selectors. Other routes use the
+ * bare, packaged journey selected by the command crosswalk.
  */
 export function safeCommandGuidance(value) {
   const input = typeof value === 'string' ? { command: value } : (value ?? {});

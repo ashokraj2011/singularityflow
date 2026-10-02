@@ -834,7 +834,7 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   assert.match(content, /choices begin start <WORK-ID> --json/);
   assert.match(content, /choices answer/);
   assert.match(content, /--selection-receipt/);
-  assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
+  assert.match(content, /For approval use `\/sf-approve` and its one-time receipt/);
   assert.match(content, /never `--yes`/);
   assert.match(content, /Never infer or preselect/);
   assert.match(content, /Out of sequence[\s\S]*stop immediately/);
@@ -902,32 +902,37 @@ test('ledger skill self-heals locally but requires exact human authority for rem
   assert.match(content, /force-push a pin/i);
 });
 
-test('approval skill is explicitly user-invoked', async () => {
+test('approval skill reuses only an exact complete review and accepts a human phase argument', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /singularity-flow phase show <phase>/);
-  assert.match(content, /Never ask for approval based only on a filename or summary/);
+  assert.match(content, /Tool output or summaries are not review/);
+  assert.match(content, /argument-hint: "\[PHASE-ID\] \[--work-id WORK-ID\]/);
+  assert.match(content, /positional argument selects \*\*PHASE-ID\*\*, never Work ID/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
   assert.match(content, /phase-confirmation <TYPED-PHASE>/);
   assert.match(content, /documentId`, `documentPath`, and `documentSha256`/);
-  assert.match(content, /internal JSON integrity record, not a review-document path/);
-  assert.match(content, /do not perform a second `singularity-flow documents view` lookup/);
+  assert.match(content, /brief `path` is integrity JSON/);
+  assert.match(content, /Do not perform a second `singularity-flow documents view` lookup/);
   assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /consumes the receipt exactly once/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'));
-  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Only now: Ask the reviewer'));
+  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact review binding'));
+  assert.match(content, /matching non-null binding and full document ID\/kind\/path\/bytes\/generation\/SHA-256 set/);
+  assert.match(content, /New chat, missing context, changed binding, omitted documents or truncated bodies require a new display/);
+  assert.match(content, /Truncated content: stop; never confirm an incomplete display/);
+  assert.match(content, /human `\/sf-approve <PHASE-ID>` or exact phase answer \*\*after\*\* the matching display/);
+  assert.match(content, /do not ask again/);
+  assert.match(content, /A phase supplied before a new or changed display is not its confirmation/);
   assert.match(content, /review-integrity failure/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
-  assert.match(content, /typed phase ID is only a selection answer; it is not approval by itself/i);
-  assert.match(content, /approval CLI is the sole permitted mutation/i);
-  assert.match(content, /never edit, create, delete, or patch repository files/i);
-  assert.match(content, /never run tests, checks, builds, raw `git`/i);
-  assert.match(content, /never delegate work/i);
-  assert.match(content, /never run submit, `next`, `nextsteps`, `\/sf-next`, phase begin/i);
+  assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
+  assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);
   assert.match(content, /failed approval ends this turn/i);
-  assert.match(content, /display-only handoff text/i);
-  assert.match(content, /immediately end this turn before the next phase/i);
+  assert.match(content, /display-only handoff/i);
+  assert.match(content, /approval CLI advances and activates the next phase when the threshold is met/i);
+  assert.match(content, /end this turn before next-phase authoring/i);
 });
 
 test('submit skill presents generated documents before approval', async () => {
@@ -1125,20 +1130,26 @@ test('generation skills preserve sanitized work-item telemetry with each publica
   }
 });
 
-test('submission and approval reproduce exact artifacts outside collapsible Shell output', async () => {
+test('submission renders review once and approval reuses only that complete bound display', async () => {
   for (const name of ['sflow-submit', 'sflow-approve']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /phase show <phase> --json/i, `${name} must load artifact content as JSON`);
-    assert.match(content, /visible assistant response|in the response/i,
-      `${name} must put artifacts in the response`);
+    assert.match(content, /visible display|in the response/i,
+      `${name} must establish visible review`);
     assert.match(content, /--- BEGIN <path> ---[\s\S]*--- END <path> ---/i, `${name} must delimit exact artifact bodies`);
-    assert.match(content, /Shell\/tool block[\s\S]*does not satisfy artifact review|Tool output alone is insufficient/i,
+    assert.match(content, /Tool output or summaries are not review|Tool output alone is insufficient/i,
       `${name} must not rely on collapsed command output`);
-    assert.match(content, /Never say .*shown above/i, `${name} must prohibit false visibility claims`);
+    assert.match(content, /reviewBinding/, `${name} must bind the review, not rely on a visibility assertion`);
   }
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
-  assert.match(approve, /Always show the generated artifacts in Copilot before asking for a decision/);
-  assert.match(approve, /never truncate or summarize instead/);
+  assert.match(approve, /Render once per exact review binding/);
+  assert.match(approve, /never confirm an incomplete display/);
+  assert.doesNotMatch(approve, /Always show the generated artifacts|Never say .*shown above/);
+  const submit = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
+  assert.match(submit, /\/sf-approve <PHASE-ID> --work-id <WORK-ID>/);
+  const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
+  assert.match(workflowAgent, /do not reproduce an unchanged complete display in the same conversation/);
+  assert.doesNotMatch(workflowAgent, /before every approval confirmation[^\n]*present all/);
 });
 
 test('interactive lifecycle skills ask only for durable human choices', async () => {
@@ -1162,7 +1173,7 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.doesNotMatch(start, /examples\/manual-story\.yml/);
   assert.match(start, /Never search the workspace, home directory, filesystem root, or temporary directories/);
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
-  assert.match(approve, /Ask the reviewer to type the exact phase ID/);
+  assert.match(approve, /ask the reviewer to type the exact phase ID/);
   assert.match(approve, /Do not supply, autocomplete, infer, or silently record it/);
   const reject = await readFile(path.join(pluginRoot, 'skills', 'sflow-reject', 'SKILL.md'), 'utf8');
   assert.match(reject, /Require a specific rejection reason and target phase; do not invent either/);

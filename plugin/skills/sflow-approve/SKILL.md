@@ -1,29 +1,25 @@
 ---
 name: sflow-approve
-description: Review and approve a submitted phase as the current Git identity, recording its human authority group, phase-default agent, self-approval warning, hashes, commit, and push.
+description: Review a submitted phase once, accept an explicit phase confirmation, and let the CLI record approval and advance the workflow.
 disable-model-invocation: true
-argument-hint: "[WORK-ID] [--fetch]"
+argument-hint: "[PHASE-ID] [--work-id WORK-ID] [--fetch]"
 
 ---
 # Approve the submitted phase
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Reuse only same-chat, exact-packet review; preserve explicit consent, identity warnings and CLI result.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 <!-- sflow-turn-boundary: approval-only -->
-**Turn boundary — approval-only:** The typed phase ID is only a selection answer; it is not approval by itself. The approval CLI is the sole permitted mutation. Never edit, create, delete, or patch repository files; never run tests, checks, builds, raw `git`, or separate commit/push; never delegate work; and never run submit, `next`, `nextsteps`, `/sf-next`, phase begin, generation, or next-phase work. Any refusal or mismatch ends this turn. A failed approval ends this turn.
+**Approval-only:** An explicit human phase ID confirms only the unchanged packet already reviewed in this conversation. The approval CLI is the sole permitted lifecycle mutation. Never edit repository files, run tests/builds/raw Git, delegate, submit, or begin/author another phase. A failed approval ends this turn.
 
-Git identity must match approval authority.
-
-1. First run `singularity-flow choices begin approve <WORK-ID> --fetch --json`; use phase/generation/hashes/review packet/token.
-2. Run `singularity-flow phase show <phase> --json`. Match Work ID, phase, generation, ordinary artifacts, and every brief's `documentId`, `documentPath`, and `documentSha256` to `approvalContext`. A brief's legacy `path` is its internal JSON integrity record, not a review-document path. Use this response; do not perform a second `singularity-flow documents view` lookup. Only `fallback-whole` may lack a brief document. Any mismatch is a review-integrity failure.
-3. **Always show the generated artifacts in Copilot before asking for a decision.** In a visible assistant response, reproduce every returned generated current-phase text document in full, including `agent-brief`, between `--- BEGIN <path> ---` and `--- END <path> ---`, with ID, kind, bytes, generation, and full SHA-256. A Shell/tool block does not satisfy artifact review. If response bounds require several messages, continue until every document is visible; never truncate or summarize instead. Never say “shown above.” Never ask for approval based only on a filename or summary.
-4. Show identity/authority, agent, checks, usage, decisions, generator, packet hash, and self-approval warning. Unauthorized identity stops.
-5. Only now: Ask the reviewer to type the exact phase ID from `approvalContext.phase`. Do not supply, autocomplete, infer, or silently record it. Run `singularity-flow choices answer <TOKEN> phase-confirmation <TYPED-PHASE> --json`, then `singularity-flow approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>` only when `ready: true`. Never add `--yes`; the CLI revalidates and consumes the receipt exactly once.
-6. On sequence refusal, show artifacts/refusal; human owns `continue`; stop.
-7. No governed commit/publication proof: unverified approval; stop.
-8. Report commit/push, reviewer, authority, agent, assurance, self-approval, threshold, and next phase. Reproduce `Context boundary` and `Next Copilot actions` as display-only handoff text; immediately end this turn before the next phase.
+1. A positional argument selects **PHASE-ID**, never Work ID; Story comes from session or `--work-id`. Run `singularity-flow choices begin approve <WORK-ID> --fetch --json`. Supplied phase must equal `approvalContext.phase`; mismatch stops.
+2. Run `singularity-flow phase show <phase> --json`. Match `reviewBinding` to receipt: repository path/HEAD, Work ID, phase/generation, source commit, packet hash. Match artifacts and brief `documentId`, `documentPath`, and `documentSha256` to `approvalContext`; brief `path` is integrity JSON. Only `fallback-whole` may lack a brief. Missing binding/mismatch: review-integrity failure; stop. Do not perform a second `singularity-flow documents view` lookup.
+3. **Render once per exact review binding.** Reuse a complete visible display in this conversation only with matching non-null binding and full document ID/kind/path/bytes/generation/SHA-256 set. New chat, missing context, changed binding, omitted documents or truncated bodies require a new display. Render all text/briefs between `--- BEGIN <path> ---` and `--- END <path> ---` with metadata/binding, across messages if needed. Binary: path/metadata/open instruction. Tool output or summaries are not review. Truncated content: stop; never confirm an incomplete display.
+4. Show current identity/authority, agent, checks/usage, decisions and self-approval warnings; unauthorized identity stops.
+5. A human `/sf-approve <PHASE-ID>` or exact phase answer **after** the matching display is `<TYPED-PHASE>`: do not ask again. Otherwise ask the reviewer to type the exact phase ID and wait. A phase supplied before a new or changed display is not its confirmation. Never infer consent. Run `singularity-flow choices answer <TOKEN> phase-confirmation <TYPED-PHASE> --json`, then `singularity-flow approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>` only when `ready: true`. Never add `--yes`; CLI revalidates and consumes the receipt exactly once.
+6. Refusal: relay and stop; human owns `continue`. No commit/publication proof: unverified. Report commit/push, reviewer/authority, assurance, threshold and next phase. The approval CLI advances and activates the next phase when the threshold is met; no second advance. Relay `Context boundary` and `Next Copilot actions` as display-only handoff; end this turn before next-phase authoring.
 
 TRP: read and follow `singularity-flow explain test-recovery`; returned legal actions only.

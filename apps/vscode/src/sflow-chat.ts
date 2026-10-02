@@ -1032,7 +1032,11 @@ function renderApprovalReview(value: unknown): ParticipantRendered {
     markdown += `- Artifact: ${markdownValue(document.label ?? document.id ?? 'document')} · \`${markdownValue(digest)}\`\n`;
   }
   markdown += '\nApproval was **not** recorded. Open the guarded Approvals form to review the exact checklist and receipt-bound decision.\n';
-  return { markdown, copilot: '/sf-approve', openApproval: true };
+  const guidance = typeof result.phase === 'string'
+    ? commandGuidance({ argv: ['approve', result.phase,
+        ...(typeof result.workId === 'string' ? ['--work-id', result.workId] : [])] })
+    : null;
+  return { markdown, copilot: guidance?.copilotCommand ?? '/sf-approve', openApproval: true };
 }
 
 function renderInputs(value: unknown, phaseId: string): ParticipantRendered {

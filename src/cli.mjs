@@ -184,7 +184,7 @@ import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
-import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
+import { answerSelectionReceipt, approvalReviewBinding, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
 import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
@@ -6476,6 +6476,8 @@ async function phaseReview(root, config, workflow, phase) {
         sha256: record.sha256,
         generation: record.generation ?? phase.generation,
         binary: viewed.binary,
+        previewBytes: viewed.previewBytes,
+        truncated: viewed.truncated,
         absolutePath: viewed.absolutePath ?? pathForDisplay(root, record.path),
         ...(source ? {
           display: {
@@ -6528,6 +6530,12 @@ async function phaseReview(root, config, workflow, phase) {
   const welReadiness = unavailableWelEnforcementReadiness({
     enrollment: workflow.resolution?.wel ?? null
   });
+  // Only an available, current submitted review can be bound by a human approval surface.
+  // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
+  const reviewBinding = phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
+    && documents.every((document) => !document.error)
+    ? await approvalReviewBinding(root, config, workflow)
+    : null;
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,
@@ -6535,6 +6543,7 @@ async function phaseReview(root, config, workflow, phase) {
     phaseLabel: phase.label,
     status: phase.status,
     generation: phase.generation,
+    reviewBinding,
     testEvidence: phase.deliveryEvidence ? {
       status: phase.deliveryEvidence.status ?? 'unavailable',
       executions: phase.deliveryEvidence.testExecutions?.length ?? 0,

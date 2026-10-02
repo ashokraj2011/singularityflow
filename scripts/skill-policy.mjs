@@ -332,6 +332,29 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   return `---\n${skill.frontmatterSource}\n---\n${body}`;
 }
 
+/**
+ * What a selectable authoring skill must say. A skill tied to built-in steps re-reads the step's
+ * verified route before working, names no built-in step id in its commands, and ends with the
+ * engine's handoff; `/sf-phase` relays any step routed elsewhere. `/sf-code` is the only code
+ * skill, so it is never routed past and needs neither.
+ */
+export function authoringSkillContractErrors(entry, body) {
+  if (!entry) return [];
+  const errors = [];
+  if (entry.legacyPhases.length) {
+    for (const required of ['singularity-flow phase show <phase> --json', '`policyVerified`', `\`authoringSkill\` is \`${entry.id}\``, '`effectiveAuthoringSkill`', '`handoff`']) {
+      if (!body.includes(required)) errors.push(`selectable authoring skill must include '${required}'`);
+    }
+    const literal = new RegExp(`(?:prepare|phase (?:draft-check|prepublish|show|publish)|wm compose --phase|clarification (?:status|record)|--phase) (?:${entry.legacyPhases.join('|')})\\b`);
+    if (literal.test(body)) errors.push(`selectable authoring skill must use <phase>, not a built-in step id, in its commands`);
+  } else if (entry.id === 'sf-phase') {
+    for (const required of ['`effectiveAuthoringSkill`', '`handoff`']) {
+      if (!body.includes(required)) errors.push(`the automatic authoring skill must include '${required}'`);
+    }
+  }
+  return errors;
+}
+
 export async function loadSkillPolicy(repositoryRoot) {
   const file = path.join(repositoryRoot, 'plugin', 'skills', 'registry.yml');
   const policy = YAML.parse(await readFile(file, 'utf8'));
@@ -365,8 +388,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
   for (const stale of registered.filter((name) => !directories.includes(name))) errors.push(`${stale}: registry entry has no skill directory`);
   for (const name of automatic) if (!registered.includes(name)) errors.push(`${name}: automatic allowlist entry is not registered`);
   // Every skill a step may name as its drafter must be a packaged, registered skill.
+  let authoringSkills = [];
   try {
-    parseAuthoringSkills(AUTHORING_SKILL_DECLARATION, { registeredSkills: new Set(registered) });
+    authoringSkills = parseAuthoringSkills(AUTHORING_SKILL_DECLARATION, { registeredSkills: new Set(registered) });
   } catch (error) {
     errors.push(`src/authoring-skills.mjs: ${error.message}`);
   }
@@ -433,6 +457,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       errors.push(`${name}: never-model skill names model-capable operation(s): ${modelOperations.join(', ')}`);
     }
     if (kernelModelPolicy === 'conditional' && !modelOperations.length) errors.push(`${name}: conditional model policy has no model-capable operation reference`);
+    for (const message of authoringSkillContractErrors(authoringSkills.find((entry) => entry.sourceId === name), skill.body)) errors.push(`${name}: ${message}`);
     const semanticContract = SKILL_SEMANTIC_CONTRACTS[name];
     for (const pattern of semanticContract?.required ?? []) {
       pattern.lastIndex = 0;

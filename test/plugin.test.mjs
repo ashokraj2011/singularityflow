@@ -481,9 +481,9 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   const storyAuthoringSkills = {
     'sflow-phase': 'phase draft-check <phase>',
     'sflow-code': 'phase draft-check <phase>',
-    'sflow-design': 'phase draft-check design',
-    'sflow-release': 'phase draft-check release',
-    'sflow-requirements': 'phase draft-check requirements',
+    'sflow-design': 'phase draft-check <phase>',
+    'sflow-release': 'phase draft-check <phase>',
+    'sflow-requirements': 'phase draft-check <phase>',
     'sflow-review': 'phase draft-check review',
     'sflow-verify': 'phase draft-check verification',
     'sflow-specify': 'phase draft-check specification',

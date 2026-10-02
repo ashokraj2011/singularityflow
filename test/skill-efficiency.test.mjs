@@ -48,8 +48,10 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class
     && row.bodyTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
-  assert.deepEqual(result.rows.filter((row) => row.bodyTokens > 800).map((row) => row.name), ['sflow-code']);
-  assert.ok(policy.skills['sflow-code'].exception);
+  // Code generation, and the specialised skills a step may choose (they follow that step's contract).
+  const overridden = ['sflow-code', 'sflow-design', 'sflow-release', 'sflow-requirements'];
+  assert.deepEqual(result.rows.filter((row) => row.bodyTokens > 800).map((row) => row.name), overridden);
+  for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
   assert.deepEqual(result.rows.filter((row) => row.kernelModelPolicy === 'conditional').map((row) => row.name), [
     'sflow-auto', 'sflow-explain-code', 'sflow-initiative-phase', 'sflow-next', 'sflow-run', 'sflow-spec', 'sflow-story-start',
@@ -138,7 +140,7 @@ test('generative requirements retains interactive clarification and governed pub
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-requirements', 'SKILL.md'), 'utf8');
   assert.match(content, /sflow-output-contract: clarification-and-artifact/);
   assert.match(content, /Human clarification checkpoint|ask_user/);
-  assert.match(content, /phase publish requirements/);
+  assert.match(content, /phase publish <phase>/);
   assert.match(content, /reproduce every published text document in full/);
 });
 

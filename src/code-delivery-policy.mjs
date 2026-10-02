@@ -286,7 +286,7 @@ export function authoringRoute(phase, workflow = null) {
     return route(automatic, 'automatic', `Step '${phase.id}' names authoring skill '${authoringSkill}', which this build does not list, so ${automatic} drafts it.`);
   }
   if (!entry.produces.includes(output)) {
-    return route(automatic, 'automatic', `Step '${phase.id}' names authoring skill '${authoringSkill}', which cannot draft a ${output} step, so ${automatic} drafts it.`);
+    return route(automatic, 'automatic', `Step '${phase.id}' names authoring skill '${authoringSkill}', which cannot draft ${output === 'analysis' ? 'an analysis' : `a ${output}`} step, so ${automatic} drafts it.`);
   }
   return route(`/${authoringSkill}`, 'configured');
 }

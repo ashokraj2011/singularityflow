@@ -131,7 +131,7 @@ skills:
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }
-  sflow-design: { class: generative }
+  sflow-design: { class: generative, maximumTokenOverride: 860, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step." }
   sflow-docs: { class: echo, executionBoundary: machine }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
@@ -227,9 +227,9 @@ skills:
   sflow-regression-investigate: { class: conversational }
   sflow-recover: { class: mutation }
   sflow-reject: { class: review }
-  sflow-release: { class: generative }
+  sflow-release: { class: generative, maximumTokenOverride: 840, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step." }
   sflow-report: { class: echo, executionBoundary: repository }
-  sflow-requirements: { class: generative }
+  sflow-requirements: { class: generative, maximumTokenOverride: 880, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step." }
   sflow-reset-all: { class: mutation, executionBoundary: repository }
   sflow-resume: { class: interactive, executionBoundary: repository }
   sflow-return: { class: interactive, executionBoundary: repository }

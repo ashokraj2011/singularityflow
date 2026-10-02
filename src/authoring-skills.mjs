@@ -27,7 +27,10 @@ const PHASE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  */
 export const AUTHORING_SKILL_DECLARATION = Object.freeze({
   'sflow-phase': Object.freeze({ produces: Object.freeze(['document', 'analysis']) }),
-  'sflow-code': Object.freeze({ produces: Object.freeze(['code']) })
+  'sflow-code': Object.freeze({ produces: Object.freeze(['code']) }),
+  'sflow-requirements': Object.freeze({ produces: Object.freeze(['document', 'analysis']), legacyPhases: Object.freeze(['requirements']) }),
+  'sflow-design': Object.freeze({ produces: Object.freeze(['document', 'analysis']), legacyPhases: Object.freeze(['design']) }),
+  'sflow-release': Object.freeze({ produces: Object.freeze(['document']), legacyPhases: Object.freeze(['release']) })
 });
 
 function fail(message) {

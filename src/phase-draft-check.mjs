@@ -34,6 +34,20 @@ function correctionGuidance(kind, phase) {
   return 'Open the exact file and line, provide the missing reviewed content, then check the draft again. SFlow cannot prove that the current agent owns these bytes and will not replace human-authored or unknown-authored content automatically.';
 }
 
+/**
+ * The one correction a blocked draft offers when a check names its own route. Stale Code evidence
+ * outranks a convergence decision, and the chosen route owns its class, guidance, command and
+ * skill together: pairing the Code repair command with /sf-converge gave hosts a command they
+ * could not display. A route without a skill lets its command map to the skill that owns it.
+ */
+export function draftCorrectionRoute(codeEvidenceRepair, convergenceReview) {
+  const route = codeEvidenceRepair ?? convergenceReview;
+  return route ? Object.freeze({
+    class: route.class, guidance: route.guidance ?? null,
+    command: route.command ?? null, skill: route.skill ?? null
+  }) : null;
+}
+
 function draftOwnership(configuredProducer, workflow, phase, session) {
   if (configuredProducer !== 'governed-agent') {
     return Object.freeze({
@@ -150,7 +164,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     ? await inspectUnclaimedChangedPaths(root, config, workflow, phase)
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
-  const repairClass = codeEvidenceRepair?.class ?? convergenceReview?.class ?? correctionClass(producer);
+  const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
+  const repairClass = route?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
@@ -183,8 +198,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       sameTurn: repairClass === 'agent-authoring' && !awaitingApproval,
       requiresNewGeneration: awaitingApproval && !clean,
       maximumChangedFingerprints: 3,
-      guidance: clean ? null : codeEvidenceRepair?.guidance ?? convergenceReview?.guidance ?? correctionGuidance(repairClass, phase),
-      skill: convergenceReview?.skill ?? (repairClass === 'agent-authoring' ? generationSkill : null)
+      guidance: clean ? null : route?.guidance ?? correctionGuidance(repairClass, phase),
+      skill: route ? route.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands: Object.freeze({
       recheck: `singularity-flow phase draft-check ${phase.id} --json`,
@@ -192,7 +207,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       // A correction-required projection is not publishable. Returning an executable publish
       // command beside the blocker made hosts offer the illegal action even when `status` was red.
       publish: clean ? phasePublicationCommand(phase) : null,
-      next: codeEvidenceRepair?.command ?? convergenceReview?.command ?? null
+      next: route?.command ?? null
     }),
     mutates: false,
     modelInvocations: 0

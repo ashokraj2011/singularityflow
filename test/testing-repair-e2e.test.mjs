@@ -117,12 +117,15 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
   cli('prepare', reviewPhase);
   const draft = JSON.parse(cli('phase', 'draft-check', reviewPhase, '--json').stdout);
   assert.equal(draft.status, 'correction-required');
-  assert.ok(draft.findings.some((finding) => finding.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE')
-    || workType === 'classic-delivery');
-  if (workType === 'quick-fix') {
-    assert.match(draft.commands.next, /reject verify --to implement --repair/);
-    assert.equal(draft.commands.publish, null);
-  }
+  assert.ok(draft.findings.some((finding) => finding.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'));
+  const repairRoute = `singularity-flow reject ${reviewPhase} --to ${codePhase} --repair --reason <REASON>`;
+  assert.equal(draft.commands.next, repairRoute);
+  assert.equal(draft.correction.skill, null, 'the repair command maps to the skill that owns it');
+  assert.equal(draft.commands.publish, null);
+  const prepublish = JSON.parse(cli('phase', 'prepublish', reviewPhase, '--json').stdout);
+  assert.equal(prepublish.status, 'correction-required');
+  assert.equal(prepublish.commands.next, repairRoute, 'prepublish offers the same repair as draft-check');
+  assert.equal(prepublish.correction.skill, null);
   for (const [wrongPhase, wrongTarget] of [[reviewPhase, reviewPhase], [codePhase, codePhase]]) {
     const wrong = tryCli('reject', wrongPhase, '--to', wrongTarget, '--repair', '--reason', 'Wrong review scope', '--json');
     assert.notEqual(wrong.status, 0);

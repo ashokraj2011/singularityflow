@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { phaseDraftCheck } from '../src/phase-draft-check.mjs';
+import { draftCorrectionRoute, phaseDraftCheck } from '../src/phase-draft-check.mjs';
+import { convergenceReviewRoute } from '../src/convergence-review-route.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 
 async function fixture({ producer = 'governed-agent', status = 'in_progress' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-draft-check-'));
@@ -214,4 +217,23 @@ test('draft correction uses the task owner instead of hard-coding the generic ph
     await rm(code.root, { recursive: true, force: true });
     await rm(convergence.root, { recursive: true, force: true });
   }
+});
+
+test('stale Code evidence owns the whole correction even when convergence also needs a decision', () => {
+  const convergence = convergenceReviewRoute(new SingularityFlowError('Human convergence review is required.', {
+    code: 'CONVERGENCE_REVIEW_REQUIRED', details: { allowedNext: ['adjudicate'], undisposedItemIds: ['CF-1'] }
+  }), { workItem: { id: 'DRAFT-1' } });
+  const code = {
+    class: 'code-rework', guidance: "Phase 'convergence' requires current Code evidence from 'implementation'.",
+    command: 'singularity-flow reject convergence --to implementation --repair --reason <REASON>'
+  };
+  const route = draftCorrectionRoute(code, convergence);
+  assert.deepEqual({ ...route }, { class: 'code-rework', guidance: code.guidance, command: code.command, skill: null });
+  // The text renderer prints "Shell: unavailable" for a command its skill does not own.
+  assert.equal(safeCommandGuidance({ command: route.command, skill: route.skill })?.copilotCommand, '/sf-reject');
+  assert.equal(safeCommandGuidance({ command: route.command, skill: convergence.skill }), null);
+  const review = draftCorrectionRoute(null, convergence);
+  assert.equal(review.skill, '/sf-converge');
+  assert.match(safeCommandGuidance({ command: review.command, skill: review.skill })?.command ?? '', /story adjudicate CF-1/);
+  assert.equal(draftCorrectionRoute(null, null), null);
 });

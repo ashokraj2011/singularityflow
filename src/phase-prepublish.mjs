@@ -361,6 +361,11 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   }
   const ready = lifecycleReady && draft.status === 'ready'
     && blockers.length === 0 && recovery.blockers.length === 0;
+  // A draft blocker that names its own route (the stale-Code repair, a convergence decision) keeps
+  // it here, so prepublish and draft-check never offer two different next commands.
+  const draftRoute = draft.commands.next ? {
+    command: draft.commands.next, skill: draft.correction.skill, detail: draft.correction.guidance
+  } : null;
   const action = !lifecycleReady
     ? {
         command: draft.commands.recover,
@@ -368,7 +373,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
       }
     : draft.status !== 'ready'
-      ? recovery.actions[0] ?? actions[0] ?? null
+      ? draftRoute ?? recovery.actions[0] ?? actions[0] ?? null
       : actions[0] ?? recovery.actions[0] ?? null;
   const briefOnly = recovery.actions.length > 0
     && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);

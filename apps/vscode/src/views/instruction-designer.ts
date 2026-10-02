@@ -39,6 +39,9 @@ function emptySkill(): SkillDraft {
 export class InstructionDesignerPanel {
   private static current: InstructionDesignerPanel | null = null;
   private readonly panel: vscode.WebviewPanel;
+  private readonly store: WorkspaceStore;
+  private readonly onMessage: (message: InstructionDesignerMessage) => Promise<InstructionDesignerReply>;
+  private readonly lease: { dispose(): void };
   private readonly subscription: { dispose(): void };
   private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
@@ -59,11 +62,14 @@ export class InstructionDesignerPanel {
 
   private constructor(
     panel: vscode.WebviewPanel,
-    private readonly store: WorkspaceStore,
-    private readonly onMessage: (message: InstructionDesignerMessage) => Promise<InstructionDesignerReply>,
-    private readonly lease: { dispose(): void }
+    store: WorkspaceStore,
+    onMessage: (message: InstructionDesignerMessage) => Promise<InstructionDesignerReply>,
+    lease: { dispose(): void }
   ) {
     this.panel = panel;
+    this.store = store;
+    this.onMessage = onMessage;
+    this.lease = lease;
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
       () => this.render(),

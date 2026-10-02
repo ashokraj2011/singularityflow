@@ -1258,11 +1258,12 @@ test('visual editor preserves unchanged legacy workflows but rejects new or mate
   const root = await repository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const original = YAML.parse(await readFile(workflowPath, 'utf8'));
+  // The pre-contract two-step shape: a code step with no specification or planning step before it.
   const legacy = {
-    ...structuredClone(original.workTypes['quick-fix']),
-    label: 'Legacy custom'
+    label: 'Legacy custom', phases: ['implement', 'verify'],
+    templateOverrides: { implement: 'quick-fix/implement.md', verify: 'quick-fix/verify.md' },
+    phaseOverrides: { verify: { inputs: ['implement'] } }
   };
-  delete legacy.plannedClaims;
 
   const added = structuredClone(original);
   added.workTypes['legacy-custom'] = legacy;

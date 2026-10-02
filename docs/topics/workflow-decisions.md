@@ -20,7 +20,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 4
+version: 5
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -74,7 +74,7 @@ workTypes:
           - { id: stop, label: Finish here, to: end }
 ```
 
-A route's `to` is a phase of the workflow, `next`, or `end`. A rule compares a recorded value with a choice, a list of choices, `{ not: ... }`, or for numbers `atLeast`, `atMost`, `above` and `below`. `by` names the approval groups that decide; it defaults to the approvers of the phase before the decision. Configuration refuses a route that skips a phase a later phase still reads, unless that input is optional, a route that skips the phase that plans the claims a code phase must meet, and a route that skips past every code phase after requirements were defined or claims were planned. Such a route, including `end` after requirements, would finish the Story with them unimplemented; finish before requirements run or after the code phase, or stop the Story with `singularity-flow cancel` instead.
+A route's `to` is a phase of the workflow, `next`, or `end`. A rule compares a recorded value with a choice, a list of choices, `{ not: ... }`, or for numbers `atLeast`, `atMost`, `above` and `below`. `by` names the approval groups that decide; it defaults to the approvers of the phase before the decision. Configuration refuses a route that skips a phase a later phase still reads, unless that input is optional, a route that skips the phase that plans the claims a code phase must meet, and a route that skips past every code phase after requirements were defined or claims were planned. Such a route, including `end` after requirements, would finish the Story with them unimplemented; finish before requirements run or after the code phase, or stop the Story with `singularity-flow cancel` instead. A route that genuinely leaves a responsibility undone may declare `omits` (each responsibility, a reason and the approval group that records why it does not apply); see `sflow explain workflow-authoring`.
 
 ### During a Story
 

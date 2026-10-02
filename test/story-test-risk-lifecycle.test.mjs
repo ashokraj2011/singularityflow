@@ -94,7 +94,7 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
       tests: [{ id: 'service-contract', path: 'test/service.test.mjs', name: 'service contract' },
         { id: 'a-service-smoke', path: 'test/service.test.mjs', name: 'service smoke' }] }] } : {}) };
   definition.workTypes.feature = { label: 'Feature', phases: downstream ? ['implementation', 'testing'] : ['implementation'],
-    plannedClaims: { mode: 'opt-out', reason: 'Isolated unavailable-runner fixture without a specification phase.' },
+    omits: ['scope', 'plan', 'review'].map((responsibility) => ({ responsibility, reason: 'Isolated unavailable-runner fixture without a specification, plan or review step.', authority: 'engineering-reviewers' })),
     spec: { acceptance: 'off' } };
   if (downstream) {
     Object.assign(definition.phases.testing, { inputs: ['implementation'], writeScope: 'artifact-only',

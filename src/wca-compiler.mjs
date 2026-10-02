@@ -6,7 +6,7 @@ import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { configurationReadRoot, configurationReadScope, configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { captureVerifiedConfigurationAssetBytes, inspectApprovedSkillPackage } from './configuration-branch.mjs';
-import { loadDefinition, validateDefinition, resolveWorkType, assertPlannedClaimsReady, applyWorkflowCompatibility } from './config.mjs';
+import { loadDefinition, validateDefinition, resolveWorkType, assertWorkTypeStartable, applyWorkflowCompatibility } from './config.mjs';
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
 import { MODEL_TASKS, assertModelTask } from './model-tasks.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -928,7 +928,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   for (const logical of assets.keys()) if (!usedAssets.has(logical)) add('WCA_ASSET_UNCLAIMED', 'assets', 'A captured attachment has no explicit candidate content/resource consumer. Resolve its disposition instead of silently omitting package bytes.');
   if (!symbols.workflows.size) add('WCA_WORKFLOW_MISSING', 'definitions.workflows', 'A complete package must define at least one workflow.');
   for (const [key, value] of symbols.workflows) attempt(`definitions.workflows.${key}`, () => {
-    closed(value, ['id', 'label', 'description', 'phases', 'plannedClaims', 'reworkLoops'], 'Workflow definition');
+    closed(value, ['id', 'label', 'description', 'phases', 'plannedClaims', 'reworkLoops', 'omits'], 'Workflow definition');
     if (value.label !== undefined) text(value.label, 'Workflow label', 512);
     if (value.description !== undefined && typeof value.description !== 'string') fail('Workflow description must be literal text.');
     const replacement = workflowChanges?.replacements.find((row) => row.id === key)
@@ -941,7 +941,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       fail('Workflow order must be unique and start with Intake; code workflows end with Conformance, while non-code workflows may end with a reviewed artifact-only phase that consumes the preceding output.', 'WCA_GRAPH_INVALID');
     }
     candidate.workTypes[key] = replacement ? { ...structuredClone(replacement.definition), phases: order }
-      : { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}) };
+      : { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}), ...(value.omits !== undefined ? { omits: value.omits } : {}) };
     // Only the effective workType contract owns inputs, templates, artifact paths and approval.
     // Retained overrides must neither be silently dropped nor checked against the base phase.
     // Incomplete SKP proposals stay display-only and have no configured phase to resolve yet.
@@ -986,7 +986,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   // an unrelated configuration failure, or simulate it as a confirmed execution contract.
   if (!skillProposals.length) attempt('candidate.configuration', () => {
     validateDefinition(validatedCandidate); validateAgentCatalog(agents, validatedCandidate);
-    for (const key of symbols.workflows.keys()) if (validatedCandidate.workTypes[key]) assertPlannedClaimsReady(resolveWorkType(validatedCandidate, key));
+    for (const key of symbols.workflows.keys()) if (validatedCandidate.workTypes[key]) assertWorkTypeStartable(resolveWorkType(validatedCandidate, key));
     candidateValidated = true;
   });
   if (candidateValidated && symbols.workflows.size) {

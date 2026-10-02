@@ -11,6 +11,11 @@ import {
   simulateWorkflow, simulationText, WORKFLOW_SIMULATION_CATALOG_LIMITS
 } from '../src/workflow-catalog.mjs';
 
+// Simulation fixtures exercise one lifecycle detail and deliver nothing, so each declares the
+// responsibilities it leaves undone, as any real workflow has to.
+const omitsAll = (authority = 'product-approvers') => ['scope', 'plan', 'implement', 'verify', 'review']
+  .map((responsibility) => ({ responsibility, reason: 'Simulation fixture that exercises one lifecycle detail and delivers nothing.', authority }));
+
 async function repository(t, change = () => {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-installed-simulation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -79,7 +84,7 @@ test('normalized none approvals do not become phantom human waits and catalog te
   const { root, definition } = await repository(t, (value) => {
     value.templates = { ...value.templates, 'simulation-intake': { path: 'common/intake.md' } };
     value.workTypes['simulation-none'] = {
-      label: 'Simulation without approval', phases: ['intake'],
+      label: 'Simulation without approval', phases: ['intake'], omits: omitsAll(),
       templateOverrides: { intake: 'template:simulation-intake' },
       phaseOverrides: { intake: { inputs: [], approval: 'none' } }
     };
@@ -103,7 +108,7 @@ test('partial phase approval overrides retain inherited authority rather than re
     };
     value.phases.intake.approval = { authorities: ['simulation-reviewers'], minimum: 1, rejectTo: ['intake'] };
     value.workTypes['simulation-review'] = {
-      label: 'Simulation inherited approval', phases: ['intake'],
+      label: 'Simulation inherited approval', phases: ['intake'], omits: omitsAll(),
       phaseOverrides: { intake: { approval: { minimum: 2 } } }
     };
   });
@@ -122,7 +127,7 @@ test('ordinary template artifact paths retain the existing repository-relative c
   const { root } = await repository(t, (value) => {
     value.phases.intake.artifact.path = 'notes/intake.md';
     value.workTypes['simulation-relative-path'] = { label: 'Existing relative artifact path',
-      phases: ['intake'], phaseOverrides: { intake: { approval: 'none', inputs: [] } } };
+      phases: ['intake'], omits: omitsAll(), phaseOverrides: { intake: { approval: 'none', inputs: [] } } };
   });
   const [simulation] = await simulateWorkflow(root, 'simulation-relative-path');
   assert.equal(simulation.lifecycle.status, 'complete-for-profile');
@@ -132,12 +137,17 @@ test('ordinary template artifact paths retain the existing repository-relative c
 test('legacy configuration remains readable without certifying an unmigrated new Story route', async (t) => {
   const { root, definition } = await repository(t, (value) => {
     for (const authority of Object.values(value.approvalAuthorities)) authority.allowAnyGitIdentity = true;
-    value.workTypes['legacy-custom'] = structuredClone(value.workTypes['quick-fix']);
-    delete value.workTypes['legacy-custom'].plannedClaims;
+    // The pre-contract two-step shape: a code step with no specification or planning step before it.
+    value.workTypes['legacy-custom'] = {
+      label: 'Legacy custom', phases: ['implement', 'verify'],
+      templateOverrides: { implement: 'quick-fix/implement.md', verify: 'quick-fix/verify.md' },
+      phaseOverrides: { verify: { inputs: ['implement'] } }
+    };
     delete value.workTypes['quick-fix'].plannedClaims;
   });
   assert.equal(resolveWorkType(definition, 'legacy-custom').plannedClaims.mode, 'migration-required');
-  assert.equal(resolveWorkType(definition, 'quick-fix').plannedClaims.mode, 'legacy-opt-out');
+  assert.equal(resolveWorkType(definition, 'quick-fix').plannedClaims.mode, 'required',
+    'the packaged quick-fix infers its topology from its scope-and-plan intake');
   const [unmigrated] = await simulateWorkflow(root, 'legacy-custom');
   assert.notEqual(unmigrated.lifecycle.status, 'complete-for-profile');
   assert.ok(unmigrated.lifecycle.findings.some((finding) => /CLAIM|MIGRATION/.test(finding.code)));
@@ -166,7 +176,7 @@ test('installed bounded rework uses normalized target budget and reports full-ra
   const { root, definition } = await repository(t, (value) => {
     for (const authority of Object.values(value.approvalAuthorities)) authority.allowAnyGitIdentity = true;
     value.workTypes['simulation-rework'] = {
-      label: 'Bounded existing rework', phases: ['intake', 'implementation', 'verification'],
+      label: 'Bounded existing rework', phases: ['intake', 'implementation', 'verification'], omits: omitsAll(),
       phaseOverrides: {
         implementation: { generation: { task: 'analyze' }, inputs: ['intake'] },
         verification: { inputs: ['implementation'] }

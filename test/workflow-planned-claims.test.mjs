@@ -27,14 +27,14 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
   'figma-mobile': {
     mode: 'required', clausePhases: ['mobile-spec'], owners: { implementation: 'mobile-spec' }
   },
-  'quick-fix': { mode: 'opt-out' },
+  'quick-fix': { mode: 'required', clausePhases: ['intake'], owners: { implement: 'intake' } },
   'classic-delivery': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' }
   },
   'spec-code-test-loop': {
     mode: 'required', clausePhases: ['specification'], owners: { implementation: 'specification' }
   },
-  'poc-lite': { mode: 'opt-out' },
+  'poc-lite': { mode: 'omitted' },
   'benchmarking-a': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }
   },
@@ -101,9 +101,11 @@ test('every bundled Story workflow declares a complete current planned-claim con
         assert.ok(policy.clausePhases.some((phaseId) => byId.get(phaseId).order <= owner.order),
           `${id}/${ownerId} cannot bind any preceding authoritative clause phase`);
       }
-    } else if (policy.mode === 'opt-out') {
-      assert.ok(policy.reason.length >= 20, `${id} has no reviewable opt-out reason`);
-      assert.equal(resolved.spec.acceptance, 'off', `${id} opt-out left the acceptance gate active`);
+    } else if (policy.mode === 'omitted') {
+      // No clauses to plan against: the work type declares the omission and who records why.
+      assert.ok(policy.reason.length >= 20, `${id} has no reviewable omission reason`);
+      assert.equal(resolved.spec.acceptance, 'off', `${id} omission left the acceptance gate active`);
+      assert.deepEqual(resolved.obligationGraph.endpoints.flatMap((endpoint) => endpoint.omits.map((entry) => entry.responsibility)), ['scope']);
     } else {
       assert.deepEqual(resolved.phases.filter(phaseRequiresCodeDelivery), [],
         `${id} disabled planned claims despite containing code delivery`);
@@ -117,8 +119,9 @@ test('workflow catalog validation reports the complete bundle and one requested 
   assert.equal(report.valid, true);
   assert.deepEqual(report.workflows.map((entry) => entry.id), Object.keys(SHIPPED_STORY_CONTRACTS));
   assert.ok(report.workflows.every((entry) => entry.status !== 'legacy-compatibility'));
-  assert.equal(report.workflows.find((entry) => entry.id === 'quick-fix').status, 'explicit-opt-out');
-  assert.equal(report.workflows.find((entry) => entry.id === 'poc-lite').status, 'explicit-opt-out');
+  assert.equal(report.workflows.find((entry) => entry.id === 'quick-fix').status, 'protected');
+  assert.equal(report.workflows.find((entry) => entry.id === 'poc-lite').status, 'scope-omitted');
+  assert.ok(report.workflows.every((entry) => entry.obligations.startable), 'every shipped workflow can start a Story');
   assert.equal(report.workflows.find((entry) => entry.id === 'chore').status, 'not-applicable');
   assert.equal(
     report.workflows.filter((entry) => entry.status === 'protected').length,
@@ -127,14 +130,18 @@ test('workflow catalog validation reports the complete bundle and one requested 
 
   const one = await validateWorkflowCatalog(root, 'poc-workflow');
   assert.equal(one.valid, true);
-  assert.deepEqual(one.workflows, [{
+  const [{ obligations, ...poc }] = one.workflows;
+  assert.deepEqual(poc, {
     id: 'poc-workflow',
     label: 'POC workflow — enterprise Playwright',
     status: 'protected',
     clausePhases: ['poc-intake'],
     owners: { 'poc-test-generation': 'poc-ui-exploration' },
     reason: null
-  }]);
+  });
+  assert.equal(obligations.startable, true);
+  assert.deepEqual(obligations.findings, []);
+  assert.deepEqual(obligations.steps.find((entry) => entry.id === 'poc-test-generation').responsibilities, ['implement', 'verify', 'review']);
 
   await assert.rejects(() => validateWorkflowCatalog(root, 'does-not-exist'), /Unknown workflow 'does-not-exist'/);
 });
@@ -180,11 +187,12 @@ test('validation reports an old custom workflow without making the catalog unrea
   const { root } = await installedStarter();
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  // The pre-contract two-step shape: a code step with no specification or planning step before it.
   definition.workTypes['legacy-custom'] = {
-    ...structuredClone(definition.workTypes['quick-fix']),
-    label: 'Legacy custom'
+    label: 'Legacy custom', phases: ['implement', 'verify'],
+    templateOverrides: { implement: 'quick-fix/implement.md', verify: 'quick-fix/verify.md' },
+    phaseOverrides: { verify: { inputs: ['implement'] } }
   };
-  delete definition.workTypes['legacy-custom'].plannedClaims;
   await writeFile(workflowPath, YAML.stringify(definition), 'utf8');
   assert.equal(spawnSync('git', ['add', 'singularity/workflow.yml'], { cwd: root }).status, 0);
   assert.equal(spawnSync('git', ['commit', '-qm', 'add old custom workflow'], { cwd: root }).status, 0);

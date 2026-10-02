@@ -20,8 +20,14 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     ]),
     chore: Object.freeze([
       '327de2a67c41d50bccc308a5925c2025f19efb170e1a4f1aa20cec5df9f63c67',
-      'c5ffa49fee9721d9fb1e7c55d800cbd13b7d045dcdde800fbd42fb085986139c'
+      'c5ffa49fee9721d9fb1e7c55d800cbd13b7d045dcdde800fbd42fb085986139c',
+      // Before the chore intake became its scope-and-plan checkpoint.
+      'bbb46f247a676e737505f28c6b06638dddbf47108d324ea6c4b15d97632aa9ba'
     ]),
+    // Before quick-fix gained its scope-and-plan intake and POC Lite replaced its planned-claim
+    // opt-out with a declared scope omission.
+    'quick-fix': Object.freeze(['6ee5ad86a29a3805d914552eed7d0b5d049abb8044ea98365df10dd3fd5cbcc3']),
+    'poc-lite': Object.freeze(['87eed6bd5881b47c0cab5316d96c7652b114f43863fb0ceed1f1615165f262f0']),
     'figma-mobile': Object.freeze(['d165709b28aa97f2a2d4416d19cf7cdde14bb9fa0f1632b30733ff4e2c266e52']),
     // Modern v2 predecessor immediately before the guarded REV pilot was added.
     'classic-delivery': Object.freeze([
@@ -88,13 +94,13 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'benchmarking-a': '0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd',
     'benchmarking-b': 'aa433bacbaead95204b96700360598b5e2e1c682ac1a5846d6fa415adf1b5548',
     bugfix: '39ac9d457a906eeeae595d44fa379b709c4ecb77f2992b30d54b327c1312fc24',
-    chore: 'bbb46f247a676e737505f28c6b06638dddbf47108d324ea6c4b15d97632aa9ba',
+    chore: '7d55217aa976c51a702616daeccd8829ca91778839985ae8c4dabc3336645597',
     'classic-delivery': '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
     feature: 'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3',
     'figma-mobile': '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee',
-    'poc-lite': '87eed6bd5881b47c0cab5316d96c7652b114f43863fb0ceed1f1615165f262f0',
+    'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
     'poc-workflow': 'dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75',
-    'quick-fix': '6ee5ad86a29a3805d914552eed7d0b5d049abb8044ea98365df10dd3fd5cbcc3',
+    'quick-fix': '01398a0d4124462b07ee451bd27ee9b1b4af94046df803a31170f2efbf87d0e6',
     'reference-driven-build': 'a577515ed38c8f6d12c82890cc7076ac3ddf06d22370028d3e52c3f911acbc71',
     'spec-code-test-loop': 'f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b',
     'spec-driven-standard': '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf'

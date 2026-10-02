@@ -73,8 +73,8 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
     members: [{ name: reviewer.name, email: reviewer.email, githubLogin: null }] };
   if (testRecovery) definition.testRecovery = { enabled: true, riskAuthorities: ['engineering-reviewers'] };
   else delete definition.testRecovery;
-  definition.workTypes.feature = { label: 'Feature', phases: ['implementation'], plannedClaims: { mode: 'opt-out',
-    reason: 'Isolated command amendment fixture with no specification phase.' },
+  definition.workTypes.feature = { label: 'Feature', phases: ['implementation'], 
+    omits: ['scope', 'plan', 'review'].map((responsibility) => ({ responsibility, reason: 'Isolated command amendment fixture with no specification, plan or review step.', authority: 'engineering-reviewers' })),
     spec: { acceptance: 'off' } };
   const phase = definition.phases.implementation;
   phase.inputs = []; phase.clarification = { mode: 'off' };

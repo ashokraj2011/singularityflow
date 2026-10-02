@@ -58,6 +58,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
 import { normalizeDecisions } from './workflow-decisions.mjs';
+import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
@@ -347,23 +348,6 @@ export function normalizeReferenceRepositoryPolicy(value = null, label = 'Refere
  * configuration readable until refresh writes the explicit policy, without making future custom
  * workflows silently inherit the old omission.
  */
-const LEGACY_PLANNED_CLAIM_OPT_OUTS = new Map([
-  ['quick-fix', ['implement', 'verify']],
-  ['benchmarking-a', ['intake', 'design', 'implementation', 'testing', 'conformance']],
-  ['benchmarking-b', ['intake', 'design', 'implementation', 'testing', 'conformance']],
-  ['poc-workflow', [
-    'poc-intake', 'poc-impact-analysis', 'poc-ui-exploration', 'poc-test-generation',
-    'poc-validation', 'poc-publication-review'
-  ]]
-]);
-
-function exactLegacyPlannedClaimOptOut(workTypeId, phases) {
-  const expected = LEGACY_PLANNED_CLAIM_OPT_OUTS.get(workTypeId);
-  return expected != null
-    && expected.length === phases.length
-    && expected.every((id, index) => phases[index]?.id === id);
-}
-
 function definitionArtifactKind(phase) {
   return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
 }
@@ -375,39 +359,22 @@ function currentSpecificationDefinitionPhase(phase) {
   return definitionArtifactKind(phase) != null && isSpecificationDefinitionPhase(phase);
 }
 
-function plannedClaimOptOutReason(value, label) {
-  if (typeof value !== 'string') throw new SingularityFlowError(`${label}.reason must be a concrete string.`);
-  const reason = value.trim();
-  if (reason.length < 20 || reason.length > 1000
-    || /\b(?:todo|tbd|fixme|placeholder|to be (?:determined|defined))\b/i.test(reason)
-    || /^<[^>]+>$/.test(reason)) {
-    throw new SingularityFlowError(
-      `${label}.reason must be a concrete 20-1000 character explanation, not a placeholder.`
-    );
-  }
-  return reason;
-}
-
 /**
  * Resolve the specification-definition and planned-claim owner topology for a work type.
  *
- * Public configuration accepts two intentionally small shapes:
+ * Public configuration accepts one intentionally small shape:
  *
  *   plannedClaims:
  *     mode: required
  *     clausePhases: [requirements]       # optional; inferred from artifact kinds
  *     owners: { implementation: design } # optional; inferred as the preceding phase
  *
- *   plannedClaims:
- *     mode: opt-out
- *     reason: "This short workflow deliberately has no specification contract."
- *
- * The returned form is complete and is pinned into every new Story resolution. Internal
- * `disabled` and `legacy-opt-out` modes are read-only normalized outcomes; configuration cannot
- * request them.
+ * The returned form is complete and is pinned into every new Story resolution. The `disabled`
+ * (no code step), `omitted` (the work type declares omits for scope) and `retired-opt-out` (an old
+ * opt-out the obligation compiler refuses) modes are normalized outcomes configuration cannot request.
  */
 export function normalizePlannedClaimsPolicy(value, {
-  workTypeId = 'work-type', phases = [], spec = {}
+  workTypeId = 'work-type', phases = [], spec = {}, scopeOmission = null
 } = {}) {
   const label = `Work type '${workTypeId}' plannedClaims`;
   const policy = normalizeSpecPolicy(spec);
@@ -468,17 +435,18 @@ export function normalizePlannedClaimsPolicy(value, {
     );
   }
 
+  // Opting out of planned claims is retired [E2G D18]. The definition stays readable so the rest of
+  // the catalog loads; the obligation compiler reports it and Story start refuses the work type.
   if (value?.mode === 'opt-out') {
-    if (authoritative.length) {
-      throw new SingularityFlowError(
-        `${label} cannot opt out because authoritative specification phase(s) `
-        + `${authoritative.map((phase) => phase.id).join(', ')} are active. Use mode required.`
-      );
-    }
     return {
-      mode: 'opt-out', clausePhases: [], owners: {},
-      reason: plannedClaimOptOutReason(value.reason, label)
+      mode: 'retired-opt-out', clausePhases: [], owners: {},
+      reason: typeof value.reason === 'string' ? value.reason.trim() : null
     };
+  }
+  // A work type that genuinely defines no requirement clauses declares the omission on its end, and
+  // a Story taking that end needs an applicability decision from the named approval group.
+  if (scopeOmission && value == null && !authoritative.length) {
+    return { mode: 'omitted', clausePhases: [], owners: {}, reason: String(scopeOmission.reason ?? '').trim() || null };
   }
 
   if (!acceptanceEnabled) {
@@ -566,16 +534,6 @@ export function normalizePlannedClaimsPolicy(value, {
   }
 
   if (topologyErrors.length) {
-    if (!explicit
-      && policy.mode === 'record'
-      && policy.coverage === 'record'
-      && policy.acceptance === 'presence'
-      && exactLegacyPlannedClaimOptOut(workTypeId, phases)) {
-      return {
-        mode: 'legacy-opt-out', clausePhases: [], owners: {},
-        reason: 'Compatibility for an exact packaged version-2 workflow that predates planned-claim topology.'
-      };
-    }
     // A repository may already contain an organization-authored version-2 workflow that predates
     // this field. Refusing the whole definition here would also make its already-running Stories
     // unreadable, even though their immutable snapshots correctly retain the old behavior. Keep
@@ -591,11 +549,29 @@ export function normalizePlannedClaimsPolicy(value, {
     }
     throw new SingularityFlowError(
       `${label} is not operational:\n- ${[...new Set(topologyErrors)].join('\n- ')}\n`
-      + 'Declare a resolvable mode required topology, or use mode opt-out with a concrete reason for deliberately short non-spec work.'
+      + 'Declare a resolvable mode required topology. A workflow that defines no requirement clauses declares omits for scope on its end instead.'
     );
   }
 
   return { mode: 'required', clausePhases, owners, reason: null };
+}
+
+/**
+ * Refuse starting new work from a work type that cannot start: an unmigrated planned-claim
+ * contract, or routes that would end a Story without one of its responsibilities [E2G-005].
+ */
+export function assertWorkTypeStartable(resolved) {
+  assertPlannedClaimsReady(resolved);
+  const errors = (resolved?.obligationGraph?.findings ?? []).filter((entry) => entry.severity === 'error');
+  if (!errors.length) return resolved;
+  throw new SingularityFlowError(
+    `Workflow '${resolved.id}' cannot start a Story, because its routes would end one without a responsibility:\n- `
+    + `${errors.map((entry) => entry.message).join('\n- ')}\nFix: ${errors[0].resolvingAction}`,
+    {
+      code: 'WORKFLOW_OBLIGATIONS_UNMET',
+      details: { workType: resolved.id, findings: errors.map(({ code, message, resolvingAction, subject }) => ({ code, message, resolvingAction, subject })) }
+    }
+  );
 }
 
 /** Refuse starting new work from a readable-but-unmigrated legacy workflow. */
@@ -2270,12 +2246,13 @@ export function resolveWorkType(definition, workTypeId) {
   const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
   const configuredSpec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
   const plannedClaims = normalizePlannedClaimsPolicy(workType.plannedClaims, {
-    workTypeId, phases, spec: configuredSpec
+    workTypeId, phases, spec: configuredSpec,
+    scopeOmission: (Array.isArray(workType.omits) ? workType.omits : []).find((entry) => entry?.responsibility === 'scope') ?? null
   });
   // An explicit topology opt-out is an acceptance-policy decision, not documentation beside a
   // still-active gate. Resolve acceptance to off so every existing lifecycle consumer observes
   // the decision even before it learns about the richer plannedClaims metadata.
-  const spec = ['opt-out', 'legacy-opt-out'].includes(plannedClaims.mode)
+  const spec = ['omitted', 'retired-opt-out'].includes(plannedClaims.mode)
     ? { ...configuredSpec, acceptance: 'off' }
     : configuredSpec;
   // Validated against the resolved phases: whether a rule may skip or loop depends on each phase's
@@ -2289,8 +2266,14 @@ export function resolveWorkType(definition, workTypeId) {
   });
   if (definition.agentCatalog?.length) assertSourceReviewerAvailable(sourceReview,
     definition.agentCatalog, { workTypeId });
+  // Which responsibilities every route guarantees. Never throws: a work type with error findings
+  // stays readable, and Story start refuses it.
+  const obligationGraph = compileObligationGraph({
+    id: workTypeId, phases, decisions, reworkLoops, plannedClaims, omits: workType.omits
+  }, { authorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity) });
   return {
     id: workTypeId,
+    obligationGraph,
     label: workType.label,
     ...(reworkLoops.length ? { reworkLoops } : {}),
     ...(decisions.length ? { decisions } : {}),
@@ -2403,6 +2386,9 @@ export async function snapshotResolution(root, definition, resolved) {
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
     sourceReview: structuredClone(resolved.sourceReview ?? { mode: 'off', phases: [], reviewerAgent: null }),
     plannedClaims: structuredClone(resolved.plannedClaims ?? null),
+    // The compiled responsibilities of every route, pinned so the evaluator judges this Story by the
+    // routes it started with [E2G-005].
+    ...(resolved.obligationGraph ? { obligationGraph: pinnedObligationGraph(resolved.obligationGraph) } : {}),
     ...(resolved.reworkLoops?.length ? { reworkLoops: structuredClone(resolved.reworkLoops) } : {}),
     // Only when a workflow declares decisions, so every existing Story resolution and its policy
     // digest stay byte-identical.

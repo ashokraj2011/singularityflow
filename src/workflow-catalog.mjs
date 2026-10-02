@@ -244,20 +244,27 @@ export async function validateWorkflowCatalog(root, requestedId = null) {
       label: resolved.label,
       status: plannedClaims.mode === 'required'
         ? 'protected'
-        : plannedClaims.mode === 'legacy-opt-out'
-          ? 'legacy-compatibility'
-          : plannedClaims.mode === 'migration-required'
-            ? 'migration-required'
-            : plannedClaims.mode === 'opt-out'
-              ? 'explicit-opt-out'
+        : plannedClaims.mode === 'migration-required'
+          ? 'migration-required'
+          : plannedClaims.mode === 'omitted'
+            ? 'scope-omitted'
+            : plannedClaims.mode === 'retired-opt-out'
+              ? 'retired-opt-out'
               : 'not-applicable',
       clausePhases: plannedClaims.clausePhases,
       owners: plannedClaims.owners,
-      reason: plannedClaims.reason ?? plannedClaims.disabledBecause ?? null
+      reason: plannedClaims.reason ?? plannedClaims.disabledBecause ?? null,
+      // What every route guarantees: a Story can start only when no route drops a responsibility.
+      obligations: {
+        startable: !(resolved.obligationGraph?.findings ?? []).some((entry) => entry.severity === 'error'),
+        digest: resolved.obligationGraph?.digest ?? null,
+        steps: (resolved.obligationGraph?.nodes ?? []).map((node) => ({ id: node.id, responsibilities: node.responsibilities })),
+        findings: resolved.obligationGraph?.findings ?? []
+      }
     };
   });
   return {
-    valid: workflows.every((workflow) => workflow.status !== 'migration-required'),
+    valid: workflows.every((workflow) => workflow.status !== 'migration-required' && workflow.obligations.startable),
     workflows
   };
 }

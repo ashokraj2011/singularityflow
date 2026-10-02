@@ -1309,7 +1309,7 @@ singularity-flow help troubleshooting
 singularity-flow help --json
 ```
 
-For a safe first experience, run the complete two-phase quick-fix rehearsal:
+For a safe first experience, run the complete quick-fix rehearsal:
 
 ```bash
 singularity-flow guide --first-run

@@ -6,7 +6,7 @@
  * skill contracts must already have been compiled/admitted by their configuration owner; local
  * inspection output and skill prose are not accepted in place of those configured phase IDs.
  */
-import { assertPlannedClaimsReady, resolveWorkType, validateDefinition } from './config.mjs';
+import { assertWorkTypeStartable, resolveWorkType, validateDefinition } from './config.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
@@ -33,7 +33,7 @@ function checkedWorkflow(workflow) {
     fail('SKP_RECIPE_INVALID', 'The recipe needs a concrete new team workflow.');
   }
   for (const field of Object.keys(workflow)) {
-    if (!['id', 'label', 'description', 'plannedClaims'].includes(field)) {
+    if (!['id', 'label', 'description', 'plannedClaims', 'omits'].includes(field)) {
       fail('SKP_RECIPE_INVALID', `Recipe workflow contains unsupported field '${field}'.`);
     }
   }
@@ -130,10 +130,13 @@ export function previewSkillWorkflowRecipe({ definition, workflow, phases } = {}
   const topology = exactTopology(workflow, phaseCandidates);
   candidateDefinition.workTypes[selected.id] = {
     label: selected.label, description: selected.description, phases: order,
-    ...(topology ? { plannedClaims: topology } : {})
+    ...(topology ? { plannedClaims: topology } : {}),
+    // A recipe that leaves a responsibility undone says so, with the group that decides why it does
+    // not apply; the obligation compiler checks each entry.
+    ...(workflow.omits !== undefined ? { omits: structuredClone(workflow.omits) } : {})
   };
   validateDefinition(candidateDefinition);
-  const resolved = assertPlannedClaimsReady(resolveWorkType(candidateDefinition, selected.id));
+  const resolved = assertWorkTypeStartable(resolveWorkType(candidateDefinition, selected.id));
   const codePhases = resolved.phases.filter(phaseRequiresCodeDelivery);
   const core = {
     format: SKP_WORKFLOW_RECIPE_FORMAT,

@@ -6,6 +6,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { capabilityWorldModelGrounding } from './capability-context.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
+import { pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 
 export const TEST_COMMAND_AMENDMENT_DIALECT = 'test-command-adoption/v1';
 export const PUBLISHED_TEST_COMMAND_AMENDMENT_DIALECT = 'test-command-adoption/v2';
@@ -179,6 +180,8 @@ export function assertTestCommandRunnerRepairScope(prior, next) {
 /** Candidate provenance may advance only when the source's unrelated policy is unchanged. */
 export function assertTestCommandCandidateGlobalScope(retained, candidate) {
   const projected = structuredClone(candidate);
+  // A Story pins the obligation graph without the catalog's findings; compare like with like.
+  if (projected.obligationGraph) projected.obligationGraph = pinnedObligationGraph(projected.obligationGraph);
   const capability = retained.capability;
   if (Object.hasOwn(projected, 'worldModelGrounding')) projected.worldModelGrounding = projected.intelligence?.worldModel === 'off'
     ? 'off' : capabilityWorldModelGrounding(projected.worldModelGrounding, capability);

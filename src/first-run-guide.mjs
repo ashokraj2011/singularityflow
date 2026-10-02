@@ -33,19 +33,34 @@ async function configureRepository(root) {
   await writeFile(file, YAML.stringify(definition));
 }
 
+function greetingSource(greeting, { story = false } = {}) {
+  return `${story ? '// @clause:TOY-001:AC-001\n' : ''}export const greeting = ${JSON.stringify(greeting)};\n`;
+}
+
 function greetingTest(expected, { story = false } = {}) {
   return [
     "import assert from 'node:assert/strict';",
-    "import { readFile } from 'node:fs/promises';",
     "import test from 'node:test';",
+    "import { greeting } from '../greeting.mjs';",
     '',
     ...(story ? ['/** @ac:TOY-001:AC-001 */'] : []),
-    "test('the governed greeting is exact', async () => {",
-    `  assert.equal(await readFile(new URL('../greeting.txt', import.meta.url), 'utf8'), ${JSON.stringify(expected)});`,
+    "test('the governed greeting is exact', () => {",
+    `  assert.equal(greeting, ${JSON.stringify(expected)});`,
     '});',
     ''
   ].join('\n');
 }
+
+/** The toy Story's scope-and-plan checkpoint: one criterion, the file that meets it and its test. */
+const TOY_INTAKE = [
+  '# TOY-001 — Quick fix scope and plan', '',
+  '## Problem and fix', '', 'The toy greeting says Hello, world. and should name Singularity Flow.', '',
+  '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|',
+  '| [TOY-001:AC-001] | The greeting says Hello, Singularity Flow! |', '',
+  '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests |', '|---|---|---|',
+  '| `TOY-001:AC-001` | `greeting.mjs` | `tests/greeting.test.mjs` |', '',
+  '## Out of scope', '', 'Nothing but the greeting and its test changes.', ''
+].join('\n');
 
 /**
  * Runs a real isolated quick-fix lifecycle without network access, Jira, or a model. A local bare
@@ -74,7 +89,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     run('git', ['init', '--initial-branch=main'], { cwd: repository });
     run('git', ['config', 'user.name', 'Singularity Flow Guide'], { cwd: repository });
     run('git', ['config', 'user.email', 'guide@localhost'], { cwd: repository });
-    await writeFile(path.join(repository, 'greeting.txt'), 'Hello, world.\n');
+    await writeFile(path.join(repository, 'greeting.mjs'), greetingSource('Hello, world.'));
     // The demo starts from a real passing baseline, just like an application repository. All
     // tests use Node built-ins; there are no packages to restore or download for this walkthrough.
     await writeFile(path.join(repository, 'package.json'), `${JSON.stringify({
@@ -82,8 +97,8 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
       scripts: { test: 'node --test' }
     }, null, 2)}\n`);
     await mkdir(path.join(repository, 'tests'), { recursive: true });
-    await writeFile(path.join(repository, 'tests/greeting.test.mjs'), greetingTest('Hello, world.\n'));
-    run('git', ['add', 'greeting.txt', 'package.json', 'tests/greeting.test.mjs'], { cwd: repository });
+    await writeFile(path.join(repository, 'tests/greeting.test.mjs'), greetingTest('Hello, world.'));
+    run('git', ['add', 'greeting.mjs', 'package.json', 'tests/greeting.test.mjs'], { cwd: repository });
     run('git', ['commit', '-m', 'Create the guide repository'], { cwd: repository });
 
     await initializeDefinition(repository);
@@ -116,9 +131,16 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     steps.push(command(cli, repository, ['precheck', '--run', '--scope', 'dependency-test',
       '--confirm-plan', plan.planId, '--json'], env));
     steps.push(command(cli, repository, ['start', 'TOY-001', '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
-    await writeFile(path.join(repository, 'greeting.txt'), 'Hello, Singularity Flow!\n');
-    await writeFile(path.join(repository, 'tests/greeting.test.mjs'), greetingTest('Hello, Singularity Flow!\n', { story: true }));
+    // Quick fix signs off its scope and plan before any code changes.
+    steps.push(command(cli, repository, ['prepare', 'intake'], env));
+    await writeFile(path.join(repository, 'singularity/work-items/TOY-001/artifacts/intake/intake.md'), TOY_INTAKE);
+    steps.push(command(cli, repository, ['wm', 'compose', '--phase', 'intake'], env));
+    steps.push(command(cli, repository, ['phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'], env));
+    steps.push(command(cli, repository, ['submit', 'intake'], env));
+    steps.push(command(cli, repository, ['approve', 'intake', '--yes'], env));
     steps.push(command(cli, repository, ['prepare', 'implement'], env));
+    await writeFile(path.join(repository, 'greeting.mjs'), greetingSource('Hello, Singularity Flow!', { story: true }));
+    await writeFile(path.join(repository, 'tests/greeting.test.mjs'), greetingTest('Hello, Singularity Flow!', { story: true }));
     steps.push(command(cli, repository, ['phase', 'publish', 'implement', '--authored', 'deterministic'], env));
     steps.push(command(cli, repository, ['submit', 'implement'], env));
     steps.push(command(cli, repository, ['prepare', 'verify'], env));

@@ -18,10 +18,9 @@ export interface WorkflowDraftView {
   governs: 'story' | 'initiative';
   phases: Array<{ id: string; label: string }>;
   reworkLoops: WorkflowLoopDraft[];
-  plannedClaimsMode?: 'required' | 'opt-out';
+  plannedClaimsMode?: 'required';
   clausePhases?: string;
   claimOwners?: string;
-  optOutReason?: string;
 }
 
 export interface PhaseDraftView {
@@ -205,10 +204,9 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
       </div>
     </section>` : ''}
     ${draft.governs === 'story' ? `<div class="form-grid planned-claims-editor">
-      <label class="field"><span>Planned claims</span><select data-workflow-planned-claims><option value="required"${draft.plannedClaimsMode !== 'opt-out' ? ' selected' : ''}>Required (recommended)</option><option value="opt-out"${draft.plannedClaimsMode === 'opt-out' ? ' selected' : ''}>Explicit opt-out</option></select><small>Required binds implementation claims to earlier clauses and planned tests. The engine infers these from eligible phases when left blank.</small></label>
+      <label class="field"><span>Planned claims</span><select data-workflow-planned-claims><option value="required" selected>Required</option></select><small>Implementation claims bind to earlier clauses and planned tests; the engine infers them from eligible phases when left blank. A workflow that defines no requirement clauses declares omits in workflow.yml instead; opting out is retired.</small></label>
       <label class="field"><span>Clause phases</span><input data-workflow-clause-phases value="${escape(draft.clausePhases ?? '')}" placeholder="${escape(eligibleClauses.join(',') || 'specification')}"><small>Eligible in this sequence: ${escape(eligibleClauses.join(', ') || 'none')}. Clause phases must produce requirements or implementation-spec artifacts.</small></label>
       <label class="field"><span>Claim owners</span><input data-workflow-claim-owners value="${escape(draft.claimOwners ?? '')}" placeholder="${escape(codePhases[0] && eligibleClauses[0] ? `${codePhases[0]}=${eligibleClauses[0]}` : 'implementation=specification')}"><small>Optional comma-separated code-phase=clause-phase pairs. Inferred when blank.</small></label>
-      <label class="field"><span>Opt-out reason</span><input data-workflow-opt-out-reason value="${escape(draft.optOutReason ?? '')}" placeholder="Why are planned claims inappropriate?"><small>Required only when opting out; the reason is reviewed with the workflow.</small></label>
     </div>` : ''}
     <details class="workflow-simulation" open><summary>Draft simulation · phase contracts</summary>
       <p class="muted">Preview from the currently approved phase catalog; saving runs full engine validation. This does not publish or execute a Story.</p>
@@ -467,7 +465,6 @@ export const DESIGNER_SCRIPT = `
     plannedClaimsMode: document.querySelector('[data-workflow-planned-claims]')?.value,
     clausePhases: value('[data-workflow-clause-phases]'),
     claimOwners: value('[data-workflow-claim-owners]'),
-    optOutReason: value('[data-workflow-opt-out-reason]'),
     reworkLoops: [...document.querySelectorAll('[data-workflow-loop-row]')].map((row) => ({
       from: row.querySelector('[data-loop-from]')?.value ?? '',
       to: row.querySelector('[data-loop-to]')?.value ?? '',

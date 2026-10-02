@@ -60,7 +60,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     '1880cb24e0dbc1ce84677b183dfd672ed7e85ae86e5735a1e8b9f1cb94817f4c'
   ]),
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': Object.freeze([
-    '14b4b8deafa8a5434edd7046e7203e4520792c5951350f9d7a7f5c4b904d7ced'
+    '14b4b8deafa8a5434edd7046e7203e4520792c5951350f9d7a7f5c4b904d7ced',
+    // Before the starter declared the responsibilities its team notes leave undone.
+    '71b39ad32ea3d376bf3a9b45a3f3e6cedea81a1cd95948108635be4aca08c6c5'
   ]),
   'singularity/prompts/copilot-planning.md': Object.freeze([
     'd4a47524fb1563faa4a07d63bec271a0c8e3361689fdf75e1d99ea78851af9b6'
@@ -68,9 +70,18 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/release.md': Object.freeze([
     'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f'
   ]),
-  // Before the chore intake said which files a chore may change.
+  // Before the chore intake said which files a chore may change, and before it became the chore's
+  // scope-and-plan checkpoint.
   'singularity/templates/chore/intake.md': Object.freeze([
-    'd4632690fa411f3926eee1bfd474f5907aae5efdd31313576acdac04e8934441'
+    'd4632690fa411f3926eee1bfd474f5907aae5efdd31313576acdac04e8934441',
+    '3eb548ff9d465a536d6108c59f920f9ea62e1c16112c06561ce7a6c0ff856240'
+  ]),
+  // Before POC Lite declared that it omits scope instead of opting out of planned claims.
+  'singularity/templates/poc-lite/plan.md': Object.freeze([
+    'cac46909b752b8d14cb4bab3399dd9d57da540e5ba443f171b4c1fb4695882c6'
+  ]),
+  'singularity/templates/poc-lite/finalize.md': Object.freeze([
+    '6e46b121db6e48206916719e66b927c19e3db86bb829c661bff89db74e814940'
   ]),
   // Before the plan could list supporting files that change without a clause, and before it said
   // which files may be supporting.
@@ -267,7 +278,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/bugfix/fix-spec.md': 'c1bbc5602eded66e1387f3fa95a835d7bb49f05a2fd813b193c0cada7c420c87',
   'singularity/templates/bugfix/intake.md': 'c0aa89555e400e9c78c782021b1928175607f32ad20773c70fae04b28ced320c',
   'singularity/templates/bugfix/reproduction.md': '083e0361f6ffe9e84905b21558554c8335ab1a036719cb37f104e03f255f3567',
-  'singularity/templates/chore/intake.md': '3eb548ff9d465a536d6108c59f920f9ea62e1c16112c06561ce7a6c0ff856240',
+  'singularity/templates/chore/intake.md': '18db52fe527c00d8520463524acd6c2858d93564883b7d024a648ea5b2a7b457',
   'singularity/templates/classic-delivery/code-checking.md': 'cb2a69e08768ab6d38ef3ee3e4326f47f854ec80d9012362d5765f88f58ecda1',
   'singularity/templates/classic-delivery/intake.md': 'd91d55500e7dbc30a388633bce723623157619bca0bbc9bbaf8e64dfd85308a8',
   'singularity/templates/classic-delivery/testing.md': 'd84b65e54ff4210a7fab6cc1af3a2ea45bbba61fbee383a1ef985f31848ff177',
@@ -339,8 +350,8 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/test-data-inventory.md': '3377bd930d736890c16ecff4c1f1ec81ee83636e609aa61e95d29a5449793419',
   'singularity/templates/initiatives/ux-concept.md': 'd12e90b0412fcf41cf07fec6bcfe8c83d80949fc01fec2973d23a24a62e73b89',
   'singularity/templates/poc-lite/act.md': 'f9c3c015c593a51b7d3fd11ba5ec9fc104eaf00f45e2c78ea50a9b78d061c383',
-  'singularity/templates/poc-lite/finalize.md': '6e46b121db6e48206916719e66b927c19e3db86bb829c661bff89db74e814940',
-  'singularity/templates/poc-lite/plan.md': 'cac46909b752b8d14cb4bab3399dd9d57da540e5ba443f171b4c1fb4695882c6',
+  'singularity/templates/poc-lite/finalize.md': '7e9e55b2d7199199b757780b78c83abcc35c0f9a48b6760e68b106282ef9cc57',
+  'singularity/templates/poc-lite/plan.md': 'b4748d5dca1e0fdef282f9f679c32ed360d5534a975a4361a2e925dfb1beca8e',
   'singularity/templates/poc-lite/verify.md': 'c31624345a1b3803f1cfe267b670e570e1ad1ae3742e88898d123f962b913a58',
   'singularity/templates/poc-workflow/impact-analysis.md': '16b58133b53c74c225f9e0a10b36301678d3ae5cd1a2686f23d1cbe414ec6c93',
   'singularity/templates/poc-workflow/intake.md': '511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d',
@@ -349,6 +360,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/poc-workflow/ui-exploration.md': '14d107cc9778b9e737327e363e84e60975076a7003016d0798e92496ef1d61f5',
   'singularity/templates/poc-workflow/validation.md': 'b1d121afbd49c09538d221cbac60b352a21f7eb7699bc4cba08d35b88ba47fb6',
   'singularity/templates/quick-fix/implement.md': 'dff093133a1be4c93115cfbbb0d994c8ce391fc19279caee30b441ec27a05c0a',
+  'singularity/templates/quick-fix/intake.md': '275f44dee383c77be256be2e070b901d053b1a0a95a2ae92e0c44289c3576983',
   'singularity/templates/quick-fix/verify.md': 'a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27',
   'singularity/templates/spec-code-test-loop/conformance.md': 'b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
   'singularity/templates/spec-code-test-loop/specification.md': '4a487088d8275fc54afcb7932c18a4fb04774e85309b26b3ae72618ce9762bc6',
@@ -358,7 +370,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/release.md': 'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7',
   'singularity/templates/spec-driven/spec.md': '55b0d6c4c9aa5ba19739493825f6c993f03d63bed9e1a5e2bb7d5c099b8b91bb',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
-  'singularity/templates/starter-packs/skp-team-notes/draft-input.json': '71b39ad32ea3d376bf3a9b45a3f3e6cedea81a1cd95948108635be4aca08c6c5'
+  'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'
 });
 
 /** Every exact package revision accepted as framework provenance, keyed by repository path. */

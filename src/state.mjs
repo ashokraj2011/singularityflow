@@ -27,7 +27,7 @@ import {
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
-  WORKFLOW_PATH, assertPlannedClaimsReady, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
+  WORKFLOW_PATH, assertWorkTypeStartable, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
   normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
 import { loadSession } from './session.mjs';
@@ -943,7 +943,7 @@ export async function createWorkflow(root, config, {
     expectedMapSha256: capabilityMapSha256
   });
   assertCapabilitySource(capability, source);
-  const selectedResolution = assertPlannedClaimsReady(resolved ?? resolveWorkType(config, selectedType));
+  const selectedResolution = assertWorkTypeStartable(resolved ?? resolveWorkType(config, selectedType));
   const resolution = applyCapabilityPolicyToWorkResolution(
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability

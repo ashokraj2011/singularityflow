@@ -2043,7 +2043,7 @@ export function assertWorkflowReadinessChanges(previousDefinition, candidateDefi
     if (unchangedLegacy) continue;
     throw new SingularityFlowError(
       `Workflow '${workTypeId}' has a migration-required planned-claim contract and cannot be added or materially changed. `
-      + 'Declare a resolvable required topology, or use an explicit reviewed opt-out with a concrete reason.',
+      + 'Declare a resolvable required topology. A workflow that defines no requirement clauses declares omits for scope instead.',
       {
         code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
         details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null }

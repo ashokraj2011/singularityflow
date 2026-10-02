@@ -70,7 +70,8 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
     '--title', 'Repair a unit test during Testing', '--description', 'Keep source and refresh tests.');
   const item = path.join(root, 'singularity/work-items', workId);
   const workflow = () => readFile(path.join(item, 'workflow.json'), 'utf8').then(JSON.parse);
-  if (workType === 'classic-delivery') {
+  // Both workflows sign off their scope and plan in Intake before any code changes.
+  {
   cli('prepare', 'intake');
   await writeFile(path.join(item, 'artifacts/intake/intake.md'), [
     `# ${workId} — Classic delivery intake`, '',
@@ -84,7 +85,7 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
     '## Initial evidence', '', 'Baseline module and executable test at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
-  cli('clarification', 'record', 'intake', '--question', 'Is value 2 approved?',
+  if (workType === 'classic-delivery') cli('clarification', 'record', 'intake', '--question', 'Is value 2 approved?',
     '--answer', 'Yes; keep the exported interface and test it.');
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'intake');

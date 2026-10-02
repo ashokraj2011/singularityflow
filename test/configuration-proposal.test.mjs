@@ -475,9 +475,9 @@ test('workflow proposals publish from approved configuration without changing th
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'intake,implementation', '--governs', 'story',
-      '--planned-claims', 'opt-out', '--opt-out-reason',
-      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--planned-claims', 'required', '--clause-phases', 'requirements',
+      '--claim-owners', 'implementation=requirements',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -509,16 +509,16 @@ test('workflow proposals publish from approved configuration without changing th
     const proposed = YAML.parse(run('git', [
       '--git-dir', item.remote, 'show', `${result.branch}:singularity/workflow.yml`
     ]).stdout);
-    assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['intake', 'implementation']);
-    assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'opt-out');
+    assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation']);
+    assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'required');
     assert.match(result.nextAction, /Merge .* into sflow\/config.*refresh-configuration/);
 
     const retried = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'intake,implementation', '--governs', 'story',
-      '--planned-claims', 'opt-out', '--opt-out-reason',
-      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--planned-claims', 'required', '--clause-phases', 'requirements',
+      '--claim-owners', 'implementation=requirements',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -660,9 +660,9 @@ test('workflow activation keeps a generic pre-receive refusal pending with its d
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'security-scanned-flow',
       '--label', 'Security scanned flow', '--description', 'A reviewed delivery path.',
-      '--phases', 'intake,implementation', '--governs', 'story',
-      '--planned-claims', 'opt-out', '--opt-out-reason',
-      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--planned-claims', 'required', '--clause-phases', 'requirements',
+      '--claim-owners', 'implementation=requirements',
       '--propose', '--json'
     ], {
       cwd: item.story,
@@ -727,11 +727,12 @@ test('workflow proposal activation rejects a newly added migration-required Stor
     run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
     const workflowPath = path.join(authoring, 'singularity/workflow.yml');
     const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+    // The pre-contract two-step shape: a code step with no specification or planning step before it.
     definition.workTypes['legacy-custom'] = {
-      ...structuredClone(definition.workTypes['quick-fix']),
-      label: 'Legacy custom'
+      label: 'Legacy custom', phases: ['implement', 'verify'],
+      templateOverrides: { implement: 'quick-fix/implement.md', verify: 'quick-fix/verify.md' },
+      phaseOverrides: { verify: { inputs: ['implement'] } }
     };
-    delete definition.workTypes['legacy-custom'].plannedClaims;
     await writeFile(workflowPath, YAML.stringify(definition));
     run('git', ['add', 'singularity/workflow.yml'], { cwd: authoring });
     run('git', ['commit', '-qm', 'propose unresolved legacy workflow'], { cwd: authoring });
@@ -856,9 +857,9 @@ test('workflow proposal publication distinguishes local authorities whose displa
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'exact-authority',
       '--label', 'Exact authority', '--description', 'Publish only to the selected authority.',
-      '--phases', 'intake,implementation', '--governs', 'story',
-      '--planned-claims', 'opt-out', '--opt-out-reason',
-      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--phases', 'requirements,implementation', '--governs', 'story',
+      '--planned-claims', 'required', '--clause-phases', 'requirements',
+      '--claim-owners', 'implementation=requirements',
       '--propose', '--json'
     ], {
       cwd: item.story,

@@ -26,7 +26,7 @@ import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedCo
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { CAPABILITIES_PATH } from '../capabilities.mjs';
 import { resolveLifecycleCapability } from '../capability-context.mjs';
-import { assertPlannedClaimsReady, resolveWorkType } from '../config.mjs';
+import { assertWorkTypeStartable, resolveWorkType } from '../config.mjs';
 import {
   loadStoryConfigurationSnapshot, readConfigurationSource,
   resolveNewStoryConfigurationAuthority
@@ -614,7 +614,7 @@ export async function storyFetchCommand(positionals, options) {
     if (!config.workTypes?.[workType]) {
       throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
     }
-    const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+    const resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
     const readinessBase = seed.story.baseCommit;
     const readinessRequired = config.repositoryReadiness?.requiredBeforeStory === true
       || config.initialization?.proof?.preStory?.requiredBeforeStory === true;

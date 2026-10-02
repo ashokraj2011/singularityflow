@@ -1699,13 +1699,14 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
       problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: String(error.message).replace(/^Change was not saved because configuration validation failed: /, '') });
     }
   }
+  const obligationWarnings = problems.length ? [] : obligationFindings(files, [...candidate.workflows.keys()]);
   const plan = {
     schemaVersion: 1,
     resultType: 'workflow-studio-plan',
     valid: problems.length === 0,
     changed: files.length > 0,
     problems,
-    warnings: problems.length ? [] : candidate.warnings(),
+    warnings: problems.length ? [] : [...candidate.warnings(), ...obligationWarnings],
     summary: candidate.summary,
     files: files.map((file) => ({
       path: file.path,
@@ -1724,6 +1725,32 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     await writeFile(target, file.after);
   }
   return { ...plan, path: WORKFLOW_PATH, written: files.map((file) => file.path) };
+}
+
+/**
+ * What every route of each edited workflow guarantees. A draft may be saved while its routes still
+ * drop a responsibility, so the author can finish it later; Story start refuses it until then, and
+ * the plan says so as a warning.
+ */
+function obligationFindings(files, touched) {
+  const file = files.find((entry) => entry.path === WORKFLOW_PATH && entry.after != null);
+  if (!file || !touched.length) return [];
+  let definition;
+  try { definition = validateDefinition(YAML.parse(asText(file.after))); } catch { return []; }
+  const warnings = [];
+  for (const id of touched) {
+    if (!definition.workTypes?.[id]) continue;
+    let compiled;
+    try { compiled = resolveWorkType(definition, id).obligationGraph; } catch { continue; }
+    for (const entry of compiled?.findings ?? []) {
+      warnings.push({
+        code: entry.code,
+        message: entry.severity === 'error' ? `Stories cannot start from this workflow yet: ${entry.message}` : entry.message,
+        resolvingAction: entry.resolvingAction, subject: { kind: 'workflow', id }
+      });
+    }
+  }
+  return warnings;
 }
 
 async function validateStudioCandidate(sources, files) {

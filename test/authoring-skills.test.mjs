@@ -270,6 +270,7 @@ async function storyRepository(configure = () => {}) {
   config.phases.intake.authoringSkill = 'sf-phase';
   config.workTypes['authoring-demo'] = {
     label: 'Authoring demo', phases: ['intake', 'design'],
+    omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'Authoring fixture of two document steps that changes no repository code.', authority: 'product-approvers' })),
     phaseOverrides: { design: { inputs: ['intake'] } }
   };
   await configure(config, root);
@@ -358,6 +359,7 @@ test('a new step that chose /sf-design is offered it by the engine once the step
     };
     config.workTypes['authoring-demo'] = {
       label: 'Authoring demo', phases: ['intake', 'vendor-analysis'],
+      omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'Authoring fixture of two document steps that changes no repository code.', authority: 'product-approvers' })),
       phaseOverrides: { 'vendor-analysis': { inputs: ['intake'] } }
     };
     // The architect drafts the new step, as Workflow Studio records it in the agent's own file.

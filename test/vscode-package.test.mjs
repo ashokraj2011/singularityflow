@@ -173,6 +173,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     mkdir(path.join(repository, 'bin'), { recursive: true }),
     mkdir(path.join(repository, 'src'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'revision'), { recursive: true }),
+    mkdir(path.join(repository, 'src', 'evidence'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'world-model', 'history'), { recursive: true }),
     mkdir(path.join(repository, 'schemas'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'agents'), { recursive: true }),
@@ -233,6 +234,14 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'mcp-import.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'mcp-descriptor.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'authoring-skills.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'command.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'evaluate.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'graph.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'labels.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'matrix.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'obligation-compiler.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'responsibilities.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'vocabulary.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
     ), '// fixture\n'),
@@ -311,6 +320,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/mcp-import.mjs',
     'src/mcp-descriptor.mjs',
     'src/authoring-skills.mjs',
+    ...['command', 'evaluate', 'graph', 'labels', 'matrix', 'obligation-compiler', 'responsibilities', 'vocabulary']
+      .map((name) => `src/evidence/${name}.mjs`),
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',

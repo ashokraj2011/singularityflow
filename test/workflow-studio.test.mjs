@@ -70,6 +70,9 @@ test('a workflow, a new step and its new agent land together, and a dry run writ
   ], model.base);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  // An analysis-only draft saves, and says plainly why no Story can start from it yet.
+  assert.ok(plan.warnings.some((warning) => warning.code === 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY'
+    && /^Stories cannot start from this workflow yet: /.test(warning.message)), JSON.stringify(plan.warnings));
   assert.deepEqual(plan.files.map((entry) => [entry.path, entry.action]).sort(), [
     ['.github/agents/vendor-analyst.agent.md', 'create'],
     ['singularity/templates/common/vendor-analysis.md', 'create'],
@@ -90,7 +93,9 @@ test('a workflow, a new step and its new agent land together, and a dry run writ
   const created = after.workflows.find((workflow) => workflow.id === 'vendor-assessment');
   assert.deepEqual(created.steps.map((step) => [step.id, step.agent, step.output]), [['intake', 'product-owner', 'document'], ['vendor-analysis', 'vendor-analyst', 'analysis']]);
   assert.deepEqual(created.steps[1].inputs, ['intake']);
-  flow(root, ['workflow', 'validate', 'vendor-assessment']);
+  const validation = flow(root, ['workflow', 'validate', 'vendor-assessment'], { allowFailure: true });
+  assert.equal(validation.status, 1, 'a workflow whose route drops responsibilities is not valid for new Stories');
+  assert.match(validation.stdout, /finishing after 'vendor-analysis' ends the Story without defined requirements \(scope\), a plan, implementation and verification/);
 });
 
 test('moving a step to another agent changes both agents in one valid change', async () => {
@@ -152,13 +157,15 @@ test('a packaged blueprint that is not installed comes in with its steps, templa
   assert.ok(plan.summary.some((line) => /^Installed blueprint Quick fix: /.test(line)));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const model = json(root, ['workflow', 'studio']);
-  assert.deepEqual(model.workflows.find((workflow) => workflow.id === 'quick-fix').steps.map((step) => step.agent), ['developer', 'qa']);
+  assert.deepEqual(model.workflows.find((workflow) => workflow.id === 'quick-fix').steps.map((step) => step.agent), ['product-owner', 'developer', 'qa']);
 });
 
 /** A workflow whose design step reads requirements only when a branch did not skip them. */
 function decisionDemo(document) {
   document.setIn(['workTypes', 'decide-demo'], document.createNode({
     label: 'Decision demo', phases: ['intake', 'requirements', 'design', 'implementation-spec'],
+    // It plans a change and stops before any code, so it declares what it leaves undone.
+    omits: ['implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'Decision demo plans a change and stops before any code is written.', authority: 'architecture-reviewers' })),
     phaseOverrides: {
       requirements: { inputs: ['intake'] },
       design: { inputs: ['intake', { phase: 'requirements', optional: true }] },

@@ -154,12 +154,12 @@ means something else — the walkthrough of one existing work item.
 
 This is one typed command and one interaction. It prints its temporary sandbox
 boundary, initializes a toy Git repository, starts the built-in `quick-fix`
-workflow, changes one file, and completes its deterministic Implement and Verify
-phases. Network access and model invocation are both disabled. Successful runs
+workflow, signs off its scope-and-plan intake, changes one module, and completes
+its deterministic Implement and Verify phases. Network access and model invocation are both disabled. Successful runs
 are removed unless `--keep` is present; failed runs remain with `failure.json`.
 
-The quick-fix policy is deliberately narrow. Implement has explicit approval
-mode `none`. Verify records a deterministic policy waiver—not a human approval—
+The quick-fix policy is deliberately narrow. Its intake, the scope and plan, needs
+one engineer's approval. Implement has explicit approval mode `none`. Verify records a deterministic policy waiver—not a human approval—
 only for a declared low-risk, single-repository, bounded change that touches no
 protected path or semantic boundary and whose checks pass. Every other case waits
 for the configured human authority.
@@ -3053,7 +3053,9 @@ captured package. Current limits are 256 files, 256 KiB for `SKILL.md`, 1 MiB pe
 packages, and capture drift.
 
 `workflow validate [TYPE]` proves every code phase has an authoritative clause source and an earlier
-reviewed planned-claim owner, or reports a deliberate opt-out/non-code contract. The same validation
+reviewed planned-claim owner, and that every route guarantees scope, plan, implementation,
+verification and review or declares what it omits (`omits`, with a reason and the approval group
+that records why it does not apply); it reports each route that falls short. The same validation
 runs before workflow authoring writes configuration, so a future code workflow cannot silently omit
 the plan-to-test boundary. `workflow add` copies the profile plus missing Markdown templates/agent
 prompts and validates the resulting YAML. Customized profiles are never overwritten unless
@@ -3063,8 +3065,8 @@ items keep their immutable resolution snapshots.
 Older organization-authored workflows remain readable and are reported as `migration-required`,
 but cannot start new Stories until reviewed. Migrate one with `workflow edit <ID>
 --planned-claims required --clause-phases <phase,...> --claim-owners <code=owner,...> --propose`,
-or record a deliberate exception with `--planned-claims opt-out --opt-out-reason "<concrete reviewed
-reason>"`. Use `--planned-claims auto` to re-infer and pin a valid topology after changing phases.
+or give a short workflow a scope-and-plan checkpoint step; opting out of planned claims is retired.
+Use `--planned-claims auto` to re-infer and pin a valid topology after changing phases.
 
 Workflow Designer saves and `workflow ... --propose` author from the approved `sflow/config`
 revision in a disposable checkout and push one `sflow/config-change/workflow/...` review branch.

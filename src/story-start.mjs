@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {
-  assertPlannedClaimsReady, loadDefinition, resolveWorkType
+  assertWorkTypeStartable, loadDefinition, resolveWorkType
 } from './config.mjs';
 import {
   assertClean,
@@ -413,7 +413,7 @@ export async function startStory(root, {
     const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
       capabilityId: selectedCapabilityId
     });
-    const resolvedStartWorkType = assertPlannedClaimsReady(resolveWorkType(initialDefinition, workType));
+    const resolvedStartWorkType = assertWorkTypeStartable(resolveWorkType(initialDefinition, workType));
     const resolvedDocumentPolicy = resolvedStartWorkType.documents ?? initialDefinition.documents ?? {};
     const capabilityPolicy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
       ? resolveEffectiveCapabilityPolicy(
@@ -597,7 +597,7 @@ export async function startStory(root, {
         validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
           capabilityId: selectedCapabilityId
         });
-        assertPlannedClaimsReady(resolveWorkType(initialDefinition, workType));
+        assertWorkTypeStartable(resolveWorkType(initialDefinition, workType));
         startReadiness = inspectStoryStartReadiness({
           workId: id,
           definition: initialDefinition,
@@ -706,7 +706,7 @@ export async function startStory(root, {
   const definition = await loadDefinition(root);
   validateId(definition, id);
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
-  const resolved = assertPlannedClaimsReady(resolveWorkType(definition, workType));
+  const resolved = assertWorkTypeStartable(resolveWorkType(definition, workType));
   if (!existed) {
     const selectedScope = requiredRepositoryReadinessScope(definition);
     if (selectedScope !== repositoryReadinessScope) {

@@ -19,7 +19,8 @@ test('end-to-end-under-budget', async () => {
     assert.equal(result.typedCommandCount, 1);
     assert.match(await readFile(path.join(result.repository, 'tests/greeting.test.mjs'), 'utf8'), /@ac:TOY-001:AC-001/);
     assert.match(result.finalStateSha256, /^[0-9a-f]{64}$/);
-    assert.equal(result.steps.length, 10);
+    // Precheck plan and run, start, the five-command scope-and-plan intake, then implement and verify.
+    assert.equal(result.steps.length, 15);
     const preview = result.steps[0];
     const executed = result.steps[1];
     const plan = JSON.parse(preview.rawOutput).data.plan;
@@ -51,7 +52,8 @@ test('end-to-end-under-budget', async () => {
       'singularity/work-items/TOY-001/workflow.json'
     ), 'utf8'));
     assert.equal(workflow.status, 'complete');
-    assert.deepEqual(workflow.phaseOrder, ['implement', 'verify']);
+    assert.deepEqual(workflow.phaseOrder, ['intake', 'implement', 'verify']);
+    assert.equal(workflow.phases.intake.approvalPolicy.mode, 'required', 'a person signs off the scope and plan');
     assert.equal(workflow.phases.implement.approvalPolicy.mode, 'none');
     assert.equal(workflow.phases.verify.approvalPolicy.mode, 'policy');
     const waiver = workflow.history.find((entry) => entry.event === 'phase-approval-waived');
@@ -65,8 +67,8 @@ test('end-to-end-under-budget', async () => {
     )));
     assert.deepEqual(
       packets.map((packet) => [packet.phase, packet.status]),
-      [['implement', 'complete_no_review'], ['verify', 'policy_waived']],
-      'review packets distinguish deterministic completion from a policy waiver'
+      [['intake', 'awaiting_review'], ['implement', 'complete_no_review'], ['verify', 'policy_waived']],
+      'review packets distinguish a reviewed scope, deterministic completion and a policy waiver'
     );
   } finally {
     await rm(boundary, { recursive: true, force: true });

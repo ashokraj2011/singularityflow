@@ -52,6 +52,7 @@ async function fixture(t, id, { code = false, minimum = 1 } = {}) {
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes['rework-regression'] = {
     ...config.workTypes['poc-lite'], phases: [producer, final],
+    omits: ['scope', 'plan', 'implement'].map((responsibility) => ({ responsibility, reason: 'Rework regression fixture that runs two steps of POC Lite and nothing else.', authority: 'quality-reviewers' })),
     templateOverrides: { [producer]: code ? 'poc-lite/act.md' : 'poc-lite/verify.md', [final]: 'poc-lite/finalize.md' },
     phaseOverrides: {
       [producer]: { inputs: [] },
@@ -248,6 +249,7 @@ test('governed repairs and later Code publications are not stale evidence; out-o
   const order = ['poc-lite-act', 'test-repair', verify, 'act-two', final];
   config.workTypes['governed-chain'] = {
     ...config.workTypes['poc-lite'], label: 'Governed chain', phases: order,
+    omits: ['scope', 'plan'].map((responsibility) => ({ responsibility, reason: 'Governed chain fixture of code and test steps with no specification or plan step.', authority: 'quality-reviewers' })),
     templateOverrides: { 'poc-lite-act': 'poc-lite/act.md', 'test-repair': 'poc-lite/verify.md', [verify]: 'poc-lite/verify.md',
       'act-two': 'poc-lite/act.md', [final]: 'poc-lite/finalize.md' },
     phaseOverrides: Object.fromEntries(order.map((id) => [id, id === final

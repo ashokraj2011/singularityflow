@@ -56,7 +56,7 @@ async function repository(base, name, { risk = false } = {}) {
   definition.testRecovery = risk ? { enabled: true, riskAuthorities: ['risk-reviewers'],
     enabledRiskCategories: ['validation-unavailable'], allowEvidenceReuse: false, maxRiskDays: 7 } : { enabled: true };
   definition.workTypes.feature = { label: 'TRP UI Feature', phases: ['implementation'],
-    plannedClaims: { mode: 'opt-out', reason: 'Disposable UI fixture with no specification phase.' }, spec: { acceptance: 'off' } };
+    omits: ['scope', 'plan', 'review'].map((responsibility) => ({ responsibility, reason: 'Disposable UI fixture with no specification, plan or review step.', authority: 'engineering-reviewers' })), spec: { acceptance: 'off' } };
   Object.assign(definition.phases.implementation, { inputs: [], clarification: { mode: 'off' },
     qualityCommands: [{ id: 'ui-required-test', kind: 'test', argv: [path.join(root, 'tools/missing-test-runtime')],
       workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',

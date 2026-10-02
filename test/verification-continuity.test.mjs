@@ -55,17 +55,17 @@ test('first-run completion has replayable authority and verification cannot repl
     await writeFile(path.join(root, 'README.md'), '# Review notes\nThe existing executable test covers the greeting.\n');
     assert.equal((await guard()).sourcePhase, 'implement');
     git('add', 'README.md'); git('commit', '-m', 'Add review notes');
-    const file = path.join(root, 'greeting.txt');
+    const file = path.join(root, 'greeting.mjs');
     const approved = await readFile(file, 'utf8');
     await writeFile(file, 'Incorrect untested greeting.\n');
     const refuses = (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
-      && error.details.changedPaths.includes('greeting.txt');
+      && error.details.changedPaths.includes('greeting.mjs');
     await assert.rejects(guard, refuses);
-    git('add', 'greeting.txt');
+    git('add', 'greeting.mjs');
     await assert.rejects(guard, refuses);
     git('commit', '-m', 'Commit an untested source change');
     await assert.rejects(guard, refuses);
-    await writeFile(file, approved); git('add', 'greeting.txt'); git('commit', '-m', 'Restore the tested source');
+    await writeFile(file, approved); git('add', 'greeting.mjs'); git('commit', '-m', 'Restore the tested source');
     assert.equal((await guard()).sourcePhase, 'implement');
   });
 
@@ -75,12 +75,12 @@ test('first-run completion has replayable authority and verification cannot repl
     await assert.rejects(guard, (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
       && error.details.changedPaths.includes('tests/new.test.mjs'));
     await rm(newTest);
-    await rename(path.join(root, 'greeting.txt'), path.join(root, 'NOTICE.txt'));
-    git('add', 'greeting.txt', 'NOTICE.txt');
+    await rename(path.join(root, 'greeting.mjs'), path.join(root, 'NOTICE.txt'));
+    git('add', 'greeting.mjs', 'NOTICE.txt');
     await assert.rejects(guard, (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
-      && error.details.changedPaths.includes('greeting.txt'));
-    await rename(path.join(root, 'NOTICE.txt'), path.join(root, 'greeting.txt'));
-    git('add', 'greeting.txt', 'NOTICE.txt');
+      && error.details.changedPaths.includes('greeting.mjs'));
+    await rename(path.join(root, 'NOTICE.txt'), path.join(root, 'greeting.mjs'));
+    git('add', 'greeting.mjs', 'NOTICE.txt');
   });
 
   await t.test('a review confined to test automation repairs its own tests but never product source', async () => {
@@ -102,12 +102,12 @@ test('first-run completion has replayable authority and verification cannot repl
       const reading = structuredClone(repairing);
       reading.phases.verify.writeScope = 'artifact-only';
       await assert.rejects(() => own(reading), (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE');
-      const greeting = path.join(root, 'greeting.txt');
+      const greeting = path.join(root, 'greeting.mjs');
       const approved = await readFile(greeting, 'utf8');
       await writeFile(greeting, 'Untested greeting.\n');
       try {
         await assert.rejects(() => own(repairing), (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
-          && JSON.stringify(error.details.changedPaths) === '["greeting.txt"]'
+          && JSON.stringify(error.details.changedPaths) === '["greeting.mjs"]'
           && /reject verify --to implement --repair/.test(error.details.repairCommand));
       } finally { await writeFile(greeting, approved); }
     } finally { await writeFile(testFile, tested); }
@@ -115,7 +115,7 @@ test('first-run completion has replayable authority and verification cannot repl
 
   await t.test('the pinned input proof replaces only the replay of its own submission', async () => {
     const entry = workflow.lineage.submissions.findLast((candidate) => candidate.phase === 'implement');
-    const greeting = path.join(root, 'greeting.txt');
+    const greeting = path.join(root, 'greeting.mjs');
     const approved = await readFile(greeting, 'utf8');
     const proof = { applicationTreeTested: true, sourcePhase: 'implement', packetSha256: entry.packetSha256, evidenceCommit: 'proven' };
     const fresh = (verifiedCodeInput) => assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
@@ -199,7 +199,7 @@ async function quickFixStory(t, id, { configure = () => {} } = {}) {
   const git = (...args) => execute('git', args).stdout.trim();
   const flow = (args, allowFailure = false) => execute(process.execPath, [bin, ...args, '--no-model'], allowFailure);
   const source = async (value, { tagged = true } = {}) => {
-    await writeFile(path.join(root, 'src/value.mjs'), `export const value = ${value};\n`);
+    await writeFile(path.join(root, 'src/value.mjs'), `${tagged ? `// @clause:${id}:AC-001\n` : ''}export const value = ${value};\n`);
     await writeFile(path.join(root, 'tests/value.test.mjs'), [
       "import test from 'node:test';", "import assert from 'node:assert/strict';", "import { value } from '../src/value.mjs';",
       ...(tagged ? [`/** @ac:${id}:AC-001 */`] : []), `test('exact value', () => assert.equal(value, ${value}));`, ''
@@ -228,11 +228,26 @@ async function quickFixStory(t, id, { configure = () => {} } = {}) {
     desiredOutcome: 'The value changes exactly.', acceptanceCriteria: ['The value is exact.'], risk: 'low', repositoryCount: 1
   }));
   flow(['start', id, '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer']);
+  // Quick fix signs off its scope and plan before any code changes.
+  flow(['prepare', 'intake']);
+  await writeFile(path.join(root, 'singularity/work-items', id, 'artifacts/intake/intake.md'), [
+    `# ${id} — Quick fix scope and plan`, '', '## Problem and fix', '', 'The exported value must change to the approved number.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|',
+    `| [${id}:AC-001] | The exported value equals the approved number. |`, '',
+    '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests |', '|---|---|---|',
+    `| \`${id}:AC-001\` | \`src/value.mjs\` | \`tests/value.test.mjs\` |`, '',
+    '## Out of scope', '', 'Nothing but the exported value and its test changes.', ''
+  ].join('\n'));
+  flow(['wm', 'compose', '--phase', 'intake']);
+  flow(['phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place']);
+  flow(['submit', 'intake']);
+  flow(['approve', 'intake', '--yes']);
   const file = path.join(root, 'singularity/work-items', id, 'workflow.json');
   const state = async () => JSON.parse(await readFile(file, 'utf8'));
   const publish = (phase) => { flow(['prepare', phase]); flow(['phase', 'publish', phase, '--authored', 'deterministic']); };
   const complete = async (value) => {
-    await source(value); publish('implement'); flow(['submit', 'implement']);
+    flow(['prepare', 'implement']); await source(value);
+    flow(['phase', 'publish', 'implement', '--authored', 'deterministic']); flow(['submit', 'implement']);
     publish('verify'); return flow(['submit', 'verify']);
   };
   return { root, file, flow, state, publish, source, complete };

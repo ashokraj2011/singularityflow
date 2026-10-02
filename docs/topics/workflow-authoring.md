@@ -26,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 39
+version: 40
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1016,9 +1016,10 @@ singularity-flow workflow validate customer-onboarding --json
 ```
 
 The validator runs during configuration load and every Workflow Designer/CLI save as well. A future
-workflow cannot silently reach implementation with no clause source or planning owner. A deliberately
-short code workflow must declare `plannedClaims.mode: opt-out` with a concrete reviewable reason;
-non-code workflows are reported as not applicable. New Stories pin the resolved contract, while
+workflow cannot silently reach implementation with no clause source or planning owner, and every route
+must guarantee the responsibilities a Story owes or declare what it omits (see Responsibilities every
+route owes below). Opting out of planned claims is retired; non-code workflows are reported as not
+applicable. New Stories pin the resolved contract, while
 historical Stories without that field keep their original policy.
 
 Newly authored/imported workflow definitions normalize
@@ -1035,8 +1036,8 @@ object as a deletion witness, not a fictitious comment in a removed file. Bare
 The terminal conformance/release gate requires one exact qualified row per
 authoritative clause, with a real verdict rather than a combined display label.
 Tags establish traceable locations, not behavioral correctness; test execution
-and human review remain separate. Reviewed test-only, non-code, or
-planned-claims opt-outs do not acquire a product-source tag obligation.
+and human review remain separate. Reviewed test-only and non-code
+work, and work types that omit scope, do not acquire a product-source tag obligation.
 
 These settings are pinned when a Story starts. Existing published or active
 Stories retain their prior `sourceBindings: off` / `conformanceRows: legacy`
@@ -1057,9 +1058,34 @@ singularity-flow workflow edit customer-onboarding \
   --propose
 ```
 
-For a deliberately short, low-risk workflow with no specification phase, use
-`--planned-claims opt-out --opt-out-reason "<concrete reviewed reason>"`. Use
+A short workflow gets a scope-and-plan checkpoint step instead, as quick-fix's intake does. Use
 `--planned-claims auto` after changing phases to re-infer and pin a valid required topology.
+
+### Responsibilities every route owes
+
+Every way a Story can end must have defined its requirements (scope), planned the change (plan),
+implemented it, verified it and had it reviewed. A step's responsibilities come from its structure,
+never its name: a clause-defining artifact means scope; the planned-claims owner or a delivery plan
+means plan; a code step or any source write means implement; test evidence (a code step runs its
+tests) means verify; and an approval requirement means review. `workflow validate`, Workflow Studio
+and Story start compile every route (the natural order, each decision route and each send-back
+rule), and Story start refuses a workflow whose route would end without one. Studio still saves such
+a draft and says why Stories cannot start from it yet.
+
+A workflow that genuinely leaves a responsibility undone declares it, with a reason and the approval
+group that must record why it does not apply to a given Story:
+
+```yaml
+workTypes:
+  poc-lite:
+    omits:
+      - responsibility: scope
+        reason: POC Lite demonstrates the governed lifecycle on one bounded local change and defines no requirement clauses.
+        authority: quality-reviewers
+```
+
+`omits` on a work type covers its natural end; a decision route may declare its own. An omission a
+route does not need is reported, and so is a route that only automatic policy approvals review.
 
 ## Guided workflow
 

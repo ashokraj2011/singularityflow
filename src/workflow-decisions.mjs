@@ -33,7 +33,7 @@ const LIMITS = Object.freeze({ routes: 10, inputs: 10, values: 20, label: 120, v
 const NUMBER_TESTS = Object.freeze(['atLeast', 'atMost', 'above', 'below']);
 const ENTRY_KEYS = Object.freeze(['id', 'after', 'kind', 'label', 'inputs', 'routes', 'goal', 'back', 'maxRounds', 'by', 'anyStep']);
 const INPUT_KEYS = Object.freeze(['name', 'label', 'type', 'values', 'minimum', 'maximum']);
-const ROUTE_KEYS = Object.freeze(['id', 'label', 'when', 'to']);
+const ROUTE_KEYS = Object.freeze(['id', 'label', 'when', 'to', 'omits']);
 
 function invalid(message) {
   return new SingularityFlowError(message, { code: 'WORKFLOW_DECISION_INVALID' });
@@ -199,7 +199,10 @@ function normalizeRoutes(value, { where, kind, inputs, order }) {
     } else {
       when = normalizeWhen(route.when, inputs, `${label}.when`, { required: true });
     }
-    return { id: route.id, label: display, when, to: route.to };
+    // A route may declare the responsibilities it leaves undone; the obligation compiler checks each
+    // one and a Story taking the route needs an applicability decision for it.
+    if (route.omits !== undefined && !Array.isArray(route.omits)) throw invalid(`${label}.omits must be a list.`);
+    return { id: route.id, label: display, when, to: route.to, ...(route.omits !== undefined ? { omits: structuredClone(route.omits) } : {}) };
   });
 }
 
@@ -246,14 +249,17 @@ function assertRouteKeepsDependencies(where, route, reach, { order, byId, planne
     }
     // The other direction: a route must not leave requirements a person already accepted, or claims
     // already planned, with no code phase to meet them. An `end` route reaches nothing, so without
-    // this it could finish a Story whose requirements were never implemented.
-    for (const codeId of reach.skipped.filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)))) {
+    // this it could finish a Story whose requirements were never implemented. A route that declares
+    // it omits implementation says so explicitly; the obligation compiler checks that declaration
+    // and the Story needs an applicability decision before it can finish that way.
+    const omitsImplementation = Array.isArray(route.omits) && route.omits.some((entry) => entry?.responsibility === 'implement');
+    for (const codeId of omitsImplementation ? [] : reach.skipped.filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)))) {
       const owner = plannedClaims.owners?.[codeId];
       if (owner && !skipped.has(owner)) {
         throw invalid(`${where} route '${route.id}' skips '${codeId}', which must meet the claims '${owner}' plans. A Story taking this route would finish with those claims unimplemented: route to '${codeId}' or an earlier phase instead.`);
       }
     }
-    for (const clausePhase of plannedClaims.clausePhases ?? []) {
+    for (const clausePhase of omitsImplementation ? [] : plannedClaims.clausePhases ?? []) {
       if (skipped.has(clausePhase) || !order.includes(clausePhase)) continue;
       const laterCode = order.slice(order.indexOf(clausePhase) + 1).filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)));
       if (laterCode.length && laterCode.every((phaseId) => skipped.has(phaseId))) {

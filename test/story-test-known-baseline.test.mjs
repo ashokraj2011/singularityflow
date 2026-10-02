@@ -95,7 +95,7 @@ async function fixture(t, { phaseOverride = false, storyBranch = true, requiredD
       tests: [{ id: 'existing-contract', path: 'test/service.test.mjs', name: 'existing contract' },
         { id: 'service-smoke', path: 'test/service.test.mjs', name: 'service smoke' }] }] };
   definition.workTypes.feature = { label: 'Feature', phases: ['implementation'],
-    plannedClaims: { mode: 'opt-out', reason: 'Isolated baseline acceptance fixture without a specification phase.' }, spec: { acceptance: 'off' } };
+    omits: ['scope', 'plan', 'review'].map((responsibility) => ({ responsibility, reason: 'Isolated baseline acceptance fixture without a specification, plan or review step.', authority: 'engineering-reviewers' })), spec: { acceptance: 'off' } };
   Object.assign(definition.phases.implementation, { inputs: [], clarification: { mode: 'off' },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
     qualityCommands: [{ id: '.-baseline-tests', kind: 'test',

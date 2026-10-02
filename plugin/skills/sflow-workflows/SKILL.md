@@ -33,7 +33,7 @@ Install: preview first; no unconfirmed `--replace` or auto-commit.
 
 BYO: `singularity-flow workflow skills-recipe <NEW-ID> --label <TEXT>
 --phases <APPROVED-PHASE-IDS> --json`; requires `--planned-claims required
---clause-phases <CRITERIA> --claim-owners <CODE=PLAN>`. Never infer opt-out or execution.
+--clause-phases <CRITERIA> --claim-owners <CODE=PLAN>`. Never invent omissions or execution.
 Proposals need separate authorization.
 
 `singularity-flow workflow export --workflow <ID> [--workflow <ID>...] --out <FILE> --json`.

@@ -8,6 +8,7 @@ import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { approvedStoryApprovalAuthorities, resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { isTestQualityCommand, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
+import { pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { exactFileAtObject, head, identity } from './git.mjs';
 import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -62,6 +63,8 @@ export function testCommandAmendmentPolicy(workflow, candidateResolution, candid
   // Creation captures a few capability-tightened projections; reproduce those
   // transformations without treating Story-specific provenance as source policy.
   const candidateGlobals = structuredClone(candidateResolution);
+  // A Story pins the obligation graph without the catalog's findings; compare like with like.
+  if (candidateGlobals.obligationGraph) candidateGlobals.obligationGraph = pinnedObligationGraph(candidateGlobals.obligationGraph);
   const retained = workflow.resolution;
   const capability = retained.capability;
   if (Object.hasOwn(candidateGlobals, 'worldModelGrounding')) candidateGlobals.worldModelGrounding = candidateGlobals.intelligence?.worldModel === 'off'

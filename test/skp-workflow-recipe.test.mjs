@@ -238,6 +238,11 @@ test('non-code recipe marks code conformance not applicable while artifact/check
   const value = await fixture();
   value.phases = ['team-criteria'];
   delete value.workflow.plannedClaims;
+  // A recipe that writes no code must say so, with the group that records why that does not apply.
+  assert.throws(() => previewSkillWorkflowRecipe(value), { code: 'WORKFLOW_OBLIGATIONS_UNMET' });
+  value.workflow.omits = ['implement', 'verify'].map((responsibility) => ({
+    responsibility, reason: 'The team delivers reviewed criteria documents and changes no repository code.', authority: 'product-approvers'
+  }));
   const preview = previewSkillWorkflowRecipe(value);
   assert.equal(preview.plannedClaims.mode, 'disabled');
   assert.equal(preview.plannedClaims.disabledBecause, 'no-code-delivery-phases');

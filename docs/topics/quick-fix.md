@@ -10,9 +10,9 @@ related:
   - waivers
   - escalation
   - work-intervals
-version: 2
+version: 3
 ---
-`sflow start FIX-88 --work-type quick-fix` runs a two-phase rail (implement · verify) with no generated design requirement and waiver eligibility below a deterministic risk threshold. Ceremony scales with stakes automatically: a typo fix meets two steps; the same quick fix touching a protected path loses its waiver and meets a human — and work that outgrows the rail escalates with everything preserved. The system right-sizes; you don't negotiate.
+`sflow start FIX-88 --work-type quick-fix` runs a three-step rail (scope and plan · implement · verify) with no generated design requirement and waiver eligibility below a deterministic risk threshold. Even a short fix states what it must do and where it lands before code changes: its intake lists the acceptance criteria and the planned paths and tests, and one engineer signs that scope and plan off. Implement must then meet exactly those claims. Ceremony still scales with stakes: a typo fix meets one short sign-off; the same quick fix touching a protected path loses its verify waiver and meets a human — and work that outgrows the rail escalates with everything preserved.
 
 ## Purpose and prerequisites
 

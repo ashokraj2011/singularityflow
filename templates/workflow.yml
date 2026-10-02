@@ -559,6 +559,9 @@ workTypes:
     templateOverrides:
       intake: chore/intake.md
     phaseOverrides:
+      # The intake is the scope-and-plan checkpoint: maintenance outcomes and the supporting files
+      # that deliver them, signed off before anything changes.
+      intake: { artifact: { kind: requirements } }
       # Chores may deliver an operational/configuration change with no product code. Keep the
       # shared implementation artifact but do not misclassify this work type as code generation.
       implementation: { inputs: [intake], generation: { task: analyze } }
@@ -613,15 +616,25 @@ workTypes:
       documentPhase: hard
   quick-fix:
     label: Quick fix
-    phases: [implement, verify]
+    # Even a short code change states what it must do and where it lands before code changes: its
+    # intake is the scope-and-plan checkpoint one engineer signs off.
+    phases: [intake, implement, verify]
     plannedClaims:
-      mode: opt-out
-      reason: This low-risk two-phase profile intentionally has no approved pre-code specification phase.
+      mode: required
+      clausePhases: [intake]
+      owners: { implement: intake }
     templateOverrides:
+      intake: quick-fix/intake.md
       implement: quick-fix/implement.md
       verify: quick-fix/verify.md
     phaseOverrides:
-      verify: { inputs: [implement] }
+      intake:
+        label: Scope and plan
+        artifact: { kind: requirements }
+        clarification: { mode: when-needed, maxQuestions: 3, topics: [acceptance criteria, changed paths, tests] }
+        approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [intake] }
+      implement: { inputs: [intake] }
+      verify: { inputs: [intake, implement] }
 
   classic-delivery:
     label: Classic delivery
@@ -707,9 +720,12 @@ workTypes:
     label: POC Lite — local governed change
     description: A model-free four-checkpoint demonstration with repository-native validation and one explicit human finish decision; it imposes no MCP, tracker, or hosted-service dependency.
     phases: [poc-lite-plan, poc-lite-act, poc-lite-verify, poc-lite-finalize]
-    plannedClaims:
-      mode: opt-out
-      reason: This deliberately small demonstration records a bounded plan but does not establish a specification-clause contract.
+    # A model-free demonstration defines no requirement clauses, so it omits scope; the final reviewer
+    # records why scope does not apply before the Story finishes.
+    omits:
+      - responsibility: scope
+        reason: POC Lite demonstrates the governed lifecycle on one bounded local change and defines no requirement clauses.
+        authority: quality-reviewers
     intelligence: { worldModel: off, ast: off, agentBriefs: off }
     templateOverrides:
       poc-lite-plan: poc-lite/plan.md

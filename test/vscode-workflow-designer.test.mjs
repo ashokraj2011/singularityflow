@@ -209,7 +209,7 @@ test('Designer host sends explicit governed CLI policy flags and checks eligibil
   assert.match(code, /command\.push\('--planned-claims', draft\.plannedClaimsMode/);
   assert.match(code, /command\.push\('--clause-phases'/);
   assert.match(code, /command\.push\('--claim-owners'/);
-  assert.match(code, /command\.push\('--opt-out-reason'/);
+  assert.doesNotMatch(code, /--opt-out-reason|'opt-out'/, 'opting out of planned claims is retired, so the designer never offers it');
   assert.match(code, /Eligible phases in this workflow/);
   assert.match(code, /command\.push\('--task', this\.phaseDraft\.task/);
   assert.match(code, /'--authorities'/);

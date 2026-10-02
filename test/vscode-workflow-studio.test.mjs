@@ -47,6 +47,8 @@ async function repository({ edit = null } = {}) {
 function decisionDemo(document) {
   document.setIn(['workTypes', 'decide-demo'], document.createNode({
     label: 'Decision demo', phases: ['intake', 'requirements', 'design', 'implementation-spec'],
+    // It plans a change and stops before any code, so it declares what it leaves undone.
+    omits: ['implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'Decision demo plans a change and stops before any code is written.', authority: 'architecture-reviewers' })),
     phaseOverrides: {
       requirements: { inputs: ['intake'] },
       design: { inputs: ['intake', { phase: 'requirements', optional: true }] },
@@ -213,7 +215,9 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
     return out;
   };
   const expected = [/^\.phases\.\d+\.(label|defaultTemplate|artifact\.(path|kind)|inputs\.\d+\.path|worldModel\.views\.\d+|comparison\.identifiers\.\d+)$/,
-    /^\.(artifactSets|harnessImports|verification|architectureIntent)\b/];
+    /^\.(artifactSets|harnessImports|verification|architectureIntent)\b/,
+    // The exact obligation-graph digest hashes step IDs; its rename-stable shape digest must not move.
+    /^\.obligationGraph\.digest$/];
   // Each covers a different way a copy used to lose its settings: per-workflow template, write scope,
   // tool evidence and test evidence; summary inputs in both directions and the fast path; planned
   // claims; design sources; an artifact set's file name; global lists that allow the step.

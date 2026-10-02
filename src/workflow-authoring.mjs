@@ -155,6 +155,14 @@ export function pinAuthoredStoryPlannedClaims(document, store, workflowId, { new
     definition = validateDefinition(document.toJS());
     resolved = resolveWorkType(definition, workflowId);
   }
+  // Authoring writes configuration; Story start is where an incomplete route is refused. A retired
+  // opt-out is new configuration written in an old shape, so authoring refuses it outright.
+  if (resolved.plannedClaims.mode === 'retired-opt-out') {
+    throw new SingularityFlowError(
+      `Workflow '${workflowId}' opts out of planned claims, which is no longer allowed. Plan the claims in a step before the code step, or declare omits for scope with a reason and the approval group that records why it does not apply.`,
+      { code: 'WORKFLOW_PLANNED_CLAIMS_OPT_OUT_RETIRED' }
+    );
+  }
   assertPlannedClaimsReady(resolved);
   const declared = document.getIn([store.workflows, workflowId, 'plannedClaims']);
   if ((declared == null || newlyCreated) && resolved.plannedClaims.mode === 'required') {

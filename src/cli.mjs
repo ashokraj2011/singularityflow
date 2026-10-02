@@ -110,7 +110,7 @@ import {
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from './phase-prepublish.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
-import { assertPlannedClaimsReady, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { assertWorkTypeStartable, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
 import {
@@ -2561,7 +2561,7 @@ export async function startCommand(positionals, options) {
     let resolved = null;
     if (deterministicWorkType) {
       await selectWorkType(definition, { selection: deterministicWorkType });
-      resolved = assertPlannedClaimsReady(resolveWorkType(definition, deterministicWorkType));
+      resolved = assertWorkTypeStartable(resolveWorkType(definition, deterministicWorkType));
     }
     const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(snapshot, {
       capabilityId: workflowCapabilityId
@@ -2892,7 +2892,7 @@ export async function startCommand(positionals, options) {
     label: 'POC target URL'
   });
   if (targetOrigin) source = { ...source, targetOrigin };
-  let resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+  let resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
   const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
     approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }
   );
@@ -3177,7 +3177,7 @@ export async function startCommand(positionals, options) {
   }
   // Re-run the same pure gate against the exact definition materialized onto the Story checkout
   // before any governed state, commit, or publication is created, closing the preflight race.
-  resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+  resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
   startReadiness = inspectStoryStartReadiness({
     workId: id,
     definition: config,
@@ -10256,26 +10256,27 @@ async function workflowCommand(positionals, options) {
       if (rawMode == null && !clausePhases.length && !ownerEntries.length && reason == null) return undefined;
       if (rawMode == null) {
         throw new SingularityFlowError(
-          'Use --planned-claims required or --planned-claims opt-out with the planned-claim options.'
+          'Use --planned-claims required with the planned-claim options.'
         );
       }
       const mode = rawMode === 'automatic' ? 'auto' : rawMode;
       if (!['auto', 'required', 'opt-out'].includes(mode)) {
-        throw new SingularityFlowError('--planned-claims must be auto, required, or opt-out.');
+        throw new SingularityFlowError('--planned-claims must be auto or required.');
       }
       if (mode === 'auto') {
         if (clausePhases.length || ownerEntries.length || reason != null) {
-          throw new SingularityFlowError('--planned-claims auto cannot be combined with clause, owner, or opt-out options.');
+          throw new SingularityFlowError('--planned-claims auto cannot be combined with clause or owner options.');
         }
         return null;
       }
-      if (mode === 'opt-out') {
-        if (clausePhases.length || ownerEntries.length) {
-          throw new SingularityFlowError('A planned-claim opt-out cannot declare clause phases or claim owners.');
-        }
-        return { mode: 'opt-out', reason };
+      if (mode === 'opt-out' || reason != null) {
+        throw new SingularityFlowError(
+          'Opting out of planned claims is retired. Plan the claims in a step before the code step with --planned-claims required, '
+          + 'or, for a workflow that defines no requirement clauses, declare omits for scope in workflow.yml with a reason and the '
+          + 'approval group that records the applicability decision (singularity-flow explain workflow-authoring).',
+          { code: 'WORKFLOW_PLANNED_CLAIMS_OPT_OUT_RETIRED' }
+        );
       }
-      if (reason != null) throw new SingularityFlowError('--opt-out-reason is only valid with --planned-claims opt-out.');
       const owners = {};
       for (const entry of ownerEntries) {
         const match = entry.match(/^([a-z0-9]+(?:-[a-z0-9]+)*)=([a-z0-9]+(?:-[a-z0-9]+)*)$/);
@@ -10453,6 +10454,14 @@ async function workflowCommand(positionals, options) {
         { key: 'clauses', label: 'CLAUSE PHASES' }, { key: 'owners', label: 'CODE ← PLAN OWNER' },
         { key: 'reason', label: 'REASON' }
       ]));
+      const routeFindings = result.workflows.flatMap((workflow) => workflow.obligations.findings.map((entry) => ({ workflow: workflow.id, ...entry })));
+      if (routeFindings.length) {
+        console.log('\nRoutes that do not guarantee every responsibility:');
+        for (const entry of routeFindings) {
+          console.log(`  ${entry.severity === 'error' ? '✖' : '!'} ${entry.message}`);
+          console.log(`    ${entry.resolvingAction}`);
+        }
+      }
       console.log(`Validated ${result.workflows.length} Story workflow(s).`);
       if (!result.valid) process.exitCode = 1;
     }, { preferAuthority: optionBoolean(options, 'for-start') });

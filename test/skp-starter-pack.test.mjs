@@ -159,7 +159,8 @@ test('packaged SKP starter resolves and structurally completes with configured r
   };
   definition.workTypes[payload.id] = {
     label: payload.label, description: payload.description, phases: order,
-    reworkLoops: payload.definitions.workflows[0].reworkLoops
+    reworkLoops: payload.definitions.workflows[0].reworkLoops,
+    omits: payload.definitions.workflows[0].omits
   };
   validateDefinition(definition);
   const resolved = resolveWorkType(definition, payload.id);
@@ -167,5 +168,6 @@ test('packaged SKP starter resolves and structurally completes with configured r
   assert.deepEqual(resolved.phases.map((entry) => entry.id), order);
   assert.equal(resolved.phases.at(-1).approval.mode, 'required');
   assert.ok(resolved.phases.at(-1).approval.rejectTo.includes('skp-team-note'));
-  assert.equal(simulateResolvedWorkflowLifecycle(resolved).status, 'complete-for-profile');
+  assert.equal(simulateResolvedWorkflowLifecycle(resolved).status, 'complete-for-profile',
+    JSON.stringify(resolved.obligationGraph.findings.map((entry) => entry.message)));
 });

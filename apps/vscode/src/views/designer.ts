@@ -204,15 +204,14 @@ export class DesignerPanel {
     this.workflowDraft = isNew || !profile ? {
       isNew: true, id: '', label: '', description: '', governs: profile?.governs ?? 'story', phases: [],
       reworkLoops: [],
-      plannedClaimsMode: 'required', clausePhases: '', claimOwners: '', optOutReason: ''
+      plannedClaimsMode: 'required', clausePhases: '', claimOwners: ''
     } : {
       isNew: false, id: profile.id, label: profile.label, description: profile.description,
       governs: profile.governs, phases: profile.phases.map((phase) => ({ id: phase.id, label: phase.label })),
       reworkLoops: (profile.reworkLoops ?? []).map((loop) => ({ ...loop })),
-      plannedClaimsMode: profile.plannedClaims?.mode === 'opt-out' ? 'opt-out' : 'required',
+      plannedClaimsMode: 'required',
       clausePhases: (profile.plannedClaims?.clausePhases ?? []).join(', '),
-      claimOwners: Object.entries(profile.plannedClaims?.owners ?? {}).map(([code, clause]) => `${code}=${clause}`).join(', '),
-      optOutReason: profile.plannedClaims?.reason ?? ''
+      claimOwners: Object.entries(profile.plannedClaims?.owners ?? {}).map(([code, clause]) => `${code}=${clause}`).join(', ')
     };
   }
 
@@ -265,10 +264,9 @@ export class DesignerPanel {
     this.workflowDraft.label = text(raw.label);
     this.workflowDraft.description = text(raw.description);
     this.workflowDraft.governs = governs(raw.governs, this.workflowDraft.governs);
-    if (raw.plannedClaimsMode === 'required' || raw.plannedClaimsMode === 'opt-out') this.workflowDraft.plannedClaimsMode = raw.plannedClaimsMode;
+    if (raw.plannedClaimsMode === 'required') this.workflowDraft.plannedClaimsMode = 'required';
     this.workflowDraft.clausePhases = text(raw.clausePhases);
     this.workflowDraft.claimOwners = text(raw.claimOwners);
-    this.workflowDraft.optOutReason = text(raw.optOutReason);
     if (Array.isArray(raw.reworkLoops)) {
       this.workflowDraft.reworkLoops = raw.reworkLoops.map((value) => {
         const loop = value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -468,14 +466,11 @@ export class DesignerPanel {
       else if (!this.workflowDraft.label) this.error = 'Give the workflow a display name.';
       else if (!this.workflowDraft.phases.length) this.error = 'A workflow needs at least one phase.';
       else if (loopIssues.length) this.error = loopIssues[0] ?? 'Correct the rework loop before saving.';
-      else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && !eligible.size) {
-        this.error = 'This Story has no clause-capable phase. Add a phase with a requirements or implementation-spec artifact, or choose a reviewed opt-out.';
-      }
-      else if (draft.governs === 'story' && draft.plannedClaimsMode === 'opt-out' && !draft.optOutReason) {
-        this.error = 'An explicit planned-claims opt-out needs a reviewed reason.';
-      } else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && invalidClause) {
+      else if (draft.governs === 'story' && !eligible.size) {
+        this.error = 'This Story has no clause-capable phase. Add a phase with a requirements or implementation-spec artifact; a workflow that defines no requirement clauses declares omits in workflow.yml.';
+      } else if (draft.governs === 'story' && invalidClause) {
         this.error = `Phase '${invalidClause}' cannot carry clauses. Eligible phases in this workflow: ${[...eligible].join(', ') || 'none'}.`;
-      } else if (draft.governs === 'story' && draft.plannedClaimsMode !== 'opt-out' && invalidOwner) {
+      } else if (draft.governs === 'story' && invalidOwner) {
         this.error = `Claim owner '${invalidOwner}' must be a selected code phase=eligible clause phase pair.`;
       }
       else {
@@ -487,12 +482,9 @@ export class DesignerPanel {
           if (!draft.isNew && draft.reworkLoops.length === 0) command.push('--clear-loops');
           for (const loop of draft.reworkLoops) command.push('--loop',
             `${loop.from}:${loop.to}:${loop.maxAttempts}${loop.resetOnPhase ? `:${loop.resetOnPhase}` : ''}`);
-          command.push('--planned-claims', draft.plannedClaimsMode === 'opt-out' ? 'opt-out' : 'required');
-          if (draft.plannedClaimsMode === 'opt-out') command.push('--opt-out-reason', draft.optOutReason ?? '');
-          else {
-            if (clausePhases.length) command.push('--clause-phases', clausePhases.join(','));
-            if (ownerEntries.length) command.push('--claim-owners', ownerEntries.join(','));
-          }
+          command.push('--planned-claims', draft.plannedClaimsMode ?? 'required');
+          if (clausePhases.length) command.push('--clause-phases', clausePhases.join(','));
+          if (ownerEntries.length) command.push('--claim-owners', ownerEntries.join(','));
         }
         this.error = await this.onMessage({ type: 'run', command, title: `${this.workflowDraft.isNew ? 'Creating' : 'Saving'} ${this.workflowDraft.label}` });
         // A lead-governed save is a review proposal, while local authority writes uncommitted

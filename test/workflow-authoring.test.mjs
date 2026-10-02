@@ -165,15 +165,16 @@ test('future Story workflow authoring validates planned claims before writing co
     owners: { implementation: 'implementation-spec' }
   }, 'a future authored workflow pins its inferred contract instead of depending on legacy inference');
 
-  await defineWorkflow(root, 'reviewed-short-delivery', {
+  // Opting out of planned claims is retired: authoring refuses it before writing configuration.
+  await assert.rejects(() => defineWorkflow(root, 'reviewed-short-delivery', {
     phases: ['intake', 'implementation'],
     governs: 'story',
     plannedClaims: {
       mode: 'opt-out',
       reason: 'This reviewed emergency workflow deliberately carries no separate specification phase.'
     }
-  });
-  assert.equal(resolveWorkType(await loadDefinition(root), 'reviewed-short-delivery').plannedClaims.mode, 'opt-out');
+  }), (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_OPT_OUT_RETIRED' && /no longer allowed/.test(error.message));
+  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')).workTypes['reviewed-short-delivery'], undefined);
 });
 
 test('a Story workflow can declare, resolve, replace, and clear a bounded review loop', async () => {

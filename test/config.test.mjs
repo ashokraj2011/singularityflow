@@ -8,6 +8,7 @@ import YAML from 'yaml';
 import {
   ARTIFACT_TEMPLATE_TOKENS,
   assertPlannedClaimsReady,
+  assertWorkTypeStartable,
   initializeDefinition,
   loadDefinition,
   normalizeArtifactTemplateCompatibility,
@@ -464,7 +465,7 @@ test('every shipped Story workflow phase renders a contract-consistent guarded a
   const example = YAML.parse(await readFile(new URL('../examples/workflow-with-quality-gates.yml', import.meta.url), 'utf8'));
   validateDefinition(example);
   const matrices = [
-    { name: 'starter', definition: starter, expectedProfiles: 13, expectedPhases: 67 },
+    { name: 'starter', definition: starter, expectedProfiles: 13, expectedPhases: 68 },
     { name: 'quality-gates-example', definition: example, expectedProfiles: 1, expectedPhases: 6 }
   ];
 
@@ -997,76 +998,52 @@ test('future custom workflows must resolve an authoritative clause phase and own
   assert.throws(() => validateDefinition(missingOwner), /owners is missing code phase 'implementation'/);
 });
 
-test('deliberately non-spec code workflows require a concrete explicit opt-out', async () => {
+test('a planned-claim opt-out is retired: the catalog loads, Story start refuses it, and omits declare a genuine omission', async () => {
   const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
   definition.workTypes['short-delivery'] = {
     label: 'Short delivery',
     phases: ['intake', 'implementation'],
-    spec: { mode: 'enforce', acceptance: 'presence' },
-    plannedClaims: {
-      mode: 'opt-out',
-      reason: 'This deliberately short operational change has no authoritative specification phase.'
-    }
+    plannedClaims: { mode: 'opt-out', reason: 'This deliberately short operational change has no authoritative specification phase.' }
   };
+  assert.doesNotThrow(() => validateDefinition(definition), 'a retired opt-out never makes the catalog unreadable');
+  const retired = resolveWorkType(definition, 'short-delivery');
+  assert.equal(retired.plannedClaims.mode, 'retired-opt-out');
+  assert.ok(retired.obligationGraph.findings.some((entry) => entry.code === 'OBLIGATION_OPT_OUT_RETIRED'));
+  assert.throws(() => assertWorkTypeStartable(retired), (error) => error.code === 'WORKFLOW_OBLIGATIONS_UNMET');
 
-  assert.doesNotThrow(() => validateDefinition(definition));
-  const resolved = resolveWorkType(definition, 'short-delivery');
-  assert.equal(resolved.plannedClaims.mode, 'opt-out');
-  assert.equal(resolved.spec.acceptance, 'off');
-
-  const placeholder = structuredClone(definition);
-  placeholder.workTypes['short-delivery'].plannedClaims.reason = 'TODO';
-  assert.throws(() => validateDefinition(placeholder), /concrete 20-1000 character explanation/);
-
-  const mixed = structuredClone(definition);
-  mixed.workTypes['short-delivery'].plannedClaims.owners = { implementation: 'intake' };
-  assert.throws(() => validateDefinition(mixed), /opt-out must not declare clausePhases or owners/);
-
-  const hasSpecification = structuredClone(definition);
-  hasSpecification.workTypes['short-delivery'].phaseOverrides = {
-    intake: { artifact: { kind: 'requirements' } }
-  };
-  assert.throws(() => validateDefinition(hasSpecification), /cannot opt out because authoritative specification phase/);
+  const omitted = structuredClone(definition);
+  delete omitted.workTypes['short-delivery'].plannedClaims;
+  omitted.workTypes['short-delivery'].omits = ['scope', 'plan'].map((responsibility) => ({
+    responsibility, reason: 'This short operational change defines no requirement clauses and no separate plan.', authority: 'engineering-reviewers'
+  }));
+  validateDefinition(omitted);
+  const resolved = resolveWorkType(omitted, 'short-delivery');
+  assert.equal(resolved.plannedClaims.mode, 'omitted');
+  assert.equal(resolved.spec.acceptance, 'off', 'no clauses means nothing to accept');
+  assert.deepEqual(resolved.obligationGraph.findings, []);
+  assert.equal(assertWorkTypeStartable(resolved), resolved);
 });
 
-test('packaged pre-contract profiles keep their shim and old custom profiles require migration without breaking load', async () => {
+test('an old custom workflow with no planned-claim contract stays readable and cannot start a Story', async () => {
   const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
   validateDefinition(definition);
-  assert.equal(resolveWorkType(definition, 'quick-fix').plannedClaims.mode, 'opt-out');
+  assert.equal(resolveWorkType(definition, 'quick-fix').plannedClaims.mode, 'required');
   assert.equal(resolveWorkType(definition, 'chore').plannedClaims.disabledBecause, 'no-code-delivery-phases');
 
-  const legacy = structuredClone(definition);
-  delete legacy.workTypes['quick-fix'].plannedClaims;
-  validateDefinition(legacy);
-  const quickFix = resolveWorkType(legacy, 'quick-fix');
-  assert.equal(quickFix.plannedClaims.mode, 'legacy-opt-out');
-  assert.equal(quickFix.spec.acceptance, 'off');
-
-  const enforcedLegacyId = structuredClone(legacy);
-  enforcedLegacyId.workTypes['quick-fix'].spec.mode = 'enforce';
-  assert.doesNotThrow(() => validateDefinition(enforcedLegacyId));
-  const unresolvedPackagedVariant = resolveWorkType(enforcedLegacyId, 'quick-fix');
-  assert.equal(unresolvedPackagedVariant.plannedClaims.mode, 'migration-required');
-  assert.throws(
-    () => assertPlannedClaimsReady(unresolvedPackagedVariant),
-    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
-  );
-
-  const custom = structuredClone(legacy);
+  const custom = structuredClone(definition);
+  // The pre-contract two-step shape: a code step with no specification or planning step before it.
   custom.workTypes['custom-quick'] = {
-    ...structuredClone(custom.workTypes['quick-fix']),
-    label: 'Custom quick'
+    label: 'Custom quick', phases: ['implement', 'verify'],
+    templateOverrides: { implement: 'quick-fix/implement.md', verify: 'quick-fix/verify.md' },
+    phaseOverrides: { verify: { inputs: ['implement'] } }
   };
   assert.doesNotThrow(() => validateDefinition(custom), 'an old custom workflow must not make its whole catalog unreadable');
   const unresolved = resolveWorkType(custom, 'custom-quick');
   assert.equal(unresolved.plannedClaims.mode, 'migration-required');
-  assert.equal(unresolved.spec.acceptance, 'presence', 'migration is not an implicit acceptance opt-out');
   assert.throws(
-    () => assertPlannedClaimsReady(unresolved),
-    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
-      && /cannot start a new Story/.test(error.message)
+    () => assertWorkTypeStartable(unresolved),
+    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED' && /cannot start a new Story/.test(error.message)
   );
-
   for (const spec of [
     { mode: 'enforce', coverage: 'enforce', acceptance: 'verify' },
     { mode: 'record', coverage: 'off', acceptance: 'presence' },

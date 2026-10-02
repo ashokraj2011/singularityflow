@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "26abc0d7abeba5c47381c217e8d355524276ae9b",
+  "sourceCommit": "eb89551a36586c5de20c2a7a78f23b17bebe1c2b",
   "topicCount": 73,
-  "contentSha256": "d1cf29769589746e6fc30302d50db0bbb250f0919c48eacf633b8c9f33b70aba",
+  "contentSha256": "77e8c6ae4fe4136ada16e336677990fb3730f0392f995ec2d12dc50b79148efa",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -376,8 +376,8 @@
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 2,
-      "sha256": "240e10a4ed3d81f6cd39c07a899bb3af8048797e3fa14360e8da64ced78394dc",
+      "version": 3,
+      "sha256": "cb7b9c33372e6e691566aa4624b28598cace6b77561f6d5bdfddcdcc902cf009",
       "routingSha256": "e48bee95d4e2dc5f4001a723006a2735a28b5216de204e3ae8aafaf6b91d1c12",
       "file": "quick-fix.md"
     },
@@ -560,16 +560,16 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 39,
-      "sha256": "8bce6d8ce9aa05d17030a9bec90ecdebc294359ebb68883d2740bd9d676c03c8",
+      "version": 40,
+      "sha256": "8d32b76a605e0934aeadfd66c9ce2a5e81b842f3407fc6dfe0e6f417b03e7fae",
       "routingSha256": "25c925112c289edeba995ffffdd169d16e2fe749adf07f938a72219d78a66c4d",
       "file": "workflow-authoring.md"
     },
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 4,
-      "sha256": "8d9ba05a49ad4eee85ee32dd7d3f9b01487511237e2399d3983e3351993c7758",
+      "version": 5,
+      "sha256": "5b5aecf175148ba585b6f6d49119c4cad7852b42af0c8302b85424d14a2a1fc4",
       "routingSha256": "58c9f63d8e431fd984a033ffc530a100314708d6bc7828c9c46cfaee83bb68d1",
       "file": "workflow-decisions.md"
     },

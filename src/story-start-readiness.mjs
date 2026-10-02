@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 
 import { BUILD_INFO } from './build-info.mjs';
-import { assertPlannedClaimsReady, resolveWorkType } from './config.mjs';
+import { assertWorkTypeStartable, resolveWorkType } from './config.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
 
@@ -153,7 +153,7 @@ export function inspectStoryStartReadiness({
     ));
   } else {
     try {
-      resolved = assertPlannedClaimsReady(resolveWorkType(definition, workType));
+      resolved = assertWorkTypeStartable(resolveWorkType(definition, workType));
       checks.push(check(
         'workflow', 'pass', 'STORY_WORKFLOW_VALID',
         `Workflow '${workType}' resolves to ${resolved.phases.length} governed phase(s).`

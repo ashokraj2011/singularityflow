@@ -109,6 +109,24 @@ test('first-run completion has replayable authority and verification cannot repl
     } finally { await writeFile(testFile, tested); }
   });
 
+  await t.test('the pinned input proof replaces only the replay of its own submission', async () => {
+    const entry = workflow.lineage.submissions.findLast((candidate) => candidate.phase === 'implement');
+    const greeting = path.join(root, 'greeting.txt');
+    const approved = await readFile(greeting, 'utf8');
+    const proof = { applicationTreeTested: true, sourcePhase: 'implement', packetSha256: entry.packetSha256, evidenceCommit: 'proven' };
+    const fresh = (verifiedCodeInput) => assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
+    // A real proof comes from assertPassedCodeDeliveryInput, which refuses any untested byte; here a
+    // dirty source shows that the proof, not a second diff, decides.
+    await writeFile(greeting, 'Untested greeting.\n');
+    try {
+      assert.equal((await fresh(proof)).evidenceCommit, 'proven');
+      for (const other of [{ ...proof, packetSha256: '0'.repeat(64) }, { ...proof, sourcePhase: 'verify' },
+        { ...proof, applicationTreeTested: false }, null]) {
+        await assert.rejects(() => fresh(other), (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE');
+      }
+    } finally { await writeFile(greeting, approved); }
+  });
+
   await t.test('tracked generated-looking paths are source and recovery commands match lifecycle status', async () => {
     for (const relative of ['build/runtime.mjs', 'coverage/runtime.test.mjs', 'dist/runtime.mjs', 'vendor/runtime.mjs']) {
       await mkdir(path.dirname(path.join(root, relative)), { recursive: true });

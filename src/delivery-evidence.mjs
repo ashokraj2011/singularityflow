@@ -154,8 +154,9 @@ async function governedReviewBaseline(root, config, workflow, { phase, source, e
 /**
  * Review may repair documents, and a review whose own policy confines it to a source boundary
  * may repair inside it; only a code generation can replace any other tested source or tests.
+ * `verifiedCodeInput` is the result of assertPassedCodeDeliveryInput from the same operation.
  */
-export async function assertReviewCodeEvidenceFresh(root, config, workflow, phase) {
+export async function assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput = null } = {}) {
   if (phaseRequiresCodeDelivery(phase)) return null;
   const source = reviewCodeSource(workflow, phase);
   if (!source) return null;
@@ -176,6 +177,12 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
       repairCommand: evidenceAvailable ? repairCommand : null } }
   );
   if (!entry) throw refuse('the approved code generation has no immutable submission.', [], false);
+  // The pinned input check of this same operation already replayed this exact submission, proved
+  // the application tree is byte-for-byte the one its tests ran on, and applied its risk gate.
+  if (verifiedCodeInput?.applicationTreeTested === true && verifiedCodeInput.sourcePhase === source.id
+      && verifiedCodeInput.packetSha256 === entry.packetSha256) {
+    return { sourcePhase: source.id, evidenceCommit: verifiedCodeInput.evidenceCommit };
+  }
   const { readStoryReviewPacket } = await import('./story-lineage.mjs');
   const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
   if (packet.workId !== workflow.workItem.id || packet.phase !== source.id

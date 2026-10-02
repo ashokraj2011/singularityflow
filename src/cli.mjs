@@ -8278,7 +8278,10 @@ async function rejectCommand(positionals, options) {
       actionContext: activeActionContext(),
       actor: session.actor,
       agent: session.agent,
-      testingRepairConfirm: testingRepairPlan?.confirmation ?? null
+      // The preview above already replayed the Code evidence and waiver; the transition reuses it
+      // only while it still binds the same digest, Story, step and HEAD.
+      testingRepairConfirm: testingRepairPlan ? optionString(options, 'confirm') : null,
+      testingRepairPlan
     }),
     {
       eventFromResult: (transition) => ({

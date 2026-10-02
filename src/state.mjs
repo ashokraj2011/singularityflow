@@ -3110,7 +3110,10 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   if (!replay.valid || !replay.executions.length) {
     throw refuse(`the committed executions do not replay: ${replay.errors.join('; ') || 'none were found'}.`);
   }
-  return { sourcePhase: sourceId, evidenceCommit: packet.evidenceCommit, receiptPath: binding.path, receiptSha256: binding.sha256 };
+  // Reaching here proves the current application tree is the one these executions tested; the
+  // review freshness check of the same operation reuses that proof instead of replaying it.
+  return { sourcePhase: sourceId, evidenceCommit: packet.evidenceCommit, receiptPath: binding.path,
+    receiptSha256: binding.sha256, packetSha256: entry.packetSha256, applicationTreeTested: true };
 }
 
 async function assertRequiredArtifactSetPublishable(root, phase, catalog) {
@@ -3153,8 +3156,8 @@ export async function publishGeneration(root, config, workflow, {
   }
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
-  await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
+  const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
   await assertMcpPhaseReadiness(root, workflow, phase);
   // Resolve and validate authorship before any content, test, brief, input, telemetry, or lifecycle
   // write. A wrong producer is a preflight refusal and must not leave partial recovery state.
@@ -4568,8 +4571,8 @@ async function submitPhaseTransition(root, config, workflow, {
   const testCommandEpochRun = beginTestCommandEpochValidation(workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'submit');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
-  await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
+  const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
   const session = actor
     ? { actor, agent: agent ?? null }
     : await loadSession(root);
@@ -5274,8 +5277,8 @@ export async function approvePhase(root, config, workflow, {
   const documentRisks = await assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve');
   assertSkillPhaseHostReady(workflow, phase, 'approve');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'be approved');
-  await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  await assertReviewCodeEvidenceFresh(root, config, workflow, phase);
+  const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
   if (phase.id === 'convergence') {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   } else {
@@ -6482,14 +6485,31 @@ export async function decideStory(root, config, workflow, {
   };
 }
 
+/**
+ * A repair preview computed earlier in the same operation is reused only while its digest still
+ * matches its own content, the confirmation, this Story and step, and HEAD. Anything else is
+ * previewed again, so the confirmation check below always compares against current bytes.
+ */
+function currentTestingRepairPlan(root, workflow, plan, { phaseId, target, confirmation }) {
+  if (!plan || typeof plan !== 'object') return null;
+  const { confirmation: digest, ...core } = plan;
+  return digest === confirmation
+    && digest === `sha256:${createHash('sha256').update(canonicalJson(core)).digest('hex')}`
+    && core.workId === workflow.workItem.id && core.phase === phaseId && core.targetPhase === target
+    && Number(core.testingGeneration) === Number(workflow.phases?.[phaseId]?.generation)
+    && core.head === head(root) ? plan : null;
+}
+
 export async function rejectPhase(root, config, workflow, {
   phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
-  testingRepairConfirm = null, channel = 'terminal', actionContext = null,
+  testingRepairConfirm = null, testingRepairPlan = null, channel = 'terminal', actionContext = null,
   actor = null, agent = undefined
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const testingRepair = testingRepairConfirm
-    ? await previewTestingRepair(root, config, workflow)
+    ? currentTestingRepairPlan(root, workflow, testingRepairPlan, {
+      phaseId, target, confirmation: testingRepairConfirm
+    }) ?? await previewTestingRepair(root, config, workflow)
     : null;
   if (testingRepair && (phaseId !== testingRepair.phase || target !== testingRepair.targetPhase
       || testingRepair.confirmation !== testingRepairConfirm || convergenceRework)) {

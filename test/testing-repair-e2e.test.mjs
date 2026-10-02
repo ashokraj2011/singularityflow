@@ -162,8 +162,18 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
   assert.match(`${stale.stdout}\n${stale.stderr}`, /TESTING_REPAIR_CONFIRMATION_REQUIRED/u);
   assert.equal((await workflow()).currentPhase, reviewPhase);
   await writeFile(testPath, reviewedTest);
-  cli('reject', reviewPhase, '--to', codePhase, '--repair',
-    '--reason', 'Correct the unit-test fixture', '--confirm', digest);
+  // Each preview replays the Code evidence and diffs the tree against the Code generation commit.
+  // The confirmed return previews once and hands that plan to the transition.
+  const trace = path.join(root, '..', `${path.basename(root)}-reject-trace.log`);
+  t.after(() => rm(trace, { force: true }));
+  process.env.GIT_TRACE = trace;
+  try {
+    cli('reject', reviewPhase, '--to', codePhase, '--repair',
+      '--reason', 'Correct the unit-test fixture', '--confirm', digest);
+  } finally { delete process.env.GIT_TRACE; }
+  const previews = (await readFile(trace, 'utf8')).split('\n').filter((line) =>
+    /trace: built-in: git diff --raw/u.test(line) && line.includes(approved.phases[codePhase].generationCommit));
+  assert.equal(previews.length, 1, 'the confirmed repair previewed its change set more than once');
   const returned = await workflow();
   assert.equal(returned.currentPhase, codePhase);
   assert.equal(returned.phases[codePhase].status, 'in_progress');

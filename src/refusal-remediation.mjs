@@ -12,6 +12,7 @@ import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mj
 import {
   safeCommandGuidance, validateSafeSflowCommand
 } from './safe-command-guidance.mjs';
+import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -718,6 +719,8 @@ export function refusalDetails(details) {
     riskEligible: typeof issue.riskEligible === 'boolean' ? issue.riskEligible : null, repairRoute: text(issue.repairRoute)
   }) : null));
   if (obligations.length) projected.obligations = obligations;
+  const gate = projectGateRefusal(details.gate);
+  if (gate) projected.gate = gate;
   if (details.coverage && typeof details.coverage === 'object') {
     const coverage = compact(Object.fromEntries(['unimplemented', 'testPresenceOnly', 'unclaimedChangedPaths', 'withdrawnButClaimed']
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));

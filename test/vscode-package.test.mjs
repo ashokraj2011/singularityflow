@@ -237,6 +237,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'evidence', 'applicability.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'command.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'evaluate.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'evidence', 'gate-refusal.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'graph.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'labels.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'matrix.mjs'), '// fixture\n'),
@@ -322,7 +323,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/mcp-import.mjs',
     'src/mcp-descriptor.mjs',
     'src/authoring-skills.mjs',
-    ...['applicability', 'command', 'evaluate', 'graph', 'labels', 'matrix', 'obligation-compiler', 'responsibilities', 'terminal', 'vocabulary']
+    ...['applicability', 'command', 'evaluate', 'gate-refusal', 'graph', 'labels', 'matrix', 'obligation-compiler', 'responsibilities', 'terminal', 'vocabulary']
       .map((name) => `src/evidence/${name}.mjs`),
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',

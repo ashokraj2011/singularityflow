@@ -221,6 +221,20 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), headBefore);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
 
+  // An identical retry is answered from memory, in the one refusal shape every surface renders.
+  const unchanged = run(process.execPath, [CLI, '--no-model', 'approve', 'poc-lite-finalize', '--yes', '--json'], root, { allowFailure: true });
+  assert.notEqual(unchanged.status, 0);
+  const envelope = JSON.parse(unchanged.stderr.slice(unchanged.stderr.indexOf('{')));
+  assert.equal(envelope.error.code, 'REFUSAL_UNCHANGED');
+  const gate = envelope.error.details.gate;
+  assert.equal(gate.schema, 'gate-refusal/v1');
+  assert.equal(gate.gate, 'terminal');
+  assert.equal(gate.recoveryClass, 'decide-applicability');
+  assert.deepEqual(gate.obligations.map((entry) => [entry.id, entry.status]), [['OBL:POC-LITE-1:scope:story', 'pending']]);
+  assert.match(gate.actions[0].command, /decision applicability --responsibility scope/);
+  assert.equal(await readFile(statePath, 'utf8'), stateBefore);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), headBefore);
+
   // The guidance offers the decision before the approval it unblocks.
   const next = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
   assert.equal(next[0].command, 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>');

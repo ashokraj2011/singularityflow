@@ -105,6 +105,22 @@ function reviewableActions(planned: readonly ReviewableRecovery[],
   }));
 }
 
+/**
+ * A gate refusal (gate-refusal v1) names its open obligations and reasons; show those, the engine's
+ * own words, rather than the first line of its message. Bounded, and only the fields v1 defines.
+ */
+function gateRefusalReasons(gate: any): Array<{ label: string }> {
+  if (!gate || gate.schema !== 'gate-refusal/v1') return [];
+  const obligations = Array.isArray(gate.obligations) ? gate.obligations.slice(0, 5)
+    .filter((entry: any) => typeof entry?.id === 'string')
+    .map((entry: any) => ({ label: `${entry.id} is ${String(entry.status ?? 'open')}` })) : [];
+  const findings = Array.isArray(gate.findings) ? gate.findings.slice(0, Math.max(0, 5 - obligations.length))
+    .filter((entry: any) => typeof entry?.message === 'string')
+    .map((entry: any) => ({ label: String(entry.message).slice(0, 300) })) : [];
+  const reasons = [...obligations, ...findings];
+  return reasons.length ? [{ label: `The ${String(gate.gate)} gate refused: nothing was recorded.` }, ...reasons] : [];
+}
+
 /** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
 function fromRefusalPlan(result: any, displayMessage: string,
   repositoryRoot: string | null = null): ResultCardView {
@@ -113,12 +129,13 @@ function fromRefusalPlan(result: any, displayMessage: string,
     : [];
   const actions = reviewableActions(planned, repositoryRoot);
   const code = String(result.error?.code ?? result.remediationPlan?.code ?? 'SINGULARITY_FLOW_ERROR');
+  const gate = gateRefusalReasons(result.error?.details?.gate);
   return Object.freeze({
     tone: 'refusal' as const,
     headline: 'This command is blocked — here is a safe path forward',
     replyName: null,
     // The runner already redacts and bounds this text. Do not re-read the raw JSON message here.
-    why: [{ label: displayMessage.split('\nNext:')[0]?.trim() || 'The command did not complete.' }],
+    why: gate.length ? gate : [{ label: displayMessage.split('\nNext:')[0]?.trim() || 'The command did not complete.' }],
     warnings: [],
     checklist: [],
     gates: null,

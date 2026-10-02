@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 1
+version: 2
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -48,7 +48,9 @@ Every obligation reports six facets separately: coverage, execution, assurance, 
 
 Assurance is stated at its real strength. A passing test command over a criterion's tagged test is `module-observed`: no individual test-case result is joined to a criterion yet. A command that passed with skipped tests makes the criterion inconclusive, because which test was skipped is not known. A failed command fails the criterion unless a governed risk decision accepted it, and the failed observation stays visible beside the exception.
 
-The completion line never derives "complete" from where the Story stands. An in-progress or cancelled Story reads "Incomplete — verification pending or insufficient"; a Story whose every step is decided reads "Incomplete — final verification not evaluated" until a final governance evaluation is recorded for its current evidence.
+The completion line never derives "complete" from where the Story stands. An in-progress or cancelled Story reads "Incomplete — verification pending or insufficient". A Story closes only when the final evaluation passes inside the transition that ends it; that evaluation is recorded on the Story, and while it still matches the evidence the line reads "Complete" or "Complete with accepted exceptions". A closed Story whose evidence changed afterwards reads "Incomplete — final verification not evaluated".
+
+When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (gate-refusal v1): the open obligations, the reasons, the step responsible, what recovers it, whether a risk may be accepted, and what it left untouched; nothing was recorded. Retrying the same command on the same state returns `REFUSAL_UNCHANGED` at once without running the checks again.
 
 ## Troubleshooting
 
@@ -56,6 +58,7 @@ The completion line never derives "complete" from where the Story stands. An in-
 - **A row is missing:** a finished step did not deliver it, for example no submitted test is tagged for the criterion.
 - **Every row is inconclusive:** a claim map or index no longer matches its binding in the Story; the matrix lists the record it could not trust.
 - **A row is inconclusive with skipped tests:** remove the skip or make the criterion's test run, then submit again.
+- **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 
 ## Related topics
 

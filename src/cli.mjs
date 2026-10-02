@@ -181,6 +181,7 @@ import {
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
+import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from './evidence/gate-refusal.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
@@ -7618,7 +7619,10 @@ async function runSubmitCommand(positionals, options, submitContext) {
         }
         return `${convergenceIdentity}:${createHash('sha256').update(currentArchitectureIdentity).digest('hex')}`;
       };
-  const publication = await commitAndPublish(
+  const publication = await withRefusalMemory(root, {
+    operation: 'submit', workId: workflow.workItem.id, phase: requested.id, actor: actorKey(actionActor(root)),
+    args: [decisionValues ?? null, optionBoolean(options, 'skip-checks')]
+  }, () => commitAndPublish(
     root,
     config,
     workflow,
@@ -7647,7 +7651,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
       },
       worktreeGuard: submissionStabilityGuard
     }
-  );
+  ));
   if (!reviewPacket) {
     console.warn('Warning: the governed submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
     printCommandRoutes(`singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, {
@@ -8172,6 +8176,23 @@ function witnessMappingDecisions(options) {
   return decisions;
 }
 
+/**
+ * Run a transition that can end a Story, answering an unchanged retry of a gate refusal from memory
+ * instead of running its checks again [E2G-024]. Success forgets the refusal.
+ */
+async function withRefusalMemory(root, subject, transition) {
+  const fingerprint = await refusalFingerprint(root, subject);
+  await assertRefusalChanged(root, subject.workId, fingerprint);
+  try {
+    const value = await transition();
+    await forgetRefusal(root, subject.workId);
+    return value;
+  } catch (error) {
+    if (error?.details?.gate) await rememberRefusal(root, subject.workId, fingerprint, error.details.gate, nowIso());
+    throw error;
+  }
+}
+
 async function approveCommand(positionals, options) {
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
@@ -8227,7 +8248,10 @@ async function approveCommand(positionals, options) {
     const architectureIdentity = await architectureApprovalStabilityGuard();
     return `${convergenceIdentity}:${createHash('sha256').update(architectureIdentity).digest('hex')}`;
   };
-  const { value: result, publication } = await transactStory(
+  const { value: result, publication } = await withRefusalMemory(root, {
+    operation: 'approve', workId: workflow.workItem.id, phase: phase.id, actor: actorKey(session.actor),
+    args: [checklist ?? null, witnessMappings ?? null]
+  }, () => transactStory(
     root,
     config,
     workflow,
@@ -8268,7 +8292,7 @@ async function approveCommand(positionals, options) {
       }),
       worktreeGuard: approvalStabilityGuard
     }
-  );
+  ));
   // Spent once the approval has actually landed. Consuming it up front — before the confirmation
   // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
   // the reviewer's one-shot receipt, and a new one had to be issued before they could try again.
@@ -8884,7 +8908,9 @@ async function decisionChooseCommand(positionals, options) {
     actor
   );
   const after = workflow.phases[pending.after];
-  const { value: result, publication } = await transactStory(
+  const { value: result, publication } = await withRefusalMemory(root, {
+    operation: 'decision.choose', workId: workflow.workItem.id, phase: pending.after, actor: actorKey(actor), args: [option, to, pending.key]
+  }, () => transactStory(
     root,
     config,
     workflow,
@@ -8916,7 +8942,7 @@ async function decisionChooseCommand(positionals, options) {
         }
       })
     }
-  );
+  ));
   await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
     const reloaded = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, reloaded.config, reloaded.workflow);

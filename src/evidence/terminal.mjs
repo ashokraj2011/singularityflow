@@ -11,6 +11,7 @@ import { runGovernanceGate } from '../governance.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { evaluateEvidence } from './evaluate.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
+import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
 
 const MAX_LISTED = 20;
@@ -65,10 +66,21 @@ export function terminalRefusalMessage(workId, { blockers, recovery }) {
 export async function assertTerminalTransition(root, definition, workflow) {
   const result = await evaluateTerminalTransition(root, definition, workflow);
   if (result.blockers.length) {
+    const phase = result.evaluation.endpoint?.from ?? workflow.phaseOrder?.at(-1) ?? null;
+    const gate = gateRefusal({
+      code: 'STORY_COMPLETION_REFUSED', gate: 'terminal',
+      subject: { workId: workflow.workItem.id, phase, generation: workflow.phases?.[phase]?.generation ?? null },
+      evaluation: result.evaluation.decision.gate === 'block' ? result.evaluation : null,
+      findings: [
+        ...result.evaluation.findings.filter((entry) => entry.blocking !== false).map(({ code, message }) => ({ code, message })),
+        ...result.gate.errors
+      ],
+      actions: result.recovery
+    });
     throw new SingularityFlowError(terminalRefusalMessage(workflow.workItem.id, result), {
       code: 'STORY_COMPLETION_REFUSED',
       exitCode: 2,
-      details: { blockers: result.blockers.slice(0, MAX_LISTED), recovery: result.recovery }
+      details: { blockers: result.blockers.slice(0, MAX_LISTED), recovery: result.recovery, gate }
     });
   }
   const decision = { gate: result.evaluation.decision.gate };

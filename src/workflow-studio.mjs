@@ -409,7 +409,9 @@ export function unifiedDiff(before, after, file) {
 // name them; a new workflow exists before the per-workflow settings of its steps (a duplicated
 // workflow carries its source's step settings, and they must land on the copy, not on the shared
 // step); skills and generated sources are added to an agent's final instructions, after any edit to
-// them; removals see everything else first.
+// them; removals see everything else first. Step settings come before workflows change their step
+// lists, so who owns a per-workflow setting is decided by the lists the change set ends with
+// (finalWorkflowPhases), not by the lists at that moment.
 const RANK = Object.freeze({
   'marketplace.add': 0, 'marketplace.remove': 0, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
   'import.template': 3.5, 'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7,
@@ -435,8 +437,10 @@ function starterTemplate(id, label) {
 }
 
 class StudioCandidate {
-  constructor(sources) {
+  constructor(sources, finalPhases = null) {
     this.sources = sources;
+    // The steps each workflow lists once the whole change set is applied (finalWorkflowPhases).
+    this.finalPhases = finalPhases;
     this.document = YAML.parseDocument(sources.definitionText);
     this.agents = new Map(sources.agents.map((agent) => [agent.id, {
       id: agent.id, scope: agent.scope, text: agent.text, relative: agent.scope === 'repository' ? agent.source : null,
@@ -485,6 +489,11 @@ class StudioCandidate {
   agentLabel(id) { return this.agents.get(id)?.label ?? id; }
   usedBy(phaseId) {
     return Object.entries(this.content.workTypes ?? {}).filter(([, type]) => (type.phases ?? []).includes(phaseId)).map(([id]) => id);
+  }
+  /** The workflows that use a step once the whole change set is applied. */
+  usedByAtEnd(phaseId) {
+    if (!this.finalPhases) return this.usedBy(phaseId);
+    return [...this.finalPhases].filter(([, phases]) => phases.includes(phaseId)).map(([id]) => id);
   }
 
   requirePhase(id) {
@@ -1107,7 +1116,10 @@ class StudioCandidate {
   updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
-    const shared = this.usedBy(phaseId).length > 1;
+    // Shared once the change set is applied: a step this change set also adds to another workflow
+    // is shared already, so a setting for that workflow does not leak into the first one.
+    const users = this.usedByAtEnd(phaseId);
+    const shared = users.length > 1;
     // Approval and inputs are per-workflow when the step is shared and a workflow is named; every
     // other setting is the step's own and applies wherever the step is used.
     // A workflow that already overrides a field keeps owning it: writing the step's own value would
@@ -1115,6 +1127,11 @@ class StudioCandidate {
     // A named workflow must exist: setting a path under a missing one would silently create a stub.
     if (workflow && !this.content.workTypes?.[requireId(workflow, 'A workflow ID')]) {
       throw new SingularityFlowError(`There is no workflow '${workflow}' to change ${name} in.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
+    }
+    // And it must use the step: its setting would otherwise land on the step itself and change
+    // every workflow that does.
+    if (workflow && !users.includes(requireId(workflow, 'A workflow ID'))) {
+      throw new SingularityFlowError(`Workflow '${workflow}' does not use ${name}, so it has no settings of its own for it.`, { code: 'STUDIO_PHASE_UNKNOWN' });
     }
     const override = workflow ? ['workTypes', requireId(workflow, 'A workflow ID'), 'phaseOverrides', phaseId] : null;
     const scopeFor = (field) => (override && (shared || this.document.getIn([...override, field]) !== undefined) ? override : ['phases', phaseId]);
@@ -1477,6 +1494,25 @@ function orderChanges(changes) {
     .map(({ change }) => change);
 }
 
+/**
+ * The steps each workflow lists once an ordered change set is applied: its current list, replaced by
+ * the last create, install or update that gives it one. Step settings are applied before workflows
+ * change their lists, and whether a step is shared decides whether a workflow's sign-off, inputs or
+ * drafting skill land on that workflow or on the step itself; read from the list at that moment, a
+ * step just added to a second workflow looked unshared, and the second workflow's setting silently
+ * changed the first.
+ */
+function finalWorkflowPhases(sources, changes) {
+  const listed = (phases) => (Array.isArray(phases) ? phases.map((phase) => String(phase ?? '').trim()) : []);
+  const lists = new Map(Object.entries(sources.raw.workTypes ?? {}).map(([id, type]) => [id, listed(type?.phases)]));
+  for (const change of changes) {
+    const id = String(change?.id ?? '').trim();
+    if (change?.op === 'workflow.install' && !lists.has(id)) lists.set(id, listed(sources.starter.raw.workTypes?.[id]?.phases));
+    else if ((change?.op === 'workflow.create' || change?.op === 'workflow.update') && Array.isArray(change.phases)) lists.set(id, listed(change.phases));
+  }
+  return lists;
+}
+
 function safeMarketplaces(value, problems) {
   try { return normalizeMarketplaces(value ?? {}); }
   catch (error) { problems.push({ code: error?.code ?? 'MARKETPLACE_INVALID', message: error.message }); return {}; }
@@ -1604,9 +1640,9 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
       code: 'STUDIO_BASE_CHANGED', details: { expected: expectedAgents, actual: actualAgents }
     });
   }
-  const candidate = new StudioCandidate(sources);
-  const problems = [];
   const changes = orderChanges(changeSet.changes);
+  const candidate = new StudioCandidate(sources, finalWorkflowPhases(sources, changes));
+  const problems = [];
   candidate.expect(changes);
   candidate.fastPathProfile = (await import('./fast-path.mjs')).fastPathProfile;
   for (const change of changes) {

@@ -432,3 +432,56 @@ test('agent edits preserve instructions after remote tables and retain native di
   assert.doesNotMatch(rendered, /## Remote artifact templates|## Remote generated artifacts/);
   assert.equal(parseAgent(rendered, 'native-reviewer').remoteSkills.length, 1);
 });
+
+test('a setting for a step the same change set adds to another workflow stays that workflow\'s own', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const workflowFile = (root) => path.join(root, 'singularity/workflow.yml');
+  const publish = async (root, changes) => {
+    const changeSet = { schema: 'sflow-studio-change-set@1', changes };
+    const plan = await planStudioChangeSet(root, changeSet);
+    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+    await planStudioChangeSet(root, changeSet, { write: true });
+    return plan;
+  };
+  const stepIn = (model, workflowId, phaseId) => model.workflows.find((workflow) => workflow.id === workflowId).steps.find((step) => step.id === phaseId);
+
+  // Requirements is Feature's alone; the page adds it to Chore and changes it there. Steps are
+  // updated before workflows change their lists, so Chore does not list it yet at that moment.
+  let root = await repository();
+  const before = YAML.parse(await readFile(workflowFile(root), 'utf8'));
+  assert.deepEqual(Object.keys(before.workTypes).filter((id) => before.workTypes[id].phases.includes('requirements')), ['feature']);
+  const chore = [...before.workTypes.chore.phases];
+  chore.splice(1, 0, 'requirements');
+  const plan = await publish(root, [
+    { op: 'workflow.update', id: 'chore', phases: chore },
+    { op: 'phase.update', id: 'requirements', workflow: 'chore', approval: { group: 'quality-reviewers', minimum: 2 }, inputs: [], authoringSkill: 'sf-design' }
+  ]);
+  assert.ok(plan.summary.includes('Requirements: inputs, sign-off, drafting skill changed for Chore only.'), plan.summary.join('\n'));
+  let after = YAML.parse(await readFile(workflowFile(root), 'utf8'));
+  assert.deepEqual(after.phases.requirements, before.phases.requirements, 'the step itself, so Feature too, is unchanged');
+  let model = await buildStudioModel(root);
+  assert.deepEqual(stepIn(model, 'feature', 'requirements').approval, { mode: 'required', authorities: ['product-approvers'], minimum: 1 });
+  assert.equal(stepIn(model, 'feature', 'requirements').effectiveAuthoringSkill, '/sf-phase');
+  const inChore = stepIn(model, 'chore', 'requirements');
+  assert.deepEqual([inChore.approval.authorities, inChore.approval.minimum, inChore.inputs, inChore.effectiveAuthoringSkill], [['quality-reviewers'], 2, [], '/sf-design']);
+
+  // The other way round: Feature's own change in the same change set stays Feature's, and Chore
+  // takes the step up as it is.
+  root = await repository();
+  await publish(root, [
+    { op: 'workflow.update', id: 'chore', phases: chore },
+    { op: 'phase.update', id: 'requirements', workflow: 'feature', approval: { group: 'architecture-reviewers', minimum: 1 } }
+  ]);
+  after = YAML.parse(await readFile(workflowFile(root), 'utf8'));
+  assert.deepEqual(after.phases.requirements, before.phases.requirements);
+  model = await buildStudioModel(root);
+  assert.deepEqual(stepIn(model, 'feature', 'requirements').approval.authorities, ['architecture-reviewers']);
+  assert.deepEqual(stepIn(model, 'chore', 'requirements').approval.authorities, ['product-approvers']);
+
+  // A workflow that does not use the step has no settings for it: the change is refused, not
+  // written to the step every other workflow uses.
+  const refused = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'phase.update', id: 'design', workflow: 'chore', approval: { group: 'quality-reviewers', minimum: 2 } }
+  ] });
+  assert.deepEqual(refused.problems.map((problem) => problem.code), ['STUDIO_PHASE_UNKNOWN']);
+});

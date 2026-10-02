@@ -6606,7 +6606,7 @@ async function phaseAuthoringSummary(root, config, workflow, phase) {
     authoringSkill: route.authoringSkill,
     effectiveAuthoringSkill: policy.verified ? route.effectiveAuthoringSkill : null,
     authoringSkillSource: route.authoringSkillSource,
-    ...(route.warning ? { authoringSkillWarning: route.warning } : {}),
+    ...(route.authoringSkillWarning ? { authoringSkillWarning: route.authoringSkillWarning } : {}),
     policyVerified: policy.verified,
     ...(policy.reason ? { policyReason: policy.reason } : {}),
     handoff: phaseHandoff(workflow, phase).map(({ skill, command, copilotCommand, reason }) => ({ skill, command, copilotCommand, reason }))

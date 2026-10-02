@@ -30,7 +30,9 @@ import { importsStatus } from './asset-import.mjs';
 import { importableMcpServers } from './mcp-import.mjs';
 import { templateReferences } from './template-catalog.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
-import { authoringRoute, stepOutputKind, workflowCodeGeneration } from './code-delivery-policy.mjs';
+import {
+  authoringRoute, compiledSkillStep, deterministicOnlyGeneration, stepOutputKind, workflowCodeGeneration
+} from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
@@ -205,7 +207,10 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           authoringSkill: route.authoringSkill,
           authoringSkillSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'authoringSkill')),
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
-          authoringSkillSource: route.authoringSkillSource
+          authoringSkillSource: route.authoringSkillSource,
+          // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
+          generatedByEngine: phase.id === 'convergence' || deterministicOnlyGeneration(phase),
+          compiledSkill: compiledSkillStep(phase)
         };
       })
     };
@@ -228,6 +233,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       id, label: phase.label ?? id, output: outputOf(phase),
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
+      generatedByEngine: id === 'convergence' || deterministicOnlyGeneration(phase),
+      compiledSkill: compiledSkillStep(phase),
       views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
       template: phase.defaultTemplate ?? null, artifact: phase.artifact?.path ?? null,
       usedBy: usedBy(id), agent: defaultAgentOf(id),

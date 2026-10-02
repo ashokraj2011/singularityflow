@@ -499,6 +499,8 @@
       "additionalProperties": {
         "type": "object",
         "description": "Template phases remain unchanged. Version-3 skill phases require a compiled, versioned binding.",
+        "if": { "required": ["kind"], "properties": { "kind": { "const": "skill" } } },
+        "then": { "not": { "required": ["authoringSkill"] } },
         "properties": {
           "kind": { "const": "skill" },
           "skillBinding": { "$ref": "#/$defs/skpSkillBinding" },
@@ -757,9 +759,9 @@
   ],
   "$defs": {
     "authoringSkill": {
-      "type": "string",
+      "type": ["string", "null"],
       "pattern": "^sf-[a-z0-9]+(?:-[a-z0-9]+)*$",
-      "description": "The packaged Copilot skill that drafts this step, such as sf-design. Absent means automatic: /sf-code for code steps, /sf-phase otherwise. Only the skills listed in src/authoring-skills.mjs can be chosen, and the step's output must be one the skill drafts."
+      "description": "The packaged Copilot skill that drafts this step, such as sf-design. Absent or null means automatic: /sf-code for code steps, /sf-phase otherwise; null in a work type's phaseOverrides keeps a step's own skill from applying to that workflow. Only the skills listed in src/authoring-skills.mjs can be chosen, and the step's output must be one the skill drafts. Sign-off-only steps, convergence, steps only the deterministic generator produces, and compiled skill steps cannot name one."
     },
     "skpSkillBinding": {
       "type": "object",

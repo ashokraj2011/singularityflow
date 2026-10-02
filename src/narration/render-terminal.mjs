@@ -8,6 +8,7 @@
 import { MESSAGES, REASONS } from './messages.mjs';
 import { preservedEverything } from './command-result.mjs';
 import { approvalChainText } from '../approval-chain.mjs';
+import { matrixText } from '../evidence/matrix.mjs';
 import { contextXrayText } from '../context-xray.mjs';
 import { tokenLedgerText } from '../token-ledger.mjs';
 import { table } from '../util.mjs';
@@ -573,6 +574,9 @@ export function renderCommandResult(result) {
   if (result.operation.id === 'change.show.shadow') return shadowPassportText(result);
   if (result.operation.id.startsWith('proof.')) return proofObservationText(result);
   if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;
+  if (result.operation.id === 'evidence.matrix' && result.data?.matrix) {
+    return [style.heading(headline(result)), matrixText({ evaluation: result.data.matrix.evaluation, page: result.data.matrix.page })].join('\n');
+  }
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {
     return approvalChainText(result.data.approvalChain).trimEnd();
   }

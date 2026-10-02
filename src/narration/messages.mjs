@@ -589,6 +589,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Token Ledger for ${slot(s.date)} covers ${slot(s.modelInvocations, '0')} model invocation(s) and ${slot(s.contextPackets, '0')} context packet(s).`,
     preserves: true
   },
+  'evidence.matrix.reported': {
+    headline: (s) => `${slot(s.workId)}: ${slot(s.satisfied, '0')} of ${slot(s.rows, '0')} requirement and criterion row(s) satisfied; ${slot(s.label)}.`,
+    preserves: true
+  },
   'approvals.reported': {
     headline: (s) => `${slot(s.workId)} has ${slot(s.received)}/${slot(s.required)} required approval(s) across ${slot(s.phases)} phase(s).`,
     preserves: true
@@ -897,6 +901,9 @@ export const MESSAGES = Object.freeze({
  * the rail this Story pinned at start" is a reason.
  */
 export const REASONS = Object.freeze({
+  'evidence.from-committed-records': {
+    render: () => "each row was evaluated from the Story's committed plan, delivery receipts, test receipts and approvals; no test or network call ran"
+  },
   'approvals.from-pinned-state': {
     render: () => 'the phase order, documents, authority groups, and decisions came from the pinned Story aggregate'
   },

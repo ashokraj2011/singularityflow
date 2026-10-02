@@ -665,8 +665,13 @@ const PAGES = Object.freeze({
     seeAlso: ['process', 'task', 'approve']
   },
   evidence: {
-    summary: 'Export, verify, and reconstruct SGOS Process Evidence against fresh authority.',
+    summary: "Show a Story's evidence matrix, and export, verify, and reconstruct SGOS Process Evidence.",
     description: [
+      '`evidence matrix [WORK-ID]` shows one row per requirement and acceptance criterion of a Story:',
+      "its plan, implementation, tagged test, the test command's outcome and the assurance that proves.",
+      'It reads committed records only, runs no test and makes no network call. A passing module',
+      'command is module-observed assurance; skipped tests make a criterion inconclusive.',
+      '',
       '`evidence export` compiles the exact current Process, Program, Process Binding, immutable',
       'record index, checkpoints, control lineage, attempts, receipts, Candidates, Action Evidence,',
       'Human decisions, Tool Intents/Results, proposals, leases, joins, fan-out, replay, stop, and',
@@ -689,10 +694,16 @@ const PAGES = Object.freeze({
       'read-only, and model-free; it never upgrades the portable bundle or grants authority.'
     ],
     options: [
+      ['--row ID', 'For matrix, show one requirement or criterion row.'],
+      ['--result RESULT', 'For matrix, keep rows with this result (failed, inconclusive, missing, pending, satisfied).'],
+      ['--facet NAME=VALUE', 'For matrix, keep rows whose obligations have this facet value, such as execution=failed.'],
+      ['--page N', 'For matrix, show page N; --page-size sets rows per page (default 50).'],
+      ['--format human|json|csv', 'For matrix, print the table, the full JSON result, or CSV rows.'],
       ['--out FILE', 'For export, create one new repository-contained bundle; existing files are never replaced.'],
       ['--json', 'Emit the exact assurance, completeness, gaps, contradictions, digest, and output metadata.']
     ],
     examples: [
+      ['singularity-flow evidence matrix --result pending', 'List the criteria this Story has not verified yet.'],
       ['singularity-flow evidence export PROC-... --out .sflow/evidence/process.json --json', 'Create one canonical portable bundle without changing Process state.'],
       ['singularity-flow evidence verify process.json --json', 'Verify copied evidence using only the bundle bytes.'],
       ['singularity-flow evidence reconstruct PROC-... --json', 'Reconstruct source-linked claims against freshly resolved repository authority.']

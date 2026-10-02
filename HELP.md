@@ -611,7 +611,14 @@ sflow spec coverage --base origin/main
 sflow spec acceptance --dry-run
 sflow spec acceptance --command node-unit
 sflow spec trace APP:AC-001 --format json
+sflow evidence matrix --result pending
 ```
+
+`sflow evidence matrix [WORK-ID]` shows every requirement and acceptance criterion as one row: its
+plan, implementation, tagged test, the test command's outcome and the assurance that proves. It reads
+committed records only and runs nothing. A passing module command is module-observed assurance, skipped
+tests make a criterion inconclusive, and the completion line reads Incomplete until a final governance
+evaluation is recorded. Use `--row`, `--result`, `--facet NAME=VALUE`, `--page` and `--format json|csv`.
 
 Acceptance commands are explicit argv arrays allowlisted in
 `spec.testCommands`. `--dry-run` only displays those commands; it never executes

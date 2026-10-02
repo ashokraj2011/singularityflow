@@ -879,7 +879,7 @@ function expectedSpecIndexPath(root, itemDirectory, phase) {
   )));
 }
 
-async function readBoundSpecificationIndex(root, itemDirectory, workflow, phase, {
+export async function readBoundSpecificationIndex(root, itemDirectory, workflow, phase, {
   requireCommitted = false
 } = {}) {
   const pointer = phase?.specIndex;

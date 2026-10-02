@@ -213,6 +213,7 @@ Every public operation is classified before its implementation module is importe
 | env.unbind | mutation | never | — | — |
 | epic | mutation | never | — | — |
 | evidence.export | mutation | never | — | — |
+| evidence.matrix | read | never | — | — |
 | evidence.reconstruct | read | never | — | — |
 | evidence.verify | read | never | — | — |
 | execution-unit.doctor | read | never | — | — |

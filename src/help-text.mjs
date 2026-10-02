@@ -514,6 +514,10 @@ Usage:
   singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
+  singularity-flow evidence matrix [WORK-ID] [--row ID] [--result RESULT] [--facet NAME[=VALUE]]
+    [--page N] [--page-size N] [--format human|json|csv]
+    one row per requirement and acceptance criterion with its plan, implementation, verification,
+    result and assurance; read-only, runs no test and makes no network call
   singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
   singularity-flow comprehension source <SFREF> [--offset BYTES] [--max-bytes BYTES]
     [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]

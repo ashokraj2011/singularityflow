@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "3ae7cdfbc26ad8965ded83bf59ce508c43a844d5",
-  "topicCount": 72,
-  "contentSha256": "b4605c55ccb5439c9a82693b7699b285796ca5599b9a0701673c873028a56962",
+  "sourceCommit": "a6f7ee049dbd20d4e6305745f3ada8aac6eadbae",
+  "topicCount": 73,
+  "contentSha256": "9b3df6de243aec4511fce7edaf9c15921132ed47b6d6596d501ca5f3ea0d99dd",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -180,6 +180,14 @@
       "sha256": "0e2aa706cb362c3fc69f800ceafa1e3c3632e171715598367d5fa166e2753794",
       "routingSha256": "6874f5f9dc616c4396f385a212ab931331c2f12555461854f8678d64049fa650",
       "file": "evidence-and-ledger.md"
+    },
+    {
+      "id": "evidence-matrix",
+      "title": "Evidence matrix for requirements and acceptance criteria",
+      "version": 1,
+      "sha256": "8ed99d73a1cf031793f51c69d1fd06e042c812b9bc36cfb99ab63ea9ef0e24f0",
+      "routingSha256": "69e1664ae1e008b1441a609cc5d0efc4616bf9832951b405eec5e33aa01d6def",
+      "file": "evidence-matrix.md"
     },
     {
       "id": "fast-onboarding",

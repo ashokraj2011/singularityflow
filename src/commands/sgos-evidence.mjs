@@ -222,5 +222,6 @@ export async function run(_argv, { positionals, options }) {
   if (action === 'export') return exportEvidence(positionals, options);
   if (action === 'verify') return verifyEvidence(positionals, options);
   if (action === 'reconstruct') return reconstructEvidence(positionals, options);
+  if (action === 'matrix') return (await import('../evidence/command.mjs')).run(_argv, { positionals, options });
   fail(`Unknown evidence action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }

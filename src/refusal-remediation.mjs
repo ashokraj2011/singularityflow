@@ -687,11 +687,51 @@ export function refusalRemediationPlan(error, argv = []) {
   });
 }
 
+/**
+ * The structured facts a refusal carries that its code alone cannot convey — the gate findings,
+ * test obligations, coverage gaps, paths and authorities behind it — projected for the process
+ * boundary. A closed list, bounded and redacted: arbitrary detail fields never cross. JSON callers
+ * (VS Code, Copilot, automation) used to receive only the code and message, so every surface
+ * re-derived or lost what the engine already knew.
+ */
+export function refusalDetails(details) {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
+  const text = (value) => (typeof value === 'string' && value.trim() ? redactDiagnosticText(value).slice(0, 2000) : null);
+  const list = (value, project) => (Array.isArray(value) ? value.slice(0, 50).map(project).filter((entry) => entry != null) : []);
+  const compact = (value) => {
+    const kept = Object.fromEntries(Object.entries(value).filter(([, entry]) => entry != null));
+    return Object.keys(kept).length ? kept : null;
+  };
+  const projected = {};
+  for (const key of ['workId', 'phase', 'operation']) if (text(details[key])) projected[key] = text(details[key]);
+  const paths = list(details.paths, text);
+  if (paths.length) projected.paths = paths;
+  const authorities = list(details.authorities, text);
+  if (authorities.length) projected.authorities = authorities;
+  const findings = list(details.findings, (finding) => (finding && typeof finding === 'object' ? compact({
+    code: text(finding.code), category: text(finding.category), phase: text(finding.phase),
+    message: text(finding.details?.message ?? finding.message), recovery: text(finding.recovery?.command)
+  }) : null));
+  if (findings.length) projected.findings = findings;
+  const obligations = list(details.evaluation?.issues, (issue) => (issue && typeof issue === 'object' ? compact({
+    obligation: text(issue.obligationId), category: text(issue.category), severity: text(issue.severity),
+    riskEligible: typeof issue.riskEligible === 'boolean' ? issue.riskEligible : null, repairRoute: text(issue.repairRoute)
+  }) : null));
+  if (obligations.length) projected.obligations = obligations;
+  if (details.coverage && typeof details.coverage === 'object') {
+    const coverage = compact(Object.fromEntries(['unimplemented', 'testPresenceOnly', 'unclaimedChangedPaths', 'withdrawnButClaimed']
+      .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));
+    if (coverage) projected.coverage = coverage;
+  }
+  return Object.keys(projected).length ? projected : null;
+}
+
 export function refusalEnvelope(error, argv = []) {
   const diagnosticAction = error?.details?.diagnosticAction;
   const diagnostic = diagnosticAction?.command ? safeCommandGuidance(diagnosticAction) : null;
   const remoteFailure = error?.details?.remoteFailure;
   const requiredTestExecution = requiredTestExecutionForRefusal(error);
+  const details = refusalDetails(error?.details);
   return {
     schemaVersion: 1, // schema-transient: process-boundary result, never persisted
     resultType: 'sflow-refusal-plan',
@@ -709,7 +749,8 @@ export function refusalEnvelope(error, argv = []) {
         platformCommands: diagnostic.platformCommands
       } } : {}),
       ...(remoteFailure ? { remoteFailure } : {}),
-      ...(requiredTestExecution ? { requiredTestExecution } : {})
+      ...(requiredTestExecution ? { requiredTestExecution } : {}),
+      ...(details ? { details } : {})
     },
     remediationPlan: refusalRemediationPlan(error, argv)
   };

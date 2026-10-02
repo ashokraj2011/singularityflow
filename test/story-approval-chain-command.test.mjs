@@ -122,6 +122,28 @@ test('a policy-mode phase reads as policy approved only when the waiver complete
   assert.match(approvalChainText(approvalChainSnapshot(story)), /Approvals: 1\/1 · approved/);
 });
 
+test('a phase still waiting for a required group is not shown approved, and a cancelled Story is not complete', () => {
+  const policy = { mode: 'required', minimum: 1, authorities: ['reviewers', 'security'], requiredAuthorities: ['security'] };
+  const approvals = [{ decision: 'approved', authorityGroup: 'reviewers', actor: { login: 'alice', name: 'Alice' }, at: '2026-10-01T00:00:00Z', generation: 1 }];
+  const story = (status, currentPhase, phaseStatus) => ({
+    workItem: { id: 'CHAIN-9', title: 'Waiting for security', workType: 'feature', branch: 'CHAIN-9' }, status, currentPhase,
+    phaseOrder: ['design'],
+    phases: { design: { id: 'design', label: 'Design', status: phaseStatus, generation: 1, approvals, approvalPolicy: policy, artifacts: [] } },
+    resolution: { approvalAuthorities: { reviewers: { label: 'Reviewers', members: [] }, security: { label: 'Security', members: [] } } },
+    history: []
+  });
+  const waiting = approvalChainSnapshot(story('in_progress', 'design', 'awaiting_approval'));
+  assert.equal(waiting.phases[0].approval.state, 'awaiting-approval');
+  assert.equal(waiting.phases[0].approval.remaining, 1);
+  assert.deepEqual(waiting.phases[0].approval.waitingFor.map((entry) => entry.id), ['security']);
+  assert.equal(waiting.summary.approvalsRemaining, 1);
+  assert.match(approvalChainText(waiting), /still needs Security/);
+
+  const cancelled = approvalChainText(approvalChainSnapshot(story('cancelled', null, 'awaiting_approval')));
+  assert.match(cancelled, /current phase: none — cancelled/);
+  assert.doesNotMatch(cancelled, /current phase: complete/);
+});
+
 test('human rendering names documents, approval counts, authorities, approvers, and invalidation history', () => {
   const output = approvalChainText(approvalChainSnapshot(workflow()));
   assert.match(output, /Approval chain — PAY-17: Make payment retries safe/);

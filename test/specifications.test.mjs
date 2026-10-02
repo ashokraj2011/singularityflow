@@ -23,7 +23,7 @@ import {
   normalizeSpecPolicy,
   renderClauseContext,
   runSpecAcceptance, selectActiveSpecRecords, specificationSourceTreeHash,
-  selectClauseContext
+  selectClauseContext, traceClause
 } from '../src/specifications.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
@@ -55,6 +55,52 @@ test('specification clauses are stable, typed, and dependency checked', () => {
   assert.throws(() => extractClauses('[APP:AC-002]\nDepends on APP:REQ-001.', {
     externalClauses: [{ id: 'APP:REQ-001', dependsOn: ['APP:AC-002'] }]
   }), /dependency cycle/);
+});
+
+test('a clause body is the statement its anchor identifies, wherever the anchor sits', () => {
+  const trailing = [
+    '## Requirements', '',
+    '- Export the results as CSV. *(S1)* [W-1:REQ-001]',
+    '- Import a workbook. *(S1, S2)* [W-1:REQ-002]', '',
+    '- A file downloads. *(S1)* [W-1:AC-001]', '',
+    '## Out of scope', '', 'PDF export.', ''
+  ].join('\n');
+  const clauses = extractClauses(trailing);
+  assert.deepEqual(clauses.map((clause) => clause.body), [
+    'Export the results as CSV. *(S1)*', 'Import a workbook. *(S1, S2)*', 'A file downloads. *(S1)*'
+  ]);
+  // Editing one requirement changes that requirement's hash and no other.
+  const edited = extractClauses(trailing.replace('Import a workbook.', 'Import a workbook or CSV.'));
+  assert.equal(edited[0].bodySha256, clauses[0].bodySha256);
+  assert.notEqual(edited[1].bodySha256, clauses[1].bodySha256);
+  assert.equal(edited[2].bodySha256, clauses[2].bodySha256);
+
+  const table = extractClauses('| ID | Outcome | Measure |\n|---|---|---|\n| [W:AC-001] | Login works | 200 OK |\n| [W:AC-002] | Logout works | session cleared |\n');
+  assert.deepEqual(table.map((clause) => clause.body), ['Login works | 200 OK', 'Logout works | session cleared']);
+
+  const ownLine = extractClauses('[W:REQ-001]\n\nThe system exports CSV.\n\n[W:REQ-002]\nThe system imports XLSX.\n');
+  assert.deepEqual(ownLine.map((clause) => clause.body), ['The system exports CSV.', 'The system imports XLSX.']);
+
+  const heading = extractClauses('## [W:REQ-001] Export\n\nUsers export a CSV of results.\n\n- Must download within 2 s [W:AC-001]\n\n## Next\n\nOther.\n');
+  assert.deepEqual(heading.map((clause) => clause.body), ['Export\nUsers export a CSV of results.', 'Must download within 2 s']);
+
+  const shared = extractClauses('Do X now [W:REQ-001]. Do Y later [W:REQ-002].\n');
+  assert.deepEqual(shared.map((clause) => clause.body), ['Do X now', 'Do Y later']);
+  assert.equal(extractClauses('Users can log in [W:REQ-001] using SSO.\n')[0].body, 'Users can log in using SSO.');
+
+  // A guidance paragraph with an example citation is not part of any clause, so it is no dependency.
+  const guided = extractClauses('- Real requirement. [W-1:REQ-001]\n\nUse anchors here too (for example `[W-1:REQ-003]`).\n');
+  assert.deepEqual(guided[0].dependsOn, []);
+});
+
+test('a later phase cannot redefine a clause an earlier phase defined', () => {
+  const earlier = extractClauses('[W-1:REQ-001] Export CSV.\n', { sourcePath: 'requirements.md' });
+  assert.throws(
+    () => extractClauses('[W-1:REQ-001] Export XLSX instead.\n', { sourcePath: 'implementation-spec.md', externalClauses: earlier }),
+    (error) => error.code === 'SPEC_CLAUSE_REDEFINED' && /requirements\.md line 1/.test(error.message)
+  );
+  const citing = extractClauses('[W-1:IFC-001] The exporter implements W-1:REQ-001.\n', { externalClauses: earlier });
+  assert.deepEqual(citing[0].dependsOn, ['W-1:REQ-001']);
 });
 
 test('specification clauses never absorb kernel-managed approved inputs', () => {
@@ -457,14 +503,12 @@ test('acceptance clauses may carry exact test-only evidence without a fabricated
   } }, { kind: 'observed', clauseIds: ['APP:REQ-001'] }), /must identify source evidence/);
 });
 
-test('terminal coverage accepts complete AC test-only evidence and claims its exact test path', () => {
+test('an AC planned as test-only is covered by its delivered tests; one planned with source paths is not', () => {
   const index = { clauses: extractClauses('[APP:AC-001]\nThe rendered primary background is blue.') };
-  const planned = normalizeClaimMap({ claims: {
-    'APP:AC-001': {
-      expectedPaths: ['src/app.component.css'],
-      tests: ['test/primary-background.spec.ts']
-    }
+  const plannedRow = (expectedPaths) => normalizeClaimMap({ claims: {
+    'APP:AC-001': { expectedPaths, tests: ['test/primary-background.spec.ts'] }
   } }, { kind: 'planned', clauseIds: ['APP:AC-001'] });
+  const planned = plannedRow([]);
   const observed = normalizeClaimMap({ claims: {
     'APP:AC-001': {
       observedPaths: [],
@@ -479,8 +523,19 @@ test('terminal coverage accepts complete AC test-only evidence and claims its ex
   );
   assert.equal(coverage.complete, true);
   assert.deepEqual(coverage.unimplemented, []);
+  assert.deepEqual(coverage.testPresenceOnly, ['APP:AC-001'], 'reported as covered by test presence alone');
   assert.deepEqual(coverage.unclaimedChangedPaths, []);
   assert.deepEqual(coverage.invalidEvidence, []);
+
+  // The plan said the stylesheet changes. Delivering only the test is not the implementation.
+  const withSource = evaluateSpecCoverage(
+    { indexes: [index], planned: [plannedRow(['src/app.component.css'])], observed: [observed] },
+    ['test/primary-background.spec.ts'],
+    { coverage: 'enforce' }
+  );
+  assert.equal(withSource.complete, false);
+  assert.deepEqual(withSource.unimplemented, ['APP:AC-001']);
+  assert.deepEqual(withSource.testPresenceOnly, []);
 });
 
 test('test evidence never substitutes for non-AC source evidence', () => {
@@ -673,16 +728,28 @@ test('a plan lists supporting files that may change without a clause, and covera
 
 <!-- - \`ignored/example.json\` — an example inside a comment is not an entry -->
 - \`package.json\` — adds the ledger client
-- \`package-lock.json\`
+- \`package-lock.json\` — pins the ledger client
 `;
   const derived = derivePlannedClaimMap(plan, { clauseIds: ['APP:REQ-001'], policy: { mode: 'enforce' } });
   assert.deepEqual(derived.supportingFiles, ['package-lock.json', 'package.json']);
   assert.deepEqual(derived.claimMap.supportingFiles, ['package-lock.json', 'package.json']);
+  assert.deepEqual(derived.claimMap.supportingFileDetails, [
+    { path: 'package-lock.json', class: 'dependency-lock', reason: 'pins the ledger client' },
+    { path: 'package.json', class: 'build-configuration', reason: 'adds the ledger client' }
+  ]);
+  const refused = (entry, pattern) => assert.throws(
+    () => derivePlannedClaimMap(plan.replace('- `package-lock.json` — pins the ledger client', entry), { clauseIds: ['APP:REQ-001'] }),
+    (error) => error.code === 'SPEC_SUPPORTING_FILE_INVALID' && pattern.test(error.message));
+  refused('- `src/payment/Charge.java` — small helper', /it is application source/);
+  refused('- `test/charge.test.mjs` — covers the helper', /it is test source/);
+  refused('- `db/migrate/001_add.sql` — adds a column', /it is migration/);
+  refused('- `package-lock.json`', /needs its reason after the path/);
+  refused('- `package.json` — again', /listed twice/);
   const plain = derivePlannedClaimMap(plan.slice(0, plan.indexOf('## Supporting files')), { clauseIds: ['APP:REQ-001'] });
   assert.equal(Object.hasOwn(plain.claimMap, 'supportingFiles'), false, 'a plan without the section records what it always did');
   assert.throws(() => derivePlannedClaimMap(`${plan}- package.json without backticks\n`, { clauseIds: ['APP:REQ-001'] }),
     /must start with one backticked repository path/);
-  assert.throws(() => derivePlannedClaimMap(plan.replace('`package-lock.json`', '`config/*.yml`'), { clauseIds: ['APP:REQ-001'] }),
+  assert.throws(() => derivePlannedClaimMap(plan.replace('`package-lock.json` — pins the ledger client', '`config/*.yml` — config'), { clauseIds: ['APP:REQ-001'] }),
     /exact repository-relative path without traversal, globs/);
 
   const index = { clauses: [{ id: 'APP:REQ-001', type: 'REQ' }] };
@@ -694,4 +761,39 @@ test('a plan lists supporting files that may change without a clause, and covera
   assert.deepEqual(coverage.supportingChangedPaths, ['package.json']);
   assert.deepEqual(coverage.unclaimedChangedPaths, ['Makefile'], 'only a listed file is excused');
   assert.equal(coverage.complete, false);
+
+  // A map written before the classes existed, or by hand, cannot excuse application source.
+  const { supportingFileDetails, ...legacy } = derived.claimMap;
+  assert.ok(supportingFileDetails.length);
+  const legacyCoverage = evaluateSpecCoverage(
+    { indexes: [index], planned: [{ ...legacy, supportingFiles: ['package.json', 'src/payment/Charge.java'] }], observed: [observed] },
+    ['src/app.mjs', 'package.json', 'src/payment/Charge.java'], { coverage: 'enforce' });
+  assert.deepEqual(legacyCoverage.supportingChangedPaths, ['package.json']);
+  assert.deepEqual(legacyCoverage.unclaimedChangedPaths, ['src/payment/Charge.java']);
+});
+
+test('the clause trace merges every code phase the way the gate does', () => {
+  const index = { clauses: extractClauses('[APP:REQ-001]\nThe service exports and imports.') };
+  const planned = normalizeClaimMap({ claims: { 'APP:REQ-001': { expectedPaths: ['src/export.mjs', 'src/import.mjs'], tests: [] } } },
+    { kind: 'planned', clauseIds: ['APP:REQ-001'] });
+  const first = { ...normalizeClaimMap({ claims: { 'APP:REQ-001': { observedPaths: ['src/export.mjs'], verdict: 'partial' } } },
+    { kind: 'observed', clauseIds: ['APP:REQ-001'] }), phase: 'code-a', generation: 1 };
+  const second = { ...normalizeClaimMap({ claims: { 'APP:REQ-001': { observedPaths: ['src/import.mjs'], verdict: 'partial' } } },
+    { kind: 'observed', clauseIds: ['APP:REQ-001'] }), phase: 'code-b', generation: 1 };
+  const [row] = traceClause({ indexes: [index], planned: [planned], observed: [first, second] });
+  assert.equal(row.verdict, 'matched', 'two code phases together implemented the clause');
+  assert.deepEqual(row.observed.observedPaths, ['src/export.mjs', 'src/import.mjs']);
+});
+
+test('under enforced source bindings a not-applicable row is observed by its exact path; others still need a binding', () => {
+  const planned = normalizeClaimMap({ claims: {
+    'APP:REQ-001': { expectedPaths: ['src/a.js'], tests: ['test/a.test.js'] },
+    'APP:REQ-002': { expectedPaths: ['config/app.json'], tests: [], testDisposition: 'not-applicable', testReason: 'validated by schema load at boot' }
+  } }, { kind: 'planned', clauseIds: ['APP:REQ-001', 'APP:REQ-002'] });
+  const observed = deriveObservedClaimMap(planned, {
+    sourcePaths: ['src/a.js', 'config/app.json'], testPaths: ['test/a.test.js'],
+    traceability: { bindings: [], sourceBindings: [] }
+  }, { clauseIds: ['APP:REQ-001', 'APP:REQ-002'], requireSourceBindings: true });
+  assert.deepEqual(observed.claims['APP:REQ-002'].observedPaths, ['config/app.json']);
+  assert.deepEqual(observed.claims['APP:REQ-001']?.observedPaths ?? [], [], 'a taggable source still needs its clause comment');
 });

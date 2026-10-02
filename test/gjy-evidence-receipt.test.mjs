@@ -79,6 +79,36 @@ test('submission evidence is concise, honest, and reproducible from durable inpu
   assert.doesNotMatch(JSON.stringify(first), new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
+test('every recorded check lands in one count, and accepted risk stays a failure', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gjy-receipt-counts-'));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'Golden Journey']);
+  git(root, ['config', 'user.email', 'golden@example.com']);
+  await writeFile(path.join(root, 'app.js'), 'export const ready = true;\n');
+  git(root, ['add', 'app.js']);
+  git(root, ['commit', '-q', '-m', 'base']);
+  const sourceCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const workflow = {
+    workItem: { id: 'WRK-2', branch: 'WRK-2' }, resolution: { spec: { coverage: 'off' } },
+    phases: { implementation: { qualityCommands: [['npm', 'test'], ['npm', 'run', 'trp'], ['npm', 'run', 'lint']], approvalPolicy: { mode: 'required', minimum: 1 } } },
+    lineage: { submissions: [] }
+  };
+  const packet = {
+    workId: 'WRK-2', phase: 'implementation', generation: 1, sourceCommit, sourceTreeSha256: 'tree',
+    packetSha256: 'e'.repeat(64), status: 'awaiting_review', authorship: { producer: 'human' }, approvals: [],
+    checks: [
+      { id: 'test', status: 'passed' },
+      { id: 'trp', status: 'unavailable', requirement: 'required' },
+      { id: 'lint', status: 'failed', disposition: 'accepted-risk' }
+    ]
+  };
+  const receipt = await composeEvidenceReceipt(root, { git: { publish: 'off' } }, workflow, packet);
+  assert.deepEqual({ ...receipt.checks }, {
+    status: 'exact', configured: 3, recorded: 3, passed: 1, failed: 1, unavailable: 1, acceptedRisk: 1
+  });
+  assert.match(renderEvidenceReceipt(receipt), /Checks: 1 passed · 1 failed · 1 unavailable \(exact\) · 1 under accepted risk/);
+});
+
 test('missing source and requirement authorities are unavailable, never zero', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gjy-receipt-missing-'));
   const receipt = await composeEvidenceReceipt(root, { spec: { coverage: 'enforce' }, git: { publish: 'off' } }, {

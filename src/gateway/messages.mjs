@@ -145,7 +145,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.no-legal-action': M('Nothing is available to do here'),
   'work.check-readiness': M('Check whether this is ready'),
   'work.resume-phase': M('Resume this phase'),
-  'work.all-phases-complete': M('Every phase is complete'),
+  'work.all-phases-complete': M('Every step is decided'),
   'work.no-current-phase': M('No phase is current'),
   'work.final-phase-approved': M('The final phase was approved'),
   'work.in-progress': M('In progress'),

@@ -164,7 +164,9 @@ export function journeyBodyHtml(journey: Journey): string {
   const blockers = journey.blockers.length
     ? `<section><h2>${icon('bad')}This phase is not ready</h2><ul class="blockers">${
       journey.blockers.map((blocker) => `<li>${escape(blocker)}</li>`).join('')}</ul></section>`
-    : `<section><h2>${icon('gate')}Gate</h2><p class="ok-text">${icon('ok')}Every requirement of this phase is satisfied.</p></section>`;
+    : journey.gateEvaluated
+      ? `<section><h2>${icon('gate')}Gate</h2><p class="ok-text">${icon('ok')}The phase gate reported no blockers.</p></section>`
+      : '';
 
   const sources = `${journey.sources.length
     ? `<ul class="sources">${journey.sources.map((source) => `

@@ -213,7 +213,15 @@ function declarationCatalog(sources, framework) {
         offset += raw.length;
         continue;
       }
-      const endCharacter = cursorOffset + declaration[0].length;
+      // The declaration digest covers the whole test, through the line where its call closes: the
+      // first later line that starts back at top level. Hashing only the header let an assertion be
+      // weakened (`expect(add(1, 2)).toBe(3)` to `expect(true).toBe(true)`) under a review that
+      // still matched.
+      let closing = cursor + 1;
+      while (closing < lines.length && !(lexical.contexts[closing]?.braces === 0
+          && lexical.contexts[closing]?.parentheses === 0 && lexical.contexts[closing]?.brackets === 0)) closing += 1;
+      let endCharacter = cursorOffset;
+      for (let line = cursor; line < closing; line += 1) endCharacter += lines[line].length;
       const identity = {
         identitySchema: 'javascript-static-test-v1', repositorySha256: null,
         sourcePath: captured.path, framework, testName

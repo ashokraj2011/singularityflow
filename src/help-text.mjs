@@ -509,7 +509,7 @@ Usage:
   singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--assisted [--model NAME]] [--json]
   singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]
-  singularity-flow spec claims planned|observed --file JSON_OR_YAML [--phase PHASE] [--json]
+  singularity-flow spec claims planned --file JSON_OR_YAML [--phase PHASE] [--json]
   singularity-flow spec coverage [--base REF] [--target REF] [--json]
   singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]

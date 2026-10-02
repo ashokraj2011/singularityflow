@@ -1775,10 +1775,7 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
   }
   const beforeClauses = extractClauses(currentText, { sourcePath: specificationPath });
   const afterClauses = extractClauses(proposedText, { sourcePath: specificationPath });
-  const diff = clauseDiff(beforeClauses, afterClauses, {
-    beforeMarkdown: currentText,
-    afterMarkdown: proposedText
-  });
+  const diff = clauseDiff(beforeClauses, afterClauses);
   if (!diff.changed.length) {
     throw new SingularityFlowError('The proposed specification does not change any governed clause.', {
       code: 'INTENT_AMENDMENT_EMPTY'

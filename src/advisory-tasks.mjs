@@ -78,24 +78,11 @@ function plain(line) {
 }
 
 /**
- * What a clause says, for a human reading a checklist.
- *
- * Read from the **line the anchor sits on**, not from `clause.body`. The extractor defines a body as
- * everything *after* the anchor up to the next one, which is right for a leading anchor
- * (`[APP:REQ-001] The system …`) and exactly wrong for a trailing one
- * (`- The system … [APP:REQ-001]`) — there the body is the *next* requirement's text. Deriving from
- * the body produced a task list where every item described the following requirement and the last
- * described nothing, which is worse than no list at all because it reads as correct.
+ * What a clause says, for a human reading a checklist: the first sentence of its statement. The
+ * extractor's body is the statement the anchor identifies for leading, trailing and own-line
+ * anchors alike, so the summary never describes a neighbouring requirement.
  */
-function clauseSummary(markdown, clause) {
-  const at = markdown.indexOf(clause.anchor);
-  if (at > -1) {
-    const start = markdown.lastIndexOf('\n', at) + 1;
-    const end = markdown.indexOf('\n', at);
-    const line = plain(markdown.slice(start, end === -1 ? undefined : end).replace(clause.anchor, ''));
-    if (line) return line;
-  }
-  // A leading anchor alone on its line has no text beside it; the body is then the right source.
+function clauseSummary(clause) {
   return plain(firstSentence(clause.body)) || clause.id;
 }
 
@@ -114,7 +101,7 @@ export function deriveAdvisoryTasks({
     const surface = surfaceFor(surfaces, clause.id);
     return {
       clauseId: clause.id,
-      summary: clauseSummary(specification.markdown, clause),
+      summary: clauseSummary(clause),
       // `[SPK:REQ-113]` says SHOULD, and this is why it is a should: the paths come from the plan,
       // and a plan that named none leaves the item without them rather than with invented ones.
       expectedPaths: [...new Set(surface?.paths ?? [])],

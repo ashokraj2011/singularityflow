@@ -16,6 +16,16 @@ function slot(value, fallback = '') {
   return value === undefined || value === null ? fallback : String(value);
 }
 
+/**
+ * What a Story that reached its end may claim. Every step being decided is not completion: only a
+ * passing whole-Story governance check makes the Story complete.
+ */
+function finalCheckSentence(s) {
+  if (s.finalCheck === 'passed') return ' Every step is decided and the final governance check passed: the Story is complete.';
+  if (s.finalCheck === 'failed') return ' Every step is decided, but the Story is not complete until the final governance check passes.';
+  return '';
+}
+
 export const MESSAGES = Object.freeze({
   'story.test-policy.risk-inspected': {
     headline: (s) => `Story risk review is ${slot(s.status)}. This command made no changes and ran no tests. Use --json for exact blockers and eligible decisions.`,
@@ -479,7 +489,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'submit.completed': {
-    headline: (s) => `Completed ${slot(s.phase)} with ${slot(s.documents, '0')} generated document(s); its approval policy required no review.`,
+    headline: (s) => `Completed ${slot(s.phase)} with ${slot(s.documents, '0')} generated document(s); its approval policy required no review.${finalCheckSentence(s)}`,
     preserves: false
   },
   'submit.noop': {
@@ -489,7 +499,7 @@ export const MESSAGES = Object.freeze({
   'approve.succeeded': {
     headline: (s) => (s.next
       ? `Approved ${slot(s.phase)}. The Story is now at ${slot(s.next)}.`
-      : `Approved ${slot(s.phase)}. The Story is complete.`),
+      : `Approved ${slot(s.phase)}.${finalCheckSentence(s)}`),
     preserves: false
   },
   'approve.refused': {
@@ -525,7 +535,7 @@ export const MESSAGES = Object.freeze({
       ? `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story goes back to ${slot(s.target)}.`
       : s.target
         ? `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story is now at ${slot(s.target)}.`
-        : `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story is complete.`),
+        : `Decision ${slot(s.decision)} chose ${slot(s.route)}.${finalCheckSentence(s)}`),
     preserves: false
   },
   'reject.succeeded': {

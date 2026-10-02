@@ -25,7 +25,7 @@ export function progressSnapshot(workflow) {
   const approved = phases.filter((phase) => phase.status === 'approved').length;
   // A phase a decision skipped is settled: the Story is done with it without producing it.
   const skipped = phases.filter((phase) => phase.status === 'skipped').length;
-  const percentage = total ? Math.round(((approved + skipped) / total) * 100) : 100;
+  const percentage = total ? Math.round(((approved + skipped) / total) * 100) : 0;
   return {
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
@@ -70,8 +70,18 @@ function phaseFlowAppearance(phase) {
   }
 }
 
+/**
+ * Where a Story stands when no phase is current. Every step being decided is a lifecycle fact; only
+ * the final governance check can call the Story complete, so no view derives that from state alone.
+ */
+export function noCurrentPhaseLabel(status) {
+  if (status === 'cancelled') return 'none — cancelled';
+  if (status === 'complete') return 'none — every step is decided';
+  return 'none';
+}
+
 export function progressFlow(progress) {
-  if (!progress.phases.length) return '  ✓ Workflow complete';
+  if (!progress.phases.length) return '  (this Story has no phases)';
   const labelWidth = Math.max(...progress.phases.map((phase) => phase.label.length));
   const lines = [];
 
@@ -85,8 +95,9 @@ export function progressFlow(progress) {
   if (progress.pendingDecision) {
     lines.push('  │', `  ◇ WAITING FOR A DECISION: ${progress.pendingDecision.label}`);
   }
-  if (!progress.currentPhase && progress.approvedPhases + (progress.skippedPhases ?? 0) === progress.totalPhases) {
-    lines.push('  │', '  ▼', '  ✓ WORKFLOW COMPLETE');
+  if (!progress.currentPhase && progress.status !== 'cancelled'
+      && progress.approvedPhases + (progress.skippedPhases ?? 0) === progress.totalPhases) {
+    lines.push('  │', '  ▼', '  ✓ EVERY STEP DECIDED');
   }
   return lines.join('\n');
 }
@@ -129,10 +140,10 @@ export function progressMarkdown(progress) {
   const current = progress.phases.find((phase) => phase.id === progress.currentPhase) ?? null;
   const currentText = current
     ? `${current.label} (${progress.currentPosition} of ${progress.totalPhases})`
-    : 'Complete';
+    : noCurrentPhaseLabel(progress.status);
   const journey = progress.phases.length
     ? progress.phases.map((phase) => `${phaseMarker(phase, progress.currentPhase)} ${phase.label}`).join(' → ')
-    : '✅ Workflow complete';
+    : 'This Story has no phases';
   const rows = progress.phases.map((phase) => `| ${phase.index} | ${phaseMarker(phase, progress.currentPhase)} ${markdownCell(phase.label)} | ${markdownCell(readableStatus(phase.status))} | ${phase.generation} | ${phase.approvals}/${phase.approvalsRequired} | ${phaseTokenSummary(phase)} |`);
   return [
     `# Workflow progress — ${markdownCell(progress.workId)}`,

@@ -27,29 +27,22 @@ import { SingularityFlowError } from './util.mjs';
 export const CLAUSE_CHANGES = Object.freeze(['added', 'revised', 'removed', 'unchanged']);
 
 /**
- * A clause's own statement, hashed.
- *
- * NOT `clause.body`. The extractor defines a body as the text *following* the anchor, and the
- * shipped specification template puts anchors at the end of the sentence they identify — so
- * `REQ-001`'s body is `REQ-002`'s sentence, and the last clause's body is empty. Diffing bodies
- * would report a clause as revised when its *successor* was edited, miss the edit to the clause
- * itself, and point the blast radius one claim away from the truth every time.
- *
- * The statement is the line the anchor sits on, which is the text a reader would say the clause is.
+ * A clause's own statement, hashed: the extractor's `bodySha256`, the one clause identity every
+ * consumer shares. The body is the statement the anchor identifies, whether the anchor ends the
+ * sentence, starts a table row or sits on its own line above it.
  */
-function statementHash(clause, markdown) {
-  const line = Number(clause?.source?.line ?? 0);
-  const text = line > 0 ? (String(markdown ?? '').split('\n')[line - 1] ?? '') : String(clause?.body ?? '');
-  return createHash('sha256').update(text.trim()).digest('hex');
+function statementHash(clause) {
+  if (/^[0-9a-f]{64}$/u.test(String(clause?.bodySha256 ?? ''))) return clause.bodySha256;
+  return createHash('sha256').update(String(clause?.body ?? '')).digest('hex');
 }
 
-function clauseIndex(clauses, markdown, label) {
+function clauseIndex(clauses, label) {
   if (!Array.isArray(clauses)) throw new SingularityFlowError(`${label} must be an array of clauses.`, { code: 'AMENDMENT_INVALID' });
   const index = new Map();
   for (const clause of clauses) {
     const id = String(clause?.id ?? '').toUpperCase();
     if (!id) throw new SingularityFlowError(`${label} contains a clause with no id.`, { code: 'AMENDMENT_INVALID' });
-    index.set(id, statementHash(clause, markdown));
+    index.set(id, statementHash(clause));
   }
   return index;
 }
@@ -61,9 +54,9 @@ function clauseIndex(clauses, markdown, label) {
  * stops mentioning a clause reads as a clause that was satisfied (D1: a tombstone beats a silent
  * disappearance).
  */
-export function clauseDiff(before, after, { beforeMarkdown = null, afterMarkdown = null } = {}) {
-  const from = clauseIndex(before ?? [], beforeMarkdown, 'Prior generation');
-  const to = clauseIndex(after ?? [], afterMarkdown, 'Amended generation');
+export function clauseDiff(before, after) {
+  const from = clauseIndex(before ?? [], 'Prior generation');
+  const to = clauseIndex(after ?? [], 'Amended generation');
   const added = [];
   const revised = [];
   const removed = [];

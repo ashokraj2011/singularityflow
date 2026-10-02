@@ -88,6 +88,8 @@ export interface Journey {
   repositories: Array<{ id: string; stories: Array<{ id: string; title: string; blocking: boolean }> }>;
   /** Blocking reasons from the phase gate, verbatim. */
   blockers: string[];
+  /** Whether a phase gate was evaluated for this view; no blockers means nothing only when it was. */
+  gateEvaluated: boolean;
   nextAction: {
     command: string; reason: string; label?: string;
     executable: 'singularity-flow'; argv: readonly string[];
@@ -106,7 +108,7 @@ export interface Journey {
 const EMPTY: Journey = {
   kind: 'story', id: '', title: '', profile: '', branch: null, status: '',
   stages: [], currentStage: null, selectedStage: null, artifacts: [], approvals: [], packs: [], sources: [],
-  repositories: [], blockers: [], nextAction: null, decision: null, decisionAhead: null,
+  repositories: [], blockers: [], gateEvaluated: false, nextAction: null, decision: null, decisionAhead: null,
   empty: 'Nothing governed is checked out on this branch.'
 };
 
@@ -274,6 +276,8 @@ function storyJourneyOf(
     sources: [],
     repositories: [],
     blockers: [],
+    // No phase gate runs for this view, so the absence of blockers says nothing about readiness.
+    gateEvaluated: false,
     nextAction: pending && decisionRoutes
       ? {
           command: decisionRoutes.command,
@@ -449,6 +453,7 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
       }))
     })),
     blockers,
+    gateEvaluated: Boolean(initiative.phaseGate),
     nextAction: nextRoutes ? {
       command: nextRoutes.command,
       executable: nextRoutes.executable,

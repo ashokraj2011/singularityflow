@@ -68,9 +68,15 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/release.md': Object.freeze([
     'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f'
   ]),
-  // Before the plan could list supporting files that change without a clause.
+  // Before the chore intake said which files a chore may change.
+  'singularity/templates/chore/intake.md': Object.freeze([
+    'd4632690fa411f3926eee1bfd474f5907aae5efdd31313576acdac04e8934441'
+  ]),
+  // Before the plan could list supporting files that change without a clause, and before it said
+  // which files may be supporting.
   'singularity/templates/spec-driven/plan.md': Object.freeze([
-    'e8af98405a723a55c572c705e34a5b2fc05a11b3efe632e169ba6becf6c1a04f'
+    'e8af98405a723a55c572c705e34a5b2fc05a11b3efe632e169ba6becf6c1a04f',
+    '251df4ed09c44844edabf7a097d7cdb443f88e9eb66b94716b9ead1ca97498fd'
   ]),
   // Before the specification cited its supporting documents under Sources.
   'singularity/templates/spec-driven/spec.md': Object.freeze([
@@ -261,7 +267,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/bugfix/fix-spec.md': 'c1bbc5602eded66e1387f3fa95a835d7bb49f05a2fd813b193c0cada7c420c87',
   'singularity/templates/bugfix/intake.md': 'c0aa89555e400e9c78c782021b1928175607f32ad20773c70fae04b28ced320c',
   'singularity/templates/bugfix/reproduction.md': '083e0361f6ffe9e84905b21558554c8335ab1a036719cb37f104e03f255f3567',
-  'singularity/templates/chore/intake.md': 'd4632690fa411f3926eee1bfd474f5907aae5efdd31313576acdac04e8934441',
+  'singularity/templates/chore/intake.md': '3eb548ff9d465a536d6108c59f920f9ea62e1c16112c06561ce7a6c0ff856240',
   'singularity/templates/classic-delivery/code-checking.md': 'cb2a69e08768ab6d38ef3ee3e4326f47f854ec80d9012362d5765f88f58ecda1',
   'singularity/templates/classic-delivery/intake.md': 'd91d55500e7dbc30a388633bce723623157619bca0bbc9bbaf8e64dfd85308a8',
   'singularity/templates/classic-delivery/testing.md': 'd84b65e54ff4210a7fab6cc1af3a2ea45bbba61fbee383a1ef985f31848ff177',
@@ -348,7 +354,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-code-test-loop/specification.md': '4a487088d8275fc54afcb7932c18a4fb04774e85309b26b3ae72618ce9762bc6',
   'singularity/templates/spec-code-test-loop/testing.md': 'eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
-  'singularity/templates/spec-driven/plan.md': '251df4ed09c44844edabf7a097d7cdb443f88e9eb66b94716b9ead1ca97498fd',
+  'singularity/templates/spec-driven/plan.md': '5e70231c6271f9b637f876862847c10ad938bafcab33ad56cdb1d3ad8e5bee5f',
   'singularity/templates/spec-driven/release.md': 'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7',
   'singularity/templates/spec-driven/spec.md': '55b0d6c4c9aa5ba19739493825f6c993f03d63bed9e1a5e2bb7d5c099b8b91bb',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',

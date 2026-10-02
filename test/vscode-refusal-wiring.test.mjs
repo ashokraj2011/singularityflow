@@ -104,6 +104,18 @@ test('a v1 command-result becomes a card, with preservation derived from its eff
   assert.equal(card.actions[0].emphasis, 'primary');
 });
 
+test('the card reads the parsed result, not stderr cut short for display', () => {
+  // A refusal that carries its findings can outgrow the display bound on stderr; the runner keeps
+  // the complete parsed object on CliError.result.
+  const truncated = `${V1.slice(0, 120)}… (truncated)`;
+  const error = Object.assign(cliError('Submit refused.', truncated), { result: JSON.parse(V1) });
+  const { view: card, fidelity } = refusalFor(error);
+  assert.equal(fidelity, 'command-result-v1');
+  assert.equal(card.why[0].label, 'Approvals are outstanding');
+  assert.equal(refusalFor(Object.assign(cliError('x', V1), { result: { resultType: 'unknown' } })).fidelity, 'command-result-v1',
+    'an unrecognised parsed result falls back to the text');
+});
+
 test('a v1 result that did change something makes no preservation claim', () => {
   // The check that keeps the derivation honest: a half-applied command must not be described as
   // having left everything alone `[DHR:CON-060]`.

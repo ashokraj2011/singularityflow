@@ -244,6 +244,22 @@ function assertRouteKeepsDependencies(where, route, reach, { order, byId, planne
     if (skippedPlanners.length && reachedCode.length) {
       throw invalid(`${where} route '${route.id}' skips ${list(skippedPlanners)}, which plan the claims '${reachedCode[0]}' must meet.`);
     }
+    // The other direction: a route must not leave requirements a person already accepted, or claims
+    // already planned, with no code phase to meet them. An `end` route reaches nothing, so without
+    // this it could finish a Story whose requirements were never implemented.
+    for (const codeId of reach.skipped.filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)))) {
+      const owner = plannedClaims.owners?.[codeId];
+      if (owner && !skipped.has(owner)) {
+        throw invalid(`${where} route '${route.id}' skips '${codeId}', which must meet the claims '${owner}' plans. A Story taking this route would finish with those claims unimplemented: route to '${codeId}' or an earlier phase instead.`);
+      }
+    }
+    for (const clausePhase of plannedClaims.clausePhases ?? []) {
+      if (skipped.has(clausePhase) || !order.includes(clausePhase)) continue;
+      const laterCode = order.slice(order.indexOf(clausePhase) + 1).filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)));
+      if (laterCode.length && laterCode.every((phaseId) => skipped.has(phaseId))) {
+        throw invalid(`${where} route '${route.id}' skips every code phase after '${clausePhase}' (${list(laterCode)}), so the requirements '${clausePhase}' defines would never be implemented. Route to one of those phases, or decide before '${clausePhase}' runs.`);
+      }
+    }
   }
 }
 
@@ -354,6 +370,33 @@ export function normalizeDecisions(value, {
       anyStep: kind === 'ask' ? entry.anyStep === true : false
     };
   });
+}
+
+/**
+ * What a Story's skipped phases left undone: planned claims whose code phase was skipped while
+ * their planner ran, and accepted requirements whose every later code phase was skipped.
+ * Validation refuses routes that would do this; the terminal gate uses this to catch a Story that
+ * took such a route anyway, instead of counting the skipped phase as settled.
+ */
+export function obligationsDroppedBySkips(workflow) {
+  const plannedClaims = workflow?.resolution?.plannedClaims;
+  if (plannedClaims?.mode !== 'required') return [];
+  const order = workflow.phaseOrder ?? [];
+  const phaseOf = (id) => workflow.phases?.[id];
+  const skipped = (id) => phaseOf(id)?.status === 'skipped';
+  const dropped = new Map();
+  for (const id of order) {
+    if (!skipped(id) || !phaseRequiresCodeDelivery(phaseOf(id))) continue;
+    const owner = plannedClaims.owners?.[id];
+    if (owner && phaseOf(owner) && !skipped(owner)) dropped.set(id, `the claims '${owner}' planned for it were never implemented`);
+  }
+  for (const clausePhase of plannedClaims.clausePhases ?? []) {
+    if (!phaseOf(clausePhase) || skipped(clausePhase)) continue;
+    const laterCode = order.slice(order.indexOf(clausePhase) + 1).filter((id) => phaseRequiresCodeDelivery(phaseOf(id)));
+    if (!laterCode.length || !laterCode.every(skipped)) continue;
+    for (const id of laterCode) if (!dropped.has(id)) dropped.set(id, `the requirements '${clausePhase}' defines were never implemented`);
+  }
+  return [...dropped].map(([phase, reason]) => ({ phase, reason }));
 }
 
 /** The decision pinned after a phase of this Story, or null. */

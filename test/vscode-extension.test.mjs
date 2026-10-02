@@ -3369,6 +3369,51 @@ test('a document uploaded during a phase is never presented as the artifact that
     'the journey lists the phase output, not the evidence attached to it');
 });
 
+test('VS Code offers and withholds a Story approval by the engine\'s own rules', () => {
+  // A group open to any Git identity admits a reviewer it does not list.
+  const open = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  open.identities = { git: { email: 'someone@example.com' } };
+  open.workflow.resolution.approvalAuthorities['architecture-reviewers'] = { allowAnyGitIdentity: true, members: [] };
+  assert.equal(buildApprovals(open).pending[0].standing, 'yours');
+
+  // A listed member is matched by GitHub login as well as email.
+  const byLogin = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  byLogin.identities = { git: { email: 'personal@example.com' }, github: 'Reviewer-Login' };
+  byLogin.workflow.resolution.approvalAuthorities['architecture-reviewers'] = { members: [{ githubLogin: 'reviewer-login' }] };
+  assert.equal(buildApprovals(byLogin).pending[0].standing, 'yours');
+
+  // Enough approvals but a required group still outstanding: still waiting, and only that group can act.
+  const required = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  required.workflow.resolution.approvalAuthorities.security = { members: [{ email: 'security@example.com' }] };
+  Object.assign(required.workflow.phases.design.approvalPolicy, {
+    authorities: ['architecture-reviewers', 'security'], requiredAuthorities: ['security']
+  });
+  required.workflow.phases.design.approvals = [{ decision: 'approved', authorityGroup: 'architecture-reviewers', actor: { email: 'other@example.com' } }];
+  const waiting = buildApprovals(required);
+  assert.equal(waiting.pending.length, 1, 'a required group outstanding keeps the phase waiting');
+  assert.equal(waiting.pending[0].standing, 'others');
+  assert.deepEqual(waiting.pending[0].authorities, ['security']);
+
+  // The phase's own self-approval setting is honoured.
+  const self = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  self.workflow.phases.design.generatedBy = { email: 'reviewer@example.com' };
+  self.workflow.phases.design.approvalPolicy.allowSelfApproval = false;
+  const blocked = buildApprovals(self).pending[0];
+  assert.equal(blocked.selfApproval, true);
+  assert.equal(blocked.standing, 'blocked');
+  assert.match(blocked.reason, /does not allow its author to approve it/);
+});
+
+test('Journey claims nothing about a gate it did not evaluate', async () => {
+  const storyJourney = buildJourney(storySnapshot({ status: 'awaiting_approval', generation: 1 }), 'design');
+  assert.equal(storyJourney.gateEvaluated, false, 'no phase gate runs for the Story journey');
+  // journey.ts loads the vscode API, so its rendering is checked from source: the reassurance is
+  // shown only when a gate was evaluated, and no longer claims every requirement is satisfied.
+  const page = await readFile(source('views/journey.ts'), 'utf8');
+  assert.doesNotMatch(page, /Every requirement of this phase is satisfied/);
+  assert.match(page, /journey\.gateEvaluated\s*\?\s*`<section><h2>\$\{icon\('gate'\)\}Gate<\/h2><p class="ok-text">\$\{icon\('ok'\)\}The phase gate reported no blockers\./);
+});
+
 test('an older pinned Story never offers absent or future rejection targets', () => {
   const shot = storySnapshot({ status: 'awaiting_approval', generation: 1 });
   shot.workflow.phaseOrder.push('verification');

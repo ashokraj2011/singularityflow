@@ -1075,7 +1075,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, missing evidence, unplanned work] }
     worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
     writeScope: artifact-only
-    comparison: { identifiers: [acceptance-criteria, specification], verdicts: [matched, partial, missing, deviated, unplanned], exactFileLineEvidence: true }
+    comparison: { identifiers: [acceptance-criteria, specification], verdicts: [matched, partial, missing, deviated, unplanned] }
     approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [implementation-spec, fix-spec, implementation, verification, conformance] }
 
   # POC workflow phases are intentionally private to `poc-workflow`. A failed validation is

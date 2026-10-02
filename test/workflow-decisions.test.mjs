@@ -9,7 +9,7 @@ import { resolveWorkType, validateDefinition } from '../src/config.mjs';
 import {
   chooseRoute, decisionOutcome, describeOutcome, describeWhen, normalizeDecisionInputValues,
   parseDecisionAssignments, pendingDecisionRecord, resolveDecisionChoice, routeReach,
-  assertChoiceKeepsDependencies
+  assertChoiceKeepsDependencies, obligationsDroppedBySkips
 } from '../src/workflow-decisions.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -119,6 +119,49 @@ test('a skipped planning phase must not strand the code phase whose claims it pl
     routes: [{ id: 'large', label: 'Large', when: { size: 'large' }, to: 'implementation-spec' }, { id: 'small', label: 'Small', to: 'implementation' }]
   }];
   assert.throws(() => validateDefinition(raw), /skips 'implementation-spec', which plan the claims 'implementation' must meet/);
+});
+
+test('a route cannot finish a Story whose accepted requirements or planned claims were never implemented', async () => {
+  const featureWith = async (decisions) => {
+    const raw = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+    raw.workTypes.feature.decisions = decisions;
+    return validateDefinition(raw);
+  };
+  const stopAfter = (after) => [{
+    id: 'stop-early', after, kind: 'ask', label: 'Stop here?',
+    routes: [{ id: 'continue', label: 'Continue', to: 'next' }, { id: 'stop', label: 'Finish here', to: 'end' }]
+  }];
+  await assert.rejects(featureWith(stopAfter('requirements')), (error) => {
+    assert.equal(error.code, 'WORKFLOW_DECISION_INVALID');
+    assert.match(error.message, /skips every code phase after 'requirements' \('implementation'\)/);
+    return true;
+  });
+  await assert.rejects(featureWith(stopAfter('implementation-spec')),
+    /skips 'implementation', which must meet the claims 'implementation-spec' plans/);
+  // Ending after the code phase drops no requirement: the decision still validates.
+  const allowed = await featureWith(stopAfter('implementation'));
+  assert.deepEqual(resolveWorkType(allowed, 'feature').decisions.map((decision) => decision.id), ['stop-early']);
+});
+
+test('the terminal gate is told which obligations a skipped phase dropped', () => {
+  const plannedClaims = { mode: 'required', clausePhases: ['requirements', 'implementation-spec'], owners: { implementation: 'implementation-spec' } };
+  const storyWith = (statuses) => ({
+    phaseOrder: Object.keys(statuses),
+    resolution: { plannedClaims },
+    phases: Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, {
+      id, status, ...(id === 'implementation' ? { generationPolicy: { task: 'code' } } : {})
+    }]))
+  });
+  assert.deepEqual(obligationsDroppedBySkips(storyWith({
+    requirements: 'approved', 'implementation-spec': 'skipped', implementation: 'skipped', verification: 'skipped'
+  })), [{ phase: 'implementation', reason: "the requirements 'requirements' defines were never implemented" }]);
+  assert.deepEqual(obligationsDroppedBySkips(storyWith({
+    requirements: 'approved', 'implementation-spec': 'approved', implementation: 'skipped'
+  })), [{ phase: 'implementation', reason: "the claims 'implementation-spec' planned for it were never implemented" }]);
+  assert.deepEqual(obligationsDroppedBySkips(storyWith({
+    requirements: 'approved', 'implementation-spec': 'approved', implementation: 'approved', verification: 'skipped'
+  })), []);
+  assert.deepEqual(obligationsDroppedBySkips({ ...storyWith({ implementation: 'skipped' }), resolution: {} }), []);
 });
 
 test('rules choose routes from recorded values, and a loop stops for a person at its limit', async () => {

@@ -34,7 +34,7 @@ const G3 = `# Spec
  * is what stops a template's own example clauses being inherited by every Story built from it.
  */
 const clauses = (markdown) => extractClauses(markdown, { sourcePath: 'spec.md' });
-const diffOfShipped = () => clauseDiff(clauses(G2), clauses(G3), { beforeMarkdown: G2, afterMarkdown: G3 });
+const diffOfShipped = () => clauseDiff(clauses(G2), clauses(G3));
 
 test('both-doors-mint-a-generation', () => {
   /**
@@ -49,7 +49,7 @@ test('both-doors-mint-a-generation', () => {
   assert.match(diff.sha256, /^[0-9a-f]{64}$/);
 
   // Reformatting is not revision: the same clause body re-extracted must compare equal.
-  assert.deepEqual([...clauseDiff(clauses(G2), clauses(G2), { beforeMarkdown: G2, afterMarkdown: G2 }).changed], []);
+  assert.deepEqual([...clauseDiff(clauses(G2), clauses(G2)).changed], []);
 });
 
 test('radius-is-claim-closed', () => {
@@ -98,7 +98,7 @@ test('the complement is stated, because reassurance is half the feature', () => 
   assert.match(summary, /the other 1 stand/, 'the summary never says what is safe');
 
   // Nothing affected must say so outright rather than printing an empty list.
-  const quiet = blastRadius(clauseDiff(clauses(G2), clauses(G2), { beforeMarkdown: G2, afterMarkdown: G2 }), planned);
+  const quiet = blastRadius(clauseDiff(clauses(G2), clauses(G2)), planned);
   assert.match(radiusSummary(quiet), /None of your 3 claims are affected; all of them stand\./);
 });
 

@@ -40,13 +40,21 @@ export type Refusal = { readonly view: ResultCardView; readonly fidelity: Refusa
  * this scans for a balanced object rather than assuming the stream is JSON. Anything unparseable is
  * not an error here — it means tier 3, which is a supported outcome and not a degraded one.
  */
+const STRUCTURED_RESULT_TYPES = ['sflow-result', 'command-result', 'sflow-refusal-plan'];
+
+/** The CLI result the runner already parsed from the complete stream, when it is one we render. */
+function parsedStructuredResult(result: unknown): any | null {
+  const type = result && typeof result === 'object' ? (result as { resultType?: unknown }).resultType : null;
+  return typeof type === 'string' && STRUCTURED_RESULT_TYPES.includes(type) ? result : null;
+}
+
 function structuredResult(stderr: string): any | null {
   const start = stderr.indexOf('{');
   if (start < 0) return null;
   for (let end = stderr.lastIndexOf('}'); end > start; end = stderr.lastIndexOf('}', end - 1)) {
     try {
       const parsed = JSON.parse(stderr.slice(start, end + 1));
-      if (['sflow-result', 'command-result', 'sflow-refusal-plan'].includes(parsed?.resultType)) return parsed;
+      if (STRUCTURED_RESULT_TYPES.includes(parsed?.resultType)) return parsed;
     } catch { /* keep shrinking: a later brace may close a smaller, valid document */ }
   }
   return null;
@@ -345,7 +353,9 @@ export function refusalFor(error: unknown, {
   const text = String((error as { message?: string })?.message ?? error ?? '');
   const exitCode = (error as { exitCode?: number | null })?.exitCode ?? null;
 
-  const structured = structuredResult(stderr);
+  // The runner parses the complete stream into CliError.result; stderr is bounded for display and a
+  // refusal carrying its findings can outgrow that bound, so the parsed result wins when present.
+  const structured = parsedStructuredResult((error as { result?: unknown })?.result) ?? structuredResult(stderr);
   if (structured?.resultType === 'sflow-result') {
     return { view: buildResultCard(structured), fidelity: 'sflow-result-v2' };
   }

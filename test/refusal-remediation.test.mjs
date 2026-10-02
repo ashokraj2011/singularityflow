@@ -708,3 +708,34 @@ test('every published executable routes its own refusal through the shared plann
     assert.match(source, /reportCliFailure/, relative);
   }
 });
+
+test('a JSON refusal carries its findings, obligations and coverage gaps, and nothing else', async () => {
+  const { refusalEnvelope: envelopeOf } = await import('../src/refusal-remediation.mjs');
+  const { SingularityFlowError: FlowError } = await import('../src/util.mjs');
+  const trp = envelopeOf(new FlowError('Required validation remains failed or unavailable.', {
+    code: 'TRP_PHASE_GATE_BLOCKED',
+    details: {
+      workId: 'W-1', phase: 'code', operation: 'publish', internalNote: 'private-detail',
+      evaluation: { issues: [{ id: 'issue-x', obligationId: 'unit', category: 'new-test-failure', severity: 'noncritical',
+        riskEligible: true, repairRoute: 'repair-obligation', message: 'Required check failed' }] }
+    }
+  }), ['phase', 'publish', 'code']);
+  assert.deepEqual(trp.error.details, {
+    workId: 'W-1', phase: 'code', operation: 'publish',
+    obligations: [{ obligation: 'unit', category: 'new-test-failure', severity: 'noncritical', riskEligible: true, repairRoute: 'repair-obligation' }]
+  });
+  assert.doesNotMatch(JSON.stringify(trp), /private-detail/);
+
+  const gate = envelopeOf(new FlowError('Governance gate failed', {
+    code: 'GOVERNANCE_GATE_FAILED',
+    details: { findings: [{ code: 'STORY_PHASE_INCOMPLETE', category: 'lifecycle', phase: 'code',
+      details: { message: 'terminal: phase code is not approved' }, recovery: { command: 'singularity-flow recover W-1' } }],
+    coverage: { unimplemented: ['W-1:AC-001'], unclaimedChangedPaths: ['src/x.mjs'], ignored: ['nope'] } }
+  }));
+  assert.deepEqual(gate.error.details.findings, [{ code: 'STORY_PHASE_INCOMPLETE', category: 'lifecycle', phase: 'code',
+    message: 'terminal: phase code is not approved', recovery: 'singularity-flow recover W-1' }]);
+  assert.deepEqual(gate.error.details.coverage, { unimplemented: ['W-1:AC-001'], unclaimedChangedPaths: ['src/x.mjs'] });
+
+  const quiet = envelopeOf(new FlowError('Nope', { code: 'X', details: { arbitrary: 'value' } }));
+  assert.equal(Object.hasOwn(quiet.error, 'details'), false, 'a refusal with no projected facts carries no details');
+});

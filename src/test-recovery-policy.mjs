@@ -16,6 +16,12 @@ export const TRP_RISK_CATEGORIES = Object.freeze([
 export const TRP_INTEGRITY_CATEGORIES = Object.freeze([
   'provenance', 'identity', 'protected-path', 'source-safety', 'non-waivable', 'policy-integrity'
 ]);
+/**
+ * Evidence that was authentic but no longer describes the candidate: its dependencies, environment
+ * or age moved on. It is neither a risk a person can accept nor tampering; the repair is to run the
+ * check again. Classifying it as provenance sent people to restore authority they never lost.
+ */
+export const TRP_STALE_CATEGORY = 'stale-evidence';
 const str = { type: 'string', minLength: 1, maxLength: 2048 };
 const id = { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' };
 const digest = { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' };
@@ -58,7 +64,7 @@ const repository = object({
   baselineRefs: set(digest), execution, mandatoryObligations: set(obligation), riskDecisionRefs: set(digest)
 });
 const issue = object({
-  id, causeFingerprint: digest, category: enumeration(...TRP_RISK_CATEGORIES, ...TRP_INTEGRITY_CATEGORIES),
+  id, causeFingerprint: digest, category: enumeration(...TRP_RISK_CATEGORIES, ...TRP_INTEGRITY_CATEGORIES, TRP_STALE_CATEGORY),
   severity: enumeration('noncritical', 'critical'), observationRef: nullable(digest), obligationId: str,
   owner: str, repairRoute: str, preservedState: set(str), riskEligible: bool, riskReason: str, message: str
 });
@@ -287,6 +293,9 @@ function verifiedEvidence(record, context, verifyEvidence) {
       && (context.mode === 'historical' || Date.parse(receipt.verifiedAt) <= Date.parse(context.at));
   } catch { return false; }
 }
+function staleEvidence(message) {
+  return Object.assign(new Error(message), { staleEvidence: true });
+}
 function sameDependencies(expected, actual) {
   return Array.isArray(actual) && expected.every((dependency) => actual.some((entry) => entry.id === dependency.id && entry.sha256 === dependency.sha256));
 }
@@ -304,9 +313,10 @@ function makeIssue(category, obligationId, observation, message, policy, nonWaiv
     observation, subject: evaluatedSubject });
   const eligible = !nonWaivable && policy?.enabledRiskCategories?.includes(category) === true;
   return { id: `issue-${causeFingerprint.slice(7, 31)}`, causeFingerprint, category: actualCategory,
-    severity: nonWaivable || TRP_INTEGRITY_CATEGORIES.includes(actualCategory) ? 'critical' : 'noncritical',
+    severity: nonWaivable || TRP_INTEGRITY_CATEGORIES.includes(actualCategory) || actualCategory === TRP_STALE_CATEGORY ? 'critical' : 'noncritical',
     observationRef: observation?.recordSha256 ?? null, obligationId, owner: 'story-owner',
-    repairRoute: TRP_INTEGRITY_CATEGORIES.includes(actualCategory) ? 'restore-authority-or-evidence' : 'repair-obligation',
+    repairRoute: TRP_INTEGRITY_CATEGORIES.includes(actualCategory) ? 'restore-authority-or-evidence'
+      : actualCategory === TRP_STALE_CATEGORY ? 'rerun-validation' : 'repair-obligation',
     preservedState: ['source bytes', 'published generations', 'approval history', 'original observations'],
     riskEligible: eligible, riskReason: eligible ? 'Enabled by pinned policy; authenticated decision required' : 'Not waivable under pinned policy', message };
 }
@@ -521,9 +531,9 @@ export function evaluateTestRecoveryGate({
         if (observation.agreementSha256 !== agreement.recordSha256 || !sameSubject(observation.subject, evaluationSubject)
           || !verifiedEvidence(observation, context, verifyEvidence)) throw new Error('Observation identity, policy, epoch or authenticated provenance does not match');
         if (!sameDependencies(observation.dependencies, candidateDependencies)
-          || (candidateEnvironment && trpEnvironmentDigest(observation.environment) !== trpEnvironmentDigest(candidateEnvironment))) throw new Error('Observation dependency or host environment is no longer current');
+          || (candidateEnvironment && trpEnvironmentDigest(observation.environment) !== trpEnvironmentDigest(candidateEnvironment))) throw staleEvidence('Observation dependency or host environment is no longer current');
         if (Date.parse(at) - Date.parse(observation.completedAt) > policy.maxEvidenceAgeSeconds * 1000
-          || (observation.executionOrigin === 'reused' && !policy.allowEvidenceReuse)) throw new Error('Observation freshness does not permit reuse');
+          || (observation.executionOrigin === 'reused' && !policy.allowEvidenceReuse)) throw staleEvidence('Observation freshness does not permit reuse');
         if (required.kind === 'test' && (!selectionValid || observation.selectionSha256 !== selection?.recordSha256
           || observation.commandSha256 !== selection.commandSha256 || observation.selectorSha256 !== selection.selectorSha256
           || observation.commandInventorySha256 !== selection.commandInventorySha256)) throw new Error('Observation is not bound to the sealed test selection');
@@ -539,7 +549,10 @@ export function evaluateTestRecoveryGate({
           && (observation.processExitCode === null || observation.processExitCode === 0 || observation.counts.failed === 0)) {
           throw new Error('Executed failure claim requires a nonzero process and exact failed test identities');
         }
-      } catch (error) { raise('provenance', error.message); }
+      } catch (error) {
+        if (error?.staleEvidence) { needsExecution = true; raise(TRP_STALE_CATEGORY, error.message); }
+        else raise('provenance', error.message);
+      }
       if (!localIssues.length) {
         if (['not-run', 'unavailable', 'inconclusive'].includes(observation.observedOutcome)) raise('validation-unavailable', 'Required validation remains unverified');
         else if (observation.observedOutcome === 'failed') {

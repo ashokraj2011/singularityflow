@@ -198,6 +198,26 @@ test('every item explains why it is visible and what to do about it', async () =
   assert.equal(item.nextAction.operation, 'review.packet');
 });
 
+test('work readiness applies the engine approval rule and sees a published artifact', async () => {
+  const root = await fixture({
+    'WRK-1': story('WRK-1', {
+      design: {
+        status: 'awaiting_approval', generation: 1, label: 'Design', requiredArtifact: { path: 'design.md' },
+        approvalPolicy: { authorities: ['developers', 'security'], minimum: 1, requiredAuthorities: ['security'] },
+        approvals: [{ decision: 'approved', authorityGroup: 'developers', actor: { login: 'dev-1' } }]
+      }
+    }, { currentPhase: 'design', resolution: { approvalAuthorities: APPROVAL_AUTHORITIES } }),
+    'WRK-2': story('WRK-2', {
+      design: { status: 'in_progress', generation: 2, label: 'Design', requiredArtifact: { path: 'design.md' } }
+    }, { currentPhase: 'design' })
+  });
+  const items = (await workRecords(root, { actor: ACTOR })).items;
+  const waiting = items.find((entry) => entry.id === 'WRK-1');
+  assert.ok(waiting.blockers.includes('approvals-outstanding'), 'a required group has not decided');
+  assert.ok(!waiting.blockers.includes('required-artifact-missing'), 'a published generation is not a missing artifact');
+  assert.ok(!items.find((entry) => entry.id === 'WRK-2').blockers.includes('required-artifact-missing'));
+});
+
 test('work records carry canonical and selectable branch identity for shared home state', async () => {
   const root = await fixture({ 'WRK-890': story('WRK-890', {
     intake: { status: 'in_progress', generation: 1 }

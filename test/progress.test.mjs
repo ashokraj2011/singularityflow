@@ -64,7 +64,12 @@ test('progress flow marks active generation and completed workflow', () => {
     currentPhase: null, approvedPhases: 1, totalPhases: 1,
     phases: [{ id: 'intake', label: 'Intake', status: 'approved', generation: 1, approvals: 1, approvalsRequired: 1 }]
   });
-  assert.match(complete, /✓ WORKFLOW COMPLETE$/);
+  assert.match(complete, /✓ EVERY STEP DECIDED$/);
+  assert.doesNotMatch(progressFlow({
+    currentPhase: null, status: 'cancelled', approvedPhases: 1, totalPhases: 1,
+    phases: [{ id: 'intake', label: 'Intake', status: 'approved', generation: 1, approvals: 1, approvalsRequired: 1 }]
+  }), /DECIDED|COMPLETE/, 'a cancelled Story never reads as finished');
+  assert.equal(progressFlow({ currentPhase: null, approvedPhases: 0, totalPhases: 0, phases: [] }), '  (this Story has no phases)');
 });
 
 test('progress bar still clamps values for deterministic percentage display', () => {

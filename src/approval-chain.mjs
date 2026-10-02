@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { approvalPolicyCapacity } from './approval-authority.mjs';
+import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './approval-authority.mjs';
 import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
+import { noCurrentPhaseLabel } from './progress.mjs';
 
 function normalizedPath(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
@@ -76,13 +77,14 @@ function policyPhaseReviewedByPeople(phase, activeApprovals) {
     || (phase.status === 'approved' && activeApprovals > 0);
 }
 
-function approvalState(phase, mode, received, minimum, reviewedByPeople = false) {
+function approvalState(phase, mode, met, minimum, reviewedByPeople = false) {
   if (phase.status === 'skipped') return 'skipped';
   if (mode === 'none') return 'not-required';
   // Policy approval means the waiver completed the phase; a phase it did not cover reads as any
   // human-reviewed phase does.
   if (mode === 'policy' && !reviewedByPeople) return phase.status === 'approved' ? 'policy-approved' : 'policy-pending';
-  if (received >= minimum && minimum > 0) return 'approved';
+  // The engine's own rule: enough distinct people, and every required group among them.
+  if (met && minimum > 0) return 'approved';
   if (phase.status === 'awaiting_approval') return 'awaiting-approval';
   if (phase.status === 'rejected') return 'returned-for-rework';
   if (phase.status === 'approved') return 'approved';
@@ -119,6 +121,10 @@ export function approvalChainSnapshot(workflow) {
     const minimum = mode === 'none' || (mode === 'policy' && !reviewedByPeople) ? 0 : (policy.minimum ?? 1);
     const authorities = Object.freeze((policy.authorities ?? []).map((id) => authority(workflow, id)));
     const capacity = approvalPolicyCapacity(workflow.resolution?.approvalAuthorities, policy);
+    const peopleDecide = minimum > 0;
+    const waitingFor = peopleDecide ? remainingRequiredAuthorities(policy, phase.approvals) : [];
+    const met = peopleDecide && approvalRequirementsMet({ ...policy, minimum }, phase.approvals);
+    const distinctApprovers = new Set(activeApprovals.map((entry) => entry.actor)).size;
     return Object.freeze({
       order: index + 1,
       id,
@@ -128,10 +134,11 @@ export function approvalChainSnapshot(workflow) {
       documents: phaseDocuments(phase),
       approval: Object.freeze({
         mode,
-        state: approvalState(phase, mode, activeApprovals.length, minimum, reviewedByPeople),
+        state: approvalState(phase, mode, met, minimum, reviewedByPeople),
         minimum,
         received: activeApprovals.length,
-        remaining: Math.max(0, minimum - activeApprovals.length),
+        remaining: !peopleDecide || met || phase.status === 'skipped' ? 0 : Math.max(waitingFor.length, minimum - distinctApprovers, 1),
+        waitingFor: Object.freeze(waitingFor.map((id) => authority(workflow, id))),
         configurationBlocked: !['approved', 'skipped'].includes(phase.status) && !capacity.attainable,
         capacity: Object.freeze(capacity),
         authorities,
@@ -163,7 +170,7 @@ export function approvalChainSnapshot(workflow) {
       documents: phases.reduce((sum, phase) => sum + phase.documents.length, 0),
       approvalsRequired,
       approvalsReceived,
-      approvalsRemaining: Math.max(0, approvalsRequired - approvalsReceived),
+      approvalsRemaining: phases.reduce((sum, phase) => sum + phase.approval.remaining, 0),
       phasesAwaitingApproval: phases.filter((phase) => phase.approval.state === 'awaiting-approval').length
     }),
     phases: Object.freeze(phases)
@@ -193,14 +200,14 @@ export function approvalChainText(snapshot) {
   const lines = [
     '',
     `Approval chain — ${snapshot.workItem.id}: ${snapshot.workItem.title}`,
-    `Story status: ${snapshot.workItem.status} · current phase: ${snapshot.workItem.currentPhase ?? 'complete'}`,
+    `Story status: ${snapshot.workItem.status} · current phase: ${snapshot.workItem.currentPhase ?? noCurrentPhaseLabel(snapshot.workItem.status)}`,
     ''
   ];
   for (const phase of snapshot.phases) {
     lines.push(
       `${phase.order}. ${phase.label} (${phase.id}) — ${phase.phaseStatus.replaceAll('_', ' ')}`,
       `   Documents: ${names(phase.documents)}`,
-      `   Approvals: ${requirement(phase.approval)} · ${phase.approval.state.replaceAll('-', ' ')}`,
+      `   Approvals: ${requirement(phase.approval)} · ${phase.approval.state.replaceAll('-', ' ')}${phase.approval.waitingFor?.length ? ` · still needs ${phase.approval.waitingFor.map((entry) => entry.label).join(', ')}` : ''}`,
       ...(phase.approval.configurationBlocked
         ? ['   Blocker: pinned approval policy cannot reach its threshold; refresh configuration and reopen this phase.']
         : []),

@@ -84,7 +84,7 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
     lines.push(`- Source: \`${evidenceReceipt.source.commit}\``);
     lines.push(`- Changed paths: **${value(evidenceReceipt.changes.count)}** (${evidenceReceipt.changes.status})`);
     lines.push(`- Requirements: **${value(evidenceReceipt.requirements.claimed)}/${value(evidenceReceipt.requirements.clauses)}** (${evidenceReceipt.requirements.status})`);
-    lines.push(`- Checks: **${evidenceReceipt.checks.passed} passed**, **${evidenceReceipt.checks.failed} failed**, **${evidenceReceipt.checks.unavailable} unavailable**`);
+    lines.push(`- Checks: **${evidenceReceipt.checks.passed} passed**, **${evidenceReceipt.checks.failed} failed**, **${evidenceReceipt.checks.unavailable} unavailable**${evidenceReceipt.checks.acceptedRisk ? `, ${evidenceReceipt.checks.acceptedRisk} under accepted risk` : ''}`);
     lines.push(`- Approvals: **${evidenceReceipt.approvals.current}/${evidenceReceipt.approvals.required}**`);
     lines.push(`- Review packet: \`${evidenceReceipt.reviewPacket.sha256}\``);
     lines.push(`- Receipt: \`${evidenceReceipt.receiptSha256}\``, '');

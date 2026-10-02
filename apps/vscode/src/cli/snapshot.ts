@@ -358,8 +358,11 @@ export interface StoryPhase {
   artifacts: StoryArtifact[];
   approvals: StoryApproval[];
   approvalPolicy?: {
+    mode?: string;
     authorities?: string[];
+    requiredAuthorities?: string[];
     minimum?: number;
+    allowSelfApproval?: boolean;
     rejectTo?: string[];
     changeRequests?: { commentRequired?: boolean; reopenCompleted?: boolean };
   };
@@ -401,7 +404,10 @@ export interface StoryWorkflow {
     } | null;
   }>;
   resolution?: {
-    approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
+    approvalAuthorities?: Record<string, {
+      label?: string; allowAnyGitIdentity?: boolean;
+      members?: Array<{ name?: string; email?: string; githubLogin?: string; login?: string }>;
+    }>;
     [key: string]: unknown;
   };
   lineage?: {

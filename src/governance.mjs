@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state-stores.mjs';
-import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
+import { exists, gitHeadIsUnborn, gitReadOutput, nowIso, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
@@ -31,6 +31,7 @@ import { inspectQualifiedConformanceReport } from './conformance-readiness.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { obligationsDroppedBySkips } from './workflow-decisions.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { exactFileAtObject, firstParentCommitsMentioning, governedCommitIdentity, head } from './git.mjs';
@@ -75,6 +76,37 @@ export async function terminalPublicationObservation(root, remote, publicationBr
   const remoteHead = observed.stdout.trim().split(/\s+/)[0];
   const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   return { published: remoteHead === localHead, reason: null };
+}
+
+/**
+ * When the Story reached its end, or now if it has not. Accepted risk and witness exceptions are
+ * judged at this moment, so a later audit of a finished Story still sees what held when it finished.
+ */
+export function terminalTransitionAt(workflow) {
+  if (workflow?.status !== 'complete') return nowIso();
+  const settled = (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])
+    .flatMap((phase) => [phase?.approvedAt, phase?.skippedAt])
+    .map((value) => Date.parse(value ?? '')).filter(Number.isFinite);
+  return settled.length ? new Date(Math.max(...settled)).toISOString() : nowIso();
+}
+
+/**
+ * Witness exceptions that lapsed before the Story finished. An exception is reviewed with an expiry;
+ * once it lapses it no longer stands in for the evidence it excused.
+ */
+export function lapsedWitnessExceptions(workflow) {
+  const finishedAt = Date.parse(terminalTransitionAt(workflow));
+  const lapsed = [];
+  for (const phaseId of workflow?.phaseOrder ?? []) {
+    for (const approval of (workflow.phases?.[phaseId]?.approvals ?? []).filter((entry) => !entry?.invalidatedAt)) {
+      for (const mapping of approval.witnessMappings ?? []) {
+        if (mapping?.decision === 'exception' && !(Date.parse(mapping.expiresAt ?? '') > finishedAt)) {
+          lapsed.push(`terminal: ${phaseId}'s witness exception for ${mapping.clauseId} expired at ${mapping.expiresAt ?? 'an unknown time'}, before the Story finished`);
+        }
+      }
+    }
+  }
+  return lapsed;
 }
 
 export function generationAuthorship(phase, generation) {
@@ -397,8 +429,11 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
                 if (packet.submissionEvidence?.codeDelivery?.path === receiptPath
                   && String(packet.submissionEvidence.codeDelivery.sha256).replace(/^sha256:/u, '')
                     === createHash('sha256').update(canonicalJson(receipt)).digest('hex')) {
+                  // The terminal gate replays the decision as of the moment the Story finished: one
+                  // revoked or expired before then no longer covers it. Other runs replay submission.
                   riskReplay = { evidenceCommit: packet.evidenceCommit,
-                    testRecovery: { config, workflow, operation: 'submit', mode: 'historical', at: receipt.validatedAt } };
+                    testRecovery: { config, workflow, operation: 'submit', mode: 'historical',
+                      at: terminal ? terminalTransitionAt(workflow) : receipt.validatedAt } };
                 } else errors.push(`${phaseId} generation ${generation}: TRP delivery receipt differs from its immutable review packet`);
               }
             }
@@ -701,13 +736,18 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (terminal) {
+    const dropped = new Map(obligationsDroppedBySkips(workflow).map((entry) => [entry.phase, entry.reason]));
     for (const phaseId of workflow.phaseOrder) {
       const phase = workflow.phases[phaseId];
-      // A decision may skip a phase; the gate records it rather than treating it as unfinished.
+      // A decision may skip a phase. The skip settles the phase only when it drops nothing that was
+      // already accepted or planned; otherwise the Story would finish with those obligations unmet.
       if (phase?.status === 'skipped') {
-        passes.push(`skipped by decision: ${phaseId}${phase.skippedBy ? ` (${phase.skippedBy.decision} → ${phase.skippedBy.route})` : ''}`);
+        const route = phase.skippedBy ? ` (${phase.skippedBy.decision} → ${phase.skippedBy.route})` : '';
+        if (dropped.has(phaseId)) errors.push(`terminal: phase ${phaseId} was skipped by decision${route}, so ${dropped.get(phaseId)}`);
+        else passes.push(`skipped by decision: ${phaseId}${route}`);
       } else if (phase?.status !== 'approved') errors.push(`terminal: phase ${phaseId} is not approved`);
     }
+    errors.push(...lapsedWitnessExceptions(workflow));
     if (workflow.pendingDecision) errors.push(`terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`);
     if (workflow.status !== 'complete' || currentPhase(workflow)) errors.push('terminal: workflow is not complete'); else passes.push('terminal lifecycle');
   }

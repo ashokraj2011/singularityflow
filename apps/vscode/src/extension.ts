@@ -5014,7 +5014,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workflow = state.snapshot?.workflow;
     const where = workspaceLabel ? `${workspaceLabel} · ` : '';
     if (workflow) {
-      const phase = workflow.currentPhase ?? 'complete';
+      // A Story with no current phase has decided every step or was cancelled; neither is evidence
+      // that it is complete, which only the final governance check can say.
+      const phase = workflow.currentPhase
+        ?? ((workflow as { status?: string }).status === 'cancelled' ? 'cancelled' : 'every step decided');
       status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase}`;
       status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`;
       status.show();

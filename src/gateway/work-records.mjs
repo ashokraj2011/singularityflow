@@ -11,7 +11,7 @@
  * a bucket assigned by judgement is a bucket that differs between surfaces.
  */
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
-import { matchApprovalAuthority } from '../approval-authority.mjs';
+import { approvalRequirementsMet, matchApprovalAuthority } from '../approval-authority.mjs';
 import { subjectKey, validateSubjectKey } from '../subject-ref.mjs';
 
 /** In render order. A reader scans top-down and should hit their own work first. */
@@ -175,18 +175,29 @@ function nextAction(workflow, group) {
   return { operation: 'work.readiness', reasonCode: 'work.check-readiness' };
 }
 
+/**
+ * Whether the phase's required artifact exists as current governed evidence: a published generation
+ * that rework has not superseded. (A `recordedAt` field this used to read is written by nothing, so
+ * every current phase reported its artifact missing.)
+ */
+function requiredArtifactRecorded(phase) {
+  if (phase.generationPolicy?.requirement === 'none') return true;
+  const generation = Number(phase.generation ?? 0);
+  if (generation < 1) return false;
+  return !(phase.reworkRevalidation && generation <= Number(phase.reworkRevalidation.generation ?? 0));
+}
+
 function blockersOf(workflow, { recovery }) {
   const blockers = [];
   if (recovery?.status === 'pending') blockers.push('publication-pending');
   if (recovery?.status === 'unreadable') blockers.push('publication-marker-unreadable');
   const phaseId = workflow.currentPhase ?? null;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
-  if (phase?.status === 'awaiting_approval') {
-    const required = phase.approvalPolicy?.minimum ?? 1;
-    const received = (phase.approvals ?? []).filter((entry) => entry?.decision === 'approved').length;
-    if (received < required) blockers.push('approvals-outstanding');
+  // The engine's approval rule: distinct people, every required group, invalidated decisions ignored.
+  if (phase?.status === 'awaiting_approval' && !approvalRequirementsMet(phase.approvalPolicy, phase.approvals)) {
+    blockers.push('approvals-outstanding');
   }
-  if (phase?.requiredArtifact?.path && !phase.requiredArtifact.recordedAt) blockers.push('required-artifact-missing');
+  if (phase?.requiredArtifact?.path && !requiredArtifactRecorded(phase)) blockers.push('required-artifact-missing');
   return blockers;
 }
 

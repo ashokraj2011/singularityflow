@@ -117,6 +117,14 @@ test('a top-level literal Jest test binds qualified clauses without claiming exe
   const stale = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
   assert.equal(stale.valid, false);
   assert.ok(stale.errors.some((entry) => /bytes changed/.test(entry)));
+
+  // The digest covers the whole test: weakening its assertion under the same name is a change.
+  const [declaration] = observation.catalog.declarations;
+  assert.equal(source.slice(declaration.sourceRange.startCharacter, declaration.sourceRange.endCharacter), source.slice(0, source.lastIndexOf('});') + 4));
+  await writeFile(path.join(root, 'test', 'payment.test.js'), source.replace('expect(2).toBe(2);', 'expect(true).toBe(true);'));
+  const weakened = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
+  assert.equal(weakened.valid, false, 'a weakened assertion kept the reviewed digest');
+  assert.ok(weakened.errors.some((entry) => /bytes changed/.test(entry)));
 });
 
 test('nested, dynamic, modified, and multiline-ambiguous JavaScript declarations fail safely', async () => {

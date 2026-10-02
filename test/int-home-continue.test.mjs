@@ -164,7 +164,7 @@ test('readiness reports blockers and the smallest legal step for each', async ()
   // `[INT:IFC-081]`.
   const root = await fixture({
     'WRK-1': story('WRK-1', {
-      design: { status: 'in_progress', generation: 1, requiredArtifact: { path: 'design.md' } }
+      design: { status: 'in_progress', generation: 0, requiredArtifact: { path: 'design.md' } }
     }, { currentPhase: 'design' })
   });
   const result = await workReadiness({ root, arguments: { workId: 'WRK-1' }, context: { actor: ACTOR } });
@@ -229,7 +229,7 @@ test('a readiness refusal renders as gates, not as a red error', async () => {
   // row per gate, and a fix action on the rows that have one.
   const root = await fixture({
     'WRK-1': story('WRK-1', {
-      design: { status: 'in_progress', generation: 1, requiredArtifact: { path: 'design.md' } }
+      design: { status: 'in_progress', generation: 0, requiredArtifact: { path: 'design.md' } }
     }, { currentPhase: 'design' })
   });
   const result = await workReadiness({ root, arguments: { workId: 'WRK-1' }, context: { actor: ACTOR } });

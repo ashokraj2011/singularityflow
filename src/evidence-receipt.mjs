@@ -4,6 +4,7 @@ import {
   changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
 } from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
+import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { workDir } from './state-stores.mjs';
 import { run } from './util.mjs';
 
@@ -19,25 +20,28 @@ function digest(value) {
   return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
 
-function counts(values, names) {
-  return Object.fromEntries(names.map((name) => [name, values.filter((value) => value === name).length]));
-}
-
+/**
+ * Check counts by the same rule the gates apply (`qualityValidationVerdict`): blocked and unknown
+ * statuses are failures, unavailable and skipped checks are unavailable, and a configured check with
+ * no record is unavailable. Every recorded check lands in exactly one count, so a receipt can never
+ * read "1 passed · 0 failed · 0 unavailable" over a required check that did not run. A failure that
+ * passed its transition under accepted risk stays a failure and is also counted as such.
+ */
 function checkProjection(phase, packet) {
   const configured = phase?.deliveryEvidence?.validation?.commands?.length
     ?? phase?.qualityCommands?.length
     ?? 0;
   const recorded = packet.checks ?? [];
-  const statuses = recorded.map((check) => check.status);
-  const tally = counts(statuses, ['passed', 'failed', 'blocked', 'skipped-warning', 'stale']);
-  const unavailable = tally.blocked + tally['skipped-warning'] + Math.max(0, configured - recorded.length);
+  const verdict = qualityValidationVerdict(recorded);
+  const acceptedRisk = recorded.filter((check) => check?.disposition === 'accepted-risk').length;
   return {
     status: recorded.length >= configured ? 'exact' : 'partial',
     configured,
     recorded: recorded.length,
-    passed: tally.passed,
-    failed: tally.failed + tally.stale,
-    unavailable
+    passed: recorded.filter((check) => check?.status === 'passed').length,
+    failed: verdict.failed.length,
+    unavailable: verdict.unavailable.length + Math.max(0, configured - recorded.length),
+    ...(acceptedRisk ? { acceptedRisk } : {})
   };
 }
 
@@ -166,7 +170,7 @@ export function renderEvidenceReceipt(receipt) {
     `Evidence receipt: ${receipt.work.id} · ${receipt.work.phase} generation ${receipt.work.generation}`,
     `Source: ${receipt.source.commit.slice(0, 12)} · changes ${unavailable(receipt.changes.count)} (${receipt.changes.status})`,
     `Requirements: ${unavailable(receipt.requirements.claimed)}/${unavailable(receipt.requirements.clauses)} claimed (${receipt.requirements.status})`,
-    `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})`,
+    `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `Approvals: ${receipt.approvals.current}/${receipt.approvals.required} (${receipt.approvals.status})`,
     `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
     `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
@@ -184,7 +188,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     `- Source commit: \`${receipt.source.commit}\``,
     `- Changed paths: **${value(receipt.changes.count)}** (${receipt.changes.status})`,
     `- Requirements claimed: **${value(receipt.requirements.claimed)}/${value(receipt.requirements.clauses)}** (${receipt.requirements.status})`,
-    `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})`,
+    `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `- Approvals: **${receipt.approvals.current}/${receipt.approvals.required}** (${receipt.approvals.status})`,
     `- Context provenance: **${receipt.context.status}**`,
     `- Review packet: \`${receipt.reviewPacket.sha256}\``,

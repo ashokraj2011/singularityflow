@@ -179,6 +179,7 @@ import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
+import { completionRecoveryActions, completionVerdict, printCompletionVerdict } from './completion-verdict.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
@@ -5583,6 +5584,21 @@ async function clarificationCommand(positionals, options) {
     }];
   }
   const session = await loadSession(root);
+  // An answer settles a question the phase's work depends on, so it is a decision for the people
+  // who decide the phase: a member of one of its approval groups. A phase that needs no approval has
+  // no such group, and its author answers.
+  const answerPolicy = phase.approvalPolicy;
+  if ((answerPolicy?.mode ?? 'required') !== 'none' && (answerPolicy?.authorities ?? []).length) {
+    try {
+      requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, answerPolicy, session.actor);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Only a member of ${phase.id}'s approval groups (${answerPolicy.authorities.join(', ')}) can answer its clarification questions, because the answers decide what the phase produces. `
+        + `Ask one of them to record the answer. ${error.message}`,
+        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { phase: phase.id, authorities: [...answerPolicy.authorities] } }
+      );
+    }
+  }
   const result = await storyDraftTransaction(root, config, workflow, `clarification:${phase.id}`, () =>
     recordClarificationResponses(root, config, workflow, phase, {
       responses,
@@ -5788,6 +5804,15 @@ async function specCommand(positionals, options) {
 
   if (subcommand === 'claims') {
     const kind = requirePositional(positionals, 2, 'claim map kind (planned or observed)');
+    // An observed claim map says what was delivered. The kernel derives it from the code-delivery
+    // evidence when the phase is submitted; a hand-written one could assert any verdict, and the
+    // views that read the claim directory would believe it.
+    if (kind === 'observed') {
+      throw new SingularityFlowError(
+        'Observed claims are derived from delivered evidence when a code phase is submitted; they cannot be written by hand. Record a plan with spec claims planned, or submit the code phase.',
+        { code: 'SPEC_OBSERVED_CLAIMS_DERIVED' }
+      );
+    }
     const inputFile = optionString(options, 'file');
     if (!inputFile) throw new SingularityFlowError('Provide --file with a JSON or YAML claim map.');
     const records = await loadActiveSpecRecords(itemDirectory, workflow);
@@ -6514,10 +6539,12 @@ async function phaseReview(root, config, workflow, phase) {
   }
   const testcaseObservations = [];
   const welLifecycles = [];
+  let skippedTests = 0;
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
     try {
       const stored = await readFile(path.join(root, execution.receiptPath));
       const receipt = readRecord('test-execution', stored).record;
+      skippedTests += Math.max(0, Number(receipt.tests?.skipped ?? 0) || 0);
       if (receipt.testcaseObservation) testcaseObservations.push(receipt.testcaseObservation);
       if (receipt.lifecycle) welLifecycles.push(receipt.lifecycle);
     } catch {
@@ -6557,6 +6584,13 @@ async function phaseReview(root, config, workflow, phase) {
       executions: phase.deliveryEvidence.testExecutions?.length ?? 0,
       executionAssurance: 'module-executed',
       testcaseExecutionProven: false,
+      // What the approver is actually shown about acceptance criteria, stated at its real strength.
+      acceptance: {
+        association: 'test-file-tag',
+        execution: 'module-observed',
+        skippedTests,
+        statement: 'Acceptance criteria are linked to tests by @ac tags in the delivered test files, and the module test commands passed. No test-case result is joined to a criterion yet.'
+      },
       testcaseObservation: {
         status: localObservations.length
           ? 'observed'
@@ -6643,6 +6677,12 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
   if (review.testEvidence) {
     console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s)`);
     console.log(`  ${review.testEvidence.notice}`);
+    if (review.testEvidence.acceptance) {
+      console.log(`Acceptance evidence: ${review.testEvidence.acceptance.statement}`);
+      if (review.testEvidence.acceptance.skippedTests > 0) {
+        console.warn(`  ${review.testEvidence.acceptance.skippedTests} test(s) were skipped; a skipped test may be one a criterion relies on.`);
+      }
+    }
     console.log(`  Testcase observation: ${review.testEvidence.testcaseObservation.status} · ${review.testEvidence.testcaseObservation.occurrences} occurrence(s) · ${review.testEvidence.testcaseObservation.assurance} · ${review.testEvidence.testcaseObservation.verdict}`);
     console.log(`  ${review.testEvidence.testcaseObservation.notice}`);
     if (review.testEvidence.testcaseObservation.mappingProposals) {
@@ -7652,21 +7692,27 @@ async function runSubmitCommand(positionals, options, submitContext) {
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
   // here; NEXT now comes from the deterministic planner against the state the submission left.
   const advanced = currentPhase(workflow);
+  // An approval-free last phase ends the Story here, so the whole-Story check runs here too.
+  const completion = !advanced && workflow.status === 'complete' ? await completionVerdict(root, workflow.workItem.id) : null;
+  if (completion) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded(phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
-      phase: phase.id, documents: phase.artifacts.length
+      phase: phase.id, documents: phase.artifacts.length,
+      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    ...completionContinuation(completion),
     data: {
       commit: publication.sha,
       pushed: publication.pushed,
       reviewPacket: reviewPacket?.packet?.packetSha256 ?? null,
       evidenceReceipt,
-      registrationRepairs
+      registrationRepairs,
+      ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
-  }), { postState: workflow, restStateWhenIdle: advanced ? null : 'complete' });
+  }), { postState: workflow, restStateWhenIdle: advanced || completion ? null : 'complete' });
 }
 
 /** Generic phase submission can never opt into the convergence advancement context. */
@@ -8244,13 +8290,29 @@ async function approveCommand(positionals, options) {
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
+  // The last approval decides every step; only the whole-Story check can say the Story is complete.
+  const completion = result.next ? null : await completionVerdict(root, workflow.workItem.id);
+  if (completion) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'approve', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('approve.succeeded', { phase: result.phase.id, next: result.next?.id ?? null }),
+    outcome: succeeded('approve.succeeded', {
+      phase: result.phase.id, next: result.next?.id ?? null,
+      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
+    }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup }
-  }), { postState: workflow, restStateWhenIdle: result.next ? null : 'complete' });
+    ...completionContinuation(completion),
+    data: {
+      commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup,
+      ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
+    }
+  }), { postState: workflow });
+}
+
+/** A Story that reached its end rests complete only when the final check passed; otherwise it says how to recover. */
+function completionContinuation(completion) {
+  if (!completion) return {};
+  return completion.verified ? { restState: 'complete' } : { next: completionRecoveryActions(completion) };
 }
 
 async function rejectCommand(positionals, options) {
@@ -8754,13 +8816,23 @@ async function decisionChooseCommand(positionals, options) {
       : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
     formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   }
+  // An `end` route finishes the Story, so the whole-Story check runs before anything calls it complete.
+  const completion = workflow.status === 'complete' ? await completionVerdict(root, workflow.workItem.id) : null;
+  if (completion && !optionBoolean(options, 'json')) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'decision.choose', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('decision.choose.succeeded', { decision: pending.decision, route: outcome.route, kind: outcome.kind, target: outcome.target ?? null }),
+    outcome: succeeded('decision.choose.succeeded', {
+      decision: pending.decision, route: outcome.route, kind: outcome.kind, target: outcome.target ?? null,
+      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
+    }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, authorityGroup: authority.authorityGroup, skipped: outcome.skipped ?? [] }
-  }), { json: optionBoolean(options, 'json'), postState: workflow, restStateWhenIdle: workflow.status === 'complete' ? 'complete' : null });
+    ...completionContinuation(completion),
+    data: {
+      commit: publication.sha, pushed: publication.pushed, authorityGroup: authority.authorityGroup, skipped: outcome.skipped ?? [],
+      ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
+    }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
 async function reopenCommand(positionals, options) {
@@ -17555,6 +17627,15 @@ export async function finalizeCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
+  // A finalization packet presents the Story for Product Owner review as delivered. It is written only
+  // over a Story whose whole-Story governance check passes, never over one that merely ran out of steps.
+  const finalCheck = await completionVerdict(root, workflow.workItem.id);
+  if (!finalCheck.verified) {
+    throw new SingularityFlowError(
+      `Story ${workflow.workItem.id} cannot be finalized: the final governance check failed:\n- ${finalCheck.errors.join('\n- ')}`,
+      { code: 'STORY_FINAL_CHECK_FAILED', exitCode: 2, details: { findings: finalCheck.findings } }
+    );
+  }
   const store = new StoryStateStore(root, config);
   const impactFinalization = Boolean(workflow.measurement?.plan && workflow.measurement?.status !== 'opted-out');
   const transaction = await store.transact(

@@ -79,13 +79,35 @@ interface ApprovalRecord {
 
 const lower = (value: unknown): string => String(value ?? '').trim().toLowerCase();
 
-/** Members of an authority, as lowercase emails. */
-function members(snapshot: RepositorySnapshot, authority: string): Set<string> {
-  const listed = snapshot.workflow?.resolution?.approvalAuthorities?.[authority]?.members
-    ?? snapshot.definition?.approvalAuthorities?.[authority]?.members
-    ?? snapshot.portfolio?.approvalAuthorities?.[authority]?.members
-    ?? [];
-  return new Set(listed.map((member) => lower(member.email)).filter(Boolean));
+type Person = { email: string | null; login: string | null };
+
+/** Who this repository attributes a decision to, by email and GitHub login. */
+function personOf(snapshot: RepositorySnapshot): Person {
+  return {
+    email: lower(snapshot.identities?.git?.email) || null,
+    login: lower(snapshot.identities?.github ?? snapshot.identities?.git?.login) || null
+  };
+}
+
+/**
+ * Whether an authority admits this person, by the engine's rule: a group open to any Git identity,
+ * or a listed member matched by email or GitHub login.
+ */
+function authorityAdmits(snapshot: RepositorySnapshot, authority: string, person: Person): boolean {
+  const definition = snapshot.workflow?.resolution?.approvalAuthorities?.[authority]
+    ?? snapshot.definition?.approvalAuthorities?.[authority]
+    ?? snapshot.portfolio?.approvalAuthorities?.[authority];
+  if (!definition || (!person.email && !person.login)) return false;
+  if (definition.allowAnyGitIdentity) return true;
+  return (definition.members ?? []).some((member) => (person.email && lower(member.email) === person.email)
+    || (person.login && lower(member.githubLogin ?? member.login) === person.login));
+}
+
+/** Whether a recorded identity is this person, by email or login. */
+function samePerson(value: unknown, person: Person): boolean {
+  const identity = value as { email?: string; login?: string } | null | undefined;
+  return Boolean((person.email && lower(identity?.email) === person.email)
+    || (person.login && lower(identity?.login) === person.login));
 }
 
 /**
@@ -145,12 +167,13 @@ function standingFor(
       authorities: []
     };
   }
-  if (!actor) {
+  const person = personOf(snapshot);
+  if (!actor && !person.login) {
     // Without an identity nothing can be attributed, so nothing is claimed to be actionable.
     return { standing: 'others', reason: 'No Git identity is configured for this repository.', authorities };
   }
 
-  const permitted = authorities.some((authority) => members(snapshot, authority).has(actor));
+  const permitted = authorities.some((authority) => authorityAdmits(snapshot, authority, person));
   if (permitted) return { standing: 'yours', reason: null, authorities };
 
   return {
@@ -187,10 +210,11 @@ export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
   return approvalsOf(snapshot, initiative);
 }
 
+/** One person per decision, keyed as the engine keys them: GitHub login, then email, then name. */
 function identityOf(value: unknown): string {
   if (typeof value === 'string') return lower(value);
   const identity = value as { email?: string; login?: string; name?: string } | null | undefined;
-  return lower(identity?.email ?? identity?.login ?? identity?.name);
+  return lower(identity?.login) || lower(identity?.email) || lower(identity?.name);
 }
 
 /** The checked-out Story's exact phase decision, derived from workflow.json rather than Initiative state. */
@@ -215,7 +239,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
     return {
       initiativeId: workflow.workItem.id, actor, pending: [], obstacles: [],
       empty: workflow.status === 'complete'
-        ? 'This Story workflow is complete.'
+        ? 'Every step of this Story is decided.'
         : 'Nothing is waiting for a decision.'
     };
   }
@@ -223,18 +247,29 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
   const active = (phase.approvals ?? []).filter((approval) =>
     approval.decision === 'approved' && !approval.invalidatedAt);
   const minimum = phase.approvalPolicy?.minimum ?? 1;
-  if (new Set(active.map((approval) => identityOf(approval.actor)).filter(Boolean)).size >= minimum) {
+  // The engine's rule: enough distinct people, and every required group among them.
+  const requiredOutstanding = (phase.approvalPolicy?.requiredAuthorities ?? [])
+    .filter((authority) => !active.some((approval) => approval.authorityGroup === authority));
+  if (new Set(active.map((approval) => identityOf(approval.actor)).filter(Boolean)).size >= minimum && !requiredOutstanding.length) {
     return {
       initiativeId: workflow.workItem.id, actor, pending: [], obstacles: [],
       empty: 'Nothing is waiting for a decision.'
     };
   }
 
+  const allowSelfApproval = phase.approvalPolicy?.allowSelfApproval ?? true;
   const policy: ApprovalPolicy = {
-    mode: 'individual', authorities: phase.approvalPolicy?.authorities ?? [], minimum,
-    allowSelfApproval: true, chain: null
+    mode: 'individual',
+    // While a required group has not decided, only its members can move the phase.
+    authorities: requiredOutstanding.length && active.length >= minimum ? requiredOutstanding : phase.approvalPolicy?.authorities ?? [],
+    minimum, allowSelfApproval, chain: null
   };
-  const { standing, reason, authorities } = standingFor(snapshot, actor, policy, []);
+  const selfApproval = samePerson(phase.generatedBy, personOf(snapshot));
+  const decided = standingFor(snapshot, actor, policy, []);
+  const { authorities } = decided;
+  const blockedSelf = selfApproval && !allowSelfApproval && decided.standing === 'yours';
+  const standing = blockedSelf ? 'blocked' : decided.standing;
+  const reason = blockedSelf ? 'This phase does not allow its author to approve it.' : decided.reason;
   // `phase.requiredArtifact.path` is relative to the work-item directory. The document catalog is
   // already repository-relative, so it is the only safe path for an editor tab to open. Uploaded
   // documents share the catalog and come first in it, so only generated outputs qualify: a brief
@@ -261,7 +296,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       expected: phase.id,
       standing,
       reason,
-      selfApproval: Boolean(actor) && identityOf(phase.generatedBy) === actor,
+      selfApproval,
       chain: [],
       authorities,
       // Older pinned Stories may predate effective-policy filtering. Never offer a target that

@@ -118,6 +118,24 @@ test('changed assertions, cause, selector, dependency, and environment cannot in
   }
 });
 
+test('evidence that no longer matches the candidate is stale, re-runnable and never accepted as risk', () => {
+  for (const edit of [
+    (value) => { value.dependencies[0].sha256 = trpDigest('changed relevant source'); },
+    (value) => { value.environment.hostId = 'other-laptop'; }
+  ]) {
+    const fixture = createTrpFixture();
+    const result = evaluate(fixture, { observations: [change(fixture.observation, edit)] });
+    denied(result);
+    const stale = result.issues.find((entry) => entry.category === 'stale-evidence');
+    assert.ok(stale && result.remainingBlockers.includes(stale.id), JSON.stringify(result.issues.map((entry) => entry.category)));
+    assert.equal(stale.riskEligible, false);
+    assert.equal(stale.repairRoute, 'rerun-validation');
+    assert.ok(!result.issues.some((entry) => entry.category === 'provenance'), 'stale evidence is not tampering');
+    assert.equal(result.operationReadiness, 'needs-execution');
+    assert.ok(result.supportedNextActions.includes('rerun-validation'));
+  }
+});
+
 test('feature source and unrelated documents outside declared dependencies permit carry-forward', () => {
   const fixture = createTrpFixture();
   const observation = change(fixture.observation, (value) => { value.sourceRevision = 'new-doc-commit'; value.sourceManifestSha256 = trpDigest('different whole-tree'); });

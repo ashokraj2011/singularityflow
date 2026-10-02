@@ -67,6 +67,7 @@ import {
   normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
+import { classifySupportingChange } from './supporting-changes.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
@@ -3334,6 +3335,22 @@ export async function publishGeneration(root, config, workflow, {
       const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
       const sourceChanges = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowedArtifact));
       assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
+      // A phase that is not a code phase may change application source only after an approved code
+      // phase, whose review-freshness rules then govern the change. With none before it, nothing
+      // would: such a phase may change only what needs no requirement — dependency locks, build and
+      // CI configuration, repository metadata and documentation.
+      const governedByCode = workflow.phaseOrder.slice(0, workflow.phaseOrder.indexOf(phase.id))
+        .some((id) => phaseRequiresCodeDelivery(workflow.phases[id]) && workflow.phases[id]?.status === 'approved');
+      if (!governedByCode) {
+        const ungoverned = sourceChanges.filter((file) => classifySupportingChange(file).refused);
+        if (ungoverned.length) {
+          throw new SingularityFlowError(
+            `Phase ${phase.id} is not a code phase and no approved code phase comes before it, so it cannot publish application source, tests or migrations: ${ungoverned.join(', ')}. `
+            + 'Make this change in a Story whose workflow has a code phase (for example quick-fix), or limit this phase to dependency, build, CI, repository metadata and documentation files.',
+            { code: 'PHASE_SOURCE_CHANGE_UNGOVERNED', details: { phase: phase.id, paths: ungoverned } }
+          );
+        }
+      }
     }
   }
   /**

@@ -14,6 +14,7 @@ import {
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN } from './traceability-ids.mjs';
+import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -202,6 +203,115 @@ function dependencies(body) {
   return [...ids].sort();
 }
 
+const HEADING_LINE = /^\s{0,3}#{1,6}(?:\s|$)/;
+const HEADING_PREFIX = /^\s{0,3}#{1,6}\s*/;
+const TABLE_LINE = /^\s*\|/;
+const LIST_LINE = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
+
+function lineKind(line) {
+  if (!line.trim()) return 'blank';
+  if (HEADING_LINE.test(line)) return 'heading';
+  if (TABLE_LINE.test(line)) return 'table';
+  if (LIST_LINE.test(line)) return 'list';
+  return 'text';
+}
+
+/** Replace every character in the ranges with a space, keeping offsets and line breaks exact. */
+function maskRanges(text, ranges) {
+  if (!ranges.length) return text;
+  const characters = text.split('');
+  for (const [start, end] of ranges) {
+    for (let index = start; index < end; index += 1) if (characters[index] !== '\n') characters[index] = ' ';
+  }
+  return characters.join('');
+}
+
+function normalizeStatement(raw, kind) {
+  // Removing an anchor leaves a gap ("now ." or ". Do Y"); close it so the hash follows the words.
+  const tidy = (text) => text.replace(/\s+/g, ' ').replace(/ ([.,;:!?)\]])/g, '$1').trim();
+  const text = kind === 'table'
+    ? raw.split('|').map(tidy).filter(Boolean).join(' | ')
+    : raw.split('\n').map(tidy).filter(Boolean).join('\n');
+  return text.replace(/^[.,;:!?)\]]+\s*/u, '');
+}
+
+/**
+ * The statement each anchor identifies: the text of the block it sits in.
+ *
+ * Authors place anchors in three ways, and the shipped templates use all of them: at the end of the
+ * sentence (`- Export CSV. [W:REQ-001]`), at the start of a table row (`| [W:AC-001] | outcome |`),
+ * or on a line of their own above the sentence. A clause is the block holding its anchor — the list
+ * item, table row, paragraph or heading section — never "the text up to the next anchor", which made
+ * REQ-001 hash REQ-002's sentence whenever anchors ended their lines. Two anchors in one block split
+ * it: leading anchors own the text after them, trailing anchors the text before them. Fenced code,
+ * comments and kernel-managed blocks are masked, so they bound blocks and never join a statement.
+ */
+function clauseStatements(markdown, anchors) {
+  const masked = maskRanges(markdown, ignoredRanges(markdown, { includeInlineCode: false }));
+  const lines = masked.split('\n');
+  const starts = [];
+  let offset = 0;
+  for (const line of lines) { starts.push(offset); offset += line.length + 1; }
+  const kinds = lines.map(lineKind);
+  const lineOf = (index) => {
+    let low = 0; let high = starts.length - 1;
+    while (low < high) { const middle = (low + high + 1) >> 1; if (starts[middle] <= index) low = middle; else high = middle - 1; }
+    return low;
+  };
+  const anchorLines = new Set(anchors.map((anchor) => lineOf(anchor.index)));
+  const extent = (lineIndex) => {
+    if (kinds[lineIndex] === 'table' || kinds[lineIndex] === 'heading') return [lineIndex, lineIndex];
+    let first = lineIndex; let last = lineIndex;
+    if (kinds[lineIndex] === 'text') {
+      while (first > 0 && kinds[first - 1] === 'text') first -= 1;
+      // A paragraph line directly under a list item continues that item.
+      if (first > 0 && kinds[first - 1] === 'list') first -= 1;
+    }
+    while (last + 1 < lines.length && kinds[last + 1] === 'text') last += 1;
+    return [first, last];
+  };
+  const contentStart = (lineIndex) => {
+    const line = lines[lineIndex];
+    if (kinds[lineIndex] === 'list') return starts[lineIndex] + line.match(LIST_LINE)[0].length;
+    if (kinds[lineIndex] === 'heading') return starts[lineIndex] + line.match(HEADING_PREFIX)[0].length;
+    return starts[lineIndex];
+  };
+  const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
+  // The lines after a heading or a lone anchor, up to the next heading or the next anchored line.
+  const sectionAfter = (lineIndex) => {
+    let end = lineIndex;
+    while (end + 1 < lines.length && kinds[end + 1] !== 'heading' && !anchorLines.has(end + 1)) end += 1;
+    return end > lineIndex ? normalizeStatement(lines.slice(lineIndex + 1, end + 1).join('\n'), 'text') : '';
+  };
+  return anchors.map((anchor) => {
+    const anchorLine = lineOf(anchor.index);
+    const [first, last] = extent(anchorLine);
+    const kind = kinds[first];
+    const blockStart = contentStart(first);
+    const blockEnd = starts[last] + lines[last].length;
+    const siblings = anchors.filter((candidate) => candidate.index >= starts[first] && candidate.index < blockEnd);
+    const position = siblings.indexOf(anchor);
+    let pieces;
+    if (siblings.length === 1) {
+      pieces = [[blockStart, anchor.index], [anchor.end, blockEnd]];
+    } else if (!hasWords(masked.slice(blockStart, siblings[0].index))) {
+      pieces = [[anchor.end, siblings[position + 1]?.index ?? blockEnd]];
+    } else {
+      pieces = [[position ? siblings[position - 1].end : blockStart, anchor.index]];
+      if (position === siblings.length - 1 && hasWords(masked.slice(anchor.end, blockEnd))) pieces.push([anchor.end, blockEnd]);
+    }
+    let statement = normalizeStatement(pieces.map(([start, end]) => masked.slice(start, end)).join(' '), kind);
+    if (kind === 'heading' && siblings.length === 1) {
+      // A heading anchor owns its section.
+      statement = [statement, sectionAfter(anchorLine)].filter(Boolean).join('\n');
+    } else if (!statement && siblings.length === 1) {
+      // An anchor alone in its block heads the text that follows it, like a heading would.
+      statement = sectionAfter(last);
+    }
+    return statement;
+  });
+}
+
 export function extractClauses(markdown, {
   sourcePath = null, namespace = null, limits = DEFAULT_LIMITS, externalClauseIds = [], externalClauses = []
 } = {}) {
@@ -217,6 +327,7 @@ export function extractClauses(markdown, {
     throw new SingularityFlowError(`Specification contains ${matches.length} clauses; configured maximum is ${limits.maxClausesPerArtifact}.`);
   }
   const seen = new Map();
+  const statements = clauseStatements(markdown, matches);
   const clauses = matches.map((entry, index) => {
     const [anchor, rawNamespace, rawType, number] = entry.match;
     const actualNamespace = rawNamespace.toUpperCase();
@@ -229,12 +340,10 @@ export function extractClauses(markdown, {
     if (seen.has(id)) throw new SingularityFlowError(`Clause ${id} is duplicated at lines ${seen.get(id)} and ${lineNumber(markdown, entry.index)}.`);
     const line = lineNumber(markdown, entry.index);
     seen.set(id, line);
-    const end = matches[index + 1]?.index ?? markdown.length;
-    // Clause boundaries are found in the complete published artifact so line numbers and source
-    // hashes remain exact. The clause body itself must contain only producer-authored bytes: a
-    // trailing managed input envelope otherwise makes the last clause recursively contain every
-    // preceding phase even though anchors inside that envelope were correctly ignored above.
-    const body = authoredArtifactText(markdown.slice(entry.end, end)).trim();
+    // Line numbers and source hashes come from the complete published artifact, but the body is the
+    // clause's own statement and contains only producer-authored bytes: managed input envelopes,
+    // comments and fenced code are masked before the statement is read.
+    const body = statements[index];
     const dependsOn = dependencies(body).filter((candidate) => candidate !== id);
     if (dependsOn.length > limits.maxDependenciesPerClause) {
       throw new SingularityFlowError(`Clause ${id} references more than ${limits.maxDependenciesPerClause} dependencies.`);
@@ -256,6 +365,19 @@ export function extractClauses(markdown, {
     id: String(clause.id).toUpperCase(),
     dependsOn: (clause.dependsOn ?? []).map((id) => String(id).toUpperCase())
   }));
+  // An earlier phase's clause is the Story's definition of that ID. Re-anchoring it here used to
+  // replace it silently, so coverage was computed against a statement no reviewer approved.
+  const predecessors = new Map(external.map((clause) => [clause.id, clause]));
+  for (const clause of clauses) {
+    const prior = predecessors.get(clause.id);
+    if (!prior) continue;
+    const where = prior.source?.path ? ` in ${prior.source.path}${prior.source.line ? ` line ${prior.source.line}` : ''}` : '';
+    throw new SingularityFlowError(
+      `Clause ${clause.id} at line ${clause.source.line} is already defined by an earlier phase${where}. `
+      + `A clause is defined once per Story: cite it as ${clause.id} without brackets, or give the new clause its own number.`,
+      { code: 'SPEC_CLAUSE_REDEFINED' }
+    );
+  }
   const graphClauses = new Map([...external, ...clauses].map((clause) => [clause.id, clause]));
   const ids = new Set([...graphClauses.keys(), ...externalClauseIds.map((id) => String(id).toUpperCase())]);
   for (const clause of clauses) {
@@ -424,24 +546,36 @@ function plannedClaimSource(markdown) {
 /**
  * The plan's `## Supporting files`: repository paths the code may change without any clause
  * claiming them, because they cannot carry a `@clause` tag (a manifest, a lockfile, CI
- * configuration). Each entry is a bullet that starts with one backticked exact path; a reason may
- * follow. Globs and directories are refused, so the list says exactly what may change.
+ * configuration). Each entry is a bullet that starts with one backticked exact path followed by its
+ * reason. Globs and directories are refused, so the list says exactly what may change, and only the
+ * closed supporting classes qualify: application source, tests and migrations need a clause row.
  */
 function supportingFilesFromPlan(lines) {
-  const found = [];
+  const found = new Map();
   let inside = false;
   for (const [index, line] of lines.entries()) {
     const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/u);
     if (heading) { inside = /^supporting files$/iu.test(heading[2].trim()); continue; }
     if (!inside || !/^\s*[-*+]\s+/u.test(line)) continue;
-    const entry = line.match(/^\s*[-*+]\s+`([^`]+)`/u);
+    const entry = line.match(/^\s*[-*+]\s+`([^`]+)`(.*)$/u);
     if (!entry) {
       throw new SingularityFlowError(`Supporting files entry at line ${index + 1} must start with one backticked repository path, for example - \`package.json\` — adds the ledger client.`);
     }
     const candidate = exactStructuredPath(entry[1], `Supporting files entry at line ${index + 1}`);
-    found.push(candidate);
+    const reason = entry[2].replace(/^\s*[—–:-]*\s*/u, '').trim();
+    const invalid = (message) => new SingularityFlowError(`Supporting files entry \`${candidate}\` at line ${index + 1} ${message}`, {
+      code: 'SPEC_SUPPORTING_FILE_INVALID'
+    });
+    if (!reason) throw invalid(`needs its reason after the path, for example - \`${candidate}\` — pins the client the export uses.`);
+    if (reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason)) throw invalid('has a reason longer than 500 characters or with control characters.');
+    const classified = classifySupportingChange(candidate);
+    if (classified.refused) {
+      throw invalid(`cannot be a supporting file: it is ${classified.refused.replace('-', ' ')}, and ${classified.reason}. Supporting files are dependency locks, build and CI configuration, repository metadata and documentation.`);
+    }
+    if (found.has(candidate)) throw invalid('is listed twice.');
+    found.set(candidate, { path: candidate, class: classified.class, reason });
   }
-  return [...new Set(found)].sort();
+  return [...found.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 /**
@@ -487,17 +621,40 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
       };
     }
   }
-  const supportingFiles = supportingFilesFromPlan(lines);
-  const claimMap = normalizeClaimMap({ claims, supportingFiles }, { kind: 'planned', clauseIds: [...known], policy });
+  const supportingFileDetails = supportingFilesFromPlan(lines);
+  const supportingFiles = supportingFileDetails.map((entry) => entry.path);
+  const claimMap = normalizeClaimMap({ claims, supportingFiles, supportingFileDetails }, { kind: 'planned', clauseIds: [...known], policy });
   return {
     claimMap,
     supportingFiles,
+    supportingFileDetails,
     missingClauseIds: [...known].filter((id) => !claims[id]).sort(),
     missingTestClauseIds: [...known].filter((id) => {
       const claim = claims[id];
       return !claim || (!claim.tests.length && claim.testDisposition !== 'not-applicable');
     }).sort()
   };
+}
+
+/** Each supporting file's class and reason, exactly one per listed path when present. */
+function normalizeSupportingFileDetails(value, supportingFiles) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new SingularityFlowError('supportingFileDetails must be a list.');
+  const listed = new Set(supportingFiles);
+  const seen = new Set();
+  const details = value.map((entry) => {
+    const candidate = posix(String(entry?.path ?? ''));
+    if (!listed.has(candidate) || seen.has(candidate)) throw new SingularityFlowError(`supportingFileDetails must describe each supporting file once; ${candidate || 'an entry'} does not match.`);
+    seen.add(candidate);
+    if (!SUPPORTING_CHANGE_CLASSES.includes(entry.class) || classifySupportingChange(candidate).class !== entry.class) {
+      throw new SingularityFlowError(`supportingFileDetails gives ${candidate} a class its path does not have.`);
+    }
+    const reason = typeof entry.reason === 'string' ? entry.reason.trim() : '';
+    if (!reason || reason.length > 500) throw new SingularityFlowError(`supportingFileDetails needs a reason of at most 500 characters for ${candidate}.`);
+    return { path: candidate, class: entry.class, reason };
+  });
+  if (details.length && details.length !== listed.size) throw new SingularityFlowError('supportingFileDetails must describe every supporting file.');
+  return details.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } = {}) {
@@ -558,9 +715,11 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
   // Present only when the plan lists some, so a plan without the section records what it always did.
   const supportingFiles = kind === 'planned'
     ? normalizePaths(value.supportingFiles ?? [], 'supportingFiles', normalized.limits) : [];
+  const supportingFileDetails = kind === 'planned' ? normalizeSupportingFileDetails(value.supportingFileDetails, supportingFiles) : [];
   const result = {
     schemaVersion: currentSchemaVersion('specification-claim-map'), kind, recordedAt: nowIso(), claims,
-    ...(supportingFiles.length ? { supportingFiles } : {})
+    ...(supportingFiles.length ? { supportingFiles } : {}),
+    ...(supportingFileDetails.length ? { supportingFileDetails } : {})
   };
   const bytes = Buffer.byteLength(canonicalJson(result));
   if (bytes > normalized.limits.maxClaimBytes) throw new SingularityFlowError(`${kind} claim map exceeds ${normalized.limits.maxClaimBytes} bytes.`);
@@ -628,8 +787,13 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     // Source-only clauses must still observe their planned changed paths and remain incomplete
     // when those paths are absent.
     if (!plan) continue;
+    // A not-applicable row is exempt from clause-comment bindings (`plannedSourceClauseBindings`
+    // never requires one: it is the reviewed route for files that cannot carry a comment), so it is
+    // observed by its exact planned path changing. Requiring a binding here as well left such a row
+    // unobservable, so its clause could never be implemented.
+    const bindingRequired = requireSourceBindings && plan.testDisposition !== 'not-applicable';
     const observedPaths = plan.expectedPaths.filter((candidate) =>
-      changedPaths.has(candidate) && (!requireSourceBindings || sourceBindings.get(candidate)?.has(id)));
+      changedPaths.has(candidate) && (!bindingRequired || sourceBindings.get(candidate)?.has(id)));
     const testResults = plan.tests.filter((candidate) => {
       if (!testPaths.has(candidate)) return false;
       const boundIds = bindings.get(candidate);
@@ -847,9 +1011,14 @@ function sortedUnique(values) {
 }
 
 /** Merge planned evidence cumulatively across multiple code intervals. */
-/** Every supporting file the planned claim maps list, once each. */
+/**
+ * Every supporting file the planned claim maps list, once each — limited to paths of a supporting
+ * class, so a plan written before the classes existed, or a hand-written map, cannot exempt
+ * application source, tests or migrations from requirement accounting.
+ */
 export function plannedSupportingFiles(maps = []) {
-  return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []));
+  return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []))
+    .filter((candidate) => !classifySupportingChange(candidate).refused);
 }
 
 export function mergePlannedClaimRecords(maps = []) {
@@ -1083,8 +1252,15 @@ function exactPlannedTestEvidence(id, plannedClaims, observedClaims) {
   return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
 }
 
+/**
+ * An acceptance criterion the plan expects to be met by tests alone — its row names tests and no
+ * source paths — is covered once every planned test file is delivered. A criterion whose row names
+ * source paths is not covered by its test files: that would read the existence of a test as the
+ * implementation it was supposed to check.
+ */
 function acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims) {
   return /:AC-\d{3}$/.test(id)
+    && !(plannedClaims[id]?.expectedPaths ?? []).length
     && exactPlannedTestEvidence(id, plannedClaims, observedClaims);
 }
 
@@ -1104,6 +1280,11 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     if (acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) return false;
     return ['missing', 'partial'].includes(claim.verdict);
   }).sort();
+  // Covered only because their planned test files were delivered: no source change and, until
+  // test-case results are joined, no proof the tests ran for them. Reported so no label overstates it.
+  const testPresenceOnly = [...clauses.keys()].filter((id) => observedClaims[id]
+    && !(observedClaims[id].observedPaths ?? []).length
+    && acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)).sort();
   // A file the plan lists under Supporting files may change without a clause claiming it.
   const supporting = new Set(plannedSupportingFiles(planned));
   const supportingChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && supporting.has(candidate));
@@ -1144,6 +1325,7 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
       changedPaths: activePaths.length
     },
     unimplemented,
+    testPresenceOnly,
     unclaimedChangedPaths,
     supportingChangedPaths,
     withdrawnButClaimed,
@@ -1318,11 +1500,15 @@ export { applicationPathContext };
 
 export function traceClause(records, clauseId = null) {
   const rows = [];
+  // The same cumulative merge the gate evaluates. Reading only the latest map made the trace
+  // disagree with the gate whenever more than one code phase implemented a clause.
+  const plannedClaims = mergePlannedClaimRecords(records.planned ?? []);
+  const observedClaims = mergeObservedClaimRecords(records.observed ?? [], plannedClaims);
   for (const index of records.indexes ?? []) {
     for (const clause of index.clauses ?? []) {
       if (clauseId && clause.id !== clauseId) continue;
-      const planned = [...(records.planned ?? [])].reverse().find((map) => map.claims?.[clause.id])?.claims?.[clause.id] ?? null;
-      const observed = [...(records.observed ?? [])].reverse().find((map) => map.claims?.[clause.id])?.claims?.[clause.id] ?? null;
+      const planned = plannedClaims[clause.id] ?? null;
+      const observed = observedClaims[clause.id] ?? null;
       rows.push({
         id: clause.id,
         type: clause.type,

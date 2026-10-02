@@ -54,7 +54,11 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     implementation: Object.freeze(['36d1474a044734c2a03ddb3295b152b282159f693807dda91786022e0d91a7e2']),
     verification: Object.freeze(['9c15223a3f11cf23bf94000c089dc47d87b63cf2c2a44d2e56a783fd32907493']),
     'visual-verification': Object.freeze(['472d021acf80e259457dfa19fa80f3fd93e08f998c74d99c2600d0ba37444aed']),
-    conformance: Object.freeze(['9874a43a4d9784e22ae068855061f2fda85cd46ceb4c3a2602acb339caecf44c']),
+    // Before the unread exactFileLineEvidence flag was removed from its comparison block.
+    conformance: Object.freeze([
+      '9874a43a4d9784e22ae068855061f2fda85cd46ceb4c3a2602acb339caecf44c',
+      'dca6d2516087e3b6dd590cf298c6213ab71a875f6c891f0f815959a50ab04fb2'
+    ]),
     // Modern v2 predecessor before explicit clarification-off policy was added.
     planning: Object.freeze([
       '91c8f6571cd05fafac5e28c225e5f08009d27b59ee14be776de7ffff8d4632e9'
@@ -97,7 +101,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   }),
   phases: Object.freeze({
     'component-mapping': '35e812770061284af78d1c9bac956ced7f331ca184cb4bea7f3ca04d7f9c95eb',
-    conformance: 'dca6d2516087e3b6dd590cf298c6213ab71a875f6c891f0f815959a50ab04fb2',
+    conformance: '32fcd6ab14993013675265d3244d9682538373bc8f7ca30f99ec5940a706b02e',
     convergence: 'd34e5232cf52c5adca8f5a23648a9ea5fd77e4e29f24c858c658c3e495ebf121',
     design: 'f7ee1f2db131d69f8b8bdca489722ec0142daee15e7bcab4cd2e69e1d2b6ab32',
     'design-intake': 'c627e7856b5c077ac9b6f2395623d0ab440ab9ad02a2a2f983679830968719e1',

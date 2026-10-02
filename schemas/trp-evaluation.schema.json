@@ -189,7 +189,8 @@
               "protected-path",
               "source-safety",
               "non-waivable",
-              "policy-integrity"
+              "policy-integrity",
+              "stale-evidence"
             ]
           },
           "severity": {

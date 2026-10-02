@@ -241,7 +241,7 @@ test('registered child branches publish hash-bound review packets and unknown br
   assert.match(blocked.stderr, /story branch attach --parent MOB-123/);
 });
 
-test('finalize binds a completed Story to its governed specifications and exact source tree', async () => {
+test('finalize refuses a Story whose final governance check fails, and the packet binds exact evidence', async () => {
   const { root, remote } = await repository();
   await qualifyStoryBase(root);
   flow(root, ['start', 'MOB-200', '--from-branch', 'main', '--title', 'Complete mobile login']);
@@ -286,18 +286,25 @@ test('finalize binds a completed Story to its governed specifications and exact 
   git(root, ['commit', '-m', 'Complete governed Story']);
   git(root, ['push']);
 
-  const result = flow(root, ['finalize']);
-  assert.match(result.stdout, /finalized for Product Owner review/);
-  const finalized = JSON.parse(await readFile(workflowPath, 'utf8'));
-  assert.equal(finalized.lineage.deliveryStatus, 'finalized_for_review');
-  const record = finalized.lineage.finalizations.at(-1);
-  assert.equal(record.reviewPacketSha256, 'a'.repeat(64));
-  assert.match(record.packetSha256, /^[a-f0-9]{64}$/);
-  const packet = JSON.parse(await readFile(path.join(root, record.path), 'utf8'));
-  assert.equal(packet.governedContext[0].verifiedSha256, contextSha256);
-  assert.equal(packet.finalizedAt, workflow.workItem.createdAt);
-  assert.match(
+  // Every phase was marked approved by hand, with no approvals, claim maps or evidence behind it.
+  // Running out of steps is not delivery: finalize refuses and writes nothing.
+  const before = await readFile(workflowPath, 'utf8');
+  const refused = flow(root, ['finalize'], { allowFailure: true });
+  assert.equal(refused.status, 2, refused.stdout + refused.stderr);
+  assert.match(refused.stderr, /cannot be finalized: the final governance check failed/);
+  assert.equal(await readFile(workflowPath, 'utf8'), before);
+  assert.doesNotMatch(
     git(root, ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'refs/heads/MOB-200']).stdout,
-    new RegExp(record.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    /finalizations\//
   );
+
+  // The packet itself binds the governed specifications and the exact source tree.
+  const { loadConfig } = await import('../src/state-stores.mjs');
+  const { finalizeStoryDelivery } = await import('../src/story-lineage.mjs');
+  const record = await finalizeStoryDelivery(root, await loadConfig(root), JSON.parse(before), { persist: false });
+  assert.equal(record.packet.reviewPacketSha256, 'a'.repeat(64));
+  assert.match(record.packet.packetSha256, /^[a-f0-9]{64}$/);
+  assert.equal(record.packet.governedContext[0].verifiedSha256, contextSha256);
+  assert.equal(record.packet.finalizedAt, workflow.workItem.createdAt);
+  assert.equal(record.packet.sourceCommit, git(root, ['rev-parse', 'HEAD']).stdout.trim());
 });

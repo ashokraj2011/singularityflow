@@ -167,6 +167,29 @@ test('off-mode clarification record emits recovery before reading response input
   )), false);
 });
 
+test('only a member of the phase approval groups can answer its clarification questions', async () => {
+  const root = await repository();
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.approvalAuthorities['product-approvers'].allowAnyGitIdentity = false;
+  config.approvalAuthorities['product-approvers'].members = [{ email: 'product.lead@example.com' }];
+  // Story start enrolls its creator in every group unless told not to; this Story's author is not a decider.
+  config.approvalSecurity = { ...config.approvalSecurity, autoEnrollNewIdentities: false };
+  await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['commit', '-qam', 'close the product approval group'], root);
+  execute('git', ['push', '-q', 'origin', 'main'], root);
+  const workId = 'CLARIFICATION-AUTHORITY-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner',
+    '--title', 'Answer within authority', '--description', 'Prove a scope answer needs the phase deciders.'
+  ]);
+  flow(root, ['wm', 'compose', '--phase', 'intake']);
+  const refused = flow(root, ['clarification', 'record', 'intake', '--question', 'Which regions?', '--answer', 'EU only.'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Only a member of intake's approval groups \(product-approvers\) can answer its clarification questions/);
+  assert.equal(existsSync(path.join(root, 'singularity/work-items', workId, 'context/clarifications-intake-gen1.json')), false);
+});
+
 test('clarification record repairs a raw response envelope staged at its durable path', async () => {
   const root = await repository();
   const workId = 'CLARIFICATION-STAGING-1';
@@ -1019,6 +1042,37 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
   assert.deepEqual(workflow.phases.intake.approvals.at(-1).resolvedChangeRequests, ['CR-001']);
   workflow.workItem.workType = 'feature'; await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
   const tampered = flow(root, ['validate'], { allowFailure: true, selection: selection('bugfix', 'qa') }); assert.notEqual(tampered.status, 0); assert.match(tampered.stderr, /immutable profile snapshot/);
+});
+
+test('a phase with no code phase before it cannot publish application code', async () => {
+  const root = await repository(); const workId = 'CHORE-CODE-1';
+  flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Bump the ledger client', '--description', 'Maintenance only.'],
+    { selection: selection('chore', 'developer') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('chore', 'developer') });
+  flow(root, ['submit'], { selection: selection('chore', 'developer') });
+  flow(root, ['approve', '--yes'], { selection: selection('chore', 'developer') });
+  flow(root, ['prepare', 'implementation'], { selection: selection('chore', 'developer') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'implementation');
+
+  // The chore's implementation step is not a code phase, and nothing before it is: application
+  // source published here would carry no code governance at all.
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/ledger.mjs'), 'export const ledger = 2;\n');
+  const refused = flow(root, ['phase', 'publish', 'implementation'], { allowFailure: true, selection: selection('chore', 'developer') });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /is not a code phase and no approved code phase comes before it/);
+  assert.match(refused.stderr, /src\/ledger\.mjs/);
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.implementation.generation, 0, 'nothing was published');
+
+  // A dependency change needs no requirement, so the same step may publish it.
+  await unlink(path.join(root, 'src/ledger.mjs'));
+  await writeFile(path.join(root, 'package.json'), '{ "name": "ledger-app", "dependencies": { "ledger-client": "2.0.0" } }\n');
+  flow(root, ['phase', 'publish', 'implementation'], { selection: selection('chore', 'developer') });
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.implementation.generation, 1);
 });
 
 test('completed work can be reopened only through an authorized governed change request', async () => {

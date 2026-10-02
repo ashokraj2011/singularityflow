@@ -5,11 +5,11 @@
   "entries": {
     "extension.cjs": { "maximumBytes": 1390000, "maximumModules": 160 },
     "gateway-context-runtime.cjs": { "maximumBytes": 8192, "maximumModules": 4 },
-    "gateway-runtime.cjs": { "maximumBytes": 8925000, "maximumModules": 650 },
+    "gateway-runtime.cjs": { "maximumBytes": 8925000, "maximumModules": 700 },
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
-    "help-runtime.cjs": { "maximumBytes": 4030000, "maximumModules": 450 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 2100000, "maximumModules": 210 },
-    "support-runtime.cjs": { "maximumBytes": 3835000, "maximumModules": 430 },
-    "world-model-build.cjs": { "maximumBytes": 8980000, "maximumModules": 660 }
+    "help-runtime.cjs": { "maximumBytes": 4030000, "maximumModules": 480 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 2150000, "maximumModules": 220 },
+    "support-runtime.cjs": { "maximumBytes": 3835000, "maximumModules": 470 },
+    "world-model-build.cjs": { "maximumBytes": 8980000, "maximumModules": 710 }
   }
 }

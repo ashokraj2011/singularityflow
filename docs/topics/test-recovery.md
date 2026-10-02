@@ -1,6 +1,6 @@
 ---
 id: test-recovery
-title: Story test policy and phase recovery pilot
+title: Story test policy and recovery pilot
 aliases:
   - trp
   - test-and-recovery-agreement
@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 8
+version: 9
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 

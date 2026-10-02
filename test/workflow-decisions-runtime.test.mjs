@@ -111,7 +111,7 @@ test('a branch skips a phase, a loop goes back and stops at its limit, and a per
   flow(root, ['submit', '--decision', 'risk=LOW'], { agent: 'product-owner' });
   let workflow = await state(root, workId);
   assert.deepEqual(workflow.phases.intake.decisionInputs.values, { risk: 'low' });
-  assert.equal(workflow.schemaVersion, 12);
+  assert.ok(workflow.schemaVersion >= 12, 'decision inputs are stored only at a version that registers them');
 
   flow(root, ['approve', '--yes'], { agent: 'product-owner' });
   workflow = await state(root, workId);

@@ -71,25 +71,58 @@ test('every nested command helper is reached from a command service', async () =
 });
 
 /**
+ * The services a command can load. Three routes count: the dispatcher's own thunks; the command
+ * registry, which maps a command name to its module for the commands that are declared rather than
+ * hand-wired; and a reached service loading a sibling on demand for one of its own subcommands, as
+ * `story test-policy amend` loads `story-test-amendment.mjs`. Only reached services count as
+ * loaders, so a service that only an unreached service loads is still dead.
+ */
+function reachedServices({ cli, registry, sources }) {
+  const reached = new Set([...sources.keys()].filter((name) =>
+    cli.includes(`./commands/${name}`) || registry.includes(`./commands/${name}`)));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const name of sources.keys()) {
+      if (reached.has(name)) continue;
+      if ([...reached].some((loader) => sources.get(loader).includes(`import('./${name}')`))) {
+        reached.add(name);
+        grew = true;
+      }
+    }
+  }
+  return reached;
+}
+
+/**
  * A service must be reachable. The point of the split is that the dispatcher loads a service only
  * when its command runs — which also means a service nothing dispatches is dead weight that no
  * test would otherwise notice, because its own unit tests import it directly.
  */
 test('every command service is reached from the dispatcher', async () => {
-  // Two routes count: the dispatcher's own thunks, and the command registry, which maps a command
-  // name to its module for the commands that are declared rather than hand-wired.
   const cli = withoutComments(await readFile(path.join(SRC, 'cli.mjs'), 'utf8'));
   const registry = withoutComments(await readFile(path.join(SRC, 'command-registry.mjs'), 'utf8'));
-  for (const file of await services()) {
-    const name = path.basename(file);
-    // The kernel is shared spine rather than a service, so it is imported, not dispatched.
-    if (name === 'kernel.mjs') {
-      assert.match(cli, /from '\.\/commands\/kernel\.mjs'/, 'the router no longer uses the shared kernel');
-      continue;
-    }
-    assert.ok(cli.includes(`./commands/${name}`) || registry.includes(`./commands/${name}`),
-      `${name} is reachable from neither the dispatcher nor the command registry`);
-  }
+  const sources = new Map(await Promise.all((await services()).map(async (file) =>
+    [path.basename(file), withoutComments(await readFile(file, 'utf8'))])));
+  // The kernel is shared spine rather than a service, so it is imported, not dispatched.
+  assert.match(cli, /from '\.\/commands\/kernel\.mjs'/, 'the router no longer uses the shared kernel');
+  sources.delete('kernel.mjs');
+  const reached = reachedServices({ cli, registry, sources });
+  const unreached = [...sources.keys()].filter((name) => !reached.has(name));
+  assert.deepEqual(unreached, [], `${unreached.join(', ')} ${unreached.length === 1 ? 'is' : 'are'} reachable `
+    + 'from neither the dispatcher, the command registry, nor a reached service');
+});
+
+test('a service only an unreached service loads is not reached', () => {
+  const sources = new Map([
+    ['story.mjs', "const { run } = await import('./story-sub.mjs');"],
+    ['story-sub.mjs', ''],
+    ['orphan.mjs', "const { run } = await import('./orphan-sub.mjs');"],
+    ['orphan-sub.mjs', '']
+  ]);
+  const reached = reachedServices({
+    cli: "story: async () => (await import('./commands/story.mjs')).storyCommand()", registry: '', sources
+  });
+  assert.deepEqual([...reached].sort(), ['story-sub.mjs', 'story.mjs']);
 });
 
 /**

@@ -79,6 +79,36 @@ test('first-run completion has replayable authority and verification cannot repl
     git('add', 'greeting.txt', 'NOTICE.txt');
   });
 
+  await t.test('a review confined to test automation repairs its own tests but never product source', async () => {
+    const repairing = structuredClone(workflow);
+    Object.assign(repairing, { status: 'in_progress', currentPhase: 'verify' });
+    Object.assign(repairing.phases.verify, { status: 'in_progress', sourceBoundary: 'test-automation' });
+    const own = (state) => assertReviewCodeEvidenceFresh(root, config, state, state.phases.verify);
+    const testFile = path.join(root, 'tests/greeting.test.mjs');
+    const tested = await readFile(testFile, 'utf8');
+    await writeFile(testFile, `${tested}// Stabilised by the review's own bounded repair.\n`);
+    try {
+      assert.equal((await own(repairing)).sourcePhase, 'implement');
+      await assert.rejects(guard, (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
+        && error.details.changedPaths.includes('tests/greeting.test.mjs'), 'an unrestricted writer still needs Code');
+      const consuming = structuredClone(repairing);
+      consuming.resolution.phases.find((entry) => entry.id === 'verify').testEvidenceFrom = 'implement';
+      await assert.rejects(() => own(consuming), (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE',
+        "a review that consumes Code's tests cannot replace them");
+      const reading = structuredClone(repairing);
+      reading.phases.verify.writeScope = 'artifact-only';
+      await assert.rejects(() => own(reading), (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE');
+      const greeting = path.join(root, 'greeting.txt');
+      const approved = await readFile(greeting, 'utf8');
+      await writeFile(greeting, 'Untested greeting.\n');
+      try {
+        await assert.rejects(() => own(repairing), (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
+          && JSON.stringify(error.details.changedPaths) === '["greeting.txt"]'
+          && /reject verify --to implement --repair/.test(error.details.repairCommand));
+      } finally { await writeFile(greeting, approved); }
+    } finally { await writeFile(testFile, tested); }
+  });
+
   await t.test('tracked generated-looking paths are source and recovery commands match lifecycle status', async () => {
     for (const relative of ['build/runtime.mjs', 'coverage/runtime.test.mjs', 'dist/runtime.mjs', 'vendor/runtime.mjs']) {
       await mkdir(path.dirname(path.join(root, relative)), { recursive: true });

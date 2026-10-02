@@ -180,3 +180,91 @@ test('restored review invalidates partial approvals and requires the full fresh 
   flow(['approve', final, '--yes'], false, 'Second Reviewer');
   assert.equal((await state()).status, 'complete');
 });
+
+test('governed repairs and later Code publications are not stale evidence; out-of-band edits are', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-rework-governed-chain-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = path.join(directory, 'repo');
+  const machine = path.join(directory, 'machine');
+  await mkdir(root); await mkdir(machine);
+  const env = { ...process.env, HOME: machine, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Rework Tester' };
+  const execute = (command, args, allowFailure = false) => {
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8' });
+    if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result;
+  };
+  const git = (...args) => execute('git', args).stdout.trim();
+  const flow = (args, allowFailure = false) => execute(process.execPath, [bin, ...args, '--no-model'], allowFailure);
+  const write = (relative, text) => writeFile(path.join(root, relative), text);
+  const module = async (name, value) => {
+    await write(`src/${name}.mjs`, `export const ${name} = ${value};\n`);
+    await write(`tests/${name}.test.mjs`, `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { ${name} } from '../src/${name}.mjs';\n// @ac:CHAIN-1:AC-001\ntest('${name}', () => assert.equal(${name}, ${value}));\n`);
+  };
+  git('init', '-b', 'main'); git('config', 'user.name', 'Rework Tester'); git('config', 'user.email', 'rework@example.test');
+  await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'tests'));
+  await write('package.json', JSON.stringify({ private: true, type: 'module', scripts: { test: 'node --test' } }));
+  await module('first', 1); await module('second', 1);
+  flow(['init']);
+  // code -> a review confined to test automation -> review -> second code step -> final review
+  for (const [packaged, id, phase] of [['poc-lite-implementer', 'second-implementer', 'act-two'],
+    ['poc-lite-verifier', 'test-repair-verifier', 'test-repair']]) {
+    const text = await readFile(path.join(root, `.github/agents/${packaged}.agent.md`), 'utf8');
+    const original = /sflow-default-for: "([^"]+)"/u.exec(text)[1];
+    await write(`.github/agents/${id}.agent.md`, text.replace(`name: ${packaged}`, `name: ${id}`).replaceAll(`"${original}"`, `"${phase}"`));
+  }
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.worldModel.grounding = 'off';
+  config.repositoryReadiness.requiredBeforeStory = false;
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  const own = (base, id, extra) => ({ ...config.phases[base], ...extra, artifact: {
+    ...config.phases[base].artifact, path: `artifacts/${id}/${path.basename(config.phases[base].artifact.path)}` } });
+  config.phases['act-two'] = own('poc-lite-act', 'act-two', { label: 'Second code step' });
+  config.phases['test-repair'] = own(verify, 'test-repair', { label: 'Test repair review',
+    writeScope: 'source-and-artifact', sourceBoundary: 'test-automation' });
+  const order = ['poc-lite-act', 'test-repair', verify, 'act-two', final];
+  config.workTypes['governed-chain'] = {
+    ...config.workTypes['poc-lite'], label: 'Governed chain', phases: order,
+    templateOverrides: { 'poc-lite-act': 'poc-lite/act.md', 'test-repair': 'poc-lite/verify.md', [verify]: 'poc-lite/verify.md',
+      'act-two': 'poc-lite/act.md', [final]: 'poc-lite/finalize.md' },
+    phaseOverrides: Object.fromEntries(order.map((id) => [id, id === final
+      ? { inputs: [], approval: { authorities: ['quality-reviewers'], requiredAuthorities: ['quality-reviewers'], minimum: 1, rejectTo: order } }
+      : { inputs: [] }]))
+  };
+  await writeFile(configPath, YAML.stringify(config));
+  git('add', '.'); git('commit', '-m', 'Governed chain configuration');
+  git('init', '--bare', '-b', 'main', path.join(directory, 'remote.git'));
+  git('remote', 'add', 'origin', path.join(directory, 'remote.git')); git('push', '-u', 'origin', 'main');
+  flow(['start', 'CHAIN-1', '--from-branch', 'main', '--work-type', 'governed-chain', '--agent', 'qa',
+    '--title', 'Governed chain', '--description', 'Governed repairs across two code steps stay fresh evidence.']);
+  const draft = async () => JSON.parse(flow(['phase', 'draft-check', verify, '--json']).stdout);
+  const stale = (result) => `${result.stdout}\n${result.stderr}`.match(/changed after their approved execution: ([^\n]*?)\. Return/u)?.[1];
+
+  await module('first', 2); flow(['prepare', 'poc-lite-act']); flow(['phase', 'publish', 'poc-lite-act']); flow(['submit', 'poc-lite-act']);
+  flow(['prepare', 'test-repair']);
+  await write('src/first.mjs', 'export const first = 2; // untested\n');
+  assert.equal(stale(flow(['phase', 'publish', 'test-repair'], true)), 'src/first.mjs', 'product source stays outside the repair boundary');
+  await write('src/first.mjs', 'export const first = 2;\n');
+  const repairedTest = path.join(root, 'tests/first.test.mjs');
+  await writeFile(repairedTest, `${await readFile(repairedTest, 'utf8')}// Stabilised by the bounded review repair.\n`);
+  flow(['phase', 'publish', 'test-repair']); flow(['submit', 'test-repair']);
+  // The next review relies on the first code step, yet the governed repair is not an untested edit.
+  flow(['prepare', verify]); flow(['phase', 'publish', verify]); flow(['submit', verify]);
+  flow(['prepare', 'act-two']); await module('second', 2); flow(['phase', 'publish', 'act-two']); flow(['submit', 'act-two']);
+  flow(['prepare', final]); flow(['phase', 'publish', final]); flow(['submit', final]);
+
+  // Returning to the first review leaves the second code step's governed bytes in the tree.
+  flow(['reject', final, '--to', verify, '--reason', 'Recheck the first review with the second step in place.']);
+  flow(['prepare', verify]);
+  assert.equal((await draft()).status, 'ready');
+  await write('src/first.mjs', 'export const first = 2; // out of band\n');
+  const outOfBand = await draft();
+  const finding = outOfBand.findings.find((entry) => entry.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE');
+  assert.match(finding?.message ?? '', /approved execution: src\/first\.mjs\. Return/u, 'only the out-of-band edit is stale');
+  git('add', 'src/first.mjs'); git('commit', '-m', 'Commit an out-of-band source edit');
+  assert.equal(stale(flow(['phase', 'publish', verify], true)), 'src/first.mjs');
+  await write('src/first.mjs', 'export const first = 2;\n');
+  git('add', 'src/first.mjs'); git('commit', '-m', 'Restore the tested source');
+  flow(['phase', 'publish', verify]);
+});

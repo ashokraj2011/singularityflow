@@ -18,8 +18,9 @@ import {
   validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
-import { exactFileAtObject } from './git.mjs';
+import { exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor } from './git.mjs';
 import { canonicalJson } from './records.mjs';
+import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
@@ -40,11 +41,15 @@ import {
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
 
+function pinnedTestEvidenceSource(workflow, phase) {
+  return workflow.resolution?.phases?.find((entry) => entry.id === phase?.id)?.testEvidenceFrom ?? null;
+}
+
 /** The Code step whose tests a review relies on: its pinned source, else the closest approved one. */
 export function reviewCodeSource(workflow, phase) {
   if (!phase || phaseRequiresCodeDelivery(phase)) return null;
-  const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
-  if (pinned?.testEvidenceFrom) return workflow.phases?.[pinned.testEvidenceFrom] ?? null;
+  const pinned = pinnedTestEvidenceSource(workflow, phase);
+  if (pinned) return workflow.phases?.[pinned] ?? null;
   const order = workflow.phaseOrder ?? [];
   return order.slice(0, Math.max(0, order.indexOf(phase.id))).reverse().map((id) => workflow.phases?.[id])
     .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate)) ?? null;
@@ -67,13 +72,94 @@ export function reviewRepairTarget(workflow, phase) {
     && reviewMayReturnToCode(phase, code) ? code : null;
 }
 
-/** Review may repair documents, but only a code generation can replace tested source or tests. */
+/**
+ * The source boundary a review may repair inside its own generations. Only a review that writes
+ * source, confines itself to an explicit boundary and produces its own test evidence qualifies.
+ * One that consumes another step's tests (testEvidenceFrom) or may write anywhere still needs a
+ * Code generation to retest every source or test change.
+ */
+export function reviewOwnRepairBoundary(workflow, phase) {
+  if (!phase || phaseRequiresCodeDelivery(phase)
+      || (phase.writeScope ?? 'artifact-only') !== 'source-and-artifact'
+      || pinnedTestEvidenceSource(workflow, phase)) return null;
+  const boundary = normalizeSourceBoundary(phase.sourceBoundary, phase.id);
+  return boundary === 'unrestricted' ? null : boundary;
+}
+
+function currentSubmission(workflow, phase) {
+  return [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
+    candidate.phase === phase.id && Number(candidate.generation) === Number(phase.generation)) ?? null;
+}
+
+// Both endpoints matter: moving tested source into README.md is still a source deletion.
+function unpermittedReviewChange(entry, { pathContext, boundary = null, phaseId }) {
+  return [entry.oldPath, entry.newPath].filter(Boolean).some((candidate) => {
+    const endpoint = { ...entry, oldPath: candidate, newPath: candidate };
+    // Untracked generated output is already excluded by the application boundary. Tracked build,
+    // vendor and coverage files can be executable inputs, so their names cannot waive fresh tests.
+    const role = classifyDeliveryChanges({ entries: [endpoint] }, { pathContext }).entries[0]?.role;
+    if (!role || role === 'documentation') return false;
+    return !(boundary && evaluateSourceBoundary({ entries: [endpoint] }, boundary, {
+      phaseId, allowedPath: isAllowedTestAutomationPath
+    }).valid);
+  });
+}
+
+async function unpermittedReviewPaths(root, baseCommit, subject, permission) {
+  const changes = await buildRepositoryChangeSet(root, { baseCommit, subject });
+  return [...new Set(changes.entries.filter((entry) => unpermittedReviewChange(entry, permission))
+    .flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
+}
+
+/**
+ * Bytes a later governed publication introduced are not out-of-band edits. Advance the comparison
+ * base from the source evidence through the current submission of every other step allowed to
+ * change application paths, oldest first. Code evidence attests its whole tested tree; a review
+ * that repairs inside its own boundary counts only when everything since the previous base is
+ * documentation or inside that boundary. A submission that cannot be verified explains nothing.
+ */
+async function governedReviewBaseline(root, config, workflow, { phase, source, evidenceCommit, pathContext }) {
+  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+  const checkpoints = [];
+  for (const candidate of (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])) {
+    if (!candidate || candidate.id === phase.id || candidate.id === source.id) continue;
+    const boundary = phaseRequiresCodeDelivery(candidate) ? null : reviewOwnRepairBoundary(workflow, candidate);
+    const entry = phaseRequiresCodeDelivery(candidate) || boundary ? currentSubmission(workflow, candidate) : null;
+    if (!entry) continue;
+    try {
+      const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+      if (packet.workId === workflow.workItem.id && packet.phase === candidate.id
+          && Number(packet.generation) === Number(candidate.generation) && packet.evidenceCommit
+          && packet.evidenceCommit !== evidenceCommit && isAncestor(root, evidenceCommit, packet.evidenceCommit)) {
+        checkpoints.push({ phaseId: candidate.id, boundary, commit: packet.evidenceCommit });
+      }
+    } catch { /* the refusal this checkpoint might have explained stands */ }
+  }
+  checkpoints.sort((left, right) => (left.commit === right.commit ? 0
+    : isAncestor(root, left.commit, right.commit) ? -1 : 1));
+  let base = evidenceCommit;
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.commit === base || !isAncestor(root, base, checkpoint.commit)) continue;
+    if (checkpoint.boundary) {
+      let paths;
+      try { paths = exactChangedPathsBetweenObjects(root, base, checkpoint.commit); } catch { continue; }
+      const permission = { pathContext, boundary: checkpoint.boundary, phaseId: checkpoint.phaseId };
+      if (paths.some((candidate) => unpermittedReviewChange({ oldPath: candidate, newPath: candidate }, permission))) continue;
+    }
+    base = checkpoint.commit;
+  }
+  return base;
+}
+
+/**
+ * Review may repair documents, and a review whose own policy confines it to a source boundary
+ * may repair inside it; only a code generation can replace any other tested source or tests.
+ */
 export async function assertReviewCodeEvidenceFresh(root, config, workflow, phase) {
   if (phaseRequiresCodeDelivery(phase)) return null;
   const source = reviewCodeSource(workflow, phase);
   if (!source) return null;
-  const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((candidate) =>
-    candidate.phase === source.id && Number(candidate.generation) === Number(source.generation));
+  const entry = currentSubmission(workflow, source);
   const repairCommand = workflow.status === 'complete'
     ? `singularity-flow reopen ${workflow.workItem.id} --to ${source.id} --reason <REASON>`
     : reviewRepairTarget(workflow, phase)?.id === source.id
@@ -96,22 +182,17 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
       || Number(packet.generation) !== Number(source.generation) || !packet.evidenceCommit) {
     throw refuse('the submitted code identity does not match its approved generation.', [], false);
   }
-  const changes = await buildRepositoryChangeSet(root, { baseCommit: packet.evidenceCommit,
-    subject: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation } });
   const pathContext = applicationPathContext(config, workflow);
-  const classified = classifyDeliveryChanges(changes, { pathContext });
-  // Untracked generated output is already excluded by the application boundary. Tracked build,
-  // vendor and coverage files can be executable inputs, so their names cannot waive fresh tests.
-  const permittedRoles = new Set(['documentation']);
-  const disallowed = classified.entries.filter((entry) => {
-    // Both endpoints matter: moving tested source into README.md is still a source deletion.
-    const endpoints = [entry.oldPath, entry.newPath].filter(Boolean).map((candidate) => ({
-      ...entry, oldPath: candidate, newPath: candidate
-    }));
-    return classifyDeliveryChanges({ entries: endpoints }, { pathContext }).entries
-      .some((endpoint) => !permittedRoles.has(endpoint.role));
-  });
-  const changedPaths = [...new Set(disallowed.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
+  const subject = { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation };
+  const permission = { pathContext, boundary: reviewOwnRepairBoundary(workflow, phase), phaseId: phase.id };
+  let changedPaths = await unpermittedReviewPaths(root, packet.evidenceCommit, subject, permission);
+  // A review pinned to one step's tests (testEvidenceFrom) consumes exactly that tested tree.
+  if (changedPaths.length && !pinnedTestEvidenceSource(workflow, phase)) {
+    const base = await governedReviewBaseline(root, config, workflow, {
+      phase, source, evidenceCommit: packet.evidenceCommit, pathContext
+    });
+    if (base !== packet.evidenceCommit) changedPaths = await unpermittedReviewPaths(root, base, subject, permission);
+  }
   if (changedPaths.length) throw refuse(`source or tests changed after their approved execution: ${changedPaths.join(', ')}.`, changedPaths);
   const riskReference = source.deliveryEvidence?.testRecovery;
   if (riskReference) {

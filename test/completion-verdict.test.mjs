@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { completionRecoveryActions, printCompletionVerdict } from '../src/completion-verdict.mjs';
+import { completionRecoveryActions, finalCheckRefusalMessage, printCompletionVerdict } from '../src/completion-verdict.mjs';
 import { MESSAGES } from '../src/narration/messages.mjs';
 
 test('a Story that runs out of steps is called complete only when the final check passed', () => {
   const approve = MESSAGES['approve.succeeded'].headline;
   assert.equal(approve({ phase: 'release', next: 'verification' }), 'Approved release. The Story is now at verification.');
+  assert.equal(approve({ phase: 'intake', next: 'intake', reached: false }),
+    'Recorded an approval for intake; it still needs more approvals before the Story moves on.',
+    'a vote below the threshold never claims the Story moved');
   assert.match(approve({ phase: 'release', next: null, finalCheck: 'passed' }), /final governance check passed: the Story is complete\.$/);
   const failed = approve({ phase: 'release', next: null, finalCheck: 'failed' });
   assert.match(failed, /not complete until the final governance check passes/);
@@ -28,6 +31,17 @@ test('a failed final check names its recoveries and never rests complete', () =>
   });
   assert.deepEqual(actions.map((entry) => entry.command), ['singularity-flow recover W-1', 'singularity-flow gate --terminal']);
   assert.ok(actions.every((entry) => entry.kind === 'remediation'));
+
+  assert.equal(finalCheckRefusalMessage('W-1', {
+    verified: false, errors: ['terminal: phase code is not approved'], warnings: [],
+    findings: [{ recovery: { command: 'singularity-flow recover W-1' } }]
+  }), [
+    'Story W-1 cannot be finalized: the final governance check failed:',
+    '- terminal: phase code is not approved',
+    'Recover:',
+    '  singularity-flow recover W-1',
+    '  singularity-flow gate --terminal'
+  ].join('\n'), 'finalize offers the same recoveries as the completing transition');
 
   const lines = [];
   printCompletionVerdict({ verified: false, errors: ['terminal: phase code is not approved'], warnings: [], findings: [] },

@@ -49,6 +49,13 @@ export function completionRecoveryActions(verdict) {
   })];
 }
 
+/** Why finalize refused, with the same recoveries a completing transition offers. */
+export function finalCheckRefusalMessage(workId, verdict) {
+  const commands = completionRecoveryActions(verdict).map((entry) => entry.command);
+  return `Story ${workId} cannot be finalized: the final governance check failed:\n- ${verdict.errors.join('\n- ')}`
+    + (commands.length ? `\nRecover:\n  ${commands.join('\n  ')}` : '');
+}
+
 /** Print the verdict for terminal users; JSON callers read it from the command result instead. */
 export function printCompletionVerdict(verdict, { write = console.log, warn = console.warn } = {}) {
   if (verdict.verified) {

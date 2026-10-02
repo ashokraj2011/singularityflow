@@ -497,9 +497,12 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'approve.succeeded': {
-    headline: (s) => (s.next
-      ? `Approved ${slot(s.phase)}. The Story is now at ${slot(s.next)}.`
-      : `Approved ${slot(s.phase)}.${finalCheckSentence(s)}`),
+    // A vote that does not reach the phase's threshold leaves the Story where it was.
+    headline: (s) => (s.reached === false
+      ? `Recorded an approval for ${slot(s.phase)}; it still needs more approvals before the Story moves on.`
+      : s.next
+        ? `Approved ${slot(s.phase)}. The Story is now at ${slot(s.next)}.`
+        : `Approved ${slot(s.phase)}.${finalCheckSentence(s)}`),
     preserves: false
   },
   'approve.refused': {

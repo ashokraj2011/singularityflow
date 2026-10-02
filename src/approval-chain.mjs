@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './approval-authority.mjs';
 import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
-import { noCurrentPhaseLabel } from './progress.mjs';
+import { noCurrentPhaseLabel, storyStatusLabel } from './progress.mjs';
 
 function normalizedPath(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
@@ -200,7 +200,7 @@ export function approvalChainText(snapshot) {
   const lines = [
     '',
     `Approval chain — ${snapshot.workItem.id}: ${snapshot.workItem.title}`,
-    `Story status: ${snapshot.workItem.status} · current phase: ${snapshot.workItem.currentPhase ?? noCurrentPhaseLabel(snapshot.workItem.status)}`,
+    `Story status: ${storyStatusLabel(snapshot.workItem.status)} · current phase: ${snapshot.workItem.currentPhase ?? noCurrentPhaseLabel(snapshot.workItem.status)}`,
     ''
   ];
   for (const phase of snapshot.phases) {

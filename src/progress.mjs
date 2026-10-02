@@ -80,6 +80,11 @@ export function noCurrentPhaseLabel(status) {
   return 'none';
 }
 
+/** A Story's lifecycle state in words; the stored `complete` state only means every step is decided. */
+export function storyStatusLabel(status) {
+  return status === 'complete' ? 'every step decided' : status;
+}
+
 export function progressFlow(progress) {
   if (!progress.phases.length) return '  (this Story has no phases)';
   const labelWidth = Math.max(...progress.phases.map((phase) => phase.label.length));

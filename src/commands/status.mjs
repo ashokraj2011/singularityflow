@@ -4,7 +4,7 @@ import { executeGitQuery } from '../git-query.mjs';
 import { ledgerStatus } from '../ledger.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
-import { noCurrentPhaseLabel } from '../progress.mjs';
+import { noCurrentPhaseLabel, storyStatusLabel } from '../progress.mjs';
 
 function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
@@ -15,7 +15,7 @@ function summary(workflow) {
   console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
   console.log(`Branch: ${workflow.workItem.branch}`);
   console.log(`World-model grounding: ${workflow.resolution?.worldModelGrounding ?? 'off'}`);
-  console.log(`Status: ${workflow.status}`);
+  console.log(`Status: ${storyStatusLabel(workflow.status)}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : noCurrentPhaseLabel(workflow.status)}`);
   if (active) {
     console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);

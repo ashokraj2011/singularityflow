@@ -142,6 +142,10 @@ test('a phase still waiting for a required group is not shown approved, and a ca
   const cancelled = approvalChainText(approvalChainSnapshot(story('cancelled', null, 'awaiting_approval')));
   assert.match(cancelled, /current phase: none — cancelled/);
   assert.doesNotMatch(cancelled, /current phase: complete/);
+
+  const decided = approvalChainText(approvalChainSnapshot(story('complete', null, 'approved')));
+  assert.match(decided, /Story status: every step decided · current phase: none — every step is decided/);
+  assert.doesNotMatch(decided, /Story status: complete/, 'the stored state is not a completion verdict');
 });
 
 test('human rendering names documents, approval counts, authorities, approvers, and invalidation history', () => {

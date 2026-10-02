@@ -292,6 +292,7 @@ test('finalize refuses a Story whose final governance check fails, and the packe
   const refused = flow(root, ['finalize'], { allowFailure: true });
   assert.equal(refused.status, 2, refused.stdout + refused.stderr);
   assert.match(refused.stderr, /cannot be finalized: the final governance check failed/);
+  assert.match(refused.stderr, /Recover:\n(?:  .+\n)*  singularity-flow gate --terminal/, 'the refusal says how to recheck');
   assert.equal(await readFile(workflowPath, 'utf8'), before);
   assert.doesNotMatch(
     git(root, ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'refs/heads/MOB-200']).stdout,

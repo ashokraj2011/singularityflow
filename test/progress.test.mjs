@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { phaseTokenStatus, progressBar, progressFlow, progressMarkdown, progressSnapshot } from '../src/progress.mjs';
+import {
+  noCurrentPhaseLabel, phaseTokenStatus, progressBar, progressFlow, progressMarkdown, progressSnapshot, storyStatusLabel
+} from '../src/progress.mjs';
 
 test('progress distinguishes absent, unavailable, partial, and exact token telemetry', () => {
   assert.equal(phaseTokenStatus([]), 'none');
@@ -70,6 +72,14 @@ test('progress flow marks active generation and completed workflow', () => {
     phases: [{ id: 'intake', label: 'Intake', status: 'approved', generation: 1, approvals: 1, approvalsRequired: 1 }]
   }), /DECIDED|COMPLETE/, 'a cancelled Story never reads as finished');
   assert.equal(progressFlow({ currentPhase: null, approvedPhases: 0, totalPhases: 0, phases: [] }), '  (this Story has no phases)');
+});
+
+test('status words keep the stored complete state to its lifecycle meaning', () => {
+  assert.equal(storyStatusLabel('complete'), 'every step decided');
+  assert.equal(storyStatusLabel('cancelled'), 'cancelled');
+  assert.equal(storyStatusLabel('active'), 'active');
+  assert.equal(noCurrentPhaseLabel('complete'), 'none — every step is decided');
+  assert.equal(noCurrentPhaseLabel('cancelled'), 'none — cancelled');
 });
 
 test('progress bar still clamps values for deterministic percentage display', () => {

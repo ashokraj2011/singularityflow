@@ -179,7 +179,7 @@ import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { completionRecoveryActions, completionVerdict, printCompletionVerdict } from './completion-verdict.mjs';
+import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict } from './completion-verdict.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
@@ -8297,7 +8297,7 @@ async function approveCommand(positionals, options) {
     operation: { id: 'approve', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('approve.succeeded', {
-      phase: result.phase.id, next: result.next?.id ?? null,
+      phase: result.phase.id, next: result.next?.id ?? null, reached: result.reached !== false,
       ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed' } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
@@ -17632,7 +17632,7 @@ export async function finalizeCommand(options) {
   const finalCheck = await completionVerdict(root, workflow.workItem.id);
   if (!finalCheck.verified) {
     throw new SingularityFlowError(
-      `Story ${workflow.workItem.id} cannot be finalized: the final governance check failed:\n- ${finalCheck.errors.join('\n- ')}`,
+      finalCheckRefusalMessage(workflow.workItem.id, finalCheck),
       { code: 'STORY_FINAL_CHECK_FAILED', exitCode: 2, details: { findings: finalCheck.findings } }
     );
   }

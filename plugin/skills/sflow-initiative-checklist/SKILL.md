@@ -7,7 +7,7 @@ argument-hint: "[PHASE] [--initiative INIT-ID]"
 # Review an initiative checklist
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

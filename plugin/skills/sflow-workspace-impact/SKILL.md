@@ -7,8 +7,8 @@ disable-model-invocation: true
 
 # Analyze workspace impact
 
-<!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+<!-- sflow-output-contract: advisory-analysis -->
+**Output contract:** Run only the confirmed advisory analysis; report its evidence and limitations. Do not promote or publish governed artifacts.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

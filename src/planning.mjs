@@ -63,7 +63,7 @@ import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
-import { artifactContentContractLines } from './publication-preflight.mjs';
+import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
@@ -414,6 +414,25 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
   };
 }
 
+/** Keep required grounding unless the agent already carries the same complete representation. */
+export function renderPlanningWorldModelContext(files, injection = null) {
+  const delivered = injection?.applied === true ? injection.sections ?? [] : [];
+  const remaining = files.filter((file) => !delivered.some((section) => (
+    section.path === file.path
+      && section.sha256 === file.sha256
+      && section.bytes === file.bytes
+      && section.truncated === false
+      && section.injectedBytes === file.bytes
+      && typeof section.body === 'string'
+      && section.body === file.content
+      && Buffer.byteLength(section.body, 'utf8') === file.bytes
+      && sha256(section.body) === file.sha256
+  )));
+  return remaining.map((file) => (
+    `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`
+  )).join('\n\n');
+}
+
 async function workItemWorldModel(root, definition, workflow, phase, agent) {
   const scopedDefinition = withWorldModelSourceScope(
     definition,
@@ -421,7 +440,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
   );
   const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
   if (mode === 'off') return {
-    text: '', files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
+    sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
     warnings: [], record: { mode, available: false }
   };
   const plan = resolveGroundingPlan({
@@ -486,7 +505,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
         changes ? 'repository world-model files have uncommitted changes' : null
       ].filter(Boolean).join('; ');
       return {
-        text: '', files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
+        sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
         warnings: [`Repository world model unavailable: ${reason}; work may continue without it.`],
         record: {
           mode, available: false, fresh: resolved.freshness.fresh,
@@ -507,7 +526,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       });
     }
     return {
-      text: files.map((file) => `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`).join('\n\n'),
+      sections: files,
       files: files.map(({ content, ...file }) => file),
       directory: resolved.directory,
       validatedModelFiles: resolved.validatedModelFiles,
@@ -526,7 +545,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     // optional accelerator a prerequisite. A failed/stale candidate is omitted in full.
     if (!isWorldModelAvailabilityError(error) && mode === 'enforce') throw error;
     return {
-      text: '', files: [], warnings: [
+      sections: [], files: [], warnings: [
         `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`
       ],
       directory: null, validatedModelFiles: [], validatedManifest: null,
@@ -579,7 +598,7 @@ async function workItemPlanningParts(root, definition, {
     if (!world.record.available
         || (!isWorldModelAvailabilityError(error) && !optionalIntegrityRace)) throw error;
     world = {
-      text: '', files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
+      sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
       warnings: [
         ...world.warnings,
         `Repository world model became unavailable during prompt composition: ${error.message}`
@@ -614,6 +633,9 @@ async function workItemPlanningParts(root, definition, {
   const storyPath = path.join(itemDirectory, 'USER-STORY.md');
   const story = await existingText(storyPath);
   const current = await existingText(target);
+  // The approved inputs already appear below. Project before the planning byte bound so managed
+  // replay cannot crowd out the current producer's draft; retain the raw snapshot for promotion.
+  const currentAuthored = authoredArtifactText(current).trim();
   const statePath = path.join(itemDirectory, 'workflow.json');
   const stateInfo = await snapshot(statePath);
   const storyInfo = story ? await snapshot(storyPath) : null;
@@ -621,13 +643,13 @@ async function workItemPlanningParts(root, definition, {
   const governed = [
     `# Governed story context — ${id}/${selectedPhase}`,
     `## Selected governed agent\n\n${agentResult.text.trim()}`,
-    world.text,
+    renderPlanningWorldModelContext(world.sections, agentResult.injection),
     capability.text,
     structural.text,
     remote.text,
     story ? `## Work-item source\n\n<!-- path=${posix(path.relative(root, storyPath))} -->\n\n${story.trim()}` : '',
     inputBlock,
-    current ? `## Current artifact draft\n\n<!-- path=${posix(path.relative(root, target))} -->\n\n${current.trim()}` : '',
+    currentAuthored ? `## Current artifact draft\n\n<!-- path=${posix(path.relative(root, target))} -->\n\n${currentAuthored}` : '',
     // Last: the context is cut from the end at its byte limit, and supporting documents can be read
     // again with documents view, while the approved inputs and the current draft cannot be lost.
     supportingDocuments.text

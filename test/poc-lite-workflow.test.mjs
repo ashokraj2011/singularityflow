@@ -128,6 +128,12 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
     ''
   ].join('\n'));
   run(process.execPath, [CLI, 'init'], root);
+  // This fixture exercises deterministic POC lifecycle behavior; pre-Story readiness has its
+  // own integration coverage and is not an additional checkpoint in this local harness.
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const configuration = YAML.parse(await readFile(configPath, 'utf8'));
+  configuration.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(configPath, YAML.stringify(configuration));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize local POC harness'], root);
   run('git', ['init', '--bare', '-b', 'main', remote], root);

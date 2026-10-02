@@ -5,12 +5,27 @@ import { operationCatalog } from '../src/command-registry.mjs';
 
 const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',
-  'concise-relay': 'Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.',
+  'concise-relay': 'Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.',
   'explicit-selection': 'Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.',
   'conversational-guidance': 'Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.',
   'governed-review': 'Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
-  'clarification-and-artifact': 'Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.',
-  'deterministic-mutation': 'Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.'
+  'clarification-and-artifact': 'Use governed inputs and pinned clarification; publish/show configured artifacts.',
+  'deterministic-mutation': 'Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.',
+  'scoped-repair': 'Repair only the named local scope; report changes and remaining findings. Never publish, submit, or approve.',
+  'advisory-analysis': 'Run only the confirmed advisory analysis; report its evidence and limitations. Do not promote or publish governed artifacts.',
+  'canonical-delegation': 'Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.'
+});
+
+// Preserve narrower task contracts and compact equivalents when the class default is too broad.
+const CONTRACT_TEXT_BY_SKILL = Object.freeze({
+  'sflow-approve': 'Reuse exact same-chat document displays; refresh packet review and explicit consent.',
+  'sflow-start': 'Explicit choices; no preselection; preserve errors/artifacts/actions.',
+  'sflow-recover': 'CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions.',
+  'sflow-submit': 'Show artifacts, hashes, warnings, and confirmation before a decision.',
+  'sflow-refresh-configuration': "Preserve the CLI's exact plan, conflicts, branch effects, failures, and retry instructions.",
+  'sflow-review-source': 'Show the exact reviewed hashes, cited gaps, exclusions, questions, and test exceptions before any human approval.',
+  'sflow-revision-attachments': "Preserve the CLI's exact result, warnings, effects, and next actions.",
+  'sflow-skill': "Report the CLI's exact package identity, candidates, findings, and limits. Inspection is not confirmation, configuration approval, host admission, or execution."
 });
 
 const KERNEL_MODEL_POLICIES = new Set(['never', 'conditional']);
@@ -55,6 +70,26 @@ export function bareOperationalCommands(body, commandRoots = new Set(operationCa
   return [...new Set(matches)].sort();
 }
 
+/** Aliases have one executable owner, including after their direct /sf-* transformation. */
+export function skillDelegationErrors(name, body, skills) {
+  const rule = skills[name];
+  if (rule?.class !== 'delegation') return rule?.delegatesTo ? ['only delegation skills may declare delegatesTo'] : [];
+  const errors = [];
+  const target = rule.delegatesTo;
+  if (!target || !skills[target]) errors.push('delegation must name an existing canonical skill');
+  else {
+    const routes = [`/${target}`, `/${target.replace(/^sflow-/, 'sf-')}`];
+    if (!routes.some((route) => body.includes(`\`${route}\``))) errors.push('body must route to its declared canonical skill');
+    const visited = new Set([name]);
+    for (let next = target; next; next = skills[next]?.delegatesTo) {
+      if (visited.has(next)) { errors.push('delegation cycle'); break; }
+      visited.add(next);
+    }
+  }
+  if (/`singularity-flow\s/.test(body)) errors.push('delegation must not duplicate CLI preflight or operations');
+  return errors;
+}
+
 // These are cross-surface contracts, not style preferences. A skill can have valid frontmatter,
 // remain inside its token budget, and still send Copilot down a command form the CLI rejects or
 // perform a mutation before its promised review. Keep the small set of high-risk invariants in the
@@ -73,10 +108,12 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   },
   'sflow-upload': {
     required: [
-      /documents detach <DOCUMENT-ID>[^`]*--yes/,
-      /epic sources detach <SOURCE-ID>[^`]*--yes/,
-      /Only after confirmation/
-    ]
+      /Delegate once to `\/sf-documents`/,
+      /mapping `attach` to `upload`/,
+      /preserving paths, names, owner selectors/,
+      /Do not repeat a preview/
+    ],
+    forbidden: [/`singularity-flow (?:documents|epic sources) (?:upload|add|detach)/]
   },
   'sflow-revision-attachments': {
     required: [
@@ -120,6 +157,20 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Nonzero exit fails despite passing JUnit/
     ]
   },
+  'sflow-code-docs': {
+    required: [/sflow-output-contract: scoped-repair/, /Never publish, submit or approve/],
+    forbidden: [/sflow-output-contract: clarification-and-artifact/, /`singularity-flow phase publish/]
+  },
+  'sflow-regression-investigate': {
+    required: [/sflow-output-contract: guided-actions/],
+    forbidden: [/sflow-output-contract: clarification-and-artifact/]
+  },
+  'sflow-workspace-impact': {
+    required: [/sflow-output-contract: advisory-analysis/, /Do not promote automatically/],
+    forbidden: [/sflow-output-contract: clarification-and-artifact/]
+  },
+  'sflow-specify': { required: [/sflow-output-contract: clarification-and-artifact/] },
+  'sflow-plan': { required: [/sflow-output-contract: clarification-and-artifact/] },
   'sflow-recover': {
     required: [
       /Follow action classifications, not blanket dirty-tree stops/,
@@ -134,9 +185,11 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /explicit human phase ID confirms only the unchanged packet already reviewed in this conversation/i,
       /approval CLI is the sole permitted lifecycle mutation/i,
       /positional argument selects \*\*PHASE-ID\*\*, never Work ID/i,
-      /Render once per exact review binding/i,
-      /New chat, missing context, changed binding, omitted documents or truncated bodies require a new display/i,
-      /A phase supplied before a new or changed display is not its confirmation/i,
+      /Render once per exact display binding/i,
+      /exactly matching non-null `displayBinding`/,
+      /New chat, changed\/null binding, omissions or truncation require full display/i,
+      /A phase supplied before a new or changed packet review is not its confirmation/i,
+      /body reuse never reuses approval consent/i,
       /do not ask again/i,
       /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,
@@ -146,6 +199,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   },
   'sflow-converge': {
     required: [
+      /sflow-output-contract: clarification-and-artifact/,
       /route-only result is not the final response when the checkpoint is `deterministic-generation`/i,
       /execute that exact returned preparation command once in this same turn/i,
       /Do not stop after merely displaying the route/i,
@@ -259,9 +313,7 @@ function withAutomaticPolicy(text, automatic, description, file) {
 function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind) {
   const skill = splitSkill(text, file);
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${path.basename(path.dirname(file)) === 'sflow-approve'
-    ? 'Reuse only same-chat, exact-packet review; preserve explicit consent, identity warnings and CLI result.'
-    : CONTRACT_TEXT[contract]}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -338,6 +390,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       await writeFile(file, text);
     }
     const skill = splitSkill(text, file);
+    for (const message of skillDelegationErrors(name, skill.body, policy.skills)) errors.push(`${name}: ${message}`);
     const bodyTokens = estimatedTokens(skill.body);
     const descriptionTokens = estimatedTokens(skill.frontmatter.description);
     const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;

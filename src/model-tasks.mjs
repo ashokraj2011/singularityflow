@@ -44,7 +44,12 @@ const CONTRACT_CLASS_TASKS = Object.freeze({
   'concise-relay': 'relay',
   'explicit-selection': 'relay',
   'governed-review': 'relay',
-  'deterministic-mutation': 'relay'
+  'deterministic-mutation': 'relay',
+  'canonical-delegation': 'relay',
+  // The advisory skill relays the confirmed operation; its separate analysis process owns reasoning.
+  'advisory-analysis': 'relay',
+  // Currently the comments-only source repair contract, not a lifecycle publication operation.
+  'scoped-repair': 'code'
 });
 
 /** The class that asks questions before it drafts, and therefore needs to be told which it is doing. */

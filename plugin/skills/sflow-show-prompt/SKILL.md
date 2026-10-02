@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Show the effective phase prompt
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

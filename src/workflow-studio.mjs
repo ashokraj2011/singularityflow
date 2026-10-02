@@ -17,6 +17,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies } from './agents.mjs';
+import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
   IMPORTS_LOCK_PATH, importLedgerKey, importedTemplateRelative, inspectImportContent, ledgerEntry,
   loadImportsLedger, removeAgentTableRow, renderImportsLedger, requireSha256, resolveChangeSetImports,
@@ -63,10 +64,6 @@ const TOOL_LABELS = Object.freeze({
   bash: 'Run commands', execute: 'Run tests and tasks', ask_user: 'Ask you questions',
   web: 'Search the web', 'playwright/*': 'Use a browser', 'figma/*': 'Read Figma designs'
 });
-
-/** Every bundled agent opens and closes with the same operating rules; a new agent does too. */
-const AGENT_PREAMBLE = 'Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.';
-const AGENT_CLARIFICATION = "Obey the composed phase prompt's pinned clarification mode before this agent guidance. For `off`, never ask or record phase clarification. For `when-needed`, ask and record only when material ambiguity remains; otherwise continue without a record. For `required`, use `ask_user` and wait before authoring; if evidence appears complete, ask the contributor to confirm the interpreted outcome, boundaries, and acceptance criteria, then record the accepted batch with `singularity-flow clarification record <phase> --response-file <json>`. Do not silently replace required clarification with an Open questions section.";
 
 /** Starting points for a new agent: tools, knowledge views and instructions a person then edits. */
 export const AGENT_ROLES = Object.freeze([
@@ -273,7 +270,7 @@ function renderAgent(entry) {
 }
 
 function newAgentBody(label, instructions) {
-  return [`# ${label} agent`, '', AGENT_PREAMBLE, '', String(instructions ?? '').trim() || 'Describe what this agent should do in each step it drafts.', '', AGENT_CLARIFICATION].join('\n');
+  return [`# ${label} agent`, '', REPOSITORY_AGENT_BOUNDARY, '', String(instructions ?? '').trim() || 'Describe what this agent should do in each step it drafts.', '', AGENT_CLARIFICATION_GUIDANCE].join('\n');
 }
 
 // ---------------------------------------------------------------------------------------------

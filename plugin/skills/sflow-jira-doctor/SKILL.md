@@ -7,10 +7,10 @@ disable-model-invocation: true
 
 # Diagnose Jira configuration
 
-<!-- sflow-output-contract: concise-relay -->
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-output-contract: guided-actions -->
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 This invocation is a strictly read-only Jira diagnostic.
 

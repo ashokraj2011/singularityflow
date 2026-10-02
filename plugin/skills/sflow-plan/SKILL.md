@@ -6,8 +6,8 @@ disable-model-invocation: true
 ---
 # Plan — route toward an approved plan
 
-<!-- sflow-output-contract: concise-relay -->
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

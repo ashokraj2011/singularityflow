@@ -110,16 +110,18 @@ test('repository readiness proves execution and confines setup repair before Sto
 
 test('plugin provides one upload-first skill for Epic and Story evidence', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-upload', 'SKILL.md'), 'utf8');
+  const canonical = await readFile(path.join(pluginRoot, 'skills', 'sflow-documents', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-upload/);
-  assert.match(content, /epic sources add --epic/);
-  assert.match(content, /documents upload/);
+  assert.match(content, /Delegate once to `\/sf-documents`/);
+  assert.match(content, /mapping `attach` to `upload`/);
   assert.match(content, /files, folders, images, PDFs, Figma exports/);
-  assert.match(content, /documents detach/);
-  assert.match(content, /epic sources detach/);
-  assert.match(content, /complete package/i);
-  assert.match(content, /reason/i);
-  assert.match(content, /stable source\/document ID/);
-  assert.match(content, /commit, (?:and )?push result/);
+  assert.doesNotMatch(content, /`singularity-flow /, 'alias must not duplicate canonical commands');
+  for (const command of ['epic sources add --epic', 'documents upload', 'documents detach', 'epic sources detach']) {
+    assert.ok(canonical.includes(command), `${command} remains in the canonical owner`);
+  }
+  assert.match(canonical, /complete package/i);
+  assert.match(canonical, /reason/i);
+  assert.match(canonical, /IDs, hashes, size, path\/provider, commit\/push/);
 });
 
 test('capability mapping reviews and activates the exact proposal instead of stopping at publication', async () => {
@@ -186,15 +188,15 @@ test('document skill manages active and detached evidence with explicit conseque
 });
 
 test('mutation skills carry reviewed confirmations into noninteractive CLI forms', async () => {
-  const upload = await readFile(path.join(pluginRoot, 'skills', 'sflow-upload', 'SKILL.md'), 'utf8');
+  const upload = await readFile(path.join(pluginRoot, 'skills', 'sflow-documents', 'SKILL.md'), 'utf8');
   const epicPublish = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-publish', 'SKILL.md'), 'utf8');
   const epicComplete = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-complete', 'SKILL.md'), 'utf8');
   const materialize = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-materialize', 'SKILL.md'), 'utf8');
   const impact = await readFile(path.join(pluginRoot, 'skills', 'sflow-impact', 'SKILL.md'), 'utf8');
   const submit = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
 
-  assert.match(upload, /Only after confirmation[\s\S]*documents detach[\s\S]*--yes/i);
-  assert.match(upload, /Only after confirmation[\s\S]*epic sources detach[\s\S]*--yes/i);
+  assert.match(upload, /Require explicit human confirmation[\s\S]*Only after it[\s\S]*documents detach[\s\S]*--yes/i);
+  assert.match(upload, /epic sources detach[\s\S]*--yes[\s\S]*same preview\/confirmation/i);
   assert.match(epicPublish, /epic jira apply --epic <EPIC-KEY> --plan <SHA-256> --confirm <EPIC-KEY>/);
   assert.match(epicComplete, /epic complete <EPIC-KEY> --confirm <EPIC-KEY>/);
   assert.match(materialize, /initiative breakdown --initiative <INIT-ID> --json/);
@@ -294,7 +296,7 @@ test('initial phase skills require interactive clarification instead of silently
   const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
   const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   const epicRequirements = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-requirements', 'SKILL.md'), 'utf8');
-  for (const content of [workflowAgent, phase, requirements, code, epicRequirements]) {
+  for (const content of [phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
     assert.match(content, /wait/i);
     assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); stop if unavailable)/i);
@@ -306,17 +308,17 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /Never pass Markdown/i);
     assert.match(content, /"responses"/);
   }
-  assert.match(workflowAgent, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
-  assert.match(workflowAgent, /never use the CLI-owned `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json` path/i);
+  assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
+  assert.match(workflowAgent, /skills\/sflow-code\/SKILL.md/);
+  assert.match(workflowAgent, /follow its complete procedure/);
   assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
   assert.match(next, /never rewrite it to `\/sf-phase`/i);
   assert.match(next, /returned SFlow skill route[\s\S]*complete its preflight[\s\S]*at most its one authorized action/is);
   assert.match(next, /Never run `singularity-flow next`/);
   assert.match(next, /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i);
   assert.match(next, /never pair `\/sf-phase` with `singularity-flow next`/i);
-  assert.match(workflowAgent, /never run the outer `singularity-flow next` router/i);
-  assert.match(workflowAgent, /`copilotCommand` and `command` from the same returned action object/i);
-  assert.match(workflowAgent, /`\/sf-phase` must never be paired with `singularity-flow next`/i);
+  assert.match(workflowAgent, /skills\/sflow-next\/SKILL.md/);
+  assert.match(workflowAgent, /do not inline or chain the returned skill/i);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /In-scope declarations may repair inference/i);
@@ -359,7 +361,8 @@ test('fast-path authoring skills execute the returned preparation checkpoint bef
 
 test('code skill reads readiness and task policy from their real structured sources', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
-  assert.match(content, /session current --json.*ready: true.*workId.*repositoryPath.*phase.*phaseAgent\.valid/s);
+  assert.match(content, /session current --json.*`ready`\/`workId`.*repositoryPath/s);
+  assert.match(content, /From the Boundary require `phase`, `phaseAgent\.valid: true`/);
   assert.match(content, /status --json.*match workId\/currentPhase.*phases\[<phase>\]\.generationPolicy\.task: code/s);
   assert.match(content, /legacy `implementation-summary` without task/);
   assert.match(content, /phase show <phase> --json` is artifact review, not readiness or task policy/);
@@ -428,10 +431,10 @@ test('runner policy adoption stays a reviewed recovery action outside the coding
 
 test('verify skill routes release to its phase skill without running verification authoring', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
-  assert.match(content, /Boundary phase is `release`.*do not run verification authoring/s);
-  assert.match(content, /first `NOW` action is `singularity-flow prepare release`.*Next in Copilot: \/sf-release.*Terminal equivalent: singularity-flow prepare release.*then stop/s);
-  assert.match(content, /For any other release action, relay its exact returned Copilot and Shell routes and stop/);
-  assert.ok(content.indexOf('Boundary phase is `release`') < content.indexOf('phase `verification`'));
+  assert.match(content, /Boundary phase `release`, never author verification/);
+  assert.match(content, /first `NOW` is `singularity-flow prepare release`.*Next in Copilot: \/sf-release.*Terminal equivalent: singularity-flow prepare release.*stop/s);
+  assert.match(content, /Otherwise relay the returned release routes and stop/);
+  assert.ok(content.indexOf('Boundary phase `release`') < content.indexOf('phase `verification`'));
 });
 
 test('requirements skill authors qualified acceptance-criteria identifiers', async () => {
@@ -535,7 +538,9 @@ test('Copilot phase authoring repairs structured draft findings before publicati
 
   const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   const workflowRules = await readFile(path.join(pluginRoot, 'skills', 'sflow-workflow-rules', 'SKILL.md'), 'utf8');
-  for (const [name, content] of [['workflow agent', workflowAgent], ['workflow rules', workflowRules]]) {
+  assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
+  assert.match(workflowAgent, /bounded correction, publication, and display/);
+  for (const [name, content] of [['workflow rules', workflowRules]]) {
     assert.match(content, /singularity-flow phase draft-check <phase> --json/,
       `${name} omits the shared authoring preflight`);
     assert.match(content, /singularity-flow phase prepublish <phase> --json/,
@@ -640,8 +645,9 @@ test('Epic Story decisions use exact-packet Copilot selection receipts', async (
 
 test('legacy Epic planning skill redirects to the canonical Story drafting boundary', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-planning', 'SKILL.md'), 'utf8');
-  assert.match(content, /compatibility name for `\/sf-epic-story-draft`/);
-  assert.match(content, /Stop for exact business approval in the VS Code extension's Approvals view/);
+  assert.match(content, /Run `\/sf-epic-story-draft` once/);
+  assert.match(content, /stop when it returns/);
+  assert.doesNotMatch(content, /`singularity-flow /);
   assert.match(content, /Do not run a second planning sequence/);
 });
 
@@ -817,7 +823,7 @@ test('inbox skill presents remote pending approvals before an explicit reviewer 
   assert.match(content, /disable-model-invocation:\s*true/);
 });
 
-test('bundled workflow agent self-activates and ships inert dependency tables', async () => {
+test('bundled workflow agent self-activates and delegates lifecycle procedures to canonical skills', async () => {
   const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   assert.match(content, /name:\s*sflow-workflow/);
   assert.match(content, /`subagentStart` hook maps this native Copilot agent to its governed Flow agent/);
@@ -830,17 +836,16 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   assert.match(content, /show the exact mutation command.*wait for explicit contributor authorization/is);
   assert.doesNotMatch(content, /missing or stale, stop and run the exact rebuild command/i);
   assert.match(content, /tools:.*ask_user.*write_bash/);
-  assert.match(content, /YAML-derived options with `ask_user`/);
-  assert.match(content, /choices begin start <WORK-ID> --json/);
-  assert.match(content, /choices answer/);
-  assert.match(content, /--selection-receipt/);
-  assert.match(content, /For approval use `\/sf-approve` and its one-time receipt/);
-  assert.match(content, /never `--yes`/);
+  assert.match(content, /skills\/sflow-start\/SKILL.md/);
+  assert.match(content, /selection-receipt handling/);
+  assert.match(content, /skills\/sflow-approve\/SKILL.md/);
+  assert.match(content, /one-time approval receipt/);
+  assert.match(content, /never add `--yes`/);
   assert.match(content, /Never infer or preselect/);
-  assert.match(content, /Out of sequence[\s\S]*stop immediately/);
   assert.match(content, /model-free `wm\.ast\.query`/);
   assert.match(content, /lexical `text` symbol is advisory discovery evidence, not proof/);
-  assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
+  assert.doesNotMatch(content, /## Remote skills|## Remote artifact templates|## Remote generated artifacts/,
+    'empty dependency tables should not burden every workflow prompt');
   assert.doesNotMatch(content, /\|\s*[^-|\s][^|]*\|\s*https:\/\//);
 });
 
@@ -916,16 +921,16 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /Do not perform a second `singularity-flow documents view` lookup/);
   assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
-  assert.match(content, /consumes the receipt exactly once/i);
+  assert.match(content, /receipt is consumed once/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'));
-  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact review binding'));
-  assert.match(content, /matching non-null binding and full document ID\/kind\/path\/bytes\/generation\/SHA-256 set/);
-  assert.match(content, /New chat, missing context, changed binding, omitted documents or truncated bodies require a new display/);
-  assert.match(content, /Truncated content: stop; never confirm an incomplete display/);
-  assert.match(content, /human `\/sf-approve <PHASE-ID>` or exact phase answer \*\*after\*\* the matching display/);
+  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact display binding'));
+  assert.match(content, /exactly matching non-null `displayBinding`/);
+  assert.match(content, /New chat, changed\/null binding, omissions or truncation require full display/);
+  assert.match(content, /Truncated content: stop/);
+  assert.match(content, /human `\/sf-approve <PHASE-ID>` or exact phase answer \*\*after\*\* complete review of this exact `reviewBinding`/);
   assert.match(content, /do not ask again/);
-  assert.match(content, /A phase supplied before a new or changed display is not its confirmation/);
-  assert.match(content, /review-integrity failure/);
+  assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);
+  assert.match(content, /Missing binding\/mismatch: stop/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
   assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);
@@ -939,22 +944,21 @@ test('submit skill presents generated documents before approval', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(content, /status <WORK-ID> --submission-readiness --json/);
   assert.match(content, /Require (?:exact )?`resultType: sflow-submission-readiness`/);
-  assert.match(content, /matching work\/phase IDs.*`draftExists`.*`draftModified`.*`publicationRecorded`.*`nextSkill`.*`nextCommand`/);
-  assert.match(content, /Trust `lifecycleReady`, not labels/);
-  assert.match(content, /Equal published\/current generation while `in_progress` is ready; do not republish/);
+  assert.match(content, /matching work\/phase.*`draftExists`.*`draftModified`.*`publicationRecorded`.*`nextSkill`.*`nextCommand`/);
+  assert.match(content, /Trust `lifecycleReady`/);
+  assert.match(content, /equal generation while `in_progress` is ready\. Never republish/);
   assert.match(content, /Seeded draft — not published/);
   assert.match(content, /Published generation <N> — ready to submit/);
-  assert.match(content, /`classification: generation-required`.*show only \*\*Generate and publish <Phase>\*\* using returned `nextSkill`, then stop/);
-  assert.match(content, /Never generate or publish from this skill/);
+  assert.match(content, /`classification: generation-required`.*\*\*Generate and publish <Phase>\*\*.*returned `nextSkill`, stop/);
+  assert.match(content, /Never generate\/publish here/);
   assert.match(content, /review-source status <phase> --json/);
-  assert.match(content, /Unless `not-required` or `ready`, stop, show findings and route to `\/sf-review-source <phase>`/);
-  assert.match(content, /reviewer reports are not human approval/);
-  assert.match(content, /confirmationRequired: true.*Only the human/s);
+  assert.match(content, /Unless `not-required`\/`ready`, stop; show findings and `\/sf-review-source <phase>`/);
+  assert.match(content, /reviewer reports are not approval/);
+  assert.match(content, /confirmationRequired: true.*human provides `continue`/s);
   assert.match(content, /Work-ID-pinned submit command/);
-  assert.match(content, /then stop\. Never generate or publish from this skill/);
-  assert.match(content, /Reproduce every current-phase document/);
+  assert.match(content, /Otherwise render all documents\/briefs/);
   assert.match(content, /singularity-flow phase show <phase>/);
-  assert.match(content, /show them before offering approval or rejection/);
+  assert.match(content, /incomplete review cannot offer approval/);
 });
 
 test('phase publication uses the unambiguous ready-to-submit label', async () => {
@@ -1057,10 +1061,10 @@ test('next skill executes one action and preserves explicit approval controls', 
 test('guided run and world-model skills preserve consent and crash-recovery boundaries', async () => {
   const run = await readFile(path.join(pluginRoot, 'skills', 'sflow-run', 'SKILL.md'), 'utf8');
   assert.match(run, /singularity-flow nextsteps --json/);
-  assert.match(run, /explicit consent/);
+  assert.match(run, /separate consent/);
   assert.match(run, /singularity-flow run`/);
   assert.doesNotMatch(run, /run --task "\$ARGUMENTS"/);
-  assert.match(run, /shared repository model/);
+  assert.match(run, /Missing world-model intelligence does not block ordinary file-based work/);
   assert.match(run, /pass `--yes` only after that answer/);
   assert.match(run, /If the next action is submission, ask whether to submit/);
 
@@ -1082,11 +1086,12 @@ test('document phases display Markdown while code phases use bounded reference p
   for (const name of ['sflow-design', 'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-verify']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /published text document in full/i, `${name} must display published document content`);
-    assert.match(content, /never replace (?:it|the published document) with a summary/i, `${name} must prohibit summary-only publication output`);
+    assert.match(content, /Tool output or summaries are not review/i, `${name} must prohibit summary-only publication output`);
     assert.match(content, /phase show .*--json/i, `${name} must load a deterministic document payload`);
-    assert.match(content, /visible assistant response/i, `${name} must render outside tool output`);
-    assert.match(content, /Shell\/tool block.*does not (?:count|satisfy)/i, `${name} must reject collapsed Shell output as review`);
-    assert.match(content, /shown above/i, `${name} must explicitly prohibit the misleading shown-above response`);
+    assert.match(content, /complete visible same-chat display/i, `${name} must render outside tool output`);
+    assert.match(content, /exactly matching non-null `displayBinding`/, `${name} must require content identity for reuse`);
+    assert.match(content, /New chat, changed\/null binding, omissions or truncation require full display/);
+    assert.match(content, /current `reviewBinding`; body reuse never reuses approval consent/);
   }
   for (const name of ['sflow-code', 'sflow-next', 'sflow-phase']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
@@ -1134,7 +1139,7 @@ test('submission renders review once and approval reuses only that complete boun
   for (const name of ['sflow-submit', 'sflow-approve']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /phase show <phase> --json/i, `${name} must load artifact content as JSON`);
-    assert.match(content, /visible display|in the response/i,
+    assert.match(content, /visible same-chat display/i,
       `${name} must establish visible review`);
     assert.match(content, /--- BEGIN <path> ---[\s\S]*--- END <path> ---/i, `${name} must delimit exact artifact bodies`);
     assert.match(content, /Tool output or summaries are not review|Tool output alone is insufficient/i,
@@ -1142,13 +1147,14 @@ test('submission renders review once and approval reuses only that complete boun
     assert.match(content, /reviewBinding/, `${name} must bind the review, not rely on a visibility assertion`);
   }
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
-  assert.match(approve, /Render once per exact review binding/);
-  assert.match(approve, /never confirm an incomplete display/);
+  assert.match(approve, /Render once per exact display binding/);
+  assert.match(approve, /Truncated content: stop/);
   assert.doesNotMatch(approve, /Always show the generated artifacts|Never say .*shown above/);
   const submit = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(submit, /\/sf-approve <PHASE-ID> --work-id <WORK-ID>/);
   const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
-  assert.match(workflowAgent, /do not reproduce an unchanged complete display in the same conversation/);
+  assert.match(workflowAgent, /skills\/sflow-approve\/SKILL.md/);
+  assert.match(workflowAgent, /exact-packet review reuse/);
   assert.doesNotMatch(workflowAgent, /before every approval confirmation[^\n]*present all/);
 });
 
@@ -1157,7 +1163,7 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.match(start, /workspace current --json/);
   assert.doesNotMatch(start, /session current --json/);
   assert.match(start, /ask_user/, 'start must collect the human workflow choice interactively');
-  assert.match(start, /never infer or preselect/i, 'start must prohibit model-selected workflow defaults');
+  assert.match(start, /Never preselect\. Choose `<BASE>`/, 'start must prohibit model-selected workflow defaults');
   assert.match(start, /If `ask_user` is unavailable, use step 8 or stop/, 'start must fail safely when interactive questions are unavailable');
   assert.match(start, /workspace branches --json --intake/);
   assert.match(start, /Never preselect\. Choose `<BASE>`/);
@@ -1168,13 +1174,12 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.doesNotMatch(start, /write_bash/);
   assert.doesNotMatch(start, /Choose governed agent/);
   assert.match(start, /phase-default agent is automatic/);
-  assert.match(start, /desiredOutcome/);
-  assert.match(start, /acceptanceCriteria/);
+  assert.match(start, /collect Jira\/manual outcome, acceptance criteria/);
   assert.doesNotMatch(start, /examples\/manual-story\.yml/);
-  assert.match(start, /Never search the workspace, home directory, filesystem root, or temporary directories/);
+  assert.match(start, /Never search for inputs/);
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
-  assert.match(approve, /ask the reviewer to type the exact phase ID/);
-  assert.match(approve, /Do not supply, autocomplete, infer, or silently record it/);
+  assert.match(approve, /ask for the exact phase ID and wait/);
+  assert.match(approve, /human `\/sf-approve <PHASE-ID>` or exact phase answer/);
   const reject = await readFile(path.join(pluginRoot, 'skills', 'sflow-reject', 'SKILL.md'), 'utf8');
   assert.match(reject, /Require a specific rejection reason and target phase; do not invent either/);
   assert.doesNotMatch(approve, /Choose governed agent/);
@@ -1225,7 +1230,7 @@ test('start skill falls back to a one-time receipt when Copilot has no persisten
   assert.match(content, /choices answer <TOKEN>/);
   assert.match(content, /--selection-receipt <TOKEN>/);
   assert.match(content, /15-minute, single-use/);
-  assert.match(content, /never infer/i);
+  assert.match(content, /Never preselect/);
 });
 
 test('start skill previews and recomputes read-only readiness before Story mutation', async () => {
@@ -1244,7 +1249,8 @@ test('start skill previews and recomputes read-only readiness before Story mutat
   assert.match(content, /singularity-flow workspace reinitialize --dry-run --json/);
   assert.match(content, /Copilot `\/sf-admin`/);
   assert.match(content, /Never apply a persistent configuration upgrade here/);
-  assert.match(content, /Enroll only after preflight passes/);
+  assert.match(content, /On missing\/stale readiness, stop/);
+  assert.ok(content.indexOf('--preflight-story') < content.indexOf('Start with the same base/workflow'));
 });
 
 test('governed-agent skill persists only local prompt context', async () => {

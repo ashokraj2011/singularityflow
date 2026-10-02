@@ -22,7 +22,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 7
+version: 8
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -33,7 +33,7 @@ Use this topic when the current goal matches **approvals**. Start in a governed 
 ## Use it from each surface
 
 - **Shell:** `sflow approvals [WORK-ID]` shows the phase-by-phase document and approval chain. `sflow approve`, `sflow reject`, and `sflow inbox` perform or find review work. Run `singularity-flow approvals --help` for the exact read-only form supported by this build.
-- **Copilot:** `/sf-approve [PHASE-ID] [--work-id WORK-ID]`, `/sf-reject`, `/sf-inbox`. The positional approval argument is a phase, not a Story ID. Submission displays the complete documents with a `reviewBinding`; approval revalidates that binding and the complete document identities/hashes. When that exact review is already visible in the same chat, typing `/sf-approve <PHASE-ID>` confirms it without another artifact dump or confirmation question. New chat, changed evidence, missing context or incomplete display requires complete review and a fresh exact phase answer. Identity, authority, receipt freshness and single consumption remain enforced.
+- **Copilot:** `/sf-approve [PHASE-ID] [--work-id WORK-ID]`, `/sf-reject`, `/sf-inbox`. The positional approval argument is a phase, not a Story ID. A complete document display carries a `displayBinding`: repository, Story, phase, generation, and the exact document identities/hashes. Publication, submission, Inbox and approval can reuse that same-chat display only when the binding still matches. Submission and approval separately obtain a fresh `reviewBinding` for the current immutable approval packet. Display reuse is not consent reuse: show the current review context, and require an explicit human `/sf-approve <PHASE-ID>` or exact phase answer after it. When that exact current review is already visible, do not dump unchanged bodies or ask the same confirmation again. New chat, changed documents, missing context or incomplete display requires complete review; a changed approval binding requires fresh confirmation even when the document bodies are unchanged. Identity, authority, receipt freshness and single consumption remain enforced.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

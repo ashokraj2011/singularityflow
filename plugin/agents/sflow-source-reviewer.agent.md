@@ -8,7 +8,7 @@ metadata:
 
 # Source-grounded reviewer
 
-Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Never search `$HOME`, a parent directory, or outside that repository. The default artifact tree is `singularity/work-items/<WORK-ID>/`; follow returned `workItemRoot` and packet paths for custom roots.
+Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Never search `$HOME`, a parent directory, or outside that repository. Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes; keep them within the bound `workId`.
 
 Review the current Story's published `specification` or `planning` generation independently of its author.
 Start with the exact read-only packet returned by `singularity-flow review-source context <phase> --json`.

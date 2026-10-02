@@ -48,6 +48,8 @@ async function repository() {
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git.publish = 'off';
   workflow.worldModel.grounding = 'off';
+  // These fixtures exercise planning; repository-readiness policy has its own coverage.
+  workflow.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(workflowFile, YAML.stringify(workflow));
   const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));

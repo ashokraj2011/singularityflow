@@ -3,9 +3,43 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditSkillPolicy, bareOperationalCommands, loadSkillPolicy } from '../scripts/skill-policy.mjs';
+import { auditSkillPolicy, bareOperationalCommands, loadSkillPolicy, skillDelegationErrors } from '../scripts/skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('delegation rejects missing owners, cycles, and duplicate executable procedures', () => {
+  const skills = {
+    'sflow-alias': { class: 'delegation', delegatesTo: 'sflow-owner' },
+    'sflow-owner': { class: 'generative' }
+  };
+  for (const route of ['/sf-owner', '/sflow-owner']) {
+    assert.deepEqual(skillDelegationErrors('sflow-alias', `Run \`${route}\` once.`, skills), []);
+  }
+  assert.match(skillDelegationErrors('sflow-alias', 'Run `/sf-other`.', skills).join(), /declared canonical skill/);
+  assert.match(skillDelegationErrors('sflow-alias', 'Run `/sf-owner`, then `singularity-flow phase publish code`.', skills).join(), /duplicate CLI/);
+  assert.match(skillDelegationErrors('sflow-alias', 'Run `/sf-owner`.', {
+    'sflow-alias': skills['sflow-alias']
+  }).join(), /existing canonical skill/);
+  assert.match(skillDelegationErrors('sflow-alias', 'Run `/sf-owner`.', {
+    ...skills, 'sflow-owner': { class: 'delegation', delegatesTo: 'sflow-alias' }
+  }).join(), /cycle/);
+});
+
+test('side-effect classes preserve authoring, repair, advisory, and alias boundaries', async () => {
+  const { policy } = await loadSkillPolicy(root);
+  for (const name of ['sflow-specify', 'sflow-plan', 'sflow-converge']) {
+    assert.equal(policy.classes[policy.skills[name].class].outputContract, 'clarification-and-artifact');
+  }
+  assert.equal(policy.classes[policy.skills['sflow-code-docs'].class].outputContract, 'scoped-repair');
+  assert.equal(policy.classes[policy.skills['sflow-regression-investigate'].class].outputContract, 'guided-actions');
+  assert.equal(policy.classes[policy.skills['sflow-workspace-impact'].class].outputContract, 'advisory-analysis');
+  for (const name of ['sflow-jira-doctor', 'sflow-jira-status']) {
+    assert.equal(policy.skills[name].executionBoundary, 'machine', 'single-command diagnostics must not need another context command');
+  }
+  assert.equal(policy.skills['sflow-implement'].delegatesTo, 'sflow-code');
+  assert.equal(policy.skills['sflow-upload'].delegatesTo, 'sflow-documents');
+  assert.equal(policy.skills['sflow-epic-planning'].delegatesTo, 'sflow-epic-story-draft');
+});
 
 test('every public skill has a bounded class and output contract', async () => {
   const { policy } = await loadSkillPolicy(root);
@@ -110,7 +144,7 @@ test('generative requirements retains interactive clarification and governed pub
 
 test('phase handoffs always show the Copilot action and terminal equivalent', async () => {
   const phaseSkills = [
-    'sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-implement',
+    'sflow-phase', 'sflow-requirements', 'sflow-design',
     'sflow-review', 'sflow-release', 'sflow-verify', 'sflow-next',
     'sflow-specify', 'sflow-plan', 'sflow-converge'
   ];
@@ -138,14 +172,14 @@ test('approval remains explicit-only with one bound artifact review per conversa
   assert.match(content, /exact phase name|exact phase ID/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'),
     'approval must resolve the requested Story and phase before reading artifacts');
-  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact review binding'),
+  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact display binding'),
     'current packet must be revalidated before prior display is reused');
   assert.match(content, /documentId`, `documentPath`, and `documentSha256`/);
   assert.match(content, /Do not perform a second `singularity-flow documents view` lookup/);
   assert.match(content, /across messages if needed/);
   assert.match(content, /Truncated content: stop/);
   assert.match(content, /do not ask again/);
-  assert.match(content, /A phase supplied before a new or changed display is not its confirmation/);
+  assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
   assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);

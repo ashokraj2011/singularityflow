@@ -5,7 +5,7 @@ description: See a complete governed change in a throwaway repository.
 # See a governed change, end to end
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 

@@ -60,7 +60,8 @@ test('every shipped contract class routes somewhere', async () => {
 
   for (const contractClass of shipped) {
     if (contractClass === DUAL_INTENT_CONTRACT_CLASS) continue;
-    assert.equal(taskForContractClass(contractClass), 'relay', `${contractClass} is dispatch and should relay`);
+    assert.equal(taskForContractClass(contractClass), contractClass === 'scoped-repair' ? 'code' : 'relay',
+      `${contractClass} must distinguish source repair from dispatch`);
   }
   const boundary = source.slice(source.indexOf('function executionBoundary'), source.indexOf('function referencedModelOperations'));
   assert.match(boundary, /singularity-flow session current --json/);

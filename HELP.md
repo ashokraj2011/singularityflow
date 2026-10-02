@@ -2055,14 +2055,17 @@ Each approval—including each partial decision toward a multi-approval threshol
 
 Use `/sf-approve` and `/sf-reject` in Copilot. These commands are explicitly user-invoked and must not run silently.
 
-Submission automatically displays every generated current-phase document before
-recommending approval. It includes the stable document ID, repository path, kind,
-byte count, SHA-256, and Markdown/text content. Binary and image artifacts are
-shown as absolute paths with metadata. Approval revalidates the returned
-`reviewBinding` and document identities/hashes, reusing the complete display in
-the same conversation. `/sf-approve <PHASE-ID> [--work-id WORK-ID]` then records
-the exact human confirmation without repeating unchanged bodies. A new chat,
-changed binding or incomplete display needs fresh review and confirmation.
+Publication, submission, Inbox and approval display each generated current-phase
+document once per unchanged `displayBinding` in the same conversation. The complete
+display includes document ID, repository path, kind, byte count, generation, SHA-256
+and text; binaries use absolute paths, metadata and an open instruction. Tool output
+or summaries alone are not review. Missing context, changed documents, a null binding
+or incomplete bodies require a complete display. Submission and approval also show
+the fresh `reviewBinding` and current reviewer context. An explicit human
+`/sf-approve <PHASE-ID> [--work-id WORK-ID]` after that exact review confirms it
+without another dump or repeated question. A changed approval binding needs fresh
+confirmation even if its document bodies are unchanged; content reuse never grants
+consent or bypasses the one-time receipt.
 The CLI advances when its approval threshold is met; next-phase authoring is
 separate. Review documents at any time with:
 

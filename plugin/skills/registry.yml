@@ -79,6 +79,27 @@ classes:
     maximumTokens: 800
     previewBytes: 16384
     hardMaximumBytes: 65536
+  repair:
+    outputContract: scoped-repair
+    kernelModelPolicy: never
+    warningTokens: 500
+    maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
+  advisory:
+    outputContract: advisory-analysis
+    kernelModelPolicy: never
+    warningTokens: 500
+    maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
+  delegation:
+    outputContract: canonical-delegation
+    kernelModelPolicy: never
+    warningTokens: 500
+    maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
 
 # Every public skill is deliberately classified. All classes share the same body
 # budget so catalog growth cannot hide behind per-skill exceptions. A skill defaults
@@ -106,7 +127,7 @@ skills:
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
   sflow-code: { class: generative, maximumTokenOverride: 1120, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, and generated public code must carry doc comments.' }
-  sflow-code-docs: { class: generative }
+  sflow-code-docs: { class: repair }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }
@@ -115,10 +136,10 @@ skills:
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
   sflow-import: { class: mutation, executionBoundary: repository }
-  sflow-specify: { class: echo }
-  sflow-plan: { class: echo }
+  sflow-specify: { class: generative }
+  sflow-plan: { class: generative }
   sflow-review-source: { class: review }
-  sflow-converge: { class: echo }
+  sflow-converge: { class: generative }
   sflow-doctor: { class: echo, executionBoundary: machine }
   sflow-documents: { class: mutation, executionBoundary: repository }
   sflow-environment: { class: interactive, executionBoundary: repository }
@@ -127,7 +148,7 @@ skills:
   sflow-epic-journey: { class: echo, executionBoundary: repository }
   sflow-epic-merge-plan: { class: echo, executionBoundary: repository }
   sflow-epic-next: { class: echo, executionBoundary: repository }
-  sflow-epic-planning: { class: generative, executionBoundary: repository }
+  sflow-epic-planning: { class: delegation, executionBoundary: machine, delegatesTo: sflow-epic-story-draft }
   sflow-epic-publish: { class: review, executionBoundary: repository }
   sflow-epic-requirements: { class: generative, executionBoundary: repository }
   sflow-epic-resume: { class: interactive, executionBoundary: repository }
@@ -161,8 +182,8 @@ skills:
   sflow-help: { class: conversational, executionBoundary: machine }
   sflow-home: { class: guided, executionBoundary: machine }
   sflow-hook: { class: mutation }
-  sflow-implement: { class: generative }
-  sflow-inbox: { class: echo, executionBoundary: repository }
+  sflow-implement: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
+  sflow-inbox: { class: interactive, executionBoundary: repository }
   sflow-init: { class: mutation, executionBoundary: repository }
   sflow-impact: { class: mutation, executionBoundary: repository }
   sflow-inspect: { class: conversational, executionBoundary: repository }
@@ -178,9 +199,9 @@ skills:
   sflow-inputs: { class: echo }
   sflow-jira-assigned: { class: echo, executionBoundary: repository }
   sflow-jira-board: { class: echo, executionBoundary: repository }
-  sflow-jira-doctor: { class: echo, executionBoundary: repository }
+  sflow-jira-doctor: { class: conversational, executionBoundary: machine }
   sflow-jira-initiative: { class: interactive, executionBoundary: repository }
-  sflow-jira-status: { class: echo, executionBoundary: repository }
+  sflow-jira-status: { class: conversational, executionBoundary: machine }
   sflow-jira-story: { class: echo, executionBoundary: repository }
   sflow-jira-update: { class: mutation, executionBoundary: repository }
   sflow-jira-work: { class: echo, executionBoundary: repository }
@@ -203,7 +224,7 @@ skills:
   sflow-receipt: { class: echo, executionBoundary: repository }
   sflow-refresh-branch: { class: mutation }
   sflow-refresh-configuration: { class: mutation, executionBoundary: machine }
-  sflow-regression-investigate: { class: generative }
+  sflow-regression-investigate: { class: conversational }
   sflow-recover: { class: mutation }
   sflow-reject: { class: review }
   sflow-release: { class: generative }
@@ -236,7 +257,7 @@ skills:
   sflow-story-skill-version: { class: mutation }
   sflow-submit: { class: review }
   sflow-telemetry: { class: echo, executionBoundary: repository }
-  sflow-upload: { class: mutation, executionBoundary: repository }
+  sflow-upload: { class: delegation, executionBoundary: machine, delegatesTo: sflow-documents }
   sflow-validate: { class: echo, executionBoundary: repository }
   sflow-verify: { class: generative }
   sflow-visual: { class: mutation }
@@ -245,7 +266,7 @@ skills:
   sflow-workflows: { class: mutation, executionBoundary: repository }
   sflow-workspace: { class: interactive, kernelModelPolicy: conditional, executionBoundary: machine }
   sflow-workspace-bootstrap: { class: interactive, executionBoundary: machine }
-  sflow-workspace-impact: { class: generative, kernelModelPolicy: conditional, executionBoundary: repository }
+  sflow-workspace-impact: { class: advisory, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-workspace-session: { class: interactive, executionBoundary: machine }
   sflow-workspaces: { class: echo, executionBoundary: machine }
   sflow-worldmodel: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }

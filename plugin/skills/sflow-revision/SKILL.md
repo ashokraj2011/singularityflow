@@ -8,7 +8,7 @@ argument-hint: "capabilities | activation | attachments"
 # Inspect Revision Loop readiness
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Return the selected CLI result faithfully, including the active profile, blockers, evidence boundaries, and safe next actions; never claim more authority than the exact result reports.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 

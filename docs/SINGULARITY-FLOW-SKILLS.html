@@ -106,7 +106,7 @@
   </header>
   <section class="toolbar" aria-label="Catalog filters">
     <input id="search" type="search" placeholder="Search name, purpose, command, or instruction…" aria-label="Search skills">
-    <select id="class-filter" aria-label="Filter by class"><option value="">All classes</option><option value="conversational">conversational</option><option value="echo">echo</option><option value="generative">generative</option><option value="guided">guided</option><option value="interactive">interactive</option><option value="mutation">mutation</option><option value="review">review</option></select>
+    <select id="class-filter" aria-label="Filter by class"><option value="">All classes</option><option value="advisory">advisory</option><option value="conversational">conversational</option><option value="delegation">delegation</option><option value="echo">echo</option><option value="generative">generative</option><option value="guided">guided</option><option value="interactive">interactive</option><option value="mutation">mutation</option><option value="repair">repair</option><option value="review">review</option></select>
     <select id="boundary-filter" aria-label="Filter by boundary"><option value="">All boundaries</option><option value="machine">machine</option><option value="organisation">organisation</option><option value="repository">repository</option><option value="story">story</option></select>
     <select id="invocation-filter" aria-label="Filter by invocation"><option value="">All invocation modes</option><option value="automatic">Automatic</option><option value="explicit">Explicit only</option></select>
     <button id="expand" type="button">Expand visible</button>
@@ -191,7 +191,7 @@
   </a>
   <a href="#sflow-code-docs" data-skill-link="sflow-code-docs">
     <span>sflow-code-docs</span>
-    <small>generative</small>
+    <small>repair</small>
   </a>
   <a href="#sflow-configuration" data-skill-link="sflow-configuration">
     <span>sflow-configuration</span>
@@ -207,7 +207,7 @@
   </a>
   <a href="#sflow-converge" data-skill-link="sflow-converge">
     <span>sflow-converge</span>
-    <small>echo</small>
+    <small>generative</small>
   </a>
   <a href="#sflow-decide" data-skill-link="sflow-decide">
     <span>sflow-decide</span>
@@ -255,7 +255,7 @@
   </a>
   <a href="#sflow-epic-planning" data-skill-link="sflow-epic-planning">
     <span>sflow-epic-planning</span>
-    <small>generative</small>
+    <small>delegation</small>
   </a>
   <a href="#sflow-epic-publish" data-skill-link="sflow-epic-publish">
     <span>sflow-epic-publish</span>
@@ -359,7 +359,7 @@
   </a>
   <a href="#sflow-implement" data-skill-link="sflow-implement">
     <span>sflow-implement</span>
-    <small>generative</small>
+    <small>delegation</small>
   </a>
   <a href="#sflow-import" data-skill-link="sflow-import">
     <span>sflow-import</span>
@@ -367,7 +367,7 @@
   </a>
   <a href="#sflow-inbox" data-skill-link="sflow-inbox">
     <span>sflow-inbox</span>
-    <small>echo</small>
+    <small>interactive</small>
   </a>
   <a href="#sflow-init" data-skill-link="sflow-init">
     <span>sflow-init</span>
@@ -427,7 +427,7 @@
   </a>
   <a href="#sflow-jira-doctor" data-skill-link="sflow-jira-doctor">
     <span>sflow-jira-doctor</span>
-    <small>echo</small>
+    <small>conversational</small>
   </a>
   <a href="#sflow-jira-initiative" data-skill-link="sflow-jira-initiative">
     <span>sflow-jira-initiative</span>
@@ -435,7 +435,7 @@
   </a>
   <a href="#sflow-jira-status" data-skill-link="sflow-jira-status">
     <span>sflow-jira-status</span>
-    <small>echo</small>
+    <small>conversational</small>
   </a>
   <a href="#sflow-jira-story" data-skill-link="sflow-jira-story">
     <span>sflow-jira-story</span>
@@ -495,7 +495,7 @@
   </a>
   <a href="#sflow-plan" data-skill-link="sflow-plan">
     <span>sflow-plan</span>
-    <small>echo</small>
+    <small>generative</small>
   </a>
   <a href="#sflow-plugin" data-skill-link="sflow-plugin">
     <span>sflow-plugin</span>
@@ -551,7 +551,7 @@
   </a>
   <a href="#sflow-regression-investigate" data-skill-link="sflow-regression-investigate">
     <span>sflow-regression-investigate</span>
-    <small>generative</small>
+    <small>conversational</small>
   </a>
   <a href="#sflow-reinstall" data-skill-link="sflow-reinstall">
     <span>sflow-reinstall</span>
@@ -655,7 +655,7 @@
   </a>
   <a href="#sflow-specify" data-skill-link="sflow-specify">
     <span>sflow-specify</span>
-    <small>echo</small>
+    <small>generative</small>
   </a>
   <a href="#sflow-stack" data-skill-link="sflow-stack">
     <span>sflow-stack</span>
@@ -707,7 +707,7 @@
   </a>
   <a href="#sflow-upload" data-skill-link="sflow-upload">
     <span>sflow-upload</span>
-    <small>mutation</small>
+    <small>delegation</small>
   </a>
   <a href="#sflow-validate" data-skill-link="sflow-validate">
     <span>sflow-validate</span>
@@ -747,7 +747,7 @@
   </a>
   <a href="#sflow-workspace-impact" data-skill-link="sflow-workspace-impact">
     <span>sflow-workspace-impact</span>
-    <small>generative</small>
+    <small>advisory</small>
   </a>
   <a href="#sflow-workspace-session" data-skill-link="sflow-workspace-session">
     <span>sflow-workspace-session</span>
@@ -783,7 +783,7 @@
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~311 body tokens</span>
+          <span class="pill">~317 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-about</code></dd></div>
@@ -804,7 +804,7 @@ disable-model-invocation: true
 # About Singularity Flow
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
@@ -1070,7 +1070,7 @@ argument-hint: &quot;[WORK-ID]&quot;
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~361 body tokens</span>
+          <span class="pill">~367 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-agents</code></dd></div>
@@ -1092,7 +1092,7 @@ disable-model-invocation: true
 # Manage governed agents
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -1131,7 +1131,7 @@ Copilot custom-agent IDs may map to different governed-agent IDs in `singularity
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~208 body tokens</span>
+          <span class="pill">~214 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-approvals</code></dd></div>
@@ -1152,7 +1152,7 @@ argument-hint: &quot;[WORK-ID]&quot;
 # Show the approval chain
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -1183,7 +1183,7 @@ argument-hint: &quot;[WORK-ID]&quot;
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~800 body tokens</span>
+          <span class="pill">~793 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-approve</code></dd></div>
@@ -1205,18 +1205,18 @@ argument-hint: &quot;[PHASE-ID] [--work-id WORK-ID] [--fetch]&quot;
 # Approve the submitted phase
 
 &lt;!-- sflow-output-contract: governed-review --&gt;
-**Output contract:** Reuse only same-chat, exact-packet review; preserve explicit consent, identity warnings and CLI result.
+**Output contract:** Reuse exact same-chat document displays; refresh packet review and explicit consent.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 &lt;!-- sflow-turn-boundary: approval-only --&gt;
 **Approval-only:** An explicit human phase ID confirms only the unchanged packet already reviewed in this conversation. The approval CLI is the sole permitted lifecycle mutation. Never edit repository files, run tests/builds/raw Git, delegate, submit, or begin/author another phase. A failed approval ends this turn.
 
-1. A positional argument selects **PHASE-ID**, never Work ID; Story comes from session or `--work-id`. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --json`. Supplied phase must equal `approvalContext.phase`; mismatch stops.
-2. Run `singularity-flow phase show &lt;phase&gt; --json`. Match `reviewBinding` to receipt: repository path/HEAD, Work ID, phase/generation, source commit, packet hash. Match artifacts and brief `documentId`, `documentPath`, and `documentSha256` to `approvalContext`; brief `path` is integrity JSON. Only `fallback-whole` may lack a brief. Missing binding/mismatch: review-integrity failure; stop. Do not perform a second `singularity-flow documents view` lookup.
-3. **Render once per exact review binding.** Reuse a complete visible display in this conversation only with matching non-null binding and full document ID/kind/path/bytes/generation/SHA-256 set. New chat, missing context, changed binding, omitted documents or truncated bodies require a new display. Render all text/briefs between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---` with metadata/binding, across messages if needed. Binary: path/metadata/open instruction. Tool output or summaries are not review. Truncated content: stop; never confirm an incomplete display.
+1. A positional argument selects **PHASE-ID**, never Work ID; Story comes from session or `--work-id`. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --json`. Require supplied phase = `approvalContext.phase`.
+2. Run `singularity-flow phase show &lt;phase&gt; --json`. Match `reviewBinding` to receipt: repository/HEAD, Work ID, phase/generation, source commit, packet hash. Match artifacts/brief `documentId`, `documentPath`, and `documentSha256` to `approvalContext`; brief `path` is integrity JSON. Only `fallback-whole` may lack a brief. Missing binding/mismatch: stop. Do not perform a second `singularity-flow documents view` lookup.
+3. **Render once per exact display binding.** Retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. New chat, changed/null binding, omissions or truncation require full display. Render all text/briefs between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---` with ID/kind/path/bytes/generation/SHA-256, across messages if needed. Binary: path/metadata/open instruction. Tool output or summaries are not review. Truncated content: stop. Always show the current `reviewBinding`; body reuse never reuses approval consent.
 4. Show current identity/authority, agent, checks/usage, decisions and self-approval warnings; unauthorized identity stops.
-5. A human `/sf-approve &lt;PHASE-ID&gt;` or exact phase answer **after** the matching display is `&lt;TYPED-PHASE&gt;`: do not ask again. Otherwise ask the reviewer to type the exact phase ID and wait. A phase supplied before a new or changed display is not its confirmation. Never infer consent. Run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;TYPED-PHASE&gt; --json`, then `singularity-flow approve &lt;TYPED-PHASE&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt;` only when `ready: true`. Never add `--yes`; CLI revalidates and consumes the receipt exactly once.
+5. A human `/sf-approve &lt;PHASE-ID&gt;` or exact phase answer **after** complete review of this exact `reviewBinding` is `&lt;TYPED-PHASE&gt;`: do not ask again. Otherwise ask for the exact phase ID and wait. A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match. Run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;TYPED-PHASE&gt; --json`, then `singularity-flow approve &lt;TYPED-PHASE&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt;` only when `ready: true`. Never add `--yes`; the receipt is consumed once.
 6. Refusal: relay and stop; human owns `continue`. No commit/publication proof: unverified. Report commit/push, reviewer/authority, assurance, threshold and next phase. The approval CLI advances and activates the next phase when the threshold is met; no second advance. Relay `Context boundary` and `Next Copilot actions` as display-only handoff; end this turn before next-phase authoring.
 
 TRP: read and follow `singularity-flow explain test-recovery`; returned legal actions only.
@@ -1467,7 +1467,7 @@ This is an explicit human lifecycle decision, not an artifact-generation task.
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~307 body tokens</span>
+          <span class="pill">~313 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capabilities</code></dd></div>
@@ -1489,7 +1489,7 @@ disable-model-invocation: true
 # Singularity Flow capabilities
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -1629,7 +1629,7 @@ argument-hint: &quot;&lt;TARGET-CAPABILITY&gt;@&lt;REFERENCE&gt;&quot;
           <span class="pill">echo</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~594 body tokens</span>
+          <span class="pill">~600 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-doctor</code></dd></div>
@@ -1651,7 +1651,7 @@ disable-model-invocation: true
 # Singularity Flow capability doctor
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.
 
@@ -1835,7 +1835,7 @@ argument-hint: &quot;&lt;PATH&gt; --approver &lt;GROUP&gt;&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1118 body tokens</span>
+          <span class="pill">~1109 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1857,11 +1857,11 @@ argument-hint: &quot;[code-generation focus]&quot;
 # Governed code
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Governed inputs/clarification; publish artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. `singularity-flow session current --json`: require `ready: true`, `workId`, `repositoryPath`, `phase`, `phaseAgent.valid: true`. `singularity-flow status --json`: match workId/currentPhase; require `phases[&lt;phase&gt;].generationPolicy.task: code` or legacy `implementation-summary` without task.
+1. From the Boundary require `phase`, `phaseAgent.valid: true`. `singularity-flow status --json`: match workId/currentPhase; require `phases[&lt;phase&gt;].generationPolicy.task: code` or legacy `implementation-summary` without task.
 2. `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`: inspect blockers/actions, intent and `testExecution`. `phaseRepairRequired`/`working-tree` alone is no stop. Inspect `git status --porcelain=v1 --untracked-files=all`, diffs and untracked content including `workflow.json`. Repair returned owned, in-scope authoring actions within an open intent; `repair-repository-test-runner` requires `CODE_DELIVERY_TEST_COMMAND_REQUIRED` and source-scope repair. Untracked `.sflow/results/**` need no cleaning; preserve bytes. Tracked/staged reports still need review. Stop for protected/unrelated/unowned changes or lifecycle/authority blockers. `generation.intent.consumed-changed` requires `/sf-recover` reviewed rollover, never waiver.
 3. Read Story context; `singularity-flow wm compose --phase &lt;phase&gt;`.
 4. `singularity-flow clarification status &lt;phase&gt; --json`: For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before mutation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
@@ -1879,7 +1879,7 @@ TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`; no auto-
   </article>
   <article class="skill-card" id="sflow-code-docs"
     data-name="sflow-code-docs"
-    data-class="generative"
+    data-class="repair"
     data-boundary="story"
     data-invocation="explicit"
     data-model="never">
@@ -1892,10 +1892,10 @@ TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`; no auto-
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">generative</span>
+          <span class="pill">repair</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~488 body tokens</span>
+          <span class="pill">~473 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code-docs</code></dd></div>
@@ -1916,12 +1916,12 @@ argument-hint: &quot;[file or declaration focus]&quot;
 ---
 # Document the code this generation changed
 
-&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use governed inputs and clarification mode, then publish configured artifacts.
+&lt;!-- sflow-output-contract: scoped-repair --&gt;
+**Output contract:** Repair only the named local scope; report changes and remaining findings. Never publish, submit, or approve.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow session current --json` and require `ready: true`, `workId`, `repositoryPath` and `phase`. Run `singularity-flow status --json` and require `phases[&lt;phase&gt;].generationPolicy.task: code`. Otherwise stop and route to `/sf-code`.
+1. Use the Boundary result&#39;s `phase`. Run `singularity-flow status --json` and require `phases[&lt;phase&gt;].generationPolicy.task: code`. Otherwise stop and route to `/sf-code`.
 2. Run `singularity-flow phase draft-check &lt;phase&gt; --json`. Read `advisories[]` (code `code.documentation.missing`) and `documentation`. If `documentation.status` is `complete` or `not-applicable`, report that and stop.
 3. For each advisory, open `path` at `line` and write one doc comment for that declaration in the language&#39;s convention: JSDoc/TSDoc above it for JavaScript/TypeScript, a docstring as the first statement of a Python body, Javadoc/KDoc/PHPDoc above it, `///` for C#, Rust and Swift, `// Name …` for Go, `#` lines for Ruby. Say what it does, its parameters and result, its errors, and anything a caller must know. Ground every statement in the code and approved Story evidence; never invent behaviour.
 4. Change comments only: no code, signatures, formatting or tests, and no file outside the advisories. `@clause`/`@ac` tags are traceability, not documentation; keep them and add prose beside them.
@@ -2096,7 +2096,7 @@ argument-hint: &quot;[WORK-ID]&quot;
   </article>
   <article class="skill-card" id="sflow-converge"
     data-name="sflow-converge"
-    data-class="echo"
+    data-class="generative"
     data-boundary="story"
     data-invocation="explicit"
     data-model="never">
@@ -2109,10 +2109,10 @@ argument-hint: &quot;[WORK-ID]&quot;
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">echo</span>
+          <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~800 body tokens</span>
+          <span class="pill">~799 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-converge</code></dd></div>
@@ -2132,8 +2132,8 @@ disable-model-invocation: true
 ---
 # Converge — route toward convergence advanced
 
-&lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -2143,7 +2143,7 @@ disable-model-invocation: true
 4. At `deterministic-generation`, require the first `NOW` pair to be Copilot `/sf-converge` and Shell `singularity-flow prepare convergence`. Execute that exact returned preparation command once in this same turn. Do not stop after merely displaying the route; do not run `singularity-flow converge --json` again. In its `next[]`, for adjudication, rework, intent amendment, or inspection, relay the action and stop for the human decision. If and only if it returns deterministic convergence publication as the first `NOW` action, run `singularity-flow phase draft-check convergence --json`, then `singularity-flow phase prepublish convergence --json`. If unready, rerun exact preparation for at most three changed fingerprints; stop unchanged. Never invoke a model, author or edit the artifact, or substitute human/governed-agent authorship. Publish only when prepublish `status` is `ready`, using the exact returned publication command with configured `--authored deterministic --channel kernel-generator`. Stop immediately after publication; never advance, submit, approve.
 5. At `model-generation`, run `singularity-flow wm compose --phase convergence` once; author from it and its `Active supporting evidence`. Run `singularity-flow phase draft-check convergence --json`, then `singularity-flow phase prepublish convergence --json`; correct every agent finding in this Copilot turn only when `correction.sameTurn`, else route to its owner. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer. Stop on an unchanged fingerprint or after three changed fingerprints; publish only when prepublish `status` is `ready`. For `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once and retry once only if ready; never loop.
 6. Obey clarification mode: when `off`, never ask phase questions or run `singularity-flow clarification record`; otherwise clarify only when returned.
-7. An absent claim is missing trace evidence, not missing implementation. Every finding needs human disposition; blockers prevent advancement.
+7. Absent claims mean missing trace evidence, not implementation. Every finding needs human disposition; blockers prevent advancement.
 8. Report operations and exact next pairs as `Next in Copilot: /sf-...` then `Terminal equivalent: singularity-flow ...`. Never claim a milestone unless returned. Do not approve, reject, or advance.
 </code></pre>
       </div>
@@ -2223,7 +2223,7 @@ argument-hint: &quot;[WORK-ID]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~716 body tokens</span>
+          <span class="pill">~756 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-design</code></dd></div>
@@ -2245,7 +2245,7 @@ argument-hint: &quot;[design constraints or emphasis]&quot;
 # Architecture and design phase
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -2258,7 +2258,7 @@ argument-hint: &quot;[design constraints or emphasis]&quot;
 7. State assumptions and tradeoffs. Do not implement production code.
 8. Run `singularity-flow phase draft-check design --json`, then `singularity-flow phase prepublish design --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase design --json`; stay in this phase. Correct every agent finding now from governed evidence only when `correction.sameTurn`; otherwise route to its owner/regenerator. Recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
 9. Only when prepublish `status` is `ready`, publish with its exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
-10. Run `singularity-flow phase show design --json`; reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with ID, kind, bytes, hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binaries show path, metadata, open instruction.
+10. Run `singularity-flow phase show design --json`; retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise reproduce every published text document in full: ID/kind/path/bytes/generation/SHA-256 and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review. Binary: path/metadata/open instruction. Show the current `reviewBinding`; body reuse never reuses approval consent.
 11. Report commit and tokens. End with `Next in Copilot: /sf-submit design` and `Terminal equivalent: singularity-flow submit design`; do not submit or approve.
 </code></pre>
       </div>
@@ -2282,7 +2282,7 @@ argument-hint: &quot;[design constraints or emphasis]&quot;
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~481 body tokens</span>
+          <span class="pill">~487 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-docs</code></dd></div>
@@ -2303,7 +2303,7 @@ argument-hint: &quot;[QUESTION | TOPIC]&quot;
 # Answer from the documentation, never from memory
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
@@ -2340,7 +2340,7 @@ argument-hint: &quot;[QUESTION | TOPIC]&quot;
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~531 body tokens</span>
+          <span class="pill">~537 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-doctor</code></dd></div>
@@ -2361,7 +2361,7 @@ argument-hint: &quot;[work ID] [--offline] [--performance]&quot;
 # Diagnose setup and recovery
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
@@ -2434,26 +2434,25 @@ argument-hint: &quot;list [WORK-ID] [--phase PHASE] | view &lt;ID|NAME&gt; [--wo
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Stop on `Out of sequence`; show soft warnings for human choice. Use the catalog, not arbitrary copies. Explicit Work ID supports Story reads. Story upload/detach has no `--work-id`, so attach that Story first; never target an ambient branch. Epic sources require `--epic`, not a Story session. `/sf-upload` is the short upload route.
+Stop on `Out of sequence`; humans decide soft warnings. Story reads accept Work ID; upload/detach has no `--work-id`: verify `singularity-flow session current --json` or request attachment. Epic requires `--epic`. `/sf-upload` delegates here; never route back. REV feedback uses `/sf-revision-attachments`.
 
-- List active uploaded inputs and generated phase documents with `singularity-flow documents list [WORK-ID] --active`; add `--phase &lt;PHASE&gt;` for what one phase&#39;s prompts use. Use `--all` only when the user asks for detached history.
-- For an Epic, list active sources with `singularity-flow epic sources list --epic &lt;EPIC-ID&gt; --active`; use `--all` only for detached history.
-- View text with `singularity-flow documents view &lt;DOCUMENT-ID|NAME&gt; --work-id &lt;WORK-ID&gt;`, or omit the selector for the attached Story. Open binary formats from the returned absolute path.
-- For the verified attached Story, use `singularity-flow documents upload &lt;PATH...&gt; --name &quot;&lt;NAME&gt;&quot;` with one user-given, Story-unique `--name` per path in order, `--phases &lt;PHASE,...|all&gt;` only when the user limits its phases, and `--store local` only to keep files on this machine. Directories retain relative paths; files are hashed, attributed, committed, and pushed.
+- List: `singularity-flow documents list [WORK-ID] --active [--phase &lt;PHASE&gt;]` or `singularity-flow epic sources list --epic &lt;EPIC-ID&gt; --active`. Use `--all` only for requested detached history.
+- View: `singularity-flow documents view &lt;DOCUMENT-ID|NAME&gt; --work-id &lt;WORK-ID&gt;`; omit selector for attached Story. Open binaries at returned absolute paths.
+- Attached Story upload: `singularity-flow documents upload &lt;PATH...&gt; --name &quot;&lt;NAME&gt;&quot;`; ask for one Story-unique name per path, in order. Add `--phases &lt;PHASE,...|all&gt;` only for requested phase limits; `--store local` only for machine-local storage. Directories retain relative paths; files are hashed, attributed, committed and pushed.
 - Record a Figma or other external reference with `singularity-flow documents upload --url &lt;https-url&gt; --name &quot;&lt;name&gt;&quot;`.
-- To change which phases use a document, preview `singularity-flow documents scope &lt;ID|NAME&gt; --phases &lt;PHASE,...|all&gt; --reason &quot;&lt;reason&gt;&quot; --dry-run`, show the published work that keeps it, then after explicit confirmation rerun without `--dry-run` with `--yes`.
-- Respect phase/size policy; never download URLs implicitly. Report and cite stable document IDs.
+- Scope: preview `singularity-flow documents scope &lt;ID|NAME&gt; --phases &lt;PHASE,...|all&gt; --reason &quot;&lt;reason&gt;&quot; --dry-run`; show retained published work. After explicit confirmation rerun without `--dry-run` with `--yes`.
+- Epic upload: `singularity-flow epic sources add --epic &lt;EPIC-ID&gt; --file &lt;PATH&gt;` once per file, expanding directories deterministically; authored text uses `singularity-flow epic sources note --epic &lt;EPIC-ID&gt; --text-file &lt;PATH&gt;`. HTTPS uses `singularity-flow epic sources add --epic &lt;EPIC-ID&gt; --url &lt;URL&gt; --label &quot;&lt;LABEL&gt;&quot;`. Add provider/MIME/label only when supplied or required.
+- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path/provider, commit/push and next action.
 
 To detach evidence:
 
 1. Show ID, label, path/URL, SHA-256, package, and what `singularity-flow documents detach &lt;ID&gt; --dry-run` reopens.
 2. Ask whether to detach one package member or the package; never infer scope.
 3. Require a reason. Explain that committed bytes remain and future prompts omit them.
-4. Require explicit human confirmation. Do not self-confirm. Only after it, run `singularity-flow documents detach &lt;DOCUMENT-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes`; add `--scope package` only when the user chose the complete package.
-   For an Epic source run `singularity-flow epic sources detach &lt;SOURCE-ID&gt; --epic &lt;EPIC-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes` after the same preview and confirmation. `--yes` conveys that reviewed decision to the noninteractive CLI; it is never consent by itself.
+4. Require explicit human confirmation. Only after it, run `singularity-flow documents detach &lt;DOCUMENT-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes`; add `--scope package` only for the selected complete package. Epic: `singularity-flow epic sources detach &lt;SOURCE-ID&gt; --epic &lt;EPIC-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes` after the same preview/confirmation. `--yes` conveys consent; it never grants it.
 5. Report the decision, commit/publication, invalidated phases, and returned `/sf-*` action.
 
-Detached evidence is read-only. Never delete its bytes or manually edit its manifest status.
+Detached evidence is read-only; never delete bytes or edit manifest status.
 </code></pre>
       </div>
     </details>
@@ -2638,7 +2637,7 @@ Show changed fields and hashes before any mutation. Never silently copy Jira int
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~211 body tokens</span>
+          <span class="pill">~217 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-journey</code></dd></div>
@@ -2660,7 +2659,7 @@ disable-model-invocation: true
 # Show the Epic journey
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -2691,7 +2690,7 @@ disable-model-invocation: true
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~199 body tokens</span>
+          <span class="pill">~205 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-merge-plan</code></dd></div>
@@ -2713,7 +2712,7 @@ disable-model-invocation: true
 # Show the Epic merge plan
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -2744,7 +2743,7 @@ disable-model-invocation: true
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~184 body tokens</span>
+          <span class="pill">~190 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-next</code></dd></div>
@@ -2766,7 +2765,7 @@ disable-model-invocation: true
 # Show the next Epic action
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -2781,8 +2780,8 @@ disable-model-invocation: true
   </article>
   <article class="skill-card" id="sflow-epic-planning"
     data-name="sflow-epic-planning"
-    data-class="generative"
-    data-boundary="repository"
+    data-class="delegation"
+    data-boundary="machine"
     data-invocation="explicit"
     data-model="never">
     <details>
@@ -2794,10 +2793,10 @@ disable-model-invocation: true
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">generative</span>
-          <span class="pill">repository boundary</span>
+          <span class="pill">delegation</span>
+          <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~260 body tokens</span>
+          <span class="pill">~187 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-planning</code></dd></div>
@@ -2818,19 +2817,12 @@ disable-model-invocation: true
 
 # Plan governed Stories
 
-&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+&lt;!-- sflow-output-contract: canonical-delegation --&gt;
+**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-This is the compatibility name for `/sf-epic-story-draft`. Follow that skill&#39;s canonical procedure:
-
-1. Prepare from approved Requirements and impact analysis.
-2. Author and publish the parent specification, Story plan, and one exact specification per Story.
-3. Validate and print the complete package.
-4. Stop for exact business approval in the VS Code extension&#39;s Approvals view. Approval is a human decision against a configured authority group; do not approve from the model session.
-
-Do not run a second planning sequence, approve from CLI, or publish Jira/Git Stories.
+Run `/sf-epic-story-draft` once with the supplied arguments and stop when it returns. That canonical skill owns repository resolution, preparation, authoring, publication, validation, and the business-review handoff. Preserve its result unchanged. Do not run a second planning sequence, approve from CLI, or publish Jira/Git Stories.
 </code></pre>
       </div>
     </details>
@@ -2910,7 +2902,7 @@ disable-model-invocation: true
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~550 body tokens</span>
+          <span class="pill">~537 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-requirements</code></dd></div>
@@ -2932,7 +2924,7 @@ disable-model-invocation: true
 # Build the Epic Requirements bundle
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -3248,7 +3240,7 @@ disable-model-invocation: true
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~260 body tokens</span>
+          <span class="pill">~266 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-status</code></dd></div>
@@ -3270,7 +3262,7 @@ disable-model-invocation: true
 # Show Epic status
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -3302,7 +3294,7 @@ disable-model-invocation: true
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~359 body tokens</span>
+          <span class="pill">~365 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-stories</code></dd></div>
@@ -3324,7 +3316,7 @@ disable-model-invocation: true
 # Review planned Stories
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -3356,7 +3348,7 @@ disable-model-invocation: true
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~568 body tokens</span>
+          <span class="pill">~555 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-story-draft</code></dd></div>
@@ -3378,7 +3370,7 @@ disable-model-invocation: true
 # Draft Epic Stories
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -3472,7 +3464,7 @@ disable-model-invocation: true
           <span class="pill">conversational</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~326 body tokens</span>
+          <span class="pill">~307 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-explain</code></dd></div>
@@ -3497,14 +3489,13 @@ argument-hint: &quot;change | clause --id ID | test --id ID | line --path PATH -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow session current --json`. Stop if `ready` is not true. Use only its `repositoryPath` as cwd.
-2. The first word of `$ARGUMENTS` is the subject. Run exactly one command:
+1. In the Boundary repository, use the first word of `$ARGUMENTS` as the subject. Run exactly one subject command:
    `singularity-flow explain --subject &lt;SUBJECT&gt; &lt;REMAINING ARGUMENTS&gt; --json`.
    Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
-3. Relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
+2. Relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
    `authority: none` label and the next actions unchanged. When `subject.status` is `ambiguous`, list its exact
    `choices` and ask which one; when it is `unavailable`, relay its reason code.
-4. Stop. Never read or summarize source files yourself, call a clause satisfied, call a change mergeable, treat a
+3. Stop. Never read or summarize source files yourself, call a clause satisfied, call a change mergeable, treat a
    region association or a test tag as proof, infer who wrote a line, or perform any lifecycle mutation.
 </code></pre>
       </div>
@@ -3528,7 +3519,7 @@ argument-hint: &quot;change | clause --id ID | test --id ID | line --path PATH -
           <span class="pill">conversational</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~331 body tokens</span>
+          <span class="pill">~312 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-explain-code</code></dd></div>
@@ -3553,15 +3544,14 @@ argument-hint: &quot;[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CL
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow session current --json`. Stop if `ready` is not true. Use only its `repositoryPath` as cwd.
-2. Run exactly one command:
+1. In the Boundary repository, run exactly one explanation command:
    - normally: `singularity-flow explain code $ARGUMENTS --json`;
    - when `$ARGUMENTS` already contains `--narrate`, use that same command unchanged;
    - only when the user explicitly asks for a narrative or walkthrough in prose and `$ARGUMENTS` does not contain
      `--narrate`: `singularity-flow explain code $ARGUMENTS --narrate --json`.
    Never run both forms in one invocation.
-3. Relay the returned computed sections, availability reasons, stable IDs, authority labels, and next actions unchanged. For narration, preserve the exact `Narrative — advisory, not a record` banner and citation IDs.
-4. Stop. Never read or summarize source files yourself, infer a missing cause or caller, call a criterion satisfied, store narrative as evidence, or perform any lifecycle mutation.
+2. Relay the returned computed sections, availability reasons, stable IDs, authority labels, and next actions unchanged. For narration, preserve the exact `Narrative — advisory, not a record` banner and citation IDs.
+3. Stop. Never read or summarize source files yourself, infer a missing cause or caller, call a criterion satisfied, store narrative as evidence, or perform any lifecycle mutation.
 </code></pre>
       </div>
     </details>
@@ -4018,7 +4008,7 @@ repository, authority, or confirmation.
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~182 body tokens</span>
+          <span class="pill">~188 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-harness</code></dd></div>
@@ -4039,7 +4029,7 @@ disable-model-invocation: true
 # Inspect the reference harness
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -4297,8 +4287,8 @@ argument-hint: &quot;[status|study|enroll|exposure|evidence|finalize|verify|comp
   </article>
   <article class="skill-card" id="sflow-implement"
     data-name="sflow-implement"
-    data-class="generative"
-    data-boundary="story"
+    data-class="delegation"
+    data-boundary="machine"
     data-invocation="explicit"
     data-model="never">
     <details>
@@ -4310,10 +4300,10 @@ argument-hint: &quot;[status|study|enroll|exposure|evidence|finalize|verify|comp
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">generative</span>
-          <span class="pill">story boundary</span>
+          <span class="pill">delegation</span>
+          <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~217 body tokens</span>
+          <span class="pill">~186 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-implement</code></dd></div>
@@ -4334,19 +4324,13 @@ argument-hint: &quot;[implementation focus]&quot;
 ---
 # Implementation alias
 
-&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+&lt;!-- sflow-output-contract: canonical-delegation --&gt;
+**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 
-Run `/sflow-code` with the supplied focus and stop when it returns. `/sflow-code` owns authoring, test evidence, and the single publication transaction; this alias must not publish, submit, or approve again.
-
-Inspect further files only as the implementation requires within this repository.
-
-Next in Copilot: /sf-code &lt;implementation focus&gt;
-
-Terminal equivalent: singularity-flow prepare &lt;phase&gt;, followed by `singularity-flow phase begin &lt;phase&gt;`.
+Run `/sflow-code` once with the supplied focus and stop when it returns. The canonical skill owns Story resolution, authoring, test evidence, publication, and the next action. Preserve its final result and Copilot/Shell handoff unchanged; this alias must not publish, submit, or approve again or suggest restarting code generation.
 </code></pre>
       </div>
     </details>
@@ -4419,7 +4403,7 @@ yourself, or add content the person has not seen. A refusal ends the turn: relay
   </article>
   <article class="skill-card" id="sflow-inbox"
     data-name="sflow-inbox"
-    data-class="echo"
+    data-class="interactive"
     data-boundary="repository"
     data-invocation="explicit"
     data-model="never">
@@ -4432,10 +4416,10 @@ yourself, or add content the person has not seen. A refusal ends the turn: relay
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">echo</span>
+          <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~444 body tokens</span>
+          <span class="pill">~559 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-inbox</code></dd></div>
@@ -4455,8 +4439,8 @@ disable-model-invocation: true
 ---
 # Open the pending approval inbox
 
-&lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-output-contract: explicit-selection --&gt;
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -4464,10 +4448,10 @@ disable-model-invocation: true
 2. If `items` is empty, report that the remote approval inbox is clear. Do not infer that uncommitted or unpublished work is ready for review.
 3. Show every pending item with its work/Jira ID, title, phase, generation, approval count, waiting time, human authority groups, artifact path, remote commit, and self-approval warning.
 4. Use Copilot&#39;s `ask_user` facility to let the contributor select one exact work/Jira ID. Never infer or preselect an item.
-5. Run `singularity-flow session attach &lt;WORK-ID&gt; --json` for the exact selection. This may create a local tracking branch and fast-forward it, but it must never merge, rebase, reset, stash, or discard local work.
-6. Continue through `/sf-session` when work-item attachment is required. The phase agent activates automatically and never changes the approval authority of the human identity.
-7. Run `singularity-flow phase show &lt;PHASE&gt; --json` and reproduce every generated text document in the visible response for review. Also mention supporting evidence available through `/sf-documents`.
-8. Stop after presenting the complete review context. Offer `/sf-approve` and `/sf-reject` as explicit next actions, but never decide or approve automatically.
+5. Run `singularity-flow session attach &lt;WORK-ID&gt; --json` once for that selection, then use its exact `repositoryPath`. It may create a tracking branch and fast-forward; never merge, rebase, reset, stash, or discard work. The phase agent does not change human authority. Do not attach again through `/sf-session`.
+6. Run `singularity-flow phase show &lt;PHASE&gt; --json`; retain current `reviewBinding` and `displayBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise render every text document/brief with ID/kind/path/bytes/generation/SHA-256 between `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`; binaries need path/metadata. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review; incomplete review cannot offer approval.
+7. Show current `reviewBinding`, identity/authority, checks and warnings even when bodies are reused. Body reuse never reuses approval consent. Mention `/sf-documents` for supporting evidence.
+8. Stop. Offer `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with actual IDs and `/sf-reject`; never decide or approve automatically.
 </code></pre>
       </div>
     </details>
@@ -4636,7 +4620,7 @@ If `ask_user` is unavailable or disabled, stop without approval. Every approval 
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~273 body tokens</span>
+          <span class="pill">~279 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-checklist</code></dd></div>
@@ -4657,7 +4641,7 @@ argument-hint: &quot;[PHASE] [--initiative INIT-ID]&quot;
 # Review an initiative checklist
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -4690,7 +4674,7 @@ Never turn file presence into higher assurance and never record a waiver or not-
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~255 body tokens</span>
+          <span class="pill">~261 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-documents</code></dd></div>
@@ -4711,7 +4695,7 @@ argument-hint: &quot;[PHASE] [--initiative INIT-ID]&quot;
 # Show initiative documents
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -4859,7 +4843,7 @@ Never force-push, overwrite an unrelated branch, or describe a partial result as
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~196 body tokens</span>
+          <span class="pill">~202 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-next</code></dd></div>
@@ -4880,7 +4864,7 @@ argument-hint: &quot;[INIT-ID]&quot;
 # Show initiative next actions
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -4910,7 +4894,7 @@ argument-hint: &quot;[INIT-ID]&quot;
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~716 body tokens</span>
+          <span class="pill">~703 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-phase</code></dd></div>
@@ -4932,7 +4916,7 @@ argument-hint: &quot;[PHASE] [--initiative INIT-ID]&quot;
 # Generate an initiative phase
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -5026,7 +5010,7 @@ If `ask_user` is unavailable or disabled, stop without mutation. Never substitut
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~243 body tokens</span>
+          <span class="pill">~249 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-status</code></dd></div>
@@ -5047,7 +5031,7 @@ argument-hint: &quot;[INIT-ID]&quot;
 # Show initiative status
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -5079,7 +5063,7 @@ Keep this operation read-only and preserve the `configured-local` identity-assur
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~368 body tokens</span>
+          <span class="pill">~374 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-inputs</code></dd></div>
@@ -5101,7 +5085,7 @@ argument-hint: &quot;[phase]&quot;
 # Inspect phase inputs
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -5189,7 +5173,7 @@ argument-hint: &quot;[WORK-ID] [status|progress|documents|prompt|comprehension|p
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~314 body tokens</span>
+          <span class="pill">~320 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-jira-assigned</code></dd></div>
@@ -5212,7 +5196,7 @@ argument-hint: &quot;[--project KEY] [--type Story] [--limit 25]&quot;
 # My assigned Jira Stories
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -5253,7 +5237,7 @@ This skill is read-only. Never request or display the user&#39;s Jira token or p
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~378 body tokens</span>
+          <span class="pill">~384 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-jira-board</code></dd></div>
@@ -5276,7 +5260,7 @@ argument-hint: &quot;[BOARD-ID] [--project KEY] [--state active,future]&quot;
 # Jira board Stories without backlog
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -5303,8 +5287,8 @@ This skill is read-only. Never request or display a Jira token, PAT, password, o
   </article>
   <article class="skill-card" id="sflow-jira-doctor"
     data-name="sflow-jira-doctor"
-    data-class="echo"
-    data-boundary="repository"
+    data-class="conversational"
+    data-boundary="machine"
     data-invocation="explicit"
     data-model="never">
     <details>
@@ -5316,10 +5300,10 @@ This skill is read-only. Never request or display a Jira token, PAT, password, o
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">echo</span>
-          <span class="pill">repository boundary</span>
+          <span class="pill">conversational</span>
+          <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~372 body tokens</span>
+          <span class="pill">~369 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-jira-doctor</code></dd></div>
@@ -5340,10 +5324,10 @@ disable-model-invocation: true
 
 # Diagnose Jira configuration
 
-&lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-output-contract: guided-actions --&gt;
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 This invocation is a strictly read-only Jira diagnostic.
 
@@ -5466,8 +5450,8 @@ Do not transition issues automatically. Do not treat Jira as workflow state; com
   </article>
   <article class="skill-card" id="sflow-jira-status"
     data-name="sflow-jira-status"
-    data-class="echo"
-    data-boundary="repository"
+    data-class="conversational"
+    data-boundary="machine"
     data-invocation="explicit"
     data-model="never">
     <details>
@@ -5479,10 +5463,10 @@ Do not transition issues automatically. Do not treat Jira as workflow state; com
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">echo</span>
-          <span class="pill">repository boundary</span>
+          <span class="pill">conversational</span>
+          <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~484 body tokens</span>
+          <span class="pill">~481 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-jira-status</code></dd></div>
@@ -5503,10 +5487,10 @@ disable-model-invocation: true
 
 # Check Jira connection
 
-&lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-output-contract: guided-actions --&gt;
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 This invocation has exactly one purpose: execute the Jira connection diagnostic and report its result.
 
@@ -5561,7 +5545,7 @@ This skill is strictly read-only. A successful response proves that the configur
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~351 body tokens</span>
+          <span class="pill">~357 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-jira-story</code></dd></div>
@@ -5583,7 +5567,7 @@ argument-hint: &quot;&lt;JIRA-ID&gt; [--json]&quot;
 # Pull a Jira user story
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -5709,7 +5693,7 @@ Perform one update at a time. If the user requests several changes, re-read the 
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~325 body tokens</span>
+          <span class="pill">~331 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-jira-work</code></dd></div>
@@ -5731,7 +5715,7 @@ argument-hint: &quot;[WORK-ID] [--project KEY] [--type Story]&quot;
 # Jira work through Singularity Flow
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -6164,7 +6148,7 @@ workspace being removed, uninstall product components, or convert the request in
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~720 body tokens</span>
+          <span class="pill">~726 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-logs</code></dd></div>
@@ -6185,7 +6169,7 @@ argument-hint: &quot;[--level error|warn|info|debug|all] [--event PATTERN] [--ta
 # Read the activity log
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -6470,7 +6454,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
   </article>
   <article class="skill-card" id="sflow-plan"
     data-name="sflow-plan"
-    data-class="echo"
+    data-class="generative"
     data-boundary="story"
     data-invocation="explicit"
     data-model="never">
@@ -6483,10 +6467,10 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">echo</span>
+          <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~796 body tokens</span>
+          <span class="pill">~797 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-plan</code></dd></div>
@@ -6506,8 +6490,8 @@ disable-model-invocation: true
 ---
 # Plan — route toward an approved plan
 
-&lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -6711,7 +6695,7 @@ This skill compares each with the build the installation receipt recorded.
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~380 body tokens</span>
+          <span class="pill">~386 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-progress</code></dd></div>
@@ -6732,7 +6716,7 @@ argument-hint: &quot;[WORK-ID]&quot;
 # Show workflow progress
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -6878,7 +6862,7 @@ Story publication remains owned by `singularity-flow sync`; do not substitute th
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~349 body tokens</span>
+          <span class="pill">~355 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-quickstart</code></dd></div>
@@ -6897,7 +6881,7 @@ description: See a complete governed change in a throwaway repository.
 # See a governed change, end to end
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
@@ -7020,7 +7004,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~228 body tokens</span>
+          <span class="pill">~234 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-receipt</code></dd></div>
@@ -7041,7 +7025,7 @@ argument-hint: &quot;[WORK-ID]&quot;
 # Show a Singularity Flow evidence receipt
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -7284,7 +7268,7 @@ Shell: `singularity-flow workspace refresh-configuration`. Copilot: `/sf-refresh
   </article>
   <article class="skill-card" id="sflow-regression-investigate"
     data-name="sflow-regression-investigate"
-    data-class="generative"
+    data-class="conversational"
     data-boundary="story"
     data-invocation="explicit"
     data-model="never">
@@ -7297,10 +7281,10 @@ Shell: `singularity-flow workspace refresh-configuration`. Copilot: `/sf-refresh
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">generative</span>
+          <span class="pill">conversational</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~340 body tokens</span>
+          <span class="pill">~332 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-regression-investigate</code></dd></div>
@@ -7321,8 +7305,8 @@ disable-model-invocation: true
 
 # Investigate a regression
 
-&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+&lt;!-- sflow-output-contract: guided-actions --&gt;
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -7518,7 +7502,7 @@ the engine&#39;s recovery instruction.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~788 body tokens</span>
+          <span class="pill">~755 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-release</code></dd></div>
@@ -7540,18 +7524,18 @@ argument-hint: &quot;[target environment or release window]&quot;
 # Release-readiness phase
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. From the Boundary result require `ready`, phase `release`, and exact `phaseAgent` readiness even after the same agent ID; run `singularity-flow phase show release --json`. Story context stays in the governed workflow.
-2. Run `singularity-flow wm compose --phase release --evidence` and use the complete returned prompt. If composition reports unavailable World-Model intelligence—missing or unreachable, or stale under staleness `fail`—continue with its explicit zero-context evidence and ordinary repository access. Show any exact returned recovery command only as an optional improvement; do not run it from this skill or make it a prerequisite for release work. Never add the Story title or a conversational release target as `--task`. Use available shared release, operations, security, and evidence grounding.
+2. Run `singularity-flow wm compose --phase release --evidence`; use its complete prompt and available release/operations/security grounding. Missing/unreachable/stale WM means zero-context evidence and ordinary repository access. Show returned recovery as optional; never run it here or block release on it. Never derive `--task` from Story prose.
 3. Read all approved phase artifacts and the deployment locations selected by the grounding package.
 4. Run `singularity-flow prepare release`; complete the release report and nonempty `artifacts/release/verification/` bundle. In `verification/evidence-index.md`, bind approved Verification generation, exact paths/hashes, observed results, and gaps. Never invent evidence.
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
 6. Run `singularity-flow phase draft-check release --json`, then `singularity-flow phase prepublish release --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase release --json`; stay in this phase. Correct every agent finding now from governed evidence only when `correction.sameTurn`; otherwise route to its owner/regenerator. Recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
 7. Only when prepublish `status` is `ready`, publish with its exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
-8. Run `singularity-flow phase show release --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
+8. Run `singularity-flow phase show release --json`; retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise reproduce every published text document in full: ID/kind/path/bytes/generation/SHA-256 and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review. Binary: path/metadata/open instruction. Show the current `reviewBinding`; body reuse never reuses approval consent.
 9. Do not submit or approve automatically. End with `Next in Copilot: /sf-submit release`, followed by `Terminal equivalent: singularity-flow submit release`.
 </code></pre>
       </div>
@@ -7575,7 +7559,7 @@ argument-hint: &quot;[target environment or release window]&quot;
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~350 body tokens</span>
+          <span class="pill">~356 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-report</code></dd></div>
@@ -7597,7 +7581,7 @@ argument-hint: &quot;[WORK-ID] [--format md|html|json] [--out FILE]&quot;
 # Report workflow performance
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -7682,7 +7666,7 @@ argument-hint: &quot;[QUERY] [--provider github --host HOST]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~787 body tokens</span>
+          <span class="pill">~798 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-requirements</code></dd></div>
@@ -7704,20 +7688,20 @@ argument-hint: &quot;[additional business context]&quot;
 # Requirements phase
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. Run `singularity-flow status --json`; require current phase `requirements`. Its governed workflow is Story context.
 2. Run `singularity-flow documents list`; view relevant inputs before deciding what is unclear.
 3. Run `singularity-flow wm compose --phase requirements`; use its complete prompt. Missing WM means zero context and ordinary repo access; recovery is optional. Never derive `--task` from Story text.
-4. Execute the prompt&#39;s **Human clarification checkpoint** before preparation. Use `ask_user` for one batch and wait. This phase is `required`: even when evidence looks complete, confirm outcome, scope, and acceptance criteria. Record accepted answers via `singularity-flow clarification record requirements --response-file &lt;file&gt;`; stop if absent/stale, and include answers in the artifact. If `ask_user` is unavailable, display questions and stop before preparation.
+4. Execute **Human clarification checkpoint** before preparation: `ask_user` once and wait. Mode is `required`: even when evidence looks complete, confirm outcome/scope/acceptance. Record via `singularity-flow clarification record requirements --response-file &lt;file&gt;` and include answers. Absent/stale answers or unavailable `ask_user`: display questions and stop before preparation.
 5. Run `singularity-flow prepare requirements` and read the returned path and `source.json`.
-6. Inspect other files only when world-model evidence points to them. Do not implement code.
+6. Inspect only grounding-selected files. Do not implement code.
 7. Cover problem, outcome, scope, measurable acceptance criteria with stable qualified `[WORK-ID:AC-001]` anchors (using the actual work ID), dependencies, assumptions, risks, confirmed decisions, and deferred questions. Never use a bare `AC-001` as the authoritative clause ID.
 8. Run `singularity-flow phase draft-check requirements --json`, then `singularity-flow phase prepublish requirements --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase requirements --json`; stay in this phase. Correct every agent finding now from governed evidence only when `correction.sameTurn`; otherwise route to its owner/regenerator. Recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
 9. Only when prepublish `status` is `ready`, publish via `singularity-flow phase publish requirements` with its configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
-10. Run `singularity-flow phase show requirements --json`; reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with ID, kind, bytes, hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binaries show path, metadata, open instruction.
+10. Run `singularity-flow phase show requirements --json`; retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise reproduce every published text document in full: ID/kind/path/bytes/generation/SHA-256 and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review. Binary: path/metadata/open instruction. Show the current `reviewBinding`; body reuse never reuses approval consent.
 11. Report decisions, tokens, and commit. End with `Next in Copilot: /sf-submit requirements` and `Terminal equivalent: singularity-flow submit requirements`; do not submit or approve.
 </code></pre>
       </div>
@@ -7900,7 +7884,7 @@ Run `singularity-flow return &lt;WORK-ID&gt; --json` first. Show the configured 
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~722 body tokens</span>
+          <span class="pill">~775 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review</code></dd></div>
@@ -7936,7 +7920,7 @@ First run `singularity-flow review`; show its artifact, provenance, checks, deci
 6. Do not silently fix findings unless explicitly asked.
 7. If configured, prepare and complete review, then run `singularity-flow phase draft-check review --json` and `singularity-flow phase prepublish review --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase review --json`; stay in this phase. Correct every agent authoring finding now from governed evidence only when `correction.sameTurn`; route other producers to their owner. Recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer. Substantive review findings still require a separate fix decision.
 8. Only when prepublish `status` is `ready`, publish with its exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
-9. If published, run `singularity-flow phase show review --json`; reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with ID, kind, bytes, hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binaries show path, metadata, open instruction.
+9. If published, run `singularity-flow phase show review --json`; retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise reproduce every published text document in full: ID/kind/path/bytes/generation/SHA-256 and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review. Binary: path/metadata/open instruction. Show the current `reviewBinding`; body reuse never reuses approval consent.
 10. If published, end with `Next in Copilot: /sf-submit review` and `Terminal equivalent: singularity-flow submit review`; do not submit or approve.
 </code></pre>
       </div>
@@ -8070,7 +8054,7 @@ argument-hint: &quot;&lt;feedback&gt; [--criteria &lt;CLAUSE-ID&gt;] [--attachme
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~388 body tokens</span>
+          <span class="pill">~371 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-revision</code></dd></div>
@@ -8092,7 +8076,7 @@ argument-hint: &quot;capabilities | activation | attachments&quot;
 # Inspect Revision Loop readiness
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the selected CLI result faithfully, including the active profile, blockers, evidence boundaries, and safe next actions; never claim more authority than the exact result reports.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
@@ -8230,7 +8214,7 @@ argument-hint: &quot;capabilities | plan | status [RUN-ID] | result &lt;RUN-ID&g
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~359 body tokens</span>
+          <span class="pill">~366 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-run</code></dd></div>
@@ -8256,7 +8240,9 @@ argument-hint: &quot;[task focus]&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Run `singularity-flow nextsteps --json` first. Follow the lifecycle action marked `now`; never replace it with an optional `singularity-flow wm ensure ...` repair/build action. Run optional model construction only after separate explicit consent, and continue ordinary file-based work if it is declined or unavailable. Then run `singularity-flow run` without converting `$ARGUMENTS`, a Story title, or conversational prose into `--task`; lifecycle grounding uses the shared repository model. Treat optional arguments only as authoring emphasis after the governed prompt is composed. If the next action is submission, ask whether to submit and pass `--yes` only after that answer. Otherwise run without `--yes`. The command must stop at authoring and approval boundaries. Never choose a governed agent for the reviewer, approve, reject, bypass authority validation, or bypass confirmation. When it stops at authoring, complete only the active phase contract, then use `/sf-phase` to publish and display every generated artifact.
+Run `singularity-flow nextsteps --json` first. Follow the lifecycle action marked `now`; never replace it with optional `singularity-flow wm ensure ...` work, which needs separate consent. Missing world-model intelligence does not block ordinary file-based work. Run `singularity-flow run` without deriving `--task` from arguments or Story prose. Arguments are authoring emphasis only. If the next action is submission, ask whether to submit and pass `--yes` only after that answer; otherwise omit it.
+
+At the authoring boundary, load the exact returned canonical `/sf-*` skill once and let it own preparation, authoring, checks, publication, and display. Pass any prepared prompt/path as context; do not complete authoring before delegation or invoke `/sf-phase` afterward. If the returned result already published or submitted, report it and stop. Preserve the canonical result and next-action pair; never publish a delegated action again. Stop at human approval. Never select the reviewer&#39;s agent, approve, reject, or bypass authority or confirmation.
 </code></pre>
       </div>
     </details>
@@ -8512,7 +8498,7 @@ argument-hint: &quot;&lt;INTENT-IR&gt; --policy FILE --registry FILE --storage-p
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~225 body tokens</span>
+          <span class="pill">~231 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-show</code></dd></div>
@@ -8533,7 +8519,7 @@ argument-hint: &quot;&lt;sfref:v1:...&gt; [--section HEADING | --json-pointer PO
 # Show a governed reference
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -8567,7 +8553,7 @@ Only `sfref:v1:` handles registered in committed Story or Initiative context are
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~428 body tokens</span>
+          <span class="pill">~434 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-show-prompt</code></dd></div>
@@ -8589,7 +8575,7 @@ disable-model-invocation: true
 # Show the effective phase prompt
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -8684,7 +8670,7 @@ Present detected output/input candidates as proposals requiring ordinary workflo
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~196 body tokens</span>
+          <span class="pill">~202 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-snapshot</code></dd></div>
@@ -8705,7 +8691,7 @@ argument-hint: &quot;[WORK-ID] [--include &lt;slice&gt;]&quot;
 # Read a governed snapshot
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -8773,7 +8759,7 @@ argument-hint: &quot;analyze|claims|coverage|acceptance|tasks|trace&quot;
   </article>
   <article class="skill-card" id="sflow-specify"
     data-name="sflow-specify"
-    data-class="echo"
+    data-class="generative"
     data-boundary="story"
     data-invocation="explicit"
     data-model="never">
@@ -8786,10 +8772,10 @@ argument-hint: &quot;analyze|claims|coverage|acceptance|tasks|trace&quot;
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">echo</span>
+          <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~796 body tokens</span>
+          <span class="pill">~780 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-specify</code></dd></div>
@@ -8809,8 +8795,8 @@ disable-model-invocation: true
 ---
 # Specify — route toward an approved specification
 
-&lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
@@ -8820,7 +8806,7 @@ disable-model-invocation: true
 4. If the checkpoint is `approval`, stop. Approval needs an authorized human Git identity; a governed agent cannot grant it.
 5. At `model-generation`, require the first `NOW` action in the returned `next[]` to be `singularity-flow prepare specification`; run that exact returned command once and use its artifact path. If the action differs, stop and relay the returned route; never author a seeded or stale draft. With the resolved agent, approved inputs, pinned template/constitution, and required world-model views, author `spec.md` scenario-first: prioritized Given/When/Then scenarios, actors, empty/failure states, permissions, boundaries, and non-functional requirements. Fill `Agent brief` with approved intent only; the kernel preserves exact sections for review. Run `singularity-flow wm compose --phase specification` once for its `Active supporting evidence`; under `## Sources` cite each document used as `DOC-nnn — &lt;name&gt;` and list unreadable or unavailable ones as gaps. Where evidence is missing, write `[NEEDS CLARIFICATION: &lt;one question grounded in the current Story evidence&gt;]`, not an invented answer.
 6. Before publication run `singularity-flow phase draft-check specification --json`, then `singularity-flow phase prepublish specification --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase specification --json`; keep recovery in this phase. Repair every structured agent finding in this Copilot turn from the governed prompt and approved evidence only when `correction.sameTurn`; otherwise route to its producer or human. Allow at most three distinct changed fingerprints; stop on an unchanged fingerprint or still unready after three. Never blindly delete markers, invent facts, add padding, launch a nested Copilot/model invocation, or overwrite human-, deterministic-, or external-authored output. Publish only when prepublish `status` is `ready`. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Never submit or approve.
-7. Never present a milestone as reached unless the router says so. A command returning successfully is not completion.
+7. Claim a milestone only when the router returns it.
 8. State the underlying operations you ran.
 9. For every returned next action, show its direct Copilot route first as `Next in Copilot: /sf-...`, followed by the exact `Terminal equivalent: singularity-flow ...`. Never omit or guess either route.
 </code></pre>
@@ -9224,7 +9210,7 @@ disable-model-invocation: true
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~192 body tokens</span>
+          <span class="pill">~198 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-story-inbox</code></dd></div>
@@ -9246,7 +9232,7 @@ disable-model-invocation: true
 # Developer Story inbox
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -9399,7 +9385,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~799 body tokens</span>
+          <span class="pill">~798 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -9427,18 +9413,18 @@ argument-hint: &quot;[--skip-checks only when explicitly authorized]&quot;
 
 `Out of sequence`: stop; humans confirm soft warnings.
 
-1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require `resultType: sflow-submission-readiness`, matching work/phase IDs, `draftExists`, `draftModified`, `publicationRecorded`, `nextSkill`, `nextCommand`. Trust `lifecycleReady`, not labels. Equal published/current generation while `in_progress` is ready; do not republish.
-2. Generation zero means **Seeded draft — not published**. With `lifecycleReady: true`, say **Published generation &lt;N&gt; — ready to submit**. Otherwise disable Submit; for `classification: generation-required`, show only **Generate and publish &lt;Phase&gt;** using returned `nextSkill`, then stop. Never generate or publish from this skill.
-3. For specification/planning, run `singularity-flow review-source status &lt;phase&gt; --json`. Unless `not-required` or `ready`, stop, show findings and route to `/sf-review-source &lt;phase&gt;` / `singularity-flow review-source context &lt;phase&gt; --json`. Corrections need new publication; reviewer reports are not human approval.
-4. When `confirmationRequired: true`, use only the returned Work-ID-pinned command; show its full warning. Only the human provides `continue`.
-5. For `convergence`, never run generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest and stop on unresolved dispositions. After human confirmation run its exact `--confirm sha256:&lt;DIGEST&gt;` once. Changed digest requires fresh review.
-6. Run the returned Work-ID-pinned submit command. Add `--skip-checks` only when authorized.
+1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require `resultType: sflow-submission-readiness`, matching work/phase, `draftExists`, `draftModified`, `publicationRecorded`, `nextSkill`, `nextCommand`. Trust `lifecycleReady`; equal generation while `in_progress` is ready. Never republish.
+2. Generation zero: **Seeded draft — not published**. `lifecycleReady: true`: **Published generation &lt;N&gt; — ready to submit**. Otherwise disable Submit; `classification: generation-required`: **Generate and publish &lt;Phase&gt;**, returned `nextSkill`, stop. Never generate/publish here.
+3. Specification/planning: `singularity-flow review-source status &lt;phase&gt; --json`. Unless `not-required`/`ready`, stop; show findings and `/sf-review-source &lt;phase&gt;` / `singularity-flow review-source context &lt;phase&gt; --json`. Corrections need publication; reviewer reports are not approval.
+4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
+5. Convergence: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Human confirms exact `--confirm sha256:&lt;DIGEST&gt;` once. Changed digest requires fresh review.
+6. Run returned Work-ID-pinned submit command. `--skip-checks` requires authorization.
 7. On failure show `requiredTestExecution` argv/cwd, exit, bounded stderr/report and guidance. Nonzero exit fails despite passing JUnit. Use `/sf-recover`: authorized environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover and producer publication. Preserve untracked `.sflow/results/**`; tracked/staged changes require review. Fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy.
-8. Run `singularity-flow phase show &lt;phase&gt; --json` after success; retain `reviewBinding`. Reproduce every current-phase document/`agent-brief` in the response: ID/kind/path/bytes/generation/SHA-256, `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. Tool output alone is insufficient. Binary: path/metadata.
-9. Fetch omissions: `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`; show them before offering approval or rejection. No truncation/summaries.
-10. Report commit/push, hashes/checks/cost; offer `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with actual IDs; never approve.
+8. Run `singularity-flow phase show &lt;phase&gt; --json`; retain `reviewBinding`/`displayBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`; show fresh `reviewBinding`, checks/warnings. Body reuse never reuses approval consent. Otherwise render all documents/briefs: ID/kind/path/bytes/generation/SHA-256, `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. Tool output or summaries are not review. Binary: path/metadata.
+9. New chat, changed/null binding, omissions or truncation require full display. Fetch omissions: `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`; incomplete review cannot offer approval.
+10. Report commit/push/hashes/checks/cost; offer `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with real IDs; never approve.
 
-TRP: read and follow `singularity-flow explain test-recovery`; returned legal actions only.
+TRP: follow `singularity-flow explain test-recovery`.
 </code></pre>
       </div>
     </details>
@@ -9461,7 +9447,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~445 body tokens</span>
+          <span class="pill">~451 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-telemetry</code></dd></div>
@@ -9483,7 +9469,7 @@ disable-model-invocation: true
 # Inspect telemetry
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -9500,8 +9486,8 @@ disable-model-invocation: true
   </article>
   <article class="skill-card" id="sflow-upload"
     data-name="sflow-upload"
-    data-class="mutation"
-    data-boundary="repository"
+    data-class="delegation"
+    data-boundary="machine"
     data-invocation="explicit"
     data-model="never">
     <details>
@@ -9513,10 +9499,10 @@ disable-model-invocation: true
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">mutation</span>
-          <span class="pill">repository boundary</span>
+          <span class="pill">delegation</span>
+          <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~797 body tokens</span>
+          <span class="pill">~237 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-upload</code></dd></div>
@@ -9538,38 +9524,14 @@ argument-hint: &quot;attach &lt;PATH...&gt; [--epic EPIC-ID] | list [OWNER-ID] |
 
 # Upload governed evidence
 
-&lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+&lt;!-- sflow-output-contract: canonical-delegation --&gt;
+**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 REV feedback: use `/sf-revision-attachments`; ordinary upload cannot bypass its importer.
 
-1. Use explicit `--epic` for an Epic. Story attach/detach has no `--work-id`: identify the attached Story with `singularity-flow session current --json`, or ask the user to attach it first. Never append an unsupported selector.
-2. Resolve the action; show owner and target before mutation.
-3. For an Epic:
-   - Use `singularity-flow epic sources add --epic &lt;EPIC-KEY&gt; --file &lt;PATH&gt;` once per file; expand directories in deterministic order.
-   - Record authored text with `singularity-flow epic sources note --epic &lt;EPIC-KEY&gt; --text-file &lt;PATH&gt;`.
-   - Record an HTTPS reference with `singularity-flow epic sources add --epic &lt;EPIC-KEY&gt; --url &lt;URL&gt; --label &quot;&lt;LABEL&gt;&quot;`.
-   - Add `--provider`, `--mime`, or `--label` only when provided or required by repository policy.
-4. For the verified attached Story, ask the user for a unique name per path or URL:
-   - Upload files or complete export directories with `singularity-flow documents upload &lt;PATH...&gt; --name &quot;&lt;NAME&gt;&quot;` (one `--name` per path, in order), plus `--phases &lt;PHASE,...|all&gt;` only if the user limits its phases, and `--store local` when they want files kept on this machine only.
-   - Record an HTTPS reference with `singularity-flow documents upload --url &lt;URL&gt; --name &quot;&lt;NAME&gt;&quot;`.
-5. Respect phase, provider, size, and sequence gates; leave soft warnings to the user.
-6. Never expose credentials, follow a URL implicitly, invent a MIME type, or bypass the managed catalog.
-7. Report each stable source/document ID, SHA-256, size, path/provider, commit, push result, and next `/sf-*` command.
-
-For detachment:
-
-1. List active evidence and show the exact ID, name, hash, path/URL, package, and affected phases from `singularity-flow documents detach &lt;ID&gt; --dry-run`.
-2. If it belongs to a package, ask whether to detach this file or the complete package; never choose automatically.
-3. Require a reason and explain: committed bytes remain for audit and future Copilot prompts omit the evidence.
-4. Require explicit human confirmation. Do not self-confirm.
-5. Only after confirmation, for a Story run `singularity-flow documents detach &lt;DOCUMENT-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes`, adding `--scope package` only when selected.
-6. Only after confirmation, for an Epic run `singularity-flow epic sources detach &lt;SOURCE-ID&gt; --epic &lt;EPIC-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes`. `--yes` conveys the reviewed decision to the noninteractive CLI; never add it before confirmation.
-7. Report the CLI decision, commit, publication status, invalidated and reopened phases, and next `/sf-*` action.
-
-Use `--all` listings only to inspect detached history. Never delete or directly alter governed evidence bytes.
+Delegate once to `/sf-documents`, mapping `attach` to `upload` and preserving paths, names, owner selectors, and the requested list/view/detach action. That canonical skill owns context resolution, choices, preview, confirmation, mutation, and reporting. Stop when it returns; preserve its result and next action. Do not repeat a preview, ask again for a choice already accepted by the canonical skill, or run a second upload/detach command.
 </code></pre>
       </div>
     </details>
@@ -9592,7 +9554,7 @@ Use `--all` listings only to inspect detached history. Never delete or directly 
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~202 body tokens</span>
+          <span class="pill">~208 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-validate</code></dd></div>
@@ -9608,11 +9570,12 @@ Use `--all` listings only to inspect detached history. Never delete or directly 
 name: sflow-validate
 description: Validate the selected Singularity Flow repository without changing workflow or Git state.
 disable-model-invocation: true
+
 ---
 # Validate the selected repository
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -9642,7 +9605,7 @@ disable-model-invocation: true
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~793 body tokens</span>
+          <span class="pill">~788 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-verify</code></dd></div>
@@ -9664,11 +9627,11 @@ argument-hint: &quot;[test scope or environment]&quot;
 # Verification phase
 
 &lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow verify --json`; stop at `recovery` or `approval`. When the Boundary phase is `release`, do not run verification authoring: if the returned first `NOW` action is `singularity-flow prepare release`, hand off: `Next in Copilot: /sf-release`; `Terminal equivalent: singularity-flow prepare release`; then stop. For any other release action, relay its exact returned Copilot and Shell routes and stop.
+1. Run `singularity-flow verify --json`; stop at `recovery` or `approval`. For Boundary phase `release`, never author verification. If first `NOW` is `singularity-flow prepare release`, show `Next in Copilot: /sf-release`; `Terminal equivalent: singularity-flow prepare release`; stop. Otherwise relay the returned release routes and stop.
 2. Require Boundary `ready`, phase `verification`, and exact `phaseAgent` readiness; run `singularity-flow phase show verification --json`. For another phase, relay router action and stop. Keep Story context governed.
 3. Run `singularity-flow wm compose --phase verification --evidence`; use its prompt. Missing WM is non-blocking; use repository evidence. Never derive `--task` from Story text.
 4. Read approved requirements, design, implementation, source evidence.
@@ -9678,8 +9641,8 @@ argument-hint: &quot;[test scope or environment]&quot;
 8. Run `singularity-flow prepare verification`; fill evidence without unobserved claims and `Agent brief` with verdict, failures/omissions, risk, release recommendation.
 9. Run `singularity-flow phase draft-check verification --json`, then `singularity-flow phase prepublish verification --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase verification --json`. Correct every agent finding now; route other producers to owner. Recheck up to three changed fingerprints; stop on an unchanged fingerprint. Never delete markers blindly, invent facts, use padding, invoke nested models, or overwrite another producer.
 10. Only when prepublish `status` is `ready`, publish with its exact configured producer/channel. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
-11. Run `singularity-flow phase show verification --json`; reproduce every published text document in full in the visible assistant response between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---`, with ID, kind, bytes, hash. A collapsible Shell/tool block does not count. Never say “shown above”; never replace it with a summary. For binaries show path, metadata, open instruction.
-12. Do not submit or approve automatically. End the handoff with the direct Copilot action first, followed by its terminal equivalent:
+11. Run `singularity-flow phase show verification --json`; retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. Otherwise reproduce every published text document in full: ID/kind/path/bytes/generation/SHA-256 and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. New chat, changed/null binding, omissions or truncation require full display. Tool output or summaries are not review. Binary: path/metadata/open instruction. Show the current `reviewBinding`; body reuse never reuses approval consent.
+12. Never submit/approve. Handoff:
    - `Next in Copilot: /sf-submit verification`
    - `Terminal equivalent: singularity-flow submit verification`
 </code></pre>
@@ -9756,7 +9719,7 @@ argument-hint: &quot;status | compare --expected &lt;record&gt; --actual &lt;rec
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~197 body tokens</span>
+          <span class="pill">~203 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-watch</code></dd></div>
@@ -9777,7 +9740,7 @@ argument-hint: &quot;[WORK-ID] [--once]&quot;
 # Watch governed work
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -10133,7 +10096,7 @@ directory automatically, or claims that a failed push was completed.
   </article>
   <article class="skill-card" id="sflow-workspace-impact"
     data-name="sflow-workspace-impact"
-    data-class="generative"
+    data-class="advisory"
     data-boundary="repository"
     data-invocation="explicit"
     data-model="conditional">
@@ -10146,10 +10109,10 @@ directory automatically, or claims that a failed push was completed.
       <div class="skill-content">
         <div class="pills" aria-label="Skill policy">
           <span class="pill ">explicit only</span>
-          <span class="pill">generative</span>
+          <span class="pill">advisory</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~594 body tokens</span>
+          <span class="pill">~589 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workspace-impact</code></dd></div>
@@ -10170,8 +10133,8 @@ disable-model-invocation: true
 
 # Analyze workspace impact
 
-&lt;!-- sflow-output-contract: clarification-and-artifact --&gt;
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+&lt;!-- sflow-output-contract: advisory-analysis --&gt;
+**Output contract:** Run only the confirmed advisory analysis; report its evidence and limitations. Do not promote or publish governed artifacts.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -10261,7 +10224,7 @@ This is context setup only. Do not inspect application files, start implementati
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~238 body tokens</span>
+          <span class="pill">~244 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workspaces</code></dd></div>
@@ -10282,7 +10245,7 @@ disable-model-invocation: true
 # Show Singularity Flow workspaces
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
-**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 

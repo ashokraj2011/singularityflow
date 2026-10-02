@@ -55,16 +55,21 @@ test('every packaged and template agent rebinds tools to the active repository a
       assert.match(content, new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), name);
       assert.match(content, /require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool/, name);
       assert.match(content, /Never search `\$HOME`, a parent directory, or outside that repository/, name);
-      assert.match(content, /singularity\/work-items\/<WORK-ID>\//, name);
+      assert.match(content, /Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes/, name);
+      assert.match(content, /keep them within the bound `workId`/, name);
+      assert.doesNotMatch(content, /singularity\/work-items\/<WORK-ID>/, `${name} must honor custom artifact roots`);
     }
   }
 });
 
-test('the two broadest skill reads state their governed base and repository fence', async () => {
+test('broad reads retain their repository fence and implementation aliases delegate it once', async () => {
   const epicStories = await readFile(path.join(root, 'plugin', 'skills', 'sflow-epic-stories', 'SKILL.md'), 'utf8');
   const implement = await readFile(path.join(root, 'plugin', 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');
   assert.match(epicStories, /singularity\/initiatives\/<EPIC-ID>\/artifacts\/epic-planning\/story-plan\.yml/);
-  assert.match(implement, /Inspect further files only as the implementation requires within this repository\./);
+  assert.match(implement, /Run `\/sflow-code` once/);
+  const code = await readFile(path.join(root, 'plugin', 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
+  assert.match(code, /session current --json.*repositoryPath/);
+  assert.doesNotMatch(implement, /`singularity-flow /, 'the canonical code skill owns executable preflight');
 });
 
 test('the skill boundary lattice keeps entry points storyless without weakening lifecycle scope', async () => {
@@ -73,14 +78,15 @@ test('the skill boundary lattice keeps entry points storyless without weakening 
     'sflow-about', 'sflow-admin', 'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-fresh-install',
     'sflow-help', 'sflow-home', 'sflow-local-reset', 'sflow-plugin', 'sflow-quickstart',
     'sflow-recommend', 'sflow-reinstall', 'sflow-workspace', 'sflow-workspace-bootstrap',
-    'sflow-workspace-session', 'sflow-workspaces', 'sflow-stories'
+    'sflow-workspace-session', 'sflow-workspaces', 'sflow-stories',
+    'sflow-upload', 'sflow-implement', 'sflow-epic-planning', 'sflow-jira-status', 'sflow-jira-doctor'
   ];
   const repositoryEntry = [
     'sflow-adhoc', 'sflow-approvals', 'sflow-auto', 'sflow-documents', 'sflow-factory-reset',
     'sflow-impact', 'sflow-inbox', 'sflow-init', 'sflow-inspect', 'sflow-learn', 'sflow-nextsteps',
     'sflow-progress', 'sflow-receipt', 'sflow-report', 'sflow-reset-all', 'sflow-resume', 'sflow-return',
     'sflow-session', 'sflow-sgos', 'sflow-sgos-create', 'sflow-snapshot', 'sflow-stack', 'sflow-start', 'sflow-status',
-    'sflow-story-fetch', 'sflow-story-inbox', 'sflow-story-start', 'sflow-upload', 'sflow-watch',
+    'sflow-story-fetch', 'sflow-story-inbox', 'sflow-story-start', 'sflow-watch',
     'sflow-workflows', 'sflow-workspace-impact', 'sflow-worldmodel'
   ];
   for (const name of machineEntry) {
@@ -89,7 +95,7 @@ test('the skill boundary lattice keeps entry points storyless without weakening 
   for (const name of repositoryEntry) {
     assert.equal(registry.skills[name]?.executionBoundary, 'repository', `${name} must work before active Story selection`);
   }
-  for (const name of Object.keys(registry.skills).filter((name) => /^sflow-(?:epic|initiative)-/.test(name))) {
+  for (const name of Object.keys(registry.skills).filter((name) => /^sflow-(?:epic|initiative)-/.test(name) && registry.skills[name].class !== 'delegation')) {
     assert.equal(registry.skills[name]?.executionBoundary, 'repository', `${name} is not a Story lifecycle`);
   }
   for (const name of ['sflow-capability-doctor', 'sflow-capability-map']) {

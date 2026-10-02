@@ -184,6 +184,7 @@ import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
+import { phaseDisplayBinding, phaseDocumentVersionMatches } from './review-display.mjs';
 import { answerSelectionReceipt, approvalReviewBinding, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
@@ -6462,6 +6463,11 @@ async function phaseReview(root, config, workflow, phase) {
   for (const record of records) {
     try {
       const viewed = await viewDocument(root, config, workflow, record.id);
+      if (!phaseDocumentVersionMatches(record, viewed)) {
+        throw new SingularityFlowError(`Document '${record.id}' changed while reading this review. Read the current phase again.`, {
+          code: 'DOCUMENT_REVIEW_CHANGED'
+        });
+      }
       const source = ['code', 'test'].includes(record.kind) && viewed.content != null;
       const previewBytes = workflow.resolution?.codeDelivery?.display?.previewBytes ?? 4096;
       const fullDocumentMaximumBytes = workflow.resolution?.codeDelivery?.display?.fullDocumentMaximumBytes ?? 65536;
@@ -6544,6 +6550,7 @@ async function phaseReview(root, config, workflow, phase) {
     status: phase.status,
     generation: phase.generation,
     reviewBinding,
+    displayBinding: phaseDisplayBinding(root, workflow.workItem.id, phase, documents),
     testEvidence: phase.deliveryEvidence ? {
       status: phase.deliveryEvidence.status ?? 'unavailable',
       executions: phase.deliveryEvidence.testExecutions?.length ?? 0,

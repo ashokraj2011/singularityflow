@@ -11,12 +11,11 @@ argument-hint: "change | clause --id ID | test --id ID | line --path PATH --line
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow session current --json`. Stop if `ready` is not true. Use only its `repositoryPath` as cwd.
-2. The first word of `$ARGUMENTS` is the subject. Run exactly one command:
+1. In the Boundary repository, use the first word of `$ARGUMENTS` as the subject. Run exactly one subject command:
    `singularity-flow explain --subject <SUBJECT> <REMAINING ARGUMENTS> --json`.
    Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
-3. Relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
+2. Relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
    `authority: none` label and the next actions unchanged. When `subject.status` is `ambiguous`, list its exact
    `choices` and ask which one; when it is `unavailable`, relay its reason code.
-4. Stop. Never read or summarize source files yourself, call a clause satisfied, call a change mergeable, treat a
+3. Stop. Never read or summarize source files yourself, call a clause satisfied, call a change mergeable, treat a
    region association or a test tag as proof, infer who wrote a line, or perform any lifecycle mutation.

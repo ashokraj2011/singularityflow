@@ -12,23 +12,22 @@ argument-hint: "list [WORK-ID] [--phase PHASE] | view <ID|NAME> [--work-id ID] |
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Stop on `Out of sequence`; show soft warnings for human choice. Use the catalog, not arbitrary copies. Explicit Work ID supports Story reads. Story upload/detach has no `--work-id`, so attach that Story first; never target an ambient branch. Epic sources require `--epic`, not a Story session. `/sf-upload` is the short upload route.
+Stop on `Out of sequence`; humans decide soft warnings. Story reads accept Work ID; upload/detach has no `--work-id`: verify `singularity-flow session current --json` or request attachment. Epic requires `--epic`. `/sf-upload` delegates here; never route back. REV feedback uses `/sf-revision-attachments`.
 
-- List active uploaded inputs and generated phase documents with `singularity-flow documents list [WORK-ID] --active`; add `--phase <PHASE>` for what one phase's prompts use. Use `--all` only when the user asks for detached history.
-- For an Epic, list active sources with `singularity-flow epic sources list --epic <EPIC-ID> --active`; use `--all` only for detached history.
-- View text with `singularity-flow documents view <DOCUMENT-ID|NAME> --work-id <WORK-ID>`, or omit the selector for the attached Story. Open binary formats from the returned absolute path.
-- For the verified attached Story, use `singularity-flow documents upload <PATH...> --name "<NAME>"` with one user-given, Story-unique `--name` per path in order, `--phases <PHASE,...|all>` only when the user limits its phases, and `--store local` only to keep files on this machine. Directories retain relative paths; files are hashed, attributed, committed, and pushed.
+- List: `singularity-flow documents list [WORK-ID] --active [--phase <PHASE>]` or `singularity-flow epic sources list --epic <EPIC-ID> --active`. Use `--all` only for requested detached history.
+- View: `singularity-flow documents view <DOCUMENT-ID|NAME> --work-id <WORK-ID>`; omit selector for attached Story. Open binaries at returned absolute paths.
+- Attached Story upload: `singularity-flow documents upload <PATH...> --name "<NAME>"`; ask for one Story-unique name per path, in order. Add `--phases <PHASE,...|all>` only for requested phase limits; `--store local` only for machine-local storage. Directories retain relative paths; files are hashed, attributed, committed and pushed.
 - Record a Figma or other external reference with `singularity-flow documents upload --url <https-url> --name "<name>"`.
-- To change which phases use a document, preview `singularity-flow documents scope <ID|NAME> --phases <PHASE,...|all> --reason "<reason>" --dry-run`, show the published work that keeps it, then after explicit confirmation rerun without `--dry-run` with `--yes`.
-- Respect phase/size policy; never download URLs implicitly. Report and cite stable document IDs.
+- Scope: preview `singularity-flow documents scope <ID|NAME> --phases <PHASE,...|all> --reason "<reason>" --dry-run`; show retained published work. After explicit confirmation rerun without `--dry-run` with `--yes`.
+- Epic upload: `singularity-flow epic sources add --epic <EPIC-ID> --file <PATH>` once per file, expanding directories deterministically; authored text uses `singularity-flow epic sources note --epic <EPIC-ID> --text-file <PATH>`. HTTPS uses `singularity-flow epic sources add --epic <EPIC-ID> --url <URL> --label "<LABEL>"`. Add provider/MIME/label only when supplied or required.
+- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path/provider, commit/push and next action.
 
 To detach evidence:
 
 1. Show ID, label, path/URL, SHA-256, package, and what `singularity-flow documents detach <ID> --dry-run` reopens.
 2. Ask whether to detach one package member or the package; never infer scope.
 3. Require a reason. Explain that committed bytes remain and future prompts omit them.
-4. Require explicit human confirmation. Do not self-confirm. Only after it, run `singularity-flow documents detach <DOCUMENT-ID> --reason "<reason>" --yes`; add `--scope package` only when the user chose the complete package.
-   For an Epic source run `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes` after the same preview and confirmation. `--yes` conveys that reviewed decision to the noninteractive CLI; it is never consent by itself.
+4. Require explicit human confirmation. Only after it, run `singularity-flow documents detach <DOCUMENT-ID> --reason "<reason>" --yes`; add `--scope package` only for the selected complete package. Epic: `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes` after the same preview/confirmation. `--yes` conveys consent; it never grants it.
 5. Report the decision, commit/publication, invalidated phases, and returned `/sf-*` action.
 
-Detached evidence is read-only. Never delete its bytes or manually edit its manifest status.
+Detached evidence is read-only; never delete bytes or edit manifest status.

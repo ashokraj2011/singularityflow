@@ -7,16 +7,9 @@ disable-model-invocation: true
 
 # Plan governed Stories
 
-<!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+<!-- sflow-output-contract: canonical-delegation -->
+**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.
 <!-- sflow-execution-boundary -->
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-This is the compatibility name for `/sf-epic-story-draft`. Follow that skill's canonical procedure:
-
-1. Prepare from approved Requirements and impact analysis.
-2. Author and publish the parent specification, Story plan, and one exact specification per Story.
-3. Validate and print the complete package.
-4. Stop for exact business approval in the VS Code extension's Approvals view. Approval is a human decision against a configured authority group; do not approve from the model session.
-
-Do not run a second planning sequence, approve from CLI, or publish Jira/Git Stories.
+Run `/sf-epic-story-draft` once with the supplied arguments and stop when it returns. That canonical skill owns repository resolution, preparation, authoring, publication, validation, and the business-review handoff. Preserve its result unchanged. Do not run a second planning sequence, approve from CLI, or publish Jira/Git Stories.

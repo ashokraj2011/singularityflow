@@ -7,16 +7,10 @@ argument-hint: "[implementation focus]"
 ---
 # Implementation alias
 
-<!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, obey the pinned clarification mode, then publish and show configured artifacts.
+<!-- sflow-output-contract: canonical-delegation -->
+**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 
-Run `/sflow-code` with the supplied focus and stop when it returns. `/sflow-code` owns authoring, test evidence, and the single publication transaction; this alias must not publish, submit, or approve again.
-
-Inspect further files only as the implementation requires within this repository.
-
-Next in Copilot: /sf-code <implementation focus>
-
-Terminal equivalent: singularity-flow prepare <phase>, followed by `singularity-flow phase begin <phase>`.
+Run `/sflow-code` once with the supplied focus and stop when it returns. The canonical skill owns Story resolution, authoring, test evidence, publication, and the next action. Preserve its final result and Copilot/Shell handoff unchanged; this alias must not publish, submit, or approve again or suggest restarting code generation.

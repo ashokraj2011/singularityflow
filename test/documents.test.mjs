@@ -159,6 +159,8 @@ test('progress and document commands upload, list, and view files, images, and F
   const reviewJson = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
   assert.equal(reviewJson.documents.length, 1); assert.equal(reviewJson.documents[0].id, 'PHASE-INTAKE'); assert.match(reviewJson.documents[0].content, /Complete intake evidence/);
   assert.equal(reviewJson.reviewBinding, null, 'a published draft is not submitted approval evidence');
+  assert.ok(reviewJson.displayBinding, 'complete published content can be identified before submission');
+  assert.equal(reviewJson.displayBinding.documents[0].sha256, reviewJson.documents[0].sha256);
   assert.equal(reviewJson.documents[0].truncated, false);
   assert.equal(reviewJson.documents[0].previewBytes, reviewJson.documents[0].size);
   const submission = flow(root, ['submit']);
@@ -174,6 +176,13 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(readiness.phaseStatus, 'awaiting_approval');
   assert.equal(readiness.lifecycleReady, false);
   assert.match(readiness.command, /^singularity-flow approve intake /);
+  const submittedReview = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
+  assert.ok(submittedReview.reviewBinding, 'submission creates a fresh approval binding');
+  assert.notDeepEqual(submittedReview.displayBinding, reviewJson.displayBinding,
+    'this template gains submission metadata: changed bytes require a new complete display');
+  assert.notEqual(submittedReview.documents[0].sha256, reviewJson.documents[0].sha256);
+  assert.deepEqual(JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout).displayBinding,
+    submittedReview.displayBinding, 're-reading the unchanged submitted documents reuses content identity');
   const submissionFull = flow(root, ['submit', '--show-artifact'], { allowFailure: true });
   const approval = flow(root, ['approve', '--yes']);
   assert.match(approval.stdout, /Generated documents ready for review/);
@@ -198,6 +207,7 @@ test('phase review exposes partial text without changing the document size or pr
   const review = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
   const document = review.documents.find((entry) => entry.id === 'PHASE-INTAKE');
   assert.equal(review.reviewBinding, null);
+  assert.equal(review.displayBinding, null, 'partial text must never advertise reusable full content');
   assert.equal(document.truncated, true);
   assert.equal(document.previewBytes, 96);
   assert.ok(document.size > document.previewBytes, 'size remains the complete artifact size');

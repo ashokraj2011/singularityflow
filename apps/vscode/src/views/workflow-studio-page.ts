@@ -242,10 +242,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflow = draft.workflows[workflowId];
     var originalWorkflow = (model.workflows || []).find(function (entry) { return entry.id === (workflow.copyOf || workflowId) && entry.phases.indexOf(phaseId) >= 0; });
     var copyFromWorkflow = originalWorkflow ? originalWorkflow.id : workflow.installFrom && source.fromBlueprint ? workflow.installFrom : null;
-    return Object.assign(clone(source), { id: id, label: source.label + ' (' + workflow.label + ')', isNew: true, copyOf: phaseId, copyFromWorkflow: copyFromWorkflow, usedBy: [workflowId], output: output, baseOutput: output,
+    var copy = Object.assign(clone(source), { id: id, label: source.label + ' (' + workflow.label + ')', isNew: true, copyOf: phaseId, copyFromWorkflow: copyFromWorkflow, usedBy: [workflowId], output: output, baseOutput: output,
       views: baseline && same(source.views, baseline.views) && settings.views ? settings.views.slice() : (source.views || []).slice(),
       clarification: baseline && source.clarification === baseline.clarification ? settings.clarification || 'off' : source.clarification,
       authoringSkill: settings.authoringSkill || null });
+    delete copy.setAsideSkill;
+    return copy;
   }
 
   /** The engine change set that turns the model into the draft. */
@@ -331,10 +333,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         var update = { op: 'phase.update', id: phaseId, workflow: id };
         if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
         if (!same(reference.inputs, step.inputs)) update.inputs = step.inputs;
-        // The engine writes it where the workflow owns it: an override on a shared or already
+        // A workflow that sets the skill itself keeps it; any other follows the step's own skill as
+        // this draft leaves it, which an output change can send back to automatic. The engine
+        // writes a change where the workflow owns it: an override on a shared or already
         // overridden step, the step itself otherwise.
-        var referenceSkill = reference.authoringSkill === undefined ? ((base.phases[phaseId] || phase).authoringSkill || null) : reference.authoringSkill;
-        if ((step.authoringSkill || null) !== (referenceSkill || null)) update.authoringSkill = step.authoringSkill || null;
+        var referenceSkill = reference.authoringSkillSetByWorkflow ? reference.authoringSkill || null : phase.authoringSkill || null;
+        if ((step.authoringSkill || null) !== referenceSkill) update.authoringSkill = step.authoringSkill || null;
         if (Object.keys(update).length > 3) changes.push(update);
       });
     });
@@ -501,6 +505,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     workflow.phases = workflow.phases.map(function (phase) { return phase === phaseId ? id : phase; });
     draft.steps[workflowId][id] = settings;
     draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
+    delete draft.steps[workflowId][id].setAsideSkill;
     draft.phases[id].authoringSkill = draft.steps[workflowId][id].authoringSkill || null;
     delete draft.steps[workflowId][phaseId];
     workflow.phases.forEach(function (other) { var settings = draft.steps[workflowId][other]; if (settings) settings.inputs = settings.inputs.map(function (input) { return input === phaseId ? id : input; }); });
@@ -1608,10 +1613,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return { options: options, value: current, hint: hint };
   }
 
-  /** A drafting skill picked for a step in one workflow. */
+  /** A drafting skill picked for a step in one workflow; a skill an output change set aside is forgotten. */
   function chooseAuthoringSkill(workflowId, phaseId, value) {
     var settings = stepSettings(workflowId, phaseId);
     settings.authoringSkill = value || null;
+    delete settings.setAsideSkill;
     // The engine records a shared or already overridden step's choice as this workflow's own.
     if (otherUsers(workflowId, phaseId).length || settings.authoringSkillSetByWorkflow) settings.authoringSkillSetByWorkflow = true;
     changed();
@@ -1624,19 +1630,40 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return field('step-skill', 'Drafted with', select('step-skill', picker.options, picker.value, function (value) { chooseAuthoringSkill(workflowId, phaseId, value); }), picker.hint);
   }
 
-  /** After a step's output changes, a chosen skill that cannot draft it goes back to automatic. */
+  /**
+   * After a step's output changes, a chosen skill that cannot draft it goes back to automatic: the
+   * step's own, which the engine drops with the output change, and each workflow's. A skill reset
+   * here is set aside, not forgotten, so changing the output back before publishing restores it
+   * instead of leaving a reset in the change set.
+   */
   function resetIncompatibleSkills(phaseId) {
-    var reset = [];
+    var reset = []; var restored = [];
+    function canDraft(skill, output) {
+      var choice = (state.model.choices.authoringSkills || []).find(function (entry) { return entry.id === skill; });
+      return Boolean(choice && choice.produces.indexOf(output) >= 0);
+    }
+    function settle(holder, output) {
+      if (holder.authoringSkill && !canDraft(holder.authoringSkill, output)) {
+        if (reset.indexOf('/' + holder.authoringSkill) < 0) reset.push('/' + holder.authoringSkill);
+        holder.setAsideSkill = holder.authoringSkill;
+        holder.authoringSkill = null;
+      } else if (!holder.authoringSkill && holder.setAsideSkill && canDraft(holder.setAsideSkill, output)) {
+        if (restored.indexOf('/' + holder.setAsideSkill) < 0) restored.push('/' + holder.setAsideSkill);
+        holder.authoringSkill = holder.setAsideSkill;
+        delete holder.setAsideSkill;
+      }
+    }
+    var phase = state.draft.phases[phaseId];
+    if (phase) settle(phase, phase.output);
     Object.keys(state.draft.workflows).forEach(function (workflowId) {
       if (state.draft.workflows[workflowId].phases.indexOf(phaseId) < 0) return;
       var settings = state.draft.steps[workflowId] && state.draft.steps[workflowId][phaseId];
-      if (!settings || !settings.authoringSkill) return;
-      var choice = (state.model.choices.authoringSkills || []).find(function (entry) { return entry.id === settings.authoringSkill; });
-      if (choice && choice.produces.indexOf(stepOutput(workflowId, phaseId)) >= 0) return;
-      reset.push('/' + settings.authoringSkill);
-      settings.authoringSkill = null;
+      if (settings) settle(settings, stepOutput(workflowId, phaseId));
     });
-    if (reset.length) setStatus('Drafted with is automatic again: ' + reset.join(', ') + ' cannot draft what this step now produces.');
+    var words = [];
+    if (reset.length) words.push('Drafted with is automatic again: ' + reset.join(', ') + ' cannot draft what this step now produces.');
+    if (restored.length) words.push('Drafted with is ' + restored.join(', ') + ' again.');
+    if (words.length) setStatus(words.join(' '));
   }
 
   /** What a step itself produces, chosen in the inspector; drafting skills follow (resetIncompatibleSkills). */

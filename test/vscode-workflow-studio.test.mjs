@@ -552,3 +552,56 @@ test('new steps save required clarification and shared steps can clear every inh
   draft = logic.initialDraft(model);
   assert.deepEqual(logic.changeSetFrom(model, draft).changes, [], 'a reload has no phantom changes');
 });
+
+/**
+ * The page with a model loaded the way the host sends it, so the inspector's own draft operations
+ * run against it. Rendering a control needs a document; nothing else does.
+ */
+function loadedStudio(model, document = { getElementById: () => null }) {
+  const listeners = {};
+  const window = { __sfVscode: { postMessage() {} }, addEventListener(type, listener) { listeners[type] = listener; } };
+  new Function('window', 'document', WORKFLOW_STUDIO_SCRIPT)(window, document);
+  listeners.message({ data: { type: 'studio.model', model } });
+  return window.__workflowStudio;
+}
+
+test('a step\'s new output sends a skill that cannot draft it back to automatic once, and changing it back restores it', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'phase.create', id: 'brief-input', label: 'Brief input', agent: 'architect', approval: 'none' },
+    { op: 'phase.create', id: 'brief', label: 'Brief', agent: 'architect', approval: 'none', inputs: ['brief-input'], authoringSkill: 'sf-release' },
+    ...['brief-one', 'brief-two', 'brief-own'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['brief-input', 'brief'] })),
+    { op: 'phase.update', id: 'brief', workflow: 'brief-own', authoringSkill: 'sf-design' }
+  ] }, { write: true });
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  page.setStepOutput('brief', 'analysis');
+  assert.equal(state.status, 'Drafted with is automatic again: /sf-release cannot draft what this step now produces.', 'named once, though two workflows had it');
+  assert.deepEqual([state.draft.phases.brief.authoringSkill, state.draft.steps['brief-one'].brief.authoringSkill, state.draft.steps['brief-two'].brief.authoringSkill], [null, null, null]);
+  assert.equal(state.draft.steps['brief-own'].brief.authoringSkill, 'sf-design', 'a workflow\'s own skill that drafts analyses stays');
+  // The engine drops the step's own skill with the output, so no workflow sends an automatic of its own.
+  assert.deepEqual(page.changeSetFrom(model, state.draft).changes, [{ op: 'phase.update', id: 'brief', output: 'analysis' }]);
+
+  // Changing the output back before publishing restores the earlier choice and leaves nothing to publish.
+  page.setStepOutput('brief', 'document');
+  assert.equal(state.status, 'Drafted with is /sf-release again.');
+  assert.deepEqual([state.draft.phases.brief.authoringSkill, state.draft.steps['brief-one'].brief.authoringSkill], ['sf-release', 'sf-release']);
+  assert.deepEqual(page.changeSetFrom(model, state.draft).changes, []);
+
+  // Published, every workflow drafts as the page showed it, and no explicit automatic is left behind.
+  page.setStepOutput('brief', 'analysis');
+  const changeSet = page.changeSetFrom(model, state.draft);
+  assert.equal(check(root, changeSet).valid, true);
+  await planStudioChangeSet(root, changeSet, { write: true });
+  const saved = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(Object.hasOwn(saved.phases.brief, 'authoringSkill'), false);
+  assert.equal(saved.workTypes['brief-one'].phaseOverrides, undefined);
+  const after = await buildStudioModel(root);
+  const skillIn = (workflowId) => after.workflows.find((workflow) => workflow.id === workflowId).steps.find((step) => step.id === 'brief').effectiveAuthoringSkill;
+  assert.deepEqual(['brief-one', 'brief-two', 'brief-own'].map(skillIn), ['/sf-phase', '/sf-phase', '/sf-design']);
+  const reload = loadedStudio(after);
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+});

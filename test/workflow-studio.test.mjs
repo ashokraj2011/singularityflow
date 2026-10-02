@@ -387,7 +387,8 @@ test('the agent designer saves block YAML tools without dropping model preferenc
   const messages = [];
   const document = {
     addEventListener(name, listener) { if (name === 'click') click = listener; },
-    querySelector(selector) { const key = selector.slice(1, -1); return key in formValues ? { value: formValues[key] } : null; },
+    // Form fields are read by attribute, with or without a tag: '[data-agent-label]', 'input[data-agent-id]'.
+    querySelector(selector) { const key = /^[a-z]*\[([a-z-]+)\]$/.exec(selector)?.[1]; return key && key in formValues ? { value: formValues[key] } : null; },
     querySelectorAll(selector) {
       const name = /^input\[name="([^"]+)"\]:checked$/.exec(selector)?.[1];
       if (!name) return [];

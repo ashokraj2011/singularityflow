@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { approvalPolicyCapacity } from './approval-authority.mjs';
+import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
 
 function normalizedPath(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
@@ -64,10 +65,23 @@ function phaseDocuments(phase) {
   return Object.freeze(documents);
 }
 
-function approvalState(phase, mode, received, minimum) {
+/**
+ * Whether people decide a policy-mode phase: the waiver did not cover its current generation, so it
+ * was submitted for review, sent back, or approved by people. A waived phase, or one not yet
+ * submitted, is the policy's.
+ */
+function policyPhaseReviewedByPeople(phase, activeApprovals) {
+  if (automaticApprovalDisposition(phase) === 'policy_waived') return false;
+  return phase.status === 'awaiting_approval' || phase.status === 'rejected'
+    || (phase.status === 'approved' && activeApprovals > 0);
+}
+
+function approvalState(phase, mode, received, minimum, reviewedByPeople = false) {
   if (phase.status === 'skipped') return 'skipped';
   if (mode === 'none') return 'not-required';
-  if (mode === 'policy') return phase.status === 'approved' ? 'policy-approved' : 'policy-pending';
+  // Policy approval means the waiver completed the phase; a phase it did not cover reads as any
+  // human-reviewed phase does.
+  if (mode === 'policy' && !reviewedByPeople) return phase.status === 'approved' ? 'policy-approved' : 'policy-pending';
   if (received >= minimum && minimum > 0) return 'approved';
   if (phase.status === 'awaiting_approval') return 'awaiting-approval';
   if (phase.status === 'rejected') return 'returned-for-rework';
@@ -87,7 +101,6 @@ export function approvalChainSnapshot(workflow) {
     const phase = workflow.phases[id];
     const policy = phase.approvalPolicy ?? {};
     const mode = policy.mode ?? 'required';
-    const minimum = ['none', 'policy'].includes(mode) ? 0 : (policy.minimum ?? 1);
     const decisions = (phase.approvals ?? []).map((decision) => Object.freeze({
       decision: decision.decision ?? 'unknown',
       actor: actorName(decision.actor),
@@ -101,6 +114,9 @@ export function approvalChainSnapshot(workflow) {
       invalidatedAt: decision.invalidatedAt ?? null
     }));
     const activeApprovals = decisions.filter((entry) => entry.active && entry.decision === 'approved');
+    // A policy-mode phase needs people's approvals only once the waiver did not cover it.
+    const reviewedByPeople = mode === 'policy' && policyPhaseReviewedByPeople(phase, activeApprovals.length);
+    const minimum = mode === 'none' || (mode === 'policy' && !reviewedByPeople) ? 0 : (policy.minimum ?? 1);
     const authorities = Object.freeze((policy.authorities ?? []).map((id) => authority(workflow, id)));
     const capacity = approvalPolicyCapacity(workflow.resolution?.approvalAuthorities, policy);
     return Object.freeze({
@@ -112,7 +128,7 @@ export function approvalChainSnapshot(workflow) {
       documents: phaseDocuments(phase),
       approval: Object.freeze({
         mode,
-        state: approvalState(phase, mode, activeApprovals.length, minimum),
+        state: approvalState(phase, mode, activeApprovals.length, minimum, reviewedByPeople),
         minimum,
         received: activeApprovals.length,
         remaining: Math.max(0, minimum - activeApprovals.length),
@@ -160,7 +176,7 @@ function names(documents) {
 
 function requirement(approval) {
   if (approval.mode === 'none') return 'not required';
-  if (approval.mode === 'policy') return approval.state.replaceAll('-', ' ');
+  if (approval.mode === 'policy' && approval.minimum === 0) return approval.state.replaceAll('-', ' ');
   return `${approval.received}/${approval.minimum}`;
 }
 

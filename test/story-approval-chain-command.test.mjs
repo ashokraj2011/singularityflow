@@ -95,6 +95,33 @@ test('approval chain joins phase documents, pinned authorities, and only active 
   assert.equal(snapshot.phases[2].approval.minimum, 0);
 });
 
+test('a policy-mode phase reads as policy approved only when the waiver completed it', () => {
+  const state = (phase) => {
+    const story = workflow();
+    story.phases.design = {
+      ...story.phases.design,
+      approvalPolicy: { mode: 'policy', policy: 'quick-fix-low-risk-v1', authorities: ['architecture-reviewers'], minimum: 1 },
+      approvals: [], ...phase
+    };
+    return approvalChainSnapshot(story).phases[1].approval;
+  };
+  const approver = { decision: 'approved', actor: { name: 'Alex Architect' }, authorityGroup: 'architecture-reviewers', at: '2026-08-17T02:00:00.000Z', generation: 2 };
+  const waived = state({ status: 'approved', approvalDisposition: 'policy_waived' });
+  assert.deepEqual([waived.state, waived.minimum, waived.received], ['policy-approved', 0, 0]);
+  assert.equal(state({ status: 'in_progress' }).state, 'policy-pending');
+  // The waiver did not cover this generation, so people decide it like any other phase.
+  const reviewing = state({ status: 'awaiting_approval' });
+  assert.deepEqual([reviewing.state, reviewing.minimum, reviewing.remaining], ['awaiting-approval', 1, 1]);
+  const approved = state({ status: 'approved', approvals: [approver] });
+  assert.deepEqual([approved.state, approved.minimum, approved.received], ['approved', 1, 1]);
+  // A waiver an earlier round recorded does not relabel a phase people approved since.
+  assert.equal(state({ status: 'approved', approvalDisposition: 'policy_waived', approvals: [approver] }).state, 'approved');
+  assert.equal(state({ status: 'rejected' }).state, 'returned-for-rework');
+  const story = workflow();
+  story.phases.design = { ...story.phases.design, status: 'approved', approvalPolicy: { mode: 'policy', authorities: ['architecture-reviewers'], minimum: 1 }, approvals: [approver] };
+  assert.match(approvalChainText(approvalChainSnapshot(story)), /Approvals: 1\/1 · approved/);
+});
+
 test('human rendering names documents, approval counts, authorities, approvers, and invalidation history', () => {
   const output = approvalChainText(approvalChainSnapshot(workflow()));
   assert.match(output, /Approval chain — PAY-17: Make payment retries safe/);

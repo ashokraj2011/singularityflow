@@ -361,27 +361,55 @@ function comparable(draft: AgentDraft, key: AgentField): string {
   }
 }
 
+// How the designer re-emits frontmatter it edited: the CLI's own YAML_OUTPUT (src/util.mjs), which
+// this model does not import. No folding, and flow lists stay unpadded, as every packaged agent
+// writes `tools: [read, search]`; the library's default pads them to `[ read, search ]`.
+const YAML_OUTPUT = Object.freeze({ flowCollectionPadding: false, lineWidth: 0 });
+
+/**
+ * The frontmatter with the fields the form changed written into the authored document. A changed
+ * value keeps the quoting the file wrote it with, and a changed tool list stays a flow or a block
+ * list. A value the file lacks, or a block scalar the one-line form cannot reproduce, is written the
+ * way packaged agents write it: plain where YAML allows, metadata values double-quoted, tools as a
+ * flow list.
+ */
+function renderHeader(source: string, draft: AgentDraft, unchanged: (key: AgentField) => boolean): string {
+  const document = YAML.parseDocument(source || '{}');
+  if (document.errors.length) throw new Error('Agent frontmatter is not valid YAML.');
+  const write = (field: string[], value: string, quoted = false): void => {
+    const node = document.getIn(field, true);
+    if (YAML.isScalar(node) && node.type !== YAML.Scalar.BLOCK_LITERAL && node.type !== YAML.Scalar.BLOCK_FOLDED) {
+      node.value = value;
+      return;
+    }
+    const created = new YAML.Scalar(value);
+    if (quoted) created.type = YAML.Scalar.QUOTE_DOUBLE;
+    document.setIn(field, created);
+  };
+  if (!unchanged('id')) write(['name'], draft.id);
+  if (!unchanged('description')) write(['description'], agentDescription(draft.description));
+  if (!unchanged('tools')) {
+    const tools = document.get('tools', true);
+    document.set('tools', document.createNode([...draft.tools], { flow: YAML.isSeq(tools) ? Boolean(tools.flow) : true }));
+  }
+  const metadata = ([
+    ['label', 'sflow-label', draft.label.trim()], ['phases', 'sflow-phases', draft.phases.join(',')],
+    ['defaultFor', 'sflow-default-for', draft.defaultFor.join(',')],
+    ['worldModelViews', 'sflow-world-model-views', draft.worldModelViews.join(',')]
+  ] as const).filter(([key]) => !unchanged(key));
+  for (const [, field, value] of metadata) write(['metadata', field], value, true);
+  return document.toString(YAML_OUTPUT);
+}
+
 export function renderAgent(draft: AgentDraft, sourceText = draft.sourceText ?? ''): string {
   const original = frontmatter(sourceText);
   const before = sourceText ? parseAgent(sourceText, draft.id) : null;
   const unchanged = (key: AgentField): boolean => before !== null && comparable(before, key) === comparable(draft, key);
-  const document = YAML.parseDocument(original.header || '{}');
-  if (document.errors.length) throw new Error('Agent frontmatter is not valid YAML.');
-  const set = (key: AgentField, field: string[], value: unknown): void => {
-    if (!unchanged(key)) document.setIn(field, document.createNode(value));
-  };
-  set('id', ['name'], draft.id);
-  set('description', ['description'], agentDescription(draft.description));
-  set('tools', ['tools'], draft.tools);
-  set('label', ['metadata', 'sflow-label'], draft.label.trim());
-  set('phases', ['metadata', 'sflow-phases'], draft.phases.join(','));
-  set('defaultFor', ['metadata', 'sflow-default-for'], draft.defaultFor.join(','));
-  set('worldModelViews', ['metadata', 'sflow-world-model-views'], draft.worldModelViews.join(','));
-  const bodyUnchanged = BODY_FIELDS.every(unchanged);
-  const body = bodyUnchanged ? original.body : `\n${[draft.body.trim(), remoteTables(draft)].filter(Boolean).join('\n\n')}\n`;
   const headerUnchanged = HEADER_FIELDS.every(unchanged);
+  const bodyUnchanged = BODY_FIELDS.every(unchanged);
   if (headerUnchanged && bodyUnchanged) return sourceText;
-  const header = headerUnchanged ? `${original.header}\n` : document.toString({ lineWidth: 0 });
+  const header = headerUnchanged ? `${original.header}\n` : renderHeader(original.header, draft, unchanged);
+  const body = bodyUnchanged ? original.body : `\n${[draft.body.trim(), remoteTables(draft)].filter(Boolean).join('\n\n')}\n`;
   const rendered = `---\n${header}---\n${body}`;
   return sourceText.includes('\r\n') ? rendered.replace(/\n/g, '\r\n') : rendered;
 }

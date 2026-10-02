@@ -248,3 +248,32 @@ test('an untouched designer save keeps an agent with remote resources byte-ident
   assert.deepEqual(edited.dependencies, original.dependencies);
   assert.equal(edited.prompt, original.prompt);
 });
+
+test('a designer edit rewrites only the frontmatter lines it changed', async (t) => {
+  // Packaged agents write unpadded flow lists and quoted metadata. Re-serialising the frontmatter
+  // for one edit used to pad every flow list (`tools: [ read ]`), drop the quotes of the edited
+  // value and turn an edited flow tool list into a block list.
+  const flow = '---\nname: reviewer\ndescription: |\n  Reviews designs.\nmodel: [auto]\ntools: [read, search]\nmetadata:\n'
+    + '  sflow-label: "Reviewer"\n  sflow-phases: "design"\n---\n\n# Reviewer\n\nUse evidence.\n';
+  const block = '---\nname: block-reviewer\ndescription: Reviews blocks.\ntools:\n  - read\n  - search\nmetadata:\n'
+    + "  sflow-label: 'Block reviewer'\n---\n\n# Block reviewer\n\nUse evidence.\n";
+  const designer = await openDesigner(t, [['reviewer', flow], ['block-reviewer', block]]);
+
+  await designer.send({ type: 'select', path: '.github/agents/reviewer.agent.md' });
+  await designer.save({ values: { 'data-agent-description': 'Reviews designs carefully.' } });
+  const described = flow.replace('description: |\n  Reviews designs.\n', 'description: Reviews designs carefully.\n');
+  assert.equal(designer.saves.at(-1).content, described);
+  await designer.save({ values: { 'data-agent-label': 'Design reviewer' } });
+  const labelled = described.replace('sflow-label: "Reviewer"', 'sflow-label: "Design reviewer"');
+  assert.equal(designer.saves.at(-1).content, labelled);
+  await designer.save({ checked: { 'agent-tools': ['read', 'search', 'edit'] } });
+  assert.equal(designer.saves.at(-1).content, labelled.replace('tools: [read, search]', 'tools: [read, search, edit]'));
+
+  await designer.send({ type: 'select', path: '.github/agents/block-reviewer.agent.md' });
+  await designer.save({ checked: { 'agent-tools': ['read', 'search', 'edit'] } });
+  const tooled = block.replace('  - search\n', '  - search\n  - edit\n');
+  assert.equal(designer.saves.at(-1).content, tooled);
+  await designer.save({ values: { 'data-agent-label': 'Block lead' } });
+  assert.equal(designer.saves.at(-1).content, tooled.replace("sflow-label: 'Block reviewer'", "sflow-label: 'Block lead'"));
+  for (const save of designer.saves) assert.doesNotThrow(() => parseAgentDependencies(save.content, { source: save.path }));
+});

@@ -277,3 +277,32 @@ test('a designer edit rewrites only the frontmatter lines it changed', async (t)
   assert.equal(designer.saves.at(-1).content, tooled.replace("sflow-label: 'Block reviewer'", "sflow-label: 'Block lead'"));
   for (const save of designer.saves) assert.doesNotThrow(() => parseAgentDependencies(save.content, { source: save.path }));
 });
+
+test('a new agent created in the designer gets the block frontmatter packaged agents use', async (t) => {
+  // A new agent has no file to keep the style of. Starting from YAML '{}' made the whole frontmatter
+  // one flow mapping on a single line.
+  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]]);
+  await designer.send({ type: 'new' });
+  await designer.save({
+    values: {
+      'data-agent-id': 'security-reviewer', 'data-agent-label': 'Security reviewer',
+      'data-agent-description': 'Reviews changes: threats first',
+      'data-agent-body': '# Security reviewer\n\nName the threat before the fix.'
+    },
+    checked: { 'agent-phases': ['design'], 'agent-defaults': ['design'] }
+  });
+  const created = '---\nname: security-reviewer\ndescription: "Reviews changes: threats first"\ntools: [read, search]\n'
+    + 'metadata:\n  sflow-label: "Security reviewer"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n'
+    + '  sflow-world-model-views: ""\n---\n\n# Security reviewer\n\nName the threat before the fix.\n';
+  assert.equal(designer.saves[0].path, '.github/agents/security-reviewer.agent.md');
+  assert.equal(designer.saves[0].content, created);
+  const parsed = parseAgentDependencies(created, { source: designer.saves[0].path });
+  assert.deepEqual(
+    { id: parsed.id, label: parsed.label, description: parsed.description, phases: parsed.phases, defaultFor: parsed.defaultFor, tools: parsed.tools },
+    { id: 'security-reviewer', label: 'Security reviewer', description: 'Reviews changes: threats first', phases: ['design'], defaultFor: ['design'], tools: ['read', 'search'] }
+  );
+
+  // Its next save edits that file like any other agent.
+  await designer.save({ values: { 'data-agent-label': 'Security lead' } });
+  assert.equal(designer.saves[1].content, created.replace('sflow-label: "Security reviewer"', 'sflow-label: "Security lead"'));
+});

@@ -374,7 +374,9 @@ const YAML_OUTPUT = Object.freeze({ flowCollectionPadding: false, lineWidth: 0 }
  * flow list.
  */
 function renderHeader(source: string, draft: AgentDraft, unchanged: (key: AgentField) => boolean): string {
-  const document = YAML.parseDocument(source || '{}');
+  // A new agent starts from an empty block mapping. Parsing '{}' gives a flow mapping, which the
+  // library renders on one line with every key, list and metadata value inside it.
+  const document = source ? YAML.parseDocument(source) : new YAML.Document({});
   if (document.errors.length) throw new Error('Agent frontmatter is not valid YAML.');
   const write = (field: string[], value: string, quoted = false): void => {
     const node = document.getIn(field, true);

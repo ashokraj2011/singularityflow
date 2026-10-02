@@ -2145,6 +2145,33 @@ function declaredCatalogValue(catalog, id) {
   return catalog != null && Object.hasOwn(catalog, id) ? catalog[id] : undefined;
 }
 
+/**
+ * A phase as one work type runs it: the work type's `phaseOverrides` entry laid over the shared
+ * definition. Artifact, world-model and comparison settings merge key by key, and so do approval
+ * and generation unless the override names a mode outright; every other field it names replaces
+ * the phase's own. Workflow Studio folds an override into a step copied for one workflow with this
+ * same rule, so the copy runs exactly as the step it replaces.
+ */
+export function mergePhaseOverride(phase, override = {}) {
+  return {
+    ...phase,
+    ...override,
+    artifact: { ...(phase.artifact ?? {}), ...(override.artifact ?? {}) },
+    worldModel: { ...(phase.worldModel ?? {}), ...(override.worldModel ?? {}) },
+    approval: override.approval === undefined
+      ? phase.approval
+      : typeof override.approval === 'string'
+        ? override.approval
+        : { ...(phase.approval ?? {}), ...override.approval },
+    generation: override.generation === undefined
+      ? phase.generation
+      : typeof override.generation === 'string'
+        ? override.generation
+        : { ...(phase.generation ?? {}), ...override.generation },
+    comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
+  };
+}
+
 export function resolveWorkType(definition, workTypeId) {
   const workType = declaredCatalogValue(definition.workTypes, workTypeId);
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
@@ -2169,23 +2196,7 @@ export function resolveWorkType(definition, workTypeId) {
   let phases = workType.phases.map((id, order) => {
     const phase = structuredClone(declaredCatalogValue(definition.phases, id));
     const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
-    const merged = {
-      ...phase,
-      ...override,
-      artifact: { ...(phase.artifact ?? {}), ...(override.artifact ?? {}) },
-      worldModel: { ...(phase.worldModel ?? {}), ...(override.worldModel ?? {}) },
-      approval: override.approval === undefined
-        ? phase.approval
-        : typeof override.approval === 'string'
-          ? override.approval
-          : { ...(phase.approval ?? {}), ...override.approval },
-      generation: override.generation === undefined
-        ? phase.generation
-        : typeof override.generation === 'string'
-          ? override.generation
-          : { ...(phase.generation ?? {}), ...override.generation },
-      comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
-    };
+    const merged = mergePhaseOverride(phase, override);
     // A catalog id resolves to its path here, so every downstream reader — generation, the
     // designer, the catalog view — receives a path and never has to know which form was written.
     const declaredTemplate = declaredCatalogValue(workType.templateOverrides, id) ?? phase.defaultTemplate;

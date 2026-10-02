@@ -26,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 37
+version: 38
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -80,7 +80,14 @@ and the agent that drafts it, or a step moving from one agent to another, can ne
 
 A step's default agent is part of the agent's own file, so it applies to every workflow that uses
 the step; the Studio says so before you change it. **Use a copy in this workflow** creates a new
-step copied from the shared one, so one workflow can choose its own agent.
+step copied from the shared one, so one workflow can choose its own agent. The copy starts as that
+workflow runs the step: every input keeps its settings (optional, clause selector, approved-summary
+projection, preserved headings), and so do the workflow's sign-off rules, template, write scope and
+tool evidence for it. It then takes the step's place there: the steps that read it, send-back
+targets, decisions, planned claims and fast-path verbs name the copy, and shared lists that allow
+the step (MCP servers, document uploads, architecture intent) allow the copy too. Check still
+refuses a copy the engine cannot follow, such as a source-reviewed `specification` or `planning`
+step, whose ID the engine requires.
 
 What a step produces is read from the engine's own contract, the same one that decides whether a
 step delivers code: a verification or testing step that writes tests against source is a document,
@@ -94,7 +101,8 @@ the `base` digest), and `singularity-flow workflow studio apply --change-set <FI
 `{"schema":"sflow-studio-change-set@1","base":{…},"changes":[…]}`. Changes are
 `workflow.create|update|install`, `phase.create|update|agent`, `agent.create|update` and
 `group.create|update`; a stale `base` is refused with `STUDIO_BASE_CHANGED`. `phase.create` and
-`phase.update` accept `authoringSkill` (a skill id, or `null` for automatic).
+`phase.update` accept `authoringSkill` (a skill id, or `null` for automatic), and a `phase.create`
+with `copyOf` names the step to copy and `copyFromWorkflow` the workflow whose settings it keeps.
 
 ## Which skill drafts a step
 

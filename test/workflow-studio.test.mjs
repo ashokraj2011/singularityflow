@@ -20,15 +20,16 @@ function run(command, args, cwd, { input = '', allowFailure = false, env: extra 
 const flow = (root, args, options) => run(process.execPath, [bin, ...args], root, options);
 const json = (root, args, options) => JSON.parse(flow(root, [...args, '--json'], options).stdout);
 
-async function repository({ dropWorkflow = null } = {}) {
+async function repository({ dropWorkflow = null, edit = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-'));
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Studio\n');
   flow(root, ['init']);
-  if (dropWorkflow) {
+  if (dropWorkflow || edit) {
     const file = path.join(root, 'singularity/workflow.yml');
     const document = YAML.parseDocument(await readFile(file, 'utf8'));
-    document.deleteIn(['workTypes', dropWorkflow]);
+    if (dropWorkflow) document.deleteIn(['workTypes', dropWorkflow]);
+    edit?.(document);
     await writeFile(file, document.toString());
   }
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
@@ -152,6 +153,84 @@ test('a packaged blueprint that is not installed comes in with its steps, templa
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const model = json(root, ['workflow', 'studio']);
   assert.deepEqual(model.workflows.find((workflow) => workflow.id === 'quick-fix').steps.map((step) => step.agent), ['developer', 'qa']);
+});
+
+/** A workflow whose design step reads requirements only when a branch did not skip them. */
+function decisionDemo(document) {
+  document.setIn(['workTypes', 'decide-demo'], document.createNode({
+    label: 'Decision demo', phases: ['intake', 'requirements', 'design', 'implementation-spec'],
+    phaseOverrides: {
+      requirements: { inputs: ['intake'] },
+      design: { inputs: ['intake', { phase: 'requirements', optional: true }] },
+      'implementation-spec': { inputs: ['intake', { phase: 'design', projection: 'approved-summary', preserve: ['Proposed design', 'Alternatives and decisions'] }] }
+    },
+    decisions: [{
+      id: 'needs-requirements', after: 'intake', kind: 'branch', label: 'Does this need full requirements?',
+      inputs: [{ name: 'risk', label: 'Risk', values: ['low', 'medium', 'high'] }],
+      routes: [{ id: 'risky', label: 'Risky', when: { risk: ['medium', 'high'] }, to: 'requirements' }, { id: 'simple', label: 'Simple', to: 'design' }]
+    }]
+  }));
+}
+
+test('a step copied for one workflow keeps every input setting it has there, so a branch may still skip an optional input', async () => {
+  const root = await repository({ edit: decisionDemo });
+  const before = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const model = json(root, ['workflow', 'studio']);
+  const demo = before.workTypes['decide-demo'];
+  // Exactly what "Use a copy in this workflow" sends: the copy reads step IDs, the branch and the
+  // step after it name the copy.
+  const file = await changeSet(root, [
+    { op: 'phase.create', id: 'design-decide-demo', label: 'Architecture and design (Decision demo)', output: 'document', inputs: ['intake', 'requirements'],
+      approval: { group: 'architecture-reviewers', minimum: 1 }, views: before.phases.design.worldModel.views, clarification: before.phases.design.clarification.mode,
+      agent: 'architect', copyOf: 'design', copyFromWorkflow: 'decide-demo' },
+    { op: 'workflow.update', id: 'decide-demo', phases: ['intake', 'requirements', 'design-decide-demo', 'implementation-spec'],
+      decisions: [{ ...demo.decisions[0], routes: [demo.decisions[0].routes[0], { ...demo.decisions[0].routes[1], to: 'design-decide-demo' }] }] },
+    { op: 'phase.update', id: 'implementation-spec', workflow: 'decide-demo', inputs: ['intake', 'design-decide-demo'] }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.ok(plan.summary.includes('New step Architecture and design (Decision demo), a copy of Architecture and design, drafted by Architect.'), plan.summary.join('\n'));
+
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const copy = after.phases['design-decide-demo'];
+  assert.deepEqual(copy.inputs, ['intake', { phase: 'requirements', optional: true }], 'the copy keeps the optional input');
+  assert.deepEqual(after.workTypes['decide-demo'].phaseOverrides['implementation-spec'].inputs,
+    ['intake', { phase: 'design-decide-demo', projection: 'approved-summary', preserve: ['Proposed design', 'Alternatives and decisions'] }],
+    'a step reading the copy keeps its summary projection and preserved headings');
+  assert.equal(after.workTypes['decide-demo'].phaseOverrides.design, undefined, "the workflow's settings for the step moved into the copy");
+  assert.deepEqual(copy.approval.rejectTo, before.phases.design.approval.rejectTo.map((id) => (id === 'design' ? 'design-decide-demo' : id)), 'the copy can be sent back to itself');
+  assert.deepEqual(copy.worldModel, before.phases.design.worldModel, 'the copy keeps its knowledge depth, not only its views');
+  assert.deepEqual(copy.clarification, before.phases.design.clarification, 'and every clarifying-question setting');
+  assert.deepEqual(after.phases.design, before.phases.design, 'the shared step is unchanged');
+  assert.deepEqual(after.workTypes.feature, before.workTypes.feature, 'other workflows are unchanged');
+  flow(root, ['workflow', 'validate', 'decide-demo']);
+});
+
+test('a copy drafts with the skill the step has in its workflow, automatic included', async () => {
+  const root = await repository({ edit: (document) => {
+    decisionDemo(document);
+    // The shared step names a skill of its own; this workflow says automatic over it.
+    document.setIn(['phases', 'design', 'authoringSkill'], 'sf-design');
+    document.setIn(['workTypes', 'decide-demo', 'phaseOverrides', 'design', 'authoringSkill'], null);
+  } });
+  const model = json(root, ['workflow', 'studio']);
+  const demo = model.workflows.find((workflow) => workflow.id === 'decide-demo');
+  assert.equal(demo.steps.find((step) => step.id === 'design').effectiveAuthoringSkill, '/sf-phase');
+  const file = await changeSet(root, [
+    { op: 'phase.create', id: 'design-decide-demo', label: 'Architecture and design (Decision demo)', inputs: ['intake', 'requirements'], copyOf: 'design', copyFromWorkflow: 'decide-demo' },
+    { op: 'workflow.update', id: 'decide-demo', phases: ['intake', 'requirements', 'design-decide-demo', 'implementation-spec'] },
+    { op: 'phase.update', id: 'implementation-spec', workflow: 'decide-demo', inputs: ['intake', 'design-decide-demo'] }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(Object.hasOwn(after.phases['design-decide-demo'], 'authoringSkill'), false, 'automatic, as the workflow had it');
+  assert.equal(after.phases.design.authoringSkill, 'sf-design', 'the shared step keeps its own skill');
+  assert.equal(after.workTypes['decide-demo'].decisions[0].routes[1].to, 'design-decide-demo', 'a change set that names only the steps still moves the branch to the copy');
+  const copied = json(root, ['workflow', 'studio']).workflows.find((workflow) => workflow.id === 'decide-demo').steps.find((step) => step.id === 'design-decide-demo');
+  assert.deepEqual([copied.effectiveAuthoringSkill, copied.authoringSkillSource], ['/sf-phase', 'automatic']);
 });
 
 test('from a Story checkout, Studio changes become one review proposal on the approved configuration', async () => {

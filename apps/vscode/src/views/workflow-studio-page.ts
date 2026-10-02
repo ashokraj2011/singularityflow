@@ -376,7 +376,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
     relabelRules: function () { return relabelRules.apply(null, arguments); }, buildTest: function () { return buildTest.apply(null, arguments); },
     importKey: function () { return importKey.apply(null, arguments); }, linkId: function () { return linkId.apply(null, arguments); },
-    canvasLayout: function () { return canvasLayout.apply(null, arguments); } };
+    canvasLayout: function () { return canvasLayout.apply(null, arguments); }, copyStep: function () { return copyStep.apply(null, arguments); } };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -419,14 +419,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- Draft operations ----------------------------------------------------------------------
 
   function workflowSteps(workflowId) { var workflow = state.draft.workflows[workflowId]; return workflow ? workflow.phases : []; }
-  function stepSettings(workflowId, phaseId) {
-    var steps = state.draft.steps[workflowId] || (state.draft.steps[workflowId] = {});
+  function settingsIn(draft, workflowId, phaseId) {
+    var steps = draft.steps[workflowId] || (draft.steps[workflowId] = {});
     if (!steps[phaseId]) {
-      var phase = state.draft.phases[phaseId] || {};
-      steps[phaseId] = { approval: clone(phase.approval || { group: null, minimum: 1 }), inputs: (phase.inputs || []).filter(function (input) { return workflowSteps(workflowId).indexOf(input) >= 0; }), authoringSkill: phase.authoringSkill || null };
+      var phase = draft.phases[phaseId] || {};
+      var order = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
+      steps[phaseId] = { approval: clone(phase.approval || { group: null, minimum: 1 }), inputs: (phase.inputs || []).filter(function (input) { return order.indexOf(input) >= 0; }), authoringSkill: phase.authoringSkill || null };
     }
     return steps[phaseId];
   }
+  function stepSettings(workflowId, phaseId) { return settingsIn(state.draft, workflowId, phaseId); }
   /** What a step produces in one workflow: that workflow's own value, unless the step itself was edited. */
   function stepOutput(workflowId, phaseId) {
     var phase = state.draft.phases[phaseId] || { output: 'document' };
@@ -477,25 +479,37 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return id;
   }
 
-  function copyStepForWorkflow(workflowId, phaseId) {
-    var source = state.draft.phases[phaseId];
+  /**
+   * Give one workflow its own copy of a step it shares, in the step's place: its settings in this
+   * workflow, the steps that read it, its send-back rules and decisions move to the copy. The page
+   * keeps only step IDs; the engine carries each input's own settings over when it makes the copy.
+   * Returns the copy's ID, or null when this workflow already has one.
+   */
+  function copyStep(model, draft, workflowId, phaseId) {
     var id = kebab(phaseId + '-' + workflowId);
-    if (state.draft.phases[id]) { setStatus('A copy already exists: ' + state.draft.phases[id].label + '.'); return; }
-    var settings = clone(stepSettings(workflowId, phaseId));
-    state.draft.phases[id] = copiedPhaseDraft(state.model, state.draft, workflowId, phaseId, id);
-    var workflow = state.draft.workflows[workflowId];
+    if (draft.phases[id]) return null;
+    var settings = clone(settingsIn(draft, workflowId, phaseId));
+    draft.phases[id] = copiedPhaseDraft(model, draft, workflowId, phaseId, id);
+    var workflow = draft.workflows[workflowId];
     workflow.phases = workflow.phases.map(function (phase) { return phase === phaseId ? id : phase; });
-    state.draft.steps[workflowId][id] = settings;
-    state.draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
-    state.draft.phases[id].authoringSkill = state.draft.steps[workflowId][id].authoringSkill || null;
-    delete state.draft.steps[workflowId][phaseId];
-    workflow.phases.forEach(function (other) { var settings = state.draft.steps[workflowId][other]; if (settings) settings.inputs = settings.inputs.map(function (input) { return input === phaseId ? id : input; }); });
+    draft.steps[workflowId][id] = settings;
+    draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
+    draft.phases[id].authoringSkill = draft.steps[workflowId][id].authoringSkill || null;
+    delete draft.steps[workflowId][phaseId];
+    workflow.phases.forEach(function (other) { var settings = draft.steps[workflowId][other]; if (settings) settings.inputs = settings.inputs.map(function (input) { return input === phaseId ? id : input; }); });
     workflow.reworkLoops = workflow.reworkLoops.map(function (loop) {
       var copy = { from: loop.from === phaseId ? id : loop.from, to: loop.to === phaseId ? id : loop.to, maxAttempts: loop.maxAttempts };
       if (loop.resetOnPhase) copy.resetOnPhase = loop.resetOnPhase === phaseId ? id : loop.resetOnPhase;
       return copy;
     });
     renameDecisionSteps(workflow, phaseId, id);
+    return id;
+  }
+
+  function copyStepForWorkflow(workflowId, phaseId) {
+    var source = state.draft.phases[phaseId];
+    var id = copyStep(state.model, state.draft, workflowId, phaseId);
+    if (!id) { setStatus('A copy already exists: ' + state.draft.phases[kebab(phaseId + '-' + workflowId)].label + '.'); return; }
     state.step = id;
     setStatus('This workflow now uses its own copy of ' + source.label + '; choose its agent freely.');
     changed();

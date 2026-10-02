@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies } from './agents.mjs';
 import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
@@ -128,8 +128,11 @@ function approvalSummary(approval) {
   };
 }
 
+const inputPhase = (input) => (typeof input === 'string' ? input : input?.phase);
+const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 function inputIds(inputs) {
-  return (Array.isArray(inputs) ? inputs : []).map((input) => (typeof input === 'string' ? input : input?.phase)).filter(Boolean);
+  return (Array.isArray(inputs) ? inputs : []).map(inputPhase).filter(Boolean);
 }
 
 /** Whether people can actually sign off with this group, in the terms the Studio shows. */
@@ -371,18 +374,24 @@ export function preserveYamlFormatting(original, edited, options = YAML_OUTPUT) 
   }
 }
 
-/** A unified diff of two texts, trimmed to the changed region with three lines of context. */
+/**
+ * A unified diff of two texts: each changed region with three lines of context, in a hunk of its
+ * own, so edits far apart in one file (a new step, the workflow using it) all show.
+ */
 export function unifiedDiff(before, after, file) {
   const a = before ? before.split('\n') : [];
   const b = after == null ? [] : after.split('\n');
   const operations = lineOperations(a, b);
-  const first = operations.findIndex(([kind]) => kind !== ' ');
-  if (first < 0) return '';
-  let last = operations.length - 1;
-  while (last > first && operations[last][0] === ' ') last -= 1;
-  const from = Math.max(0, first - 3); const to = Math.min(operations.length - 1, last + 3);
-  const lines = [`--- ${before == null ? '/dev/null' : `a/${file}`}`, `+++ ${after == null ? '/dev/null' : `b/${file}`}`, '@@',
-    ...operations.slice(from, to + 1).map(([kind, index]) => `${kind}${kind === '+' ? b[index] : a[index]}`)];
+  const hunks = [];
+  operations.forEach(([kind], index) => {
+    if (kind === ' ') return;
+    const from = Math.max(0, index - 3); const to = Math.min(operations.length - 1, index + 3);
+    const last = hunks.at(-1);
+    if (last && from <= last[1] + 1) last[1] = to; else hunks.push([from, to]);
+  });
+  if (!hunks.length) return '';
+  const lines = [`--- ${before == null ? '/dev/null' : `a/${file}`}`, `+++ ${after == null ? '/dev/null' : `b/${file}`}`,
+    ...hunks.flatMap(([from, to]) => ['@@', ...operations.slice(from, to + 1).map(([kind, index]) => `${kind}${kind === '+' ? b[index] : a[index]}`)])];
   return lines.length > MAX_DIFF_LINES ? [...lines.slice(0, MAX_DIFF_LINES), `… ${lines.length - MAX_DIFF_LINES} more lines`].join('\n') : lines.join('\n');
 }
 
@@ -444,6 +453,23 @@ class StudioCandidate {
     this.untrusted = new Map();
     this.removedAgents = new Set();
     this.rendered = new Map();
+    // Steps the change set creates, and the step each copy among them copies (copy ID -> step ID).
+    this.pendingPhases = new Set();
+    this.copies = new Map();
+    // Which steps a fast-path verb owns; set by the planner, which loads it only to apply changes.
+    this.fastPathProfile = null;
+  }
+
+  /**
+   * Note the steps the change set creates before any change is applied: one copy may read another
+   * made with it, in either order.
+   */
+  expect(changes) {
+    for (const change of changes) {
+      if (change?.op !== 'phase.create' || typeof change.id !== 'string') continue;
+      this.pendingPhases.add(change.id);
+      if (typeof change.copyOf === 'string') this.copies.set(change.id, change.copyOf);
+    }
   }
 
   get content() { return this.document.toJS() ?? {}; }
@@ -996,20 +1022,24 @@ class StudioCandidate {
         if (!workflow?.phases?.includes(source)) {
           throw new SingularityFlowError(`Workflow '${workflowId}' does not use step '${source}'.`, { code: 'STUDIO_PHASE_UNKNOWN' });
         }
-        const override = structuredClone(workflow.phaseOverrides?.[source] ?? {});
-        const base = node;
-        node = { ...base, ...override };
-        // Preserve the authored effective policy, using the same shallow field merges as resolution.
-        for (const field of ['artifact', 'worldModel', 'comparison', 'approval', 'generation']) {
-          if (override[field] && typeof override[field] === 'object' && !Array.isArray(override[field])) {
-            node[field] = { ...(typeof base[field] === 'object' ? base[field] : {}), ...override[field] };
-          }
-        }
+        // The step as that workflow runs it: the workflow's override folded in by the rule resolution
+        // uses, so settings the Studio does not show (input selectors and summaries, write scope, tool
+        // evidence, send-back targets) come along.
+        node = foldOverride(node, workflow.phaseOverrides?.[source]);
         if (workflow.templateOverrides?.[source] != null) node.defaultTemplate = workflow.templateOverrides[source];
+        // A workflow may say automatic (null) over the step's own drafting skill; a copy only one
+        // workflow uses says the same by leaving it out.
+        if (node.authoringSkill === null) delete node.authoringSkill;
       }
       node.label = name;
-      node.artifact = { ...(node.artifact ?? {}), path: `artifacts/${phaseId}/${phaseId}.md` };
+      // A member of an artifact set keeps the file name the set expects as its primary member.
+      const fileName = node.artifactSet !== undefined ? path.posix.basename(posix(String(node.artifact?.path ?? ''))) : `${phaseId}.md`;
+      node.artifact = { ...(node.artifact ?? {}), path: `artifacts/${phaseId}/${fileName}` };
       delete node.agents;
+      // A step that may be sent back to itself may be sent back to its copy, not to the step it copies.
+      if (Array.isArray(node.approval?.rejectTo)) node.approval.rejectTo = node.approval.rejectTo.map((target) => (target === source ? phaseId : target));
+      if (node.repairBudget?.resetOnPhase === source) node.repairBudget.resetOnPhase = phaseId;
+      this.copies.set(phaseId, source);
     } else {
       const firstGroup = Object.keys(this.content.approvalAuthorities ?? {})[0];
       node = {
@@ -1023,13 +1053,7 @@ class StudioCandidate {
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
     if (!copyOf || (output !== undefined && output !== outputOf(node))) this.setOutput(phaseId, output ?? 'document');
     if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
-    if (inputs !== undefined) {
-      const entries = inputs.map((input) => {
-        const inputId = this.requirePhase(requireId(input, 'An input step'));
-        return (node.inputs ?? []).find((entry) => (typeof entry === 'string' ? entry : entry?.phase) === inputId) ?? inputId;
-      });
-      this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(entries));
-    }
+    if (inputs !== undefined) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputs, node.inputs ?? [])));
     if (views !== undefined) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ depth: 'quick', ...(node.worldModel ?? {}), views: [...views] }));
     if (copyOf && approval != null) {
       const current = approvalSummary(node.approval);
@@ -1052,6 +1076,25 @@ class StudioCandidate {
     this.summary.push(copyOf
       ? `New step ${name}, a copy of ${this.phaseLabel(copyOf)}, drafted by ${this.agentLabel(agentId)}.`
       : `New step ${name}: drafted by ${this.agentLabel(agentId)}, ${node.approval === 'none' ? 'no sign-off' : `signed off by ${this.content.approvalAuthorities?.[approvalSummary(node.approval).authorities[0]]?.label ?? 'its group'}`}.`);
+  }
+
+  /**
+   * Input entries for a list of step IDs, each keeping the settings it has (optional, clause
+   * selector, summary projection, preserved headings, size limit): an ID that stays keeps its own
+   * entry, and a copy made in this change set keeps the entry of the step it copies.
+   */
+  inputEntries(ids, current) {
+    if (!Array.isArray(ids)) throw new SingularityFlowError('Inputs must be a list of step IDs.', { code: 'STUDIO_PHASE_UNKNOWN' });
+    const entries = Array.isArray(current) ? current : [];
+    const entryFor = (id) => entries.find((entry) => inputPhase(entry) === id);
+    return ids.map((input) => {
+      const id = requireId(input, 'An input step');
+      if (!this.pendingPhases.has(id)) this.requirePhase(id);
+      const own = entryFor(id);
+      if (own !== undefined) return structuredClone(own);
+      const replaced = this.copies.has(id) ? entryFor(this.copies.get(id)) : undefined;
+      return isObject(replaced) ? { ...structuredClone(replaced), phase: id } : id;
+    });
   }
 
   updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill }) {
@@ -1077,11 +1120,11 @@ class StudioCandidate {
     if (output != null) { this.setOutput(phaseId, output); changed.push('output'); }
     if (inputs != null) {
       const scope = scopeFor('inputs');
-      const ids = inputs.map((input) => this.requirePhase(requireId(input, 'An input step')));
-      // An input entry that stays keeps its own settings (selector, projection, preserved headings).
+      // An input entry that stays keeps its own settings (selector, projection, preserved headings),
+      // and so does one for a step this workflow now uses a copy of.
       const current = valueAt(scope, 'inputs') ?? this.phase(phaseId).inputs ?? [];
-      const entries = ids.map((id) => (Array.isArray(current) ? current : []).find((entry) => (typeof entry === 'string' ? entry : entry?.phase) === id) ?? id);
-      if (entries.length || scope === override) this.document.setIn([...scope, 'inputs'], this.document.createNode(entries));
+      const entries = this.inputEntries(inputs, current);
+      if (entries.length || scope === override) this.setKeepingStyle([...scope, 'inputs'], entries);
       else this.document.deleteIn([...scope, 'inputs']);
       changed.push('inputs');
     }
@@ -1208,8 +1251,141 @@ class StudioCandidate {
     if (changed.length) this.summary.push(`${name}: ${changed.join(', ')} changed.`);
   }
 
+  /** Replace a list or map, keeping how the one already there is written: `[a, b]` or one per line. */
+  setKeepingStyle(keys, value) {
+    this.document.setIn(keys, this.document.createNode(value, { flow: Boolean(this.document.getIn(keys, true)?.flow) }));
+  }
+
+  /**
+   * A copy made for a workflow takes the place of the step it copies there. Once the workflow lists
+   * the copy instead of the step, whatever in that workflow named the step names the copy: other
+   * steps' inputs (each keeping its settings), send-back targets and test evidence, the workflow's
+   * own rules, and the shared lists that allow the step something allow the copy the same.
+   */
+  rewireCopies() {
+    for (const [copyId, source] of this.copies) {
+      if (!this.phase(copyId)) continue;
+      for (const workflowId of this.usedBy(copyId)) {
+        const type = this.content.workTypes?.[workflowId];
+        const order = type?.phases ?? [];
+        if (!order.includes(copyId) || order.includes(source)) continue;
+        const moved = new Set();
+        for (const stepId of order) if (stepId !== copyId) this.renameStepReferences(workflowId, stepId, source, copyId, moved);
+        this.renameWorkflowReferences(workflowId, source, copyId, moved);
+        this.allowCopyLikeSource(workflowId, source, copyId, moved);
+        if (!moved.size) continue;
+        const words = [...moved];
+        this.summary.push(`In ${type.label ?? workflowId}, ${this.phaseLabel(copyId)} takes the place of ${this.phaseLabel(source)} in ${words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]}.`);
+      }
+    }
+  }
+
+  /**
+   * Point one step's references at the copy. A field the workflow's override already sets changes
+   * there, and so does any field of a step other workflows share, so the change reaches only this
+   * workflow; a step only this workflow uses changes its own definition.
+   */
+  renameStepReferences(workflowId, stepId, from, to, moved) {
+    const override = this.content.workTypes[workflowId].phaseOverrides?.[stepId] ?? {};
+    const base = this.phase(stepId) ?? {};
+    const shared = this.usedBy(stepId).length > 1;
+    const own = ['workTypes', workflowId, 'phaseOverrides', stepId];
+    const scope = (field) => (Object.hasOwn(override, field) || shared ? own : ['phases', stepId]);
+    const valueOf = (field) => (Object.hasOwn(override, field) ? override[field] : base[field]);
+    const inputs = valueOf('inputs');
+    if (Array.isArray(inputs) && inputs.some((entry) => inputPhase(entry) === from)) {
+      this.setKeepingStyle([...scope('inputs'), 'inputs'], inputs.map((entry) => (
+        inputPhase(entry) !== from ? entry : typeof entry === 'string' ? to : { ...entry, phase: to })));
+      moved.add("the steps' inputs");
+    }
+    if (valueOf('testEvidenceFrom') === from) {
+      this.document.setIn([...scope('testEvidenceFrom'), 'testEvidenceFrom'], to);
+      moved.add('test evidence');
+    }
+    // An override's repair budget replaces the step's whole, so the whole budget is written.
+    const budget = valueOf('repairBudget');
+    if (isObject(budget) && budget.resetOnPhase === from) {
+      this.setKeepingStyle([...scope('repairBudget'), 'repairBudget'], { ...budget, resetOnPhase: to });
+      moved.add('send-back limits');
+    }
+    // An override's approval merges over the step's key by key, so only its targets are written there.
+    const ownApproval = override.approval;
+    const rejectTo = typeof ownApproval === 'string' ? null
+      : isObject(ownApproval) && Object.hasOwn(ownApproval, 'rejectTo') ? ownApproval.rejectTo
+        : isObject(base.approval) ? base.approval.rejectTo : null;
+    if (Array.isArray(rejectTo) && rejectTo.includes(from)) {
+      const where = isObject(ownApproval) || shared ? own : ['phases', stepId];
+      this.setKeepingStyle([...where, 'approval', 'rejectTo'], rejectTo.map((target) => (target === from ? to : target)));
+      moved.add('send-back targets');
+    }
+  }
+
+  /** The workflow's own rules and policies that name the step. */
+  renameWorkflowReferences(workflowId, from, to, moved) {
+    const type = this.content.workTypes[workflowId];
+    const swap = (id) => (id === from ? to : id);
+    const set = (keys, value, words) => { this.setKeepingStyle(['workTypes', workflowId, ...keys], value); moved.add(words); };
+    const named = (object, keys) => keys.some((key) => object?.[key] === from);
+    const renamedFields = (object, keys) => ({ ...object, ...Object.fromEntries(keys.filter((key) => object[key] !== undefined).map((key) => [key, swap(object[key])])) });
+    const loops = type.reworkLoops ?? [];
+    if (loops.some((loop) => named(loop, ['from', 'to', 'resetOnPhase']))) {
+      set(['reworkLoops'], loops.map((loop) => renamedFields(loop, ['from', 'to', 'resetOnPhase'])), 'send-back rules');
+    }
+    const decisions = type.decisions ?? [];
+    if (decisions.some((decision) => named(decision, ['after', 'back']) || (decision?.routes ?? []).some((route) => named(route, ['to'])))) {
+      set(['decisions'], decisions.map((decision) => ({
+        ...renamedFields(decision, ['after', 'back']),
+        ...(Array.isArray(decision.routes) ? { routes: decision.routes.map((route) => renamedFields(route, ['to'])) } : {})
+      })), 'decisions');
+    }
+    const claims = type.plannedClaims;
+    if (Array.isArray(claims?.clausePhases) && claims.clausePhases.includes(from)) set(['plannedClaims', 'clausePhases'], claims.clausePhases.map(swap), 'planned claims');
+    if (isObject(claims?.owners) && Object.entries(claims.owners).some(([code, owner]) => code === from || owner === from)) {
+      set(['plannedClaims', 'owners'], Object.fromEntries(Object.entries(claims.owners).map(([code, owner]) => [swap(code), swap(owner)])), 'planned claims');
+    }
+    if (Array.isArray(type.documents?.allowedPhases) && type.documents.allowedPhases.includes(from)) set(['documents', 'allowedPhases'], type.documents.allowedPhases.map(swap), 'document uploads');
+    const design = type.designSources;
+    if (isObject(design)) {
+      // Design sources are captured in design-intake unless the workflow names another step.
+      if ((design.capturePhase ?? 'design-intake') === from) set(['designSources', 'capturePhase'], to, 'design sources');
+      if (Array.isArray(design.consumeIn) && design.consumeIn.includes(from)) set(['designSources', 'consumeIn'], design.consumeIn.map(swap), 'design sources');
+    }
+    if (isObject(type.fastPath) && this.fastPathProfile) {
+      const profile = this.fastPathProfile({ workTypes: { [workflowId]: type } }, workflowId);
+      for (const [verb, entry] of Object.entries(profile?.verbs ?? {})) {
+        if (!entry.phases.includes(from)) continue;
+        // A verb without a list owns the step it is named for, so once that step is copied the list is spelled out.
+        const configured = type.fastPath[verb];
+        if (typeof configured === 'string') set(['fastPath', verb], { milestone: configured, phases: entry.phases.map(swap) }, 'the fast path');
+        else set(['fastPath', verb, 'phases'], entry.phases.map(swap), 'the fast path');
+      }
+    }
+  }
+
+  /** Shared lists that allow the step something allow its copy the same. */
+  allowCopyLikeSource(workflowId, from, to, moved) {
+    const content = this.content;
+    const add = (keys, list, words) => {
+      if (!Array.isArray(list) || !list.includes(from) || list.includes(to)) return;
+      const next = [...list];
+      next.splice(next.indexOf(from) + 1, 0, to);
+      this.setKeepingStyle(keys, next);
+      moved.add(words);
+    };
+    for (const [serverId, server] of Object.entries(content.mcpServers ?? {})) add(['mcpServers', serverId, 'phases'], server?.phases, 'MCP servers');
+    // A workflow that lists its own document steps does not read the shared list.
+    if (!Array.isArray(content.workTypes?.[workflowId]?.documents?.allowedPhases)) add(['documents', 'allowedPhases'], content.documents?.allowedPhases, 'document uploads');
+    for (const field of ['allowedPhases', 'blockRequiredUnfulfilledAt']) add(['architectureIntent', field], content.architectureIntent?.[field], 'architecture intent');
+    const context = content.contextPolicy?.phaseOverrides;
+    if (isObject(context) && Object.hasOwn(context, from) && !Object.hasOwn(context, to)) {
+      this.document.setIn(['contextPolicy', 'phaseOverrides', to], this.document.createNode(structuredClone(context[from])));
+      moved.add('context handling');
+    }
+  }
+
   /** Pin planned claims, trim agents to existing steps, and check every step has one agent. */
   finalize(problems) {
+    this.rewireCopies();
     for (const [workflowId, { newlyCreated }] of this.workflows) {
       try { pinAuthoredStoryPlannedClaims(this.document, STORES.story, workflowId, { newlyCreated }); }
       catch (error) { problems.push({ code: error?.code ?? 'STUDIO_PLANNED_CLAIMS', message: error.message, subject: { kind: 'workflow', id: workflowId } }); }
@@ -1297,6 +1473,17 @@ function orderChanges(changes) {
 function safeMarketplaces(value, problems) {
   try { return normalizeMarketplaces(value ?? {}); }
   catch (error) { problems.push({ code: error?.code ?? 'MARKETPLACE_INVALID', message: error.message }); return {}; }
+}
+
+/** A step's shared definition with one workflow's override folded in, by the engine's own rule. */
+function foldOverride(phase, override) {
+  if (!isObject(override)) return phase;
+  const merged = mergePhaseOverride(phase, structuredClone(override));
+  // The merge spells out every object it combines; keep only what either side wrote.
+  for (const key of Object.keys(merged)) {
+    if (merged[key] === undefined || !(Object.hasOwn(phase, key) || Object.hasOwn(override, key))) delete merged[key];
+  }
+  return merged;
 }
 
 function sameContent(before, after) {
@@ -1412,7 +1599,10 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   }
   const candidate = new StudioCandidate(sources);
   const problems = [];
-  for (const change of orderChanges(changeSet.changes)) {
+  const changes = orderChanges(changeSet.changes);
+  candidate.expect(changes);
+  candidate.fastPathProfile = (await import('./fast-path.mjs')).fastPathProfile;
+  for (const change of changes) {
     try { candidate.apply(change); }
     catch (error) {
       const subjectId = change?.id ?? change?.phase ?? null;

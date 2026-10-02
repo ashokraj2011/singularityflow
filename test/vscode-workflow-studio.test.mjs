@@ -27,13 +27,37 @@ function studioLogic() {
   return { logic: window.__workflowStudio, posted };
 }
 
-async function repository() {
+async function repository({ edit = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-page-'));
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Studio\n');
   run(process.execPath, [bin, 'init'], root);
+  if (edit) {
+    const YAML = (await import('yaml')).default;
+    const file = path.join(root, 'singularity/workflow.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    edit(document);
+    await writeFile(file, document.toString());
+  }
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
   return root;
+}
+
+/** A workflow whose design step reads requirements only when a branch did not skip them. */
+function decisionDemo(document) {
+  document.setIn(['workTypes', 'decide-demo'], document.createNode({
+    label: 'Decision demo', phases: ['intake', 'requirements', 'design', 'implementation-spec'],
+    phaseOverrides: {
+      requirements: { inputs: ['intake'] },
+      design: { inputs: ['intake', { phase: 'requirements', optional: true }] },
+      'implementation-spec': { inputs: ['intake', { phase: 'design', projection: 'approved-summary', preserve: ['Proposed design', 'Alternatives and decisions'] }] }
+    },
+    decisions: [{
+      id: 'needs-requirements', after: 'intake', kind: 'branch', label: 'Does this need full requirements?',
+      inputs: [{ name: 'risk', label: 'Risk', values: ['low', 'medium', 'high'] }],
+      routes: [{ id: 'risky', label: 'Risky', when: { risk: ['medium', 'high'] }, to: 'requirements' }, { id: 'simple', label: 'Simple', to: 'design' }]
+    }]
+  }));
 }
 
 const check = (root, changeSet) => JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', 'apply', '--change-set', '-', '--dry-run', '--json'], root, JSON.stringify(changeSet)).stdout);
@@ -110,6 +134,112 @@ test('a step that is used by other workflows can be copied so this workflow choo
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   const workflow = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
   assert.doesNotMatch(workflow, /design-feature/, 'a check writes nothing');
+});
+
+test('"Use a copy in this workflow" keeps every input setting, so a branch that skips an optional input still checks', async () => {
+  const YAML = (await import('yaml')).default;
+  const root = await repository({ edit: decisionDemo });
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  assert.deepEqual(draft.steps['decide-demo'].design.inputs, ['intake', 'requirements'], 'the page keeps only step IDs');
+  const id = logic.copyStep(model, draft, 'decide-demo', 'design');
+  assert.equal(id, 'design-decide-demo');
+  assert.equal(logic.copyStep(model, draft, 'decide-demo', 'design'), null, 'a workflow gets one copy of a step');
+  assert.deepEqual(draft.workflows['decide-demo'].phases, ['intake', 'requirements', 'design-decide-demo', 'implementation-spec']);
+  assert.equal(draft.workflows['decide-demo'].decisions[0].routes[1].to, 'design-decide-demo', 'the branch now skips to the copy');
+  const changeSet = logic.changeSetFrom(model, draft);
+  const create = changeSet.changes.find((change) => change.op === 'phase.create');
+  assert.deepEqual([create.copyOf, create.copyFromWorkflow, create.inputs], ['design', 'decide-demo', ['intake', 'requirements']], 'the copy names the workflow whose settings it keeps');
+
+  const plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  run(process.execPath, [bin, 'workflow', 'studio', 'apply', '--change-set', '-', '--json'], root, JSON.stringify(changeSet));
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(after.phases[id].inputs, ['intake', { phase: 'requirements', optional: true }]);
+  assert.deepEqual(after.workTypes['decide-demo'].phaseOverrides['implementation-spec'].inputs[1],
+    { phase: id, projection: 'approved-summary', preserve: ['Proposed design', 'Alternatives and decisions'] }, 'the step reading the copy keeps its summary settings');
+  run(process.execPath, [bin, 'workflow', 'validate', 'decide-demo'], root);
+});
+
+test('copies keep their input settings when the workflow is a new duplicate and when two copies read each other', async () => {
+  const YAML = (await import('yaml')).default;
+  const root = await repository({ edit: decisionDemo });
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+
+  // Duplicated in the page, then a step copied in the duplicate before either exists in the file.
+  let draft = logic.initialDraft(model);
+  draft.workflows['decide-copy'] = { ...structuredClone(draft.workflows['decide-demo']), id: 'decide-copy', label: 'Decide copy', isNew: true, copyOf: 'decide-demo' };
+  draft.steps['decide-copy'] = structuredClone(draft.steps['decide-demo']);
+  logic.copyStep(model, draft, 'decide-copy', 'design');
+  let plan = check(root, logic.changeSetFrom(model, draft));
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+
+  // Design copied first, then requirements: the first copy reads the second, and the optional flag
+  // moves with it.
+  draft = logic.initialDraft(model);
+  logic.copyStep(model, draft, 'decide-demo', 'design');
+  logic.copyStep(model, draft, 'decide-demo', 'requirements');
+  const changeSet = logic.changeSetFrom(model, draft);
+  assert.deepEqual(changeSet.changes.filter((change) => change.op === 'phase.create').map((change) => change.id), ['design-decide-demo', 'requirements-decide-demo']);
+  plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  run(process.execPath, [bin, 'workflow', 'studio', 'apply', '--change-set', '-', '--json'], root, JSON.stringify(changeSet));
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(after.phases['design-decide-demo'].inputs, ['intake', { phase: 'requirements-decide-demo', optional: true }]);
+  assert.deepEqual(after.workTypes['decide-demo'].decisions[0].routes.map((route) => route.to), ['requirements-decide-demo', 'design-decide-demo']);
+});
+
+test('a copy runs in its workflow exactly as the step it replaces, in each packaged workflow it is tried in', async () => {
+  const { cp } = await import('node:fs/promises');
+  const { loadDefinition, resolveWorkType } = await import(path.join(packageRoot, 'src/config.mjs'));
+  const { fastPathProfile } = await import(path.join(packageRoot, 'src/fast-path.mjs'));
+  const { planStudioChangeSet } = await import(path.join(packageRoot, 'src/workflow-studio.mjs'));
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const before = await loadDefinition(root);
+  const { logic } = studioLogic();
+  // Every value naming the step should name the copy, except values that only look like a step ID
+  // (an artifact kind, a knowledge view, a comparison identifier, an artifact-set role, a fixed
+  // policy key) and what a copy changes on purpose (its name and artifact path).
+  const rename = (value, from, to) => (Array.isArray(value) ? value.map((entry) => rename(entry, from, to))
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [key === from ? to : key, rename(entry, from, to)]))
+      : value === from ? to : value);
+  const differences = (a, b, at = '', out = []) => {
+    if (JSON.stringify(a) === JSON.stringify(b)) return out;
+    if (a && b && typeof a === 'object' && typeof b === 'object') { for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) differences(a[key], b[key], `${at}.${key}`, out); return out; }
+    out.push(at);
+    return out;
+  };
+  const expected = [/^\.phases\.\d+\.(label|defaultTemplate|artifact\.(path|kind)|inputs\.\d+\.path|worldModel\.views\.\d+|comparison\.identifiers\.\d+)$/,
+    /^\.(artifactSets|harnessImports|verification|architectureIntent)\b/];
+  // Each covers a different way a copy used to lose its settings: per-workflow template, write scope,
+  // tool evidence and test evidence; summary inputs in both directions and the fast path; planned
+  // claims; design sources; an artifact set's file name; global lists that allow the step.
+  for (const [workflowId, phaseId] of [['spec-code-test-loop', 'testing'], ['spec-driven-standard', 'verification'], ['feature', 'implementation'],
+    ['figma-mobile', 'conformance'], ['reference-driven-build', 'release'], ['classic-delivery', 'intake'], ['feature', 'design']]) {
+    const draft = logic.initialDraft(model);
+    const copyId = logic.copyStep(model, draft, workflowId, phaseId);
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-copy-'));
+    await cp(root, scratch, { recursive: true });
+    const plan = await planStudioChangeSet(scratch, logic.changeSetFrom(model, draft), { write: true }).catch((error) => ({ valid: false, problems: [error.message] }));
+    assert.equal(plan.valid, true, `${workflowId} ${phaseId}: ${JSON.stringify(plan.problems)}`);
+    const after = await loadDefinition(scratch);
+    const changed = differences(rename(resolveWorkType(before, workflowId), phaseId, copyId), resolveWorkType(after, workflowId))
+      .filter((at) => !expected.some((pattern) => pattern.test(at)));
+    assert.deepEqual(changed, [], `${workflowId}: copying ${phaseId} changed how the workflow runs`);
+    assert.deepEqual(fastPathProfile(after, workflowId), rename(fastPathProfile(before, workflowId), phaseId, copyId), `${workflowId}: fast path`);
+    // Shared lists outside the workflow (its document steps are compared with the rest of it above).
+    const allowLists = (definition) => new Map([
+      ...Object.entries(definition.architectureIntent ?? {}).map(([key, value]) => [`architectureIntent.${key}`, value]),
+      ...Object.entries(definition.mcpServers ?? {}).map(([id, server]) => [`mcpServers.${id}.phases`, server.phases])
+    ]);
+    const allowed = allowLists(after);
+    for (const [name, list] of allowLists(before)) {
+      if (Array.isArray(list) && list.includes(phaseId)) assert.ok(allowed.get(name).includes(copyId), `${workflowId}: ${name} allows ${copyId} as it allows ${phaseId}`);
+    }
+  }
 });
 
 test('the publish command follows the authority the model came from', async () => {

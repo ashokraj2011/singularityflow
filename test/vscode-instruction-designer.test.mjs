@@ -8,8 +8,11 @@
  * vscode-inbox-refresh.test.mjs, so the real panel class handles the messages.
  */
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { register } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
 
 let createdPanel = null;
 globalThis.__sfInstructionDesignerTestVscode = {
@@ -47,10 +50,141 @@ register('data:text/javascript,' + encodeURIComponent(`
   }
 `));
 
+const { InstructionDesignerPanel } = await import('../apps/vscode/src/views/instruction-designer.ts');
+const { INSTRUCTION_DESIGNER_SCRIPT } = await import('../apps/vscode/src/views/instruction-designer-page.ts');
 const { parseAgent, renderAgent } = await import('../apps/vscode/src/views/instruction-designer-model.ts');
-const { parseAgentDependencies } = await import('../src/agents.mjs');
+const { agentStatus, lockAgent, parseAgentDependencies } = await import('../src/agents.mjs');
 
 const SOURCE = '.github/agents/reviewer.agent.md';
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const decode = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+/**
+ * Click a button on the page the host rendered and return the message the page's own script posts.
+ * Controls read the way a browser presents them: an input's value loses its line breaks, a textarea
+ * drops one leading newline, and a select reports its selected option. `values` and `checked`
+ * stand in for what a person typed or ticked.
+ */
+function click(html, button, { values = {}, checked = {} } = {}) {
+  const markup = html.replace(/<script\b[\s\S]*?<\/script>/g, '');
+  const has = (tag, name) => new RegExp(`\\s${name}(?=[\\s>=]|$)`).test(tag);
+  const attribute = (tag, name) => {
+    const found = new RegExp(`\\s${name}="([^"]*)"`).exec(tag);
+    return found ? decode(found[1]) : null;
+  };
+  const control = (scope, name) => {
+    const input = [...scope.matchAll(/<input\b[^>]*>/g)].map(([tag]) => tag).find((tag) => has(tag, name));
+    if (input) return { value: (attribute(input, 'value') ?? '').replace(/[\r\n]/g, ''), checked: has(input, 'checked') };
+    const area = [...scope.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)].find(([, tag]) => has(tag, name));
+    if (area) return { value: decode(area[2]).replace(/^\n/, '') };
+    const select = [...scope.matchAll(/<select\b([^>]*)>([\s\S]*?)<\/select>/g)].find(([, tag]) => has(tag, name));
+    if (!select) return null;
+    const options = [...select[2].matchAll(/<option\b([^>]*)>/g)].map(([, tag]) => tag);
+    const chosen = options.find((tag) => has(tag, 'selected')) ?? options[0];
+    return { value: chosen ? attribute(chosen, 'value') ?? '' : '' };
+  };
+  let listener = null;
+  const messages = [];
+  const document = {
+    addEventListener(name, handler) { if (name === 'click') listener = handler; },
+    querySelector(selector) {
+      const name = /^\[([a-z-]+)\]$/.exec(selector)?.[1];
+      const found = !name ? null : Object.hasOwn(values, name) ? { value: values[name] } : control(markup, name);
+      return found && { ...found, addEventListener() {} };
+    },
+    querySelectorAll(selector) {
+      const kind = /^\[data-remote-row="([a-z]+)"\]$/.exec(selector)?.[1];
+      if (kind) {
+        return [...markup.matchAll(new RegExp(`<div class="remote-row" data-remote-row="${kind}">([\\s\\S]*?)</div>`, 'g'))]
+          .map(([, row]) => ({ querySelector: (inner) => control(row, inner.slice(1, -1)) }));
+      }
+      const name = /^input\[name="([^"]+)"\]:checked$/.exec(selector)?.[1];
+      if (!name) return [];
+      if (Object.hasOwn(checked, name)) return checked[name].map((value) => ({ value }));
+      return [...markup.matchAll(/<input\b[^>]*>/g)].map(([tag]) => tag)
+        .filter((tag) => attribute(tag, 'name') === name && has(tag, 'checked'))
+        .map((tag) => ({ value: attribute(tag, 'value') }));
+    }
+  };
+  new Function('window', 'document', INSTRUCTION_DESIGNER_SCRIPT)(
+    { __sfVscode: { postMessage(message) { messages.push(message); } } }, document);
+  listener({ target: { closest: () => ({ dataset: button }) } });
+  return messages[0];
+}
+
+/** The real panel over a snapshot holding these agents; every save it asks for is recorded. */
+async function openDesigner(t, agents, { reply = async () => null } = {}) {
+  const saves = [];
+  const snapshot = {
+    definition: { phases: { design: { label: 'Design' }, implementation: { label: 'Implementation' } } },
+    agents: agents.map(([id, content]) => ({ id, path: `.github/agents/${id}.agent.md`, content, editable: true, scope: 'repository' }))
+  };
+  const store = { current: { snapshot }, onDidChange: () => ({ dispose() {} }), acquireSlices: async () => ({ dispose() {} }) };
+  await InstructionDesignerPanel.show({ extensionUri: {} }, store, async (message) => {
+    if (message.type === 'save') saves.push(message);
+    return reply(message);
+  });
+  const panel = createdPanel;
+  t.after(() => panel.dispose());
+  const send = async (message) => {
+    panel.post(message);
+    for (let tick = 0; tick < 5; tick += 1) await settle();
+  };
+  return {
+    saves, send,
+    html: () => panel.webview.html,
+    save: (edits) => send(click(panel.webview.html, { saveAgent: '1' }, edits))
+  };
+}
+
+/** A temporary repository holding one agent, as `agents lock` and `agents status` read it. */
+async function repositoryWithAgent(content) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-designer-'));
+  await mkdir(path.join(root, '.github/agents'), { recursive: true });
+  await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
+  await writeFile(path.join(root, SOURCE), content);
+  return root;
+}
+
+const REMOTE_AGENT = `---
+name: reviewer
+description: |
+  Reviews designs against the evidence
+  the phase approved.
+tools: [read, search]
+metadata:
+  sflow-label: "Reviewer"
+  sflow-phases: "design"
+---
+
+# Reviewer
+
+Use evidence.
+
+## Remote skills
+
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| guide | https://example.test/guide.md | design | true | 1024 |
+| checklist | https://example.test/checklist.md | - | false |  |
+
+## Remote artifact templates
+
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| design-template | https://example.test/template.md | design | false | - |
+
+## Remote generated artifacts
+
+| ID | URL template | Phase | Target | Optional | Max bytes |
+|---|---|---|---|---|---|
+| design-export | https://example.test/{workId}/design.md | design | artifacts/design/external-review.md | true | 2048 |
+
+## Final instruction
+
+Stop for human review.
+`;
 
 test('an indented remote table is replaced by the designer save, not left ahead of it', () => {
   // Markdown and the CLI both accept indented table rows and headings. The designer used to strip
@@ -83,4 +217,34 @@ test('an indented remote table is replaced by the designer save, not left ahead 
   assert.deepEqual(after.templates.map(({ id, url, phases, optional, maxBytes }) => ({ id, url, phases, optional, maxBytes })),
     before.templates.map(({ id, url, phases, optional, maxBytes }) => ({ id, url, phases, optional, maxBytes })));
   assert.match(after.prompt, /^# Reviewer\n\nUse evidence\.\n\nStop for human review\.\n\n## Remote skills/);
+});
+
+test('an untouched designer save keeps an agent with remote resources byte-identical, so its lock stays current', async (t) => {
+  // The page builds remote rows key by key and shows an empty max-bytes cell as '-'; the input holding
+  // the description cannot keep the line breaks of a block scalar, and the host trims it. None of
+  // that is an edit, so the save must hand the CLI the file's own bytes.
+  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]]);
+  await designer.save();
+  assert.equal(designer.saves.length, 1);
+  assert.equal(designer.saves[0].content, REMOTE_AGENT, 'nothing was edited, so nothing may change');
+
+  // The lock is keyed to the file's hash: one changed byte reports the agent stale and asks for a
+  // fresh `agents lock --update` review of resources nobody changed.
+  const root = await repositoryWithAgent(REMOTE_AGENT);
+  const fetchImpl = async () => ({ ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => Buffer.from('# Guidance\n') });
+  await lockAgent(root, 'reviewer', { accepted: true, fetchImpl });
+  await writeFile(path.join(root, SOURCE), designer.saves[0].content);
+  const [status] = await agentStatus(root, 'reviewer');
+  assert.equal(status.sourceChanged, false);
+  assert.notEqual(status.status, 'stale');
+
+  // Editing only the description leaves the instructions and every table where the author put them.
+  await designer.save({ values: { 'data-agent-description': 'Reviews designs carefully.' } });
+  const body = (text) => text.slice(text.indexOf('\n---\n') + 5);
+  assert.equal(body(designer.saves[1].content), body(REMOTE_AGENT));
+  const edited = parseAgentDependencies(designer.saves[1].content, { source: SOURCE });
+  const original = parseAgentDependencies(REMOTE_AGENT, { source: SOURCE });
+  assert.equal(edited.description, 'Reviews designs carefully.');
+  assert.deepEqual(edited.dependencies, original.dependencies);
+  assert.equal(edited.prompt, original.prompt);
 });

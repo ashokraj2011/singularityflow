@@ -155,6 +155,15 @@ function withoutRemoteTables(content: string): string {
 
 function bool(valueToParse: string): boolean { return ['true', 'yes'].includes(valueToParse.toLowerCase()); }
 
+/**
+ * An agent description as the form holds it: one trimmed line. The form edits it in a single-line
+ * input, which drops line breaks, and a `description: |` block ends in one. parseAgent and the host's
+ * save both read it through here, so an untouched description compares equal to the file's own.
+ */
+export function agentDescription(valueToRead: unknown): string {
+  return typeof valueToRead === 'string' ? valueToRead.replace(/\s*[\r\n]+\s*/g, ' ').trim() : '';
+}
+
 export function instructionCatalog(snapshot: RepositorySnapshot): InstructionCatalog {
   const definition = snapshot.definition;
   const phases = Object.entries(definition?.phases ?? {}).map(([id, phase]) => ({ id, label: phase.label ?? id }));
@@ -227,7 +236,7 @@ export function parseAgent(content: string, fallbackId = ''): AgentDraft {
     sourceText: content,
     id: typeof header.name === 'string' && ID.test(header.name) ? header.name : fallbackId,
     label: metadata['sflow-label'] || header.name || fallbackId,
-    description: typeof header.description === 'string' ? header.description : '',
+    description: agentDescription(header.description),
     phases: list(metadata['sflow-phases'] ?? ''),
     defaultFor: list(metadata['sflow-default-for'] ?? ''),
     worldModelViews: list(metadata['sflow-world-model-views'] ?? ''),
@@ -321,32 +330,56 @@ function remoteTables(draft: AgentDraft): string {
   ].filter(Boolean).join('\n\n');
 }
 
+const HEADER_FIELDS = ['id', 'description', 'tools', 'label', 'phases', 'defaultFor', 'worldModelViews'] as const;
+const BODY_FIELDS = ['body', 'remoteSkills', 'remoteTemplates', 'remoteOutputs'] as const;
+type AgentField = typeof HEADER_FIELDS[number] | typeof BODY_FIELDS[number];
+
+/**
+ * A field's value as the CLI reads it. The host, the page and parseAgent each shape a draft their
+ * own way: checkboxes follow catalog order, the page builds remote rows key by key, an empty
+ * max-bytes cell comes back as '-', and '-' or '*' alone means every phase. Comparing these values
+ * instead of the drafts is what lets an untouched save return the file's own bytes.
+ */
+function comparable(draft: AgentDraft, key: AgentField): string {
+  const text = (valueToRead: unknown): string => String(valueToRead ?? '').trim();
+  const set = (values: unknown, anyPhase = false): string[] => {
+    const entries = [...new Set((Array.isArray(values) ? values : []).map(text).filter(Boolean))].sort();
+    return anyPhase && entries.length === 1 && ['-', '*'].includes(entries[0]!) ? [] : entries;
+  };
+  const limit = (valueToRead: unknown): string => text(valueToRead) || '-';
+  switch (key) {
+    case 'description': return JSON.stringify(agentDescription(draft.description));
+    case 'tools': return JSON.stringify(set(draft.tools));
+    case 'phases': case 'defaultFor': case 'worldModelViews': return JSON.stringify(set(draft[key], true));
+    case 'remoteSkills': case 'remoteTemplates':
+      return JSON.stringify(draft[key].map((entry) =>
+        [text(entry.id), text(entry.url), set(entry.phases, true), Boolean(entry.optional), limit(entry.maxBytes)]));
+    case 'remoteOutputs':
+      return JSON.stringify(draft.remoteOutputs.map((entry) =>
+        [text(entry.id), text(entry.urlTemplate), text(entry.phase), text(entry.target), Boolean(entry.optional), limit(entry.maxBytes)]));
+    default: return JSON.stringify(text(draft[key]));
+  }
+}
+
 export function renderAgent(draft: AgentDraft, sourceText = draft.sourceText ?? ''): string {
   const original = frontmatter(sourceText);
   const before = sourceText ? parseAgent(sourceText, draft.id) : null;
+  const unchanged = (key: AgentField): boolean => before !== null && comparable(before, key) === comparable(draft, key);
   const document = YAML.parseDocument(original.header || '{}');
   if (document.errors.length) throw new Error('Agent frontmatter is not valid YAML.');
-  const same = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
-  // Checkbox order follows the catalog, not an intentional reordering of the authored lists.
-  const fieldUnchanged = (key: keyof AgentDraft): boolean => Boolean(before && (
-    Array.isArray(before[key]) && Array.isArray(draft[key])
-      ? same([...before[key]].sort(), [...draft[key]].sort()) : same(before[key], draft[key])
-  ));
-  const set = (key: keyof AgentDraft, field: string[], value: unknown): void => {
-    if (!fieldUnchanged(key)) document.setIn(field, document.createNode(value));
+  const set = (key: AgentField, field: string[], value: unknown): void => {
+    if (!unchanged(key)) document.setIn(field, document.createNode(value));
   };
   set('id', ['name'], draft.id);
-  set('description', ['description'], draft.description.trim());
+  set('description', ['description'], agentDescription(draft.description));
   set('tools', ['tools'], draft.tools);
   set('label', ['metadata', 'sflow-label'], draft.label.trim());
   set('phases', ['metadata', 'sflow-phases'], draft.phases.join(','));
   set('defaultFor', ['metadata', 'sflow-default-for'], draft.defaultFor.join(','));
   set('worldModelViews', ['metadata', 'sflow-world-model-views'], draft.worldModelViews.join(','));
-  const bodyUnchanged = before && ['body', 'remoteSkills', 'remoteTemplates', 'remoteOutputs']
-    .every((key) => same(before[key as keyof AgentDraft], draft[key as keyof AgentDraft]));
+  const bodyUnchanged = BODY_FIELDS.every(unchanged);
   const body = bodyUnchanged ? original.body : `\n${[draft.body.trim(), remoteTables(draft)].filter(Boolean).join('\n\n')}\n`;
-  const headerUnchanged = before && ['id', 'description', 'tools', 'label', 'phases', 'defaultFor', 'worldModelViews']
-    .every((key) => fieldUnchanged(key as keyof AgentDraft));
+  const headerUnchanged = HEADER_FIELDS.every(unchanged);
   if (headerUnchanged && bodyUnchanged) return sourceText;
   const header = headerUnchanged ? `${original.header}\n` : document.toString({ lineWidth: 0 });
   const rendered = `---\n${header}---\n${body}`;

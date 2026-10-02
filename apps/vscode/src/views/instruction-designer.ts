@@ -5,7 +5,7 @@ import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  agentPath, instructionCatalog, parseAgent, parsePrompt, parseSkill, promptPath, renderAgent,
+  agentDescription, agentPath, instructionCatalog, parseAgent, parsePrompt, parseSkill, promptPath, renderAgent,
   renderAgentMappings, renderPrompt, renderSkill, skillPath, validateAgent, validateAgentMappingsDraft,
   validatePrompt, validateSkill,
   type AgentDraft, type InstructionCatalog, type InstructionEntry, type InstructionTab,
@@ -231,7 +231,7 @@ export class InstructionDesignerPanel {
     if (message.type === 'cancel') { this.load(this.entries(catalog)[0] ?? null); return this.render(); }
     if (message.type === 'save-agent') {
       const draft: AgentDraft = { id: String(message.id ?? '').trim(), label: String(message.label ?? '').trim(),
-        description: String(message.description ?? '').trim(), phases: this.strings(message.phases),
+        description: agentDescription(message.description), phases: this.strings(message.phases),
         defaultFor: this.strings(message.defaultFor), worldModelViews: this.strings(message.worldModelViews),
         tools: this.strings(message.tools), body: String(message.body ?? ''),
         remoteSkills: Array.isArray(message.remoteSkills) ? message.remoteSkills as AgentDraft['remoteSkills'] : [],

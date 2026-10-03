@@ -180,9 +180,9 @@ export const THEME_STYLE = `
     background: var(--sf-accent); box-shadow: 0 0 8px var(--sf-accent); }
 
   /* The pieces the product's screens share. */
-  .field > span { font-family: var(--sf-font-mono); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  .field > span:first-child:not(.hint) { font-family: var(--sf-font-mono); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
     color: var(--sf-text); }
-  .field > span small { font-weight: 600; color: var(--sf-faint); }
+  .field > span:first-child:not(.hint) small { font-weight: 600; color: var(--sf-faint); }
   .field-info::after { font-family: var(--vscode-font-family); font-weight: 400; letter-spacing: normal; text-transform: none; }
   .sf-field-row { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 2fr); gap: 1rem; margin: .25rem 0 1.1rem; }
   .sf-field-row:has(> .field:only-child) { grid-template-columns: minmax(0, 1fr); }

@@ -136,7 +136,20 @@
     "notifications.border": "#212a24",
     "scrollbarSlider.background": "#2f3b3380",
     "scrollbarSlider.hoverBackground": "#2f3b33c0",
-    "scrollbarSlider.activeBackground": "#3d8e1080"
+    "scrollbarSlider.activeBackground": "#3d8e1080",
+
+    "charts.foreground": "#e4ebe6",
+    "charts.lines": "#2f3b33",
+    "charts.green": "#3d8e10",
+    "charts.blue": "#3794ff",
+    "charts.purple": "#b180d7",
+    "charts.orange": "#d18616",
+    "charts.yellow": "#cca700",
+    "charts.red": "#f14c4c",
+    "minimap.findMatchHighlight": "#3d8e10aa",
+    "editorWarning.foreground": "#cca700",
+    "editorError.foreground": "#f14c4c",
+    "editorInfo.foreground": "#3794ff"
   },
   "tokenColors": [
     { "scope": ["comment", "punctuation.definition.comment"], "settings": { "foreground": "#5e6a63", "fontStyle": "italic" } },

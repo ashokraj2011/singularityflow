@@ -453,6 +453,38 @@ test('the canvas lays steps out in order and draws send-back rules and decision 
   assert.deepEqual(plain.edges.map((edge) => edge.kind), ['next']);
 });
 
+test('the canvas wraps steps into rows that fit its width, and a minimized step is a short pill on the same centre line', () => {
+  const { logic } = studioLogic();
+  const workflow = {
+    phases: ['intake', 'design', 'build', 'review', 'release'],
+    reworkLoops: [{ from: 'design', to: 'intake', maxAttempts: 1 }, { from: 'review', to: 'intake', maxAttempts: 2 }],
+    decisions: []
+  };
+  assert.equal(new Set(logic.canvasLayout(workflow).nodes.map((node) => node.row)).size, 1, 'without a width every step stays in one row');
+
+  const wrapped = logic.canvasLayout(workflow, {}, 720);
+  const rows = wrapped.nodes.map((node) => node.row);
+  assert.deepEqual(rows, [0, 0, 1, 1, 2], 'steps fill each row in order, then continue on the next');
+  assert.ok(wrapped.nodes.every((node) => node.x + node.w <= 720 - 40), 'every row fits the width');
+  assert.equal(wrapped.finish.row, 2, 'Finish follows the last step');
+  assert.ok(wrapped.rows[1].top > wrapped.rows[0].returnY && wrapped.rows[0].returnY > wrapped.rows[0].bottom - 1,
+    'the arrow back to the next row runs between the rows');
+
+  const inRow = wrapped.edges.find((edge) => edge.kind === 'send-back' && edge.from === 1);
+  assert.deepEqual([inRow.depth, Boolean(inRow.stub)], [1, false], 'a send-back within one row keeps its lane below the row');
+  const across = wrapped.edges.find((edge) => edge.kind === 'send-back' && edge.from === 3);
+  assert.equal(across.stub, true, 'a send-back to an earlier row is a stub, not a line across the canvas');
+  assert.equal(across.stubLabel, 'If rejected, back to intake', 'and its label names where the work goes');
+
+  const folded = logic.canvasLayout(workflow, { design: true });
+  const design = folded.nodes.find((node) => node.id === 'design');
+  const intake = folded.nodes.find((node) => node.id === 'intake');
+  assert.equal(design.collapsed, true);
+  assert.ok(design.h < intake.h / 2 && design.w < intake.w, 'a minimized step is a short pill');
+  assert.equal(design.y + design.h / 2, intake.y + intake.h / 2, 'on the same centre line, so the arrows stay straight');
+  assert.ok(folded.nodes[2].x < logic.canvasLayout(workflow).nodes[2].x, 'and the steps after it move closer');
+});
+
 test('a drafting skill chosen in the page becomes a per-workflow change, and a copy takes it along', async () => {
   const root = await repository();
   const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);

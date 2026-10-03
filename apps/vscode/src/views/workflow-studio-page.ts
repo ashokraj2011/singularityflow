@@ -58,7 +58,14 @@ const STUDIO_STYLE = `
 .studio .crumb:hover:not(:disabled){text-decoration:underline}
 .crumb-sep{opacity:.6}
 .board-head select{font:inherit;font-weight:600;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
-.board{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sf-space-3);height:calc(100vh - 250px);min-height:420px}
+.board{display:grid;grid-template-columns:minmax(0,1fr) 10px var(--panel-w,380px);gap:0;height:calc(100vh - 120px);min-height:420px}
+.board.panel-hidden{grid-template-columns:minmax(0,1fr) 10px 40px}
+.splitter{position:relative;cursor:col-resize;touch-action:none}
+.splitter::after{content:"";position:absolute;top:0;bottom:0;left:4px;width:2px;border-radius:1px;background:transparent;transition:background .12s}
+.splitter:hover::after,.splitter.dragging::after,.splitter:focus-visible::after{background:var(--sf-accent)}
+.splitter:focus-visible{outline:none}
+.panel-strip{display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0;border:1px solid var(--sf-border-color);border-radius:8px;background:var(--sf-surface)}
+.panel-strip .strip-label{writing-mode:vertical-rl;font-family:var(--sf-font-mono,monospace);font-size:10px;letter-spacing:.14em;color:var(--sf-dim)}
 .canvas{position:relative;overflow:hidden;border:1px solid var(--sf-border-color);border-radius:10px;background-color:var(--vscode-editor-background);background-image:radial-gradient(circle,color-mix(in srgb,var(--vscode-foreground) 22%,transparent) 1px,transparent 1.5px);background-size:22px 22px;cursor:grab;touch-action:none;user-select:none}
 .canvas.panning{cursor:grabbing}
 .canvas-world{position:absolute;left:0;top:0;transform-origin:0 0}
@@ -77,27 +84,48 @@ const STUDIO_STYLE = `
 .tone-yellow{--tone:var(--vscode-charts-yellow,#cca700)}
 .tone-purple{--tone:var(--vscode-charts-purple,#b180d7)}
 .tone-orange{--tone:var(--vscode-charts-orange,#d18616)}
-.node{position:absolute;box-sizing:border-box;border-radius:12px;border:1px solid color-mix(in srgb,var(--tone) 55%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--tone) 20%,var(--vscode-editor-background)),color-mix(in srgb,var(--tone) 7%,var(--vscode-editor-background)));box-shadow:0 2px 10px rgba(0,0,0,.22)}
-.node:hover{border-color:var(--tone)}
-.node.selected{border:2px solid var(--tone);box-shadow:0 0 0 4px color-mix(in srgb,var(--tone) 28%,transparent),0 6px 18px rgba(0,0,0,.3)}
-.node.match{box-shadow:0 0 0 4px var(--vscode-editor-findMatchHighlightBackground,rgba(234,92,0,.33))}
+.node{position:absolute;box-sizing:border-box;border-radius:6px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 1px 0 rgba(0,0,0,.3)}
+.node::before{content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:3px;border-radius:6px 0 0 6px;background:var(--tone)}
+.node:hover{border-color:color-mix(in srgb,var(--tone) 55%,var(--sf-border-color))}
+.node.selected{border-color:var(--sf-accent);box-shadow:var(--sf-glow,0 0 0 1px var(--sf-accent))}
+.node.match{box-shadow:0 0 0 3px var(--vscode-editor-findMatchHighlightBackground,rgba(234,92,0,.33))}
 .node.dragging{opacity:.45}
 .node.drop-target{outline:2px dashed var(--sf-accent);outline-offset:4px}
 .node.blocked{border-color:var(--sf-bad)}
-.node-main{display:flex;flex-direction:column;gap:6px;width:100%;height:100%;box-sizing:border-box;padding:10px 12px;border:0;border-radius:inherit;background:transparent;color:var(--vscode-foreground);font:inherit;text-align:left;cursor:pointer}
+.node-main{display:flex;flex-direction:column;gap:6px;width:100%;height:100%;box-sizing:border-box;padding:9px 12px 9px 14px;border:0;border-radius:inherit;background:transparent;color:var(--vscode-foreground);font:inherit;text-align:left;cursor:pointer;overflow:hidden}
 .node-main:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
-.node-head{display:flex;align-items:center;gap:8px}
-.node-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:8px;background:color-mix(in srgb,var(--tone) 28%,transparent);color:var(--tone)}
-.node-step{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.75;flex:1 0 auto;white-space:nowrap}
+.node-head{display:flex;align-items:center;gap:7px;min-width:0;padding-right:22px}
+.node-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:5px;background:color-mix(in srgb,var(--tone) 20%,transparent);color:var(--tone)}
+.node-step{font-family:var(--sf-font-mono,monospace);font-size:10px;letter-spacing:.1em;font-weight:700;color:var(--sf-dim,inherit);flex:1 0 auto;white-space:nowrap}
 .node-title{font-size:13px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.node-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;border-top:1px solid color-mix(in srgb,var(--tone) 30%,transparent);padding-top:6px}
+.node-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;min-width:0}
 .node-agent{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .node-agent .name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.node-sign{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--vscode-foreground) 14%,transparent)}
-.node-sign.none{background:transparent;opacity:.7}
-.node-sign.bad{background:var(--sf-bad);color:var(--vscode-editor-background)}
-.node-tools{position:absolute;top:-31px;right:10px;display:none;gap:2px;padding:2px;border-radius:8px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 6px rgba(0,0,0,.25)}
-.node:hover .node-tools,.node:focus-within .node-tools,.node.selected .node-tools{display:flex}
+.node-sign{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px}
+.node-sign.none{border-style:dashed;opacity:.75}
+.node-sign.bad{background:var(--sf-bad);border-color:var(--sf-bad);color:var(--vscode-editor-background)}
+.node-asks{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px;font-weight:700;color:var(--sf-dim,inherit)}
+.node-after{margin-top:auto;display:flex;align-items:center;gap:4px;min-width:0;padding-top:7px;border-top:1px solid var(--sf-border-color);overflow:hidden}
+.node-after .lane{flex:none;font-family:var(--sf-font-mono,monospace);font-size:9px;letter-spacing:.12em;font-weight:700;color:var(--sf-faint,var(--sf-dim));margin-right:2px}
+.chip{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px;line-height:16px;white-space:nowrap}
+.chip .chip-text{overflow:hidden;text-overflow:ellipsis}
+.chip-route{color:var(--sf-dim,inherit)}
+.chip-decision{border-color:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 60%,transparent);color:var(--vscode-charts-purple,#b180d7)}
+.chip-back{flex:none;max-width:45%;border-color:color-mix(in srgb,var(--vscode-charts-orange,#d18616) 60%,transparent);color:var(--vscode-charts-orange,#d18616)}
+.node.collapsed .node-main{flex-direction:row;align-items:center;gap:7px;padding:0 28px 0 12px}
+.node.collapsed .node-icon{width:20px;height:20px}
+.node-num{flex:none;font-family:var(--sf-font-mono,monospace);font-size:11px;font-weight:700;color:var(--sf-dim,inherit)}
+.node.collapsed .node-title{flex:1;min-width:0;font-size:12px;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis;display:block}
+.node-marks{display:inline-flex;align-items:center;gap:3px;flex:none}
+.mark-chip{display:inline-flex;align-items:center;gap:2px;font-family:var(--sf-font-mono,monospace);font-size:10px;color:var(--sf-dim,inherit)}
+.mark-chip.bad{color:var(--sf-bad)}
+.mark-chip.decision{color:var(--vscode-charts-purple,#b180d7)}
+.mark-chip.back{color:var(--vscode-charts-orange,#d18616)}
+.node-fold{position:absolute;top:7px;right:6px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--sf-dim,inherit);cursor:pointer}
+.node.collapsed .node-fold{top:9px}
+.studio .canvas .node-fold:hover:not(:disabled){border-color:var(--sf-border-color);color:var(--vscode-foreground);background:var(--sf-surface-raised,transparent)}
+.node-tools{position:absolute;top:-31px;right:10px;display:none;gap:2px;padding:2px;border-radius:6px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.node:hover .node-tools,.node-tools:focus-within{display:flex}
 .node-tools button,.zoom-controls button{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
 .node-tools button:disabled{opacity:.35;cursor:default}
 .finish{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:18px;border:1px dashed var(--sf-border-color);background:var(--sf-surface);font-size:12px;font-weight:600}
@@ -107,13 +135,14 @@ const STUDIO_STYLE = `
 .edge-label{position:absolute;transform:translate(-50%,-50%);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;font-size:10.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--tone);background:var(--vscode-editor-background);color:var(--vscode-foreground);cursor:pointer}
 .edge-label.tone-send-back{--tone:var(--vscode-charts-orange,#d18616)}
 .edge-label.tone-decision{--tone:var(--vscode-charts-purple,#b180d7)}
+.edge-label.stub{border-style:dashed;max-width:200px}
 .tool-rail{position:absolute;left:10px;top:10px;z-index:2;display:flex;flex-direction:column;gap:4px;padding:5px;border-radius:10px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 10px rgba(0,0,0,.22)}
 .tool{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer}
 .tool[aria-pressed=true]{background:var(--sf-accent-quiet);color:var(--sf-accent)}
 .tool:disabled{opacity:.35;cursor:default}
 .zoom-controls{position:absolute;right:10px;bottom:10px;z-index:2;display:flex;align-items:center;gap:2px;padding:3px;border-radius:9px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 10px rgba(0,0,0,.22)}
 .zoom-level{min-width:42px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums}
-.canvas-legend{position:absolute;left:12px;bottom:12px;z-index:1;max-width:calc(100% - 210px);display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;opacity:.85;pointer-events:none}
+.canvas-legend{position:absolute;left:58px;bottom:12px;z-index:2;max-width:min(620px,calc(100% - 230px));display:flex;flex-wrap:wrap;gap:5px 14px;padding:8px 12px;border-radius:6px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 10px rgba(0,0,0,.22);font-size:11px}
 .legend{display:inline-flex;align-items:center;gap:5px}
 .legend-dot{width:9px;height:9px;border-radius:3px;background:var(--tone)}
 .legend-dot.diamond-dot{transform:rotate(45deg);border-radius:2px}
@@ -123,12 +152,18 @@ const STUDIO_STYLE = `
 .find-box input{font:inherit;width:200px;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
 .board .inspector{position:static;overflow-y:auto;min-height:0}
 .inspector.properties{padding:0;gap:0;background:var(--sf-surface)}
-.prop-title{display:flex;align-items:center;gap:10px;padding:var(--sf-space-3);border-bottom:1px solid var(--sf-border-color)}
+.prop-title{display:flex;align-items:center;gap:10px;padding:10px 10px 10px var(--sf-space-3);border-bottom:1px solid var(--sf-border-color);position:sticky;top:0;z-index:1;background:var(--sf-surface)}
+.prop-title>div{flex:1;min-width:0}
+.prop-title h2{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-family:var(--vscode-font-family);font-size:15px;font-weight:700;letter-spacing:0;text-transform:none;line-height:1.3}
+.prop-tools{display:flex;align-items:center;gap:2px;flex:none}
+.prop-icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid transparent;border-radius:5px;background:transparent;color:inherit;cursor:pointer}
+.prop-icon:disabled{opacity:.35;cursor:default}
+.studio .prop-icon:hover:not(:disabled){border-color:var(--sf-border-color);background:var(--sf-surface-raised,transparent);box-shadow:none}
 .prop-title h2{font-size:14px;margin:2px 0 0}
 .prop-section{border-bottom:1px solid var(--sf-border-color)}
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px var(--sf-space-3)}
-.section-toggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:2px 0;border:0;background:transparent;color:inherit;font:inherit;font-weight:600;font-size:12px;text-align:left;cursor:pointer}
-.section-toggle .summary{font-weight:400;opacity:.7;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.section-toggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:2px 0;border:0;background:transparent;color:inherit;font-family:var(--sf-font-mono,monospace);font-weight:700;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;text-align:left;cursor:pointer;white-space:nowrap}
+.section-toggle .summary{margin-left:auto;font-family:var(--vscode-font-family);font-size:11.5px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.7;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
 .chevron{display:inline-block;width:12px;opacity:.8}
 .prop-body{display:flex;flex-direction:column;gap:var(--sf-space-2);padding:0 var(--sf-space-3) var(--sf-space-3)}
 .prop-body.decision-body{padding-top:var(--sf-space-3)}
@@ -162,9 +197,11 @@ const STUDIO_STYLE = `
 .inspector{border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:var(--sf-space-3);position:sticky;top:8px}
 .field{display:flex;flex-direction:column;gap:4px}
 .field label,.field .label{font-size:12px;font-weight:600}
+.studio .field>label,.studio .field>.label,.studio .field>legend.label{font-family:var(--sf-font-mono,monospace);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sf-dim,inherit)}
 .field input[type=text],.field input[type=email],.field select,.field textarea{font:inherit;padding:6px 8px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
 .field textarea{min-height:110px;resize:vertical}
 .field .hint{font-size:11px;opacity:.8;line-height:1.4}
+.studio .field>.hint{font-size:11.5px;font-weight:400;opacity:1;color:var(--sf-dim,inherit)}
 .checks{display:flex;flex-direction:column;gap:4px}
 .checks label{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:400}
 .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sf-space-2)}
@@ -186,6 +223,12 @@ const STUDIO_STYLE = `
 .decision-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .preview-text{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre-wrap;overflow:auto;max-height:280px;border:1px solid var(--sf-border-color);border-radius:6px;padding:8px;margin:0}
 .decision-row select,.decision-row input[type=text]{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground);max-width:100%}
+/* The Studio is a tool surface: it takes the whole editor, and the shared footer becomes one quiet line. */
+body:has(#studio-root){max-width:none;padding:0 12px}
+body:has(#studio-root) .page-nav{margin:0;padding:5px 2px 7px;font-size:.72rem;gap:.15rem 1.1rem}
+body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-current{min-height:0;padding:0;font-size:.72rem;font-weight:500}
+.board-head .studio-status{margin-left:auto;min-height:0}
+@media (max-width:900px){.board,.board.panel-hidden{grid-template-columns:minmax(0,1fr)}.splitter{display:none}}
 @media (max-width:900px){.studio,.studio.compact{grid-template-columns:minmax(0,1fr)}.studio-nav,.studio.compact .studio-nav{border-right:0;border-bottom:1px solid var(--sf-border-color);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr);height:auto}.canvas{height:420px}.inspector{position:static}}
 `;
 
@@ -198,7 +241,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 (function () {
   'use strict';
   var vscodeApi = window.__sfVscode;
-  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, focusKey: null };
+  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false };
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -1162,7 +1205,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // goes back runs below it. The canvas pans and zooms; dropping a step on another moves it there,
   // because the order is still the workflow's list of steps.
 
-  var NODE_W = 176, NODE_H = 124, GAP = 64, DECISION_GAP = 104, CANVAS_PAD = 40, LOOP_STEP = 26, FINISH_W = 84;
+  // A step card, and a minimized step: a short pill on the same centre line.
+  var NODE_W = 212, NODE_H = 136, MINI_W = 188, MINI_H = 38, GAP = 56, DECISION_GAP = 100, CANVAS_PAD = 40, LOOP_STEP = 26, FINISH_W = 84;
+  var PANEL_MIN = 300, PANEL_MAX = 680, RETURN_PAD = 26, ROW_GAP = 34, STUB_STEP = 24;
   var OUTPUT_LOOK = {
     document: { label: 'Writes a document', icon: 'doc', tone: 'blue' },
     analysis: { label: 'Writes an analysis', icon: 'chart', tone: 'cyan' },
@@ -1189,7 +1234,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3',
     left: 'M15 6l-6 6 6 6',
     right: 'M9 6l6 6-6 6',
-    flag: 'M5 21V4 M5 4h11l-2 4 2 4H5'
+    flag: 'M5 21V4 M5 4h11l-2 4 2 4H5',
+    up: 'M6 15l6-6 6 6',
+    down: 'M6 9l6 6 6-6',
+    foldAll: 'M7 11l5-5 5 5 M7 18l5-5 5 5',
+    unfoldAll: 'M7 6l5 5 5-5 M7 13l5 5 5-5',
+    info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 11v5 M12 7.5h.01',
+    panel: 'M3 4h18v16H3z M15 4v16',
+    wrap: 'M4 6h16 M4 12h13a3 3 0 0 1 0 6h-5 M12 15l-3 3 3 3 M4 18h4'
   };
 
   function svgEl(tag, attrs) {
@@ -1208,28 +1260,60 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var views = state.canvas || (state.canvas = {});
     return views[workflowId] || (views[workflowId] = { zoom: 1, panX: 56, panY: 0, fitted: false, finding: false, find: '', reveal: null });
   }
+  function wrapWidthFor(view) {
+    if (view.width) return view.width;
+    var panel = state.panelHidden ? 50 : (state.panelWidth || 380) + 10;
+    return Math.max(NODE_W + 2 * CANVAS_PAD, (window.innerWidth || 1200) - 56 - 40 - panel);
+  }
   function transformOf(view) { return 'translate(' + Math.round(view.panX) + 'px,' + Math.round(view.panY) + 'px) scale(' + view.zoom + ')'; }
 
-  /** Where each step sits and how every arrow runs: order, send-back rules and decision routes. */
-  function canvasLayout(workflow) {
-    var phases = workflow.phases;
-    var nodes = []; var x = CANVAS_PAD;
+  /** Where each step sits and how every arrow runs: order, send-back rules and decision routes. A
+   *  minimized step is a short pill on the same centre line, so the arrows still run straight. Given
+   *  a width, the steps wrap into rows that read left to right like text: the arrow from the end of
+   *  one row returns to the start of the next, and a route between rows is a labelled stub instead
+   *  of a line across the canvas. */
+  function canvasLayout(workflow, collapsed, wrapWidth) {
+    var phases = workflow.phases; var folded = collapsed || {};
+    var startX = CANVAS_PAD + (wrapWidth ? RETURN_PAD : 0);
+    var limit = wrapWidth ? Math.max(wrapWidth - CANVAS_PAD, startX + NODE_W) : Infinity;
+    var nodes = []; var x = startX; var row = 0; var inRow = 0;
+    function place(w, gap) {
+      if (inRow && x + w > limit) { row += 1; x = startX; inRow = 0; }
+      var at = { x: x, row: row }; x += w + gap; inRow += 1;
+      return at;
+    }
     phases.forEach(function (phaseId, index) {
-      nodes.push({ id: phaseId, index: index, x: x });
-      x += NODE_W + (decisionAfterStep(workflow, phaseId) ? DECISION_GAP : GAP);
+      var mini = Boolean(folded[phaseId]); var w = mini ? MINI_W : NODE_W;
+      var at = place(w, decisionAfterStep(workflow, phaseId) ? DECISION_GAP : GAP);
+      nodes.push({ id: phaseId, index: index, x: at.x, row: at.row, w: w, h: mini ? MINI_H : NODE_H, collapsed: mini });
     });
-    var finishX = x;
-    var edges = []; var above = 0; var below = 0;
+    var finishAt = place(FINISH_W, 0);
+    var finish = { x: finishAt.x, row: finishAt.row, w: FINISH_W, h: 36, finish: true };
+    function rowOf(index) { return index >= nodes.length ? finish.row : nodes[index].row; }
+    var rows = []; for (var r = 0; r <= finish.row; r += 1) rows.push({ above: 0, below: 0, stubsAbove: 0, stubsBelow: 0 });
+    var edges = []; var stubs = {};
     phases.forEach(function (phaseId, index) {
       var decision = decisionAfterStep(workflow, phaseId);
       edges.push({ kind: 'next', from: index, to: index + 1, decision: decision ? decision.id : null });
     });
+    function lane(edge, down) {
+      if (rowOf(edge.from) === rowOf(edge.to)) {
+        var own = rows[rowOf(edge.from)];
+        if (down) { own.below += 1; edge.depth = own.below; } else { own.above += 1; edge.depth = own.above; }
+      } else {
+        // Stubs leaving the same step stack outward, one label high each.
+        var key = edge.from + (down ? 'v' : '^'); var line = rows[rowOf(edge.from)];
+        edge.stub = true; edge.depth = 1; edge.stubIndex = stubs[key] || 0; stubs[key] = edge.stubIndex + 1;
+        if (down) line.stubsBelow = Math.max(line.stubsBelow, stubs[key]); else line.stubsAbove = Math.max(line.stubsAbove, stubs[key]);
+        edge.stubLabel = edge.kind === 'send-back' ? edge.label : edge.label + ' \u2192 ' + (edge.to >= phases.length ? 'Finish' : stepLabel(phases[edge.to]));
+      }
+      edges.push(edge);
+    }
     (workflow.reworkLoops || []).forEach(function (loop) {
       var from = phases.indexOf(loop.from); var to = phases.indexOf(loop.to);
       if (from < 0 || to < 0) return;
-      below += 1;
-      edges.push({ kind: 'send-back', from: from, to: to, depth: below, step: loop.from, label: 'If rejected, back to ' + stepLabel(loop.to),
-        title: 'If ' + stepLabel(loop.from) + ' is rejected, it goes back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times') });
+      lane({ kind: 'send-back', from: from, to: to, step: loop.from, label: 'If rejected, back to ' + stepLabel(loop.to),
+        title: 'If ' + stepLabel(loop.from) + ' is rejected, it goes back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times') }, true);
     });
     (workflow.decisions || []).forEach(function (decision) {
       var after = phases.indexOf(decision.after);
@@ -1240,42 +1324,66 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         var reach = reachOf(workflow, decision.after, route.to);
         if (route.to === 'next' || reach.kind === 'next' || reach.kind === 'missing' || (reach.kind === 'end' && !reach.skips.length)) return;
         if (reach.kind === 'back') {
-          below += 1;
-          edges.push({ kind: 'decision-back', from: after, to: phases.indexOf(reach.target), depth: below, decision: decision.id, label: route.label });
+          lane({ kind: 'decision-back', from: after, to: phases.indexOf(reach.target), decision: decision.id, label: route.label }, true);
           return;
         }
-        above += 1;
-        edges.push({ kind: reach.kind === 'end' ? 'decision-end' : 'decision-skip', from: after, to: reach.kind === 'end' ? phases.length : phases.indexOf(reach.target), depth: above, decision: decision.id, label: route.label });
+        lane({ kind: reach.kind === 'end' ? 'decision-end' : 'decision-skip', from: after, to: reach.kind === 'end' ? phases.length : phases.indexOf(reach.target), decision: decision.id, label: route.label }, false);
       });
     });
-    var rowY = CANVAS_PAD + (above ? above * LOOP_STEP + 14 : 0);
-    return { nodes: nodes, edges: edges, rowY: rowY, finishX: finishX, above: above, below: below,
-      width: finishX + FINISH_W + CANVAS_PAD, height: rowY + NODE_H + (below ? below * LOOP_STEP + 24 : 0) + CANVAS_PAD };
+    var cursor = CANVAS_PAD; var width = 0;
+    rows.forEach(function (line, index) {
+      var members = nodes.filter(function (node) { return node.row === index; });
+      if (finish.row === index) members = members.concat([finish]);
+      line.h = members.reduce(function (tallest, node) { return Math.max(tallest, node.h); }, members.length ? 0 : NODE_H);
+      line.lanesAbove = line.above ? line.above * LOOP_STEP + 14 : 0;
+      line.top = cursor + line.lanesAbove + (line.stubsAbove ? line.stubsAbove * STUB_STEP + 6 : 0);
+      line.middle = line.top + line.h / 2;
+      members.forEach(function (node) { node.y = line.middle - node.h / 2; width = Math.max(width, node.x + node.w); });
+      line.lanesBelow = line.below ? line.below * LOOP_STEP + 24 : 0;
+      line.bottom = line.top + line.h + line.lanesBelow + (line.stubsBelow ? line.stubsBelow * STUB_STEP + 8 : 0);
+      line.returnY = line.bottom + 16;
+      cursor = line.bottom + (index < rows.length - 1 ? ROW_GAP : 0);
+    });
+    return { nodes: nodes, edges: edges, rows: rows, finish: finish, finishX: finish.x, rowY: rows[0].top, rowH: rows[0].h, middle: rows[0].middle,
+      above: rows[0].above, below: rows[0].below, width: width + CANVAS_PAD, height: cursor + CANVAS_PAD };
   }
 
   /** The path of one arrow, and the point its label sits on. */
   function edgeGeometry(layout, edge) {
-    function at(index) { return index >= layout.nodes.length ? layout.finishX : layout.nodes[index].x; }
-    var top = layout.rowY; var bottom = layout.rowY + NODE_H; var middle = layout.rowY + NODE_H / 2;
+    function box(index) { return index >= layout.nodes.length ? layout.finish : layout.nodes[index]; }
+    var from = box(edge.from); var to = box(edge.to); var line = layout.rows[from.row];
     if (edge.kind === 'next') {
-      var start = at(edge.from) + NODE_W; var end = at(edge.to);
-      return { d: 'M' + start + ' ' + middle + ' H' + (end - 2), tone: 'next', x: (start + end) / 2, y: middle };
+      var start = from.x + from.w;
+      if (to.row === from.row) return { d: 'M' + start + ' ' + line.middle + ' H' + (to.x - 2), tone: 'next', x: (start + to.x) / 2, y: line.middle };
+      // From the end of a row back to the start of the next, beneath anything hanging off the row.
+      var out = start + (edge.decision ? DECISION_GAP / 2 + 14 : 18); var next = layout.rows[to.row];
+      return { d: 'M' + start + ' ' + line.middle + ' H' + out + ' V' + line.returnY + ' H' + (to.x - 18) + ' V' + next.middle + ' H' + (to.x - 2),
+        tone: 'next', x: start + (edge.decision ? DECISION_GAP / 2 : 9), y: line.middle };
+    }
+    var up = edge.kind === 'decision-skip' || edge.kind === 'decision-end';
+    if (edge.stub) {
+      // Beyond the row's own lanes, so a stub never sits on a line drawn within the row.
+      var sx = from.x + from.w * (up ? 0.7 : 0.3);
+      if (up) {
+        var ly = line.top - line.lanesAbove - 14 - edge.stubIndex * STUB_STEP;
+        return { d: 'M' + sx + ' ' + from.y + ' V' + (ly + 9), tone: 'decision', x: sx, y: ly, stub: true };
+      }
+      var base = from.y + from.h; var dy = line.top + line.h + line.lanesBelow + 16 + edge.stubIndex * STUB_STEP;
+      return { d: 'M' + sx + ' ' + base + ' V' + (dy - 9), tone: edge.kind === 'send-back' ? 'send-back' : 'decision', x: sx, y: dy, stub: true, dashed: edge.kind === 'decision-back' };
     }
     // Arrows at different depths leave and land a little apart, so stacked ones stay distinguishable.
     var shift = ((edge.depth - 1) % 4) * 8;
-    if (edge.kind === 'decision-skip' || edge.kind === 'decision-end') {
-      var y = top - edge.depth * LOOP_STEP;
-      var toFinish = edge.to >= layout.nodes.length;
-      var x1 = at(edge.from) + NODE_W * 0.7 + shift;
-      var x2 = toFinish ? layout.finishX + FINISH_W / 2 - shift : at(edge.to) + NODE_W * 0.3 - shift;
-      var land = toFinish ? middle - 18 : top;
-      return { d: 'M' + x1 + ' ' + top + ' V' + y + ' H' + x2 + ' V' + (land - 2), tone: 'decision', x: (x1 + x2) / 2, y: y };
+    if (up) {
+      var y = line.top - edge.depth * LOOP_STEP;
+      var x1 = from.x + from.w * 0.7 + shift;
+      var x2 = to.finish ? to.x + to.w / 2 - shift : to.x + to.w * 0.3 - shift;
+      return { d: 'M' + x1 + ' ' + from.y + ' V' + y + ' H' + x2 + ' V' + (to.y - 2), tone: 'decision', x: (x1 + x2) / 2, y: y };
     }
-    var low = bottom + edge.depth * LOOP_STEP;
+    var low = line.top + line.h + edge.depth * LOOP_STEP;
     var self = edge.from === edge.to;
-    var from = at(edge.from) + (self ? NODE_W * 0.62 + shift : NODE_W * 0.3 - shift);
-    var to = at(edge.to) + (self ? NODE_W * 0.38 - shift : NODE_W * 0.7 + shift);
-    return { d: 'M' + from + ' ' + bottom + ' V' + low + ' H' + to + ' V' + (bottom + 2), tone: edge.kind === 'send-back' ? 'send-back' : 'decision', x: (from + to) / 2, y: low, dashed: edge.kind === 'decision-back' };
+    var x3 = from.x + (self ? from.w * 0.62 + shift : from.w * 0.3 - shift);
+    var x4 = to.x + (self ? to.w * 0.38 - shift : to.w * 0.7 + shift);
+    return { d: 'M' + x3 + ' ' + (from.y + from.h) + ' V' + low + ' H' + x4 + ' V' + (to.y + to.h + 2), tone: edge.kind === 'send-back' ? 'send-back' : 'decision', x: (x3 + x4) / 2, y: low, dashed: edge.kind === 'decision-back' };
   }
 
   function renderEdges(layout) {
@@ -1289,7 +1397,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     svg.appendChild(defs);
     layout.edges.forEach(function (edge) {
       var shape = edgeGeometry(layout, edge);
-      svg.appendChild(svgEl('path', { d: shape.d, class: 'edge edge-' + shape.tone + (shape.dashed ? ' dashed' : ''), 'marker-end': 'url(#head-' + shape.tone + ')' }));
+      svg.appendChild(svgEl('path', { d: shape.d, class: 'edge edge-' + shape.tone + (shape.dashed ? ' dashed' : ''), 'marker-end': shape.stub ? null : 'url(#head-' + shape.tone + ')' }));
     });
     return svg;
   }
@@ -1299,6 +1407,29 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function findMatches(view, phase, agent) {
     var query = String(view.find || '').trim().toLowerCase();
     return Boolean(query) && (String(phase.label).toLowerCase().indexOf(query) >= 0 || Boolean(agent && agent.label.toLowerCase().indexOf(query) >= 0));
+  }
+
+  /** What happens once a step is done, as chips on its card: where the Story goes next, and where
+   *  rejected work returns. */
+  function afterChips(workflow, phaseId, index) {
+    var chips = [];
+    var decision = decisionAfterStep(workflow, phaseId);
+    if (decision) chips.push({ tone: 'decision', icon: 'diamond', text: decision.label, title: 'Then decides: ' + decision.label });
+    else if (index === workflow.phases.length - 1) chips.push({ tone: 'route', icon: 'flag', text: 'Finish', title: 'Then the Story finishes' });
+    else chips.push({ tone: 'route', icon: 'right', text: stepLabel(workflow.phases[index + 1]), title: 'Then goes on to ' + stepLabel(workflow.phases[index + 1]) });
+    (workflow.reworkLoops || []).filter(function (loop) { return loop.from === phaseId; }).forEach(function (loop) {
+      chips.push({ tone: 'back', icon: 'back', text: stepLabel(loop.to), title: 'If rejected, back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times') });
+    });
+    return chips;
+  }
+  function chip(entry) {
+    return el('span', { class: 'chip chip-' + entry.tone, title: entry.title }, icon(entry.icon, 11), el('span', { class: 'chip-text', text: entry.text }));
+  }
+  /** Which steps of a workflow are minimized on the canvas; kept while the Studio is open. */
+  function collapsedOf(workflowId) { var all = state.collapsed || (state.collapsed = {}); return all[workflowId] || (all[workflowId] = {}); }
+  function setCollapsed(workflowId, phaseIds, on) {
+    var folded = collapsedOf(workflowId);
+    phaseIds.forEach(function (phaseId) { if (on) folded[phaseId] = true; else delete folded[phaseId]; });
   }
 
   function renderNode(workflowId, workflow, node, layout, view) {
@@ -1313,8 +1444,32 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var minimum = settings.approval.minimum || 1;
     var signText = !group ? 'No sign-off' : blocked ? 'Nobody can approve it yet'
       : minimum + (minimum === 1 ? ' approval' : ' approvals') + ' from ' + group.label;
+    var asks = Boolean(phase.clarification && phase.clarification !== 'off');
+    var chips = afterChips(workflow, phaseId, node.index);
+    var then = chips.map(function (entry) { return entry.title; }).join('; ');
+    var decisionChip = chips.find(function (entry) { return entry.tone === 'decision'; });
+    var backChip = chips.find(function (entry) { return entry.tone === 'back'; });
+    var inside = node.collapsed ? [
+      el('span', { class: 'node-icon' }, icon(look.icon, 12)),
+      el('span', { class: 'node-num', text: String(node.index + 1) }),
+      el('span', { class: 'node-title', text: phase.label }),
+      el('span', { class: 'node-marks' },
+        group ? el('span', { class: 'mark-chip' + (blocked ? ' bad' : ''), title: signText }, icon('people', 11), String(minimum)) : null,
+        decisionChip ? el('span', { class: 'mark-chip decision', title: decisionChip.title }, icon('diamond', 10)) : null,
+        backChip ? el('span', { class: 'mark-chip back', title: backChip.title }, icon('back', 11)) : null)
+    ] : [
+      el('span', { class: 'node-head' }, el('span', { class: 'node-icon' }, icon(look.icon, 14)), el('span', { class: 'node-step', text: 'STEP ' + (node.index + 1) }),
+        phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+        settings.authoringSkill ? el('span', { class: 'pill skill', title: 'Drafted with /' + settings.authoringSkill, text: '/' + settings.authoringSkill }) : null),
+      el('span', { class: 'node-title', text: phase.label }),
+      el('span', { class: 'node-meta' },
+        el('span', { class: 'node-agent', title: agent ? agent.label : 'Choose an agent' }, el('span', { class: 'avatar', text: agent ? initials(agent.label) : '?' }), el('span', { class: 'name', text: agent ? agent.label : 'Choose an agent' })),
+        asks ? el('span', { class: 'node-asks', title: 'Asks clarifying questions before drafting' }, '?') : null,
+        el('span', { class: 'node-sign' + (blocked ? ' bad' : group ? '' : ' none'), title: signText }, icon(group ? 'people' : 'right', 11), group ? String(minimum) : 'auto')),
+      el('span', { class: 'node-after' }, el('span', { class: 'lane', text: 'THEN' }), chips.map(chip))
+    ];
     var card = el('div', {
-      class: 'node tone-' + look.tone + (selected ? ' selected' : '') + (blocked ? ' blocked' : '') + (findMatches(view, phase, agent) ? ' match' : ''),
+      class: 'node tone-' + look.tone + (node.collapsed ? ' collapsed' : '') + (selected ? ' selected' : '') + (blocked ? ' blocked' : '') + (findMatches(view, phase, agent) ? ' match' : ''),
       draggable: 'true', 'data-phase': phaseId,
       ondragstart: function (event) { event.dataTransfer.setData('text/plain', phaseId); event.dataTransfer.effectAllowed = 'move'; card.classList.add('dragging'); },
       ondragend: function () { card.classList.remove('dragging'); },
@@ -1327,27 +1482,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
     },
       el('button', {
-        type: 'button', class: 'node-main', 'data-key': 'node-' + phaseId, 'aria-pressed': selected ? 'true' : 'false',
-        'aria-label': 'Step ' + (node.index + 1) + ' of ' + phases.length + ': ' + phase.label + '. ' + look.label + ', drafted by ' + (agent ? agent.label : 'no agent yet') + '. ' + signText + '.',
+        type: 'button', class: 'node-main', 'data-key': 'node-' + phaseId, 'aria-pressed': selected ? 'true' : 'false', title: node.collapsed ? phase.label : null,
+        'aria-label': 'Step ' + (node.index + 1) + ' of ' + phases.length + ': ' + phase.label + '. ' + look.label + ', drafted by ' + (agent ? agent.label : 'no agent yet') + '. ' + signText + '. ' + then + '.',
         onclick: function () { selectStep(phaseId); },
         onkeydown: function (event) {
           var next = event.key === 'ArrowRight' ? node.index + 1 : event.key === 'ArrowLeft' ? node.index - 1 : -1;
           if (next < 0 || next >= phases.length) return;
           event.preventDefault(); state.focusKey = 'node-' + phases[next]; view.reveal = phases[next]; selectStep(phases[next]);
         }
-      },
-        el('span', { class: 'node-head' }, el('span', { class: 'node-icon' }, icon(look.icon, 16)), el('span', { class: 'node-step', text: 'STEP ' + (node.index + 1) }),
-          phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null,
-          settings.authoringSkill ? el('span', { class: 'pill skill', title: 'Drafted with /' + settings.authoringSkill, text: '/' + settings.authoringSkill }) : null),
-        el('span', { class: 'node-title', text: phase.label }),
-        el('span', { class: 'node-foot' },
-          el('span', { class: 'node-agent', title: agent ? agent.label : 'Choose an agent' }, el('span', { class: 'avatar', text: agent ? initials(agent.label) : '?' }), el('span', { class: 'name', text: agent ? agent.label : 'Choose an agent' })),
-          el('span', { class: 'node-sign' + (blocked ? ' bad' : group ? '' : ' none'), title: signText }, icon(group ? 'people' : 'right', 12), group ? String(minimum) : 'auto'))),
+      }, inside),
+      el('button', { type: 'button', class: 'node-fold', 'data-key': 'fold-' + phaseId, 'aria-expanded': node.collapsed ? 'false' : 'true',
+        title: node.collapsed ? 'Expand ' + phase.label : 'Minimize ' + phase.label, 'aria-label': (node.collapsed ? 'Expand ' : 'Minimize ') + phase.label,
+        onclick: function (event) { event.stopPropagation(); setCollapsed(workflowId, [phaseId], !node.collapsed); state.focusKey = 'fold-' + phaseId; render(); } }, icon(node.collapsed ? 'down' : 'up', 12)),
       el('div', { class: 'node-tools' },
         el('button', { type: 'button', title: 'Move earlier', 'aria-label': 'Move ' + phase.label + ' earlier', disabled: node.index === 0, onclick: function () { moveStep(workflowId, phaseId, -1); } }, icon('left', 14)),
         el('button', { type: 'button', title: 'Move later', 'aria-label': 'Move ' + phase.label + ' later', disabled: node.index === phases.length - 1, onclick: function () { moveStep(workflowId, phaseId, 1); } }, icon('right', 14)),
         el('button', { type: 'button', title: 'Remove from this workflow', 'aria-label': 'Remove ' + phase.label + ' from this workflow', onclick: function () { removeStep(workflowId, phaseId); } }, icon('trash', 14))));
-    card.style.cssText = 'left:' + node.x + 'px;top:' + layout.rowY + 'px;width:' + NODE_W + 'px;height:' + NODE_H + 'px';
+    card.style.cssText = 'left:' + node.x + 'px;top:' + node.y + 'px;width:' + node.w + 'px;height:' + node.h + 'px';
     return card;
   }
 
@@ -1355,6 +1506,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var selected = workflow.phases.indexOf(state.step) >= 0 ? state.step : null;
     var existing = selected ? decisionAfterStep(workflow, selected) : null;
     var signed = Boolean(selected && stepSettings(workflowId, selected).approval.group);
+    var folded = collapsedOf(workflowId);
+    var allFolded = workflow.phases.length > 0 && workflow.phases.every(function (phaseId) { return folded[phaseId]; });
     function tool(name, label, onClick, attrs) {
       return el('button', Object.assign({ type: 'button', class: 'tool', title: label, 'aria-label': label, onclick: onClick }, attrs || {}), icon(name, 18));
     }
@@ -1375,7 +1528,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       tool('search', 'Find a step or agent', function () {
         view.finding = !view.finding; if (view.finding) state.focusKey = 'canvas-find'; else view.find = ''; render();
       }, { 'aria-pressed': view.finding ? 'true' : 'false' }),
-      tool('gear', 'Workflow settings: name, description and rules', function () { state.panel = 'workflow'; state.decision = null; render(); }, { 'aria-pressed': state.panel === 'workflow' ? 'true' : 'false' }));
+      tool('gear', 'Workflow settings: name, description and rules', function () { state.panel = 'workflow'; state.decision = null; render(); }, { 'aria-pressed': state.panel === 'workflow' ? 'true' : 'false' }),
+      tool(allFolded ? 'unfoldAll' : 'foldAll', allFolded ? 'Expand every step' : 'Minimize every step', function () {
+        setCollapsed(workflowId, workflow.phases, !allFolded); render();
+      }, { 'aria-pressed': allFolded ? 'true' : 'false' }),
+      tool('wrap', state.wrap === false ? 'Wrap the steps into rows that fit the canvas' : 'Show the steps in one row', function () {
+        state.wrap = state.wrap === false; view.fitted = false; render();
+      }, { 'aria-pressed': state.wrap === false ? 'false' : 'true' }),
+      tool('info', state.legend ? 'Hide the key' : 'Show the key: colours, shapes and how to move around', function () { state.legend = !state.legend; render(); }, { 'aria-pressed': state.legend ? 'true' : 'false' }));
   }
 
   function findBox(workflow, view, world) {
@@ -1404,23 +1564,25 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function legend() {
-    return el('div', { class: 'canvas-legend', 'aria-hidden': 'true' },
+    return el('div', { class: 'canvas-legend', role: 'note', 'aria-label': 'Key' },
       ['document', 'analysis', 'code', 'none'].map(function (output) { var look = OUTPUT_LOOK[output]; return el('span', { class: 'legend tone-' + look.tone }, el('span', { class: 'legend-dot' }), look.label); }),
       el('span', { class: 'legend tone-purple' }, el('span', { class: 'legend-dot diamond-dot' }), 'Decision'),
       el('span', { class: 'legend tone-orange' }, el('span', { class: 'legend-line' }), 'Send back'),
+      el('span', { class: 'legend' }, icon('up', 11), 'Minimize a step'),
       el('span', { class: 'legend hint-text', text: 'Drag the background to move · Ctrl or Cmd + wheel to zoom' }));
   }
 
   function renderCanvas(workflowId, workflow) {
     var view = canvasView(workflowId);
-    var layout = canvasLayout(workflow);
+    var wrapWidth = state.wrap === false ? 0 : wrapWidthFor(view);
+    var layout = canvasLayout(workflow, collapsedOf(workflowId), wrapWidth);
     var viewport = el('div', { class: 'canvas', role: 'region', 'aria-label': 'Steps of ' + workflow.label + '. Drag the background to move around; Ctrl or Cmd with the mouse wheel zooms.' });
     var world = el('div', { class: 'canvas-world' });
     world.style.cssText = 'width:' + layout.width + 'px;height:' + layout.height + 'px';
     world.appendChild(renderEdges(layout));
     layout.nodes.forEach(function (node) { world.appendChild(renderNode(workflowId, workflow, node, layout, view)); });
     var finish = el('div', { class: 'finish', title: 'The Story ends here' }, icon('flag', 14), 'Finish');
-    finish.style.cssText = 'left:' + layout.finishX + 'px;top:' + (layout.rowY + NODE_H / 2 - 18) + 'px;width:' + FINISH_W + 'px;height:36px';
+    finish.style.cssText = 'left:' + layout.finish.x + 'px;top:' + layout.finish.y + 'px;width:' + FINISH_W + 'px;height:36px';
     world.appendChild(finish);
     layout.edges.forEach(function (edge) {
       var shape = edgeGeometry(layout, edge);
@@ -1436,7 +1598,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         world.appendChild(diamond); world.appendChild(caption);
         return;
       }
-      var label = el('button', { type: 'button', class: 'edge-label tone-' + shape.tone, text: edge.label, title: edge.title || edge.label, onclick: function () {
+      var label = el('button', { type: 'button', class: 'edge-label tone-' + shape.tone + (edge.stub ? ' stub' : ''), text: edge.stub ? edge.stubLabel : edge.label, title: edge.title || edge.stubLabel || edge.label, onclick: function () {
         if (edge.decision) { openDecision(decisionById(workflow, edge.decision)); return; }
         state.sections.signoff = true; state.focusKey = 'step-back'; selectStep(edge.step);
       } });
@@ -1481,9 +1643,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       var node = layout.nodes.find(function (entry) { return entry.id === phaseId; });
       var width = viewport.clientWidth;
       if (!node || !width) return;
-      var left = view.panX + node.x * view.zoom; var right = left + NODE_W * view.zoom;
+      var left = view.panX + node.x * view.zoom; var right = left + node.w * view.zoom;
       if (left < 60) view.panX += 60 - left;
       else if (right > width - 16) view.panX -= right - (width - 16);
+      var height = viewport.clientHeight; var top = view.panY + node.y * view.zoom; var bottom = top + node.h * view.zoom;
+      if (height && top < 12) view.panY += 12 - top;
+      else if (height && bottom > height - 12) view.panY -= bottom - (height - 12);
       apply();
     }
     viewport.appendChild(el('div', { class: 'zoom-controls', role: 'toolbar', 'aria-label': 'Zoom' },
@@ -1491,11 +1656,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       level,
       el('button', { type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: function () { zoomAt(1.2); } }, icon('plus', 14)),
       el('button', { type: 'button', title: 'Fit the whole workflow', 'aria-label': 'Fit the whole workflow', onclick: function () { fit(false); } }, icon('fit', 14))));
-    viewport.appendChild(legend());
+    if (state.legend) viewport.appendChild(legend());
     if (view.finding) viewport.appendChild(findBox(workflow, view, world));
     var pan = null;
     viewport.addEventListener('pointerdown', function (event) {
-      if (event.button !== 0 || event.target.closest('.node, .diamond-node, .edge-label, .zoom-controls, .tool-rail, .find-box')) return;
+      if (event.button !== 0 || event.target.closest('.node, .diamond-node, .edge-label, .zoom-controls, .tool-rail, .find-box, .canvas-legend')) return;
       pan = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY, moved: false };
       viewport.setPointerCapture(event.pointerId);
       viewport.classList.add('panning');
@@ -1525,6 +1690,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     apply();
     setTimeout(function () {
       if (!viewport.isConnected) return;
+      // The rows were laid out for an estimated width; once the canvas is on screen, use its real one.
+      var measured = viewport.clientWidth;
+      if (wrapWidth && measured && Math.abs(measured - wrapWidth) > 48) { view.width = measured; view.fitted = false; render(); return; }
+      if (measured) view.width = measured;
       if (!view.fitted) { view.fitted = true; fit(true); }
       if (view.reveal) { reveal(view.reveal); view.reveal = null; }
     }, 0);
@@ -1547,9 +1716,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       el('input', { type: 'checkbox', role: 'switch', 'data-key': key, checked: on, 'aria-checked': on ? 'true' : 'false', 'aria-label': label, onchange: function (event) { onChange(event.target.checked); } }),
       el('span', { class: 'slider', 'aria-hidden': 'true' }));
   }
-  function propTitle(tone, iconName, eyebrow, title) {
+  /** The panel's title, with the actions for what it shows and the control that hides the panel. */
+  function propTitle(tone, iconName, eyebrow, title, tools) {
     return el('div', { class: 'prop-title' }, el('span', { class: 'node-icon tone-' + tone }, icon(iconName, 18)),
-      el('div', null, el('div', { class: 'lane-label', text: eyebrow }), el('h2', { text: title })));
+      el('div', null, el('div', { class: 'lane-label', text: eyebrow }), el('h2', { text: title, title: title })),
+      el('div', { class: 'prop-tools' }, tools || null,
+        el('button', { type: 'button', class: 'prop-icon', 'data-key': 'panel-hide', title: 'Hide the properties panel', 'aria-label': 'Hide the properties panel',
+          onclick: function () { state.panelHidden = true; state.focusKey = 'panel-show'; rewrap(); } }, icon('panel', 15))));
+  }
+  function propTool(name, label, onClick, attrs) {
+    return el('button', Object.assign({ type: 'button', class: 'prop-icon', title: label, 'aria-label': label, onclick: onClick }, attrs || {}), icon(name, 14));
   }
 
   // The board fills the window without making the page scroll, because the canvas owns the wheel.
@@ -1578,13 +1754,52 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         }, { 'aria-label': 'Workflow' }),
         workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'New · not published' }) : null,
         el('span', { class: 'muted', text: phases.length + (phases.length === 1 ? ' step' : ' steps') + (workflow.description ? ' · ' + workflow.description : '') })),
+      el('div', { id: 'studio-status', class: 'studio-status muted', role: 'status', 'aria-live': 'polite', text: state.status }),
       button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
     var selectedDecision = state.decision ? decisionById(workflow, state.decision) : null;
     if (!selectedDecision) state.decision = null;
     var inspector = state.panel === 'add' ? renderAddStep(workflowId, workflow)
       : state.panel === 'workflow' ? renderWorkflowProperties(workflowId, workflow)
         : selectedDecision ? renderDecisionInspector(workflowId, selectedDecision) : renderInspector(workflowId, state.step);
-    main.appendChild(el('div', { class: 'board' }, renderCanvas(workflowId, workflow), inspector));
+    var board = el('div', { class: 'board' + (state.panelHidden ? ' panel-hidden' : '') });
+    board.style.setProperty('--panel-w', Math.round(state.panelWidth || 380) + 'px');
+    board.appendChild(renderCanvas(workflowId, workflow));
+    board.appendChild(splitter(board));
+    board.appendChild(state.panelHidden ? el('aside', { class: 'panel-strip', 'aria-label': 'Properties panel, hidden' },
+      el('button', { type: 'button', class: 'prop-icon', 'data-key': 'panel-show', title: 'Show the properties panel', 'aria-label': 'Show the properties panel',
+        onclick: function () { state.panelHidden = false; state.focusKey = 'panel-hide'; rewrap(); } }, icon('panel', 15)),
+      el('span', { class: 'strip-label', 'aria-hidden': 'true', text: 'PROPERTIES' })) : inspector);
+    main.appendChild(board);
+  }
+
+  /** A new canvas width wraps the rows again. */
+  function rewrap() { var view = state.workflow ? canvasView(state.workflow) : null; if (view) { view.width = 0; view.fitted = false; } render(); }
+
+  /** The handle between the canvas and the panel: drag it, or use the arrow keys, to resize the panel. */
+  function splitter(board) {
+    function setWidth(width) {
+      var room = Math.max(PANEL_MIN, (board.clientWidth || 1200) - 360);
+      state.panelWidth = Math.round(Math.min(PANEL_MAX, room, Math.max(PANEL_MIN, width)));
+      board.style.setProperty('--panel-w', state.panelWidth + 'px');
+    }
+    var drag = null;
+    var handle = el('div', { class: 'splitter', role: 'separator', tabindex: '0', 'data-key': 'panel-splitter', 'aria-orientation': 'vertical',
+      'aria-label': 'Resize the properties panel', 'aria-valuemin': String(PANEL_MIN), 'aria-valuemax': String(PANEL_MAX), 'aria-valuenow': String(Math.round(state.panelWidth || 380)),
+      onpointerdown: function (event) {
+        if (state.panelHidden || event.button !== 0) return;
+        drag = { x: event.clientX, width: state.panelWidth || 380 }; handle.setPointerCapture(event.pointerId); handle.classList.add('dragging');
+      },
+      onpointermove: function (event) { if (drag) setWidth(drag.width + drag.x - event.clientX); },
+      onpointerup: function () { if (!drag) return; drag = null; handle.classList.remove('dragging'); rewrap(); },
+      onkeydown: function (event) {
+        if (state.panelHidden) return;
+        var step = event.shiftKey ? 64 : 24;
+        if (event.key === 'ArrowLeft') setWidth((state.panelWidth || 380) + step);
+        else if (event.key === 'ArrowRight') setWidth((state.panelWidth || 380) - step);
+        else return;
+        event.preventDefault(); state.focusKey = 'panel-splitter'; rewrap();
+      } });
+    return handle;
   }
 
   function renderAddStep(workflowId, workflow) {
@@ -1744,7 +1959,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var users = Object.keys(state.draft.workflows).filter(function (id) { return state.draft.workflows[id].phases.indexOf(phaseId) >= 0 && id !== workflowId; });
     var agent = state.draft.agents[phase.agent];
     var look = OUTPUT_LOOK[stepOutput(workflowId, phaseId)] || OUTPUT_LOOK.document;
-    aside.appendChild(propTitle(look.tone, look.icon, 'STEP ' + (index + 1) + ' OF ' + workflow.phases.length, phase.label));
+    aside.appendChild(propTitle(look.tone, look.icon, 'STEP ' + (index + 1) + ' OF ' + workflow.phases.length, phase.label, [
+      propTool('left', 'Move earlier', function () { moveStep(workflowId, phaseId, -1); }, { disabled: index === 0 }),
+      propTool('right', 'Move later', function () { moveStep(workflowId, phaseId, 1); }, { disabled: index === workflow.phases.length - 1 }),
+      propTool('trash', 'Remove from workflow', function () { removeStep(workflowId, phaseId); })]));
 
     var ownOutput = outputSetByWorkflow(settings, phase);
     aside.appendChild(section('step', 'Step', [
@@ -1855,10 +2073,6 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       state.decision = created.id; changed();
     }), 'Add a decision to branch, loop until a goal, or let a person choose.'), null, after ? after.label : 'next step'));
 
-    aside.appendChild(el('div', { class: 'prop-actions' },
-      button('Move earlier', function () { moveStep(workflowId, phaseId, -1); }, { class: 'secondary', disabled: index === 0 }),
-      button('Move later', function () { moveStep(workflowId, phaseId, 1); }, { class: 'secondary', disabled: index === workflow.phases.length - 1 }),
-      button('Remove from workflow', function () { removeStep(workflowId, phaseId); }, { class: 'secondary' })));
     return aside;
   }
 
@@ -2425,7 +2639,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'changes') renderChanges(main);
     else renderHome(main);
-    main.appendChild(el('div', { id: 'studio-status', class: 'studio-status', role: 'status', 'aria-live': 'polite', text: state.status }));
+    if (state.view !== 'board') main.appendChild(el('div', { id: 'studio-status', class: 'studio-status', role: 'status', 'aria-live': 'polite', text: state.status }));
     frame.appendChild(main);
     root.appendChild(frame);
     if (state.view === 'board') fitBoard();
@@ -2471,7 +2685,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   });
 
   if (document.getElementById('studio-root')) {
-    window.addEventListener('resize', function () { if (state.view === 'board') fitBoard(); });
+    var resizing = null;
+    window.addEventListener('resize', function () {
+      if (state.view !== 'board') return;
+      fitBoard(); clearTimeout(resizing);
+      resizing = setTimeout(function () { if (state.view === 'board' && state.wrap !== false) rewrap(); }, 250);
+    });
     document.addEventListener('pointerdown', function () { pointerDown = true; }, true);
     window.addEventListener('click', function () { setTimeout(flushRender, 0); });
     document.addEventListener('pointerup', function () { setTimeout(function () { if (pointerDown) flushRender(); }, 120); }, true);

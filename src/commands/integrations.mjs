@@ -87,6 +87,8 @@ function targetAddress(target) {
 
 /** What a target needs on this machine: its secrets, or for Jira the Jira connection. */
 function credentialSummary(target, env) {
+  // A pipeline delivers it with its own credentials; this machine needs none of them.
+  if (target.deliverFrom === 'pipeline') return 'the pipeline\'s credentials';
   if (target.kind === 'jira') return jiraConnected(env) ? 'Jira connection' : 'Jira connection (not connected here)';
   if (target.kind === 'git') return 'your Git credentials';
   return secretStatus(target, env).map((entry) => `${entry.name}${entry.set ? '' : ' (not set here)'}`).join(', ') || '—';

@@ -148,6 +148,13 @@ test('a pipeline delivers a pushed approval to a trusted target, records it, and
   assert.doesNotMatch(approved.stdout + approved.stderr, /not delivered yet/, 'a pipeline delivery is not a failure here');
   const devStatus = JSON.parse((await cli(dev, 'integrations', 'status', '--all', '--json')).stdout);
   assert.deepEqual(devStatus.data.deliveries.map((entry) => [entry.status, entry.required]), [['pipeline', true]]);
+  const doctor = await runAsync(process.execPath, [CLI, '--no-model', 'doctor', '--offline', '--json'], dev, {}, { allowFailure: true });
+  const report = JSON.parse(doctor.stdout.slice(doctor.stdout.indexOf('{')));
+  const integration = (report.data?.checks ?? report.checks ?? []).find((entry) => entry.id === 'integration-audit-log');
+  assert.deepEqual([integration?.status, /delivered by a pipeline/.test(integration?.message ?? '')], ['pass', true],
+    'this machine does not need a pipeline target\'s secret, so doctor does not ask for it');
+  const listed = JSON.parse((await cli(dev, 'integrations', 'list', '--json')).stdout);
+  assert.equal(listed.data.targets[0].deliverFrom, 'pipeline');
   const held = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], dev, {}, { allowFailure: true });
   assert.notEqual(held.status, 0);
   assert.match(held.stdout + held.stderr, /A pipeline delivers it and records its receipt; once it has, bring that receipt here: singularity-flow refresh-branch/);
@@ -160,9 +167,15 @@ test('a pipeline delivers a pushed approval to a trusted target, records it, and
   const pipelineEnv = { SFLOW_SECRET_PIPELINE_KEY: 'pipeline-only-secret' };
   const deliver = (...args) => runAsync(process.execPath, [CLI, '--no-model', 'integrations', 'deliver', ...args, '--json'], ci, pipelineEnv, { allowFailure: true });
 
+  // Many pipelines check out a detached commit: delivery works there, recording asks for the branch.
+  run('git', ['checkout', '-q', '--detach', approval], ci);
   const notLifecycle = await deliver('--commit', configCommit);
-  assert.equal(notLifecycle.status, 0);
+  assert.equal(notLifecycle.status, 0, notLifecycle.stderr);
   assert.equal(JSON.parse(notLifecycle.stdout).data.lifecycle, false);
+  const detachedPlan = await deliver('--commit', approval, '--trusted-ref', 'refs/remotes/origin/no-such-branch');
+  assert.notEqual(detachedPlan.status, 0);
+  assert.match(detachedPlan.stdout + detachedPlan.stderr, /STEP_ACTION_TRUSTED_REF_MISSING|no-such-branch is not in this checkout/);
+  run('git', ['checkout', '-q', W], ci);
 
   // A trusted ref whose configuration names a different address: nothing is sent, and the job fails.
   run('git', ['branch', 'tampered', 'origin/main'], ci);

@@ -327,12 +327,14 @@ export async function doctorSnapshot(root, {
       const { jiraConnectionFromEnv } = await import('./jira.mjs');
       const jiraConnected = (() => { try { jiraConnectionFromEnv(process.env); return true; } catch { return false; } })();
       for (const target of targets) {
-        // A Jira target needs this machine's Jira connection rather than secrets of its own.
-        const missing = target.kind === 'jira'
+        // A Jira target needs this machine's Jira connection rather than secrets of its own. A pipeline
+        // target is delivered by a pipeline with its own secrets, so this machine needs none of them.
+        const viaPipeline = target.deliverFrom === 'pipeline';
+        const missing = viaPipeline ? [] : target.kind === 'jira'
           ? (jiraConnected ? [] : ['the Jira connection'])
           : [target.signingSecret, target.tokenSecret, target.urlSecret].filter((name) => name && !String(process.env[name] ?? '').trim());
         const stuck = failed.filter((entry) => entry.target === target.id).length;
-        const have = target.kind === 'jira' ? 'Jira connected' : target.kind === 'git' ? 'uses the Git credentials of this machine' : 'secrets set';
+        const have = viaPipeline ? 'delivered by a pipeline, which holds its credentials' : target.kind === 'jira' ? 'Jira connected' : target.kind === 'git' ? 'uses the Git credentials of this machine' : 'secrets set';
         checks.push(check(
           `integration-${target.id}`,
           missing.length || stuck ? 'warn' : 'pass',

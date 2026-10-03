@@ -576,6 +576,59 @@
         "additionalProperties": false
       }
     },
+    "scopeRevisions": {
+      "description": "Append-only, hash-chained revisions of the Story's accepted clause set: what changed, and the generation each later step had reached, so evidence is stale only for the clauses that changed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["schema", "revision", "clauses", "clausesSha256", "changes", "origin", "dependentGenerations", "previousRevisionSha256", "at", "revisionSha256"],
+        "properties": {
+          "schema": { "const": "scope-revision/v1" },
+          "revision": { "type": "integer", "minimum": 1 },
+          "clauses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "bodySha256", "definedIn", "generation"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "bodySha256": { "type": ["string", "null"] },
+                "definedIn": { "type": ["string", "null"] },
+                "generation": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "clausesSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "changes": {
+            "type": ["object", "null"],
+            "required": ["added", "revised", "removed"],
+            "properties": {
+              "added": { "type": "array", "items": { "type": "string" } },
+              "revised": { "type": "array", "items": { "type": "string" } },
+              "removed": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "object",
+            "required": ["kind", "phase", "generation"],
+            "properties": {
+              "kind": { "enum": ["approval", "intent-amendment"] },
+              "id": { "type": "string" },
+              "phase": { "type": "string", "minLength": 1 },
+              "generation": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "dependentGenerations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+          "previousRevisionSha256": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+          "at": { "type": "string", "format": "date-time" },
+          "revisionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
     "completenessReviews": {
       "description": "A person's review of the accepted-scope inventory's interpretation, bound to its exact digest and answering every article of the requirements-quality checklist. It never claims the scope is correct.",
       "type": "array",

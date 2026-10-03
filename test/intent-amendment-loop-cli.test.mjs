@@ -43,6 +43,7 @@ test('Code feedback proposes an immutable spec correction and authority decides 
   const configuration = YAML.parse(await readFile(configurationPath, 'utf8'));
   configuration.worldModel.grounding = 'off';
   configuration.approvalSecurity = { profile: 'poc' };
+  configuration.repositoryReadiness = { ...(configuration.repositoryReadiness ?? {}), requiredBeforeStory: false };
   for (const authority of Object.values(configuration.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   await writeFile(configurationPath, YAML.stringify(configuration));
   git('add', '.');
@@ -92,7 +93,10 @@ test('Code feedback proposes an immutable spec correction and authority decides 
   assert.equal(await readFile(specPath, 'utf8'), before,
     'proposal silently replaced the approved specification');
   const workflowPath = path.join(item, 'workflow.json');
-  assert.equal(JSON.parse(await readFile(workflowPath, 'utf8')).phases.specification.generation, 1);
+  const approvedScope = JSON.parse(await readFile(workflowPath, 'utf8'));
+  assert.equal(approvedScope.phases.specification.generation, 1);
+  assert.deepEqual(approvedScope.scopeRevisions.map((entry) => [entry.revision, entry.origin.kind, entry.changes]), [[1, 'approval', null]],
+    'approving the specification records the first scope revision');
   const proposedBytes = await readFile(path.join(root, proposed.proposal.specification.proposedPath));
   assert.equal(proposedBytes.toString('utf8'), spec(2), 'proposal file content changed after publication');
   assert.equal(createHash('sha256').update(proposedBytes).digest('hex'),
@@ -106,4 +110,22 @@ test('Code feedback proposes an immutable spec correction and authority decides 
   assert.equal(amended.currentPhase, 'implementation');
   assert.ok(amended.phases.implementation.intentAmendmentRevalidation);
   assert.match(await readFile(specPath, 'utf8'), /value 2/);
+
+  // The amendment is a new scope revision [E2G-008], chained to the first, and it names exactly the
+  // clauses whose evidence is now stale.
+  const [first, second] = amended.scopeRevisions;
+  assert.equal(second.revision, 2);
+  assert.deepEqual(second.origin, { kind: 'intent-amendment', id: 'AMD-001', phase: 'specification', generation: 2 });
+  assert.deepEqual(second.changes, { added: [], revised: [`${WORK}:AC-001`, `${WORK}:REQ-001`], removed: [] });
+  assert.equal(second.previousRevisionSha256, first.revisionSha256);
+  const summary = amended.intentAmendments.at(-1);
+  assert.deepEqual([summary.scopeRevision.revision, summary.staleClauses, summary.standingClauses],
+    [2, [`${WORK}:AC-001`, `${WORK}:REQ-001`], []]);
+  // The amended generation plans its clauses as a published one does, so the code step can start.
+  assert.equal(amended.phases.specification.claimMaps.planned.generation, 2);
+  cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+  assert.match(cli('prepare', 'implementation').stdout, /implementation is ready to author/);
+  const matrix = cli('evidence', 'matrix').stdout;
+  assert.match(matrix, /Scope revision: scope revision 2: 0 added, 2 revised, 0 removed; 0 row\(s\) stale, 2 unaffected/,
+    'nothing was built on the first scope yet, so nothing is stale');
 });

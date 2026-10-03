@@ -151,12 +151,13 @@ import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mj
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
-  buildSpecIndex, changedRepositoryPaths, deriveObservedClaimMap, derivePlannedClaimMap,
+  buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap,
   evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase,
   loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
   predecessorSpecClauses
 } from './specifications.mjs';
+import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -5279,6 +5280,7 @@ async function submitPhaseTransition(root, config, workflow, {
       });
     }
     await markIntentAmendmentRevalidated(root, config, workflow, phase, phase.submittedAt, session.actor);
+    await recordApprovedScopeRevision(root, config, workflow, phase, phase.submittedAt);
     workflow.history.push(waiver?.eligible ? {
       at: phase.submittedAt,
       actor: actorKey(session.actor),
@@ -5929,6 +5931,7 @@ export async function approvePhase(root, config, workflow, {
     // A phase the decision sent back is not settled, so it cannot revalidate an amendment yet.
     if (approvalOutcome?.kind !== 'loop') {
       await markIntentAmendmentRevalidated(root, config, workflow, phase, decision.at, session.actor);
+      await recordApprovedScopeRevision(root, config, workflow, phase, decision.at);
     }
   }
   workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${approvalOutcome?.kind === 'loop' ? `; ${describeOutcome(workflow, approvalOutcome)}` : advanceDetail(workflow, approvalPending)}` : 'approval recorded' });
@@ -7118,6 +7121,10 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   await updateArtifactMetadata(root, config, workflow, specification);
   await registerApprovedSnapshot(root, config, workflow, specification);
   await refreshPhaseSpecificationIndex(root, config, workflow, specification);
+  // The new generation plans its clauses exactly as a published one does; without this the code step
+  // found only the previous generation's planned claim map and refused to start.
+  await refreshPlannedSpecificationClaims(root, config, workflow, specification);
+  const scopeRevision = await recordApprovedScopeRevision(root, config, workflow, specification, at, { kind: 'intent-amendment', id: proposal.id });
   const amendmentTelemetry = await recordPhaseTelemetry(root, workflow, specification, [], {
     source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [],
     startedAt: at, completedAt: at
@@ -7217,6 +7224,15 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     });
   }
   const changedClauses = [...(proposal.diff?.changed ?? [])];
+  // What the revision makes stale: the clauses it added or revised and every clause depending on
+  // one. An artifact is affected when it cites one of those, or a removed clause, by exact ID.
+  const currentClauses = (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).indexes
+    .flatMap((index) => index.clauses ?? []);
+  const staleClauses = scopeRevision
+    ? staleClausesOf(scopeRevision, currentClauses)
+    : new Set([...(proposal.diff?.added ?? []), ...(proposal.diff?.revised ?? [])]);
+  const cited = new Set([...staleClauses, ...(proposal.diff?.removed ?? [])]);
+  const standingClauses = currentClauses.map((clause) => String(clause.id).toUpperCase()).filter((id) => !staleClauses.has(id)).sort();
   const evidencePaths = new Set([
     ...(proposal.radius?.artifacts ?? []),
     ...(proposal.radius?.tests ?? [])
@@ -7233,7 +7249,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
         const artifactFile = path.join(root, artifact.path);
         if (existsSync(artifactFile)) {
           const text = await readFile(artifactFile, 'utf8').catch(() => '');
-          affected = changedClauses.some((clauseId) => text.includes(clauseId));
+          affected = clauseReferences(text).some((clauseId) => cited.has(clauseId));
         }
       }
       artifact.intentAmendment = {
@@ -7276,6 +7292,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   proposal.application = {
     fromSpecificationGeneration: priorGeneration,
     toSpecificationGeneration: specification.generation,
+    scopeRevision: scopeRevision ? { revision: scopeRevision.revision, revisionSha256: scopeRevision.revisionSha256 } : null,
+    staleClauses: [...staleClauses].sort(),
+    standingClauses,
     affectedPhases,
     preservedEvidence: [...new Set(preservedEvidence)].sort(),
     acknowledgementRequired: true
@@ -7283,6 +7302,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
     changedClauses, affectedPhases,
+    scopeRevision: proposal.application.scopeRevision,
+    staleClauses: proposal.application.staleClauses,
+    standingClauses,
     preservedEvidence: proposal.application.preservedEvidence,
     acknowledgementRequired: true,
     acknowledgedAt: null,
@@ -7290,7 +7312,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   });
   workflow.history.push({
     at, actor: key, agent, event: 'intent_amendment_approved', phase: specification.id,
-    detail: `${proposal.id} created specification generation ${specification.generation}; `
+    detail: `${proposal.id} created specification generation ${specification.generation}`
+      + `${scopeRevision ? ` and scope revision ${scopeRevision.revision}` : ''}; `
+      + `${staleClauses.size} clause(s) stale, ${standingClauses.length} standing; `
       + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
   });
   await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
@@ -7339,6 +7363,18 @@ export async function acknowledgeIntentAmendment(root, config, workflow, proposa
     phase: workflow.currentPhase, detail: `${summary.id} acknowledged before downstream revalidation`
   });
   return { ...summary, acknowledged: true };
+}
+
+/**
+ * Record a scope revision [E2G-008] when an approved step defines clauses and the Story's accepted
+ * clause set changed. Returns the revision, or null when nothing changed.
+ */
+async function recordApprovedScopeRevision(root, config, workflow, phase, at, origin = { kind: 'approval' }) {
+  if (!phase.specIndex || Number(phase.specIndex.generation) !== Number(phase.generation)) return null;
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  return recordScopeRevision(workflow, {
+    clauses: acceptedClauses(records.indexes), origin: { ...origin, phase: phase.id, generation: phase.generation }, at
+  });
 }
 
 async function markIntentAmendmentRevalidated(root, config, workflow, phase, at, actor) {

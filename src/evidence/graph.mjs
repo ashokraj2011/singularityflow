@@ -14,6 +14,7 @@ import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { currentCompletenessReview } from '../scope/decisions.mjs';
 import { buildScopeInventory } from '../scope/inventory.mjs';
+import { removedClauseIds } from '../scope/revisions.mjs';
 import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
@@ -113,7 +114,11 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
   }
   const stored = await loadSpecRecords(directory).catch(() => ({ acceptance: [] }));
   const base = selectActiveSpecRecords({ indexes, planned: [], observed: [], acceptance: stored.acceptance ?? [] }, workflow);
-  const clauseIds = [...new Set(base.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
+  // A claim for a clause a scope revision removed is history, not a broken record [E2G-008].
+  const clauseIds = [...new Set([
+    ...base.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())),
+    ...removedClauseIds(workflow)
+  ])].sort();
   const maps = { planned: [], observed: [] };
   for (const id of order) {
     const phase = workflow.phases[id];
@@ -159,7 +164,8 @@ export function evidenceGraph({ workflow, records, deliveries = [], inspections 
       .map((entry) => ({ responsibility: entry.responsibility, authorityGroup: entry.authorityGroup ?? null, at: entry.at ?? null })),
     findings: findings.map((entry) => entry.code),
     scope: scope?.inventorySha256 ?? null,
-    completenessReview: completenessReview ? recordSha256(completenessReview) : null
+    completenessReview: completenessReview ? recordSha256(completenessReview) : null,
+    scopeRevision: workflow.scopeRevisions?.at(-1)?.revisionSha256 ?? null
   })}`;
   // A final evaluation counts only for the evidence it was made over.
   if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;

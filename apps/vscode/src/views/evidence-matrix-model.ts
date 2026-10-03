@@ -60,6 +60,8 @@ export type EvidenceView = {
   readonly assuranceFloor: string | null;
   readonly requiredAssurance: string | null;
   readonly scope: EvidenceScope | null;
+  /** The latest scope revision in the engine's words, when it changed earlier clauses [E2G-008]. */
+  readonly scopeRevision: string | null;
   readonly rows: readonly EvidenceRow[];
   readonly total: number;
   readonly unreadable: readonly string[];
@@ -141,6 +143,8 @@ export function evidenceView(result: unknown): EvidenceView | null {
     assuranceFloor: typeof evaluation.summary?.assuranceFloor === 'string' ? evaluation.summary.assuranceFloor : null,
     requiredAssurance: typeof evaluation.requiredAssurance?.level === 'string' ? evaluation.requiredAssurance.level : null,
     scope: scopeOf(evaluation.summary?.scope),
+    scopeRevision: evaluation.summary?.scopeRevision?.changes && typeof evaluation.summary.scopeRevision.words === 'string'
+      ? evaluation.summary.scopeRevision.words : null,
     rows,
     total: typeof matrix.page?.total === 'number' ? matrix.page.total : rows.length,
     unreadable: list<string>(evaluation.findings, (finding) => (finding?.category === 'records' && typeof finding.message === 'string' ? finding.message : null))

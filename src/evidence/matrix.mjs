@@ -110,6 +110,7 @@ export function matrixText({ evaluation, page }) {
     `Completion: ${evaluation.completion.label}${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
     `Required assurance: ${evaluation.requiredAssurance.level} (${evaluation.requiredAssurance.source})`,
     ...(evaluation.summary.scope ? [`Scope: ${scopeLine(evaluation.summary.scope)}`] : []),
+    ...(evaluation.summary.scopeRevision?.changes ? [`Scope revision: ${evaluation.summary.scopeRevision.words}`] : []),
     ''
   ];
   if (page.rows.length) {
@@ -145,7 +146,8 @@ export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
     `- Lifecycle: ${evaluation.lifecycle.words}`,
     `- Rows: ${evaluation.summary.rows} — ${results}`,
     `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; no test-case result is joined to a criterion yet`,
-    ...(evaluation.summary.scope ? [`- Scope: ${scopeLine(evaluation.summary.scope)}`] : [])
+    ...(evaluation.summary.scope ? [`- Scope: ${scopeLine(evaluation.summary.scope)}`] : []),
+    ...(evaluation.summary.scopeRevision?.changes ? [`- Scope revision: ${evaluation.summary.scopeRevision.words}`] : [])
   ];
   if (open.length) {
     lines.push(`- Open obligations (${open.length}):`, ...open.slice(0, limit).map((entry) => `  - ${entry}`));

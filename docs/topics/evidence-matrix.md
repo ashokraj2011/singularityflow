@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 5
+version: 6
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -56,6 +56,12 @@ Every requirement statement found in the Story's sources must reach a dispositio
 
 A document the inventory cannot read (an HTTPS link, a file kept on one machine, a PDF without a text layer) is listed as unreadable and stays unresolved until someone records a decision for it. A decision binds the statement's text: if the statement changes, it is a new item. Someone in the group that approves the step defining the Story's scope records each decision; when the workflow leaves scope out and that group decided scope does not apply, the decision covers every undisposed statement and the inventory says so.
 
+### Scope revisions
+
+Each time the Story's accepted clauses change, the Story records a scope revision: the clauses with their statement hashes, what was added, revised or removed, and the generation every later step had reached. Revisions are chained by hash and never rewritten, so the history of the scope stays intact. Approving a step that defines clauses with different clauses records one, and so does an approved intent amendment.
+
+Evidence becomes stale through its dependencies, never wholesale. A plan, implementation, test result or review of a clause is stale only when a revision added or revised that clause, or a clause it depends on, after the step that produced the evidence had reached its generation. A stale obligation is pending, with freshness `stale`, until that step runs again; every other clause keeps its evidence. The matrix header and the pull request summary say how many rows the latest revision made stale and how many it left unaffected. A claim for a removed clause is kept as history rather than read as a broken record.
+
 ### Completeness review
 
 Three states are kept apart and shown separately:
@@ -82,6 +88,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **A row is inconclusive with skipped tests:** remove the skip or make the criterion's test run, then submit again.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 - **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.
+- **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a scope revision changed this clause after its evidence was produced; run the step that owns the stale obligation again.
 - **`SCOPE_INVENTORY_INCOMPLETE`:** the completeness review waits until every statement has a disposition.
 - **`SCOPE_INVENTORY_CHANGED`:** the inventory changed after you read it; run `singularity-flow evidence scope` again, review it, and confirm the digest it shows now.
 - **`SCOPE_CHECKLIST_INCOMPLETE`:** answer each checklist article exactly once with `--article <id>=<decision>`, with `--article-reason` for any exception or not applicable.

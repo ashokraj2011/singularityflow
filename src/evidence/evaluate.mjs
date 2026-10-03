@@ -13,6 +13,7 @@
 import { approvalRequirementsMet } from '../approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords } from '../specifications.mjs';
+import { scopeStaleness } from '../scope/revisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
 import {
@@ -101,6 +102,25 @@ function ordered(records, workflow) {
 
 /** Evaluate a loaded evidence graph. `boundary` names the evaluation point; views use `view`. */
 /**
+ * The Story's latest scope revision [E2G-008] and what it did to the evidence: how many clause rows
+ * it made stale and how many it left unaffected. Reassurance is half of it, so both counts are given.
+ */
+function scopeRevisionSummary(revision, clauseRows) {
+  const stale = clauseRows.filter((row) => row.obligations.some((entry) => entry.facets.freshness === 'stale')).length;
+  const changes = revision.changes;
+  return {
+    revision: revision.revision,
+    revisionSha256: revision.revisionSha256,
+    changes,
+    staleRows: stale,
+    standingRows: clauseRows.length - stale,
+    words: changes
+      ? `scope revision ${revision.revision}: ${changes.added.length} added, ${changes.revised.length} revised, ${changes.removed.length} removed; ${stale} row(s) stale, ${clauseRows.length - stale} unaffected`
+      : `scope revision ${revision.revision}`
+  };
+}
+
+/**
  * The accepted scope in three separate states [E2G-007]: every identified statement has a
  * disposition; a person reviewed the interpretation of exactly this inventory; and correctness,
  * which is never claimed. Every surface shows these words rather than composing its own.
@@ -164,6 +184,19 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       dependents.set(dependency, list);
     }
   }
+  // Which step, at which generation, produced each clause's claims: a later scope revision makes
+  // that evidence stale only for the clauses it changed [E2G-008].
+  const provenance = (maps) => {
+    const from = new Map();
+    for (const map of maps) {
+      for (const key of Object.keys(map?.claims ?? {})) from.set(key.toUpperCase(), { phaseId: map.phase, generation: map.generation });
+    }
+    return from;
+  };
+  const plannedFrom = provenance(records.planned ?? []);
+  const observedFrom = provenance(records.observed ?? []);
+  const staleness = scopeStaleness(workflow, clauses);
+  const atGeneration = (ids) => ids.map((phaseId) => ({ phaseId, generation: phases[phaseId]?.generation ?? 0 }));
   const submittedCode = codePhaseIds.length > 0 && codePhaseIds.every((id) =>
     phaseFinished(phases[id]) || deliveries.some((delivery) => delivery.phaseId === id && delivery.receipt?.status === 'ready'));
   const findings = [...(graph.findings ?? [])];
@@ -327,6 +360,41 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       facets: { coverage: 'not-applicable', execution: 'not-applicable', assurance: 'not-applicable', review: implementReview, freshness: 'current', exception: 'none' }
     });
 
+    // Evidence produced before a scope revision that changed this clause (or one it depends on)
+    // no longer counts: it is shown stale and pending until its step runs again. Every other
+    // clause keeps its evidence.
+    const sources = {
+      plan: planned ? [plannedFrom.get(id)].filter(Boolean) : atGeneration(plannedBy),
+      implement: observed ? [observedFrom.get(id)].filter(Boolean) : atGeneration(implementers),
+      verify: (witnesses.get(id) ?? []).length
+        ? (witnesses.get(id) ?? []).map((entry) => ({ phaseId: entry.phaseId, generation: entry.delivery.generation }))
+        : atGeneration(noCode ? verifySteps : implementers),
+      review: atGeneration(implementers.slice(-1))
+    };
+    const stale = new Map();
+    for (const [index, obligation] of obligations.entries()) {
+      if (obligation.status === 'not-applicable') continue;
+      const revision = (sources[obligation.responsibility] ?? [])
+        .map((source) => staleness.staleBy(id, source.phaseId, source.generation))
+        .filter(Boolean)
+        .sort((left, right) => right.revision - left.revision)[0];
+      if (!revision) continue;
+      stale.set(obligation.id, revision);
+      obligations[index] = {
+        ...obligation, status: 'pending', staleSince: { revision: revision.revision, revisionSha256: revision.revisionSha256 },
+        facets: { ...obligation.facets, freshness: 'stale' }
+      };
+    }
+    if (stale.size) {
+      const kept = rowFindings.filter((entry) => !(entry.obligationIds ?? []).length || !entry.obligationIds.every((obligation) => stale.has(obligation)));
+      rowFindings.length = 0;
+      rowFindings.push(...kept);
+      const latest = Math.max(...[...stale.values()].map((revision) => revision.revision));
+      const responsibilities = obligations.filter((entry) => stale.has(entry.id)).map((entry) => entry.responsibility);
+      rowFindings.push(finding('EVIDENCE_STALE_AFTER_SCOPE_REVISION',
+        `${id} changed in scope revision ${latest}; its ${responsibilities.join(', ')} evidence predates that revision and counts again only when its step runs again.`,
+        { obligationIds: [...stale.keys()] }));
+    }
     const judged = obligations.map(applyOmission);
     const result = graph.untrusted ? 'inconclusive' : rowResult(judged);
     findings.push(...rowFindings);
@@ -471,7 +539,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       results: Object.fromEntries(ROW_RESULTS.map((result) => [result, counts[result] ?? 0])),
       assuranceFloor: weakestAssurance(verified.map((row) => row.assurance)),
       testCaseResults: 'not joined to criteria yet',
-      scope: graph.scope ? scopeSummary(graph.scope, graph.completenessReview) : null
+      scope: graph.scope ? scopeSummary(graph.scope, graph.completenessReview) : null,
+      scopeRevision: workflow.scopeRevisions?.length ? scopeRevisionSummary(workflow.scopeRevisions.at(-1), clauseRows) : null
     },
     decision: { gate, boundary },
     completion: completionLabel({ workflow, rows: allRows, terminal: graph.terminal ?? null, gate })

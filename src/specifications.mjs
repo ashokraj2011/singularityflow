@@ -203,6 +203,14 @@ function dependencies(body) {
   return [...ids].sort();
 }
 
+/**
+ * Every clause a text cites, by exact ID: the same reference grammar a clause uses to name the
+ * clauses it depends on, so `W-1:AC-001` is never found inside `XW-1:AC-001` or `W-1:AC-0010`.
+ */
+export function clauseReferences(text) {
+  return dependencies(String(text ?? ''));
+}
+
 const HEADING_LINE = /^\s{0,3}#{1,6}(?:\s|$)/;
 const HEADING_PREFIX = /^\s{0,3}#{1,6}\s*/;
 const TABLE_LINE = /^\s*\|/;

@@ -2117,6 +2117,10 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       return;
     }
     console.log(`Approved ${proposalId}; specification generation ${result.transition.proposal.application.toSpecificationGeneration} is active.`);
+    const application = result.transition.proposal.application;
+    if (application.scopeRevision) {
+      console.log(`Scope revision ${application.scopeRevision.revision} changed ${application.staleClauses.length} clause(s) (${application.staleClauses.join(', ') || 'none'}): evidence of them produced before this revision is stale. ${application.standingClauses.length} clause(s) are unaffected.`);
+    }
     console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
     printCommandRoutes(
       `singularity-flow story intent-amendment acknowledge ${proposalId}`,

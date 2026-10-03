@@ -119,4 +119,8 @@ test('the scope card shows structural completeness and the completeness review a
   assert.match(html, /<span class="eyebrow">Scope<\/span><strong>structurally complete \(3 statements\)<\/strong>/);
   assert.match(html, /completeness reviewed by po@example\.test \(product-approvers\); correctness is never claimed/);
   assert.doesNotMatch(html, /scope is correct|guarantee/i);
+
+  reviewed.data.matrix.evaluation.summary.scopeRevision = { revision: 2, changes: { added: [], revised: ['EV-1:AC-002'], removed: [] }, words: 'scope revision 2: 0 added, 1 revised, 0 removed; 1 row(s) stale, 1 unaffected' };
+  assert.match(evidenceMatrixHtml(evidenceView(reviewed), null, null, 'n'), /scope revision 2: 0 added, 1 revised, 0 removed; 1 row\(s\) stale, 1 unaffected/);
+  assert.equal(evidenceView(result).scopeRevision, null);
 });

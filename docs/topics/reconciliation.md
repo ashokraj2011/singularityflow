@@ -11,7 +11,7 @@ related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 4
+version: 5
 ---
 `sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
@@ -32,7 +32,7 @@ Use this topic when the current goal matches **reconciliation**. Start in a gove
 3. For code that must change, use the separately offered `sflow story rework --confirm` transition.
    If that return was a mistake, run `sflow story rework roll-forward --work-id <ID> --change-request <CR-ID> --json` first. Review the exact path list, then repeat it with the emitted `--confirm sha256:...`. Flow backs up the current rework bytes locally and creates a new governed restoration commit; it never resets or rewrites the rejection history.
 4. For intent that must change, prepare amended specification Markdown and run `sflow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT`. This publishes a proposal; it does not edit the approved specification.
-5. An authorized specification reviewer runs `sflow story intent-amendment decide AMD-NNN --decision approve|reject --confirm AMD-NNN`. Approval creates a new specification generation, invalidates downstream approvals, and labels existing evidence as affected or preserved.
+5. An authorized specification reviewer runs `sflow story intent-amendment decide AMD-NNN --decision approve|reject --confirm AMD-NNN`. Approval creates a new specification generation and a new scope revision, invalidates downstream approvals, and labels existing evidence as affected when it cites a changed clause by its exact ID. In the evidence matrix only the clauses the revision added or revised, and the clauses depending on them, are stale; every other clause keeps its evidence.
 6. The developer reads the recorded clause and blast-radius summary, then runs `sflow story intent-amendment acknowledge AMD-NNN`. Submission remains blocked until this acknowledgement.
 7. Replay the downstream phases. Existing unaffected evidence remains in place; affected evidence must be regenerated or revalidated through the normal publication and approval gates.
 

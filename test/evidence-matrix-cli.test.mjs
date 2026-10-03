@@ -9,11 +9,14 @@ import YAML from 'yaml';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
+// 26 subprocesses measured for each evidence view on this fixture (2026-10-03); growth past the
+// budget is a regression to explain, not a number to raise quietly.
+const EVIDENCE_VIEW_GIT_BUDGET = 40;
 
-function run(command, args, cwd, { allowFailure = false } = {}) {
+function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Evidence Matrix Tester' }
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Evidence Matrix Tester', ...env }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
@@ -142,4 +145,45 @@ test('the evidence matrix shows each criterion at its real assurance through a r
   matrix();
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), head);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+
+  // Parity [E2G criterion 16]: the VS Code panel is built from this same JSON and carries every
+  // machine field unchanged, so the editor can never show other findings or actions than the CLI.
+  const { evidenceView } = await import('../apps/vscode/src/views/evidence-matrix-model.ts');
+  const json = JSON.parse(cli('evidence', 'matrix', '--json').stdout);
+  const view = evidenceView(json);
+  const source = json.data.matrix;
+  assert.equal(view.completion, source.evaluation.completion.label);
+  assert.equal(view.lifecycle, source.evaluation.lifecycle.words);
+  assert.equal(view.total, source.page.total);
+  for (const [index, row] of source.page.rows.entries()) {
+    const shown = view.rows.find((entry) => entry.id === row.id);
+    assert.ok(shown, `the panel dropped ${row.id}`);
+    assert.deepEqual([shown.result, shown.assurance], [row.result, row.assurance ?? null], `row ${index}`);
+    assert.deepEqual(shown.actions, row.actions.map((action) => action.command));
+    assert.deepEqual(shown.findings, row.findings.map((finding) => finding.message));
+    assert.deepEqual(shown.obligations.map((entry) => [entry.id, entry.status, entry.owningSteps, entry.facets]).sort(),
+      row.obligations.map((entry) => [entry.id, entry.status, entry.owningSteps, entry.facets]).sort());
+  }
+  // And the terminal shows each row's result and its first action.
+  const text = cli('evidence', 'matrix').stdout;
+  for (const row of source.page.rows) {
+    assert.match(text, new RegExp(row.result));
+    if (row.actions[0]) assert.ok(text.includes(row.actions[0].command), `the terminal omits ${row.actions[0].command}`);
+  }
+
+  // Latency budget [E2G-033]: an evidence view reaches no network, runs no test, and its Git reads
+  // stay bounded, measured by the product's own subprocess probe.
+  for (const view of [['evidence', 'matrix', '--json'], ['evidence', 'scope', '--json']]) {
+    const probed = run(process.execPath, [CLI, '--no-model', ...view], root, { env: { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' } });
+    const report = probed.stderr.slice(probed.stderr.lastIndexOf('subprocesses:'));
+    const rows = [...report.matchAll(/^\s+(\d+)x\s+\d+ ms\s+(.+)$/gmu)].map((match) => ({ calls: Number(match[1]), key: match[2].trim() }));
+    const label = view.join(' ');
+    process.stderr.write(`${label}: ${report.split('\n')[0]}\n`);
+    for (const { key } of rows) {
+      assert.doesNotMatch(key, /^(?:gh|curl|wget)\b|^git (?:fetch|pull|push|ls-remote|remote update|clone)\b/u, `${label} reached the network: ${key}`);
+      assert.doesNotMatch(key, /^(?:npm|npx|pnpm|yarn|mvn|gradle|pytest|python3?|cargo|go)\b|--test\b/u, `${label} ran a test or build tool: ${key}`);
+    }
+    const git = rows.filter((entry) => entry.key.startsWith('git ')).reduce((sum, entry) => sum + entry.calls, 0);
+    assert.ok(git <= EVIDENCE_VIEW_GIT_BUDGET, `${label} made ${git} Git calls; the budget is ${EVIDENCE_VIEW_GIT_BUDGET}\n${report}`);
+  }
 });

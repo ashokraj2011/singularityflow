@@ -127,6 +127,9 @@ export function matrixText({ evaluation, page }) {
   lines.push('', `${counts} — page ${page.page} of ${page.pages} (${page.total} row(s))`);
   const attention = page.rows.flatMap((row) => row.findings).slice(0, 10);
   if (attention.length) lines.push('', 'Needs attention:', ...attention.map((entry) => `  - ${entry.message}`));
+  // The same actions the JSON and the VS Code panel offer per row [E2G criterion 16].
+  const actions = page.rows.flatMap((row) => (row.actions ?? []).map((action) => `  - ${row.id}: ${action.command}`));
+  if (actions.length) lines.push('', 'Actions:', ...actions.slice(0, 20), ...(actions.length > 20 ? [`  … and ${actions.length - 20} more (use --json)`] : []));
   const loadProblems = evaluation.findings.filter((entry) => entry.category === 'records');
   if (loadProblems.length) lines.push('', 'Evidence that could not be read:', ...loadProblems.map((entry) => `  - ${entry.message}`));
   lines.push('', "\"module-observed\" means the test command covering a criterion's tagged test file passed; \"exact-local-observed\" means the criterion's own test was found passing in the local run of the published candidate.");

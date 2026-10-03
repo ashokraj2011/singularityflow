@@ -382,12 +382,43 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   }
   for (const row of storyRows) findings.push(...row.findings);
 
+  // The accepted-scope inventory [E2G-006]. An included or existing statement is carried by its
+  // clauses' rows. Every other item is a row: a scope decision (excluded, deferred, informative,
+  // duplicate, superseded) is shown as not applicable, never as an exception, and a statement
+  // nobody has dispositioned is pending and blocks.
+  const scopeRows = [];
+  for (const item of graph.scope?.items ?? []) {
+    if (item.disposition === 'included' || item.disposition === 'existing') continue;
+    const unresolved = item.disposition === 'unresolved';
+    const obligation = {
+      id: obligationId(workId, 'scope', item.id), responsibility: 'scope', subject: item.id,
+      owningSteps: holders(workflow, 'scope'), status: unresolved ? 'pending' : 'not-applicable',
+      facets: {
+        coverage: unresolved ? 'unlinked' : 'not-applicable', execution: 'not-applicable', assurance: 'not-applicable',
+        review: unresolved ? 'pending' : 'decided', freshness: item.staleDecision ? 'stale' : 'current', exception: 'not-applicable'
+      }
+    };
+    scopeRows.push({
+      id: item.id, type: 'SCOPE', definedIn: item.sourceId, source: item.line ? `${item.sourceId}:${item.line}` : item.sourceId,
+      statementSha256: item.statementSha256, result: unresolved ? 'pending' : 'not-applicable', assurance: 'not-applicable',
+      plan: null, implementation: null, verification: null, obligations: [obligation], findings: [],
+      actions: unresolved ? [{ kind: 'decide', command: `singularity-flow decision scope --item ${item.id} --as <included|existing|excluded|deferred|informative|duplicate|superseded> --reason "<why>"` }] : [],
+      scope: { kind: item.kind, text: item.text, disposition: item.disposition, clauseIds: item.clauseIds, duplicateOf: item.duplicateOf ?? null, coveredBy: item.coveredBy ?? null }
+    });
+  }
+  const unresolvedScope = scopeRows.filter((row) => row.result === 'pending');
+  if (unresolvedScope.length) {
+    findings.push(finding('SCOPE_ITEMS_UNRESOLVED',
+      `${unresolvedScope.length} requirement statement(s) in this Story's sources have no disposition (the first: ${unresolvedScope[0].id}). Link each to its clauses or record a scope decision.`,
+      { obligationIds: unresolvedScope.map((row) => row.obligations[0].id) }));
+  }
+
   const scopeMissing = !rows.length && !omitted.has('scope');
   if (scopeMissing) {
     findings.push(finding('EVIDENCE_NO_CRITERIA', 'No requirement or acceptance criterion is indexed for this Story, so nothing can be shown as satisfied.'));
   }
   const clauseRows = rows;
-  const allRows = [...clauseRows, ...storyRows];
+  const allRows = [...clauseRows, ...scopeRows, ...storyRows];
   const counts = resultCounts(allRows);
   const blocked = scopeMissing || allRows.some((row) => BLOCKING_RESULTS.has(row.result))
     || findings.some((entry) => entry.blocking && entry.category === 'records');

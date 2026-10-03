@@ -65,7 +65,9 @@ function drawerHtml(row: EvidenceRow | null): string {
       <dl><dt>Type</dt><dd>${escape(row.type)}</dd>
         <dt>Defined in</dt><dd>${escape(row.source ?? '—')}</dd>
         <dt>Result</dt><dd><span class="pill ${evidenceTone(row.result)}">${escape(row.result)}</span></dd>
-        <dt>Assurance</dt><dd>${escape(row.assurance ?? '—')}</dd></dl>
+        <dt>Assurance</dt><dd>${escape(row.assurance ?? '—')}</dd>
+        ${row.statement ? `<dt>Statement</dt><dd>${escape(row.statement.text)}</dd>
+        <dt>Disposition</dt><dd>${escape(row.statement.disposition)}${row.statement.coveredBy ? ` (covered by: ${escape(row.statement.coveredBy)})` : ''}</dd>` : ''}</dl>
       <h3>Obligations</h3>
       <table class="analytics-table"><thead><tr><th>Owes</th><th>Status</th><th>Steps</th><th>Facets</th></tr></thead><tbody>${obligations}</tbody></table>
       ${applicabilityHtml(row.applicability)}${findings}${actions}

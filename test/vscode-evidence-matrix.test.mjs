@@ -88,3 +88,20 @@ test('the evidence matrix panel shows the rows and labels the engine returned, a
   assert.doesNotThrow(() => new Function(EVIDENCE_MATRIX_SCRIPT));
   assert.match(EVIDENCE_MATRIX_SCRIPT, /postMessage\(\{ type: 'select', id: row\.dataset\.entry \}\)/);
 });
+
+test('a scope inventory row shows its statement and disposition as the engine read them', () => {
+  const scoped = structuredClone(result);
+  scoped.data.matrix.page.rows = [{
+    id: 'SRI-0123456789ab', type: 'SCOPE', source: 'story', result: 'pending', assurance: 'not-applicable',
+    obligations: [{ id: 'OBL:EV-1:scope:SRI-0123456789ab', responsibility: 'scope', status: 'pending', owningSteps: ['intake'], facets }],
+    findings: [], actions: [{ kind: 'decide', command: 'singularity-flow decision scope --item SRI-0123456789ab --as <included|existing|excluded|deferred|informative|duplicate|superseded> --reason "<why>"' }],
+    scope: { kind: 'statement', text: 'The public API must stay stable.', disposition: 'unresolved', clauseIds: [], coveredBy: null }
+  }];
+  const view = evidenceView(scoped);
+  assert.deepEqual(view.rows[0].statement, { text: 'The public API must stay stable.', disposition: 'unresolved', coveredBy: null });
+  const html = evidenceMatrixHtml(view, 'SRI-0123456789ab', null, 'n');
+  assert.match(html, /<dt>Statement<\/dt><dd>The public API must stay stable\.<\/dd>/);
+  assert.match(html, /<dt>Disposition<\/dt><dd>unresolved<\/dd>/);
+  assert.match(html, /decision scope --item SRI-0123456789ab/);
+  assert.equal(evidenceView(result).rows[0].statement, null, 'a clause row has no statement of its own');
+});

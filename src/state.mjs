@@ -576,7 +576,11 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     after = JSON.parse(exactFileAtObject(root, identity.commit, stateFile)?.toString('utf8') ?? 'null');
   } catch { return false; }
   if (!before || !after) return false;
-  const DECISION_KEYS = new Set(['applicability', 'history', 'publicationProjections']);
+  // An applicability decision or a scope disposition: each appends to its own list only.
+  const kind = recordSha256(before.scopeDispositions ?? null) !== recordSha256(after.scopeDispositions ?? null)
+    ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }
+    : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
+  const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (!DECISION_KEYS.has(key) && recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null)) return false;
   }
@@ -585,15 +589,15 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     const prior = before[key] ?? [];
     const next = after[key] ?? [];
     return Array.isArray(next) && next.length === prior.length + 1
-      && recordSha256(next.slice(0, prior.length).map((entry) => key === 'applicability' ? { ...entry, withdrawnAt: undefined } : entry))
-        === recordSha256(prior.map((entry) => key === 'applicability' ? { ...entry, withdrawnAt: undefined } : entry));
+      && recordSha256(next.slice(0, prior.length).map((entry) => key === kind.list ? { ...entry, withdrawnAt: undefined } : entry))
+        === recordSha256(prior.map((entry) => key === kind.list ? { ...entry, withdrawnAt: undefined } : entry));
   };
-  if (!['applicability', 'history', 'publicationProjections'].every(appendsOne)) return false;
-  if (after.history.at(-1)?.event !== 'applicability_decided') return false;
+  if (![kind.list, 'history', 'publicationProjections'].every(appendsOne)) return false;
+  if (after.history.at(-1)?.event !== kind.event) return false;
   const event = after.publicationProjections.at(-1)?.event ?? null;
   return Boolean(event)
     && event.type === LIFECYCLE_EVENT.DECISION_MADE
-    && event.payload?.decision === 'applicability'
+    && event.payload?.decision === kind.decision
     && event.subject?.id === workflow.workItem.id
     && identity.eventSha256 === `sha256:${recordSha256(event)}`;
 }

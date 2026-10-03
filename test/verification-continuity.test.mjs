@@ -225,7 +225,7 @@ async function quickFixStory(t, id, { configure = () => {} } = {}) {
   const story = path.join(directory, 'story.yml');
   await writeFile(story, YAML.stringify({
     title: 'Waiver lifecycle', description: 'Change one value through the governed quick-fix path.',
-    desiredOutcome: 'The value changes exactly.', acceptanceCriteria: ['The value is exact.'], risk: 'low', repositoryCount: 1
+    desiredOutcome: 'The value changes exactly.', acceptanceCriteria: ['The exported value equals the approved number.'], risk: 'low', repositoryCount: 1
   }));
   flow(['start', id, '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer']);
   // Quick fix signs off its scope and plan before any code changes.

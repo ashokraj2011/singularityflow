@@ -183,6 +183,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Developer-local runner receipt is cryptographically verified (${slot(s.outcome)}; ${slot(s.assurance)}).`,
     preserves: true
   },
+  'evidence.scope.reported': {
+    headline: (s) => `${slot(s.workId)}: ${slot(s.items, '0')} requirement statement(s) from ${slot(s.sources, '0')} source(s); ${slot(s.unresolved, '0')} without a disposition.`,
+    preserves: true
+  },
+  'decision.scope.succeeded': {
+    headline: (s) => `Recorded that ${slot(s.item)} is ${slot(s.disposition)}.`,
+    preserves: false
+  },
   'governance.rebuild-planned': {
     headline: (s) => `Governance rebuild ${slot(s.plan)} would replace ${slot(s.replaced, '0')} framework file(s) and archive ${slot(s.stories, '0')} ${Number(s.stories) === 1 ? 'Story' : 'Stories'}; nothing changed.`,
     preserves: true
@@ -927,6 +935,9 @@ export const MESSAGES = Object.freeze({
 export const REASONS = Object.freeze({
   'evidence.from-committed-records': {
     render: () => "each row was evaluated from the Story's committed plan, delivery receipts, test receipts and approvals; no test or network call ran"
+  },
+  'scope.from-pinned-sources': {
+    render: () => 'the statements were read from the pinned Story source, its active documents and its answered clarifications; nothing ran and nothing changed'
   },
   'governance.rebuild-invariants': {
     render: (s) => `the commit changed only the rebuilt framework files, the archive registry and the receipt ${slot(s.receipt)}; every other ref and every repository-owned definition is unchanged`

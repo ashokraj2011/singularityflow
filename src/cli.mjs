@@ -1,3 +1,4 @@
+import { recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
 import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
@@ -8706,7 +8707,8 @@ async function decisionCommand(positionals, options) {
   if (action === 'show') return decisionShowCommand(positionals, options);
   if (action === 'choose') return decisionChooseCommand(positionals, options);
   if (action === 'applicability') return decisionApplicabilityCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose or decision applicability.`,
+  if (action === 'scope') return decisionScopeCommand(positionals, options);
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability or decision scope.`,
     { code: 'COMMAND_UNKNOWN' });
 }
 
@@ -8871,6 +8873,95 @@ async function decisionApplicabilityCommand(positionals, options) {
     outcome: succeeded('decision.applicability.succeeded', { responsibility }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     data: { commit: publication.sha, pushed: publication.pushed, decision, applicability: applicabilityStatus(workflow) }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+/**
+ * `decision scope`: a person in the group that approves the scope step disposes of one item of the
+ * Story's accepted-scope inventory [E2G-006].
+ */
+async function decisionScopeCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    await checkout(root, requestedId, {
+      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
+    });
+  }
+  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
+  const id = workflow.workItem.id;
+  if (workflow.status !== 'in_progress') {
+    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its scope is decided while it is in progress.`, { code: 'SCOPE_STORY_CLOSED' });
+  }
+  const item = optionString(options, 'item') ?? null;
+  const disposition = optionString(options, 'as') ?? null;
+  if (!item || !disposition) {
+    throw new SingularityFlowError('Name the item with --item <SRI-...|DOC-...> and the disposition with --as <included|existing|excluded|deferred|informative|duplicate|superseded>.', { code: 'SCOPE_DECISION_INCOMPLETE' });
+  }
+  const clauseIds = String(optionString(options, 'clause') ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
+  const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
+  const graph = await evidenceGraphFromAggregate(root, config, workflow);
+  const inventory = graph.scope;
+  if (!inventory) {
+    throw new SingularityFlowError('The scope inventory of this Story cannot be built; see singularity-flow evidence scope.', { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
+  }
+  const knownClauseIds = (graph.records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id));
+  const groups = scopeAuthorities(workflow);
+  if (!groups.length) {
+    throw new SingularityFlowError('No step of this Story defines its scope with an approval group, so nobody can decide it.', { code: 'SCOPE_AUTHORITY_UNAVAILABLE' });
+  }
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const reason = optionString(options, 'reason') ?? '';
+  const decide = (aggregate) => recordScopeDecision(aggregate, {
+    item, disposition, clauseIds, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), inventory, knownClauseIds
+  });
+  decide(structuredClone(workflow));
+  const { value: decision, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'scope', item, disposition }
+    },
+    `[${id}][scope:${item}] ${disposition}`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record a scope decision');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'scope_decided', phase: aggregate.currentPhase ?? null,
+        detail: `${item} is ${disposition}${recorded.clauseIds.length ? ` (${recorded.clauseIds.join(', ')})` : ''}. Reason: ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'scope', item, disposition, reviewPacketSha256: null }
+      })
+    }
+  );
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
+    console.log(publication.pushed
+      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.scope', classification: 'mutation' },
+    subject: { kind: 'story', id },
+    outcome: succeeded('decision.scope.succeeded', { item, disposition }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, decision }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

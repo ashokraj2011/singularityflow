@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 3
+version: 4
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -29,7 +29,7 @@ Use the matrix to see what a Story's evidence actually proves before you approve
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow evidence matrix [WORK-ID]` prints one page of rows. `--row AC-001` shows one row, `--result pending` or `--facet execution=failed` filters, `--page` and `--page-size` move through large specifications, and `--format json` or `--format csv` export the same rows. `singularity-flow pr describe` carries the same summary in the pull request's Evidence section.
+- **Shell:** `singularity-flow evidence matrix [WORK-ID]` prints one page of rows. `--row AC-001` shows one row, `--result pending` or `--facet execution=failed` filters, `--page` and `--page-size` move through large specifications, and `--format json` or `--format csv` export the same rows. `singularity-flow pr describe` carries the same summary in the pull request's Evidence section. `singularity-flow evidence scope [WORK-ID]` lists the accepted-scope inventory, and `singularity-flow decision scope --item <ID> --as <disposition> --reason TEXT` records a disposition.
 - **Copilot:** `/sf-evidence` relays the matrix: the completion label and its reasons, the results, the assurance floor and each row's obligations. It changes nothing.
 - **VS Code:** **Singularity Flow: Evidence Matrix** (also under the active Story in the sidebar) shows the same rows as a table; selecting a row opens its obligations, what needs attention and its next commands.
 
@@ -43,6 +43,18 @@ Each row carries up to four obligations, identified by `OBL:<WORK-ID>:<responsib
 - **review:** the step that delivered the change was approved under its approval rule; a self-approval is shown as such.
 
 Every obligation reports six facets separately: coverage, execution, assurance, review, freshness and exception. The row's result is the most serious state of its obligations: failed, inconclusive, missing, pending, satisfied with an exception, or satisfied.
+
+### Accepted scope
+
+Every requirement statement found in the Story's sources must reach a disposition. The sources are the Story's pinned source (each acceptance criterion, requirement and constraint, and any sentence with must, must not, shall, shall not or is required to), its active documents (list items and table rows under requirements, acceptance criteria or constraints headings, Given/When/Then scenarios, and strong-modal sentences) and its answered clarifications. "Should" and "may" are not requirements here.
+
+- **included:** a clause states it (its text equals or contains the statement), or a person linked the clauses; the clause's row carries its evidence.
+- **existing:** behaviour that already exists, linked to the clauses that verify it.
+- **excluded** or **deferred:** a scope decision with a reason, shown as not applicable and never as an exception.
+- **informative**, **duplicate** or **superseded:** not a requirement of this Story. A statement repeated verbatim in another source is a duplicate automatically.
+- **unresolved:** nobody has said yet. It appears as a pending SCOPE row and blocks completion.
+
+A document the inventory cannot read (an HTTPS link, a file kept on one machine, a PDF without a text layer) is listed as unreadable and stays unresolved until someone records a decision for it. A decision binds the statement's text: if the statement changes, it is a new item. Someone in the group that approves the step defining the Story's scope records each decision; when the workflow leaves scope out and that group decided scope does not apply, the decision covers every undisposed statement and the inventory says so.
 
 ## State and safety
 
@@ -59,6 +71,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **Every row is inconclusive:** a claim map or index no longer matches its binding in the Story; the matrix lists the record it could not trust.
 - **A row is inconclusive with skipped tests:** remove the skip or make the criterion's test run, then submit again.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
+- **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.
 
 ## Related topics
 

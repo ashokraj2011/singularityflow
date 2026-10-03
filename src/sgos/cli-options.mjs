@@ -102,7 +102,9 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
     verify: optionSet(),
     reconstruct: optionSet(),
     // The Story evidence matrix is a read-only view, not Process Evidence; it shares the command name.
-    matrix: optionSet('row', 'facet', 'result', 'format', 'page', 'page-size')
+    matrix: optionSet('row', 'facet', 'result', 'format', 'page', 'page-size'),
+    // The Story's accepted-scope inventory is a read-only view as well.
+    scope: optionSet()
   }),
   candidate: Object.freeze({
     list: optionSet(),

@@ -555,6 +555,27 @@
         "additionalProperties": false
       }
     },
+    "scopeDispositions": {
+      "description": "A person's disposition of each accepted-scope inventory item: the clauses that carry it, or a scope decision with its reason.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item", "disposition", "clauseIds", "reason", "statementSha256", "actor", "authorityGroup", "at"],
+        "properties": {
+          "item": { "type": "string", "pattern": "^(?:SRI-[a-f0-9]{12}|DOC-[0-9]{3,}|[A-Za-z0-9:_-]+)$" },
+          "disposition": { "enum": ["included", "existing", "excluded", "deferred", "informative", "duplicate", "superseded"] },
+          "clauseIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "statementSha256": { "type": ["string", "null"] },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" },
+          "withdrawnAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "phaseOrder": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
     "phases": {
       "type": "object",

@@ -520,6 +520,9 @@ Usage:
     [--page N] [--page-size N] [--format human|json|csv]
     one row per requirement and acceptance criterion with its plan, implementation, verification,
     result and assurance; read-only, runs no test and makes no network call
+  singularity-flow evidence scope [WORK-ID] [--json]
+    every requirement statement in the Story's sources with its disposition, and every source that
+    could not be read; read-only
   singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
   singularity-flow comprehension source <SFREF> [--offset BYTES] [--max-bytes BYTES]
     [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
@@ -667,6 +670,7 @@ Usage:
   singularity-flow decision show [WORK-ID] [--json]
   singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY] [--json]
   singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT [--json]
+  singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]

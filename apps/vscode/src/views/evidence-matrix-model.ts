@@ -33,6 +33,8 @@ export type EvidenceRow = {
   readonly findings: readonly string[];
   readonly actions: readonly string[];
   readonly applicability: EvidenceApplicability | null;
+  /** For a scope inventory row: the requirement statement and its disposition, as the engine read them. */
+  readonly statement: { readonly text: string; readonly disposition: string; readonly coveredBy: string | null } | null;
 };
 
 export type EvidenceView = {
@@ -95,7 +97,10 @@ export function evidenceView(result: unknown): EvidenceView | null {
     } : null)).sort((left, right) => RESPONSIBILITY_ORDER.indexOf(left.responsibility) - RESPONSIBILITY_ORDER.indexOf(right.responsibility)),
     findings: list<string>(row.findings, (finding) => (typeof finding?.message === 'string' ? finding.message : null)),
     actions: list<string>(row.actions, (action) => (typeof action?.command === 'string' ? action.command : null)),
-    applicability: applicabilityOf(row.applicability)
+    applicability: applicabilityOf(row.applicability),
+    statement: row.scope && typeof row.scope.text === 'string'
+      ? { text: row.scope.text, disposition: text(row.scope.disposition, 'unresolved'), coveredBy: typeof row.scope.coveredBy === 'string' ? row.scope.coveredBy : null }
+      : null
   } : null));
   const counts = Object.entries(evaluation.summary?.results ?? {})
     .filter(([, count]) => typeof count === 'number' && count > 0)

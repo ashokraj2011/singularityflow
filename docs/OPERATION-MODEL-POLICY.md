@@ -169,6 +169,7 @@ Every public operation is classified before its implementation module is importe
 | copilot.preview | read | never | — | — |
 | decision.applicability | mutation | never | — | — |
 | decision.choose | mutation | never | — | — |
+| decision.scope | mutation | never | — | — |
 | decision.show | read | never | — | — |
 | delivery.assurance-evaluate | read | never | — | — |
 | delivery.authenticated-runner-status | read | never | — | — |
@@ -216,6 +217,7 @@ Every public operation is classified before its implementation module is importe
 | evidence.export | mutation | never | — | — |
 | evidence.matrix | read | never | — | — |
 | evidence.reconstruct | read | never | — | — |
+| evidence.scope | read | never | — | — |
 | evidence.verify | read | never | — | — |
 | execution-unit.doctor | read | never | — | — |
 | execution-unit.list | read | never | — | — |

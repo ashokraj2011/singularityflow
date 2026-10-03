@@ -548,6 +548,24 @@ function governanceRebuildPreview(result) {
 
 export function renderCommandResult(result) {
   if (result.operation.id === 'governance.rebuild.preview' && result.data?.plan) return governanceRebuildPreview(result);
+  if (result.operation.id === 'evidence.scope' && result.data?.scope) {
+    const scope = result.data.scope;
+    const order = ['unresolved', 'included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded'];
+    return [
+      style.heading(headline(result)),
+      `Structurally complete: ${scope.structurallyComplete ? 'yes, every identified statement has a disposition' : 'no'} (inventory ${scope.inventorySha256.slice(7, 19)})`,
+      '', style.heading('Sources:'),
+      ...scope.sources.map((source) => `  ${source.id} (${source.kind}): ${source.readable ? `${source.statements} statement(s)` : `unreadable: ${source.reason}`}`),
+      ...order.flatMap((disposition) => {
+        const items = scope.items.filter((item) => item.disposition === disposition);
+        if (!items.length) return [];
+        return ['', style.heading(`${disposition[0].toUpperCase()}${disposition.slice(1)} (${items.length}):`),
+          ...items.map((item) => `  ${item.id} [${item.sourceId}${item.line ? `:${item.line}` : ''}] ${item.text}${item.clauseIds?.length ? ` → ${item.clauseIds.join(', ')}` : ''}${item.duplicateOf ? ` (duplicate of ${item.duplicateOf})` : ''}`)];
+      }),
+      ...(scope.summary.unresolved ? ['', 'Record each unresolved statement: singularity-flow decision scope --item <ID> --as <disposition> --reason "<why>"'] : []),
+      style.detail(preservationLine(result))
+    ].join('\n');
+  }
   if (result.operation.id === 'governance.restore.preview' && result.data?.restore) {
     const restore = result.data.restore;
     return [

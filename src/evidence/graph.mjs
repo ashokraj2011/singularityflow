@@ -12,6 +12,9 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { recordSha256 } from '../records.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { readRecord } from '../schema-migrations.mjs';
+import { buildScopeInventory } from '../scope/inventory.mjs';
+import { applicabilityStatus } from './applicability.mjs';
+import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
   isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap,
   readBoundSpecificationIndex, selectActiveSpecRecords
@@ -126,8 +129,8 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
 }
 
 /** Build the graph from records already in memory; the loader and the tests both use this. */
-export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], findings = [], untrusted = false, terminal = null }) {
-  const graph = { workflow, records, deliveries, inspections, findings, untrusted, terminal };
+export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], findings = [], untrusted = false, terminal = null, scope = null }) {
+  const graph = { workflow, records, deliveries, inspections, findings, untrusted, terminal, scope };
   // What the evaluation was computed from, so a cache or a stored decision can tell whether its
   // inputs are still current without re-reading every record.
   graph.inputSha256 = `sha256:${recordSha256({
@@ -151,7 +154,8 @@ export function evidenceGraph({ workflow, records, deliveries = [], inspections 
     inspections: inspections.map((entry) => ({ phaseId: entry.phaseId, sha256: recordSha256({ text: entry.text }) })),
     applicability: (workflow.applicability ?? []).filter((entry) => !entry.withdrawnAt)
       .map((entry) => ({ responsibility: entry.responsibility, authorityGroup: entry.authorityGroup ?? null, at: entry.at ?? null })),
-    findings: findings.map((entry) => entry.code)
+    findings: findings.map((entry) => entry.code),
+    scope: scope?.inventorySha256 ?? null
   })}`;
   // A final evaluation counts only for the evidence it was made over.
   if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;
@@ -184,6 +188,22 @@ async function loadInspections(root, directory, workflow, findings) {
   return inspections;
 }
 
+/** The Story's accepted-scope inventory [E2G-006], or null with a finding when it cannot be built. */
+async function loadScopeInventory(root, definition, workflow, directory, records, findings) {
+  try {
+    const source = await pinnedStorySource(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow);
+    const clauses = (records.indexes ?? []).flatMap((index) => index.clauses ?? []);
+    const scopeNotApplicable = applicabilityStatus(workflow).some((entry) => entry.responsibility === 'scope' && entry.satisfied);
+    return await buildScopeInventory(root, directory, workflow, { source, clauses, scopeNotApplicable });
+  } catch (error) {
+    findings.push({
+      code: 'SCOPE_INVENTORY_UNAVAILABLE', category: 'records', blocking: true, obligationIds: [],
+      message: `The accepted-scope inventory could not be built: ${error.message}`
+    });
+    return null;
+  }
+}
+
 /** Read one Story's records from its checkout. Never throws for a record problem; reports it. */
 export async function loadEvidenceGraph(root, { workId = null } = {}) {
   const accepted = await loadAcceptedStoryExecution(root, workId);
@@ -207,5 +227,6 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
     if (phase?.deliveryEvidence) deliveries.push(await loadDelivery(root, phase, findings));
   }
   const inspections = await loadInspections(root, directory, workflow, findings);
-  return evidenceGraph({ workflow, records, deliveries, inspections, findings, untrusted });
+  const scope = await loadScopeInventory(root, definition, workflow, directory, records, findings);
+  return evidenceGraph({ workflow, records, deliveries, inspections, findings, untrusted, scope });
 }

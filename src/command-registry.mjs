@@ -253,7 +253,7 @@ const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store'
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 // A person's choice at a workflow decision is governed like approve and reject; reading one is not.
 const DECISION_READ_SUBCOMMANDS = Object.freeze(['show']);
-const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose', 'applicability']);
+const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose', 'applicability', 'scope']);
 const DECISION_SUBCOMMANDS = Object.freeze([...DECISION_READ_SUBCOMMANDS, ...DECISION_MUTATION_SUBCOMMANDS]);
 // A preview fetches and stages bytes and a check re-reads sources: neither changes governed state.
 const IMPORT_READ_SUBCOMMANDS = Object.freeze(['preview']);
@@ -397,7 +397,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   policy: Object.freeze({ read: ['status', 'fsck', 'plan'], mutation: ['apply'] }),
   task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: ['retry'] }),
   request: Object.freeze({ read: ['list', 'show'], mutation: ['respond'] }),
-  evidence: Object.freeze({ read: ['verify', 'reconstruct', 'matrix'], mutation: ['export'] }),
+  evidence: Object.freeze({ read: ['verify', 'reconstruct', 'matrix', 'scope'], mutation: ['export'] }),
   candidate: Object.freeze({ read: ['list', 'show', 'diff-argv'], mutation: ['freeze', 'verify', 'publish'] }),
   'execution-unit': Object.freeze({ read: ['list', 'doctor'], mutation: [] }),
   device: Object.freeze({ read: ['list', 'doctor', 'intent', 'result'], mutation: ['invoke', 'recover', 'revoke'] }),

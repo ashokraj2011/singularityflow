@@ -644,6 +644,11 @@ function junitCaseState(node) {
   const failures = node.children.filter((child) => child.localName === 'failure').length;
   const errors = node.children.filter((child) => child.localName === 'error').length;
   const skippedElements = node.children.filter((child) => child.localName === 'skipped').length;
+  const flakyElements = node.children.filter((child) => ['flakyFailure', 'flakyError'].includes(child.localName)).length;
+  const rerunElements = node.children.filter((child) => ['rerunFailure', 'rerunError'].includes(child.localName)).length;
+  if ((flakyElements && (failures || errors || skippedElements)) || (rerunElements && !(failures || errors))) {
+    xmlFailure('testcase contains contradictory retry outcomes');
+  }
   const disabled = ['disabled', 'notrun', 'notexecuted']
     .includes(String(node.attributes.status ?? '').toLowerCase());
   if (failures + errors > 1 || skippedElements > 1 || ((failures || errors) && (skippedElements || disabled))) {
@@ -653,7 +658,8 @@ function junitCaseState(node) {
     failure: failures === 1,
     error: errors === 1,
     skipped: skippedElements === 1 || disabled,
-    disabled
+    disabled,
+    flaky: flakyElements > 0
   };
 }
 
@@ -697,6 +703,7 @@ function junitCases(node, suiteName = null, output = [], maximumOccurrences = MA
       className: node.attributes.classname ?? null,
       name: node.attributes.name ?? null,
       outcome: state.failure || state.error ? 'failed' : state.skipped ? 'skipped' : 'passed',
+      ...(state.flaky ? { flaky: true } : {}),
       verdict: 'inconclusive',
       durationMs: Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null,
       logicalTestId: null,
@@ -728,11 +735,8 @@ function classifyDisplayIdentities(occurrences) {
 
 function validateJunitStructure(node, insideTestcase = false) {
   const testcase = insideTestcase || node.localName === 'testcase';
-  if (!testcase && ['failure', 'error', 'skipped'].includes(node.localName)) {
+  if (!testcase && ['failure', 'error', 'skipped', 'flakyFailure', 'flakyError', 'rerunFailure', 'rerunError'].includes(node.localName)) {
     xmlFailure(`suite-level '${node.localName}' outcome cannot produce a passing observation`);
-  }
-  if (['flakyFailure', 'flakyError', 'rerunFailure', 'rerunError'].includes(node.localName)) {
-    xmlFailure(`unsupported retried testcase outcome '${node.localName}'`);
   }
   for (const child of node.children) validateJunitStructure(child, testcase);
 }
@@ -888,9 +892,11 @@ function javascriptJsonObservation(adapter, parsed) {
         });
       }
       const duration = Number(assertion.duration);
+      const retried = (Number.isInteger(assertion.invocations) && assertion.invocations > 1)
+        || (Array.isArray(assertion.retryReasons) && assertion.retryReasons.length > 0);
       occurrences.push({
         suite: null, className: null, name, fullName, ancestorTitles: [...ancestorTitles],
-        framework, outcome, verdict: 'inconclusive',
+        framework, outcome, ...(outcome === 'passed' && retried ? { flaky: true } : {}), verdict: 'inconclusive',
         durationMs: Number.isFinite(duration) && duration >= 0 ? Math.round(duration) : null,
         logicalTestId: null, declarationSha256: null, exact: false,
         identityStatus: 'observed-name-only'

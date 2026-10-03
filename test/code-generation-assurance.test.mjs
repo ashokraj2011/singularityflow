@@ -716,7 +716,20 @@ test('XML adapters reject malformed documents and entity declarations', async ()
     '<testsuite tests="1"><testcase classname="ExampleTest" name="flaky">',
     '<flakyFailure message="first attempt failed"/></testcase></testsuite>'
   ].join(''));
-  await assert.rejects(() => parseTestResult(root, command), /unsupported retried testcase/);
+  // A Surefire rerun that passed is read as a flaky pass, never as a plain one [E2G-016, D15].
+  const flaky = await parseTestResult(root, command);
+  assert.deepEqual(flaky.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(flaky.testcaseObservation.occurrences[0].flaky, true);
+  await writeFile(path.join(root, 'results', 'result.xml'), [
+    '<testsuite tests="1"><testcase classname="ExampleTest" name="flaky">',
+    '<failure message="x"/><flakyFailure message="first attempt failed"/></testcase></testsuite>'
+  ].join(''));
+  await assert.rejects(() => parseTestResult(root, command), /contradictory retry outcomes/);
+  await writeFile(path.join(root, 'results', 'result.xml'), [
+    '<testsuite tests="1"><testcase classname="ExampleTest" name="rerun">',
+    '<rerunFailure message="second attempt failed"/></testcase></testsuite>'
+  ].join(''));
+  await assert.rejects(() => parseTestResult(root, command), /contradictory retry outcomes/);
   await writeFile(path.join(root, 'results', 'result.xml'), Buffer.concat([
     Buffer.from('<testsuite tests="1"><testcase classname="ExampleTest" name="'),
     Buffer.from([0xff]),
@@ -862,26 +875,16 @@ test('inferred commands follow monorepo package managers and platform-native run
   assert.equal(swiftCommand.result.adapter, 'junit-xml');
 });
 
-test('acceptance tags preserve namespaces and reject ambiguous bare suffixes', async () => {
+test('acceptance tags are namespace-qualified @ac comments; bare suffixes and the retired spelling bind nothing', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-ac-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'tests'), { recursive: true });
-  await writeFile(path.join(root, 'tests', 'payment.test.js'), '// @ac:AC-001\n// @ac:ORDER:AC-002\n');
-  const tags = await taggedAcceptanceIds(root, ['tests/payment.test.js'], [
-    'ORDER:AC-001', 'PAYMENT:AC-001', 'ORDER:AC-002'
-  ]);
+  await writeFile(path.join(root, 'tests', 'payment.test.js'), [
+    '// @ac:AC-001', '// @ac:ORDER:AC-002', '// @sflow-ac:ORDER:AC-003', ''
+  ].join('\n'));
+  const tags = await taggedAcceptanceIds(root, ['tests/payment.test.js']);
   assert.deepEqual(tags.ids, ['ORDER:AC-002']);
-  assert.deepEqual(tags.ambiguous, [{ suffix: 'AC-001', matches: ['ORDER:AC-001', 'PAYMENT:AC-001'] }]);
-
-  await writeFile(path.join(root, 'tests', 'legacy.test.js'), '// @ac:MOBILE-101:AC-001\n');
-  const qualifiedLegacy = await taggedAcceptanceIds(root, ['tests/legacy.test.js'], ['AC-001'], {
-    requireNamespaceQualifiedIds: true
-  });
-  assert.deepEqual(qualifiedLegacy.ids, ['AC-001', 'MOBILE-101:AC-001']);
-  assert.deepEqual(qualifiedLegacy.ambiguous, []);
-  assert.deepEqual(qualifiedLegacy.bindings, [{
-    clauseId: 'AC-001', testSource: 'tests/legacy.test.js',
-    bindingAssurance: 'namespace-qualified-legacy-clause', tag: 'MOBILE-101:AC-001'
-  }]);
+  assert.deepEqual(tags.bindings, [{ clauseId: 'ORDER:AC-002', testSource: 'tests/payment.test.js', bindingAssurance: 'namespace-qualified' }]);
 });
 
 test('new qualified acceptance witnesses must be comments, not executable strings', async (t) => {
@@ -890,15 +893,11 @@ test('new qualified acceptance witnesses must be comments, not executable string
   await mkdir(path.join(root, 'tests'), { recursive: true });
   await writeFile(path.join(root, 'tests', 'payment.test.js'),
     'test("decoy", () => expect("@ac:ORDER:AC-001").toBeTruthy());\n');
-  const decoy = await taggedAcceptanceIds(root, ['tests/payment.test.js'], ['ORDER:AC-001'], {
-    requireNamespaceQualifiedIds: true, requireCommentTags: true
-  });
+  const decoy = await taggedAcceptanceIds(root, ['tests/payment.test.js']);
   assert.deepEqual(decoy.ids, []);
   await writeFile(path.join(root, 'tests', 'payment.test.js'),
     '// @ac:ORDER:AC-001\ntest("payment", () => {});\n');
-  const witnessed = await taggedAcceptanceIds(root, ['tests/payment.test.js'], ['ORDER:AC-001'], {
-    requireNamespaceQualifiedIds: true, requireCommentTags: true
-  });
+  const witnessed = await taggedAcceptanceIds(root, ['tests/payment.test.js']);
   assert.deepEqual(witnessed.ids, ['ORDER:AC-001']);
 });
 

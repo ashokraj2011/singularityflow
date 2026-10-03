@@ -401,10 +401,10 @@ try {
   await mkdir(path.dirname(sourcePath), { recursive: true });
   await writeFile(sourcePath, [
     'package benchmark;',
-    'import org.junit.jupiter.api.Tag;',
     'import org.junit.jupiter.api.Test;',
     'class WelBenchmarkTest {',
-    '  @Test @Tag("sflow-ac:BENCH:AC-001")',
+    '  // @ac:BENCH:AC-001',
+    '  @Test',
     '  void observesExactIdentity() {}',
     '}',
     ''

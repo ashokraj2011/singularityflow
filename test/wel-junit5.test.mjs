@@ -54,14 +54,13 @@ function parsed(occurrences) {
   };
 }
 
-test('the production JDK parser binds one qualified JUnit tag to an exact Surefire identity', async () => {
+test('the production JDK parser binds the @ac comment above a JUnit test to an exact Surefire identity', async () => {
   const source = [
     'package example;',
     'import org.junit.jupiter.api.Test;',
-    'import org.junit.jupiter.api.Tag;',
     'class OrderTest {',
+    '  // @ac:WRK-1:AC-001',
     '  @Test',
-    '  @Tag("sflow-ac:WRK-1:AC-001")',
     '  void calculatesInterest() {',
     '    org.junit.jupiter.api.Assertions.assertEquals(2, 1 + 1);',
     '  }',
@@ -91,11 +90,12 @@ test('the production JDK parser binds one qualified JUnit tag to an exact Surefi
   assert.equal(observation.occurrences[0].identityStatus, 'exact-static-identity');
   assert.match(observation.occurrences[0].logicalTestId, /^sha256:[a-f0-9]{64}$/);
   const declaration = source.slice(
-    observation.catalog.declarations[0].sourceRange.startCharacter,
-    observation.catalog.declarations[0].sourceRange.endCharacter
+    observation.catalog.declarations[0].span.start,
+    observation.catalog.declarations[0].span.end
   );
+  assert.equal(declaration, source.slice(source.indexOf('@Test'), source.indexOf('  @Test void unrelated') - 1));
   assert.equal(
-    observation.catalog.declarations[0].sourceDeclarationSha256,
+    observation.catalog.declarations[0].declarationSha256,
     `sha256:${createHash('sha256').update(Buffer.from(declaration)).digest('hex')}`
   );
 
@@ -131,9 +131,9 @@ test('unsupported JUnit shapes and ambiguous Surefire names can never become exa
   const parameterized = [
     'package example;',
     'import org.junit.jupiter.params.ParameterizedTest;',
-    'import org.junit.jupiter.api.Tag;',
     'class OrderTest {',
-    '  @ParameterizedTest @Tag("sflow-ac:WRK-1:AC-001")',
+    '  // @ac:WRK-1:AC-001',
+    '  @ParameterizedTest',
     '  void calculatesInterest(int input) {}',
     '}',
     ''
@@ -171,9 +171,9 @@ test('parser cancellation is bounded, non-blocking, and can never emit an exact 
   const source = [
     'package example;',
     'import org.junit.jupiter.api.Test;',
-    'import org.junit.jupiter.api.Tag;',
     'class OrderTest {',
-    '  @Test @Tag("sflow-ac:WRK-1:AC-001") void calculatesInterest() {}',
+    '  // @ac:WRK-1:AC-001',
+    '  @Test void calculatesInterest() {}',
     '}',
     ''
   ].join('\n');
@@ -210,9 +210,9 @@ test('focused, framework-retried, and non-Surefire commands cannot emit exact WE
   const source = [
     'package example;',
     'import org.junit.jupiter.api.Test;',
-    'import org.junit.jupiter.api.Tag;',
     'class OrderTest {',
-    '  @Test @Tag("sflow-ac:WRK-1:AC-001") void calculatesInterest() {}',
+    '  // @ac:WRK-1:AC-001',
+    '  @Test void calculatesInterest() {}',
     '}',
     ''
   ].join('\n');

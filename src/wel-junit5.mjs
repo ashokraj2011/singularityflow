@@ -1,10 +1,11 @@
 /**
- * WEL's observe-only JUnit 5/Surefire identity adapter.
+ * The JUnit 5 source reader and its observe-only WEL projection.
  *
  * Source is parsed in a separate JDK compiler process. Candidate classes are never compiled,
- * loaded, or executed here. The adapter can strengthen a report occurrence from name-only to an
- * exact static identity, but it cannot create approval, independent execution authority, or an
- * enforce-grade pass.
+ * loaded, or executed here. `parseJunitTestSources` returns every test method's exact declaration
+ * (src/verification/junit-declarations.mjs) with the `@ac` criterion tags in the comments above it;
+ * the observe projection joins those declarations to Surefire occurrences without granting
+ * approval or independent execution authority.
  */
 import { createHash } from 'node:crypto';
 import { constants as fsConstants, rmSync } from 'node:fs';
@@ -17,9 +18,12 @@ import { assertCredentialFreeRemote, remoteFingerprint } from './git-remote-diag
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { posix, run, secureRepositoryPath } from './util.mjs';
+import { junitDeclarationsFromParser } from './verification/junit-declarations.mjs';
+import { joinDeclaration } from './verification/join.mjs';
 
 const HELPER = path.join(PACKAGE_ROOT, 'src', 'wel', 'WelJunitCatalog.java');
 const QUALIFIED_CLAUSE = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/;
+const PARSER_RECORD_KINDS = new Set(['gap', 'declaration', 'lifecycle']);
 const MAX_SOURCES = 256;
 const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -193,7 +197,7 @@ function parseHelperOutput(output) {
   const records = [];
   for (const line of String(output).split(/\r?\n/u).filter(Boolean)) {
     const record = JSON.parse(line);
-    if (!record || !['gap', 'declaration'].includes(record.kind)) {
+    if (!record || !PARSER_RECORD_KINDS.has(record.kind)) {
       throw new Error('parser emitted an unknown record');
     }
     records.push(record);
@@ -201,6 +205,7 @@ function parseHelperOutput(output) {
   return records;
 }
 
+/** Run the packaged parser over captured sources. Returns its raw records, or a process gap. */
 async function sourceDeclarations(root, sources, {
   signal = null,
   runParser = runQualityCommand
@@ -208,10 +213,9 @@ async function sourceDeclarations(root, sources, {
   const helperBytes = await readFile(HELPER);
   const parser = {
     id: 'jdk-compiler-tree-api',
-    version: 1,
+    version: 2,
     manifestSha256: prefixed(helperBytes)
   };
-  const captured = new Map(sources.map((source) => [source.path, source.bytes]));
   const staging = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-parser-'));
   try {
     for (const source of sources) {
@@ -231,64 +235,67 @@ async function sourceDeclarations(root, sources, {
       killTree: true,
       env: parserEnvironment()
     });
-    if (invocation.aborted) {
-      return { parser, declarations: [], gaps: ['JUNIT_SOURCE_PARSER_CANCELLED'] };
-    }
+    if (invocation.aborted) return { parser, records: [], gaps: ['JUNIT_SOURCE_PARSER_CANCELLED'] };
     if (invocation.stdoutTruncated || invocation.stderrTruncated) {
-      return { parser, declarations: [], gaps: ['JUNIT_SOURCE_PARSER_OUTPUT_LIMIT'] };
+      return { parser, records: [], gaps: ['JUNIT_SOURCE_PARSER_OUTPUT_LIMIT'] };
     }
     if (invocation.error || invocation.status !== 0 || invocation.signal) {
       const reason = invocation.timedOut || invocation.error?.code === 'ETIMEDOUT' || invocation.signal
         ? 'JUNIT_SOURCE_PARSER_TIMEOUT' : 'JUNIT_SOURCE_PARSER_UNAVAILABLE';
-      return { parser, declarations: [], gaps: [reason] };
+      return { parser, records: [], gaps: [reason] };
     }
-    let records;
-    try { records = parseHelperOutput(invocation.stdout); }
-    catch { return { parser, declarations: [], gaps: ['JUNIT_SOURCE_PARSER_MALFORMED'] }; }
-    const gaps = records.filter((record) => record.kind === 'gap').map((record) => record.code);
-    const declarations = [];
-    for (const record of records.filter((entry) => entry.kind === 'declaration')) {
-      if (!captured.has(record.path)
-          || !Number.isSafeInteger(record.start) || !Number.isSafeInteger(record.end)
-          || record.start < 0 || record.end <= record.start
-          || !Array.isArray(record.clauseIds) || !record.clauseIds.length
-          || record.clauseIds.some((clause) => !QUALIFIED_CLAUSE.test(clause))) {
-        gaps.push('JUNIT_SOURCE_PARSER_MALFORMED');
-        continue;
-      }
-      let source;
-      try { source = new TextDecoder('utf-8', { fatal: true }).decode(captured.get(record.path)); }
-      catch { gaps.push('JUNIT_SOURCE_NOT_UTF8'); continue; }
-      if (record.end > source.length) {
-        gaps.push('JUNIT_SOURCE_PARSER_MALFORMED');
-        continue;
-      }
-      const bytes = Buffer.from(source.slice(record.start, record.end), 'utf8');
-      const identity = {
-        identitySchema: 'junit5-static-method-v1',
-        repositorySha256: null,
-        sourcePath: record.path,
-        packageName: record.packageName,
-        declaringClass: record.className,
-        methodName: record.methodName,
-        signature: record.signature
-      };
-      declarations.push({
-        ...identity,
-        logicalTestId: `sha256:${recordSha256(identity)}`,
-        sourceDeclarationSha256: prefixed(bytes),
-        sourceRange: {
-          startCharacter: record.start,
-          endCharacter: record.end,
-          bytes: bytes.length
-        },
-        clauseIds: [...record.clauseIds].sort()
-      });
-    }
-    return { parser, declarations, gaps };
+    try { return { parser, records: parseHelperOutput(invocation.stdout), gaps: [] }; }
+    catch { return { parser, records: [], gaps: ['JUNIT_SOURCE_PARSER_MALFORMED'] }; }
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
+}
+
+/** Decode captured sources and normalize the parser's records into declarations. */
+async function capturedDeclarations(root, sources, options) {
+  const decoded = [];
+  const undecodable = {};
+  for (const source of sources) {
+    try { decoded.push({ path: source.path, bytes: source.bytes, text: new TextDecoder('utf-8', { fatal: true }).decode(source.bytes) }); }
+    catch { undecodable[source.path] = [{ code: 'JUNIT_SOURCE_NOT_UTF8', message: 'the file is not UTF-8' }]; }
+  }
+  const parsed = decoded.length ? await sourceDeclarations(root, decoded, options) : { parser: null, records: [], gaps: [] };
+  if (parsed.gaps.length) {
+    const fileGaps = Object.fromEntries(decoded.map((source) => [source.path, parsed.gaps.map((code) => ({ code, message: `the JDK parser reported ${code}` }))]));
+    return { parser: parsed.parser, gaps: parsed.gaps, declarations: [], unattachedTags: [], fileGaps: { ...fileGaps, ...undecodable } };
+  }
+  const normalized = junitDeclarationsFromParser({ sources: decoded, records: parsed.records });
+  return { parser: parsed.parser, gaps: [], ...normalized, fileGaps: { ...normalized.fileGaps, ...undecodable } };
+}
+
+/**
+ * The exact JUnit declarations of explicit repository test files. Reads each file through a
+ * no-follow descriptor, bounded like the module catalog, and never executes Candidate code.
+ */
+export async function parseJunitTestSources(root, relativePaths, { signal = null, runParser = runQualityCommand } = {}) {
+  const sources = [];
+  const fileGaps = {};
+  for (const relative of relativePaths) {
+    if (/[\\\u0000-\u001f\u007f]/u.test(relative)) { fileGaps[relative] = [{ code: 'SOURCE_PATH_INVALID', message: 'the path is not a plain repository path' }]; continue; }
+    let handle;
+    try {
+      const secured = await secureRepositoryPath(root, relative, { label: 'JUnit test source', mustExist: true, type: 'file' });
+      handle = await open(secured.absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+      const before = await handle.stat();
+      const link = await lstat(secured.absolute);
+      if (!before.isFile() || link.isSymbolicLink() || before.size > MAX_SOURCE_BYTES) {
+        fileGaps[relative] = [{ code: 'TEST_SOURCE_LIMIT_EXCEEDED', message: `the file is not a regular file of at most ${MAX_SOURCE_BYTES} bytes` }];
+        continue;
+      }
+      sources.push({ path: relative, bytes: await handle.readFile() });
+    } catch {
+      fileGaps[relative] = [{ code: 'JUNIT_TEST_SOURCE_UNAVAILABLE', message: 'the file could not be read' }];
+    } finally {
+      await handle?.close();
+    }
+  }
+  const parsed = await capturedDeclarations(root, sources, { signal, runParser });
+  return { ...parsed, fileGaps: { ...parsed.fileGaps, ...fileGaps } };
 }
 
 function repositorySha256(root) {
@@ -309,10 +316,18 @@ function exactProposal(declaration, clauseId, parser) {
     executionProfile: 'junit5-surefire-v1',
     logicalTestId: declaration.logicalTestId,
     sourcePath: declaration.sourcePath,
-    sourceDeclarationSha256: declaration.sourceDeclarationSha256,
+    sourceDeclarationSha256: declaration.declarationSha256,
     parserManifestSha256: parser.manifestSha256
   };
   return { ...core, mappingSha256: `sha256:${recordSha256(core)}`, reviewStatus: 'unreviewed' };
+}
+
+function identityOf(declaration, repositoryIdentity) {
+  return {
+    schema: declaration.schema, repositorySha256: repositoryIdentity, sourcePath: declaration.sourcePath,
+    packageName: declaration.packageName, classPath: declaration.classPath,
+    methodName: declaration.methodName, signature: declaration.signature
+  };
 }
 
 /**
@@ -342,53 +357,39 @@ export async function observeJunit5SurefireIdentities(root, command, parsed, tes
   catch (error) { return parserUnavailable('JUNIT_SOURCE_CATALOG_UNAVAILABLE', error.message); }
   if (sourceSet.gap) return parserUnavailable(sourceSet.gap);
   if (!sourceSet.sources.length) return parserUnavailable('JUNIT_TEST_SOURCES_UNAVAILABLE');
-  const catalog = await sourceDeclarations(root, sourceSet.sources, { signal, runParser });
+  const catalog = await capturedDeclarations(root, sourceSet.sources, { signal, runParser });
   if (catalog.gaps.length) return parserUnavailable(catalog.gaps.sort()[0]);
+  const fileGaps = Object.values(catalog.fileGaps).flat().map((entry) => entry.code).sort();
+  if (fileGaps.length) return parserUnavailable(fileGaps[0] === 'JAVA_PARSER_DIAGNOSTIC' ? fileGaps[0] : 'UNSUPPORTED_JUNIT5_SOURCE_SHAPE');
   const repositoryIdentity = repositorySha256(root);
   if (!repositoryIdentity) return parserUnavailable('REPOSITORY_IDENTITY_UNAVAILABLE');
-  const declarations = catalog.declarations.map((declaration) => {
-    const identity = {
-      identitySchema: declaration.identitySchema,
-      repositorySha256: repositoryIdentity,
-      sourcePath: declaration.sourcePath,
-      packageName: declaration.packageName,
-      declaringClass: declaration.declaringClass,
-      methodName: declaration.methodName,
-      signature: declaration.signature
-    };
-    return { ...declaration, ...identity, logicalTestId: `sha256:${recordSha256(identity)}` };
+  const tagged = catalog.declarations.filter((declaration) => declaration.clauseIds.length);
+  const declarations = tagged.map((declaration) => {
+    const identity = identityOf(declaration, repositoryIdentity);
+    return { ...declaration, repositorySha256: repositoryIdentity, logicalTestId: `sha256:${recordSha256(identity)}` };
   });
-  const byFrameworkIdentity = new Map();
   const gaps = new Set();
-  for (const declaration of declarations) {
-    const key = `${declaration.packageName}.${declaration.declaringClass}#${declaration.methodName}`;
-    if (byFrameworkIdentity.has(key)) gaps.add('TEST_DECLARATION_COLLISION');
-    byFrameworkIdentity.set(key, declaration);
-  }
-  const reportIdentities = new Map();
-  for (const occurrence of parsed.testcaseObservation.occurrences ?? []) {
-    const key = `${occurrence.className ?? ''}#${occurrence.name ?? ''}`;
-    const entries = reportIdentities.get(key) ?? [];
-    entries.push(occurrence);
-    reportIdentities.set(key, entries);
-  }
+  if (catalog.unattachedTags.length) gaps.add('UNSUPPORTED_JUNIT5_SOURCE_SHAPE');
   const proposals = [];
   const exactOccurrences = [];
   for (const declaration of declarations) {
-    const key = `${declaration.packageName}.${declaration.declaringClass}#${declaration.methodName}`;
-    const matches = reportIdentities.get(key) ?? [];
-    if (matches.length !== 1 || matches[0].identityStatus !== 'observed-name-only') {
-      gaps.add(matches.length > 1 ? 'REPORT_TEST_IDENTITY_AMBIGUOUS' : 'REPORT_SOURCE_DECLARATION_UNMATCHED');
+    if (declaration.gaps.length) {
+      gaps.add(declaration.gaps.some((entry) => entry.code === 'DUPLICATE_DECLARATION') ? 'TEST_DECLARATION_COLLISION' : 'UNSUPPORTED_JUNIT5_SOURCE_SHAPE');
       continue;
     }
-    const occurrence = matches[0];
-    for (const clauseId of declaration.clauseIds) proposals.push(
-      exactProposal(declaration, clauseId, catalog.parser)
-    );
+    if (declaration.parameters) { gaps.add('UNSUPPORTED_JUNIT5_SOURCE_SHAPE'); continue; }
+    const joined = joinDeclaration(declaration, parsed.testcaseObservation.occurrences ?? [], { language: 'java', runner: 'surefire' });
+    if (!['passed', 'failed', 'unverified-skipped', 'flaky'].includes(joined.outcome)) {
+      gaps.add(joined.outcome === 'ambiguous' ? 'REPORT_TEST_IDENTITY_AMBIGUOUS' : 'REPORT_SOURCE_DECLARATION_UNMATCHED');
+      continue;
+    }
+    const occurrence = (parsed.testcaseObservation.occurrences ?? []).find((entry) =>
+      entry.className === declaration.className && [declaration.methodName, `${declaration.methodName}()`].includes(entry.name));
+    for (const clauseId of declaration.clauseIds) proposals.push(exactProposal(declaration, clauseId, catalog.parser));
     exactOccurrences.push({
       ...occurrence,
       logicalTestId: declaration.logicalTestId,
-      declarationSha256: declaration.sourceDeclarationSha256,
+      declarationSha256: declaration.declarationSha256,
       sourcePath: declaration.sourcePath,
       clauseIds: declaration.clauseIds,
       exact: true,
@@ -410,14 +411,20 @@ export async function observeJunit5SurefireIdentities(root, command, parsed, tes
     parser: catalog.parser,
     repositorySha256: repositoryIdentity,
     sourceCount: sourceSet.sources.length,
-    declarations
+    declarations: declarations.map((declaration) => ({
+      schema: declaration.schema, repositorySha256: repositoryIdentity, sourcePath: declaration.sourcePath,
+      packageName: declaration.packageName, classPath: declaration.classPath, methodName: declaration.methodName,
+      signature: declaration.signature, logicalTestId: declaration.logicalTestId,
+      declarationSha256: declaration.declarationSha256, supportSha256: declaration.supportSha256,
+      span: declaration.span, clauseIds: declaration.clauseIds
+    }))
   };
   return Object.freeze({
     status: 'observed',
     exact,
     catalog: { ...catalogCore, catalogSha256: `sha256:${recordSha256(catalogCore)}` },
-    mappingProposals: proposals.sort((left, right) => left.mappingSha256.localeCompare(right.mappingSha256)),
-    occurrences: exactOccurrences,
+    mappingProposals: exact ? proposals.sort((left, right) => left.mappingSha256.localeCompare(right.mappingSha256)) : [],
+    occurrences: exact ? exactOccurrences : [],
     gaps: [...gaps].sort(),
     notice: exact
       ? 'exact static JUnit identities observed locally; mappings remain unreviewed and execution remains non-authoritative'
@@ -449,6 +456,7 @@ function rawOccurrenceProjection(occurrence) {
     className: occurrence.className ?? null,
     name: occurrence.name ?? null,
     outcome: occurrence.outcome,
+    ...(occurrence.flaky ? { flaky: true } : {}),
     verdict: 'inconclusive',
     durationMs: occurrence.durationMs ?? null,
     logicalTestId: null,
@@ -480,16 +488,8 @@ export async function verifyJunit5SurefireIdentityObservation(root, observation,
   if (catalogSha256 !== `sha256:${recordSha256(catalogCore)}`) fail('JUnit catalog digest is invalid');
   const declarations = new Map();
   for (const declaration of catalog.declarations ?? []) {
-    const identity = {
-      identitySchema: declaration.identitySchema,
-      repositorySha256: declaration.repositorySha256,
-      sourcePath: declaration.sourcePath,
-      packageName: declaration.packageName,
-      declaringClass: declaration.declaringClass,
-      methodName: declaration.methodName,
-      signature: declaration.signature
-    };
-    if (declaration.repositorySha256 !== catalog.repositorySha256
+    const identity = identityOf(declaration, declaration.repositorySha256);
+    if (declaration.repositorySha256 !== catalog.repositorySha256 || !Array.isArray(declaration.classPath)
         || declaration.logicalTestId !== `sha256:${recordSha256(identity)}`
         || !Array.isArray(declaration.clauseIds)
         || declaration.clauseIds.some((clause) => !QUALIFIED_CLAUSE.test(clause))) {
@@ -520,18 +520,15 @@ export async function verifyJunit5SurefireIdentityObservation(root, observation,
     let sourceText;
     try { sourceText = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes); }
     catch { fail(`JUnit declaration source '${declaration.sourcePath}' is not UTF-8`); continue; }
-    const range = declaration.sourceRange;
-    if (!Number.isSafeInteger(range?.startCharacter) || !Number.isSafeInteger(range?.endCharacter)
-        || range.startCharacter < 0 || range.endCharacter <= range.startCharacter
-        || range.endCharacter > sourceText.length) {
+    const range = declaration.span;
+    if (!Number.isSafeInteger(range?.start) || !Number.isSafeInteger(range?.end)
+        || range.start < 0 || range.end <= range.start
+        || range.end > sourceText.length) {
       fail(`JUnit declaration '${declaration.logicalTestId}' has an invalid source range`);
       continue;
     }
-    const declarationBytes = Buffer.from(
-      sourceText.slice(range.startCharacter, range.endCharacter), 'utf8'
-    );
-    if (range.bytes !== declarationBytes.length
-        || declaration.sourceDeclarationSha256 !== prefixed(declarationBytes)) {
+    const declarationBytes = Buffer.from(sourceText.slice(range.start, range.end), 'utf8');
+    if (declaration.declarationSha256 !== prefixed(declarationBytes)) {
       fail(`JUnit declaration '${declaration.logicalTestId}' bytes changed`);
       continue;
     }
@@ -547,7 +544,7 @@ export async function verifyJunit5SurefireIdentityObservation(root, observation,
         || !declaration
         || !declaration.clauseIds.includes(proposal.clauseId)
         || proposal.sourcePath !== declaration.sourcePath
-        || proposal.sourceDeclarationSha256 !== declaration.sourceDeclarationSha256
+        || proposal.sourceDeclarationSha256 !== declaration.declarationSha256
         || proposal.parserManifestSha256 !== catalog.parser.manifestSha256) {
       fail(`JUnit witness proposal '${mappingSha256 ?? 'unknown'}' is invalid`);
       continue;
@@ -579,10 +576,10 @@ export async function verifyJunit5SurefireIdentityObservation(root, observation,
     occurrenceLogicalIds.add(occurrence.logicalTestId);
     if (!declaration
         || occurrence.exact !== true
-        || occurrence.declarationSha256 !== declaration.sourceDeclarationSha256
+        || occurrence.declarationSha256 !== declaration.declarationSha256
         || occurrence.sourcePath !== declaration.sourcePath
-        || occurrence.className !== `${declaration.packageName}.${declaration.declaringClass}`
-        || occurrence.name !== declaration.methodName
+        || occurrence.className !== `${declaration.packageName}.${declaration.classPath.join('$')}`
+        || ![declaration.methodName, `${declaration.methodName}()`].includes(occurrence.name)
         || !['passed', 'failed', 'skipped'].includes(occurrence.outcome)
         || occurrence.verdict !== (occurrence.outcome === 'failed' ? 'failed' : 'inconclusive')
         || canonicalJson(occurrence.clauseIds) !== canonicalJson(declaration.clauseIds)) {

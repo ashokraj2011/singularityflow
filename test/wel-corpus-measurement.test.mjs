@@ -33,14 +33,15 @@ async function repository(parent, name, { exact }) {
   await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
   await writeFile(path.join(root, 'package.json'), '{"scripts":{"test":"jest"}}\n');
   await writeFile(path.join(root, 'test', 'private.test.js'), exact ? [
-    '// @sflow-ac:PRIVATE:AC-001',
+    '// @ac:PRIVATE:AC-001',
     `test(${JSON.stringify(testName)}, () => {`,
     '  expect(true).toBe(true);',
     '});',
     ''
   ].join('\n') : [
-    '// @sflow-ac:PRIVATE:AC-001',
-    `test(${JSON.stringify(testName).replace(/^"|"$/g, "'")}, () => {`,
+    '// @ac:PRIVATE:AC-001',
+    '',
+    `test(${JSON.stringify(testName)}, () => {`,
     '});',
     ''
   ].join('\n'));
@@ -65,9 +66,9 @@ async function junitRepository(parent, name) {
   await writeFile(source, [
     'package example;',
     'import org.junit.jupiter.api.Test;',
-    'import org.junit.jupiter.api.Tag;',
     'class PaymentTest {',
-    '  @Test @Tag("sflow-ac:PRIVATE:AC-002") void pays() {}',
+    '  // @ac:PRIVATE:AC-002',
+    '  @Test void pays() {}',
     '}',
     ''
   ].join('\n'));

@@ -73,10 +73,10 @@ function parsedReport(value = report(), adapter = 'jest-json') {
   };
 }
 
-test('a top-level literal Jest test binds qualified clauses without claiming execution authority', async () => {
+test('a literal Jest test binds the @ac clauses above it without claiming execution authority', async () => {
   const source = [
-    '// @sflow-ac:PAY:AC-001',
-    '// @sflow-ac:PAY:AC-002',
+    '// @ac:PAY:AC-001',
+    '// @ac:PAY:AC-002',
     'test("returns balance", () => {',
     '  expect(2).toBe(2);',
     '});',
@@ -120,20 +120,22 @@ test('a top-level literal Jest test binds qualified clauses without claiming exe
 
   // The digest covers the whole test: weakening its assertion under the same name is a change.
   const [declaration] = observation.catalog.declarations;
-  assert.equal(source.slice(declaration.sourceRange.startCharacter, declaration.sourceRange.endCharacter), source.slice(0, source.lastIndexOf('});') + 4));
+  assert.equal(source.slice(declaration.span.start, declaration.span.end), source.slice(source.indexOf('test('), source.lastIndexOf('});') + 3));
   await writeFile(path.join(root, 'test', 'payment.test.js'), source.replace('expect(2).toBe(2);', 'expect(true).toBe(true);'));
   const weakened = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
   assert.equal(weakened.valid, false, 'a weakened assertion kept the reviewed digest');
   assert.ok(weakened.errors.some((entry) => /bytes changed/.test(entry)));
 });
 
-test('nested, dynamic, modified, and multiline-ambiguous JavaScript declarations fail safely', async () => {
+test('dynamic, conditional, unattached and parameterized JavaScript declarations fail safely', async () => {
   for (const source of [
-    '// @sflow-ac:PAY:AC-001\ndescribe("suite", () => { test("returns balance", () => {}); });\n',
-    '// @sflow-ac:PAY:AC-001\ntest.only("returns balance", () => {\n',
-    '// @sflow-ac:PAY:AC-001\ntest(`returns ${value}`, () => {\n',
-    '/* prefix */\n// @sflow-ac:PAY:AC-001\ntest("returns balance", () => {\n',
-    'if (true)\n// @sflow-ac:PAY:AC-001\ntest("returns balance", () => {\n'
+    '// @ac:PAY:AC-001\ndescribe("suite", () => { test("returns balance", () => {}); });\n',
+    '// @ac:PAY:AC-001\ntest(`returns ${value}`, () => {\n});\n',
+    'if (true)\n// @ac:PAY:AC-001\ntest("returns balance", () => {\n});\n',
+    '// @ac:PAY:AC-001\n\ntest("returns balance", () => {\n});\n',
+    '// @ac:PAY:AC-001\ntest.each(cases)("returns %s", () => {\n});\n',
+    'describe.each([1])("n=%i", () => {\n  // @ac:PAY:AC-001\n  test("returns balance", () => {});\n});\n',
+    '// @ac:PAY:AC-001\ntest("returns balance", () => {\n'
   ]) {
     const root = await fixture(source);
     const observation = await observeJavascriptTestIdentities(root, command, parsedReport(), policy);
@@ -147,8 +149,8 @@ test('nested, dynamic, modified, and multiline-ambiguous JavaScript declarations
   );
 
   const collisionRoot = await fixture([
-    '// @sflow-ac:PAY:AC-001', 'test("returns balance", () => { });',
-    '// @sflow-ac:PAY:AC-002', 'test("returns balance", () => { });', ''
+    '// @ac:PAY:AC-001', 'test("returns balance", () => { });',
+    '// @ac:PAY:AC-002', 'test("returns balance", () => { });', ''
   ].join('\n'));
   const collision = await observeJavascriptTestIdentities(
     collisionRoot, command, parsedReport(), policy
@@ -199,7 +201,7 @@ test('delivery replay binds JavaScript source, normalized occurrences, and the c
   await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = true;\n');
   await mkdir(path.join(root, 'test'), { recursive: true });
   await writeFile(path.join(root, 'test', 'payment.test.js'), [
-    '// @sflow-ac:PAY:AC-001',
+    '// @ac:PAY:AC-001',
     'test("returns balance", () => {',
     '  expect(payment).toBe(true);',
     '});',

@@ -3699,6 +3699,10 @@ export async function publishGeneration(root, config, workflow, {
         missing: deliveryPreflight.acceptanceCriteria.missing,
         ambiguous: deliveryPreflight.acceptanceCriteria.ambiguous,
         bindings: deliveryPreflight.acceptanceCriteria.bindings,
+        // Which exact test each criterion tag sits on, read by the module adapter [E2G-015].
+        witnesses: deliveryPreflight.acceptanceCriteria.witnesses ?? [],
+        unattachedTags: deliveryPreflight.acceptanceCriteria.unattachedTags ?? [],
+        adapterProfiles: deliveryPreflight.acceptanceCriteria.profiles ?? [],
         ...(deliveryPreflight.sourceBindings.mode === 'enforce' ? {
           sourceRequired: deliveryPreflight.sourceBindings.required,
           sourceBindings: deliveryPreflight.sourceBindings.bindings

@@ -28,8 +28,12 @@ import {
 } from './wel-adapters.mjs';
 import { validateWelTestLifecycle } from './wel-test-lifecycle.mjs';
 import {
-  SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, predecessorSpecClauses, readBoundSpecificationClaimMap
+  SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, mergePlannedClaimRecords, predecessorSpecClauses,
+  readBoundSpecificationClaimMap
 } from './specifications.mjs';
+import {
+  commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
+} from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
@@ -294,7 +298,16 @@ export async function acceptanceIds(root, config, workflow, phase) {
   const indexed = predecessorSpecClauses(records, workflow, phase.id)
     .filter((clause) => clause.type === 'AC' || /:AC-\d+$/.test(clause.id ?? ''))
     .map((clause) => clause.id);
-  if (indexed.length) return [...new Set(indexed)].sort();
+  if (indexed.length) {
+    // A criterion the plan allocates to other code steps is owed by those steps only; with no
+    // allocation every code step owes it [E2G-009, §12 #5].
+    const planned = mergePlannedClaimRecords(records.planned ?? []);
+    const owedHere = (id) => {
+      const steps = (planned[id] ?? planned[String(id).toUpperCase()])?.steps ?? [];
+      return !steps.length || steps.includes(phase.id);
+    };
+    return [...new Set(indexed.filter(owedHere))].sort();
+  }
   // Compatibility for workflows created before specification indexes existed. New records always
   // preserve the namespace; a legacy bare suffix is normalized only when a configured namespace
   // makes the identity unambiguous.
@@ -321,93 +334,117 @@ export async function acceptanceIds(root, config, workflow, phase) {
   return [...ids].sort();
 }
 
-export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
-  requireNamespaceQualifiedIds = false, requireCommentTags = false
-} = {}) {
-  const exact = new Set();
-  const bare = new Set();
-  const exactSources = new Map();
-  const bareSources = new Map();
+/**
+ * The criterion tags in delivered test files [E2G-015]. One vocabulary: a namespace-qualified
+ * `@ac:<NS>:AC-NNN` marker in a comment. Bare suffixes, strings and the retired `@sflow-ac`
+ * spelling bind nothing. This is the file-level association; which test a tag sits on is read by
+ * the module's adapter (discoverAcceptanceWitnesses).
+ */
+export async function taggedAcceptanceIds(root, testPaths) {
+  const sources = new Map();
   for (const relative of testPaths) {
     const secured = await secureRepositoryPath(root, relative, {
       label: 'Acceptance test source', type: 'file'
     });
     if (!secured.exists) continue;
     const text = await readFile(secured.absolute, 'utf8');
-    const values = requireCommentTags
-      ? scanSourceClauseTags(text, { legacy: true })
-        .filter((item) => item.tag === 'ac').map((item) => item.clauseId)
-      : [...text.matchAll(/@ac:\s*((?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+)/gi)]
-        .map((match) => match[1].toUpperCase());
-    for (const value of values) {
-      const target = value.includes(':') ? exact : bare;
-      const sources = value.includes(':') ? exactSources : bareSources;
-      target.add(value);
-      if (!sources.has(value)) sources.set(value, new Set());
-      sources.get(value).add(relative);
+    for (const item of scanSourceClauseTags(text).filter((entry) => entry.tag === 'ac')) {
+      if (!sources.has(item.clauseId)) sources.set(item.clauseId, new Set());
+      sources.get(item.clauseId).add(relative);
     }
   }
-  const ambiguous = [];
-  const inferred = [];
-  const bindings = [];
-  for (const clauseId of exact) {
-    const suffix = clauseId.slice(clauseId.lastIndexOf(':') + 1);
-    const legacyBareMatches = requiredIds.filter((id) => id === suffix);
-    const competingQualifiedTags = [...exact].filter((id) => id.endsWith(`:${suffix}`));
-    // Some pre-index Stories persist an intrinsically bare AC identity even though their tests
-    // already use a namespace-qualified tag. Preserve the stronger test identity and bind it to
-    // the one bare durable clause only when there is no competing namespace. This is not suffix
-    // guessing: one competing qualified tag makes the binding ambiguous and blocks delivery.
-    if (!requiredIds.includes(clauseId) && legacyBareMatches.length === 1) {
-      if (competingQualifiedTags.length > 1) {
-        ambiguous.push({ suffix, matches: competingQualifiedTags, reason: 'legacy-clause-ambiguous' });
-        continue;
-      }
-      inferred.push(legacyBareMatches[0]);
-      for (const testSource of exactSources.get(clauseId) ?? []) {
-        bindings.push({
-          clauseId: legacyBareMatches[0], testSource,
-          bindingAssurance: 'namespace-qualified-legacy-clause', tag: clauseId
+  const bindings = [...sources.entries()].flatMap(([clauseId, files]) =>
+    [...files].map((testSource) => ({ clauseId, testSource, bindingAssurance: 'namespace-qualified' })));
+  return {
+    ids: [...sources.keys()].sort(), inferred: [], ambiguous: [],
+    bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
+  };
+}
+
+function witnessIdentity(declaration) {
+  return declaration.schema === 'junit5-method-v2'
+    ? { className: declaration.className, methodName: declaration.methodName, signature: declaration.signature }
+    : { framework: declaration.framework, suitePath: declaration.suitePath, name: declaration.name };
+}
+
+/**
+ * Which exact test each criterion tag sits on [E2G-015]. Every tagged test file is read by the
+ * adapter of the command that runs its module: an exact profile (Jest, Vitest, JUnit 5) returns
+ * declarations, each with its own gaps; a profile that only counts tests leaves the file-level
+ * association, capped at module-observed. A required criterion whose tags all sit in exact modules
+ * but on no test declaration is a publication error: that tag can never verify anything.
+ */
+export async function discoverAcceptanceWitnesses(root, phase, { testPaths, sourcePaths = [], requiredAcIds = [], bindings = [] } = {}) {
+  const commands = [];
+  for (const [index, command] of (await resolveDeliveryQualityCommands(root, {
+    ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths, testPaths }
+  }).catch(() => [])).entries()) {
+    if (!command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test') continue;
+    try { commands.push(normalizeExternalCommand(command, index)); } catch { /* the test preflight reports it */ }
+  }
+  const taggedFiles = [...new Set(bindings.map((binding) => binding.testSource))].sort();
+  const groups = new Map();
+  const fileProfile = new Map();
+  for (const file of taggedFiles) {
+    const command = commandCovering(commands, file);
+    const profile = command ? profileForCommand(command) : 'module-counts-v1';
+    fileProfile.set(file, { profile, commandId: command?.id ?? null, resultAdapter: command?.result?.adapter ?? null });
+    const key = `${profile}\u0000${command?.id ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), file]);
+  }
+  const witnesses = [];
+  const unattachedTags = [];
+  for (const [key, files] of [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const [profile, commandId] = key.split('\u0000');
+    if (!profileIsExact(profile)) {
+      for (const binding of bindings.filter((entry) => files.includes(entry.testSource))) {
+        witnesses.push({
+          clauseId: binding.clauseId, testSource: binding.testSource, profile, commandId: commandId || null,
+          resultAdapter: fileProfile.get(binding.testSource).resultAdapter, identity: null, logicalTestId: null,
+          declarationSha256: null, supportSha256: null, line: null, parameters: null, skipped: false,
+          exact: false, gaps: ['ADAPTER_COUNTS_ONLY']
         });
       }
       continue;
     }
-    for (const testSource of exactSources.get(clauseId) ?? []) {
-      bindings.push({ clauseId, testSource, bindingAssurance: 'namespace-qualified' });
-    }
-  }
-  for (const suffix of bare) {
-    const matches = requiredIds.filter((id) => id === suffix || id.endsWith(`:${suffix}`));
-    const namespacedMatches = matches.filter((id) => id.includes(':'));
-    // Installed Stories created before specification indexes may legitimately have only a bare
-    // clause identity. Namespace enforcement cannot invent a namespace for those records; it
-    // becomes mandatory as soon as the pinned specification supplies one. This keeps the new
-    // policy strict for modern records without making legacy, intrinsically bare identities
-    // impossible to satisfy.
-    if (requireNamespaceQualifiedIds && namespacedMatches.length) {
-      ambiguous.push({ suffix, matches, reason: 'namespace-required' });
-      continue;
-    }
-    if (matches.length === 1) {
-      inferred.push(matches[0]);
-      for (const testSource of bareSources.get(suffix) ?? []) {
-        bindings.push({
-          clauseId: matches[0], testSource,
-          bindingAssurance: requireNamespaceQualifiedIds ? 'namespace-not-applicable' : 'legacy-inferred'
+    const discovered = await discoverDeclarations(root, profile, files);
+    for (const declaration of discovered.declarations) {
+      for (const clauseId of declaration.clauseIds) {
+        witnesses.push({
+          clauseId, testSource: declaration.sourcePath, profile, commandId: commandId || null,
+          resultAdapter: testAdapterProfile(profile).resultAdapter,
+          identity: witnessIdentity(declaration), logicalTestId: declaration.logicalTestId,
+          declarationSha256: declaration.declarationSha256, supportSha256: declaration.supportSha256 ?? null,
+          line: declaration.line, parameters: declaration.parameters ?? null, skipped: declaration.skipped === true,
+          exact: declaration.gaps.length === 0, gaps: declaration.gaps.map((entry) => entry.code)
         });
       }
     }
-    else if (matches.length > 1) ambiguous.push({ suffix, matches });
-    else {
-      exact.add(suffix);
-      for (const testSource of bareSources.get(suffix) ?? []) {
-        bindings.push({ clauseId: suffix, testSource, bindingAssurance: 'legacy-unresolved' });
+    for (const tag of discovered.unattachedTags) {
+      unattachedTags.push({ testSource: tag.sourcePath, line: tag.line, clauseIds: tag.clauseIds, code: tag.code, message: tag.message });
+    }
+    for (const [file, gaps] of Object.entries(discovered.fileGaps)) {
+      if (!discovered.unattachedTags.some((tag) => tag.sourcePath === file)) {
+        unattachedTags.push({ testSource: file, line: null, clauseIds: bindings.filter((entry) => entry.testSource === file).map((entry) => entry.clauseId), code: gaps[0].code, message: gaps[0].message });
       }
     }
+  }
+  const errors = [];
+  for (const clauseId of requiredAcIds) {
+    const sources = bindings.filter((binding) => binding.clauseId === clauseId).map((binding) => binding.testSource);
+    if (!sources.length || !sources.every((file) => profileIsExact(fileProfile.get(file)?.profile ?? 'module-counts-v1'))) continue;
+    if (witnesses.some((witness) => witness.clauseId === clauseId && witness.identity)) continue;
+    const where = unattachedTags.filter((tag) => tag.clauseIds.includes(clauseId))
+      .map((tag) => `${tag.testSource}${tag.line ? `:${tag.line}` : ''} (${tag.message})`);
+    errors.push(`@ac:${clauseId} is not on a test: ${where.join('; ') || sources.join(', ')}. Put the tag in a comment on the line directly above the test that verifies ${clauseId}.`);
   }
   return {
-    ids: [...new Set([...exact, ...inferred])].sort(), inferred: inferred.sort(), ambiguous,
-    bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
+    witnesses: witnesses.sort((left, right) => left.clauseId.localeCompare(right.clauseId)
+      || left.testSource.localeCompare(right.testSource) || (left.line ?? 0) - (right.line ?? 0)),
+    unattachedTags,
+    profiles: [...fileProfile.entries()].map(([testSource, entry]) => ({ testSource, ...entry,
+      ceiling: testAdapterProfile(entry.profile).ceiling })),
+    errors
   };
 }
 
@@ -871,24 +908,16 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
-  const tags = await taggedAcceptanceIds(root, testPaths, requiredAcIds, {
-    requireNamespaceQualifiedIds: workflow.resolution?.codeDelivery?.traceability?.requireNamespaceQualifiedIds === true,
-    requireCommentTags: workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce'
-  });
-  if (tags.ambiguous.length) {
-    const namespaceRequired = tags.ambiguous.some((item) => item.reason === 'namespace-required');
-    throw new SingularityFlowError(
-      namespaceRequired
-        ? `Acceptance tags must be namespace-qualified: ${tags.ambiguous.map((item) => item.suffix).join(', ')}`
-        : `Bare acceptance tag is ambiguous: ${tags.ambiguous.map((item) => `${item.suffix} -> ${item.matches.join(', ')}`).join('; ')}`,
-      { code: namespaceRequired ? 'AC_NAMESPACE_REQUIRED' : 'AC_NAMESPACE_AMBIGUOUS' }
-    );
-  }
+  const tags = await taggedAcceptanceIds(root, testPaths);
   const taggedAcIds = tags.ids;
   const missingAcIds = requiredAcIds.filter((id) => !taggedAcIds.includes(id));
   if (missingAcIds.length) {
     errors.push(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}`).join(', ')}`);
   }
+  const witnessDiscovery = await discoverAcceptanceWitnesses(root, phase, {
+    testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings
+  });
+  errors.push(...witnessDiscovery.errors);
   const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
     deletedSourcePaths
   });
@@ -945,7 +974,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     } : null,
     acceptanceCriteria: {
       required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
-      inferred: tags.inferred, bindings: tags.bindings
+      inferred: tags.inferred, bindings: tags.bindings,
+      witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
+      profiles: witnessDiscovery.profiles
     },
     sourceBindings,
     fulfillment: fulfillment.obligations,

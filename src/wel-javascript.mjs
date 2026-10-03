@@ -1,11 +1,11 @@
 /**
- * WEL's observe-only Jest/Vitest static identity adapter.
+ * WEL's observe-only Jest/Vitest projection over the one JavaScript declaration reader.
  *
- * The reviewed v1 subset is deliberately small: a repository-tracked JavaScript/TypeScript test
- * file, one or more top-level `// @sflow-ac:<WORK-ID>:AC-NNN` lines, followed immediately by a
- * top-level `test("literal", () => {` or `it("literal", () => {` declaration. Dynamic titles,
- * suites, modifiers, parameterization, retries, templates, block comments, and focused execution
- * remain inexact. No candidate source is loaded or executed by this adapter.
+ * Declarations come from src/verification/javascript-declarations.mjs: literal `describe` paths,
+ * single or double quotes, the whole test body in the revision digest, and the `@ac` criterion
+ * tags in the comments directly above each test. This projection joins tagged declarations to
+ * reporter occurrences without granting approval or execution authority. No Candidate source is
+ * loaded or executed.
  */
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
@@ -15,6 +15,8 @@ import path from 'node:path';
 import { assertCredentialFreeRemote, remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
 import { posix, run, secureRepositoryPath } from './util.mjs';
+import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
+import { joinDeclaration } from './verification/join.mjs';
 
 const PROFILES = Object.freeze({
   'jest-static-v1': 'jest-json',
@@ -22,8 +24,6 @@ const PROFILES = Object.freeze({
 });
 const QUALIFIED_CLAUSE = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/;
 const SOURCE_FILE = /(?:^|\/)(?:__tests__\/[^/]+|[^/]+\.(?:test|spec))\.(?:[cm]?[jt]sx?)$/i;
-const CLAUSE_LINE = /^\/\/\s*@sflow-ac:([A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3})\s*$/;
-const DECLARATION_LINE = /^(?:test|it)\(\s*("(?:[^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*")\s*,\s*(?:async\s+)?\(\s*\)\s*=>\s*\{/;
 const MAX_SOURCES = 256;
 const MAX_SOURCE_BYTES = 1024 * 1024;
 const UNSUPPORTED_COMMAND = new Set([
@@ -62,60 +62,6 @@ function repositorySha256(root) {
 function sourceInsideModule(relative, moduleRoot) {
   const prefix = moduleRoot === '.' ? '' : `${posix(moduleRoot).replace(/\/$/, '')}/`;
   return relative.startsWith(prefix) && SOURCE_FILE.test(relative.slice(prefix.length));
-}
-
-function sourceLineContexts(source) {
-  const contexts = [];
-  let state = 'code';
-  let escaped = false;
-  let braces = 0;
-  let parentheses = 0;
-  let brackets = 0;
-  let lastSignificant = null;
-  let line = 0;
-  contexts.push({ state, braces, parentheses, brackets, lastSignificant });
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index];
-    const next = source[index + 1];
-    if (state === 'line-comment') {
-      if (character === '\n') {
-        state = 'code';
-        line += 1;
-        contexts[line] = { state, braces, parentheses, brackets, lastSignificant };
-      }
-      continue;
-    }
-    if (state === 'single' || state === 'double') {
-      if (escaped) escaped = false;
-      else if (character === '\\') escaped = true;
-      else if ((state === 'single' && character === "'")
-          || (state === 'double' && character === '"')) state = 'code';
-      else if (character === '\n') return { contexts, unsupported: true };
-      continue;
-    }
-    if (character === '/' && next === '/') { state = 'line-comment'; index += 1; continue; }
-    if (character === '/' && next === '*') return { contexts, unsupported: true };
-    if (character === '`') return { contexts, unsupported: true };
-    if (character === "'") { state = 'single'; continue; }
-    if (character === '"') { state = 'double'; continue; }
-    if (character === '{') braces += 1;
-    else if (character === '}') braces -= 1;
-    else if (character === '(') parentheses += 1;
-    else if (character === ')') parentheses -= 1;
-    else if (character === '[') brackets += 1;
-    else if (character === ']') brackets -= 1;
-    if (braces < 0 || parentheses < 0 || brackets < 0) return { contexts, unsupported: true };
-    if (!/\s/u.test(character)) lastSignificant = character;
-    if (character === '\n') {
-      line += 1;
-      contexts[line] = { state, braces, parentheses, brackets, lastSignificant };
-    }
-  }
-  return {
-    contexts,
-    unsupported: !['code', 'line-comment'].includes(state)
-      || braces !== 0 || parentheses !== 0 || brackets !== 0
-  };
 }
 
 async function trackedSources(root, moduleRoot) {
@@ -157,6 +103,7 @@ async function trackedSources(root, moduleRoot) {
   return { sources, gap: null };
 }
 
+/** Every tagged declaration of the captured sources, or the first reason none can be exact. */
 function declarationCatalog(sources, framework) {
   const declarations = [];
   const gaps = new Set();
@@ -164,80 +111,22 @@ function declarationCatalog(sources, framework) {
     let source;
     try { source = new TextDecoder('utf-8', { fatal: true }).decode(captured.bytes); }
     catch { gaps.add('JAVASCRIPT_SOURCE_NOT_UTF8'); continue; }
-    // The v1 grammar is line-oriented. Refuse multiline lexical forms that can make a line which
-    // looks like code actually belong to a comment or template. This is intentionally conservative.
-    const lexical = sourceLineContexts(source);
-    if (lexical.unsupported || source.includes('*/') || /\\\r?\n/u.test(source)) {
-      if (source.includes('@sflow-ac:')) gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE');
-      continue;
-    }
-    const lines = source.split(/(?<=\n)/u);
-    let offset = 0;
-    for (let index = 0; index < lines.length; index += 1) {
-      const raw = lines[index];
-      const line = raw.replace(/\r?\n$/u, '');
-      const marker = line.match(CLAUSE_LINE);
-      if (!marker) { offset += raw.length; continue; }
-      const context = lexical.contexts[index];
-      if (!context || context.state !== 'code' || context.braces !== 0
-          || context.parentheses !== 0 || context.brackets !== 0
-          || ![null, ';', '}'].includes(context.lastSignificant)) {
-        gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE');
-        offset += raw.length;
-        continue;
-      }
-      const clauseIds = [];
-      const startCharacter = offset;
-      let cursor = index;
-      let cursorOffset = offset;
-      while (cursor < lines.length) {
-        const candidate = lines[cursor].replace(/\r?\n$/u, '');
-        const clause = candidate.match(CLAUSE_LINE);
-        if (!clause) break;
-        clauseIds.push(clause[1]);
-        cursorOffset += lines[cursor].length;
-        cursor += 1;
-      }
-      const declarationLine = (lines[cursor] ?? '').replace(/\r?\n$/u, '');
-      const declaration = declarationLine.match(DECLARATION_LINE);
-      if (!declaration || clauseIds.some((clause) => !QUALIFIED_CLAUSE.test(clause))) {
-        gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE');
-        offset += raw.length;
-        continue;
-      }
-      let testName;
-      try { testName = JSON.parse(declaration[1]); }
-      catch { gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE'); offset += raw.length; continue; }
-      if (typeof testName !== 'string' || !testName || Buffer.byteLength(testName) > 1024) {
-        gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE');
-        offset += raw.length;
-        continue;
-      }
-      // The declaration digest covers the whole test, through the line where its call closes: the
-      // first later line that starts back at top level. Hashing only the header let an assertion be
-      // weakened (`expect(add(1, 2)).toBe(3)` to `expect(true).toBe(true)`) under a review that
-      // still matched.
-      let closing = cursor + 1;
-      while (closing < lines.length && !(lexical.contexts[closing]?.braces === 0
-          && lexical.contexts[closing]?.parentheses === 0 && lexical.contexts[closing]?.brackets === 0)) closing += 1;
-      let endCharacter = cursorOffset;
-      for (let line = cursor; line < closing; line += 1) endCharacter += lines[line].length;
-      const identity = {
-        identitySchema: 'javascript-static-test-v1', repositorySha256: null,
-        sourcePath: captured.path, framework, testName
-      };
-      const declarationBytes = Buffer.from(source.slice(startCharacter, endCharacter), 'utf8');
-      declarations.push({
-        ...identity, logicalTestId: `sha256:${recordSha256(identity)}`,
-        sourceDeclarationSha256: prefixed(declarationBytes),
-        sourceRange: { startCharacter, endCharacter, bytes: declarationBytes.length },
-        clauseIds: [...new Set(clauseIds)].sort()
-      });
-      for (let skipped = index; skipped < cursor; skipped += 1) offset += lines[skipped].length;
-      index = cursor - 1;
+    const scanned = scanJavaScriptDeclarations(source, { sourcePath: captured.path, framework });
+    if (scanned.unattachedTags.length) gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE');
+    for (const declaration of scanned.declarations.filter((entry) => entry.clauseIds.length)) {
+      if (declaration.gaps.some((entry) => entry.code === 'DUPLICATE_DECLARATION')) { gaps.add('TEST_DECLARATION_COLLISION'); continue; }
+      if (declaration.gaps.length || declaration.parameters) { gaps.add('UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE'); continue; }
+      declarations.push(declaration);
     }
   }
   return { declarations, gaps: [...gaps].sort() };
+}
+
+function identityOf(declaration, repositoryIdentity) {
+  return {
+    schema: declaration.schema, repositorySha256: repositoryIdentity, sourcePath: declaration.sourcePath,
+    framework: declaration.framework, suitePath: declaration.suitePath, testName: declaration.name
+  };
 }
 
 export function classifyJavascriptTestCommandScope(command) {
@@ -256,7 +145,7 @@ function exactProposal(declaration, clauseId, parser, profile) {
     kind: 'wel-witness-mapping-proposal', clauseId, witnessType: 'test',
     executionProfile: profile, logicalTestId: declaration.logicalTestId,
     sourcePath: declaration.sourcePath,
-    sourceDeclarationSha256: declaration.sourceDeclarationSha256,
+    sourceDeclarationSha256: declaration.declarationSha256,
     parserManifestSha256: parser.manifestSha256
   };
   return { ...core, mappingSha256: `sha256:${recordSha256(core)}`, reviewStatus: 'unreviewed' };
@@ -280,47 +169,30 @@ export async function observeJavascriptTestIdentities(root, command, parsed, tes
   const repositoryIdentity = repositorySha256(root);
   if (!repositoryIdentity) return unavailable('REPOSITORY_IDENTITY_UNAVAILABLE');
   const parser = {
-    id: 'sflow-javascript-static-parser', version: 1,
-    manifestSha256: `sha256:${recordSha256({ id: 'sflow-javascript-static-parser', version: 1 })}`
+    id: 'sflow-javascript-static-parser', version: 2,
+    manifestSha256: `sha256:${recordSha256({ id: 'sflow-javascript-static-parser', version: 2 })}`
   };
-  const declarations = catalog.declarations.map((entry) => {
-    const identity = {
-      identitySchema: entry.identitySchema, repositorySha256: repositoryIdentity,
-      sourcePath: entry.sourcePath, framework: entry.framework, testName: entry.testName
-    };
-    return { ...entry, ...identity, logicalTestId: `sha256:${recordSha256(identity)}` };
-  });
-  const reportByName = new Map();
-  for (const occurrence of parsed.testcaseObservation.occurrences ?? []) {
-    if ((occurrence.ancestorTitles ?? []).length || occurrence.fullName !== occurrence.name) continue;
-    const entries = reportByName.get(occurrence.name) ?? [];
-    entries.push(occurrence);
-    reportByName.set(occurrence.name, entries);
-  }
+  const declarations = catalog.declarations.map((entry) => ({
+    ...entry, repositorySha256: repositoryIdentity, logicalTestId: `sha256:${recordSha256(identityOf(entry, repositoryIdentity))}`
+  }));
   const gaps = new Set();
   const proposals = [];
   const exactOccurrences = [];
-  const declarationNames = new Set();
   for (const declaration of declarations) {
-    if (declarationNames.has(declaration.testName)) {
-      gaps.add('TEST_DECLARATION_COLLISION');
+    const joined = joinDeclaration(declaration, parsed.testcaseObservation.occurrences ?? [], { language: 'javascript' });
+    if (!['passed', 'failed', 'unverified-skipped', 'flaky'].includes(joined.outcome)) {
+      gaps.add(joined.outcome === 'ambiguous' ? 'REPORT_TEST_IDENTITY_AMBIGUOUS' : 'REPORT_SOURCE_DECLARATION_UNMATCHED');
       continue;
     }
-    declarationNames.add(declaration.testName);
-    const matches = reportByName.get(declaration.testName) ?? [];
-    if (matches.length !== 1 || matches[0].identityStatus !== 'observed-name-only') {
-      gaps.add(matches.length > 1 ? 'REPORT_TEST_IDENTITY_AMBIGUOUS' : 'REPORT_SOURCE_DECLARATION_UNMATCHED');
-      continue;
-    }
-    for (const clauseId of declaration.clauseIds) {
-      proposals.push(exactProposal(declaration, clauseId, parser, profile));
-    }
+    const match = (parsed.testcaseObservation.occurrences ?? []).find((occurrence) => occurrence.name === declaration.name
+      && JSON.stringify(occurrence.ancestorTitles ?? []) === JSON.stringify(declaration.suitePath));
+    for (const clauseId of declaration.clauseIds) proposals.push(exactProposal(declaration, clauseId, parser, profile));
     exactOccurrences.push({
-      ...matches[0], logicalTestId: declaration.logicalTestId,
-      declarationSha256: declaration.sourceDeclarationSha256,
+      ...match, logicalTestId: declaration.logicalTestId,
+      declarationSha256: declaration.declarationSha256,
       sourcePath: declaration.sourcePath, clauseIds: declaration.clauseIds,
       exact: true, identityStatus: 'exact-static-identity',
-      verdict: matches[0].outcome === 'failed' ? 'failed' : 'inconclusive'
+      verdict: match.outcome === 'failed' ? 'failed' : 'inconclusive'
     });
   }
   if (!declarations.length) gaps.add('TAGGED_TEST_DECLARATIONS_UNAVAILABLE');
@@ -332,7 +204,13 @@ export async function observeJavascriptTestIdentities(root, command, parsed, tes
   const catalogCore = {
     schemaVersion: 1, // schema-transient: embedded catalog in current test-execution v4 (introduced by v3).
     kind: 'wel-javascript-static-catalog', parser, repositorySha256: repositoryIdentity,
-    framework, sourceCount: sourceSet.sources.length, declarations
+    framework, sourceCount: sourceSet.sources.length,
+    declarations: declarations.map((declaration) => ({
+      schema: declaration.schema, repositorySha256: repositoryIdentity, sourcePath: declaration.sourcePath,
+      framework: declaration.framework, suitePath: declaration.suitePath, testName: declaration.name,
+      logicalTestId: declaration.logicalTestId, declarationSha256: declaration.declarationSha256,
+      span: declaration.span, clauseIds: declaration.clauseIds
+    }))
   };
   return Object.freeze({
     status: 'observed', exact,
@@ -378,10 +256,10 @@ export async function verifyJavascriptTestIdentityObservation(root, observation,
   const declarations = new Map();
   for (const declaration of catalog.declarations ?? []) {
     const identity = {
-      identitySchema: declaration.identitySchema, repositorySha256: declaration.repositorySha256,
-      sourcePath: declaration.sourcePath, framework: declaration.framework, testName: declaration.testName
+      schema: declaration.schema, repositorySha256: declaration.repositorySha256, sourcePath: declaration.sourcePath,
+      framework: declaration.framework, suitePath: declaration.suitePath, testName: declaration.testName
     };
-    if (declaration.identitySchema !== 'javascript-static-test-v1'
+    if (declaration.schema !== 'javascript-test-v2' || !Array.isArray(declaration.suitePath)
         || declaration.repositorySha256 !== catalog.repositorySha256
         || declaration.framework !== catalog.framework
         || declaration.logicalTestId !== `sha256:${recordSha256(identity)}`
@@ -414,15 +292,15 @@ export async function verifyJavascriptTestIdentityObservation(root, observation,
     let sourceText;
     try { sourceText = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes); }
     catch { fail(`JavaScript declaration source '${declaration.sourcePath}' is not UTF-8`); continue; }
-    const range = declaration.sourceRange;
-    if (!Number.isSafeInteger(range?.startCharacter) || !Number.isSafeInteger(range?.endCharacter)
-        || range.startCharacter < 0 || range.endCharacter <= range.startCharacter
-        || range.endCharacter > sourceText.length) {
+    const range = declaration.span;
+    if (!Number.isSafeInteger(range?.start) || !Number.isSafeInteger(range?.end)
+        || range.start < 0 || range.end <= range.start
+        || range.end > sourceText.length) {
       fail(`JavaScript declaration '${declaration.logicalTestId}' has an invalid source range`);
       continue;
     }
-    const bytes = Buffer.from(sourceText.slice(range.startCharacter, range.endCharacter), 'utf8');
-    if (bytes.length !== range.bytes || prefixed(bytes) !== declaration.sourceDeclarationSha256) {
+    const bytes = Buffer.from(sourceText.slice(range.start, range.end), 'utf8');
+    if (prefixed(bytes) !== declaration.declarationSha256) {
       fail(`JavaScript declaration '${declaration.logicalTestId}' bytes changed`);
     }
     if (declarations.has(declaration.logicalTestId)) fail('JavaScript catalog repeats a logical identity');
@@ -437,7 +315,7 @@ export async function verifyJavascriptTestIdentityObservation(root, observation,
         || core.witnessType !== 'test' || !QUALIFIED_CLAUSE.test(core.clauseId ?? '')
         || proposal.executionProfile !== observation.profile
         || !declaration || proposal.sourcePath !== declaration.sourcePath
-        || proposal.sourceDeclarationSha256 !== declaration.sourceDeclarationSha256
+        || proposal.sourceDeclarationSha256 !== declaration.declarationSha256
         || proposal.parserManifestSha256 !== catalog.parser.manifestSha256
         || !declaration.clauseIds.includes(proposal.clauseId)) {
       fail(`JavaScript witness proposal '${mappingSha256 ?? 'unknown'}' is invalid`);
@@ -470,8 +348,8 @@ export async function verifyJavascriptTestIdentityObservation(root, observation,
     }
     const declaration = declarations.get(occurrence.logicalTestId);
     if (!declaration || occurrence.name !== declaration.testName
-        || occurrence.fullName !== declaration.testName || occurrence.ancestorTitles.length !== 0
-        || occurrence.declarationSha256 !== declaration.sourceDeclarationSha256
+        || JSON.stringify(occurrence.ancestorTitles) !== JSON.stringify(declaration.suitePath)
+        || occurrence.declarationSha256 !== declaration.declarationSha256
         || occurrence.sourcePath !== declaration.sourcePath
         || occurrence.exact !== true
         || seenLogical.has(occurrence.logicalTestId)) {
@@ -501,7 +379,7 @@ export function javascriptWelAdapterManifest(profile) {
   return Object.freeze({
     id: profile, parser: 'sflow-javascript-static-parser', resultAdapter: PROFILES[profile],
     limits: { sources: MAX_SOURCES, sourceBytes: MAX_SOURCE_BYTES },
-    manifestSha256: `sha256:${recordSha256({ id: profile, parser: 'sflow-javascript-static-parser', version: 1 })}`
+    manifestSha256: `sha256:${recordSha256({ id: profile, parser: 'sflow-javascript-static-parser', version: 2 })}`
   });
 }
 

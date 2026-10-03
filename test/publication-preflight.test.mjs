@@ -2124,7 +2124,11 @@ test('prepublish previews the inferred Maven command and report without claiming
   await mkdir(path.dirname(source), { recursive: true });
   await mkdir(path.dirname(testSource), { recursive: true });
   await writeFile(source, 'final class App {}\n');
-  await writeFile(testSource, '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  // Maven has an exact adapter, so the criterion tag must sit on a JUnit test method.
+  await writeFile(testSource, [
+    'package example;', 'import org.junit.jupiter.api.Test;', 'final class AppTest {',
+    '  // @ac:DELIVERY-1:AC-001', '  @Test void covered() {}', '}', ''
+  ].join('\n'));
 
   const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
     session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }

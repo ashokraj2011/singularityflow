@@ -16,6 +16,8 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
+import { deliveryState, isDeliveryKey, pinnedStepActions, type StepActionDeliveryMonitor } from '../step-action-deliveries.ts';
+import { deliveriesHtml, type JourneyDeliveries } from './journey-deliveries.ts';
 
 const STATUS_CLASS: Record<string, string> = {
   approved: 'ok',
@@ -158,7 +160,7 @@ function decisionOptionsHtml(journey: Journey): string {
       <div class="decision-options" role="group" aria-label="${escape(pending.label)}">${options}${anyStep}</div>`;
 }
 
-export function journeyBodyHtml(journey: Journey): string {
+export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries | null = null): string {
   if (journey.empty) return `<div class="empty"><p>${escape(journey.empty)}</p></div>`;
 
   const blockers = journey.blockers.length
@@ -231,6 +233,8 @@ export function journeyBodyHtml(journey: Journey): string {
       ${approvalSummaryHtml(journey)}
     </section>
 
+    ${deliveriesHtml(deliveries, journey)}
+
     ${initiativeOnly}`;
 }
 
@@ -238,10 +242,12 @@ export function journeyBodyHtml(journey: Journey): string {
 export const JOURNEY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide]');
+    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide],[data-retry],[data-retry-all]');
     if (!target) return;
     event.preventDefault();
     if (target.dataset.copyRoute) navigator.clipboard.writeText(target.dataset.copyRoute).catch(() => {});
+    else if (target.dataset.retry) { target.disabled = true; vscode.postMessage({ type: 'retryDelivery', key: target.dataset.retry }); }
+    else if (target.hasAttribute('data-retry-all')) { target.disabled = true; vscode.postMessage({ type: 'retryDeliveries' }); }
     else if (target.dataset.phase) vscode.postMessage({ type: 'phase', id: target.dataset.phase });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
@@ -274,14 +280,17 @@ export class JourneyPanel {
   private disposed = false;
   private selectedStageId: string | null = null;
   private subjectKey: string | null;
+  private readonly deliveries: StepActionDeliveryMonitor | null;
 
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
-    onMessage: (message: JourneyMessage) => void
+    onMessage: (message: JourneyMessage) => void,
+    deliveries: StepActionDeliveryMonitor | null = null
   ) {
     this.panel = panel;
     this.store = store;
+    this.deliveries = deliveries;
     this.subjectKey = journeySubjectKey(store);
     this.subscription = store.onDidChange(() => {
       const nextSubject = journeySubjectKey(this.store);
@@ -289,6 +298,7 @@ export class JourneyPanel {
       this.subjectKey = nextSubject;
       this.render();
     });
+    if (deliveries) this.disposables.push(deliveries.onDidUpdate(() => this.render()) as vscode.Disposable);
 
     /**
      * The five messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
@@ -320,6 +330,18 @@ export class JourneyPanel {
       approve: (message) => {
         const outputId = stringField(message, 'id');
         if (outputId) onMessage({ type: 'approve', outputId });
+      },
+      // A key is retried only when this Story listed it; the monitor checks that again.
+      retryDelivery: (message) => {
+        const key = stringField(message, 'key');
+        if (isDeliveryKey(key)) void this.retryDeliveries([key]);
+      },
+      retryDeliveries: () => {
+        const workId = this.store.current.snapshot?.workflow?.workItem?.id;
+        const open = workId && this.deliveries
+          ? this.deliveries.deliveriesFor(workId).deliveries.filter((delivery) => deliveryState(delivery).retryable).map((delivery) => delivery.key)
+          : [];
+        void this.retryDeliveries(open);
       }
     });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
@@ -337,10 +359,12 @@ export class JourneyPanel {
   static show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
-    onMessage: (message: JourneyMessage) => void
+    onMessage: (message: JourneyMessage) => void,
+    deliveries: StepActionDeliveryMonitor | null = null
   ): JourneyPanel {
     if (JourneyPanel.current) {
       JourneyPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      JourneyPanel.current.refreshDeliveries();
       return JourneyPanel.current;
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.journey', 'Work journey', vscode.ViewColumn.Active, {
@@ -349,15 +373,42 @@ export class JourneyPanel {
       // Nothing outside the extension's own media directory is loadable, and nothing is loaded today.
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
     });
-    JourneyPanel.current = new JourneyPanel(panel, store, onMessage);
+    JourneyPanel.current = new JourneyPanel(panel, store, onMessage, deliveries);
+    JourneyPanel.current.refreshDeliveries();
     return JourneyPanel.current;
+  }
+
+  /** Opening the Journey reads this machine's deliveries fresh, whatever the last read saw. */
+  private refreshDeliveries(): void {
+    const workId = this.store.current.snapshot?.workflow?.workItem?.id;
+    if (this.deliveries && workId && pinnedStepActions(this.store.current.snapshot?.workflow).length) void this.deliveries.refresh(workId);
+  }
+
+  private async retryDeliveries(keys: string[]): Promise<void> {
+    const workId = this.store.current.snapshot?.workflow?.workItem?.id;
+    if (!this.deliveries || !workId || !keys.length) { this.render(); return; }
+    try {
+      const summary = await this.deliveries.retry(workId, keys);
+      void vscode.window.setStatusBarMessage(`$(send) ${summary}`, 6_000);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`The deliveries were not retried: ${(error as Error).message}`);
+    }
+    this.render();
+  }
+
+  private deliveriesView(): JourneyDeliveries | null {
+    const workflow = this.store.current.snapshot?.workflow;
+    const workId = workflow?.workItem?.id;
+    const pinned = pinnedStepActions(workflow);
+    if (!this.deliveries || !workId || !pinned.length) return null;
+    return { pinned, ...this.deliveries.deliveriesFor(workId) };
   }
 
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page(
       'Journey',
-      journeyBodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId)),
+      journeyBodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId), this.deliveriesView()),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       JOURNEY_SCRIPT,

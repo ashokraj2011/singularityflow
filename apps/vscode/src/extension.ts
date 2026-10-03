@@ -22,6 +22,7 @@ import {
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import { BackgroundWorkGovernor } from './background-governor.ts';
@@ -4543,6 +4544,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(store.onDidChange((_state, change) => {
     recordHostStoreEvent(change.kind);
   }));
+  // After-step deliveries are read only for a Story that pinned actions, after one of its steps
+  // moved. One that did not go out is said once, with a way to see why and to retry it.
+  const stepActionDeliveries = new StepActionDeliveryMonitor(client, (notice, workId) => {
+    void vscode.window.showWarningMessage(notice.message, 'Show deliveries', 'Retry now').then(async (choice) => {
+      if (choice === 'Show deliveries') await vscode.commands.executeCommand('singularityFlow.openJourney');
+      else if (choice === 'Retry now') {
+        try { void vscode.window.showInformationMessage(await stepActionDeliveries.retry(workId, notice.keys)); }
+        catch (error) { showRefusal(error, { headline: 'The deliveries were not retried' }); }
+      }
+    });
+  });
+  context.subscriptions.push(store.onDidChange((state) => {
+    if (state.snapshot && !state.stale) stepActionDeliveries.observe(state.snapshot.workflow ?? null);
+  }));
   interface WorkspaceLogsSummary {
     entries: Array<{ timestamp: string | null; severity: string }>;
     total: number;
@@ -7473,7 +7488,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openJourney': async () => {
       await reconcileActiveWorkspaceSelection();
       const { JourneyPanel } = lazyPanels();
-      return JourneyPanel.show(context, store, onJourneyMessage);
+      return JourneyPanel.show(context, store, onJourneyMessage, stepActionDeliveries);
     },
     'singularityFlow.openCommandCenter': async () => {
       await reconcileActiveWorkspaceSelection();

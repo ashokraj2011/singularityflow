@@ -12,7 +12,7 @@ related:
   - activity-and-prompt-audit
 commands:
   - integrations
-version: 2
+version: 3
 ---
 A workflow step can send an event to another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, or a Microsoft Teams channel. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
 
@@ -50,7 +50,7 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 
 - **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test.
 - **Copilot:** `/sf-integrations` explains delivery status, checks a target's request, and retries deliveries after asking. It never asks for a secret value.
-- **VS Code:** in Workflow Studio, **Integrations** adds, changes and removes targets, shows whether each secret is set on this machine, stores a secret in the keychain (**Store**), and, for a published target, previews the exact request or sends a test after you confirm. On the board, **Actions after this step** chooses what a step sends, to which target and when; the card shows it in its THEN lane. Actions belong to the workflow, like sign-off: on a step several workflows share, the others keep their own.
+- **VS Code:** in Workflow Studio, **Integrations** adds, changes and removes targets, shows whether each secret is set on this machine, stores a secret in the keychain (**Store**), and, for a published target, previews the exact request or sends a test after you confirm. On the board, **Actions after this step** chooses what a step sends, to which target and when; the card shows it in its THEN lane. Actions belong to the workflow, like sign-off: on a step several workflows share, the others keep their own. For a Story, **Journey** lists what it pinned and every delivery on this machine with its last result, and retries one or all of them; after a step moves, a delivery that did not go out raises one notification with **Show deliveries** and **Retry now**.
 
 ## Guided workflow
 
@@ -58,7 +58,7 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 2. Add an action to a step's `afterStep` with the triggers it fires on (in Workflow Studio: select the step → **Actions after this step** → **Add an action**).
 3. Publish the configuration change. Stories started afterwards send the action; running Stories keep the actions they started with.
 4. Run `singularity-flow integrations test <TARGET>` to see the request; add `--send-test` to send a sample (in Workflow Studio: **Preview the request** or **Send a test** on the target's card).
-5. After a submit, approval or rejection, check `singularity-flow integrations status` if a delivery was reported as not delivered.
+5. After a submit, approval or rejection, check `singularity-flow integrations status` (or the Story's Journey in VS Code) if a delivery was reported as not delivered.
 
 ## State and safety
 

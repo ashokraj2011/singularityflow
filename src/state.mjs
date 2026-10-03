@@ -1714,7 +1714,8 @@ function placeholderTestReason(reason) {
  * Materialize the reviewed planning contract before the lifecycle can enter a code phase.
  * The exact table is deterministic; prose and later test files are never guessed into a claim.
  */
-async function refreshPlannedSpecificationClaims(root, config, workflow, phase) {
+/** The code step a definition step plans claims for, with the policy that judges the plan, or null. */
+function plannedClaimsTarget(config, workflow, phase) {
   const policy = specificationPolicy(config, workflow);
   const plannedPolicy = plannedClaimsPolicy(workflow);
   const configuredCodePhases = plannedPolicy?.mode === 'required'
@@ -1726,7 +1727,66 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const upcoming = configuredCodePhases[0]
     ?? (plannedPolicy == null ? nextPhase(workflow, phase) : null);
   if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(upcoming)) return null;
-  const enforce = plannedClaimsEnforced(workflow, policy);
+  return { policy, upcoming, enforce: plannedClaimsEnforced(workflow, policy) };
+}
+
+/**
+ * The planned-test contract an authored definition states, refused exactly as publishing it is:
+ * placeholder not-applicable reasons always, and missing planned tests when the contract is enforced.
+ * `subject`, `where` and `again` name the act being refused, so an intent amendment is told to propose again.
+ */
+function plannedClaimContract(phase, authored, {
+  clauseIds, policy, enforce, artifactPath,
+  subject = `Phase ${phase.id} cannot publish`, where = `in ${artifactPath}`, again = 'publish again'
+}) {
+  const derived = derivePlannedClaimMap(authored, { clauseIds, policy });
+  const placeholderReasons = Object.entries(derived.claimMap.claims)
+    .filter(([, claim]) => claim.testDisposition === 'not-applicable' && placeholderTestReason(claim.testReason))
+    .map(([id]) => id)
+    .sort();
+  if (placeholderReasons.length) {
+    throw new SingularityFlowError(
+      `${subject} because not-applicable test reasons are placeholders for: ${placeholderReasons.join(', ')}. `
+      + `Replace TODO/TBD/template text with the concrete reviewed reason ${where}.`,
+      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: placeholderReasons } }
+    );
+  }
+  const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
+  if (gaps.length && enforce) {
+    throw new SingularityFlowError(
+      `${subject} because its planned-test contract is incomplete:\n- `
+      + gaps.map((id) => `clause ${id} has no exact planned test or reviewed not-applicable reason`).join('\n- ')
+      + `\nComplete the 'Clause | Expected paths | Planned tests' table ${where} and ${again}.`,
+      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: gaps } }
+    );
+  }
+  return { derived, gaps };
+}
+
+/**
+ * Refuse an intent-amendment proposal whose specification would not plan its clauses [E2G-008]. It
+ * is the contract publication enforces, checked before anyone decides, so an approved amendment
+ * never fails on its own plan.
+ */
+export async function assertAmendedPlannedClaims(root, config, workflow, phase, proposedText, proposedClauseIds) {
+  const target = plannedClaimsTarget(config, workflow, phase);
+  if (!target) return null;
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const clauseIds = [...new Set([
+    ...specificationClauseIds({ indexes: records.indexes.filter((index) => index.phase !== phase.id) }),
+    ...proposedClauseIds.map((id) => String(id).toUpperCase())
+  ])].sort();
+  if (!clauseIds.length) return null;
+  return plannedClaimContract(phase, authoredArtifactText(proposedText), {
+    clauseIds, policy: target.policy, enforce: target.enforce, artifactPath: requiredRepoPath(config, workflow, phase),
+    subject: 'The amended specification cannot be proposed', where: 'in the proposed file', again: 'propose it again'
+  });
+}
+
+async function refreshPlannedSpecificationClaims(root, config, workflow, phase) {
+  const target = plannedClaimsTarget(config, workflow, phase);
+  if (!target) return null;
+  const { policy, upcoming, enforce } = target;
 
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
@@ -1741,27 +1801,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
   const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
-  const derived = derivePlannedClaimMap(authored, { clauseIds, policy });
-  const placeholderReasons = Object.entries(derived.claimMap.claims)
-    .filter(([, claim]) => claim.testDisposition === 'not-applicable' && placeholderTestReason(claim.testReason))
-    .map(([id]) => id)
-    .sort();
-  if (placeholderReasons.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} cannot publish because not-applicable test reasons are placeholders for: ${placeholderReasons.join(', ')}. `
-      + `Replace TODO/TBD/template text with the concrete reviewed reason in ${artifactPath}.`,
-      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: placeholderReasons } }
-    );
-  }
-  const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
-  if (gaps.length && enforce) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} cannot publish because its planned-test contract is incomplete:\n- `
-      + gaps.map((id) => `clause ${id} has no exact planned test or reviewed not-applicable reason`).join('\n- ')
-      + `\nComplete the 'Clause | Expected paths | Planned tests' table in ${artifactPath} and publish again.`,
-      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: gaps } }
-    );
-  }
+  const { derived, gaps } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath });
   if (gaps.length) {
     console.warn(`Warning: phase ${phase.id} planned-test contract is incomplete for ${gaps.join(', ')}.`);
   }

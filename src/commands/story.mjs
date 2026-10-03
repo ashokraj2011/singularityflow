@@ -64,7 +64,7 @@ import {
   mergePlannedClaimRecords
 } from '../specifications.mjs';
 import {
-  StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
+  StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedPlannedClaims, commitAndPublish, createWorkflow,
   currentPhase, decideIntentAmendment, decideStorySkillVersion, loadConfig, loadStoryAggregate,
   preparePhase, previewReworkRollForward, previewStorySkillVersionDecision,
   previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework,
@@ -1782,6 +1782,9 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
       code: 'INTENT_AMENDMENT_EMPTY'
     });
   }
+  // The amended specification must plan its clauses as a published one does; refuse it now rather
+  // than when an authority approves it.
+  await assertAmendedPlannedClaims(root, config, workflow, specification, proposedText, afterClauses.map((clause) => clause.id));
   const source = phaseFeedback
     ? await loopIntentAmendmentSource(root, config, workflow, optionString(options, 'source-phase'))
     : null;

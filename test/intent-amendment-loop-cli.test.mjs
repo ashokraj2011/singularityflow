@@ -84,6 +84,21 @@ test('Code feedback proposes an immutable spec correction and authority decides 
   const amendedPath = path.join(candidateDirectory, 'amended-spec.md');
   await writeFile(amendedPath, spec(2));
   const before = await readFile(specPath, 'utf8');
+
+  // An amended specification that no longer plans a clause is refused when it is proposed, not when
+  // an authority approves it, and nothing is recorded.
+  const unplannedPath = path.join(candidateDirectory, 'unplanned-spec.md');
+  const plannedRow = `| \`${WORK}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` |\n`;
+  assert.ok(spec(2).includes(plannedRow));
+  await writeFile(unplannedPath, spec(2).replace(plannedRow, ''));
+  const refused = run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose',
+    '--file', unplannedPath, '--reason', 'Review showed that value 2 is required.',
+    '--source-phase', 'implementation', '--clause', `${WORK}:REQ-001`, '--clause', `${WORK}:AC-001`, '--json'], root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /SPEC_PLANNED_TEST_BINDING_REQUIRED/);
+  assert.match(refused.stdout + refused.stderr, /amended specification cannot be proposed/);
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).intentAmendments, undefined,
+    'a refused proposal records nothing');
   const proposed = JSON.parse(cli('story', 'intent-amendment', 'propose',
     '--file', amendedPath, '--reason', 'Review showed that value 2 is required.',
     '--source-phase', 'implementation', '--clause', `${WORK}:REQ-001`,

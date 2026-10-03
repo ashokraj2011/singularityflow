@@ -43,6 +43,8 @@ export const UPGRADE_CONTRACT = Object.freeze({
   PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING: guided(),
   PRODUCT_ALIGNMENT_STEP_FAILED: guided(),
   PRODUCT_ALIGNMENT_VERIFICATION_FAILED: guided(),
+  // A governance rebuild archived the Story on purpose; the refusal says what to do instead.
+  STORY_ARCHIVED_BY_REBUILD: guided(),
 
   // Integrity: the stored bytes do not verify. Failing closed is the product working.
   SCHEMA_MIGRATION_SOURCE_CORRUPT: integrity('The stored record does not verify; migrating it would launder corruption.'),

@@ -289,7 +289,17 @@ const UPGRADE_KNOWN = Object.freeze({
   ],
   PRODUCT_ALIGNMENT_STEP_FAILED: () => productAlignmentSteps('A surface could not be aligned. Check which build each surface runs.'),
   PRODUCT_ALIGNMENT_VERIFICATION_FAILED: () => productAlignmentSteps(
-    'A surface did not verify after alignment. Check which build each surface runs.')
+    'A surface did not verify after alignment. Check which build each surface runs.'),
+  STORY_ARCHIVED_BY_REBUILD: (argv, error) => {
+    const plan = /^grb-[0-9a-f]{24}$/u.test(String(error?.details?.plan ?? '')) ? error.details.plan : null;
+    return [
+      step('start-new-story', 'A governance rebuild archived this Story, so it stays read-only. Start a new Story under the current governance.',
+        'singularity-flow start <WORK-ID> --from-branch <BASE> --title <TITLE>', 'remediation'),
+      ...(plan ? [step('preview-governance-restore',
+        'Only if the rebuild itself was a mistake: preview restoring the governance it replaced, a reviewed change for the whole repository.',
+        `singularity-flow governance restore --plan ${plan} --dry-run`)] : [])
+    ];
+  }
 });
 
 export const UPGRADE_GUIDED_CODES = Object.freeze(Object.keys(UPGRADE_KNOWN));

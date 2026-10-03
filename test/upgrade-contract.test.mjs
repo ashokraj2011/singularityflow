@@ -39,6 +39,7 @@ async function versionSensitiveCodes() {
 // A representative refusal per guided code, carrying the details its producer attaches.
 const REPRESENTATIVE = Object.freeze({
   WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: { details: { workType: 'feature' } },
+  STORY_ARCHIVED_BY_REBUILD: { details: { workId: 'FEAT-1', plan: 'grb-0123456789abcdef01234567', archivedAt: '2026-10-03T00:00:00.000Z' } },
   CONVERGENCE_LEGACY_MIGRATION_REQUIRED: {
     details: { command: `singularity-flow story converge --work-id FEAT-1 --migrate-legacy --confirm sha256:${'a'.repeat(64)}` }
   }

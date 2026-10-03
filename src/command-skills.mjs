@@ -215,9 +215,11 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     add: 'sf-upload'
   }),
   pr: route('sf-pr'),
-  // `evidence matrix` is the evidence view; every other evidence form stays an SGOS family route.
+  // `evidence matrix` and `evidence scope` are the Story evidence views; every other evidence form
+  // stays an SGOS family route.
   evidence: route('sf-sgos', {
-    matrix: 'sf-evidence'
+    matrix: 'sf-evidence',
+    scope: 'sf-evidence'
   }),
   delivery: route('sf-inspect'),
   capabilities: route('sf-capabilities', {

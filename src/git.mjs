@@ -1556,6 +1556,138 @@ export async function pushIsolatedGitDraftCommit(root, {
   return result;
 }
 
+// ---- After-step Git deliveries -----------------------------------------------------------------
+//
+// A Git target receives one approved artifact as a commit on a branch of another repository (or a
+// non-protected branch of this one). Everything happens in a live isolated object repository: the
+// branch tip is read and its recent history fetched over the frozen transport, the file is written
+// over the parent tree with a private index, and the commit is pushed without force, so the remote
+// accepts only a fast-forward. No local ref, index, worktree or hook is touched.
+
+/** A branch an after-step delivery may write: an ordinary name, never one Singularity Flow owns. */
+export function validDeliveryBranch(branch) {
+  return typeof branch === 'string' && branch.length >= 1 && branch.length <= 200
+    && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(branch) && !branch.startsWith('sflow/')
+    && !/(?:^|\/)\.|\.\.|\/\/|\.lock(?:\/|$)|\/$|@\{/u.test(branch) && branch !== 'HEAD';
+}
+
+function liveDeliveryRepository(root) {
+  invariant(path.isAbsolute(root) && ISOLATED_GIT_OBJECT_REPOSITORIES.has(root), 'Git deliveries require a live isolated object repository owned by the Git service.');
+}
+
+function deliveryGitFailure(message, result, code = 'GIT_DELIVERY_REMOTE_FAILED') {
+  const error = new SingularityFlowError(message, { code });
+  error.remote = classifyGitRemoteFailure(result);
+  error.temporaryGitCleanupUnproven = !processResultCompleted(result);
+  return error;
+}
+
+/** The commit a remote branch points at, or null when the branch does not exist there yet. */
+export async function isolatedRemoteBranchTip(root, { remote, branch }) {
+  liveDeliveryRepository(root);
+  assertCredentialFreeRemote(remote);
+  invariant(validDeliveryBranch(branch), 'Invalid delivery branch.');
+  const transport = frozenRemoteTransport(remote);
+  const result = await runRemoteGitAsync([
+    '-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'ls-remote', '--heads', '--', transport.remote, `refs/heads/${branch}`
+  ], { cwd: root, env: transport.env, operation: 'remote-configuration', maxBuffer: 64 * 1024 });
+  if (!processResultSucceeded(result)) throw deliveryGitFailure('The delivery repository could not be read.', result);
+  const row = result.stdout.split(/\r?\n/u).find((line) => line.endsWith(`\trefs/heads/${branch}`));
+  const tip = row ? row.split('\t')[0] : null;
+  invariant(tip === null || EXACT_LOCAL_OBJECT_ID.test(tip), 'Invalid remote branch tip.');
+  return tip;
+}
+
+/** Fetch a remote tip with its recent history into the isolated repository. */
+export async function fetchIsolatedDeliveryHistory(root, { remote, commit, depth = 100 }) {
+  liveDeliveryRepository(root);
+  assertCredentialFreeRemote(remote);
+  invariant(EXACT_LOCAL_OBJECT_ID.test(commit) && Number.isSafeInteger(depth) && depth >= 1 && depth <= 500, 'Invalid delivery history request.');
+  const transport = frozenRemoteTransport(remote);
+  const result = await runRemoteGitAsync([
+    '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'fetch.unpackLimit=1',
+    'fetch', '--no-tags', '--no-write-fetch-head', `--depth=${depth}`, '--', transport.remote, commit
+  ], { cwd: root, env: transport.env, operation: 'remote-configuration', maxBuffer: 1024 * 1024 });
+  if (!processResultSucceeded(result)) throw deliveryGitFailure('The delivery branch could not be fetched.', result);
+}
+
+/** The recent commits of a fetched tip, newest first: id and full message, bounded. */
+export function isolatedCommitMessages(root, { commit, limit = 100 }) {
+  liveDeliveryRepository(root);
+  invariant(EXACT_LOCAL_OBJECT_ID.test(commit) && Number.isSafeInteger(limit) && limit >= 1 && limit <= 500, 'Invalid delivery history read.');
+  const result = git(['log', `-n${limit}`, '--format=%H%x00%B%x1e', commit, '--'], {
+    cwd: root, env: isolatedObjectWriterEnvironment(), allowFailure: true, maxBuffer: 4 * 1024 * 1024, timeoutMs: 30_000
+  });
+  if (!processResultSucceeded(result)) throw deliveryGitFailure('The delivery branch history could not be read.', result, 'GIT_DELIVERY_HISTORY_UNAVAILABLE');
+  return result.stdout.split('\x1e').map((entry) => entry.replace(/^\s+/u, '')).filter(Boolean).map((entry) => {
+    const at = entry.indexOf('\0');
+    return { commit: entry.slice(0, at), message: entry.slice(at + 1) };
+  });
+}
+
+/**
+ * A commit that writes one file over its parent's tree (or starts a branch with it), using a
+ * private index. Returns the commit, or null when the parent already holds these exact bytes.
+ */
+export async function writeExactGitFileCommit(root, { parentCommit = null, relative, bytes, commitIdentity, message }) {
+  liveDeliveryRepository(root);
+  invariant(parentCommit === null || EXACT_LOCAL_OBJECT_ID.test(parentCommit), 'Invalid delivery commit parent.');
+  invariant(typeof relative === 'string' && Buffer.byteLength(relative) <= 512 && !relative.startsWith('/')
+    && relative.split('/').every((part) => /^[A-Za-z0-9._-]+$/u.test(part) && part !== '.' && part !== '..' && part.toLowerCase() !== '.git'), 'Invalid delivery file path.');
+  invariant(Buffer.isBuffer(bytes) && bytes.length <= 32 * 1024 * 1024, 'Invalid delivery file bytes.');
+  invariant(typeof message === 'string' && Buffer.byteLength(message) <= 4096 && !message.includes('\0'), 'Invalid delivery commit message.');
+  const identityValue = validateGitCommitIdentity(commitIdentity);
+  const temporary = await mkdtemp(path.join(root, 'delivery-write-'));
+  // The isolated writer environment (no system or global configuration), with a private index.
+  const env = gitCommitIdentityEnvironment({ ...isolatedObjectWriterEnvironment(), GIT_INDEX_FILE: path.join(temporary, 'index') }, identityValue);
+  let retained = false;
+  const checked = (args) => {
+    const result = git(['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], { cwd: root, env, timeoutMs: 30_000, killSignal: 'SIGKILL', allowFailure: true });
+    if (!processResultCompleted(result)) retained = true;
+    if (!processResultSucceeded(result)) {
+      const error = new SingularityFlowError('The delivery commit could not be written.', { code: 'GIT_OBJECT_WRITE_UNAVAILABLE' });
+      error.temporaryGitCleanupUnproven = retained;
+      throw error;
+    }
+    return result.stdout.trim();
+  };
+  try {
+    const source = path.join(temporary, 'literal-object');
+    await writeAtomic(source, bytes, { mode: 0o600 });
+    const blob = checked(['hash-object', '-t', 'blob', '-w', '--no-filters', '--', source]);
+    invariant(EXACT_LOCAL_OBJECT_ID.test(blob), 'Invalid delivery blob.');
+    let parentTree = null;
+    if (parentCommit !== null) {
+      parentTree = checked(['rev-parse', '--verify', `${parentCommit}^{tree}`]);
+      checked(['read-tree', parentTree]);
+    }
+    checked(['update-index', '--add', '--cacheinfo', `100644,${blob},${relative}`]);
+    const tree = checked(['write-tree']);
+    if (tree === parentTree) return null;
+    return checked(['commit-tree', tree, ...(parentCommit ? ['-p', parentCommit] : []), '-m', message]);
+  } finally {
+    if (!retained) await removeTemporaryTree(temporary);
+  }
+}
+
+/**
+ * Push one delivery commit without force: the remote takes it only as a fast-forward of the tip it
+ * was built on (or as a new branch). Returns 'pushed' or 'moved' when the branch moved meanwhile.
+ */
+export async function pushIsolatedDeliveryCommit(root, { remote, commit, branch }) {
+  liveDeliveryRepository(root);
+  assertCredentialFreeRemote(remote);
+  invariant(validDeliveryBranch(branch) && EXACT_LOCAL_OBJECT_ID.test(commit), 'Invalid delivery push.');
+  const destination = `refs/heads/${branch}`;
+  const transport = frozenRemoteTransport(remote, { push: true });
+  const result = await runRemoteGitAsync([
+    '-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'push', '--porcelain', '--', transport.remote, `${commit}:${destination}`
+  ], { cwd: root, env: transport.env, operation: 'remote-push', maxBuffer: 1024 * 1024 });
+  if (processResultSucceeded(result)) return 'pushed';
+  if (/\[rejected\][^\n]*(?:fetch first|non-fast-forward)|\[remote rejected\][^\n]*(?:stale info|cannot lock ref)/iu.test(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)) return 'moved';
+  throw deliveryGitFailure('The delivery commit could not be pushed.', result);
+}
+
 function nullList(value) {
   return value.split('\0').filter(Boolean);
 }

@@ -925,3 +925,37 @@ test('a Jira target is set up in the form with an optional issue and a status pe
   reload.saveTargetForm();
   assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'reopening a Jira target changes nothing');
 });
+
+test('a Git target is set up in the form, sends the approved document, and the engine accepts it', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('git');
+  for (const [fields, problem] of [
+    [{ id: 'docs-repo', repository: 'http://git.example.com/docs' }, /https:\/\/ address with no user or password/],
+    [{ repository: 'https://user:pw@git.example.com/docs' }, /https:\/\/ address with no user or password/],
+    [{ repository: 'git@git.example.com:team/docs.git', branch: 'sflow/config' }, /sflow\/ branches belong to Singularity Flow/],
+    [{ branch: 'docs/approved', path: '../outside/{file}' }, /The path is relative/]
+  ]) {
+    Object.assign(view.form, fields, { problem: null });
+    assert.equal(page.saveTargetForm(), null);
+    assert.match(view.form.problem, problem);
+  }
+  Object.assign(view.form, { path: 'sflow/{story}/{step}/{file}', problem: null });
+  assert.equal(page.saveTargetForm(), 'docs-repo');
+  assert.deepEqual(state.draft.integrations['docs-repo'], { kind: 'git', repository: 'git@git.example.com:team/docs.git', branch: 'docs/approved' }, 'the default path is not written');
+
+  const action = page.addStepAction('feature', 'intake');
+  assert.equal(action.send, 'artifact', 'a Git target only takes the document');
+  const changeSet = page.changeSetFrom(model, state.draft);
+  assert.match(page.describe(changeSet.changes[0], state.draft), /^New target docs-repo \(Git\): git@git\.example\.com:team\/docs\.git → docs\/approved$/);
+  const plan = await planStudioChangeSet(root, changeSet, { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.integrations.targets['docs-repo'], { kind: 'git', repository: 'git@git.example.com:team/docs.git', branch: 'docs/approved' });
+  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'docs-repo', on: ['approved'], target: 'docs-repo', send: 'artifact' }]);
+});

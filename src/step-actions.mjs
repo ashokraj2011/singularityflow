@@ -49,7 +49,7 @@ export const INTEGRATION_TARGET_KINDS = Object.freeze({
   'http-log': Object.freeze({ available: true, label: 'Log service', sends: Object.freeze(['event', 'summary']) }),
   teams: Object.freeze({ available: true, label: 'Microsoft Teams', sends: Object.freeze(['event', 'summary']) }),
   jira: Object.freeze({ available: true, label: 'Jira', sends: Object.freeze(['event', 'summary', 'artifact']) }),
-  git: Object.freeze({ available: false, label: 'Git', sends: Object.freeze(['artifact']) }),
+  git: Object.freeze({ available: true, label: 'Git', sends: Object.freeze(['artifact']) }),
   confluence: Object.freeze({ available: false, label: 'Confluence', sends: Object.freeze(['summary', 'artifact']) }),
   onedrive: Object.freeze({ available: false, label: 'OneDrive or SharePoint', sends: Object.freeze(['artifact']) })
 });
@@ -62,8 +62,32 @@ const TARGET_FIELDS = Object.freeze({
   webhook: Object.freeze(['url', 'signingSecret']),
   'http-log': Object.freeze(['url', 'format', 'tokenSecret', 'labels']),
   teams: Object.freeze(['urlSecret']),
-  jira: Object.freeze(['issue', 'transition'])
+  jira: Object.freeze(['issue', 'transition']),
+  git: Object.freeze(['repository', 'branch', 'path'])
 });
+export const DEFAULT_GIT_DELIVERY_PATH = 'sflow/{story}/{step}/{file}';
+const GIT_PATH_PLACEHOLDERS = Object.freeze(['story', 'step', 'generation', 'trigger', 'file']);
+// HTTPS without credentials, query or fragment; or SSH, as ssh://user@host/path or user@host:path.
+const GIT_HTTPS_REPOSITORY = /^https:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+$/;
+const GIT_SSH_REPOSITORY = /^(?:ssh:\/\/[A-Za-z0-9._-]+@[A-Za-z0-9.-]+(?::[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
+
+/** A branch a Git delivery may write: an ordinary name, never one Singularity Flow owns. */
+export function validDeliveryBranchName(branch) {
+  return typeof branch === 'string' && branch.length >= 1 && branch.length <= 200
+    && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) && !branch.startsWith('sflow/')
+    && !/(?:^|\/)\.|\.\.|\/\/|\.lock(?:\/|$)|\/$|@\{/.test(branch) && branch !== 'HEAD';
+}
+
+/** The file a Git delivery writes, from the target's path template and one delivery. */
+export function renderGitDeliveryPath(template, { workId, phaseId, generation, trigger, artifactPath }) {
+  // One path segment each: no separator, no leading dot, no run of dots, no trailing dot.
+  const safe = (value) => String(value ?? '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/\.{2,}/g, '.').replace(/^[.-]+|\.+$/g, '').slice(0, 120) || 'x';
+  const values = {
+    story: safe(workId), step: safe(phaseId), generation: String(Number.isSafeInteger(generation) ? generation : 0),
+    trigger: safe(trigger), file: safe(String(artifactPath ?? 'artifact.md').split('/').pop())
+  };
+  return String(template ?? DEFAULT_GIT_DELIVERY_PATH).replace(/\{([a-z]+)\}/g, (_, name) => values[name] ?? name);
+}
 const JIRA_ISSUE_KEY = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
 const COMMON_TARGET_FIELDS = Object.freeze(['kind', 'label', 'network', 'timeoutSeconds']);
@@ -187,7 +211,11 @@ function normalizeTarget(id, raw, label) {
     }
     target.label = raw.label.trim();
   }
-  if (kind === 'jira') {
+  if (kind === 'git' && raw.network != null) {
+    refuse('INTEGRATION_TARGET_INVALID', `${label} is a Git target: it reaches its repository through Git, so network does not apply.`, { location: label });
+  } else if (kind === 'git') {
+    // Git transport has its own rules; see the repository check below.
+  } else if (kind === 'jira') {
     // Jira is reached through this machine's Jira connection (JIRA_BASE_URL), never an address the
     // configuration chooses, so the address rules do not apply to it.
     if (raw.network != null) {
@@ -249,6 +277,31 @@ function normalizeTarget(id, raw, label) {
       target.issue = raw.issue;
     }
     if (raw.transition != null) target.transition = normalizeJiraTransition(raw.transition, label);
+  } else if (kind === 'git') {
+    const repository = raw.repository;
+    if (typeof repository !== 'string' || repository.length > 512
+        || !(GIT_HTTPS_REPOSITORY.test(repository) || GIT_SSH_REPOSITORY.test(repository))) {
+      refuse('INTEGRATION_TARGET_INVALID',
+        `${label} repository must be an https:// address (no user, password or query) or an SSH address such as git@git.example.com:team/docs.git.`,
+        { location: label });
+    }
+    target.repository = repository;
+    if (!validDeliveryBranchName(raw.branch)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} branch must be an ordinary branch name such as docs/approved; sflow/ branches belong to Singularity Flow.`, { location: label });
+    }
+    target.branch = raw.branch;
+    if (raw.path != null) {
+      const template = raw.path;
+      const placeholders = typeof template === 'string' ? [...template.matchAll(/\{([^}]*)\}/g)].map((match) => match[1]) : [];
+      if (typeof template !== 'string' || !template.trim() || template.length > 300 || template.startsWith('/')
+          || template.split('/').some((part) => !/^[A-Za-z0-9._{}-]+$/.test(part) || part === '.' || part === '..' || part.toLowerCase() === '.git')
+          || placeholders.some((name) => !GIT_PATH_PLACEHOLDERS.includes(name))) {
+        refuse('INTEGRATION_TARGET_INVALID',
+          `${label} path must be a relative path such as docs/{story}/{step}/{file}, using only ${GIT_PATH_PLACEHOLDERS.map((name) => `{${name}}`).join(', ')}.`,
+          { location: label });
+      }
+      target.path = template;
+    }
   }
   return target;
 }
@@ -394,7 +447,8 @@ export function buildStepActionEvent({
       title: workflow?.workItem?.title ?? null,
       workflow: workflow?.resolution?.workType ?? workflow?.workType ?? null,
       branch: workflow?.workItem?.branch ?? event.subject?.branch ?? null,
-      jiraKey: typeof workflow?.lineage?.currentJiraKey === 'string' ? workflow.lineage.currentJiraKey : null
+      jiraKey: typeof workflow?.lineage?.currentJiraKey === 'string' ? workflow.lineage.currentJiraKey : null,
+      baseBranch: typeof workflow?.workItem?.baseBranch === 'string' ? workflow.workItem.baseBranch : null
     },
     step: {
       id: phaseId,

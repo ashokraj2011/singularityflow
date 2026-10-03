@@ -6,7 +6,8 @@
  *   retry   deliver now: named delivery keys, or every pending and failed one with --all
  *   test    the exact request a target would receive; --send-test sends one marked as a test
  *           (for a Jira target: the comment it would write; --send-test checks the connection and
- *           the issue without writing anything)
+ *           the issue without writing anything; for a Git target: the commit it would make;
+ *           --send-test checks that the repository can be read)
  */
 import { repoRoot } from '../git.mjs';
 import { loadConfig } from '../state-stores.mjs';
@@ -21,7 +22,8 @@ import {
   INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, buildStepActionEvent, jiraTransitionFor, normalizeIntegrations,
   stepActionDeliveryKey
 } from '../step-actions.mjs';
-import { jiraAttachmentName, jiraCommentText } from '../step-action-writers.mjs';
+import { gitDeliveryHint, gitDeliveryMessage, jiraAttachmentName, jiraCommentText } from '../step-action-writers.mjs';
+import { DEFAULT_GIT_DELIVERY_PATH, renderGitDeliveryPath } from '../step-actions.mjs';
 import { getCurrentUser, jiraConnectionFromEnv, listIssueTransitions } from '../jira.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
@@ -62,12 +64,14 @@ function jiraConnected(env) {
 /** Where a target delivers, in a few words. */
 function targetAddress(target) {
   if (target.kind === 'jira') return target.issue ?? "each Story's Jira issue";
+  if (target.kind === 'git') return `${target.repository} → ${target.branch}`;
   return target.url ?? `(address in ${target.urlSecret})`;
 }
 
 /** What a target needs on this machine: its secrets, or for Jira the Jira connection. */
 function credentialSummary(target, env) {
   if (target.kind === 'jira') return jiraConnected(env) ? 'Jira connection' : 'Jira connection (not connected here)';
+  if (target.kind === 'git') return 'your Git credentials';
   return secretStatus(target, env).map((entry) => `${entry.name}${entry.set ? '' : ' (not set here)'}`).join(', ') || '—';
 }
 
@@ -187,6 +191,7 @@ async function testCommand(root, config, positionals, options, operation, json) 
   if (send === 'summary') event.summary = { title: 'Example artifact title', acceptanceCriteria: ['Example acceptance criterion'] };
   const record = { key, trigger, action: actionEntry, event };
   if (target.kind === 'jira') return jiraTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
+  if (target.kind === 'git') return gitTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   const request = deliveryRequest(record, process.env);
   const preview = request.url ? { method: 'POST', url: request.url, headers: redactedHeaders(request.headers), body: JSON.parse(request.body) } : null;
   const sendIt = optionBoolean(options, 'send-test');
@@ -253,6 +258,45 @@ async function jiraTest(target, record, { operation, json, sendIt }) {
     if (plan.transition) console.log(`Then moves it to: ${plan.transition}`);
     console.log('');
     console.log(plan.comment);
+    if (checks.length) {
+      console.log('');
+      for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);
+    }
+  }
+  const ok = checks.every((entry) => entry.ok);
+  return emitCommandResult(result(operation, succeeded('integrations.tested', {
+    target: target.id, sent: false, outcome: checks.length ? (ok ? 'checked' : 'check-failed') : 'previewed', status: null
+  }), { data: { target: target.id, request: null, plan, checks, unavailable: null, failed: null, delivery: null } }), { json });
+}
+
+/**
+ * A Git target's test: the file and commit a delivery would make, and with --send-test a check that
+ * this machine can read the repository and its branch. It never writes; write access is proven by
+ * the first delivery.
+ */
+async function gitTest(target, record, { operation, json, sendIt }) {
+  const relative = renderGitDeliveryPath(target.path ?? DEFAULT_GIT_DELIVERY_PATH, {
+    workId: record.workId, phaseId: record.phaseId, generation: record.generation, trigger: record.trigger, artifactPath: 'artifacts/example-step/example-step.md'
+  });
+  const plan = { repository: target.repository, branch: target.branch, path: relative, message: gitDeliveryMessage({ ...record, artifact: null }, relative) };
+  const checks = [];
+  if (sendIt) {
+    const git = await import('../git.mjs');
+    try {
+      const tip = await git.withIsolatedGitObjectRepository({ remote: target.repository }, (scratch) => git.isolatedRemoteBranchTip(scratch, { remote: target.repository, branch: target.branch }));
+      checks.push({ check: `Can read ${target.repository}`, ok: true, detail: null });
+      checks.push({ check: `Branch ${target.branch}`, ok: true, detail: tip ? `at ${tip.slice(0, 12)}; deliveries add commits on top` : 'does not exist yet; the first delivery starts it' });
+    } catch (error) {
+      const hint = gitDeliveryHint(error);
+      checks.push({ check: `Can read ${target.repository}`, ok: false, detail: hint ? `${error.message} ${hint}` : error.message });
+    }
+  }
+  if (!json) {
+    console.log(`Repository: ${plan.repository}`);
+    console.log(`Branch: ${plan.branch} (fast-forward only)`);
+    console.log(`File: ${plan.path}`);
+    console.log('');
+    console.log(plan.message);
     if (checks.length) {
       console.log('');
       for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);

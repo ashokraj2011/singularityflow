@@ -783,7 +783,7 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["webhook", "http-log", "teams", "jira"] },
+        "kind": { "enum": ["webhook", "http-log", "teams", "jira", "git"] },
         "label": { "type": "string", "maxLength": 80 },
         "network": { "enum": ["public", "private"] },
         "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
@@ -793,6 +793,9 @@
         "urlSecret": { "$ref": "#/$defs/secretName" },
         "format": { "enum": ["json", "splunk-hec", "datadog", "elastic", "loki"] },
         "labels": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "string", "maxLength": 200 } },
+        "repository": { "type": "string", "maxLength": 512, "description": "The repository a Git target commits to: https:// without credentials, or SSH such as git@git.example.com:team/docs.git." },
+        "branch": { "type": "string", "maxLength": 200, "pattern": "^(?!sflow/)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "The branch a Git target commits to, fast-forward only. sflow/ branches belong to Singularity Flow." },
+        "path": { "type": "string", "maxLength": 300, "description": "Where the artifact is written: a relative path using {story}, {step}, {generation}, {trigger} and {file}. Defaults to sflow/{story}/{step}/{file}." },
         "issue": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$", "description": "A fixed Jira issue to write to. Left out, each Story writes to the issue it was started from." },
         "transition": {
           "description": "The Jira status to move the issue to after writing: one for every trigger, or one per trigger.",
@@ -814,7 +817,8 @@
         { "if": { "properties": { "kind": { "const": "webhook" } } }, "then": { "required": ["url"] } },
         { "if": { "properties": { "kind": { "const": "http-log" } } }, "then": { "required": ["url"] } },
         { "if": { "properties": { "kind": { "const": "teams" } } }, "then": { "required": ["urlSecret"] } },
-        { "if": { "properties": { "kind": { "const": "jira" } } }, "then": { "not": { "required": ["network"] } } }
+        { "if": { "properties": { "kind": { "const": "jira" } } }, "then": { "not": { "required": ["network"] } } },
+        { "if": { "properties": { "kind": { "const": "git" } } }, "then": { "required": ["repository", "branch"], "not": { "required": ["network"] } } }
       ]
     },
     "afterStep": {

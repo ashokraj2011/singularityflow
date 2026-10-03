@@ -332,7 +332,7 @@ export async function doctorSnapshot(root, {
           ? (jiraConnected ? [] : ['the Jira connection'])
           : [target.signingSecret, target.tokenSecret, target.urlSecret].filter((name) => name && !String(process.env[name] ?? '').trim());
         const stuck = failed.filter((entry) => entry.target === target.id).length;
-        const have = target.kind === 'jira' ? 'Jira connected' : 'secrets set';
+        const have = target.kind === 'jira' ? 'Jira connected' : target.kind === 'git' ? 'uses the Git credentials of this machine' : 'secrets set';
         checks.push(check(
           `integration-${target.id}`,
           missing.length || stuck ? 'warn' : 'pass',

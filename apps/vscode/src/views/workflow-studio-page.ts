@@ -501,7 +501,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'import.generated': return agentName(change.agent) + ' fetches ' + change.target + ' for ' + phaseName(change.phase);
       case 'import.mcpServer': return (change.replace ? 'Update MCP server' : 'MCP server') + ' from ' + change.source + (change.agents && change.agents.length ? ' for ' + change.agents.map(agentName).join(', ') : ', for imports only');
       case 'import.remove': return 'Remove ' + change.key;
-      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : change.target.issue ? ': issue ' + change.target.issue : change.target.kind === 'jira' ? ': each Story issue' : '');
+      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : change.target.repository ? ': ' + change.target.repository + ' → ' + change.target.branch : change.target.issue ? ': issue ' + change.target.issue : change.target.kind === 'jira' ? ': each Story issue' : '');
       case 'integration.target.update': return 'Target ' + change.id + ' changed';
       case 'integration.target.remove': return 'Remove target ' + change.id;
       case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
@@ -2167,7 +2167,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   var SECRET_WORDS = { stored: 'Stored on this machine', environment: 'Set in the environment', missing: 'Not set on this machine' };
   var JIRA_WORDS = { stored: 'Connected in VS Code', environment: 'Connected through the environment', missing: 'Not connected on this machine' };
   var JIRA_ISSUE = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;
-  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the document to a repository', confluence: 'Publish a page', onedrive: 'Upload the document' };
+  var GIT_HTTPS = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+$/;
+  var GIT_SSH = /^(ssh:\/\/[A-Za-z0-9._-]+@[A-Za-z0-9.-]+(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
+  var GIT_DEFAULT_PATH = 'sflow/{story}/{step}/{file}';
+  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the approved document to a branch', confluence: 'Publish a page', onedrive: 'Upload the document' };
   var FORMAT_LABELS = { json: 'Any JSON endpoint', 'splunk-hec': 'Splunk HTTP Event Collector', datadog: 'Datadog logs', elastic: 'Elasticsearch', loki: 'Grafana Loki' };
 
   /** JSON with object keys sorted, so equal targets compare equal however their fields were set. */
@@ -2185,6 +2188,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function targetSecrets(target) { return [target.signingSecret, target.tokenSecret, target.urlSecret].filter(Boolean); }
   function targetAddress(target) {
     if (target.kind === 'jira') return target.issue ? 'Issue ' + target.issue : 'The Jira issue each Story was started from';
+    if (target.kind === 'git') return target.repository + ' → ' + target.branch + ' · ' + (target.path || GIT_DEFAULT_PATH);
     return target.url ? target.url : target.urlSecret ? 'Address kept in ' + target.urlSecret : '';
   }
   /** A Jira status per trigger, as the form shows it; one status for every trigger fills all three. */
@@ -2299,7 +2303,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function newTargetForm(kind) {
-    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), problem: null };
+    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', problem: null };
   }
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
@@ -2307,7 +2311,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       signingSecret: target.signingSecret || '', tokenSecret: target.tokenSecret || '', urlSecret: target.urlSecret || '',
       labels: Object.keys(target.labels || {}).map(function (key) { return key + '=' + target.labels[key]; }).join('\n'),
       network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '',
-      issue: target.issue || '', transitions: jiraTransitionFields(target.transition), problem: null };
+      issue: target.issue || '', transitions: jiraTransitionFields(target.transition),
+      repository: target.repository || '', branch: target.branch || '', path: target.path || '', problem: null };
   }
   /** A secret name made from the target's ID, such as SFLOW_SECRET_TEAM_EVENTS_KEY. */
   function suggestedSecret(id, suffix) {
@@ -2327,6 +2332,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var copy = clone(target);
     if (copy.network === 'public') delete copy.network;
     if (copy.timeoutSeconds === 10) delete copy.timeoutSeconds;
+    if (copy.path === GIT_DEFAULT_PATH) delete copy.path;
     return canonical(copy);
   }
 
@@ -2366,6 +2372,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else if (form.kind === 'teams') {
       problem = secret('urlSecret', 'The name of the secret holding the webhook address', true);
       if (problem) return { problem: problem };
+    } else if (form.kind === 'git') {
+      var repository = String(form.repository || '').trim();
+      if (!GIT_HTTPS.test(repository) && !GIT_SSH.test(repository)) return { problem: 'The repository must be an https:// address with no user or password, or an SSH address such as git@git.example.com:team/docs.git.' };
+      target.repository = repository;
+      var branch = String(form.branch || '').trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/.test(branch) || /^sflow\//.test(branch) || /(^|\/)\.|\.\.|\/\/|\.lock(\/|$)|\/$/.test(branch) || branch.length > 200) return { problem: 'Name an ordinary branch such as docs/approved; sflow/ branches belong to Singularity Flow.' };
+      target.branch = branch;
+      var where = String(form.path || '').trim();
+      if (where) {
+        var parts = where.split('/');
+        var names = (where.match(/\{[^}]*\}/g) || []).map(function (token) { return token.slice(1, -1); });
+        if (where.charAt(0) === '/' || where.length > 300 || parts.some(function (part) { return !/^[A-Za-z0-9._{}-]+$/.test(part) || part === '.' || part === '..' || part.toLowerCase() === '.git'; })
+            || names.some(function (name) { return ['story', 'step', 'generation', 'trigger', 'file'].indexOf(name) < 0; })) {
+          return { problem: 'The path is relative, such as docs/{story}/{file}, and uses only {story}, {step}, {generation}, {trigger} and {file}.' };
+        }
+        if (where !== GIT_DEFAULT_PATH) target.path = where;
+      }
     } else if (form.kind === 'jira') {
       var issue = String(form.issue || '').trim();
       if (issue) {
@@ -2457,13 +2480,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         select('test-send-' + id, sends.map(function (send) { return { value: send, label: SEND_LABELS[send] || send }; }), test.send,
           function (value) { test.send = value; test.result = null; render(); }, { 'aria-label': 'What, for the preview' }),
         button(test.busy === 'preview' ? 'Building…' : 'Preview the request', function () { run(false); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-preview-' + id }),
-        button(test.busy === 'send' ? (target.kind === 'jira' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
+        button(test.busy === 'send' ? (target.kind === 'jira' || target.kind === 'git' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : target.kind === 'git' ? 'Check access' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
       test.failed ? el('div', { class: 'callout bad', role: 'alert', text: test.failed }) : null,
       result && result.unavailable ? el('div', { class: 'callout wait', text: 'Not ready on this machine: ' + (result.unavailable.detail || 'a secret it needs is not set.') }) : null,
       result && result.failed ? el('div', { class: 'callout bad', text: result.failed.detail || 'The request cannot be built.' }) : null,
       delivery ? el('div', { class: 'callout ' + (delivery.outcome === 'delivered' ? 'ok' : 'bad'), role: 'status',
         text: (delivery.outcome === 'delivered' ? 'Sent' : 'Not delivered') + (delivery.status ? ' (HTTP ' + delivery.status + ')' : '') + (delivery.detail ? ': ' + delivery.detail : '') + '.' }) : null,
-      result && result.plan ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
+      result && result.plan && result.plan.repository ? el('pre', { class: 'preview-text', 'aria-label': 'The commit a delivery makes' }, 'Repository: ' + result.plan.repository + '\n' + 'Branch: ' + result.plan.branch + ' (fast-forward only)\n' + 'File: ' + result.plan.path + '\n\n' + result.plan.message) : null,
+      result && result.plan && !result.plan.repository ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
         + (result.plan.attachment ? 'Attachment: ' + result.plan.attachment + '\n' : '') + (result.plan.transition ? 'Then moves it to: ' + result.plan.transition + '\n' : '') + '\n' + result.plan.comment) : null,
       result && (result.checks || []).length ? el('ul', { class: 'checks' }, result.checks.map(function (entry) {
         return el('li', { class: entry.ok ? 'ok-text' : 'bad-text' }, (entry.ok ? '✓ ' : '✗ ') + entry.check + (entry.detail ? ': ' + entry.detail : ''));
@@ -2506,6 +2530,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
         function (value) { form.network = value; render(); }), form.network === 'private' ? 'Private addresses are allowed because you say so here, where reviewers see it.' : 'Private and internal addresses are refused unless you choose our private network.'));
+    } else if (form.kind === 'git') {
+      card.appendChild(el('div', { class: 'callout', text: 'Git targets commit the approved document to a branch, fast-forward only, using the Git credentials of the machine that moves the Story. Use them with actions that send the document. The branch must not be one of this repository that changes only through review.' }));
+      card.appendChild(field('target-repository', 'Repository', textInput('target-repository', form.repository, function (value) { form.repository = value.trim(); }, { placeholder: 'https://git.example.com/team/docs.git' }), 'https:// with no user or password, or SSH such as git@git.example.com:team/docs.git.'));
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('target-branch', 'Branch', textInput('target-branch', form.branch, function (value) { form.branch = value.trim(); }, { placeholder: 'docs/approved' })),
+        field('target-path', 'Path (optional)', textInput('target-path', form.path, function (value) { form.path = value.trim(); }, { placeholder: GIT_DEFAULT_PATH }), 'Uses {story}, {step}, {generation}, {trigger} and {file}.')));
     } else if (form.kind === 'jira') {
       card.appendChild(el('div', { class: 'callout', text: 'Jira targets use the Jira connection on the machine that moves the Story: in VS Code, Singularity Flow: Connect Jira Securely. They comment on the issue, attach the approved document when an action sends it, and can move the issue to a status.' }));
       card.appendChild(field('target-issue', 'Issue (optional)', textInput('target-issue', form.issue, function (value) { form.issue = value.trim().toUpperCase(); }, { placeholder: 'OPS-12' }),
@@ -2554,6 +2584,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('span', { class: 'muted', text: [targetAddress(target), target.format ? FORMAT_LABELS[target.format] || target.format : null, target.network === 'private' ? 'private network' : null].filter(Boolean).join(' · ') }),
         el('div', { class: 'muted', text: users.length ? 'Sent by ' + users.map(function (user) { return stepLabel(user.step) + ' in ' + state.draft.workflows[user.workflow].label + ' (' + user.action.on.join(', ') + ')'; }).join('; ') : 'No step sends to it yet.' }),
         target.kind === 'jira' ? jiraRow()
+          : target.kind === 'git' ? el('span', { class: 'hint', text: 'Uses the Git credentials of the machine that moves the Story; the first delivery proves it can write.' })
           : secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))
             : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret: requests are sent unsigned.' : 'No token: entries are sent without one.' }),
         testPanel(id, target)));

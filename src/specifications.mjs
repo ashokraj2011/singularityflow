@@ -129,11 +129,20 @@ export function normalizeSpecPolicy(value = {}) {
       throw new SingularityFlowError(`spec.testCommands.${id} must be a non-empty argv array.`);
     }
   }
+  // A configured prefix left changed paths out of coverage, so application logic could escape
+  // requirement accounting [E2G-012]. Only the kernel's own governance roots stay outside it.
+  const governanceRoots = ['singularity', '.github/agents', '.git', 'node_modules'];
   const configuredExcludes = value.excludes ?? [];
-  if (!Array.isArray(configuredExcludes) || configuredExcludes.some((item) => typeof item !== 'string' || !item)) {
-    throw new SingularityFlowError('spec.excludes must be an array of repository-relative path prefixes.');
+  // A normalized policy carries the governance roots, so normalizing it again stays unchanged.
+  if (!Array.isArray(configuredExcludes) || configuredExcludes.some((item) => !governanceRoots.includes(item))) {
+    throw new SingularityFlowError(
+      'spec.excludes was retired because a path left out of coverage escaped requirement accounting. '
+      + "List a lockfile, build, CI, metadata or documentation change under the plan's Supporting files, "
+      + 'or account for a changed path with singularity-flow decision plan.',
+      { code: 'SPEC_EXCLUDES_RETIRED' }
+    );
   }
-  const excludes = [...new Set(['singularity', '.github/agents', '.git', 'node_modules', ...configuredExcludes])];
+  const excludes = governanceRoots;
   const limits = { ...DEFAULT_LIMITS, ...(value.limits ?? {}) };
   for (const [key, maximum] of Object.entries({
     maxClausesPerArtifact: 10000,

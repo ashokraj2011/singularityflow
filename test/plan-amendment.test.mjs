@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { accountedAmendmentPaths, planAmendmentRecord, recordPlanAmendment } from '../src/plan-amendments.mjs';
-import { evaluateSpecCoverage } from '../src/specifications.mjs';
+import { evaluateSpecCoverage, normalizeSpecPolicy } from '../src/specifications.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -54,6 +54,11 @@ test('a plan amendment adds a location to an existing row or a supporting change
   }, ['package.json', 'src/helper.mjs', 'src/value.mjs'], { mode: 'enforce', coverage: 'enforce' });
   assert.deepEqual(coverage.unclaimedChangedPaths, []);
   assert.deepEqual(coverage.supportingChangedPaths, ['package.json']);
+});
+
+test('a repository-wide coverage exclusion is refused, so no path escapes accounting', () => {
+  assert.throws(() => normalizeSpecPolicy({ excludes: ['vendor'] }), (error) => error.code === 'SPEC_EXCLUDES_RETIRED' && /decision plan/.test(error.message));
+  assert.deepEqual(normalizeSpecPolicy({ excludes: [] }).excludes, ['singularity', '.github/agents', '.git', 'node_modules']);
 });
 
 function run(command, args, cwd, { allowFailure = false } = {}) {

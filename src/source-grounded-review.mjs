@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
+import { extractNormativeStatements, normalizeStatement } from './scope/extract.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -128,6 +129,16 @@ function citedSource(row, sources, findings, label) {
   return source;
 }
 
+/** Whether a review row stands for one requirement statement: it cites its line or quotes it. */
+function rowCitesStatement(row, statement) {
+  if (Number.isSafeInteger(row?.line) && row.line === statement.line) return true;
+  const quote = normalizeStatement(row?.quote ?? '');
+  const wanted = normalizeStatement(statement.text);
+  if (!quote || !wanted) return false;
+  const shorter = quote.length < wanted.length ? quote : wanted;
+  return shorter.length >= 12 && (quote.includes(wanted) || wanted.includes(quote));
+}
+
 function scenarioIds(markdown) {
   return new Set(String(markdown).split(/\r?\n/u)
     .map((line) => line.match(/^\s{0,3}#{2,6}\s+(S\d+)\b/u)?.[1])
@@ -207,6 +218,19 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
   }
   for (const source of binding.sources) if (!mappedSources.has(source.id)) findings.push(finding('source-unmapped',
     `Pinned source '${source.id}' has no cited mapping or proposed exclusion.`));
+  // D-14: a source counts as reviewed only when every requirement statement in it has a row. One row
+  // on one line of a document never stands for the rest of it [E2G-006].
+  const MAX_LISTED = 25;
+  for (const source of context.sources) {
+    const cited = rows.filter((row) => row && typeof row === 'object' && row.sourceId === source.id);
+    const uncovered = extractNormativeStatements(source.text, { sourceId: source.id })
+      .filter((statement) => !cited.some((row) => rowCitesStatement(row, statement)));
+    for (const statement of uncovered.slice(0, MAX_LISTED)) findings.push(finding('source-statement-unmapped',
+      `Source '${source.id}' line ${statement.line} states a requirement no row maps: "${statement.text.slice(0, 200)}".`,
+      { sourceId: source.id, line: statement.line, statementSha256: statement.statementSha256 }));
+    if (uncovered.length > MAX_LISTED) findings.push(finding('source-statements-unmapped',
+      `${uncovered.length - MAX_LISTED} more requirement statements in '${source.id}' have no row.`, { sourceId: source.id }));
+  }
   for (const scenario of scenarios) if (!mappedScenarios.has(scenario)) findings.push(finding('scenario-unmapped',
     `Scenario '${scenario}' has no cited source-to-clause mapping.`));
   for (const clause of authoritative) if (!mappedClauses.has(clause)) findings.push(finding('clause-unmapped',

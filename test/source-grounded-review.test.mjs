@@ -153,3 +153,22 @@ test('non-testable clauses need explicit approval of the exact review packet', (
     decision: 'accepted', reason: 'Human inspection is the only possible check.', actor: 'reviewer@example.test'
   }] }).status, 'ready');
 });
+
+test('one row never stands for a whole document: every requirement statement needs its own [D-14]', () => {
+  const ctx = context();
+  ctx.sources = [sources[0], { ...sources[1], text: '# Notes\nDrafts must persist.\nSaved drafts must survive a restart.\nThe status must be visible.\n' }];
+  const packet = report(ctx);
+  const partial = evaluateSourceGroundedReview(packet, ctx);
+  assert.equal(partial.status, 'correction-required');
+  const unmapped = partial.findings.filter((entry) => entry.code === 'source-statement-unmapped');
+  assert.deepEqual(unmapped.map((entry) => [entry.sourceId, entry.line]), [['attachment-1', 3], ['attachment-1', 4]]);
+
+  packet.rows.push(
+    { id: 'notes-restart', sourceId: 'attachment-1', line: 3, quote: 'Saved drafts must survive a restart.',
+      outcome: 'covered', scenarioId: 'S1', clauseIds: ['EXAMPLE:REQ-001'] },
+    { id: 'notes-status', sourceId: 'attachment-1', line: 4, quote: 'The status must be visible.',
+      outcome: 'excluded', reason: 'Status visibility is a later Story.' }
+  );
+  const complete = evaluateSourceGroundedReview(packet, ctx);
+  assert.ok(!complete.findings.some((entry) => entry.code === 'source-statement-unmapped'), 'a covered or excluded row maps each statement');
+});

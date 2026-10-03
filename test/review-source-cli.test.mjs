@@ -126,13 +126,18 @@ Export.
   const lines = story.text.split(/\r?\n/u);
   const coveredLine = lines.findIndex((line) => line.includes('Save a draft and show saved status.')) + 1;
   const excludedLine = lines.findIndex((line) => line.includes('Export is out of scope.')) + 1;
-  assert.ok(coveredLine > 0 && excludedLine > 0);
+  // Every requirement statement needs its own row: the acceptance criterion is one [D-14].
+  const criterionLine = lines.findIndex((line) => line.includes('Saving persists the draft and displays saved status.')) + 1;
+  assert.ok(coveredLine > 0 && excludedLine > 0 && criterionLine > 0);
   const report = {
     ...packet.reportTemplate,
     rows: [
       { id: 'save-draft', sourceId: 'story', line: coveredLine,
         quote: 'Save a draft and show saved status.', outcome: 'covered', scenarioId: 'S1',
         clauseIds: [`${WORK_ID}:REQ-001`, `${WORK_ID}:AC-001`] },
+      { id: 'save-criterion', sourceId: 'story', line: criterionLine,
+        quote: 'Saving persists the draft and displays saved status.', outcome: 'covered', scenarioId: 'S1',
+        clauseIds: [`${WORK_ID}:AC-001`] },
       { id: 'export-exclusion', sourceId: 'story', line: excludedLine,
         quote: 'Export is out of scope.', outcome: 'excluded',
         reason: 'Explicitly outside this Story.' }

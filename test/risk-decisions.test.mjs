@@ -109,6 +109,26 @@ test('an expired, revoked or overtaken decision counts for nothing and asks to b
   assert.equal(riskDecisionState(workflow, obligation, { at: NOW, transition: 'approval' }).state, 'revoked');
 });
 
+test('a decision binds the exact attempts it accepted, so a rerun or a looser tie asks for it to be renewed [E2G-020]', () => {
+  const workflow = { riskDecisions: [] };
+  const accepted = {
+    id: `OBL:${W}:verify:AC-001`, responsibility: 'verify', status: 'failed', owningSteps: ['implementation'],
+    assuranceFacets: { identity: 'source-bound', execution: 'exact-local-observed' },
+    attempts: [{ test: 'value > exact value', attemptId: 'TA-00000000000000000001', outcome: 'failed' }],
+    facets: { coverage: 'linked', execution: 'failed', assurance: 'exact-local-observed', review: 'approved', freshness: 'current', exception: 'none' }
+  };
+  recordRiskDecision(workflow, { obligation: accepted, category: 'known-failure', expires: '2026-10-20',
+    reason: 'The upstream sandbox fails this test until its certificate is renewed.', actor: 'qa@example.test', authorityGroup: 'quality-reviewers', at: NOW });
+  assert.equal(riskDecisionState(workflow, accepted, { at: NOW }).state, 'active');
+  const rerun = { ...accepted, attempts: [{ ...accepted.attempts[0], attemptId: 'TA-00000000000000000002' }] };
+  assert.equal(riskDecisionState(workflow, rerun, { at: NOW }).state, 'overtaken', 'the same failure in a new attempt is accepted again, not inherited');
+  const looser = { ...accepted, assuranceFacets: { ...accepted.assuranceFacets, identity: 'declared' } };
+  assert.equal(riskDecisionState(workflow, looser, { at: NOW }).state, 'overtaken');
+  // An obligation with no tests keeps the digest it always had.
+  const plain = { id: 'OBL:x', status: 'failed', facets: { coverage: 'linked', execution: 'failed', assurance: 'none' } };
+  assert.equal(observationDigest(plain), observationDigest({ ...plain, attempts: undefined, assuranceFacets: undefined }));
+});
+
 function cliRun(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',

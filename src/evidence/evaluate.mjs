@@ -434,6 +434,9 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         // The two assurance facets [E2G-017], kept apart: how the test is tied, how its run was seen.
         assuranceFacets: { identity: noCode ? (inspectedBy.length ? 'declared' : 'none') : identityFacet, execution: noCode ? 'none' : executionFacet },
         requiredAssurance: noCode ? 'declared' : requiredLevel,
+        // The exact attempts this criterion's tests ran in, which a risk decision binds [E2G-020].
+        ...(witnessResults.length ? { attempts: witnessResults.map((entry) => ({ test: entry.label ?? null, attemptId: entry.attemptId ?? null, outcome: entry.outcome ?? null }))
+          .sort((left, right) => `${left.test}\0${left.attemptId}`.localeCompare(`${right.test}\0${right.attemptId}`)) } : {}),
         facets: {
           coverage: tagged.length ? 'linked' : planned?.testDisposition === 'not-applicable' ? 'not-applicable' : 'unlinked',
           execution, assurance, review: implementReview, freshness: 'current', exception

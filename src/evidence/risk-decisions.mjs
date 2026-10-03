@@ -19,10 +19,19 @@ export const MAX_RISK_DAYS = 90;
 const RISK_ELIGIBLE_STATUSES = new Set(['failed', 'missing', 'inconclusive', 'partial']);
 const DAY = 24 * 60 * 60 * 1000;
 
-/** What a decision accepted: the obligation's outcome and its observed facets, never its review or exception. */
+/**
+ * What a decision accepted: the obligation's outcome, its observed facets and, for a criterion's
+ * tests, how each test is tied and the exact attempts it ran in, never its review or exception. A
+ * rerun is a new attempt, so a failure observed again is accepted again rather than inherited
+ * [E2G-020].
+ */
 export function observationDigest(obligation) {
   const { coverage = null, execution = null, assurance = null } = obligation?.facets ?? {};
-  return `sha256:${recordSha256({ id: obligation?.id ?? null, status: obligation?.status ?? null, coverage, execution, assurance })}`;
+  return `sha256:${recordSha256({
+    id: obligation?.id ?? null, status: obligation?.status ?? null, coverage, execution, assurance,
+    ...(obligation?.assuranceFacets ? { assuranceFacets: obligation.assuranceFacets } : {}),
+    ...(obligation?.attempts ? { attempts: obligation.attempts } : {})
+  })}`;
 }
 
 /** Whether a person may accept the risk of this obligation now, and why not when they may not. */

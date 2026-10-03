@@ -1763,6 +1763,18 @@ function plannedClaimContract(phase, authored, {
       { code: 'SPEC_PLANNED_ALLOCATION_INVALID', details: { phase: phase.id, misallocated, codeSteps } }
     );
   }
+  // Every code step the plan plans for delivers something: a step left with no obligation would
+  // publish nothing it could be held to.
+  const claimsList = Object.values(derived.claimMap.claims);
+  const idle = codeSteps.length > 1
+    ? codeSteps.filter((step) => !claimsList.some((claim) => !(claim.steps ?? []).length || claim.steps.includes(step)))
+    : [];
+  if (idle.length) {
+    throw new SingularityFlowError(
+      `${subject} because no obligation is allocated to ${idle.join(', ')}. Allocate at least one row to each code step it plans for.`,
+      { code: 'SPEC_PLANNED_ALLOCATION_INVALID', details: { phase: phase.id, idle, codeSteps } }
+    );
+  }
   const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
   if (gaps.length && enforce) {
     throw new SingularityFlowError(
@@ -3668,6 +3680,7 @@ export async function publishGeneration(root, config, workflow, {
           sourceBindings: deliveryPreflight.sourceBindings.bindings
         } : {})
       },
+      ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
       testExecutions: [],
       ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
       ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
@@ -5663,6 +5676,17 @@ export async function approvePhase(root, config, workflow, {
   const currentArtifacts = [];
   for (const artifact of phase.artifacts ?? []) {
     const current = await repositoryArtifactSnapshot(root, artifact.path);
+    if (artifact.exists === false && artifact.sha256 == null) {
+      // A delivered removal stays approvable only while the file is still gone [E2G-010].
+      if (current.exists) {
+        throw new SingularityFlowError(
+          `Phase '${phase.id}' removed '${artifact.path}', but it exists again. Submit a fresh generation.`,
+          { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+        );
+      }
+      currentArtifacts.push({ path: artifact.path, kind: artifact.kind ?? null, sha256: null, size: artifact.size ?? null, removed: true });
+      continue;
+    }
     if (!current.exists || !current.sha256) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' artifact '${artifact.path}' is absent or no longer a regular file. Submit a fresh generation.`,

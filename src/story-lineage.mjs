@@ -51,8 +51,14 @@ function reviewArtifactIdentity(artifacts = []) {
     path: artifact.path,
     kind: artifact.kind ?? null,
     sha256: artifact.sha256 ?? null,
-    size: artifact.size ?? null
+    size: artifact.size ?? null,
+    ...(artifact.removed === true ? { removed: true } : {})
   }));
+}
+
+/** A delivered removal: the file is gone, and its identity is its absence [E2G-010]. */
+function removedArtifact(item) {
+  return item?.exists === false && item.sha256 == null;
 }
 
 export function reviewArtifactSetSha256(artifacts = []) {
@@ -434,7 +440,8 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       path: item.path,
       kind: item.kind ?? null,
       sha256: item.sha256 ?? null,
-      size: item.size ?? null
+      size: item.size ?? null,
+      ...(removedArtifact(item) ? { removed: true } : {})
     };
     // Source and test files may be phase artifacts, but model-facing reference handles are
     // deliberately confined to the governed subject namespace. Those repository files remain in
@@ -665,6 +672,16 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
     }
     let artifactBindingsValid = true;
     for (const artifact of packet.artifacts ?? []) {
+      if (artifact.removed === true) {
+        // A removal is bound by the file being absent from the evidence commit.
+        if (!artifact.path || artifact.sha256 != null || ![0, null].includes(artifact.size ?? null)
+            || gitBlobAtCommit(root, evidenceCommit, artifact.path).status === 0) {
+          failures.push(`${evidenceCommit.slice(0, 12)} does not show ${artifact.path || 'a removed artifact'} removed`);
+          artifactBindingsValid = false;
+          break;
+        }
+        continue;
+      }
       if (!artifact.path || !artifact.sha256 || !Number.isInteger(artifact.size) || artifact.size < 0) {
         failures.push(`${evidenceCommit.slice(0, 12)} has an incomplete artifact identity`);
         artifactBindingsValid = false;

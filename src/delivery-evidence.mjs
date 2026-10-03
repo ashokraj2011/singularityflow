@@ -28,7 +28,7 @@ import {
 } from './wel-adapters.mjs';
 import { validateWelTestLifecycle } from './wel-test-lifecycle.mjs';
 import {
-  loadActiveSpecRecords, predecessorSpecClauses, readBoundSpecificationClaimMap
+  SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, predecessorSpecClauses, readBoundSpecificationClaimMap
 } from './specifications.mjs';
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
@@ -415,6 +415,69 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
  * product-source paths. The reviewed plan pointer, rather than an arbitrary claims file in the
  * directory, is authority. Test-only and reviewed not-applicable rows have no source-tag duty.
  */
+/** Whether this code step delivers a planned obligation: the plan allocates it here, or allocates it nowhere. */
+function allocatedTo(claim, phaseId) {
+  return !(claim?.steps ?? []).length || claim.steps.includes(phaseId);
+}
+
+/** Whether delivering a planned obligation changes the product source that carries its clause. */
+function changesProductSource(claim) {
+  return (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment))
+    && (claim.expectedPaths ?? []).length > 0;
+}
+
+/**
+ * The planned obligations this code step delivers, read from its planning owner's reviewed plan
+ * [E2G-009, E2G-010], or null when the Story plans no claims, so the original rules apply.
+ */
+async function allocatedPlanObligations(root, config, workflow, phase) {
+  if (workflow.resolution?.plannedClaims?.mode !== 'required') return null;
+  const owner = workflow.phases?.[workflow.resolution.plannedClaims.owners?.[phase.id]];
+  if (!owner?.claimMaps?.planned) return null;
+  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const active = await loadActiveSpecRecords(itemDirectory, workflow);
+  const plan = await readBoundSpecificationClaimMap(root, itemDirectory, workflow, owner, 'planned', {
+    clauseIds: predecessorSpecClauses(active, workflow, phase.id).map((clause) => clause.id),
+    policy: workflow.resolution?.spec ?? config.spec ?? {}
+  });
+  return Object.entries(plan.claims ?? {})
+    .filter(([, claim]) => allocatedTo(claim, phase.id))
+    .map(([clauseId, claim]) => ({ clauseId: clauseId.toUpperCase(), ...claim }))
+    .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
+}
+
+/**
+ * Judge each allocated obligation that is not delivered by new or modified product source by its
+ * own fulfillment [E2G-010]: behaviour that already exists must still be at its paths, removed
+ * behaviour must be gone, and a document or configuration change must change exactly its paths.
+ */
+async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths) {
+  const changed = new Set([...changedPaths, ...deletedPaths]);
+  const entries = [];
+  const problems = [];
+  for (const obligation of obligations ?? []) {
+    if (!['existing', 'removed', 'document', 'configuration'].includes(obligation.fulfillment)) continue;
+    const paths = [];
+    for (const candidate of obligation.expectedPaths) {
+      const secured = await secureRepositoryPath(root, candidate, { label: `Planned ${obligation.fulfillment} path` });
+      const present = Boolean(secured.exists && secured.entry?.isFile());
+      if (obligation.fulfillment === 'existing') {
+        paths.push({ path: candidate, state: present ? 'present' : 'missing',
+          sha256: present ? createHash('sha256').update(await readFile(secured.absolute)).digest('hex') : null });
+        if (!present) problems.push(`${obligation.clauseId} is existing behaviour, but ${candidate} does not exist`);
+      } else if (obligation.fulfillment === 'removed') {
+        paths.push({ path: candidate, state: present ? 'present' : 'absent' });
+        if (present) problems.push(`${obligation.clauseId} removes ${candidate}, but it still exists`);
+      } else {
+        paths.push({ path: candidate, state: changed.has(candidate) ? 'changed' : 'unchanged' });
+        if (!changed.has(candidate)) problems.push(`${obligation.clauseId} is a ${obligation.fulfillment} change, but ${candidate} did not change`);
+      }
+    }
+    entries.push({ clauseId: obligation.clauseId, fulfillment: obligation.fulfillment, paths });
+  }
+  return { obligations: entries, problems };
+}
+
 export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
   deletedSourcePaths = []
 } = {}) {
@@ -438,8 +501,9 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
     clauseIds, policy: workflow.resolution?.spec ?? config.spec ?? {}
   });
   const available = new Set(sourcePaths);
+  // Only obligations this step delivers by new or modified source carry their clause in that source.
   const required = Object.entries(plan.claims ?? {})
-    .filter(([, claim]) => (claim.expectedPaths ?? []).length > 0
+    .filter(([, claim]) => allocatedTo(claim, phase.id) && changesProductSource(claim)
       && claim.testDisposition !== 'not-applicable')
     .map(([rawClauseId, claim]) => {
       const clauseId = normalizeQualifiedClauseId(rawClauseId);
@@ -735,7 +799,19 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   // matching, acceptance tags and ordinary source safety remain mandatory below.
   const { qualifiedTrpBaselineTestPaths } = await import('./test-recovery-admission.mjs');
   const baselineTestPaths = await qualifiedTrpBaselineTestPaths(root, config, workflow, phase);
-  const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths, ...baselineTestPaths])].sort();
+  // Behaviour that already exists is verified by the tests the plan names for it, unchanged
+  // [E2G-010]; they run and are checked like any delivered test.
+  const obligations = await allocatedPlanObligations(root, config, workflow, phase);
+  const existingTestPaths = [];
+  for (const candidate of new Set((obligations ?? []).filter((obligation) => obligation.fulfillment === 'existing')
+    .flatMap((obligation) => obligation.tests ?? []))) {
+    if (changedEndpointPaths.has(candidate) || !isAllowedTestAutomationPath(candidate)) continue;
+    const secured = await secureRepositoryPath(root, candidate, { label: 'Planned existing test' });
+    if (secured.exists && secured.entry?.isFile() && await isExecutableTestSourcePath(root, candidate, { sourceExtensions })) {
+      existingTestPaths.push(candidate);
+    }
+  }
+  const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths])].sort();
   const deletedSourcePaths = applicationEntries
     .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath
       && !isAllowedTestAutomationPath(entry.oldPath) && !isDocumentationPath(entry.oldPath))
@@ -778,13 +854,19 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   );
   const sourcePaths = [...new Set([...changedSourcePaths, ...reusableSourcePaths])].sort();
   const errors = [];
+  // What this step owes comes from its allocated obligations [E2G-010]: existing behaviour changes
+  // nothing, and test-only, document, configuration and removal work need no new product source.
+  const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedSourcePaths);
+  const changeRequired = !obligations || obligations.some((obligation) => obligation.fulfillment !== 'existing');
+  const sourceRequired = !obligations || obligations.some(changesProductSource);
 
-  if (!applicationEntries.length && !intentRevalidation) {
+  if (!applicationEntries.length && !intentRevalidation && changeRequired) {
     errors.push('no application source or test paths changed during the governed work interval');
   }
-  if (phase.sourceBoundary !== 'test-automation' && !sourcePaths.length) {
+  if (phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired) {
     errors.push('no product source path changed; a summary or test-only edit is not an implementation');
   }
+  errors.push(...fulfillment.problems);
   if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
@@ -834,7 +916,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       pathContext
     }),
     paths: await pathEvidence(root, [...new Set([
-      ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths, ...baselineTestPaths
+      ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths
     ])].sort(), { changeSet }),
     sourcePaths,
     deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
@@ -859,7 +941,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
       inferred: tags.inferred, bindings: tags.bindings
     },
-    sourceBindings
+    sourceBindings,
+    fulfillment: fulfillment.obligations
   };
 }
 
@@ -1091,6 +1174,29 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
         }
       } catch (error) {
         fail(`Auto Candidate binding is invalid: ${error.message}`);
+      }
+    }
+  }
+
+  // Each fulfillment the delivery recorded is replayed against the committed generation [E2G-010].
+  for (const obligation of receipt.fulfillment?.obligations ?? []) {
+    for (const entry of obligation?.paths ?? []) {
+      if (!safeEvidencePath(entry?.path)) { fail(`fulfillment evidence for ${obligation?.clauseId ?? 'unknown'} names an unsafe path`); continue; }
+      if (!generationCommit) continue;
+      const bytes = exactFileAtObject(root, generationCommit, entry.path);
+      if (obligation.fulfillment === 'existing') {
+        if (entry.state !== 'present' || !bytes || createHash('sha256').update(bytes).digest('hex') !== entry.sha256) {
+          fail(`existing behaviour of ${obligation.clauseId} is not at ${entry.path} in the generation`);
+        }
+      } else if (obligation.fulfillment === 'removed') {
+        if (entry.state !== 'absent' || bytes) fail(`${entry.path}, removed for ${obligation.clauseId}, is still in the generation`);
+      } else if (['document', 'configuration'].includes(obligation.fulfillment)) {
+        const changedInSet = (changeSet?.entries ?? []).some((change) => change.newPath === entry.path || change.oldPath === entry.path);
+        if (entry.state !== 'changed' || (changeSet && !changedInSet)) {
+          fail(`the ${obligation.fulfillment} change of ${obligation.clauseId} did not change ${entry.path}`);
+        }
+      } else {
+        fail(`fulfillment evidence for ${obligation?.clauseId ?? 'unknown'} names an unknown type`);
       }
     }
   }

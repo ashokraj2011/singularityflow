@@ -267,7 +267,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     if (implementStatus === 'missing') rowFindings.push(finding('EVIDENCE_IMPLEMENTATION_MISSING', `No delivered change implements ${id}.`, { obligationIds: [implementId] }));
     obligations.push({
       id: implementId, responsibility: 'implement', subject: id, owningSteps: implementers, status: implementStatus,
-      fulfillment: noCode ? 'non-code' : testOnly ? 'test-only' : 'new-or-modified',
+      fulfillment: noCode ? 'non-code' : planned?.fulfillment ?? (testOnly ? 'test-only' : 'new-or-modified'),
       facets: {
         coverage: observed?.observedPaths?.length || testOnly ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',
         review: implementReview, freshness: 'current', exception: observed?.verdict === 'deviated' ? 'deviation' : 'none'

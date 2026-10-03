@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 7
+version: 8
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -51,6 +51,8 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Fulfillment:** `new` or `modified` product source; `existing` behaviour that already lives at the listed paths; `removed` behaviour at the listed paths; `test-only`, when the tests are the whole delivery and Expected paths is `-`; or an exact `document` or `configuration` change. A row that names none means new or modified source.
 - **Observable result:** what a person can see when the row is met, in at most 500 characters.
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
+
+A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
 
 ### Accepted scope
 

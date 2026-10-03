@@ -888,9 +888,33 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     }
   }
   const commits = generationCommit == null ? [] : [generationCommit];
+  // What the delivery recorded for obligations that are not new or modified source [E2G-010].
+  const fulfilled = new Map((delivery?.fulfillment?.obligations ?? [])
+    .map((entry) => [String(entry?.clauseId ?? '').toUpperCase(), entry]));
+  const fulfilledState = { existing: 'present', removed: 'absent', document: 'changed', configuration: 'changed' };
   const claims = {};
   for (const id of knownIds) {
     const plan = planned.claims[id];
+    if (plan && plan.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
+      const testResults = plan.tests.filter((candidate) => testPaths.has(candidate));
+      if (plan.fulfillment === 'test-only') {
+        if (!testResults.length) continue;
+        claims[id] = { observedPaths: [], testResults, commits, verdict: testResults.length === plan.tests.length ? 'matched' : 'partial', deviation: null };
+        continue;
+      }
+      const entry = fulfilled.get(id);
+      if (!entry) continue;
+      const observedPaths = (entry.paths ?? [])
+        .filter((item) => item.state === fulfilledState[plan.fulfillment] && plan.expectedPaths.includes(item.path))
+        .map((item) => item.path).sort();
+      if (!observedPaths.length) continue;
+      claims[id] = {
+        observedPaths, testResults, commits,
+        verdict: observedPaths.length === plan.expectedPaths.length ? 'matched' : 'partial',
+        deviation: null
+      };
+      continue;
+    }
     // A reviewed not-applicable disposition excuses only a test, never the implementation.
     // Source-only clauses must still observe their planned changed paths and remain incomplete
     // when those paths are absent.
@@ -1191,7 +1215,14 @@ export function mergeObservedClaimRecords(maps = [], plannedClaims = {}) {
     let verdict;
     if (value.verdicts.includes('deviated')) verdict = 'deviated';
     else if (value.verdicts.includes('unplanned')) verdict = 'unplanned';
-    else if (plan) {
+    else if (plan?.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
+      // Implemented by its own fulfillment, not by source and tests together: existing, removed,
+      // document and configuration work by their paths, test-only work by its tests [E2G-010].
+      const evidence = plan.fulfillment === 'test-only' ? testResults : observedPaths;
+      const expected = plan.fulfillment === 'test-only' ? plan.tests ?? [] : plan.expectedPaths ?? [];
+      verdict = evidence.length && expected.every((candidate) => evidence.includes(candidate)) ? 'matched'
+        : evidence.length ? 'partial' : 'missing';
+    } else if (plan) {
       const expectedPaths = plan.expectedPaths ?? [];
       const sourceComplete = expectedPaths.length > 0
         && expectedPaths.every((candidate) => observedPaths.includes(candidate));
@@ -1406,13 +1437,17 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
   const withdrawnButClaimed = Object.keys(observedClaims).filter((id) => !clauses.has(id)).sort();
   const invalidEvidence = [];
   for (const [id, claim] of Object.entries(observedClaims)) {
+    // A test-only obligation is delivered by its tests, and a removal by the absence of its paths,
+    // which receipt replay proves [E2G-010].
+    const fulfillment = plannedClaims[id]?.fulfillment ?? null;
     if (['matched', 'partial', 'deviated'].includes(claim.verdict)
         && !(claim.observedPaths ?? []).length
+        && fulfillment !== 'test-only'
         && !acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) {
       invalidEvidence.push(`${id} has verdict ${claim.verdict} without source-path evidence`);
     }
     if (root) {
-      for (const candidate of claim.observedPaths ?? []) {
+      for (const candidate of fulfillment === 'removed' ? [] : claim.observedPaths ?? []) {
         // An exact, governed source deletion is still observable code evidence. Its path appears
         // in the committed change set but no longer exists in the worktree; receipt replay owns
         // proving that deletion. Absence without a changed-path witness remains invalid.

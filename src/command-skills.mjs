@@ -29,6 +29,7 @@ const entries = {
   authority: ['sf-init'],
   cache: ['sf-doctor'],
   'factory-reset': ['sf-factory-reset'],
+  governance: ['sf-governance-rebuild'],
   'reset-all': ['sf-reset-all'],
   'local-reset': ['sf-local-reset'],
   local: ['sf-local'],

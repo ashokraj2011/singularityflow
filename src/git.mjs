@@ -1004,6 +1004,61 @@ export function refHead(root, ref, { env = process.env } = {}) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+/** The commit a ref names, or null when it names none (`rev-parse --verify --quiet` answers 1). */
+export function refCommit(root, ref, { env = process.env } = {}) {
+  const result = git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd: root, env, allowFailure: true });
+  return gitReadOutput(result, `The commit of ${ref}`, { absentStatus: 1 })?.trim() || null;
+}
+
+/** The checked-out branch, or null when HEAD is detached. */
+export function checkedOutBranch(root, { env = process.env } = {}) {
+  const result = git(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: root, env, allowFailure: true });
+  return gitReadOutput(result, 'The checked-out branch', { absentStatus: 1 })?.trim() || null;
+}
+
+/** Changed and untracked paths under `paths` in the working tree, sorted. */
+export function changedPaths(root, paths, { env = process.env } = {}) {
+  const output = git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...paths], { cwd: root, env }).stdout;
+  return String(output).split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean).sort();
+}
+
+/** The names of a commit's top-level tree entries. */
+export function topLevelEntries(root, commit, { env = process.env } = {}) {
+  const output = git(['ls-tree', '-z', '--name-only', commit], { cwd: root, env }).stdout;
+  return new Set(String(output).split('\0').filter(Boolean));
+}
+
+/**
+ * The SHA-256 of every file at a commit under `paths`, keyed by repository path, read from the
+ * object database. A path the commit does not have is absent from the map.
+ */
+export function committedFileDigests(root, commit, paths, { env = process.env } = {}) {
+  const output = git(['ls-tree', '-r', '-z', '--full-tree', commit, '--', ...paths], { cwd: root, env }).stdout;
+  const entries = String(output).split('\0').filter(Boolean).map((line) => {
+    const [meta, file] = line.split('\t');
+    const [, type, oid] = meta.split(' ');
+    return { type, oid, file };
+  }).filter((entry) => entry.type === 'blob');
+  const blobs = readLocalGitBlobs(root, entries.map((entry) => entry.oid), { env, label: 'Committed configuration' });
+  return new Map(entries.map((entry) => [entry.file, createHash('sha256').update(blobs.get(entry.oid)).digest('hex')]));
+}
+
+/**
+ * Write the files a commit has under `paths` into `directory`, through a private index, so neither
+ * the checkout, its index nor any ref changes.
+ */
+export async function exportCommitPaths(root, commit, paths, directory, { env = process.env } = {}) {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-export-index-'));
+  try {
+    const indexEnv = { ...env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+    git(['read-tree', '--empty'], { cwd: root, env: indexEnv });
+    for (const entry of paths) git(['read-tree', `--prefix=${entry}/`, `${commit}:${entry}`], { cwd: root, env: indexEnv });
+    git(['checkout-index', '-a', '-f', `--prefix=${directory.replace(/\/?$/u, '/')}`], { cwd: root, env: indexEnv });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
 /** Keep `commit` reachable under `ref` (refs/... only), so moving a branch away from it loses nothing. */
 export function preserveCommitRef(root, ref, commit) {
   invariant(/^refs\/[A-Za-z0-9._\/-]+$/u.test(String(ref ?? '')) && !String(ref).includes('..'), 'Preserved commit ref is invalid.');

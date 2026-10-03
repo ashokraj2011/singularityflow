@@ -18120,6 +18120,7 @@ async function dispatch(command, positionals, options) {
     local: async () => (await import('./commands/local.mjs')).run(argv, { positionals, options }),
     env: async () => (await import('./commands/environment.mjs')).run(argv, { positionals, options }),
     'factory-reset': () => factoryResetCommand(options),
+    governance: async () => (await import('./commands/governance.mjs')).run(argv, { positionals, options }),
     'reset-all': () => resetAllCommand(options),
     'local-reset': () => localResetCommand(options),
     'fresh-install': () => freshInstallCommand(options),

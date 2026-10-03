@@ -1835,6 +1835,30 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['factory-reset', 'reset-all', 'reinstall']
   },
+  governance: {
+    summary: 'Preview rebuilding the governance of this repository onto the current model.',
+    description: [
+      '`governance rebuild --dry-run` exports the approved configuration into a scratch directory,',
+      'replaces every framework-owned workflow, template and agent with the current package while',
+      'keeping each repository-owned definition byte-identical, recompiles every workflow under the',
+      'current obligation rules, and lists every Story the rebuild will archive. It changes nothing.',
+      '',
+      'Every framework workflow must compile. A repository workflow that does not is reported with',
+      'the action that repairs it; it is never edited or deleted. The plan digest binds the',
+      'configuration, the replaced files, the workflows and every Story branch tip; a confirmation must',
+      'name it. This build previews only; activation is not available yet.'
+    ],
+    options: [
+      ['--dry-run', 'Preview the exact plan without changing anything.'],
+      ['--remote NAME', 'Read Story branches and the configuration authority from this remote (default origin).'],
+      ['--json', 'Emit the CommandResult with the complete plan.']
+    ],
+    examples: [
+      ['singularity-flow governance rebuild --dry-run', 'Review what a rebuild would replace, keep and archive.'],
+      ['singularity-flow governance rebuild --dry-run --json', 'The same plan, for a skill or a script.']
+    ],
+    seeAlso: ['factory-reset', 'workflow', 'configuration']
+  },
   validate: {
     summary: 'Check the governed state of the current Story against its pinned configuration.',
     examples: [['singularity-flow validate --strict', 'Fail on warnings as well as errors.']],

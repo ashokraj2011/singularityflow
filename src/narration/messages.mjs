@@ -183,6 +183,18 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Developer-local runner receipt is cryptographically verified (${slot(s.outcome)}; ${slot(s.assurance)}).`,
     preserves: true
   },
+  'governance.rebuild-planned': {
+    headline: (s) => `Governance rebuild ${slot(s.plan)} would replace ${slot(s.replaced, '0')} framework file(s) and archive ${slot(s.stories, '0')} ${Number(s.stories) === 1 ? 'Story' : 'Stories'}; nothing changed.`,
+    preserves: true
+  },
+  'governance.rebuild-blocked': {
+    headline: (s) => `Governance rebuild is blocked by ${slot(s.blockers, '0')} issue(s); nothing changed.`,
+    preserves: true
+  },
+  'governance.rebuild-activation-unavailable': {
+    headline: () => 'This build previews the governance rebuild but cannot activate it yet; nothing changed.',
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true
@@ -907,6 +919,9 @@ export const MESSAGES = Object.freeze({
 export const REASONS = Object.freeze({
   'evidence.from-committed-records': {
     render: () => "each row was evaluated from the Story's committed plan, delivery receipts, test receipts and approvals; no test or network call ran"
+  },
+  'governance.from-approved-configuration': {
+    render: (s) => `the plan was built from the ${slot(s.mode)} configuration at ${slot(s.commit)}, exported into a scratch directory; the checkout and its branches were not touched`
   },
   'approvals.from-pinned-state': {
     render: () => 'the phase order, documents, authority groups, and decisions came from the pinned Story aggregate'

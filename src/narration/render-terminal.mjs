@@ -518,7 +518,36 @@ const REST_STATE_LINES = Object.freeze({
   informational: null
 });
 
+function governanceRebuildPreview(result) {
+  const plan = result.data.plan;
+  const short = (value) => (value ? String(value).slice(0, 12) : 'absent');
+  const failing = plan.workflowFindings ?? [];
+  return [
+    style.heading(headline(result)),
+    `Plan: ${plan.plan}`,
+    `Configuration: ${plan.configuration.mode === 'authority' ? `authority ${plan.configuration.ref}` : 'committed checkout'} at ${short(plan.configuration.commit)} · package ${plan.product.version ?? 'unknown'}`,
+    '', style.heading(`Framework files replaced (${plan.replaced.length}):`),
+    ...(plan.replaced.length ? plan.replaced.map((entry) => `  ${entry.path}  ${short(entry.before)} → ${short(entry.after)}`) : ['  none: every framework file is current']),
+    ...(plan.removed.length ? ['', style.heading(`Framework files removed (${plan.removed.length}):`), ...plan.removed.map((entry) => `  ${entry}`)] : []),
+    ...(plan.kept.length ? ['', style.heading(`Repository settings kept as they are (${plan.kept.length}):`), ...plan.kept.map((entry) => `  ${entry}`)] : []),
+    '', style.heading(`Workflows (${plan.workflows.length}): ${plan.workflows.length - failing.length} compile under the current rules.`),
+    ...failing.flatMap((entry) => [
+      `  ${entry.owner === 'framework' ? style.failure('✖') : style.pending('!')} ${entry.id} (${entry.owner}): ${entry.findings[0]?.message ?? 'does not compile'}`,
+      ...(entry.findings[0]?.resolvingAction ? [`    Fix: ${entry.findings[0].resolvingAction}`] : [])
+    ]),
+    '', style.heading(`Stories to archive (${plan.storyDetails.length}):`),
+    ...(plan.storyDetails.length ? plan.storyDetails.map((story) => `  ${story.id} (${story.statuses.join('/')}): ${story.locations.map((location) => `${location.ref}@${short(location.commit)}`).join(', ')}`) : ['  none']),
+    ...(plan.blockers.length ? ['', style.heading('Resolve before activation:'), ...plan.blockers.map((blocker) => `  - ${blocker.code}: ${blocker.message}`)] : []),
+    '', plan.blockers.length
+      ? 'Nothing changed. This plan cannot be confirmed; resolve the issues above and preview again.'
+      : 'Nothing changed. Application code, tests, documents and repository-owned definitions keep their bytes.',
+    ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+    style.detail(preservationLine(result))
+  ].filter((line) => line !== null && line !== undefined).join('\n');
+}
+
 export function renderCommandResult(result) {
+  if (result.operation.id === 'governance.rebuild.preview' && result.data?.plan) return governanceRebuildPreview(result);
   if (result.operation.id === 'precheck.run.plan' && result.data?.plan) {
     const plan = result.data.plan;
     const rows = plan.commands.map((command) => ({

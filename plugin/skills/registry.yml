@@ -164,6 +164,7 @@ skills:
   sflow-epic-story-draft: { class: generative, executionBoundary: repository }
   sflow-epic-sync: { class: mutation, executionBoundary: repository }
   sflow-factory-reset: { class: mutation, executionBoundary: repository }
+  sflow-governance-rebuild: { class: mutation, executionBoundary: repository }
   sflow-fault: { class: mutation }
   sflow-fresh-install: { class: mutation, executionBoundary: machine }
   sflow-local-reset: { class: mutation, executionBoundary: machine }

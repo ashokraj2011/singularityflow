@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -22,6 +22,7 @@ const LAZY_MODULES = Object.freeze({
   verify: './commands/fast-path.mjs',
   converge: './commands/fast-path.mjs',
   about: './commands/about.mjs',
+  governance: './commands/governance.mjs',
   home: './commands/home.mjs',
   recommend: './commands/recommend.mjs',
   status: './commands/status.mjs',
@@ -107,7 +108,7 @@ function command([name, aliases = []]) {
 
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
-  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
+  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['governance'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['adhoc'], ['land'], ['local'],
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
@@ -1427,6 +1428,12 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     : never('prompt-log', definition, 'mutation');
   if (definition.name === 'factory-reset') return optionBoolean(options, 'dry-run')
     ? never('factory-reset.preview', definition, 'read') : never('factory-reset', definition, 'mutation');
+  if (definition.name === 'governance') {
+    const subcommand = positionals[1];
+    if (subcommand !== 'rebuild') return unknownSubcommand('governance', subcommand, ['rebuild']);
+    return optionBoolean(options, 'dry-run')
+      ? never('governance.rebuild.preview', definition, 'read') : never('governance.rebuild', definition, 'mutation');
+  }
   if (definition.name === 'precheck') {
     if (!optionBoolean(options, 'run')) return never('precheck.quick', definition, 'read');
     return optionString(options, 'confirm-plan')
@@ -1672,6 +1679,8 @@ export function operationCatalog() {
     never('prompt-log', promptLogDefinition, 'mutation'),
     never('factory-reset.preview', factoryResetDefinition, 'read'),
     never('factory-reset', factoryResetDefinition, 'mutation'),
+    never('governance.rebuild.preview', commandDefinition('governance'), 'read'),
+    never('governance.rebuild', commandDefinition('governance'), 'mutation'),
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
     required('auto.plan'),

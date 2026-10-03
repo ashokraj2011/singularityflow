@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 16
+version: 17
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -71,6 +71,10 @@ Assurance has two facets on each verify obligation: identity (`declared` for a t
 A plan may say exactly how each acceptance criterion is verified, in its own `## Verification contracts` table beside the planned-evidence table. Each row is one witness slot: `| Criterion | Slot | Method | Witness |`, with optional `Role` (primary or supporting), `Required assurance`, `Combination` (all or any) and `Reason` columns. The method is `test` (an executable test file, which must be one of the criterion's planned tests), `inspection` (a reviewer inspects an exact file) or `visual` (visual evidence of a named screen). Publishing the plan refuses a contract that could never verify honestly: an unknown criterion, an unsupported method such as a measurement, a slot named twice, a criterion with only supporting witnesses, `any` without a reason, a test that is not planned, or a required assurance the method cannot reach (nothing reaches exact-authenticated here).
 
 Every primary slot must be met (`all`), or, when the plan gives a reason, one of them (`any`). A supporting slot is shown but never satisfies a criterion. A criterion with no row keeps one test slot over its planned tests. Only a criterion with a primary test slot needs an `@ac` tag: one verified by inspection or visual evidence, or whose tests the plan reviewed as not applicable, needs none.
+
+### Inspection and visual witnesses
+
+An inspection or visual slot is witnessed by a person in the group that approves the criterion's delivery: `singularity-flow decision witness --criterion <AC> --slot <slot> --file <path> --confirm states-the-outcome --confirm matches-the-criterion --confirm current-for-this-change --reason TEXT`. For an inspection the file is the one the contract names; for a visual slot it is the captured image of the screen the contract names. Every checklist item is answered with `--confirm` or `--deny`; one denial records that the file does not satisfy the criterion. The record binds the file's exact bytes, the reviewer and their authority, and does not depend on any step's name. It witnesses the slot only while the file keeps those bytes: a changed file must be inspected again.
 
 ### Witness adequacy review
 
@@ -143,7 +147,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **`EVIDENCE_TAG_NOT_ON_TEST`:** the tag is not on the line directly above a test; move it there.
 - **`TEST_CAPABILITY_UNSUPPORTED`:** a planned test sits in a module whose tests cannot run here (no supported runner, two build systems, or no covering command); configure a supported test command, plan the test in a supported module, or verify the criterion another way in the plan's verification contracts.
 - **`SPEC_VERIFICATION_CONTRACT_INVALID`:** the plan's verification contracts table has a defect; the message names the row and what to change.
-- **`EVIDENCE_INSPECTION_MISSING` or `EVIDENCE_VISUAL_MISSING`:** a contract slot needs its inspection or visual record.
+- **`EVIDENCE_INSPECTION_MISSING` or `EVIDENCE_VISUAL_MISSING`:** a contract slot needs its inspection or visual record, or its file changed after it was inspected; record it with `decision witness`.
 - **`EVIDENCE_WITNESS_NOT_APPLICABLE` or `EVIDENCE_WITNESS_EXCEPTION_EXPIRED`:** the reviewer ruled the criterion's tests out, or an adequacy exception lapsed; tag an adequate test, or review the test again.
 - **`EVIDENCE_ASSURANCE_SHORTFALL`:** the criterion passed below what its runner can reach or the Story requires; repair the test configuration, tag another test, or accept the risk with the `assurance-shortfall` category.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.

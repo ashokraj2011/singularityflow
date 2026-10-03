@@ -253,7 +253,7 @@ const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store'
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 // A person's choice at a workflow decision is governed like approve and reject; reading one is not.
 const DECISION_READ_SUBCOMMANDS = Object.freeze(['show']);
-const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan', 'risk']);
+const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan', 'risk', 'witness']);
 const DECISION_SUBCOMMANDS = Object.freeze([...DECISION_READ_SUBCOMMANDS, ...DECISION_MUTATION_SUBCOMMANDS]);
 // A preview fetches and stages bytes and a check re-reads sources: neither changes governed state.
 const IMPORT_READ_SUBCOMMANDS = Object.freeze(['preview']);

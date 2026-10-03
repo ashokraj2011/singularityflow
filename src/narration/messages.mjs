@@ -191,6 +191,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded a completeness review of scope inventory ${slot(s.inventory)}; a person reviewed it, which never says it is correct.`,
     preserves: false
   },
+  'decision.witness.succeeded': {
+    headline: (s) => `Recorded witness ${slot(s.record)} for ${slot(s.criterion)}; it counts only while the file keeps the bytes that were inspected.`,
+    preserves: false
+  },
   'decision.risk.succeeded': {
     headline: (s) => `Recorded ${slot(s.record)}; the observation stays visible, and the decision counts only until it expires or is revoked.`,
     preserves: false

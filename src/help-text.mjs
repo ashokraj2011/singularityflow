@@ -674,6 +674,7 @@ Usage:
   singularity-flow decision completeness [WORK-ID] [--fetch] --confirm INVENTORY-SHA256 --article ID=satisfied|exception|not-applicable... [--article-reason TEXT]... [--checklist FILE] --reason TEXT [--json]
   singularity-flow decision plan [WORK-ID] [--fetch] (--add-location CLAUSE=PATH | --add-supporting PATH=CLASS [--supporting-reason TEXT])... --reason TEXT [--json]
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
+  singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID

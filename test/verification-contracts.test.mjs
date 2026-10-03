@@ -97,6 +97,7 @@ function delivery(witnesses, occurrences) {
     preflight: []
   };
 }
+const records_ = (contracts) => records(contracts);
 const verifyRow = (evaluation) => evaluation.rows.find((row) => row.id === AC1);
 const verifyOf = (evaluation) => verifyRow(evaluation).obligations.find((entry) => entry.responsibility === 'verify');
 const NOW = '2026-10-03T10:00:00.000Z';
@@ -153,4 +154,39 @@ test('a plan may require less than the runner can reach, but never more than it 
   const shortfall = run({ contracts: strict, witnesses: [counts] });
   assert.equal(verifyOf(shortfall).status, 'inconclusive');
   assert.ok(shortfall.findings.some((entry) => entry.code === 'EVIDENCE_ASSURANCE_SHORTFALL'));
+});
+
+test('an inspection or visual witness binds the exact file, a full checklist and the reviewer, and stops counting when the file changes', async () => {
+  const { recordWitness, witnessRecordResults, WITNESS_CHECKLIST } = await import('../src/verification/witness-records.mjs');
+  const contracts = parse(table(
+    `| \`${AC1}\` | unit | test | \`test/value.test.js\` | | | | |`,
+    `| \`${AC1}\` | docs | inspection | \`docs/value.md\` | | | | |`,
+    `| \`${AC1}\` | screen | visual | \`checkout\` | | | | |`
+  ));
+  const slots = Object.fromEntries(contracts[0].slots.map((slot) => [slot.slot, slot]));
+  const yes = Object.fromEntries(WITNESS_CHECKLIST.map((item) => [item, 'yes']));
+  const common = { clauseId: AC1, sha256: `sha256:${'d'.repeat(64)}`, reason: 'Read the value section end to end.', actor: 'carol', authorityGroup: 'reviewers', at: NOW };
+  const workflow = {};
+  assert.throws(() => recordWitness(workflow, { ...common, slot: slots.unit, file: 'test/value.test.js', answers: yes }), /no inspection or visual slot/);
+  assert.throws(() => recordWitness(workflow, { ...common, slot: slots.docs, file: 'docs/other.md', answers: yes }), /inspects docs\/value\.md, not docs\/other\.md/);
+  assert.throws(() => recordWitness(workflow, { ...common, slot: slots.docs, file: 'docs/value.md', answers: { 'states-the-outcome': 'yes' } }), /Answer every checklist item/);
+  assert.throws(() => recordWitness(workflow, { ...common, slot: slots.docs, file: 'docs/value.md', answers: yes, reason: 'ok' }), (error) => error.code === 'WITNESS_RECORD_REASON_REQUIRED');
+  const inspected = recordWitness(workflow, { ...common, slot: slots.docs, file: 'docs/value.md', answers: yes });
+  assert.equal(inspected.id, 'WIT-001');
+  assert.equal(inspected.outcome, 'met');
+  const visual = recordWitness(workflow, { ...common, slot: slots.screen, file: 'evidence/checkout.png', answers: { ...yes, 'matches-the-criterion': 'no' } });
+  assert.equal(visual.target, 'checkout');
+  assert.equal(visual.outcome, 'failed');
+  const current = new Map([['docs/value.md', common.sha256], ['evidence/checkout.png', common.sha256]]);
+  const results = Object.fromEntries(witnessRecordResults(workflow.witnessRecords, current).map((entry) => [entry.slot, entry]));
+  assert.equal(results.docs.status, 'met');
+  assert.equal(results.screen.status, 'failed');
+  assert.match(results.screen.message, /matches-the-criterion/);
+  const changed = witnessRecordResults(workflow.witnessRecords, new Map([['docs/value.md', `sha256:${'e'.repeat(64)}`]]));
+  assert.equal(changed.find((entry) => entry.slot === 'docs').status, 'missing');
+  // The evaluator credits a met inspection slot, and only while its bytes are current.
+  const docsOnly = parse(table(`| \`${AC1}\` | unit | test | \`test/value.test.js\` | | | | |`, `| \`${AC1}\` | docs | inspection | \`docs/value.md\` | | | | |`));
+  const graph = (records) => evaluateEvidence(evidenceGraph({ workflow: story(), records: records_(docsOnly), deliveries: [delivery([witness('adds')], [occurrence('adds')])], witnessRecords: records }), { at: NOW });
+  assert.equal(verifyRow(graph(witnessRecordResults(workflow.witnessRecords, current))).result, 'satisfied');
+  assert.equal(verifyRow(graph(changed)).result, 'missing');
 });

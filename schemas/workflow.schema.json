@@ -667,6 +667,40 @@
       },
       "additionalProperties": false
     },
+    "witnessRecords": {
+      "description": "Append-only inspection and visual witnesses of a criterion's contract slot: the exact file bytes inspected, a fixed checklist, the reviewer and their authority.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "clauseId", "slot", "method", "file", "sha256", "checklist", "outcome", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^WIT-[0-9]{3,}$" },
+          "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:AC-[0-9]{3}$" },
+          "slot": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
+          "method": { "enum": ["inspection", "visual"] },
+          "file": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "target": { "type": "string" },
+          "checklist": {
+            "type": "object",
+            "required": ["states-the-outcome", "matches-the-criterion", "current-for-this-change"],
+            "properties": {
+              "states-the-outcome": { "enum": ["yes", "no"] },
+              "matches-the-criterion": { "enum": ["yes", "no"] },
+              "current-for-this-change": { "enum": ["yes", "no"] }
+            },
+            "additionalProperties": false
+          },
+          "outcome": { "enum": ["met", "failed"] },
+          "reason": { "type": "string", "minLength": 10, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "planAmendments": {
       "description": "Append-only narrow plan amendments: a changed path accounted for as part of one row's delivery, or listed as a supporting change of a closed class, recorded by someone in the group that approves the plan.",
       "type": "array",

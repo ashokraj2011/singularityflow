@@ -291,4 +291,18 @@ test('a verification contract through a real Story: an inspection-only criterion
   assert.equal(verify('AC-001').facets.execution, 'passed', 'the exception never rewrites what was observed');
   assert.equal(rows['AC-002'].verification.contract.slots[0].method, 'inspection');
   assert.equal(verify('AC-002').status, 'missing', 'the runbook still needs its inspection record');
+
+  // A reviewer inspects the runbook: the slot is witnessed by its exact bytes, and only while they hold.
+  cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+    '--reason', 'The runbook states that the exported value is two.');
+  const matrixRows = () => Object.fromEntries(JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
+    .map((entry) => [entry.id.split(':').at(-1), entry]));
+  const inspected = matrixRows();
+  assert.equal(inspected['AC-002'].obligations.find((entry) => entry.responsibility === 'verify').status, 'met');
+  assert.equal(inspected['AC-002'].assurance, 'source-bound');
+  await writeFile(path.join(root, 'docs/runbook.md'), '# Runbook\n\nThe exported value is three.\n');
+  const changed = matrixRows();
+  assert.equal(changed['AC-002'].obligations.find((entry) => entry.responsibility === 'verify').status, 'missing');
+  assert.ok(changed['AC-002'].findings.some((entry) => /changed after its inspection/.test(entry.message)));
 });

@@ -5,6 +5,7 @@
  * A record that cannot be read or trusted is never skipped quietly; it becomes a finding and the
  * rows it would have supported read inconclusive.
  */
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -16,6 +17,8 @@ import { currentCompletenessReview } from '../scope/decisions.mjs';
 import { buildScopeInventory } from '../scope/inventory.mjs';
 import { removedClauseIds } from '../scope/revisions.mjs';
 import { planAmendmentRecord } from '../plan-amendments.mjs';
+import { secureRepositoryPath } from '../util.mjs';
+import { witnessRecordResults } from '../verification/witness-records.mjs';
 import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
@@ -182,10 +185,10 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
 }
 
 /** Build the graph from records already in memory; the loader and the tests both use this. */
-export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], findings = [], untrusted = false, terminal = null, scope = null }) {
+export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], witnessRecords = [], findings = [], untrusted = false, terminal = null, scope = null }) {
   // A completeness review counts only for the exact inventory it reviewed [E2G-007].
   const completenessReview = currentCompletenessReview(workflow, scope);
-  const graph = { workflow, records, deliveries, inspections, findings, untrusted, terminal, scope, completenessReview };
+  const graph = { workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, terminal, scope, completenessReview };
   // What the evaluation was computed from, so a cache or a stored decision can tell whether its
   // inputs are still current without re-reading every record.
   graph.inputSha256 = `sha256:${recordSha256({
@@ -214,7 +217,8 @@ export function evidenceGraph({ workflow, records, deliveries = [], inspections 
     completenessReview: completenessReview ? recordSha256(completenessReview) : null,
     scopeRevision: workflow.scopeRevisions?.at(-1)?.revisionSha256 ?? null,
     riskDecisions: (workflow.riskDecisions ?? []).map((entry) => recordSha256(entry)),
-    planAmendments: (workflow.planAmendments ?? []).map((entry) => recordSha256(entry))
+    planAmendments: (workflow.planAmendments ?? []).map((entry) => recordSha256(entry)),
+    witnessRecords: witnessRecords.map((entry) => recordSha256(entry))
   })}`;
   // A final evaluation counts only for the evidence it was made over.
   if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;
@@ -245,6 +249,21 @@ async function loadInspections(root, directory, workflow, findings) {
     }
   }
   return inspections;
+}
+
+/**
+ * What each inspection or visual witness proves now [E2G-018]: its record, judged against the bytes
+ * its file has at this moment, so a file changed after it was inspected witnesses nothing.
+ */
+async function loadWitnessRecords(root, workflow) {
+  const current = new Map();
+  for (const file of new Set((workflow.witnessRecords ?? []).map((entry) => entry.file))) {
+    try {
+      const secured = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
+      current.set(file, `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`);
+    } catch { current.set(file, null); }
+  }
+  return witnessRecordResults(workflow.witnessRecords ?? [], current);
 }
 
 /** The Story's accepted-scope inventory [E2G-006], or null with a finding when it cannot be built. */
@@ -286,6 +305,7 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
     if (phase?.deliveryEvidence) deliveries.push(await loadDelivery(root, phase, findings));
   }
   const inspections = await loadInspections(root, directory, workflow, findings);
+  const witnessRecords = await loadWitnessRecords(root, workflow);
   const scope = await loadScopeInventory(root, definition, workflow, directory, records, findings);
-  return evidenceGraph({ workflow, records, deliveries, inspections, findings, untrusted, scope });
+  return evidenceGraph({ workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, scope });
 }

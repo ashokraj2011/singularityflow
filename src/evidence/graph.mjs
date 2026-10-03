@@ -15,6 +15,7 @@ import { readRecord } from '../schema-migrations.mjs';
 import { currentCompletenessReview } from '../scope/decisions.mjs';
 import { buildScopeInventory } from '../scope/inventory.mjs';
 import { removedClauseIds } from '../scope/revisions.mjs';
+import { planAmendmentRecord } from '../plan-amendments.mjs';
 import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
@@ -143,7 +144,8 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
       }
     }
   }
-  return { records: { ...base, planned: maps.planned, observed: maps.observed }, untrusted };
+  const amendment = planAmendmentRecord(workflow);
+  return { records: { ...base, planned: amendment ? [...maps.planned, amendment] : maps.planned, observed: maps.observed }, untrusted };
 }
 
 /** Build the graph from records already in memory; the loader and the tests both use this. */

@@ -170,6 +170,7 @@ Every public operation is classified before its implementation module is importe
 | decision.applicability | mutation | never | — | — |
 | decision.choose | mutation | never | — | — |
 | decision.completeness | mutation | never | — | — |
+| decision.plan | mutation | never | — | — |
 | decision.scope | mutation | never | — | — |
 | decision.show | read | never | — | — |
 | delivery.assurance-evaluate | read | never | — | — |

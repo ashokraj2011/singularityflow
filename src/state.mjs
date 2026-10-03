@@ -582,6 +582,7 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
   const changedList = (key) => recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null);
   const kind = changedList('scopeDispositions') ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }
     : changedList('completenessReviews') ? { list: 'completenessReviews', event: 'completeness_reviewed', decision: 'completeness' }
+    : changedList('planAmendments') ? { list: 'planAmendments', event: 'plan_amended', decision: 'plan' }
       : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
   const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -2038,7 +2039,7 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
   if (coverage.complete) return coverage;
   const findings = [
     ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
-    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}`),
+    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; add it to a row with singularity-flow decision plan --add-location <clause>=${candidate} --reason <why>, or list it as a supporting change`),
     ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
     ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
   ];
@@ -2049,7 +2050,12 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
       code: 'SPEC_COVERAGE_INCOMPLETE',
       details: {
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-        evidenceCommit, coverage
+        evidenceCommit, coverage,
+        // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
+        ...(coverage.unclaimedChangedPaths.length ? {
+          recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
+            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
+        } : {})
       }
     }
   );

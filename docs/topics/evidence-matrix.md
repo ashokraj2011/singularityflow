@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 9
+version: 10
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -53,6 +53,10 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
+
+### Plan amendments
+
+A delivered change to a path no row names is accounted for, never deleted to satisfy the gate and never silently exempted. Someone in the group that approves the plan records `singularity-flow decision plan --add-location <clause>=<path> --reason TEXT`, which accounts for the path as part of that row's delivery, or `--add-supporting <path>=<class> --supporting-reason TEXT` for a lockfile, build, CI, repository-metadata or documentation change. Application source can never be a supporting change. The amendment is recorded on the Story, changes no step, and code approval then counts the path. When approval refuses an unplanned path, its recovery names this command.
 
 ### Implementation bindings
 
@@ -105,6 +109,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 - **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.
 - **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a scope revision changed this clause after its evidence was produced; run the step that owns the stale obligation again.
+- **A changed path is not claimed by a clause:** account for it with `decision plan --add-location` or `--add-supporting`, or remove the change if it does not belong to the Story.
 - **`SCOPE_INVENTORY_INCOMPLETE`:** the completeness review waits until every statement has a disposition.
 - **`SCOPE_INVENTORY_CHANGED`:** the inventory changed after you read it; run `singularity-flow evidence scope` again, review it, and confirm the digest it shows now.
 - **`SCOPE_CHECKLIST_INCOMPLETE`:** answer each checklist article exactly once with `--article <id>=<decision>`, with `--article-reason` for any exception or not applicable.

@@ -7,6 +7,7 @@
  * approval keeps its own exact check over the submitted revision.
  */
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import {
@@ -41,7 +42,8 @@ export async function inspectUnclaimedChangedPaths(root, config, workflow, phase
     const planned = mergePlannedClaimRecords(records.planned ?? []);
     const accounted = new Set([
       ...Object.values(planned).flatMap((claim) => [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]),
-      ...plannedSupportingFiles(records.planned ?? [])
+      ...plannedSupportingFiles(records.planned ?? []),
+      ...accountedAmendmentPaths(records.planned ?? [])
     ]);
     const baseCommit = workflow.workItem?.baseCommit
       ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit ?? null;

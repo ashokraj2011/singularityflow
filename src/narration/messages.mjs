@@ -191,6 +191,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded a completeness review of scope inventory ${slot(s.inventory)}; a person reviewed it, which never says it is correct.`,
     preserves: false
   },
+  'decision.plan.succeeded': {
+    headline: (s) => `Amended the plan with ${slot(s.amendment)}: ${slot(s.changes)} change(s) recorded.`,
+    preserves: false
+  },
   'decision.scope.succeeded': {
     headline: (s) => `Recorded that ${slot(s.item)} is ${slot(s.disposition)}.`,
     preserves: false

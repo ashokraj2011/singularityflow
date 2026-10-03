@@ -1,4 +1,5 @@
 import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
+import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
@@ -322,7 +323,7 @@ import {
   publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
 } from './capability-publication-recovery.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
-import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, mergePlannedClaimRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
 import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
@@ -8726,7 +8727,8 @@ async function decisionCommand(positionals, options) {
   if (action === 'applicability') return decisionApplicabilityCommand(positionals, options);
   if (action === 'scope') return decisionScopeCommand(positionals, options);
   if (action === 'completeness') return decisionCompletenessCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope or decision completeness.`,
+  if (action === 'plan') return decisionPlanCommand(positionals, options);
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness or decision plan.`,
     { code: 'COMMAND_UNKNOWN' });
 }
 
@@ -8980,6 +8982,95 @@ async function decisionScopeCommand(positionals, options) {
     outcome: succeeded('decision.scope.succeeded', { item, disposition }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     data: { commit: publication.sha, pushed: publication.pushed, decision }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+/**
+ * `decision plan`: someone in the group that approves the plan accounts for a delivered change no
+ * row names, by adding it to one row's expected paths or listing it as a supporting change [E2G-012].
+ * The plan's revision changes; no step is reset.
+ */
+async function decisionPlanCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    await checkout(root, requestedId, {
+      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
+    });
+  }
+  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
+  const id = workflow.workItem.id;
+  if (workflow.status !== 'in_progress') {
+    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its plan is amended while it is in progress.`, { code: 'PLAN_AMENDMENT_STORY_CLOSED' });
+  }
+  const split = (entry, flag) => {
+    const separator = String(entry).indexOf('=');
+    if (separator < 1) throw new SingularityFlowError(`${flag} must be <left>=<right>; got '${entry}'.`, { code: 'PLAN_AMENDMENT_INVALID' });
+    return [String(entry).slice(0, separator).trim(), String(entry).slice(separator + 1).trim()];
+  };
+  const reasons = optionStrings(options, 'supporting-reason');
+  let next = 0;
+  const changes = [
+    ...optionStrings(options, 'add-location').map((entry) => { const [clauseId, file] = split(entry, '--add-location'); return { kind: 'add-location', clauseId, path: file }; }),
+    ...optionStrings(options, 'add-supporting').map((entry) => { const [file, kind] = split(entry, '--add-supporting'); return { kind: 'add-supporting', path: file, class: kind, reason: reasons[next++] ?? null }; })
+  ];
+  const groups = planAuthorities(workflow);
+  if (!groups.length) {
+    throw new SingularityFlowError('No step of this Story holds the plan with an approval group, so nobody can amend it.', { code: 'PLAN_AMENDMENT_AUTHORITY_UNAVAILABLE' });
+  }
+  const records = await loadActiveSpecRecords(workDir(root, config, id), workflow);
+  const plan = mergePlannedClaimRecords(records.planned ?? []);
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const decide = (aggregate) => recordPlanAmendment(aggregate, {
+    changes, reason: optionString(options, 'reason') ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), plan
+  });
+  decide(structuredClone(workflow));
+  const { value: amendment, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'plan' }
+    },
+    `[${id}][plan:amend] ${changes.length} change(s)`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'amend the plan');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'plan_amended', phase: aggregate.currentPhase ?? null,
+        detail: `${recorded.id}: ${recorded.changes.map((change) => change.kind === 'add-location' ? `${change.path} added to ${change.clauseId}` : `${change.path} listed as ${change.class}`).join('; ')}. ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'plan', amendment: recorded.id, reviewPacketSha256: null }
+      })
+    }
+  );
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Recorded plan amendment ${amendment.id} for ${id} through ${amendment.authorityGroup}.`);
+    console.log(publication.pushed
+      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.plan', classification: 'mutation' },
+    subject: { kind: 'story', id },
+    outcome: succeeded('decision.plan.succeeded', { amendment: amendment.id, changes: String(amendment.changes.length) }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, amendment }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

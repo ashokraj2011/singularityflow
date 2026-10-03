@@ -15,6 +15,7 @@ import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN } from './traceability-ids.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
+import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -1288,7 +1289,13 @@ export function selectActiveSpecRecords(records, workflow) {
 }
 
 export async function loadActiveSpecRecords(itemDirectory, workflow) {
-  return selectActiveSpecRecords(await loadSpecRecords(itemDirectory), workflow);
+  return withAmendmentRecord(selectActiveSpecRecords(await loadSpecRecords(itemDirectory), workflow), workflow);
+}
+
+/** The Story's plan amendments, merged as one more planned record [E2G-012]. */
+function withAmendmentRecord(records, workflow) {
+  const amendment = planAmendmentRecord(workflow);
+  return amendment ? { ...records, planned: [...(records.planned ?? []), amendment] } : records;
 }
 
 /**
@@ -1366,11 +1373,11 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
       root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy, requireCommitted }
     ));
   }
-  return {
+  return withAmendmentRecord({
     ...base,
     planned: planned.sort(recordOrder),
     observed: observed.sort(recordOrder)
-  };
+  }, workflow);
 }
 
 export function predecessorSpecClauses(records, workflow, phaseId) {
@@ -1422,6 +1429,8 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     ...(claim.observedPaths ?? []),
     ...(claim.testResults ?? []).filter((candidate) => (plannedClaims[id]?.tests ?? []).includes(candidate))
   ]));
+  // A path a plan amendment added to a row is accounted for by that amendment [E2G-012].
+  for (const candidate of accountedAmendmentPaths(planned)) claimedPaths.add(candidate);
   const unimplemented = [...clauses.keys()].filter((id) => {
     const claim = observedClaims[id];
     if (!claim) return true;

@@ -410,8 +410,10 @@ export async function reconcileWorkInterval(root, config, workflow, {
     reasons.push(`protected paths changed: ${protectedChanged.join(', ')}`);
   }
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
+  // Prose the delivery left out on purpose stays in the worktree and is not a dirty target [E2G-027].
+  const keptOut = new Set((phase.deliveryEvidence?.excludedChanges ?? []).filter((candidate) => /\.(?:md|markdown|mdx|rst|adoc|txt)$/iu.test(candidate)));
   const uncommittedApplicationPaths = changedFiles(root)
-    .filter((candidate) => isApplicationChangePath(candidate, {
+    .filter((candidate) => !keptOut.has(candidate) && isApplicationChangePath(candidate, {
       ...pathContext, untracked: untracked.has(candidate)
     }));
   const dirtyTargetBlocked = requireCleanTarget && uncommittedApplicationPaths.length > 0;

@@ -159,6 +159,7 @@ import {
 } from './specifications.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
+import { codeCandidateScope } from './candidate-scope.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -2778,7 +2779,17 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   const adopted = [];
   const discovered = changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
   const discoveredPaths = new Set(discovered);
+  // A code step adopts only what its plan names [E2G-027]; every other changed application file is
+  // excluded: left where it is, never registered and never committed.
+  const scope = await codeCandidateScope(workDir(root, config, workflow.workItem.id), workflow, phase);
+  const pathContext = applicationPathContext(config, workflow);
+  const excluded = new Set(scope ? discovered.filter((file) => isApplicationPath(file, pathContext) && !scope.allows(file)) : []);
+  if (scope) {
+    phase.artifacts = phase.artifacts.filter((artifact) => !excluded.has(artifact.path));
+    if (excluded.size) phase.excludedChanges = [...excluded].sort(); else delete phase.excludedChanges;
+  }
   for (const file of discovered) {
+    if (excluded.has(file)) continue;
     records.push(await registerArtifact(root, workflow, file, {
       phaseId: phase.id, kind: skillOutputKinds.get(file), config
     }));
@@ -2802,6 +2813,11 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // or an un-ignored output directory becomes a phase artifact: committed, pinned, and attested by
   // the approval's `artifactSha256`. Name them, so adopting them is a decision rather than an
   // accident.
+  if (excluded.size) {
+    console.warn(`${phase.id} leaves out ${excluded.size} changed file(s) its plan does not name; they stay in your worktree, outside this generation:`);
+    [...excluded].sort().forEach((file) => console.warn(`  ${file}`));
+    console.warn('If one belongs to this Story, account for it with singularity-flow decision plan, then scan again.');
+  }
   if (adopted.length) {
     console.warn(`Warning: ${phase.id} is adopting ${adopted.length} untracked file(s) as governed artifacts:`);
     adopted.forEach((file) => console.warn(`  ${file}`));
@@ -3713,6 +3729,7 @@ export async function publishGeneration(root, config, workflow, {
       },
       ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
       ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
+      ...(deliveryPreflight.excludedChanges?.length ? { excludedChanges: [...deliveryPreflight.excludedChanges] } : {}),
       testExecutions: [],
       ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
       ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),

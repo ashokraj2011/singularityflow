@@ -70,7 +70,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-test('an unplanned path is accounted for by a plan amendment, not deleted, and approval then proceeds', async (t) => {
+test('unplanned code is refused before it is committed, accounted for by a plan amendment, and unrelated prose is kept out', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-plan-amendment-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -128,14 +128,25 @@ test('an unplanned path is accounted for by a plan amendment, not deleted, and a
     "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module reads the approved value from a small helper.'));
-  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  cli('submit', 'implementation');
-  const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], root, { allowFailure: true });
+  // A scratch note is prose the plan does not name: left out and kept, never committed [E2G-027].
+  await write('NOTES.md', 'Remember to tell the team about the helper.\n');
+  // The helper is code the plan does not name, and the tests would run with it: refused before
+  // anything is committed, with the governed route to account for it.
+  const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /changed path is not claimed by a clause: src\/helper\.mjs; add it to a row with singularity-flow decision plan --add-location/);
+  assert.match(refused.stdout + refused.stderr, /GENERATION_EXCLUSIONS_UNSAFE|changed files its plan does not name/);
+  assert.match(refused.stdout + refused.stderr, /src\/helper\.mjs/);
+  assert.doesNotMatch(refused.stdout + refused.stderr, /: NOTES\.md/, 'prose is not unsafe');
 
   cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
+  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'implementation');
   cli('approve', 'implementation', '--yes');
+  const generation = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation;
+  const receipt = JSON.parse(await readFile(path.join(root, generation.deliveryEvidence.receiptPath), 'utf8'));
+  assert.deepEqual(receipt.excludedChanges, ['NOTES.md']);
+  assert.equal(run('git', ['ls-files', '--', 'NOTES.md'], root).stdout.trim(), '', 'the note was never committed');
+  assert.equal(await readFile(path.join(root, 'NOTES.md'), 'utf8'), 'Remember to tell the team about the helper.\n', 'and it is still in the worktree');
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflowState.phases.implementation.status, 'approved');
   assert.deepEqual(workflowState.planAmendments.map((entry) => [entry.id, entry.changes]),

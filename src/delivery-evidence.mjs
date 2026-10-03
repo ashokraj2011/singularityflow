@@ -31,6 +31,7 @@ import {
   commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
+import { codeCandidateScope } from './candidate-scope.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
@@ -769,8 +770,31 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
   const pathContext = applicationPathContext(config, workflow);
-  const applicationEntries = changeSet.entries
+  const allApplicationEntries = changeSet.entries
     .filter((entry) => isApplicationChangeEntry(entry, pathContext));
+  // The candidate is what the plan names for this step [E2G-027, D9]. Tests run in the worktree, so
+  // an excluded file that could change what they execute is refused; prose is left out and kept.
+  const scope = await codeCandidateScope(itemDirectory, workflow, phase);
+  const entryPaths = (entry) => [entry.oldPath, entry.newPath].filter(Boolean);
+  const excludedChanges = scope ? [...new Set(allApplicationEntries.flatMap(entryPaths))].filter((candidate) => !scope.allows(candidate)).sort() : [];
+  const unsafeExclusions = excludedChanges.filter((candidate) => scope.unsafe(candidate));
+  if (unsafeExclusions.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} has changed files its plan does not name, and tests would run with them while the generation left them out: ${unsafeExclusions.join(', ')}. `
+      + 'Account for each that belongs with singularity-flow decision plan, or move it out of the worktree, then publish again.',
+      {
+        code: 'GENERATION_EXCLUSIONS_UNSAFE',
+        details: {
+          phase: phase.id, paths: unsafeExclusions,
+          recoveryCommands: unsafeExclusions.slice(0, 3).map((candidate) =>
+            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
+        }
+      }
+    );
+  }
+  const applicationEntries = scope
+    ? allApplicationEntries.filter((entry) => entryPaths(entry).every((candidate) => scope.allows(candidate)))
+    : allApplicationEntries;
   const applicationChangeSet = { ...changeSet, entries: applicationEntries };
   const boundaryResult = evaluateSourceBoundary(applicationChangeSet, phase.sourceBoundary, {
     phaseId: phase.id, allowedPath: isAllowedTestAutomationPath
@@ -975,6 +999,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       profiles: witnessDiscovery.profiles
     },
     sourceBindings,
+    excludedChanges,
     fulfillment: fulfillment.obligations,
     implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
   };

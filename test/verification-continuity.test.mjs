@@ -272,6 +272,8 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   await source(3);
   await mkdir(path.join(root, 'src/auth'), { recursive: true });
   await writeFile(path.join(root, 'src/auth/guard.mjs'), 'export const guarded = true;\n');
+  // The plan did not name the guard, so the code step accounts for it before publishing [E2G-027].
+  flow(['decision', 'plan', '--add-location', 'QF-STALE:AC-001=src/auth/guard.mjs', '--reason', 'The broadened fix guards the value behind an authorization check.']);
   flow(['phase', 'publish', 'implement', '--authored', 'deterministic']); flow(['submit', 'implement']);
   publish('verify');
   // Older builds kept the record through a reopen; review and approval drop it.

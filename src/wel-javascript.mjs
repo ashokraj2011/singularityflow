@@ -7,10 +7,8 @@
  * reporter occurrences without granting approval or execution authority. No Candidate source is
  * loaded or executed.
  */
-import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { lstat, open } from 'node:fs/promises';
 
 import { assertCredentialFreeRemote, remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
@@ -30,14 +28,6 @@ const UNSUPPORTED_COMMAND = new Set([
   '-t', '--testnamepattern', '--runtestsbypath', '--findrelatedtests', '--changed',
   '--changedsince', '--onlychanged', '--retry', '--retries', '--shard'
 ]);
-
-function sha256(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function prefixed(value) {
-  return `sha256:${sha256(value)}`;
-}
 
 function unavailable(reason, details = null) {
   const gaps = [...new Set((Array.isArray(reason) ? reason : [reason]).map(String).filter(Boolean))]
@@ -222,156 +212,6 @@ export async function observeJavascriptTestIdentities(root, command, parsed, tes
       ? `exact static ${framework} identities observed locally; mappings remain unreviewed and execution remains non-authoritative`
       : `${framework} source/report identities could not be joined exactly; local observation remains inconclusive`
   });
-}
-
-function rawOccurrenceProjection(occurrence) {
-  if (occurrence.identityStatus !== 'exact-static-identity') return occurrence;
-  const { sourcePath: _sourcePath, clauseIds: _clauseIds, ...raw } = occurrence;
-  return {
-    ...raw, verdict: 'inconclusive', logicalTestId: null, declarationSha256: null,
-    exact: false, identityStatus: 'observed-name-only'
-  };
-}
-
-export async function verifyJavascriptTestIdentityObservation(root, observation, {
-  evidenceCommit = null
-} = {}) {
-  const errors = [];
-  const fail = (message) => errors.push(message);
-  if (observation?.exact !== true || !Object.hasOwn(PROFILES, observation?.profile)
-      || observation?.verdict !== 'inconclusive'
-      || observation?.disposition !== 'unreviewed-witness-observed') {
-    return { valid: false, errors: ['exact local JavaScript observation envelope is invalid'], rawOccurrences: [] };
-  }
-  const catalog = observation.catalog;
-  if (!catalog || catalog.kind !== 'wel-javascript-static-catalog'
-      || catalog.parser?.id !== 'sflow-javascript-static-parser'
-      || !/^sha256:[a-f0-9]{64}$/.test(catalog.parser?.manifestSha256 ?? '')
-      || !/^sha256:[a-f0-9]{64}$/.test(catalog.repositorySha256 ?? '')
-      || catalog.framework !== (observation.profile.startsWith('jest-') ? 'jest' : 'vitest')) {
-    return { valid: false, errors: ['exact local JavaScript catalog identity is invalid'], rawOccurrences: [] };
-  }
-  const { catalogSha256, ...catalogCore } = catalog;
-  if (catalogSha256 !== `sha256:${recordSha256(catalogCore)}`) fail('JavaScript catalog digest is invalid');
-  const declarations = new Map();
-  for (const declaration of catalog.declarations ?? []) {
-    const identity = {
-      schema: declaration.schema, repositorySha256: declaration.repositorySha256, sourcePath: declaration.sourcePath,
-      framework: declaration.framework, suitePath: declaration.suitePath, testName: declaration.testName
-    };
-    if (declaration.schema !== 'javascript-test-v2' || !Array.isArray(declaration.suitePath)
-        || declaration.repositorySha256 !== catalog.repositorySha256
-        || declaration.framework !== catalog.framework
-        || declaration.logicalTestId !== `sha256:${recordSha256(identity)}`
-        || !Array.isArray(declaration.clauseIds)
-        || declaration.clauseIds.some((clause) => !QUALIFIED_CLAUSE.test(clause))) {
-      fail(`JavaScript declaration '${declaration.logicalTestId ?? 'unknown'}' has an invalid identity`);
-      continue;
-    }
-    let sourceBytes;
-    if (evidenceCommit) {
-      const source = run('git', ['show', `${evidenceCommit}:${declaration.sourcePath}`], {
-        cwd: root, allowFailure: true, encoding: 'buffer', maxBuffer: MAX_SOURCE_BYTES + 1
-      });
-      if (source.status !== 0) {
-        fail(`JavaScript declaration source '${declaration.sourcePath}' is absent from the evidence commit`);
-        continue;
-      }
-      sourceBytes = source.stdout;
-    } else {
-      try {
-        const secured = await secureRepositoryPath(root, declaration.sourcePath, {
-          label: 'WEL JavaScript replay source', mustExist: true, type: 'file'
-        });
-        sourceBytes = await readFile(secured.absolute);
-      } catch {
-        fail(`JavaScript declaration source '${declaration.sourcePath}' is unavailable`);
-        continue;
-      }
-    }
-    let sourceText;
-    try { sourceText = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes); }
-    catch { fail(`JavaScript declaration source '${declaration.sourcePath}' is not UTF-8`); continue; }
-    const range = declaration.span;
-    if (!Number.isSafeInteger(range?.start) || !Number.isSafeInteger(range?.end)
-        || range.start < 0 || range.end <= range.start
-        || range.end > sourceText.length) {
-      fail(`JavaScript declaration '${declaration.logicalTestId}' has an invalid source range`);
-      continue;
-    }
-    const bytes = Buffer.from(sourceText.slice(range.start, range.end), 'utf8');
-    if (prefixed(bytes) !== declaration.declarationSha256) {
-      fail(`JavaScript declaration '${declaration.logicalTestId}' bytes changed`);
-    }
-    if (declarations.has(declaration.logicalTestId)) fail('JavaScript catalog repeats a logical identity');
-    declarations.set(declaration.logicalTestId, declaration);
-  }
-  const proposals = new Map();
-  for (const proposal of observation.mappingProposals ?? []) {
-    const { mappingSha256, reviewStatus, ...core } = proposal;
-    const declaration = declarations.get(proposal.logicalTestId);
-    if (reviewStatus !== 'unreviewed' || mappingSha256 !== `sha256:${recordSha256(core)}`
-        || core.schemaVersion !== 1 || core.kind !== 'wel-witness-mapping-proposal' // schema-transient: embedded proposal in current test-execution v4.
-        || core.witnessType !== 'test' || !QUALIFIED_CLAUSE.test(core.clauseId ?? '')
-        || proposal.executionProfile !== observation.profile
-        || !declaration || proposal.sourcePath !== declaration.sourcePath
-        || proposal.sourceDeclarationSha256 !== declaration.declarationSha256
-        || proposal.parserManifestSha256 !== catalog.parser.manifestSha256
-        || !declaration.clauseIds.includes(proposal.clauseId)) {
-      fail(`JavaScript witness proposal '${mappingSha256 ?? 'unknown'}' is invalid`);
-      continue;
-    }
-    if (proposals.has(mappingSha256)) fail('JavaScript observation repeats a mapping proposal');
-    proposals.set(mappingSha256, proposal);
-  }
-  if (!declarations.size || !proposals.size) fail('exact JavaScript observation has no declaration or mapping proposal');
-  const seenLogical = new Set();
-  const reportIdentities = new Set();
-  for (const occurrence of observation.occurrences ?? []) {
-    const reportIdentity = JSON.stringify([
-      occurrence.fullName, occurrence.name, occurrence.ancestorTitles, occurrence.framework
-    ]);
-    if (reportIdentities.has(reportIdentity)) fail('JavaScript observation repeats a report identity');
-    reportIdentities.add(reportIdentity);
-    if (!['passed', 'failed', 'skipped'].includes(occurrence.outcome)
-        || occurrence.framework !== catalog.framework
-        || occurrence.fullName == null || !Array.isArray(occurrence.ancestorTitles)) {
-      fail(`JavaScript occurrence '${occurrence.name ?? 'unknown'}' is malformed`);
-      continue;
-    }
-    if (occurrence.identityStatus !== 'exact-static-identity') {
-      if (occurrence.exact !== false || occurrence.verdict !== 'inconclusive'
-          || occurrence.logicalTestId != null || occurrence.declarationSha256 != null) {
-        fail(`JavaScript occurrence '${occurrence.name ?? 'unknown'}' overstates an inexact identity`);
-      }
-      continue;
-    }
-    const declaration = declarations.get(occurrence.logicalTestId);
-    if (!declaration || occurrence.name !== declaration.testName
-        || JSON.stringify(occurrence.ancestorTitles) !== JSON.stringify(declaration.suitePath)
-        || occurrence.declarationSha256 !== declaration.declarationSha256
-        || occurrence.sourcePath !== declaration.sourcePath
-        || occurrence.exact !== true
-        || seenLogical.has(occurrence.logicalTestId)) {
-      fail(`exact JavaScript occurrence '${occurrence.name ?? 'unknown'}' does not bind its declaration`);
-      continue;
-    }
-    seenLogical.add(occurrence.logicalTestId);
-  }
-  for (const declaration of declarations.values()) {
-    if (!seenLogical.has(declaration.logicalTestId)) {
-      fail(`JavaScript declaration '${declaration.logicalTestId}' has no exact report occurrence`);
-    }
-    for (const clauseId of declaration.clauseIds) {
-      const found = [...proposals.values()].some((proposal) =>
-        proposal.logicalTestId === declaration.logicalTestId && proposal.clauseId === clauseId);
-      if (!found) fail(`JavaScript declaration '${declaration.logicalTestId}' has an incomplete proposal set`);
-    }
-  }
-  return {
-    valid: errors.length === 0, errors,
-    rawOccurrences: (observation.occurrences ?? []).map(rawOccurrenceProjection)
-  };
 }
 
 export function javascriptWelAdapterManifest(profile) {

@@ -37,7 +37,7 @@ test('new Stories pin an explicit disabled WEL enrollment without requiring conf
   assert.match(welEnrollmentDigest(enrollment), /^sha256:[0-9a-f]{64}$/);
 });
 
-test('witnessed clauses and exact JUnit observation produce one creation-pinned observe enrollment', () => {
+test('witnessed clauses produce one creation-pinned observe enrollment; exact test identity is no longer an opt-in', () => {
   const enrollment = buildWelEnrollment({
     phases: [{ id: 'specification', specificationQuality: specificationQualityPolicy({
       mode: 'warn',
@@ -45,17 +45,14 @@ test('witnessed clauses and exact JUnit observation produce one creation-pinned 
         profile: 'witnessed-v1', clauseTypes: ['acceptance'], enforceableWitnessTypes: ['test']
       }
     }) }],
-    codeDelivery: normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {
-      mode: 'observe', adapter: 'junit5-surefire-v1', requiredWitnessTypes: ['test'],
-      evidenceTier: 'testcase-local-observed'
-    } } }),
+    codeDelivery: normalizeCodeDeliveryPolicy(),
     configurationSource: authority
   });
   assert.equal(enrollment.mode, 'observe');
   assert.equal(enrollment.witnessedClauses.profiles[0].phaseId, 'specification');
   assert.match(enrollment.witnessedClauses.profiles[0].policySha256, /^sha256:[0-9a-f]{64}$/);
-  assert.equal(enrollment.testcaseExact.requiredAssurance, 'testcase-local-observed');
-  assert.equal(enrollment.cab.authority, 'packaged-observation-only');
+  assert.equal(enrollment.testcaseExact.mode, 'disabled');
+  assert.equal(enrollment.cab, null);
   assert.equal(enrollment.sgos, null);
   assert.deepEqual(enrollment.configurationAuthority, authority);
 });

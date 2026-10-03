@@ -595,9 +595,9 @@
     },
     "src/delivery-evidence.mjs": {
       "counts": {
-        "command-run": 8
+        "command-run": 6
       },
-      "digest": "53b5cfd86ce511a7dba4b499c7a86feca56514d76db7cbad564fb4dc7bf95c62"
+      "digest": "d74b4ca054b75d8e729e1dc975316be857cecb0e580626c385cb8c28ddd47430"
     },
     "src/delivery-modes/local-signed-runner.mjs": {
       "counts": {
@@ -1250,15 +1250,15 @@
     },
     "src/wel-javascript.mjs": {
       "counts": {
-        "command-run": 3
+        "command-run": 2
       },
-      "digest": "5000a83adb8669bc47adafcdf2d560a5f0740e94db5a5e9a1240c75aacb6fa90"
+      "digest": "7abe5dac7fec72d19865f060bca7578c24a17ef87c0d1cef44f894e7523f4029"
     },
     "src/wel-junit5.mjs": {
       "counts": {
-        "command-run": 3
+        "command-run": 2
       },
-      "digest": "66dae014092c7a1f1cdcd289936ed01e13fa49dd6f0b7e8f894f9d1cbe31c9d0"
+      "digest": "7df5405bef5d83fd9046d9a6e4266e9b69cd20840e947ed9a360cea8398c1411"
     },
     "src/work-intervals.mjs": {
       "counts": {

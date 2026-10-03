@@ -342,9 +342,8 @@ async function retainedValidationBytes(value) {
   ].filter(Boolean));
   for (const execution of evidence.testExecutions ?? []) {
     const receipt = JSON.parse(await readFile(path.join(value.root, execution.receiptPath), 'utf8'));
-    // Node TAP currently has no durable testcase-observation adapter. Where a
-    // supported adapter supplies raw reports, preserve those bytes as well.
-    for (const report of receipt.testcaseObservation?.rawReports ?? []) paths.add(report.path);
+    // Every attempt keeps its raw reports content-addressed; preserve those bytes as well.
+    for (const report of receipt.rawReports ?? []) paths.add(report.path);
   }
   return new Map(await Promise.all([...paths].map(async relative => [relative,
     await readFile(path.join(value.root, relative))])));

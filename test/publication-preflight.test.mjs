@@ -2813,7 +2813,7 @@ test('README correction after Code publication rolls over and retains byte-verif
   }));
   assert.equal(phase.deliveryEvidence.testExecutions.length, 1);
   assert.match(phase.deliveryEvidence.testExecutions[0].receiptPath,
-    /implementation-gen2-fixture-tests\.json$/);
+    /\/context\/code-delivery\/tests\/attempts\/implementation\/TA-[a-f0-9]{20}\.json$/);
   assert.equal(phase.deliveryEvidence.status, 'ready');
 });
 

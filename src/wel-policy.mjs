@@ -41,10 +41,10 @@ export function buildWelEnrollment({
   claimMapContractVersion = currentSchemaVersion('specification-claim-map')
 } = {}) {
   const clauses = witnessedClausePolicies(phases);
-  const exact = structuredClone(codeDelivery?.tests?.testcaseExact ?? {
-    mode: 'disabled', adapter: null, requiredWitnessTypes: ['test'],
-    evidenceTier: 'testcase-local-observed'
-  });
+  // Exact test identity is no longer an opt-in WEL observation (ADR 0016); the enrollment keeps the
+  // field, always disabled, so its pinned shape is unchanged.
+  void codeDelivery;
+  const exact = { mode: 'disabled', adapter: null, requiredWitnessTypes: ['test'], evidenceTier: 'testcase-local-observed' };
   const modes = new Set([
     clauses.length ? 'observe' : 'disabled',
     exact.mode ?? 'disabled'

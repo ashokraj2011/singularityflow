@@ -221,26 +221,16 @@ test('readiness exposes recovery owners while enforcement remains unavailable', 
   ]);
   assert.throws(
     () => normalizeCodeDeliveryPolicy({ tests: { testcaseExact: { mode: 'enforce' } } }),
-    (error) => error.code === 'WEL_ENFORCEMENT_UNAVAILABLE'
-      && error.details?.enforcementAvailable === false
+    (error) => error.code === 'CODE_DELIVERY_POLICY_RETIRED'
   );
 });
 
-test('test-execution v4 migration and current defaults cannot invent lifecycle authority', () => {
-  assert.equal(currentSchemaVersion('test-execution'), 4);
-  const migrated = readRecord('test-execution', {
-    schemaVersion: 3, kind: 'test-execution', candidate: { candidateSha256: H('a') },
-    program: { programSha256: H('b') }, attempt: { attemptSha256: H('c') },
+test('test-execution v5 attempts read only at their own version, and the lifecycle projection invents nothing', () => {
+  assert.equal(currentSchemaVersion('test-execution'), 5);
+  assert.throws(() => readRecord('test-execution', {
+    schemaVersion: 4, kind: 'test-execution', candidate: { candidateSha256: H('a') },
     testcaseObservation: { status: 'observed', assurance: 'testcase-local-observed' }
-  }).record;
-  assert.equal(migrated.schemaVersion, 4);
-  assert.equal(migrated.candidate.candidateSha256, H('a'),
-    'v3 top-level bytes remain historical; the v4 join must not reinterpret them');
-  assert.equal(migrated.lifecycle.status, 'unavailable');
-  assert.equal(migrated.lifecycle.candidate, null);
-  assert.deepEqual(migrated.lifecycle.retryLineage, []);
-  assert.equal(migrated.lifecycle.enforcementEligible, false);
-  assert.equal(validateWelTestLifecycle(migrated.lifecycle), true);
+  }), (error) => error.code === 'SCHEMA_VERSION_ARCHIVED');
 
   const current = unavailableWelTestLifecycle({ observed: true });
   assert.equal(validateWelTestLifecycle(current), true);

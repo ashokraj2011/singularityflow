@@ -1973,83 +1973,6 @@ function codeDeliveryV1ToV2(source) {
   };
 }
 
-function testExecutionV1ToV2(source) {
-  return {
-    ...source,
-    schemaVersion: 2,
-    // These fields did not exist in v1. A v1 record may contain unknown keys, but migration must
-    // not reinterpret them as v2 authority merely because their names match the later contract.
-    candidate: null,
-    program: null,
-    attempt: null,
-    adapterIdentity: null,
-    testcaseObservation: {
-      status: 'unavailable',
-      assurance: 'unavailable',
-      profile: null,
-      occurrences: [],
-      rawReports: [],
-      notice: 'legacy module receipt; testcase execution was not observed'
-    }
-  };
-}
-
-function testExecutionV2ToV3(source) {
-  const observation = source.testcaseObservation ?? {
-    status: 'unavailable', assurance: 'unavailable', profile: null,
-    occurrences: [], rawReports: [], notice: 'testcase execution was not observed'
-  };
-  return {
-    ...source,
-    schemaVersion: 3,
-    testcaseObservation: {
-      ...clone(observation),
-      // v2 observations were deliberately name-only. Migration must never upgrade those names to
-      // exact static identities or create reviewed witness mappings.
-      exact: false,
-      verdict: 'inconclusive',
-      disposition: 'witness-inconclusive',
-      catalog: null,
-      mappingProposals: []
-    }
-  };
-}
-
-function testExecutionV3ToV4(source) {
-  const observed = source.testcaseObservation?.status === 'observed';
-  return {
-    ...source,
-    schemaVersion: 4,
-    // Historical local executions happened before the publication Candidate existed and did not
-    // run as an SGOS material task. Migration records that absence explicitly; it never derives a
-    // Program, attempt, retry lineage, CAB attestation, approval, or publication join from names.
-    lifecycle: {
-      schemaVersion: 1,
-      status: 'unavailable',
-      candidate: null,
-      program: null,
-      attempt: null,
-      retryLineage: [],
-      taskReceipt: null,
-      authenticatedExecution: null,
-      approval: null,
-      publication: null,
-      enforcementEligible: false,
-      gaps: [
-        'WEL_TEST_CANDIDATE_NOT_YET_FROZEN',
-        'WEL_SGOS_PROGRAM_NOT_MATERIALIZED',
-        'WEL_SGOS_ATTEMPT_NOT_DISPATCHED',
-        ...(observed ? [] : ['WEL_EXACT_TEST_OBSERVATION_UNAVAILABLE']),
-        'WEL_AUTHENTICATED_RUNNER_UNAVAILABLE',
-        'WEL_TRUST_AUTHORITY_UNAPPROVED',
-        'WEL_SANDBOX_PLATFORM_EVIDENCE_MISSING',
-        'WEL_RELEASE_MATRIX_EVIDENCE_MISSING',
-        'WEL_INDEPENDENT_SECURITY_REVIEW_MISSING'
-      ]
-    }
-  };
-}
-
 function storySubmissionPacketV1ToV2(source) {
   return {
     ...source,
@@ -2919,13 +2842,11 @@ const families = [
     id: 'comprehension-record-preview', currentVersion: 2,
     steps: [migration(1, 2, comprehensionRecordPreviewV1ToV2)]
   }),
+  // One immutable record per test run [E2G-016]. v5 is a clean break: earlier receipts belong to
+  // archived pilot Stories and are not read by this engine.
   family({
-    id: 'test-execution', currentVersion: 4,
-    steps: [
-      migration(1, 2, testExecutionV1ToV2), migration(2, 3, testExecutionV2ToV3),
-      migration(3, 4, testExecutionV3ToV4)
-    ],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/[^/]+\.json$/], immutable: true
+    id: 'test-execution', currentVersion: 5, minimumReadableVersion: 5,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/attempts\/[^/]+\/TA-[a-f0-9]{20}\.json$/], immutable: true
   }),
   family({
     id: 'code-delivery', currentVersion: 2, minimumReadableVersion: 1,

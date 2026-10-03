@@ -6,15 +6,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+import { replayLocalJavascriptJsonObservation } from '../src/code-delivery-tests.mjs';
+import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
 import {
-  buildTestExecutionReceipt, replayLocalJavascriptJsonObservation
-} from '../src/code-delivery-tests.mjs';
-import { verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
-import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
-import { canonicalJson } from '../src/records.mjs';
-import {
-  classifyJavascriptTestCommandScope, observeJavascriptTestIdentities,
-  verifyJavascriptTestIdentityObservation
+  classifyJavascriptTestCommandScope, observeJavascriptTestIdentities
 } from '../src/wel-javascript.mjs';
 
 function git(root, args) {
@@ -93,38 +88,13 @@ test('a literal Jest test binds the @ac clauses above it without claiming execut
   assert.equal(observation.occurrences[0].identityStatus, 'exact-static-identity');
   assert.equal(observation.catalog.framework, 'jest');
 
-  const receipt = buildTestExecutionReceipt(command, {
-    status: 'passed', exitCode: 0, stderr: '', sourceCommit: git(root, ['rev-parse', 'HEAD']),
-    sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-    completedAt: new Date(1).toISOString()
-  }, parsed, { testcasePolicy: policy, exactTestcaseObservation: observation });
-  assert.equal(receipt.testcaseObservation.exact, true);
-  assert.equal(receipt.testcaseExecutionProven, false);
-  assert.equal(receipt.candidate, null);
-  assert.ok(receipt.testcaseObservation.bindingGaps.includes('sgos-candidate-unavailable'));
-  const verified = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
-  assert.equal(verified.valid, true, verified.errors.join('\n'));
-  assert.deepEqual(verified.rawOccurrences, parsed.testcaseObservation.occurrences);
-
-  const missingProposal = structuredClone(receipt.testcaseObservation);
-  missingProposal.mappingProposals.pop();
-  const incomplete = await verifyJavascriptTestIdentityObservation(root, missingProposal);
-  assert.equal(incomplete.valid, false);
-  assert.ok(incomplete.errors.some((entry) => /incomplete proposal set/.test(entry)));
-
-  const changed = source.replace('test("returns balance"', 'test("changed balance"');
-  await writeFile(path.join(root, 'test', 'payment.test.js'), changed);
-  const stale = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
-  assert.equal(stale.valid, false);
-  assert.ok(stale.errors.some((entry) => /bytes changed/.test(entry)));
-
   // The digest covers the whole test: weakening its assertion under the same name is a change.
   const [declaration] = observation.catalog.declarations;
   assert.equal(source.slice(declaration.span.start, declaration.span.end), source.slice(source.indexOf('test('), source.lastIndexOf('});') + 3));
-  await writeFile(path.join(root, 'test', 'payment.test.js'), source.replace('expect(2).toBe(2);', 'expect(true).toBe(true);'));
-  const weakened = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
-  assert.equal(weakened.valid, false, 'a weakened assertion kept the reviewed digest');
-  assert.ok(weakened.errors.some((entry) => /bytes changed/.test(entry)));
+  const [weakened] = scanJavaScriptDeclarations(source.replace('expect(2).toBe(2);', 'expect(true).toBe(true);'), {
+    sourcePath: declaration.sourcePath, framework: 'jest'
+  }).declarations;
+  assert.notEqual(weakened.declarationSha256, declaration.declarationSha256, 'a weakened assertion kept the reviewed digest');
 });
 
 test('dynamic, conditional, unattached and parameterized JavaScript declarations fail safely', async () => {
@@ -185,92 +155,6 @@ test('Jest/Vitest report replay rejects aggregate drift and ambiguous occurrence
   assert.equal(vitest.testcaseObservation.parser.framework, 'vitest');
 });
 
-test('delivery replay binds JavaScript source, normalized occurrences, and the content-addressed report', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-javascript-delivery-'));
-  await mkdir(path.join(root, 'src'), { recursive: true });
-  await writeFile(path.join(root, 'package.json'), '{"scripts":{"test":"jest"}}\n');
-  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = false;\n');
-  git(root, ['init', '-q']);
-  git(root, ['config', 'user.name', 'WEL JavaScript Delivery']);
-  git(root, ['config', 'user.email', 'wel-js-delivery@example.test']);
-  git(root, ['remote', 'add', 'origin', 'https://example.test/team/javascript-delivery.git']);
-  git(root, ['add', '.']);
-  git(root, ['commit', '-qm', 'baseline']);
-  const baseline = git(root, ['rev-parse', 'HEAD']);
-
-  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = true;\n');
-  await mkdir(path.join(root, 'test'), { recursive: true });
-  await writeFile(path.join(root, 'test', 'payment.test.js'), [
-    '// @ac:PAY:AC-001',
-    'test("returns balance", () => {',
-    '  expect(payment).toBe(true);',
-    '});',
-    ''
-  ].join('\n'));
-  const changeSet = await buildRepositoryChangeSet(root, { baseCommit: baseline });
-  const changeSetPath = 'singularity/work-items/PAY/context/code-delivery/implementation-gen1-changes.json';
-  await mkdir(path.dirname(path.join(root, changeSetPath)), { recursive: true });
-  await writeFile(path.join(root, changeSetPath), `${JSON.stringify(changeSet, null, 2)}\n`);
-  git(root, ['add', '.']);
-  git(root, ['commit', '-qm', 'publish generation']);
-  const generationCommit = git(root, ['rev-parse', 'HEAD']);
-  const generationTree = git(root, ['rev-parse', 'HEAD^{tree}']);
-
-  const parsed = parsedReport();
-  const observation = await observeJavascriptTestIdentities(root, command, parsed, policy);
-  const testReceipt = buildTestExecutionReceipt(command, {
-    status: 'passed', exitCode: 0, stderr: '', sourceCommit: generationCommit,
-    sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-    completedAt: new Date(1).toISOString()
-  }, parsed, { testcasePolicy: policy, exactTestcaseObservation: observation });
-  const reportBytes = parsed.rawReports[0].contents;
-  const reportSha256 = createHash('sha256').update(reportBytes).digest('hex');
-  const rawReportPath = `singularity/work-items/PAY/context/code-delivery/tests/raw/${reportSha256}.bin`;
-  await mkdir(path.dirname(path.join(root, rawReportPath)), { recursive: true });
-  await writeFile(path.join(root, rawReportPath), reportBytes);
-  testReceipt.testcaseObservation.rawReports = [{
-    path: rawReportPath, sha256: reportSha256, bytes: reportBytes.length
-  }];
-  const testReceiptPath = 'singularity/work-items/PAY/context/code-delivery/tests/implementation-gen1-node.json';
-  await mkdir(path.dirname(path.join(root, testReceiptPath)), { recursive: true });
-  await writeFile(path.join(root, testReceiptPath), `${JSON.stringify(testReceipt, null, 2)}\n`);
-
-  const deliveryReceipt = {
-    schemaVersion: 2, kind: 'code-delivery', workId: 'PAY', phase: 'implementation', generation: 1,
-    generationIntentId: 'intent',
-    changeSet: {
-      path: changeSetPath, digest: changeSet.digest, sourcePaths: ['src/payment.js'],
-      executableTestPaths: ['test/payment.test.js'], supportingTestPaths: []
-    },
-    traceability: {
-      required: ['PAY:AC-001'], bound: ['PAY:AC-001'], missing: [], ambiguous: [],
-      bindings: [{
-        clauseId: 'PAY:AC-001', testSource: 'test/payment.test.js',
-        bindingAssurance: 'namespace-qualified', testIdentity: null,
-        moduleRoot: '.', commandId: 'node-tests', executionAssurance: 'module-executed'
-      }]
-    },
-    testExecutions: [{
-      commandId: 'node-tests', receiptPath: testReceiptPath,
-      receiptSha256: createHash('sha256').update(canonicalJson(testReceipt)).digest('hex'),
-      status: 'passed', affectedRoots: ['.']
-    }],
-    tree: { workingStateDigest: 'c'.repeat(64), generationCommit, generationTree },
-    model: {
-      task: 'code', required: false, authorshipProducer: 'human',
-      assurance: 'unavailable', invocationIds: []
-    },
-    status: 'ready', capturedAt: new Date(0).toISOString()
-  };
-  const verified = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
-  assert.equal(verified.valid, true, verified.errors.join('\n'));
-
-  await writeFile(path.join(root, rawReportPath), Buffer.from('{}'));
-  const tampered = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
-  assert.equal(tampered.valid, false);
-  assert.ok(tampered.errors.some((entry) => /raw report is unavailable/.test(entry)));
-});
-
 test('the bounded JavaScript identity corpus produces zero false exact matches', async () => {
   const corpus = JSON.parse(await readFile(
     new URL('./fixtures/wel-javascript/corpus.json', import.meta.url), 'utf8'
@@ -302,17 +186,10 @@ test('the bounded JavaScript identity corpus produces zero false exact matches',
     assert.equal(observation.mappingProposals.length, entry.proposalCount, entry.id);
     if (entry.gap) assert.ok(observation.gaps.includes(entry.gap), entry.id);
     if (entry.exact) {
-      const receipt = buildTestExecutionReceipt({
-        ...command, result: { ...command.result, adapter }
-      }, {
-        status: 'passed', exitCode: 0, stderr: '', sourceCommit: git(root, ['rev-parse', 'HEAD']),
-        sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-        completedAt: new Date(1).toISOString()
-      }, parsed, {
-        testcasePolicy: { ...policy, adapter: profile }, exactTestcaseObservation: observation
-      });
-      const verified = await verifyJavascriptTestIdentityObservation(root, receipt.testcaseObservation);
-      assert.equal(verified.valid, true, `${entry.id}: ${verified.errors.join('\n')}`);
+      assert.ok(observation.occurrences.length > 0, entry.id);
+      assert.ok(observation.occurrences.every((occurrence) => occurrence.identityStatus === 'exact-static-identity'), entry.id);
+    } else {
+      assert.equal(observation.occurrences.length, 0, `${entry.id}: false exact occurrence`);
     }
   }
 });

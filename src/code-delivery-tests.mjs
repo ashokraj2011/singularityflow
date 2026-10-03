@@ -4,11 +4,10 @@ import { access, lstat, open, readFile, readdir, realpath, stat } from 'node:fs/
 import path from 'node:path';
 
 import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
-import { welResultAdapter } from './wel-adapters.mjs';
-import { unavailableWelTestLifecycle } from './wel-test-lifecycle.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
   '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
@@ -1362,36 +1361,7 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     });
   }
   const bytes = combinedReports(contents);
-  let tests;
-  let testcaseObservation = null;
-  if (['junit-xml', 'dotnet-trx'].includes(adapter)) {
-    if (adapter === 'dotnet-trx') {
-      const documents = contents.map(decodeXmlReport);
-      tests = documents.map(trxCounts).reduce((totals, counts) => ({
-        discovered: totals.discovered + counts.discovered,
-        passed: totals.passed + counts.passed,
-        failed: totals.failed + counts.failed,
-        skipped: totals.skipped + counts.skipped
-      }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
-    } else {
-      const replay = replayLocalJunitObservation(contents.map((content) => ({ contents: content })));
-      tests = replay.tests;
-      testcaseObservation = replay.testcaseObservation;
-    }
-  } else if (adapter === 'node-tap') {
-    tests = nodeTapCounts(bytes.toString('utf8'));
-  } else if (adapter === 'karma-text') {
-    tests = karmaTextCounts(bytes.toString('utf8'));
-  } else if (adapter === 'go-test-json') {
-    const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-    tests = countsFromJson(adapter, events);
-  } else {
-    const json = JSON.parse(bytes.toString('utf8'));
-    tests = countsFromJson(adapter, json);
-    if (['jest-json', 'vitest-json'].includes(adapter)) {
-      testcaseObservation = javascriptJsonObservation(adapter, json);
-    }
-  }
+  const { tests, testcaseObservation } = testReportFromContents(adapter, contents);
   return {
     adapter, tests, testcaseObservation,
     result: {
@@ -1411,6 +1381,71 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     minimumDiscovered: normalizedCommand.result.minimumDiscovered,
     minimumPassed: normalizedCommand.result.minimumPassed
   };
+}
+
+/** Counts and occurrences of one adapter's report bytes, in report-file order. */
+function testReportFromContents(adapter, contents) {
+  const bytes = combinedReports(contents);
+  if (adapter === 'dotnet-trx') {
+    const tests = contents.map(decodeXmlReport).map(trxCounts).reduce((totals, counts) => addTestCounts(totals, counts),
+      { discovered: 0, passed: 0, failed: 0, skipped: 0 });
+    return { tests, testcaseObservation: null };
+  }
+  if (adapter === 'junit-xml') {
+    const replay = replayLocalJunitObservation(contents.map((content) => ({ contents: content })));
+    return { tests: replay.tests, testcaseObservation: replay.testcaseObservation };
+  }
+  if (adapter === 'node-tap') return { tests: nodeTapCounts(bytes.toString('utf8')), testcaseObservation: null };
+  if (adapter === 'karma-text') return { tests: karmaTextCounts(bytes.toString('utf8')), testcaseObservation: null };
+  if (adapter === 'go-test-json') {
+    const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    return { tests: countsFromJson(adapter, events), testcaseObservation: null };
+  }
+  const json = JSON.parse(bytes.toString('utf8'));
+  return {
+    tests: countsFromJson(adapter, json),
+    testcaseObservation: ['jest-json', 'vitest-json'].includes(adapter) ? javascriptJsonObservation(adapter, json) : null
+  };
+}
+
+/**
+ * Re-read a retained attempt's raw reports [E2G-016]. Verification replays the exact projection
+ * the attempt recorded, so a tampered count, occurrence or report is a mismatch, not a pass.
+ */
+export function replayTestReports(adapter, rawReports) {
+  if (!Array.isArray(rawReports) || !rawReports.length || rawReports.length > MAX_RESULT_FILES) {
+    throw new SingularityFlowError('Test report replay requires a bounded, non-empty raw report set.', { code: 'CODE_TEST_RESULT_REQUIRED' });
+  }
+  const contents = rawReports.map((report) => Buffer.from(report.contents));
+  if (contents.some((content) => content.length > MAX_RESULT_FILE_BYTES)
+      || contents.reduce((total, content) => total + content.length, 0) > MAX_RESULT_TOTAL_BYTES) {
+    throw new SingularityFlowError('Test report replay exceeds the configured report byte limits.', { code: 'CODE_TEST_RESULT_REQUIRED' });
+  }
+  const bytes = combinedReports(contents);
+  return {
+    adapter, ...testReportFromContents(adapter, contents),
+    result: { sha256: sha256(bytes), bytes: bytes.length, files: contents.map((content) => ({ sha256: sha256(content), bytes: content.length })) }
+  };
+}
+
+/**
+ * The occurrences an attempt keeps: every test the report names, with its outcome. JUnit
+ * occurrences are named by class and method; Jest and Vitest by describe path and title.
+ */
+export function persistedOccurrences(parsed) {
+  const occurrences = parsed?.testcaseObservation?.occurrences ?? [];
+  if (occurrences.length > MAX_TESTCASE_OCCURRENCES) {
+    throw new SingularityFlowError(`A test report names more than ${MAX_TESTCASE_OCCURRENCES} occurrences.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+  }
+  return occurrences.map((occurrence) => ({
+    ...(Array.isArray(occurrence.ancestorTitles)
+      ? { suitePath: [...occurrence.ancestorTitles] }
+      : { className: occurrence.className ?? null }),
+    name: occurrence.name ?? null,
+    outcome: occurrence.outcome,
+    ...(occurrence.flaky === true ? { flaky: true } : {}),
+    durationMs: occurrence.durationMs ?? null
+  }));
 }
 
 function consistentTestCounts(tests) {
@@ -1435,109 +1470,64 @@ export function testReceiptPassing(receipt, minimumDiscovered = 1, minimumPassed
     && number(receipt.tests?.failed) === 0;
 }
 
+/**
+ * One immutable test-execution attempt (test-execution v5) [E2G-016].
+ *
+ * The record keeps what the run proved and nothing it did not: the exact command, what it
+ * selects, the host it ran on, the candidate tree it ran against, how the process ended, the
+ * module counts, every occurrence the report names and the content-addressed raw reports. A run
+ * that failed, was blocked or produced no usable report is recorded just the same; its status says
+ * so. `testReceiptPassing` decides whether the module command passed; whether a criterion's own
+ * test passed is the evaluator's join, never this record's.
+ */
 export function buildTestExecutionReceipt(command, check, parsed, {
-  testcasePolicy = null,
-  exactTestcaseObservation = null
+  attemptId, nonce, parentAttemptId = null, purpose = 'submission', workId = null, phase = null,
+  generation = null, epoch = null, rawReports = [], reportError = null, profile = null, selection = null
 } = {}) {
-  const countsValid = consistentTestCounts(parsed.tests);
-  const status = check.status === 'passed'
-    ? (!countsValid
-      || parsed.tests.discovered < parsed.minimumDiscovered
-      || parsed.tests.passed < parsed.minimumPassed
-      || parsed.tests.failed ? 'failed' : 'passed')
-    : check.status === 'skipped-warning' ? 'skipped' : check.status;
-  const observationEnabled = testcasePolicy?.mode === 'observe';
-  const observationSupported = observationEnabled
-    && welResultAdapter(testcasePolicy?.adapter) === parsed.adapter
-    && parsed.testcaseObservation != null;
-  const exactIdentityObserved = observationSupported
-    && exactTestcaseObservation?.status === 'observed'
-    && exactTestcaseObservation.exact === true;
-  const identityOccurrences = exactIdentityObserved
-    ? parsed.testcaseObservation.occurrences.map((occurrence) => {
-      const exact = exactTestcaseObservation.occurrences.find((candidate) =>
-        testcasePolicy.adapter === 'junit5-surefire-v1'
-          ? candidate.className === occurrence.className && candidate.name === occurrence.name
-          : candidate.fullName === occurrence.fullName && candidate.name === occurrence.name
-            && JSON.stringify(candidate.ancestorTitles) === JSON.stringify(occurrence.ancestorTitles));
-      return exact ?? occurrence;
-    })
-    : parsed.testcaseObservation?.occurrences ?? [];
-  const testcaseObservation = observationSupported ? {
-    status: 'observed',
-    assurance: 'testcase-local-observed',
-    exact: exactIdentityObserved,
-    verdict: 'inconclusive',
-    disposition: exactIdentityObserved ? 'unreviewed-witness-observed' : 'witness-inconclusive',
-    profile: testcasePolicy.adapter,
-    parser: exactIdentityObserved
-      ? exactTestcaseObservation.catalog.parser : parsed.testcaseObservation.parser,
-    catalog: exactIdentityObserved ? exactTestcaseObservation.catalog : null,
-    mappingProposals: exactIdentityObserved ? exactTestcaseObservation.mappingProposals : [],
-    occurrences: identityOccurrences,
-    rawReports: [],
-    bindingGaps: [
-      'sgos-candidate-unavailable',
-      'gvm-program-unavailable',
-      'durable-attempt-id-and-nonce-unavailable',
-      ...(exactIdentityObserved ? [] : ['exact-static-test-identity-unavailable']),
-      ...(exactTestcaseObservation?.gaps ?? []).map((gap) => String(gap).toLowerCase().replaceAll('_', '-')),
-      'reviewed-witness-mapping-unavailable'
-    ],
-    notice: exactIdentityObserved
-      ? 'candidate-controlled test report joined to exact static test declarations; verdict remains inconclusive because the mapping is unreviewed and SGOS Candidate, GVM Program, durable attempt/nonce, and independent execution attestation are unavailable'
-      : 'candidate-controlled test report captured as a non-exact local observation; verdict is inconclusive because SGOS Candidate, GVM Program, durable attempt/nonce, exact declaration, and reviewed witness bindings are unavailable; no independent execution attestation'
-  } : {
-    status: observationEnabled ? 'unsupported' : 'unavailable',
-    assurance: 'unavailable',
-    exact: false,
-    verdict: 'inconclusive',
-    profile: observationEnabled ? testcasePolicy?.adapter ?? null : null,
-    parser: null,
-    catalog: null,
-    mappingProposals: [],
-    occurrences: [],
-    rawReports: [],
-    bindingGaps: [],
-    notice: observationEnabled
-      ? `configured exact-test observer does not support result adapter '${parsed.adapter}'`
-      : 'exact-test observation was not enrolled for this Story'
+  const countsValid = parsed ? consistentTestCounts(parsed.tests) : false;
+  const processPassed = check?.status === 'passed' && check.exitCode === 0;
+  const status = !check || check.status === 'skipped-warning' ? 'skipped'
+    : check.status === 'blocked' ? 'blocked'
+      : !processPassed ? 'failed'
+        : !parsed ? 'unavailable'
+          : (!countsValid || parsed.tests.discovered < parsed.minimumDiscovered
+            || parsed.tests.passed < parsed.minimumPassed || parsed.tests.failed) ? 'failed' : 'passed';
+  const commandCore = {
+    argv: command.argv, workingDirectory: command.workingDirectory, affectedRoots: command.affectedRoots,
+    result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null }
   };
-  const receipt = {
+  return {
     schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
+    attemptId, nonce, parentAttemptId, purpose, workId, phase, generation, ...(epoch ? { epoch } : {}),
     commandId: command.id,
+    commandSha256: `sha256:${sha256(canonicalJson(commandCore))}`,
     argvSha256: sha256(Buffer.from(JSON.stringify(command.argv))),
+    selection: selection ? { ...selection, selectionSha256: `sha256:${sha256(canonicalJson({ profile, ...selection }))}` } : null,
+    environment: { platform: process.platform, arch: process.arch, host: `node ${process.versions.node}` },
+    environmentSha256: `sha256:${sha256(canonicalJson({ platform: process.platform, arch: process.arch }))}`,
     platform: process.platform,
     workingDirectory: command.workingDirectory,
     affectedRoots: command.affectedRoots,
-    adapter: parsed.adapter,
+    adapter: parsed?.adapter ?? command.result?.adapter ?? null,
+    profile,
+    candidate: { commit: check?.sourceCommit ?? null, treeSha256: check?.sourceTreeSha256 ?? null },
+    process: {
+      status: check?.status ?? 'not-run', exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,
+      signal: check?.signal ?? null, timedOut: check?.timedOut === true,
+      infrastructureUnavailable: check?.infrastructureUnavailable === true,
+      startedAt: check?.startedAt ?? null, completedAt: check?.completedAt ?? null
+    },
     status,
-    exitCode: check.exitCode,
-    timedOut: check.status === 'blocked' && /timeout|exceeded/i.test(check.stderr ?? ''),
-    skipped: check.status === 'skipped-warning',
+    terminal: status !== 'skipped' && !(status === 'blocked' && check?.infrastructureUnavailable === true),
+    exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,
+    timedOut: check?.timedOut === true || (check?.status === 'blocked' && /timeout|exceeded/i.test(check?.stderr ?? '')),
+    skipped: check?.status === 'skipped-warning',
     suppressed: false,
-    tests: parsed.tests,
-    result: parsed.result,
-    candidate: null,
-    program: null,
-    attempt: null,
-    lifecycle: unavailableWelTestLifecycle({ observed: observationSupported }),
-    localExecution: observationSupported ? {
-      sourceCommit: check.sourceCommit ?? null,
-      sourceTreeSha256: check.sourceTreeSha256 ?? null,
-      startedAt: check.startedAt ?? null,
-      completedAt: check.completedAt ?? null
-    } : null,
-    adapterIdentity: observationSupported ? {
-      id: testcasePolicy.adapter,
-      parser: exactIdentityObserved
-        ? exactTestcaseObservation.catalog.parser : parsed.testcaseObservation.parser,
-      resultParser: parsed.testcaseObservation.parser
-    } : null,
-    testcaseObservation,
-    assurance: 'module-executed',
-    testcaseExecutionProven: false,
-    assuranceNotice: 'module executed; tagged test execution not independently proven'
+    tests: parsed?.tests ?? null,
+    result: parsed?.result ?? null,
+    rawReports,
+    occurrences: parsed ? persistedOccurrences(parsed) : [],
+    reportError,
+    assurance: 'module-executed'
   };
-  return receipt;
 }

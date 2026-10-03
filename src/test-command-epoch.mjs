@@ -93,8 +93,10 @@ async function verifyEpochExecutions(root, config, workflow, phase, record, { pa
   const paths = new Set();
   for (const command of commands) {
     const execution = executions.find(entry => entry.commandId === command.id);
-    const expectedPath = `${base}/tests/${phase.id}-gen${phase.generation}-${suffix}-${command.id.replace(/[^A-Za-z0-9._-]+/g, '-')}.json`;
-    if (execution.receiptPath !== expectedPath || paths.has(expectedPath)) fail('The current epoch has a historical, ambiguous, or foreign child test receipt path.');
+    const expectedPath = `${base}/tests/attempts/${phase.id}/${execution.attemptId}.json`;
+    if (!/^TA-[a-f0-9]{20}$/u.test(execution.attemptId ?? '') || execution.receiptPath !== expectedPath || paths.has(expectedPath)) {
+      fail('The current epoch has a historical, ambiguous, or foreign child test receipt path.');
+    }
     paths.add(expectedPath);
     const stored = await boundedRecord(root, expectedPath, packet?.evidenceCommit);
     if (digest(stored) !== qualified(execution.receiptSha256)) fail('The current epoch child receipt digest does not match its exact bytes.');
@@ -116,6 +118,10 @@ async function verifyEpochExecutions(root, config, workflow, phase, record, { pa
       || !decisionBytes || bytesDigest(decisionBytes) !== amendment.decisionSha256
       || (packet && !commitIsAncestor(root, check.sourceCommit, packet.evidenceCommit))) {
       fail('The current epoch lacks fresh source-bound execution after its authenticated runner amendment.');
+    }
+    if (child.attemptId !== execution.attemptId || child.purpose !== 'epoch' || child.epoch !== suffix
+      || child.phase !== phase.id || Number(child.generation) !== Number(phase.generation)) {
+      fail('The current epoch child attempt does not belong to this epoch, step and generation.');
     }
     if (execution.status !== 'passed' || child.commandId !== command.id
       || child.argvSha256 !== createHash('sha256').update(JSON.stringify(command.argv)).digest('hex')

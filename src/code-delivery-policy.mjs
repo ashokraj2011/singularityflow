@@ -2,8 +2,6 @@ import { SingularityFlowError } from './util.mjs';
 import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
-import { WEL_EXACT_TEST_ADAPTERS } from './wel-adapters.mjs';
-import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -18,11 +16,7 @@ export const DEFAULT_CODE_DELIVERY_POLICY = Object.freeze({
   tests: Object.freeze({
     requireExecutableSource: true, minimumDiscovered: 1, minimumPassed: 1, executionAssurance: 'module',
     stringCommands: 'reject', unknownModelPolicy: 'block', requireResultAdapter: true,
-    requireAffectedModuleCoverage: true,
-    testcaseExact: Object.freeze({
-      mode: 'disabled', adapter: null, requiredWitnessTypes: Object.freeze(['test']),
-      evidenceTier: 'testcase-local-observed'
-    })
+    requireAffectedModuleCoverage: true
   }),
   traceability: Object.freeze({
     source: 'pinned-spec-index', requireNamespaceQualifiedIds: true,
@@ -63,75 +57,6 @@ function integerValue(value, minimum, maximum, label) {
   return value;
 }
 
-function plainObject(value, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError(`${label} must be an object.`);
-  }
-  return value;
-}
-
-function rejectUnknownKeys(value, allowed, label) {
-  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
-  if (unknown.length) {
-    throw new SingularityFlowError(
-      `${label} contains unsupported field${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}.`,
-      { code: 'WEL_POLICY_UNSUPPORTED' }
-    );
-  }
-}
-
-function stringList(value, allowed, label) {
-  if (!Array.isArray(value) || !value.length || value.some((item) => typeof item !== 'string')) {
-    throw new SingularityFlowError(`${label} must be a non-empty string array.`);
-  }
-  const normalized = [...new Set(value.map((item) => item.trim()).filter(Boolean))];
-  if (!normalized.length || normalized.some((item) => !allowed.includes(item))) {
-    throw new SingularityFlowError(`${label} currently supports only: ${allowed.join(', ')}.`);
-  }
-  return normalized;
-}
-
-function normalizeTestcaseExactPolicy(value, defaults) {
-  const source = value == null ? {} : plainObject(value, 'codeDelivery.tests.testcaseExact');
-  rejectUnknownKeys(source, ['mode', 'adapter', 'requiredWitnessTypes', 'evidenceTier'], 'codeDelivery.tests.testcaseExact');
-  const mode = enumValue(source.mode ?? defaults.mode, ['disabled', 'observe', 'enforce'], 'codeDelivery.tests.testcaseExact.mode');
-  if (mode === 'enforce') {
-    const readiness = unavailableWelEnforcementReadiness();
-    throw new SingularityFlowError(
-      'codeDelivery.tests.testcaseExact.mode enforce is unavailable until the authenticated CAB runner, exact SGOS lifecycle join, trusted release evidence, and recovery path are approved. Use observe or disabled.',
-      { code: 'WEL_ENFORCEMENT_UNAVAILABLE', details: readiness }
-    );
-  }
-  const adapter = source.adapter ?? defaults.adapter;
-  if (adapter != null && !WEL_EXACT_TEST_ADAPTERS.includes(adapter)) {
-    throw new SingularityFlowError(
-      `codeDelivery.tests.testcaseExact.adapter must be one of: ${WEL_EXACT_TEST_ADAPTERS.join(', ')}.`,
-      { code: 'WEL_TEST_ADAPTER_UNSUPPORTED' }
-    );
-  }
-  if (mode === 'observe' && adapter == null) {
-    throw new SingularityFlowError(
-      'codeDelivery.tests.testcaseExact.adapter is required when exact-test observation is enabled.',
-      { code: 'WEL_TEST_ADAPTER_REQUIRED' }
-    );
-  }
-  const evidenceTier = enumValue(
-    source.evidenceTier ?? defaults.evidenceTier,
-    ['testcase-local-observed'],
-    'codeDelivery.tests.testcaseExact.evidenceTier'
-  );
-  return {
-    mode,
-    adapter,
-    requiredWitnessTypes: stringList(
-      source.requiredWitnessTypes ?? defaults.requiredWitnessTypes,
-      ['test'],
-      'codeDelivery.tests.testcaseExact.requiredWitnessTypes'
-    ),
-    evidenceTier
-  };
-}
-
 /** Normalize once at configuration load and pin the exact result into every Story. */
 export function normalizeCodeDeliveryPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -141,7 +66,14 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
   const generationBoundary = { ...defaults.generationBoundary, ...(value.generationBoundary ?? {}) };
   const changeSet = { ...defaults.changeSet, ...(value.changeSet ?? {}) };
   const tests = { ...defaults.tests, ...(value.tests ?? {}) };
-  tests.testcaseExact = normalizeTestcaseExactPolicy(value.tests?.testcaseExact, defaults.tests.testcaseExact);
+  // Exact test identity is no longer an opt-in observation: every Jest, Vitest and JUnit 5 module
+  // gets it from its adapter (ADR 0016). The old knob is refused rather than silently ignored.
+  if (value.tests?.testcaseExact !== undefined) {
+    throw new SingularityFlowError(
+      'codeDelivery.tests.testcaseExact is retired: exact test identity now comes from each module\'s test adapter. Remove the setting.',
+      { code: 'CODE_DELIVERY_POLICY_RETIRED' }
+    );
+  }
   const traceability = { ...defaults.traceability, ...(value.traceability ?? {}) };
   const publication = { ...defaults.publication, ...(value.publication ?? {}) };
   const display = { ...defaults.display, ...(value.display ?? {}) };
@@ -165,12 +97,11 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
       requireExecutableSource: requiredBoolean(tests.requireExecutableSource, true, 'codeDelivery.tests.requireExecutableSource'),
       minimumDiscovered: integerValue(tests.minimumDiscovered, 1, 1_000_000, 'codeDelivery.tests.minimumDiscovered'),
       minimumPassed: integerValue(tests.minimumPassed, 1, 1_000_000, 'codeDelivery.tests.minimumPassed'),
-      executionAssurance: enumValue(tests.executionAssurance, ['module', 'testcase-exact'], 'codeDelivery.tests.executionAssurance'),
+      executionAssurance: enumValue(tests.executionAssurance, ['module'], 'codeDelivery.tests.executionAssurance'),
       stringCommands: enumValue(tests.stringCommands, ['reject'], 'codeDelivery.tests.stringCommands'),
       unknownModelPolicy: enumValue(tests.unknownModelPolicy, ['block'], 'codeDelivery.tests.unknownModelPolicy'),
       requireResultAdapter: requiredBoolean(tests.requireResultAdapter, true, 'codeDelivery.tests.requireResultAdapter'),
-      requireAffectedModuleCoverage: booleanValue(tests.requireAffectedModuleCoverage, 'codeDelivery.tests.requireAffectedModuleCoverage'),
-      testcaseExact: tests.testcaseExact
+      requireAffectedModuleCoverage: booleanValue(tests.requireAffectedModuleCoverage, 'codeDelivery.tests.requireAffectedModuleCoverage')
     },
     traceability: {
       source: enumValue(traceability.source, ['pinned-spec-index'], 'codeDelivery.traceability.source'),

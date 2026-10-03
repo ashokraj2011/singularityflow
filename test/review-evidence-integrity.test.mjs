@@ -23,13 +23,13 @@ test('review replays v1 packet and test identities from the immutable submission
   git(root, ['config', 'user.email', 'review@example.invalid']);
   const evidenceRoot = 'singularity/work-items/REV-1/context/code-delivery';
   const codePath = `${evidenceRoot}/implementation-gen1.json`;
-  const testPath = `${evidenceRoot}/tests/implementation-gen1-unit.json`;
+  const testPath = `${evidenceRoot}/tests/attempts/implementation/TA-00000000000000000001.json`;
   const artifactPath = 'singularity/work-items/REV-1/artifacts/implementation/implementation-summary.md';
   const artifactBytes = Buffer.from('# Immutable implementation evidence\n');
   const codeReceipt = { schemaVersion: currentSchemaVersion('code-delivery'), kind: 'code-delivery', status: 'ready' };
   const testReceipt = {
-    schemaVersion: 1, kind: 'test-execution', status: 'passed',
-    assurance: 'module-executed', testcaseExecutionProven: false
+    schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
+    attemptId: 'TA-00000000000000000001', status: 'passed', assurance: 'module-executed'
   };
   const digest = (record) => createHash('sha256').update(canonicalJson(record)).digest('hex');
   const base = {

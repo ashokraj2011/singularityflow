@@ -214,10 +214,10 @@ import {
   observeAutoCandidateWorktree
 } from './auto/auto-candidate.mjs';
 import {
-  buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
+  normalizeRequiredTestCommand, parseTestResult,
   resolveAffectedModule, structuredTestCommandRequiredError, testReceiptPassing
 } from './code-delivery-tests.mjs';
-import { observeExactTestcaseIdentities } from './wel-adapters.mjs';
+import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
@@ -3416,6 +3416,7 @@ export async function publishGeneration(root, config, workflow, {
     await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
     const testedSelection = deliveryPreflight.trpSelection ?? null;
     const testedRisk = deliveryPreflight.testRecovery ?? null;
+    const testedAttempts = deliveryPreflight.preflightAttempts ?? [];
     // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
@@ -3433,6 +3434,7 @@ export async function publishGeneration(root, config, workflow, {
       deliveryPreflight.trpSelection = testedSelection;
     }
     if (testedRisk) deliveryPreflight.testRecovery = testedRisk;
+    deliveryPreflight.preflightAttempts = testedAttempts;
   }
   // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
   // publication path. Re-read the immutable Candidate after all preflight tests and before the
@@ -4548,7 +4550,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
       ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
       ...(result.timedOut ? { timedOut: true } : {}),
-      exitCode: result.status, stdout: boundedQualityDiagnostic(result.stdout),
+      exitCode: result.status, signal: result.signal ?? null, stdout: boundedQualityDiagnostic(result.stdout),
       stderr: boundedQualityDiagnostic(result.timedOut
         ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
         : infrastructureError ?? result.stderr),
@@ -4584,12 +4586,6 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
 }
 
 async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
-  if (workflow.resolution?.codeDelivery?.tests?.executionAssurance === 'testcase-exact') {
-    throw new SingularityFlowError(
-      'testcase-exact assurance requires an adapter that binds source annotations to executed test identities; no such binding is configured.',
-      { code: 'CODE_TEST_RESULT_REQUIRED' }
-    );
-  }
   let commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
     .map((command, index) => ({
@@ -4640,9 +4636,20 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
   });
   const passing = [];
+  const attempts = [];
+  deliveryEvidence.preflightAttempts = attempts;
   try {
     for (const command of commands) {
       const check = checks.find((entry) => entry.id === command.id);
+      // Every run is one immutable attempt, recorded before its result is judged [E2G-016].
+      const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+        command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
+        generation: nextPhaseGeneration(phase)
+      }) : null;
+      if (recorded) {
+        attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
+          receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots });
+      }
       try {
         if (!check || check.status === 'skipped-warning') {
           throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
@@ -4672,20 +4679,14 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         if (check.status !== 'passed' || check.exitCode !== 0) {
           throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
         }
-        const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+        const parsed = recorded.parsed ?? await parseTestResult(root, command, { startedAt: check.startedAt });
         if (parsed.tests.skipped > 0 && riskRun && workflow.resolution.testRecovery.enabledRiskCategories.includes('reduced-coverage')) {
           const observation = await captureStoryTestRiskObservation(root, config, workflow, phase,
             { run: riskRun, check, result: qualityCommandResults.get(check) });
           if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
             operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
         }
-        const exactTestcaseObservation = await observeExactTestcaseIdentities(
-          root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
-        );
-        const receipt = buildTestExecutionReceipt(command, check, parsed, {
-          testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
-          exactTestcaseObservation
-        });
+        const receipt = recorded.attempt;
         if (receipt.tests.discovered < parsed.minimumDiscovered) {
           throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
         }
@@ -4713,36 +4714,9 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       throw new SingularityFlowError(`No passing test command covers affected paths before publication: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
     }
   }
+  // The publication commits this preflight and every earlier kept attempt of the step [E2G-016].
+  await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   return { commands, checks };
-}
-
-async function persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt, epochRun = null) {
-  if (receipt.testcaseObservation?.status !== 'observed') return receipt;
-  const directoryRelative = posix(path.join(
-    workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests', 'raw',
-    `${phase.id}-gen${phase.generation}${epochRun ? `-${epochRun.suffix}` : ''}`, command.id.replace(/[^A-Za-z0-9._-]+/g, '-')
-  ));
-  await ensureSecureRepositoryDirectory(root, directoryRelative, {
-    label: 'Durable local test observation directory'
-  });
-  const references = [];
-  for (const report of parsed.rawReports ?? []) {
-    const extension = path.posix.extname(report.sourcePath).toLowerCase() === '.xml' ? '.xml' : '.bin';
-    const relative = `${directoryRelative}/${report.sha256}${extension}`;
-    const absolute = path.join(root, relative);
-    try {
-      await writeFile(absolute, report.contents, { flag: 'wx', mode: 0o600 });
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-    }
-    await readDurableTestObservation(root, relative, {
-      expectedSha256: report.sha256,
-      expectedBytes: report.bytes
-    });
-    references.push({ path: relative, sha256: report.sha256, bytes: report.bytes });
-  }
-  receipt.testcaseObservation.rawReports = references;
-  return receipt;
 }
 
 async function submitPhaseTransition(root, config, workflow, {
@@ -4874,12 +4848,6 @@ async function submitPhaseTransition(root, config, workflow, {
   let trpSelection = null;
   let requiredTestCommands = [];
   if (codeDeliveryRequired) {
-    if (workflow.resolution?.codeDelivery?.tests?.executionAssurance === 'testcase-exact') {
-      throw new SingularityFlowError(
-        'testcase-exact assurance requires an adapter that binds source annotations to executed test identities; no such binding is configured.',
-        { code: 'CODE_TEST_RESULT_REQUIRED' }
-      );
-    }
     const evidence = phase.deliveryEvidence;
     if (!evidence || Number(evidence.generation) !== Number(phase.generation)) {
       throw new SingularityFlowError(
@@ -5074,6 +5042,7 @@ async function submitPhaseTransition(root, config, workflow, {
     for (const check of phase.checks) await restoreTransientQualityResult(check);
   }
   const testExecutions = [];
+  const attemptHistory = [];
   if (codeDeliveryRequired) {
     try {
       for (const command of requiredTestCommands) {
@@ -5088,6 +5057,11 @@ async function submitPhaseTransition(root, config, workflow, {
         }
         let parsed;
         let receipt;
+        const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+          command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
+          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null
+        }) : null;
+        if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
         try {
           if (!check || check.status === 'skipped-warning') {
             throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
@@ -5102,20 +5076,14 @@ async function submitPhaseTransition(root, config, workflow, {
           if (check.status !== 'passed' || check.exitCode !== 0) {
             throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
           }
-          parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+          parsed = recorded.parsed ?? await parseTestResult(root, command, { startedAt: check.startedAt });
           if (parsed.tests.skipped > 0 && riskRun && workflow.resolution.testRecovery.enabledRiskCategories.includes('reduced-coverage')) {
             const observation = await captureStoryTestRiskObservation(root, config, workflow, phase,
               { run: riskRun, check, result: qualityCommandResults.get(check) });
             if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
               operation: 'submit', generation: phase.generation, observationSha256: observation.recordSha256 });
           }
-          const exactTestcaseObservation = await observeExactTestcaseIdentities(
-            root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
-          );
-          receipt = buildTestExecutionReceipt(command, check, parsed, {
-            testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
-            exactTestcaseObservation
-          });
+          receipt = recorded.attempt;
           const minimumPassed = Math.max(
             parsed.minimumPassed,
             workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
@@ -5129,16 +5097,9 @@ async function submitPhaseTransition(root, config, workflow, {
         } catch (error) {
           throw await attachRequiredTestExecution(error, root, command, check);
         }
-        await persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt, testCommandEpochRun);
-        const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
-        const receiptPath = posix(path.join(
-          workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests',
-          `${phase.id}-gen${phase.generation}${testCommandEpochRun ? `-${testCommandEpochRun.suffix}` : ''}-${safeId}.json`
-        ));
-        await writeJson(path.join(root, receiptPath), receipt);
         testExecutions.push({
-          commandId: command.id, receiptPath,
-          receiptSha256: createHash('sha256').update(canonicalJson(receipt)).digest('hex'),
+          commandId: command.id, attemptId: receipt.attemptId, receiptPath: recorded.path,
+          receiptSha256: recorded.sha256,
           status: receipt.status,
           affectedRoots: command.affectedRoots
         });
@@ -5160,6 +5121,10 @@ async function submitPhaseTransition(root, config, workflow, {
         throw new SingularityFlowError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
       }
     }
+    // The submission commits these attempts and every earlier kept attempt of the step, failed
+    // ones included, so a later failure can never hide behind the pass it was retried into [E2G-016].
+    attemptHistory.splice(0, attemptHistory.length,
+      ...await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id));
   }
   if (isVisualVerificationPhase(phase)) await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   if (isConvergencePhase(phase)) {
@@ -5220,6 +5185,7 @@ async function submitPhaseTransition(root, config, workflow, {
       evidenceUse: retainedRisk.observation.observedOutcome === 'failed' ? 'reused' : 'retained-unavailable-attempt',
       disposition: 'accepted-risk', evaluationSha256: retainedRisk.evaluation.recordSha256 };
     phase.deliveryEvidence.testExecutions = testExecutions;
+    phase.deliveryEvidence.attemptHistory = attemptHistory;
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
     for (const binding of deliveryReceipt.traceability?.bindings ?? []) {

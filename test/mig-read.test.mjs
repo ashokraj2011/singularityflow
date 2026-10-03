@@ -47,19 +47,11 @@ test('legacy governed records migrate without inventing authority or provenance'
   assert.deepEqual(approval.decisions[0].legacySnapshot.artifacts,
     [{ path: 'spec.md', sha256: 'a'.repeat(64) }]);
 
-  const execution = readRecord('test-execution', {
-    schemaVersion: 1,
-    assurance: 'module-executed',
-    testcaseExecutionProven: false,
-    // Unknown in v1: matching a future field name must not manufacture v2 observation authority.
-    testcaseObservation: { status: 'observed', assurance: 'externally-attested' },
-    candidate: { sha256: 'b'.repeat(64) }
-  }).record;
-  assert.equal(execution.testcaseObservation.status, 'unavailable');
-  assert.equal(execution.testcaseObservation.assurance, 'unavailable');
-  assert.equal(execution.candidate, null);
-  assert.equal(execution.assurance, 'module-executed');
-  assert.equal(execution.testcaseExecutionProven, false);
+  // Test executions are immutable v5 attempts; receipts of archived pilot Stories are not read.
+  assert.throws(() => readRecord('test-execution', {
+    schemaVersion: 1, assurance: 'module-executed',
+    testcaseObservation: { status: 'observed', assurance: 'externally-attested' }
+  }), (error) => error.code === 'SCHEMA_VERSION_ARCHIVED');
 
   const packet = readRecord('story-submission-packet', {
     schemaVersion: 1,

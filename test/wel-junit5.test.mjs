@@ -6,10 +6,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { buildTestExecutionReceipt } from '../src/code-delivery-tests.mjs';
 import {
-  classifyJunit5SurefireCommandScope, observeJunit5SurefireIdentities,
-  verifyJunit5SurefireIdentityObservation
+  classifyJunit5SurefireCommandScope, observeJunit5SurefireIdentities
 } from '../src/wel-junit5.mjs';
 
 function git(root, args) {
@@ -99,32 +97,10 @@ test('the production JDK parser binds the @ac comment above a JUnit test to an e
     `sha256:${createHash('sha256').update(Buffer.from(declaration)).digest('hex')}`
   );
 
-  const receipt = buildTestExecutionReceipt(command, {
-    status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
-    sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-    completedAt: new Date(1).toISOString()
-  }, parsed([occurrence, supplemental]), { testcasePolicy: policy, exactTestcaseObservation: observation });
-  assert.equal(receipt.testcaseObservation.exact, true);
-  assert.equal(receipt.testcaseObservation.occurrences.length, 2);
-  assert.equal(receipt.testcaseObservation.occurrences[1].exact, false);
-  assert.equal(receipt.testcaseObservation.verdict, 'inconclusive');
-  assert.equal(receipt.testcaseObservation.disposition, 'unreviewed-witness-observed');
-  assert.equal(receipt.testcaseExecutionProven, false);
-  assert.ok(receipt.testcaseObservation.bindingGaps.includes('reviewed-witness-mapping-unavailable'));
-  const verified = await verifyJunit5SurefireIdentityObservation(root, receipt.testcaseObservation);
-  assert.equal(verified.valid, true, verified.errors.join('\n'));
-
-  const tampered = structuredClone(receipt.testcaseObservation);
-  tampered.mappingProposals[0].clauseId = 'WRK-1:AC-999';
-  const rejected = await verifyJunit5SurefireIdentityObservation(root, tampered);
-  assert.equal(rejected.valid, false);
-  assert.ok(rejected.errors.some((error) => /proposal/.test(error)));
-
-  const occurrenceRemoved = structuredClone(receipt.testcaseObservation);
-  occurrenceRemoved.occurrences = [];
-  const missingOccurrence = await verifyJunit5SurefireIdentityObservation(root, occurrenceRemoved);
-  assert.equal(missingOccurrence.valid, false);
-  assert.ok(missingOccurrence.errors.some((error) => /no exact report occurrence/.test(error)));
+  // Only the tagged declaration is exact; the unrelated test is not proposed for the criterion.
+  assert.equal(observation.occurrences.length, 1);
+  assert.equal(observation.occurrences[0].name, 'calculatesInterest');
+  assert.deepEqual(observation.occurrences[0].clauseIds, ['WRK-1:AC-001']);
 });
 
 test('unsupported JUnit shapes and ambiguous Surefire names can never become exact', async () => {
@@ -148,14 +124,7 @@ test('unsupported JUnit shapes and ambiguous Surefire names can never become exa
   assert.equal(observation.exact, false);
   assert.equal(observation.mappingProposals.length, 0);
   assert.ok(observation.gaps.includes('UNSUPPORTED_JUNIT5_SOURCE_SHAPE'));
-  const receipt = buildTestExecutionReceipt(command, {
-    status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
-    sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-    completedAt: new Date(1).toISOString()
-  }, parsed([occurrence]), { testcasePolicy: policy, exactTestcaseObservation: observation });
-  assert.equal(receipt.testcaseObservation.exact, false);
-  assert.equal(receipt.testcaseObservation.catalog, null);
-  assert.deepEqual(receipt.testcaseObservation.mappingProposals, []);
+  assert.deepEqual(observation.occurrences, []);
 });
 
 test('missing JUnit source remains an unavailable non-blocking observation', async () => {
@@ -252,18 +221,6 @@ test('focused, framework-retried, and non-Surefire commands cannot emit exact WE
     assert.deepEqual(observation.mappingProposals, []);
     assert.deepEqual(observation.occurrences, []);
     assert.ok(observation.gaps.includes(entry.gap));
-
-    const receipt = buildTestExecutionReceipt(scoped, {
-      status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
-      sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-      completedAt: new Date(1).toISOString()
-    }, parsed([occurrence]), { testcasePolicy: policy, exactTestcaseObservation: observation });
-    assert.equal(receipt.status, 'passed', 'ordinary module test evidence remains available');
-    assert.equal(receipt.testcaseObservation.exact, false);
-    assert.equal(receipt.testcaseExecutionProven, false);
-    assert.ok(receipt.testcaseObservation.bindingGaps.includes(
-      entry.gap.toLowerCase().replaceAll('_', '-')
-    ));
   }
   assert.deepEqual(classifyJunit5SurefireCommandScope(command), {
     status: 'complete', gaps: []
@@ -300,13 +257,7 @@ test('the reviewed JUnit identity corpus produces zero false exact matches', asy
     if (entry.exact) {
       expectedExact += 1;
       observedExact += observation.exact ? 1 : 0;
-      const receipt = buildTestExecutionReceipt(command, {
-        status: 'passed', exitCode: 0, stderr: '', sourceCommit: 'b'.repeat(40),
-        sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
-        completedAt: new Date(1).toISOString()
-      }, parsed(occurrences), { testcasePolicy: policy, exactTestcaseObservation: observation });
-      const replay = await verifyJunit5SurefireIdentityObservation(root, receipt.testcaseObservation);
-      assert.equal(replay.valid, true, `${entry.id}: ${replay.errors.join('; ')}`);
+      assert.ok(observation.occurrences.every((occurrence) => occurrence.identityStatus === 'exact-static-identity'), entry.id);
     } else {
       assert.equal(observation.occurrences.length, 0, `${entry.id}: false exact occurrence`);
     }

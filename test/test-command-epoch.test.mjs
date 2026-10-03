@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { buildTestExecutionReceipt, normalizeRequiredTestCommand } from '../src/code-delivery-tests.mjs';
 import { canonicalJson } from '../src/records.mjs';
+import { newAttemptIdentity } from '../src/verification/attempts.mjs';
 import { beginTestCommandEpochValidation, recordTestCommandEpochValidation,
   testCommandEpochRequirement, verifyTestCommandEpochValidation } from '../src/test-command-epoch.mjs';
 
@@ -57,13 +58,16 @@ async function freshRun(value) {
   phase.checks = [{ id: 'tests', status: 'passed', requirement: 'required', exitCode: 0,
     sourceCommit: git(root, 'rev-parse', 'HEAD'), sourceTreeSha256: hash, startedAt: at, completedAt: at }];
   const command = normalizeRequiredTestCommand(phase.qualityCommands[0]);
+  // Each epoch run is its own immutable attempt, named by its attempt ID.
   const child = buildTestExecutionReceipt(command, phase.checks[0], { adapter: command.result.adapter,
     minimumDiscovered: 1, minimumPassed: 1, tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 },
-    result: { path: command.result.path, sha256: hash.slice(7), bytes: 0, files: [] } });
+    result: { path: command.result.path, sha256: hash.slice(7), bytes: 0, files: [] } }, {
+    ...newAttemptIdentity(), purpose: 'epoch', epoch: run.suffix, workId: 'ST-001', phase: 'implementation', generation: 1
+  });
   const base = 'singularity/work-items/ST-001/context/code-delivery';
-  const childPath = `${base}/tests/implementation-gen1-${run.suffix}-tests.json`;
+  const childPath = `${base}/tests/attempts/implementation/${child.attemptId}.json`;
   await writeRecord(root, childPath, child);
-  phase.deliveryEvidence.testExecutions = [{ commandId: 'tests', status: 'passed', receiptPath: childPath,
+  phase.deliveryEvidence.testExecutions = [{ commandId: 'tests', attemptId: child.attemptId, status: 'passed', receiptPath: childPath,
     receiptSha256: digest(child).slice(7) }];
   const delivery = { testExecutions: structuredClone(phase.deliveryEvidence.testExecutions) };
   phase.deliveryEvidence.receiptPath = `${base}/implementation-gen1-${run.suffix}.json`;
@@ -174,6 +178,8 @@ test('new epoch paths and a newly hashed aggregate cannot hide pre-amendment exe
 
 for (const [label, mutateChild, mutateDelivery] of [
   ['historical argv', child => { child.argvSha256 = digest(['node', '--test', 'test/old.test.mjs']).slice(7); }],
+  ['another epoch', child => { child.epoch = 'epoch1-00000000-0000-4000-8000-000000000000'; }],
+  ['a submission attempt', child => { child.purpose = 'submission'; }],
   ['wrong working directory', child => { child.workingDirectory = 'other'; }],
   ['wrong adapter', child => { child.adapter = 'junit-xml'; }],
   ['reduced module coverage', child => { child.affectedRoots = ['src/narrow']; }],

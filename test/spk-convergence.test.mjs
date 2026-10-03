@@ -388,5 +388,7 @@ test('the agent that runs convergence cannot approve, reopen or advance', async 
   // Rework goes through the ordinary rejection path `[SPK:REQ-182]`, not a parallel transition.
   const rework = cli.slice(cli.indexOf('async function storyReworkCommand'), cli.indexOf('async function storyAdvanceCommand'));
   assert.match(rework, /rejectPhase\(root, config, workflow/, 'rework does not use the existing rejection path');
-  assert.match(rework, /target: 'implementation'/);
+  // It returns to the code step convergence found by structure, never to a step by name.
+  assert.match(rework, /target: subject\.implementation\.id/);
+  assert.doesNotMatch(rework, /target: 'implementation'/);
 });

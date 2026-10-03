@@ -14,6 +14,7 @@ import { approvalRequirementsMet } from '../approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords } from '../specifications.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
+import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
 import {
@@ -144,7 +145,7 @@ function scopeSummary(inventory, review) {
   };
 }
 
-export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE } = {}) {
+export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE, at = new Date().toISOString() } = {}) {
   const workflow = graph.workflow;
   const workId = workflow.workItem.id;
   const phases = workflow.phases ?? {};
@@ -413,6 +414,32 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         `${id} changed in scope revision ${latest}; its ${responsibilities.join(', ')} evidence predates that revision and counts again only when its step runs again.`,
         { obligationIds: [...stale.keys()] }));
     }
+    // Governed risk acceptance [E2G-025]: an active decision carries an open obligation at the
+    // transition it names, and what was observed stays visible. One that expired, was revoked, does
+    // not permit the transition or accepted different evidence counts for nothing.
+    const riskActions = [];
+    for (const [index, obligation] of obligations.entries()) {
+      const risk = riskDecisionState(workflow, obligation, { at, transition: 'terminal' });
+      if (risk?.state === 'active') {
+        obligations[index] = {
+          ...obligation, status: 'excepted',
+          riskDecision: { id: risk.decision.id, category: risk.decision.category, expiresAt: risk.decision.expiresAt, transitions: risk.decision.transitions },
+          facets: { ...obligation.facets, exception: 'accepted-risk' }
+        };
+        continue;
+      }
+      if (risk) {
+        const why = {
+          expired: `expired on ${risk.decision.expiresAt.slice(0, 10)}`, revoked: 'was revoked',
+          'out-of-scope': 'does not permit closing the Story', overtaken: 'accepted evidence that has since changed'
+        }[risk.state];
+        rowFindings.push(finding(`RISK_DECISION_${risk.state.toUpperCase().replace('-', '_')}`,
+          `${risk.decision.id} on ${obligation.id} ${why}; renew it or meet the obligation.`, { obligationIds: [obligation.id], blocking: false }));
+      }
+      if (riskEligibility(obligation, { untrusted: graph.untrusted }).eligible) {
+        riskActions.push({ kind: 'accept-risk', command: `singularity-flow decision risk --obligation ${obligation.id} --category <category> --expires <YYYY-MM-DD> --reason "<why>"` });
+      }
+    }
     const judged = obligations.map(applyOmission);
     const result = graph.untrusted ? 'inconclusive' : rowResult(judged);
     findings.push(...rowFindings);
@@ -429,7 +456,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       verification,
       obligations: judged,
       findings: rowFindings,
-      actions: [{ kind: 'explain', command: `singularity-flow explain --subject clause --id ${id}` }]
+      actions: [{ kind: 'explain', command: `singularity-flow explain --subject clause --id ${id}` }, ...riskActions]
     };
   });
 

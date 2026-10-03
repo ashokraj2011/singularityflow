@@ -629,6 +629,34 @@
         "additionalProperties": false
       }
     },
+    "riskDecisions": {
+      "description": "Append-only governed risk acceptances on obligations and their revocations: category, permitted transitions, expiry, the observation accepted, reason and authority.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["obligationId", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^RISK-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^RISK-[0-9]{3,}$" },
+          "obligationId": { "type": "string", "minLength": 1 },
+          "category": { "enum": ["external-dependency", "known-failure", "assurance-shortfall", "deferred-verification", "accepted-deviation"] },
+          "transitions": { "type": "array", "items": { "enum": ["terminal"] }, "minItems": 1 },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "observation": {
+            "type": "object",
+            "required": ["status", "sha256"],
+            "properties": { "status": { "type": "string" }, "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+            "additionalProperties": false
+          },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "planAmendments": {
       "description": "Append-only narrow plan amendments: a changed path accounted for as part of one row's delivery, or listed as a supporting change of a closed class, recorded by someone in the group that approves the plan.",
       "type": "array",

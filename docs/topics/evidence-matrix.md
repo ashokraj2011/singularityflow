@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 10
+version: 11
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -53,6 +53,12 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
+
+### Accepting a risk
+
+When an obligation failed, is missing or is inconclusive and the Story must close anyway, someone in the group that approves the step owning it records `singularity-flow decision risk --obligation <OBL-ID> --category <category> --expires YYYY-MM-DD --reason TEXT`. The category is one of external-dependency, known-failure, assurance-shortfall, deferred-verification or accepted-deviation, and the expiry is at most 90 days ahead. The obligation then reads excepted, and what was observed stays visible: a failed test still reads failed.
+
+A decision covers only what it accepted. It counts for nothing once it expires, is revoked with `decision risk --revoke <RISK-ID> --reason TEXT`, does not permit the transition at hand, or the evidence it accepted changes; the matrix then says to renew it. Closing a Story re-evaluates decisions at that moment, so one that expired after approval blocks completion. Some failures are never accepted: stale evidence is run again, records that do not verify are repaired, a review is given by approving the step, and the scope has its own decisions.
 
 ### Plan amendments
 
@@ -109,6 +115,8 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 - **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.
 - **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a scope revision changed this clause after its evidence was produced; run the step that owns the stale obligation again.
+- **`RISK_NOT_WAIVABLE`:** the obligation is stale, untrusted, a review or the scope; repair it instead.
+- **`RISK_DECISION_EXPIRED`, `RISK_DECISION_REVOKED`, `RISK_DECISION_OVERTAKEN`:** the decision no longer covers the obligation; renew it or meet the obligation.
 - **A changed path is not claimed by a clause:** account for it with `decision plan --add-location` or `--add-supporting`, or remove the change if it does not belong to the Story.
 - **`SCOPE_INVENTORY_INCOMPLETE`:** the completeness review waits until every statement has a disposition.
 - **`SCOPE_INVENTORY_CHANGED`:** the inventory changed after you read it; run `singularity-flow evidence scope` again, review it, and confirm the digest it shows now.

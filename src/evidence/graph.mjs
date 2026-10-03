@@ -179,7 +179,9 @@ export function evidenceGraph({ workflow, records, deliveries = [], inspections 
     findings: findings.map((entry) => entry.code),
     scope: scope?.inventorySha256 ?? null,
     completenessReview: completenessReview ? recordSha256(completenessReview) : null,
-    scopeRevision: workflow.scopeRevisions?.at(-1)?.revisionSha256 ?? null
+    scopeRevision: workflow.scopeRevisions?.at(-1)?.revisionSha256 ?? null,
+    riskDecisions: (workflow.riskDecisions ?? []).map((entry) => recordSha256(entry)),
+    planAmendments: (workflow.planAmendments ?? []).map((entry) => recordSha256(entry))
   })}`;
   // A final evaluation counts only for the evidence it was made over.
   if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;

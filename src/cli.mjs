@@ -1,5 +1,6 @@
 import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
 import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
+import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
 import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
@@ -8728,7 +8729,8 @@ async function decisionCommand(positionals, options) {
   if (action === 'scope') return decisionScopeCommand(positionals, options);
   if (action === 'completeness') return decisionCompletenessCommand(positionals, options);
   if (action === 'plan') return decisionPlanCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness or decision plan.`,
+  if (action === 'risk') return decisionRiskCommand(positionals, options);
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan or decision risk.`,
     { code: 'COMMAND_UNKNOWN' });
 }
 
@@ -8982,6 +8984,105 @@ async function decisionScopeCommand(positionals, options) {
     outcome: succeeded('decision.scope.succeeded', { item, disposition }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     data: { commit: publication.sha, pushed: publication.pushed, decision }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+/**
+ * `decision risk`: someone in the group that approves an obligation's step accepts its risk for a
+ * category, transitions and expiry, or revokes such a decision [E2G-025, D4].
+ */
+async function decisionRiskCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    await checkout(root, requestedId, {
+      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
+    });
+  }
+  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
+  const id = workflow.workItem.id;
+  if (workflow.status !== 'in_progress') {
+    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; risks are decided while it is in progress.`, { code: 'RISK_STORY_CLOSED' });
+  }
+  const revoke = optionString(options, 'revoke') ?? null;
+  const obligationId = optionString(options, 'obligation') ?? null;
+  if (!revoke === !obligationId) {
+    throw new SingularityFlowError('Name an obligation with --obligation OBL-..., or a decision to revoke with --revoke RISK-...', { code: 'RISK_DECISION_INVALID' });
+  }
+  const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
+  const { evaluateEvidence } = await import('./evidence/evaluate.mjs');
+  const graph = await evidenceGraphFromAggregate(root, config, workflow);
+  const obligations = evaluateEvidence(graph).rows.flatMap((row) => row.obligations);
+  const targetId = revoke
+    ? (workflow.riskDecisions ?? []).find((entry) => !entry.revokes && entry.id === revoke)?.obligationId ?? null
+    : obligationId;
+  const obligation = obligations.find((entry) => entry.id === targetId) ?? null;
+  if (!obligation && !revoke) {
+    throw new SingularityFlowError(`The evidence matrix of ${id} has no obligation ${obligationId}; see singularity-flow evidence matrix.`, { code: 'RISK_OBLIGATION_UNKNOWN' });
+  }
+  const groups = riskAuthorities(workflow, obligation ?? { owningSteps: workflow.phaseOrder ?? [] });
+  if (!groups.length) {
+    throw new SingularityFlowError(`No step owning ${targetId ?? 'this obligation'} has an approval group, so nobody can accept its risk.`, { code: 'RISK_AUTHORITY_UNAVAILABLE' });
+  }
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const common = { reason: optionString(options, 'reason') ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
+  const decide = (aggregate) => revoke
+    ? recordRiskRevocation(aggregate, { riskId: revoke, ...common })
+    : recordRiskDecision(aggregate, {
+      obligation, untrusted: graph.untrusted, category: optionString(options, 'category') ?? null,
+      transitions: optionStrings(options, 'transition').length ? optionStrings(options, 'transition') : ['terminal'],
+      expires: optionString(options, 'expires') ?? null, ...common
+    });
+  decide(structuredClone(workflow));
+  const { value: record, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'risk' }
+    },
+    `[${id}][risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? obligationId}`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record a risk decision');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'risk_decided', phase: aggregate.currentPhase ?? null,
+        detail: recorded.revokes
+          ? `${recorded.revokes} on ${recorded.obligationId} revoked. ${recorded.reason}`
+          : `${recorded.id} accepts the ${recorded.category} risk of ${recorded.obligationId} until ${recorded.expiresAt.slice(0, 10)} for ${recorded.transitions.join(', ')}. ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'risk', record: recorded.revokes ?? recorded.id, revoked: Boolean(recorded.revokes), reviewPacketSha256: null }
+      })
+    }
+  );
+  if (!optionBoolean(options, 'json')) {
+    console.log(record.revokes
+      ? `Revoked ${record.revokes} on ${record.obligationId}.`
+      : `Recorded ${record.id}: the ${record.category} risk of ${record.obligationId} is accepted until ${record.expiresAt.slice(0, 10)} through ${record.authorityGroup}.`);
+    console.log(publication.pushed
+      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.risk', classification: 'mutation' },
+    subject: { kind: 'story', id },
+    outcome: succeeded('decision.risk.succeeded', { record: record.revokes ? `the revocation of ${record.revokes}` : record.id }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, record }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

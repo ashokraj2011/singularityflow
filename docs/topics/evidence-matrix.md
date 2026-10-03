@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 17
+version: 18
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -84,7 +84,7 @@ A passing test proves only what it asserts, so the reviewer decides whether each
 
 When an obligation failed, is missing or is inconclusive and the Story must close anyway, someone in the group that approves the step owning it records `singularity-flow decision risk --obligation <OBL-ID> --category <category> --expires YYYY-MM-DD --reason TEXT`. The category is one of external-dependency, known-failure, assurance-shortfall, deferred-verification or accepted-deviation, and the expiry is at most 90 days ahead. The obligation then reads excepted, and what was observed stays visible: a failed test still reads failed.
 
-A decision covers only what it accepted. It counts for nothing once it expires, is revoked with `decision risk --revoke <RISK-ID> --reason TEXT`, does not permit the transition at hand, or the evidence it accepted changes; the matrix then says to renew it. Closing a Story re-evaluates decisions at that moment, so one that expired after approval blocks completion. Some failures are never accepted: stale evidence is run again, records that do not verify are repaired, a review is given by approving the step, and the scope has its own decisions.
+A decision covers only what it accepted. It counts for nothing once it expires, is revoked with `decision risk --revoke <RISK-ID> --reason TEXT`, does not permit the transition at hand, or the evidence it accepted changes, including a rerun of the criterion's test, which is a new attempt; the matrix then says to renew it. Closing a Story re-evaluates decisions at that moment, so one that expired after approval blocks completion. Some failures are never accepted: stale evidence is run again, records that do not verify are repaired, a review is given by approving the step, and the scope has its own decisions.
 
 ### Plan amendments
 
@@ -92,7 +92,7 @@ A delivered change to a path no row names is accounted for, never deleted to sat
 
 ### What a code step's candidate contains
 
-When the Story plans its claims, a code step's candidate is what the plan names for that step: the expected paths of the rows allocated to it, their planned tests, supporting changes and the paths a plan amendment accounted for. Test automation always belongs. Any other changed file is left out: it stays in your worktree untouched, is never adopted or committed, and the delivery receipt lists it under `excludedChanges`. A note or other prose is left out quietly. Code the plan does not name is refused with `GENERATION_EXCLUSIONS_UNSAFE` before anything is committed, because the tests run in your worktree and would execute it.
+When the Story plans its claims, a code step's candidate is what the plan names for that step: the expected paths of the rows allocated to it, their planned tests, supporting changes and the paths a plan amendment accounted for. Test automation always belongs. Any other changed file is left out: it stays in your worktree untouched, is never adopted or committed, and the delivery receipt lists it under `excludedChanges`. A note or other prose is left out quietly, and you may edit or delete it later without making the generation stale. Code the plan does not name is refused with `GENERATION_EXCLUSIONS_UNSAFE` before anything is committed, because the tests run in your worktree and would execute it.
 
 ### Implementation bindings
 

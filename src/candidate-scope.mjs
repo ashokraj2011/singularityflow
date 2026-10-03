@@ -33,3 +33,19 @@ export async function codeCandidateScope(itemDirectory, workflow, phase) {
     unsafe: (candidate) => !PROSE.test(candidate)
   });
 }
+
+/**
+ * Whether a file is prose that no code step's plan names [E2G-027]. Such a file is kept out of
+ * every generation, so it is also kept out of the application tree a publication, submission or
+ * approval binds: a person may edit or delete their note without making the tested code stale.
+ * Never true when the Story scopes no code candidate.
+ */
+export async function keptOutProse(itemDirectory, workflow) {
+  const scopes = [];
+  for (const id of workflow?.phaseOrder ?? []) {
+    const scope = await codeCandidateScope(itemDirectory, workflow, workflow.phases?.[id]).catch(() => null);
+    if (scope) scopes.push(scope);
+  }
+  if (!scopes.length) return () => false;
+  return (candidate) => PROSE.test(candidate) && scopes.every((scope) => !scope.allows(candidate));
+}

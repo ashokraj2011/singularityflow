@@ -161,7 +161,7 @@ import {
 } from './specifications.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
-import { codeCandidateScope } from './candidate-scope.mjs';
+import { codeCandidateScope, keptOutProse } from './candidate-scope.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -3036,6 +3036,12 @@ function rebuildUsageAggregates(workflow) {
 export async function sourceTreeHash(root, ...governanceSources) {
   assertNoHiddenWorktreeChanges(root, 'Application source hashing');
   const pathContext = applicationPathContext(...governanceSources);
+  // Prose no code step's plan names is kept out of every generation, so it is not part of the
+  // tree a generation binds either [E2G-027].
+  const [governanceConfig, governanceWorkflow] = governanceSources;
+  const keptOut = governanceWorkflow?.workItem?.id && governanceConfig
+    ? await keptOutProse(workDir(root, governanceConfig, governanceWorkflow.workItem.id), governanceWorkflow)
+    : () => false;
   // The index is a byte-framed Git record, not a UTF-8 line. Decode through the registered
   // parser so a malformed record or an unrepresentable filename cannot silently change the
   // sealed application-source digest. The object format must be observed before parsing OIDs.
@@ -3052,14 +3058,14 @@ export async function sourceTreeHash(root, ...governanceSources) {
       // host-native path normalizer would rewrite a literal POSIX backslash filename.
       return { path: entry.path.value, mode: entry.mode, object: entry.oid, stage: entry.stage };
     })
-    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext));
+    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext) && !keptOut(entry.path));
   const unstaged = new Set(run('git', [
     'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD', '--'
   ], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
   const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
   for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, {
     ...pathContext, untracked: true
-  }))) {
+  }) && !keptOut(candidate))) {
     byPath.set(relative, { path: relative, mode: null, object: null, stage: 0, untracked: true });
     unstaged.add(relative);
   }

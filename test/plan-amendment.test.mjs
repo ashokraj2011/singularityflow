@@ -140,13 +140,15 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
 
   cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  // The note stays the person's: editing it after publication changes nothing the generation bound.
+  await write('NOTES.md', 'Remember to tell the team about the helper, and thank the reviewer.\n');
   cli('submit', 'implementation');
   cli('approve', 'implementation', '--yes');
   const generation = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation;
   const receipt = JSON.parse(await readFile(path.join(root, generation.deliveryEvidence.receiptPath), 'utf8'));
   assert.deepEqual(receipt.excludedChanges, ['NOTES.md']);
   assert.equal(run('git', ['ls-files', '--', 'NOTES.md'], root).stdout.trim(), '', 'the note was never committed');
-  assert.equal(await readFile(path.join(root, 'NOTES.md'), 'utf8'), 'Remember to tell the team about the helper.\n', 'and it is still in the worktree');
+  assert.equal(await readFile(path.join(root, 'NOTES.md'), 'utf8'), 'Remember to tell the team about the helper, and thank the reviewer.\n', 'and it is still in the worktree');
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflowState.phases.implementation.status, 'approved');
   assert.deepEqual(workflowState.planAmendments.map((entry) => [entry.id, entry.changes]),

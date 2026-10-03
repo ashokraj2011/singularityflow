@@ -13,6 +13,7 @@ import {
 import { generationSkillForPhase, normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { evaluateCodeDeliveryPreflight, taggedAcceptanceIds, verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
+import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
 import { beginCodeGeneration, verifyOpenGenerationIntent } from '../src/generation-boundary.mjs';
 import {
   buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary, parseRawDiff
@@ -1067,6 +1068,17 @@ test('approval replay binds the committed tree, change-set policy, and exact tes
   };
   const first = await verifyCodeDeliveryReceipt(root, receipt);
   assert.equal(first.valid, true, first.errors.join('\n'));
+  // An exact JavaScript witness is read again from the committed test; a forged revision is refused.
+  const [declaration] = scanJavaScriptDeclarations(await readFile(path.join(root, 'tests', 'payment.test.js'), 'utf8'),
+    { sourcePath: 'tests/payment.test.js', framework: 'jest' }).declarations;
+  const witness = {
+    clauseId: 'CGA:AC-001', testSource: 'tests/payment.test.js', profile: 'jest-static-v2', identity: { framework: 'jest', suitePath: [], name: 'payment' },
+    logicalTestId: declaration.logicalTestId, declarationSha256: declaration.declarationSha256, gaps: []
+  };
+  const witnessed = await verifyCodeDeliveryReceipt(root, { ...receipt, traceability: { ...receipt.traceability, witnesses: [witness] } });
+  assert.equal(witnessed.valid, true, witnessed.errors.join('\n'));
+  const forged = await verifyCodeDeliveryReceipt(root, { ...receipt, traceability: { ...receipt.traceability, witnesses: [{ ...witness, declarationSha256: 'f'.repeat(64) }] } });
+  assert.ok(forged.errors.some((message) => /acceptance witness for CGA:AC-001 in tests\/payment\.test\.js does not match the committed test/.test(message)), forged.errors.join('\n'));
   const configurationReplay = await verifyCodeDeliveryReceipt(root, receipt, {
     protectedPaths: ['singularity/workflow.yml'],
     configurationSource: { files: {

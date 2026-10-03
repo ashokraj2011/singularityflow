@@ -34,6 +34,7 @@ import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability
 import { codeCandidateScope } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
+import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
@@ -1301,6 +1302,20 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   for (const clauseId of traceability.required ?? []) {
     if (!bound.has(clauseId) || !bindings.some((binding) => binding.clauseId === clauseId)) {
       fail(`acceptance clause ${clauseId} has no module test-source binding`);
+    }
+  }
+  // Each exact JavaScript witness is read again from the committed generation: the test, its
+  // revision and its tag must still be what publication recorded [E2G-015].
+  for (const witness of traceability.witnesses ?? []) {
+    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2'].includes(witness.profile)) continue;
+    const bytes = generationCommit && safeEvidencePath(witness.testSource) ? exactFileAtObject(root, generationCommit, witness.testSource) : null;
+    let declaration = null;
+    try {
+      declaration = bytes ? scanJavaScriptDeclarations(bytes.toString('utf8'), { sourcePath: witness.testSource, framework: witness.identity.framework })
+        .declarations.find((entry) => entry.logicalTestId === witness.logicalTestId) ?? null : null;
+    } catch { declaration = null; }
+    if (!declaration || declaration.declarationSha256 !== witness.declarationSha256 || !declaration.clauseIds.includes(witness.clauseId)) {
+      fail(`the acceptance witness for ${witness.clauseId} in ${witness.testSource} does not match the committed test`);
     }
   }
   if (sourceBindingPolicy === 'enforce') {

@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 6
+version: 7
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -43,6 +43,14 @@ Each row carries up to four obligations, identified by `OBL:<WORK-ID>:<responsib
 - **review:** the step that delivered the change was approved under its approval rule; a self-approval is shown as such.
 
 Every obligation reports six facets separately: coverage, execution, assurance, review, freshness and exception. The row's result is the most serious state of its obligations: failed, inconclusive, missing, pending, satisfied with an exception, or satisfied.
+
+### Planning each obligation
+
+The plan's planned-evidence table has one row per clause: its exact expected paths and planned tests, how it is fulfilled and what a person can observe when it is met.
+
+- **Fulfillment:** `new` or `modified` product source; `existing` behaviour that already lives at the listed paths; `removed` behaviour at the listed paths; `test-only`, when the tests are the whole delivery and Expected paths is `-`; or an exact `document` or `configuration` change. A row that names none means new or modified source.
+- **Observable result:** what a person can see when the row is met, in at most 500 characters.
+- **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 ### Accepted scope
 

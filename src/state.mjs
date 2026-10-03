@@ -1727,7 +1727,8 @@ function plannedClaimsTarget(config, workflow, phase) {
   const upcoming = configuredCodePhases[0]
     ?? (plannedPolicy == null ? nextPhase(workflow, phase) : null);
   if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(upcoming)) return null;
-  return { policy, upcoming, enforce: plannedClaimsEnforced(workflow, policy) };
+  const codeSteps = (configuredCodePhases.length ? configuredCodePhases : [upcoming]).map((entry) => entry.id).sort();
+  return { policy, upcoming, codeSteps, enforce: plannedClaimsEnforced(workflow, policy) };
 }
 
 /**
@@ -1736,7 +1737,7 @@ function plannedClaimsTarget(config, workflow, phase) {
  * `subject`, `where` and `again` name the act being refused, so an intent amendment is told to propose again.
  */
 function plannedClaimContract(phase, authored, {
-  clauseIds, policy, enforce, artifactPath,
+  clauseIds, policy, enforce, artifactPath, codeSteps = [],
   subject = `Phase ${phase.id} cannot publish`, where = `in ${artifactPath}`, again = 'publish again'
 }) {
   const derived = derivePlannedClaimMap(authored, { clauseIds, policy });
@@ -1749,6 +1750,17 @@ function plannedClaimContract(phase, authored, {
       `${subject} because not-applicable test reasons are placeholders for: ${placeholderReasons.join(', ')}. `
       + `Replace TODO/TBD/template text with the concrete reviewed reason ${where}.`,
       { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: placeholderReasons } }
+    );
+  }
+  // An obligation is allocated to the code steps that implement it [E2G-009]; one this plan does not
+  // plan for could never be delivered.
+  const misallocated = Object.entries(derived.claimMap.claims)
+    .flatMap(([id, claim]) => (claim.steps ?? []).filter((step) => !codeSteps.includes(step)).map((step) => `${id} to ${step}`));
+  if (misallocated.length) {
+    throw new SingularityFlowError(
+      `${subject} because it allocates obligations to steps it does not plan for: ${misallocated.join(', ')}. `
+      + `Allocate each to one of: ${codeSteps.join(', ')}.`,
+      { code: 'SPEC_PLANNED_ALLOCATION_INVALID', details: { phase: phase.id, misallocated, codeSteps } }
     );
   }
   const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
@@ -1778,7 +1790,7 @@ export async function assertAmendedPlannedClaims(root, config, workflow, phase, 
   ])].sort();
   if (!clauseIds.length) return null;
   return plannedClaimContract(phase, authoredArtifactText(proposedText), {
-    clauseIds, policy: target.policy, enforce: target.enforce, artifactPath: requiredRepoPath(config, workflow, phase),
+    clauseIds, policy: target.policy, enforce: target.enforce, artifactPath: requiredRepoPath(config, workflow, phase), codeSteps: target.codeSteps,
     subject: 'The amended specification cannot be proposed', where: 'in the proposed file', again: 'propose it again'
   });
 }
@@ -1786,7 +1798,7 @@ export async function assertAmendedPlannedClaims(root, config, workflow, phase, 
 async function refreshPlannedSpecificationClaims(root, config, workflow, phase) {
   const target = plannedClaimsTarget(config, workflow, phase);
   if (!target) return null;
-  const { policy, upcoming, enforce } = target;
+  const { policy, upcoming, enforce, codeSteps } = target;
 
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
@@ -1801,7 +1813,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
   const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
-  const { derived, gaps } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath });
+  const { derived, gaps } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath, codeSteps });
   if (gaps.length) {
     console.warn(`Warning: phase ${phase.id} planned-test contract is incomplete for ${gaps.join(', ')}.`);
   }

@@ -14,7 +14,8 @@ const AUTHORING_SURFACES = [
 test('planning-owner templates require exact planned-test claim bindings', async () => {
   for (const source of AUTHORING_SURFACES) {
     const content = await readFile(new URL(source, import.meta.url), 'utf8');
-    assert.match(content, /^\| Clause \| Expected paths \| Planned tests \|$/m, source);
+    assert.match(content, /^\| Clause \| Expected paths \| Planned tests \| Fulfillment \| Observable result \|$/m, source);
+    assert.match(content, /Fulfillment: new, modified, existing .*test-only .*document or configuration\. Observable result:/s, source);
     assert.match(content, /fully qualified/i, source);
     assert.match(content, /repository-relative/i, source);
     assert.match(content, /exact\s+repository-relative\s+(?:source and test\s+)?paths? in backticks/i, source);
@@ -54,11 +55,9 @@ test('sflow-plan preserves the structured claim table and refuses vague paths', 
     new URL('../plugin/skills/sflow-plan/SKILL.md', import.meta.url),
     'utf8'
   );
-  assert.match(content, /Clause \| Expected paths \| Planned tests/);
-  assert.match(content, /exactly one row per authoritative clause/);
+  assert.match(content, /fill the planned-evidence table, one row per authoritative clause/);
   assert.match(content, /fully qualified ID/);
-  assert.match(content, /backticked, repository-relative exact paths/);
-  assert.match(content, /Never use directories, globs, modules, or prose as paths/);
-  assert.match(content, /`not-applicable:` followed by.*concrete reviewed/s);
-  assert.match(content, /genuinely\s+non-testable/);
+  assert.match(content, /backticked exact repository-relative paths \(never directories, globs, modules or prose\)/);
+  assert.match(content, /Fulfillment and Observable result/);
+  assert.match(content, /non-testable clauses use `not-applicable:` with a reviewed explanation, never to hide unknowns/);
 });

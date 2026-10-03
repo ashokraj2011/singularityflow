@@ -526,6 +526,88 @@ function parseBacktickedPathCell(cell, label) {
   return [...new Set(paths)].sort();
 }
 
+/**
+ * How a plan says an obligation is fulfilled [E2G-010]: by new or modified product source, by
+ * behaviour that already exists, by removing something, by tests alone, or by an exact document or
+ * configuration change. A plan that names none keeps the original meaning: new or modified source.
+ */
+export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration']);
+/** Fulfillment types that change product source, so the delivery carries the clause in that source. */
+export const SOURCE_CHANGING_FULFILLMENT = Object.freeze(['new', 'modified']);
+const PLANNED_OPTIONAL_COLUMNS = Object.freeze(['fulfillment', 'steps', 'observable result']);
+const PLANNED_STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const MAX_OBSERVABLE_RESULT = 500;
+
+function emptyCell(cell) {
+  const value = String(cell ?? '').trim();
+  return !value || /^(?:-|—)$/u.test(value);
+}
+
+function parseFulfillmentCell(cell, label) {
+  if (cell == null || emptyCell(cell)) return null;
+  const value = String(cell).trim().replace(/^`|`$/gu, '').toLowerCase();
+  if (!FULFILLMENT_TYPES.includes(value)) {
+    throw new SingularityFlowError(`${label} must be one of ${FULFILLMENT_TYPES.join(', ')}.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+  }
+  return value;
+}
+
+function parseStepsCell(cell, label) {
+  if (cell == null || emptyCell(cell)) return [];
+  const steps = String(cell).split(/[\s,;]+/u).map((entry) => entry.replace(/^`|`$/gu, '').trim()).filter(Boolean);
+  const invalid = steps.filter((entry) => !PLANNED_STEP_ID.test(entry));
+  if (invalid.length) {
+    throw new SingularityFlowError(`${label} must list step IDs such as \`implementation\`; not ${invalid.join(', ')}.`, { code: 'SPEC_PLANNED_ALLOCATION_INVALID' });
+  }
+  return [...new Set(steps)].sort();
+}
+
+function parseObservableResultCell(cell, label) {
+  if (cell == null || emptyCell(cell)) return null;
+  const value = String(cell).replace(/<br\s*\/?\s*>/giu, ' ').replace(/\s+/gu, ' ').trim();
+  if (value.length > MAX_OBSERVABLE_RESULT) {
+    throw new SingularityFlowError(`${label} must be at most ${MAX_OBSERVABLE_RESULT} characters.`, { code: 'SPEC_PLANNED_OBSERVABLE_INVALID' });
+  }
+  return value;
+}
+
+/**
+ * The plan-obligation fields a planned claim may carry beyond its paths and tests, checked the same
+ * way whether the claim came from the plan's table or from a stored record.
+ */
+function plannedObligationFields(id, claim, { expectedPaths, tests, testDisposition }) {
+  const fulfillment = claim.fulfillment == null ? null : String(claim.fulfillment);
+  if (fulfillment != null && !FULFILLMENT_TYPES.includes(fulfillment)) {
+    throw new SingularityFlowError(`${id}.fulfillment must be one of ${FULFILLMENT_TYPES.join(', ')}.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+  }
+  if (fulfillment === 'test-only' && (expectedPaths.length || !tests.length)) {
+    throw new SingularityFlowError(`${id} is test-only: list its planned tests and no expected product paths.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+  }
+  if (fulfillment != null && fulfillment !== 'test-only' && !expectedPaths.length) {
+    throw new SingularityFlowError(
+      `${id} is ${fulfillment}: name the exact paths ${fulfillment === 'existing' ? 'where the behaviour already lives' : fulfillment === 'removed' ? 'that are removed' : 'that change'} under Expected paths.`,
+      { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' }
+    );
+  }
+  if (fulfillment === 'test-only' && testDisposition === 'not-applicable') {
+    throw new SingularityFlowError(`${id} is test-only, so its tests cannot be not-applicable.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+  }
+  const steps = claim.steps == null ? [] : (Array.isArray(claim.steps) ? claim.steps : [claim.steps]).map((entry) => String(entry));
+  const invalidSteps = steps.filter((entry) => !PLANNED_STEP_ID.test(entry));
+  if (invalidSteps.length) {
+    throw new SingularityFlowError(`${id}.steps must be step IDs; not ${invalidSteps.join(', ')}.`, { code: 'SPEC_PLANNED_ALLOCATION_INVALID' });
+  }
+  const observableResult = claim.observableResult == null ? null : String(claim.observableResult).trim();
+  if (observableResult != null && (!observableResult || observableResult.length > MAX_OBSERVABLE_RESULT)) {
+    throw new SingularityFlowError(`${id}.observableResult must be 1 to ${MAX_OBSERVABLE_RESULT} characters.`, { code: 'SPEC_PLANNED_OBSERVABLE_INVALID' });
+  }
+  return {
+    ...(fulfillment ? { fulfillment } : {}),
+    ...(steps.length ? { steps: [...new Set(steps)].sort() } : {}),
+    ...(observableResult ? { observableResult } : {})
+  };
+}
+
 function parseNotApplicable(cell, label) {
   const match = String(cell ?? '').trim().match(/^not-applicable\s*:\s*(.+)$/i);
   if (!match) return null;
@@ -599,8 +681,16 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
   for (let index = 0; index < lines.length - 1; index += 1) {
     const cells = markdownCells(lines[index]);
     const headers = tableHeader(cells);
-    if (!headers || headers.join('|') !== 'clause|expected paths|planned tests') continue;
-    if (!tableDivider(markdownCells(lines[index + 1]), 3)) {
+    if (!headers || headers.slice(0, 3).join('|') !== 'clause|expected paths|planned tests') continue;
+    const optional = headers.slice(3);
+    if (optional.some((name) => !PLANNED_OPTIONAL_COLUMNS.includes(name)) || new Set(optional).size !== optional.length) {
+      throw new SingularityFlowError(
+        `Planned claim table at line ${index + 1} may add only these columns, each once: Fulfillment, Steps, Observable result.`,
+        { code: 'SPEC_PLANNED_TABLE_INVALID' }
+      );
+    }
+    const column = (row, name) => (headers.indexOf(name) < 0 ? null : row[headers.indexOf(name)]);
+    if (!tableDivider(markdownCells(lines[index + 1]), headers.length)) {
       throw new SingularityFlowError(`Planned claim table at line ${index + 1} must be followed by a Markdown divider row.`);
     }
     index += 2;
@@ -610,7 +700,9 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
         index -= 1;
         break;
       }
-      if (row.length !== 3) throw new SingularityFlowError(`Planned claim table row at line ${index + 1} must contain exactly three columns.`);
+      if (row.length !== headers.length) {
+        throw new SingularityFlowError(`Planned claim table row at line ${index + 1} must contain exactly ${headers.length === 3 ? 'three' : headers.length} columns.`);
+      }
       const id = parseClauseCell(row[0], known, `Planned claim table row ${index + 1}`);
       if (claims[id]) throw new SingularityFlowError(`Planned claim table defines clause ${id} more than once.`);
       const expectedPaths = parseBacktickedPathCell(row[1], `${id}.expectedPaths`);
@@ -618,6 +710,9 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
       const tests = notApplicableReason == null
         ? parseBacktickedPathCell(row[2], `${id}.tests`)
         : [];
+      const fulfillment = parseFulfillmentCell(column(row, 'fulfillment'), `${id}.fulfillment`);
+      const steps = parseStepsCell(column(row, 'steps'), `${id}.steps`);
+      const observableResult = parseObservableResultCell(column(row, 'observable result'), `${id}.observableResult`);
       claims[id] = {
         expectedPaths,
         tests,
@@ -625,7 +720,10 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
           ? (tests.length ? 'applicable' : 'unspecified')
           : 'not-applicable',
         testReason: notApplicableReason,
-        deviation: null
+        deviation: null,
+        ...(fulfillment ? { fulfillment } : {}),
+        ...(steps.length ? { steps } : {}),
+        ...(observableResult ? { observableResult } : {})
       };
     }
   }
@@ -691,12 +789,14 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
       if (testDisposition !== 'not-applicable' && testReason) {
         throw new SingularityFlowError(`${id}.testReason is only allowed when testDisposition is not-applicable.`);
       }
+      const expectedPaths = normalizePaths(claim.expectedPaths, `${id}.expectedPaths`, normalized.limits);
       claims[id] = {
-        expectedPaths: normalizePaths(claim.expectedPaths, `${id}.expectedPaths`, normalized.limits),
+        expectedPaths,
         tests,
         testDisposition,
         testReason,
-        deviation: claim.deviation == null ? null : String(claim.deviation)
+        deviation: claim.deviation == null ? null : String(claim.deviation),
+        ...plannedObligationFields(id, claim, { expectedPaths, tests, testDisposition })
       };
     } else {
       const verdict = claim.verdict ?? 'missing';
@@ -1034,8 +1134,11 @@ export function mergePlannedClaimRecords(maps = []) {
   for (const map of [...maps].sort(recordOrder)) {
     for (const [id, claim] of Object.entries(map?.claims ?? {})) {
       const current = grouped.get(id) ?? {
-        expectedPaths: [], tests: [], dispositions: [], reasons: [], deviation: null
+        expectedPaths: [], tests: [], dispositions: [], reasons: [], deviation: null, fulfillment: null, steps: [], observableResult: null
       };
+      if (claim.fulfillment) current.fulfillment = claim.fulfillment;
+      current.steps.push(...(claim.steps ?? []));
+      if (claim.observableResult) current.observableResult = claim.observableResult;
       current.expectedPaths.push(...(claim.expectedPaths ?? []));
       current.tests.push(...(claim.tests ?? []));
       current.dispositions.push(claim.testDisposition ?? 'unspecified');
@@ -1053,7 +1156,10 @@ export function mergePlannedClaimRecords(maps = []) {
       tests,
       testDisposition: tests.length ? 'applicable' : allNotApplicable ? 'not-applicable' : 'unspecified',
       testReason: tests.length || !allNotApplicable ? null : value.reasons.at(-1) ?? null,
-      deviation: value.deviation
+      deviation: value.deviation,
+      ...(value.fulfillment ? { fulfillment: value.fulfillment } : {}),
+      ...(value.steps.length ? { steps: sortedUnique(value.steps) } : {}),
+      ...(value.observableResult ? { observableResult: value.observableResult } : {})
     }];
   }));
 }

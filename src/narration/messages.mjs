@@ -787,6 +787,25 @@ export const MESSAGES = Object.freeze({
       : `Found ${slot(s.count, '0')} pending transport intent(s).`,
     preserves: true
   },
+  'integrations.listed': {
+    headline: (s) => s.scope && s.scope !== 'repository'
+      ? `${slot(s.scope)} pinned ${slot(s.actions, '0')} after-step action(s) to ${slot(s.targets, '0')} target(s).`
+      : `${slot(s.targets, '0')} integration target(s); ${slot(s.actions, '0')} after-step action(s) configured.`,
+    preserves: true
+  },
+  'integrations.status': {
+    headline: (s) => `Found ${slot(s.count, '0')} after-step deliver${s.count === 1 ? 'y' : 'ies'}${s.open ? `; ${slot(s.open)} not delivered yet${s.failed ? `, ${slot(s.failed)} failed` : ''}` : ''}.`,
+    preserves: true
+  },
+  'integrations.retried': {
+    headline: (s) => `Tried ${slot(s.count, '0')} deliver${s.count === 1 ? 'y' : 'ies'}: ${slot(s.delivered, '0')} delivered, ${slot(s.pending, '0')} still pending, ${slot(s.failed, '0')} failed.`
+  },
+  'integrations.tested': {
+    headline: (s) => s.sent
+      ? `Sent a test delivery to ${slot(s.target)}: ${slot(s.outcome)}${s.status ? ` (HTTP ${slot(s.status)})` : ''}.`
+      : `Showed the request ${slot(s.target)} would receive; nothing was sent.`,
+    preserves: true
+  },
   'transport.retry-completed': {
     headline: (s) => `Transport ${slot(s.intentId)} is ${slot(s.status)} after the authorized retry.`
   },

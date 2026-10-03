@@ -220,6 +220,7 @@ skills:
   sflow-pr: { class: mutation }
   sflow-progress: { class: echo, executionBoundary: repository }
   sflow-push: { class: mutation, executionBoundary: machine }
+  sflow-integrations: { class: mutation, executionBoundary: repository }
   sflow-prompt-log: { class: mutation, executionBoundary: repository }
   sflow-quickstart: { class: echo, executionBoundary: machine }
   sflow-recommend: { class: conversational, executionBoundary: machine }

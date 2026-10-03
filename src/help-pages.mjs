@@ -974,6 +974,36 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['workspace', 'sync', 'doctor']
   },
+  integrations: {
+    summary: 'See what each step sends after it is submitted, approved or rejected, and retry deliveries.',
+    description: [
+      'A workflow step can list after-step actions: when it is submitted, approved or rejected, it',
+      'sends an event to a webhook, a log service or Microsoft Teams. Targets are declared once under',
+      'integrations.targets and name their secrets; the values come from the environment of the',
+      'machine that delivers. A Story pins its actions when it starts.',
+      '',
+      'Deliveries run after the governed commit is published and are kept in this repository\'s',
+      'action outbox on this machine. A failure never undoes a transition: it is retried by later',
+      'transitions, by sync, or by integrations retry, and each delivery is sent at most once.',
+      'The outbox is machine-local and never governance evidence.'
+    ],
+    options: [
+      ['--work-id ID', 'list: the actions a Story pinned when it started; status: only that Story\'s deliveries.'],
+      ['--all', 'status: include delivered records; retry: every pending and failed delivery.'],
+      ['--trigger submitted|approved|rejected', 'test: the trigger to show (default approved).'],
+      ['--send event|summary', 'test: what to send (default event).'],
+      ['--phase ID', 'test: the step name to show in the sample event.'],
+      ['--send-test', 'test: send the sample event, marked as a test, instead of only showing it.'],
+      ['--json', 'Emit the structured result.']
+    ],
+    examples: [
+      ['singularity-flow integrations list', 'Targets, whether their secrets are set here, and which steps use them.'],
+      ['singularity-flow integrations status', 'Deliveries not yet delivered, with their last outcome.'],
+      ['singularity-flow integrations retry --all', 'Deliver every pending and failed delivery now.'],
+      ['singularity-flow integrations test team-events', 'Show the exact request the target would receive; nothing is sent.']
+    ],
+    seeAlso: ['sync', 'doctor', 'workflow']
+  },
   goal: {
     summary: 'Manage personal outcomes and repository-owned governed Goal Executions.',
     description: [

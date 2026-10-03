@@ -164,7 +164,7 @@ test('the event carries what happened and where it is recorded, and nothing from
   const action = { id: 'announce', target: 'team-events', send: 'event', targetSpec: { signingSecret: 'SFLOW_EVENTS_SIGNING_KEY' } };
   const event = buildStepActionEvent({
     workflow, phaseId: 'requirements', trigger: 'approved', action, deliveryKey: 'sad_x',
-    event: { actor: 'Ada <ada@example.com>', createdAt: '2026-10-03T10:00:00.000Z' }, commit: 'f'.repeat(40), remote: 'https://github.com/acme/app.git'
+    event: { actor: 'Ada <ada@example.com>', createdAt: '2026-10-03T10:00:00.000Z' }, commit: 'f'.repeat(40), remote: 'https://git.example.test/app.git'
   });
   assert.equal(event.schema, 'sflow-step-action@1');
   assert.deepEqual(event.delivery, { key: 'sad_x', action: 'announce', target: 'team-events', trigger: 'approved', send: 'event' });

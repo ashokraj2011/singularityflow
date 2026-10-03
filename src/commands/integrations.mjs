@@ -1,0 +1,204 @@
+/**
+ * `singularity-flow integrations`: the targets after-step actions deliver to, and their deliveries.
+ *
+ *   list    targets and which steps use them (or one Story's pinned actions with --work-id)
+ *   status  deliveries in this repository's outbox: waiting, pending, failed (--all adds delivered)
+ *   retry   deliver now: named delivery keys, or every pending and failed one with --all
+ *   test    the exact request a target would receive; --send-test sends one marked as a test
+ */
+import { repoRoot } from '../git.mjs';
+import { loadConfig } from '../state-stores.mjs';
+import {
+  action, commandResult, effects, noEffects, succeeded
+} from '../narration/command-result.mjs';
+import { emitCommandResult } from '../narration/emit.mjs';
+import {
+  deliverStepActions, deliveryRequest, listStepActionDeliveries, postDelivery
+} from '../step-action-delivery.mjs';
+import {
+  INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, buildStepActionEvent, normalizeIntegrations,
+  stepActionDeliveryKey
+} from '../step-actions.mjs';
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+
+const SECRET_HEADERS = new Set(['authorization', 'dd-api-key', 'x-sflow-signature']);
+
+function result(operation, outcome, { data, changed = false, next = [] } = {}) {
+  return commandResult({
+    operation: { id: operation.id, classification: operation.classification },
+    subject: null,
+    outcome,
+    effects: changed ? effects({ stateChanged: true, filesChanged: true }) : noEffects(),
+    next,
+    restState: 'informational',
+    data
+  });
+}
+
+/** Where each target is used, per workflow, from the repository's current configuration. */
+function configuredUse(config) {
+  const integrations = normalizeIntegrations(config.integrations);
+  const uses = [];
+  for (const [workflowId, workType] of Object.entries(config.workTypes ?? {})) {
+    for (const phaseId of workType.phases ?? []) {
+      const override = workType.phaseOverrides?.[phaseId];
+      const actions = override && Object.hasOwn(override, 'afterStep') ? override.afterStep : config.phases?.[phaseId]?.afterStep;
+      for (const entry of actions ?? []) {
+        uses.push({ workflow: workflowId, step: phaseId, action: entry.id, on: entry.on, target: entry.target, send: entry.send ?? 'event' });
+      }
+    }
+  }
+  return { targets: Object.values(integrations.targets), uses };
+}
+
+function secretStatus(target, env) {
+  const names = [target.signingSecret, target.tokenSecret, target.urlSecret].filter(Boolean);
+  return names.map((name) => ({ name, set: Boolean(env[name] && String(env[name]).trim()) }));
+}
+
+function line(columns, widths) { return columns.map((value, index) => String(value ?? '').padEnd(widths[index])).join('  ').trimEnd(); }
+
+function table(rows, headers) {
+  const widths = headers.map((header, index) => Math.min(40, Math.max(header.length, ...rows.map((row) => String(row[index] ?? '').length))));
+  return [line(headers, widths), line(widths.map((width) => '-'.repeat(width)), widths), ...rows.map((row) => line(row, widths))].join('\n');
+}
+
+async function listCommand(root, config, options, operation, json) {
+  const workId = optionString(options, 'work-id');
+  if (workId) {
+    const { loadWorkflow } = await import('../state.mjs');
+    const workflow = await loadWorkflow(root, config, workId);
+    const pinned = (workflow.resolution?.phases ?? []).flatMap((phase) => (phase.afterStep ?? []).map((entry) => ({
+      step: phase.id, action: entry.id, on: entry.on, target: entry.target, kind: entry.targetSpec?.kind ?? null, send: entry.send
+    })));
+    if (!json) {
+      console.log(pinned.length
+        ? table(pinned.map((entry) => [entry.step, entry.action, entry.on.join(','), `${entry.target} (${entry.kind})`, entry.send]), ['STEP', 'ACTION', 'ON', 'TARGET', 'SENDS'])
+        : `${workId} pinned no after-step actions when it started.`);
+    }
+    return emitCommandResult(result(operation, succeeded('integrations.listed', { targets: new Set(pinned.map((entry) => entry.target)).size, actions: pinned.length, scope: workId }),
+      { data: { workId, actions: pinned } }), { json });
+  }
+  const { targets, uses } = configuredUse(config);
+  const env = process.env;
+  if (!json) {
+    if (!targets.length) console.log('No integration targets are configured. Add them under integrations.targets in singularity/workflow.yml, or in Workflow Studio.');
+    else {
+      console.log(table(targets.map((target) => [target.id, target.kind, target.url ?? `(address in ${target.urlSecret})`,
+        secretStatus(target, env).map((entry) => `${entry.name}${entry.set ? '' : ' (not set here)'}`).join(', ') || '—']), ['TARGET', 'KIND', 'ADDRESS', 'SECRETS']));
+      if (uses.length) {
+        console.log('');
+        console.log(table(uses.map((use) => [use.workflow, use.step, use.action, use.on.join(','), use.target, use.send]), ['WORKFLOW', 'STEP', 'ACTION', 'ON', 'TARGET', 'SENDS']));
+      }
+    }
+  }
+  return emitCommandResult(result(operation, succeeded('integrations.listed', { targets: targets.length, actions: uses.length, scope: 'repository' }), {
+    data: { targets: targets.map((target) => ({ ...target, secrets: secretStatus(target, env) })), uses }
+  }), { json });
+}
+
+async function statusCommand(root, options, operation, json) {
+  const deliveries = await listStepActionDeliveries(root, { workId: optionString(options, 'work-id'), includeDelivered: optionBoolean(options, 'all') });
+  const open = deliveries.filter((entry) => ['pending', 'waiting', 'failed', 'tampered'].includes(entry.status));
+  if (!json) {
+    if (deliveries.length) {
+      console.log(table(deliveries.map((entry) => [entry.status, entry.workId, entry.phaseId, entry.trigger, `${entry.action} → ${entry.target}`, entry.attempts,
+        entry.lastAttempt ? (entry.lastAttempt.status ? `HTTP ${entry.lastAttempt.status}` : entry.lastAttempt.code ?? entry.lastAttempt.outcome) : '', entry.key]),
+      ['STATUS', 'STORY', 'STEP', 'ON', 'ACTION', 'TRIES', 'LAST', 'KEY']));
+    }
+  }
+  const failed = open.filter((entry) => entry.status === 'failed').map((entry) => entry.key);
+  return emitCommandResult(result(operation, succeeded('integrations.status', { count: deliveries.length, open: open.length, failed: failed.length }), {
+    data: { deliveries },
+    next: failed.length ? [action({ id: 'integrations-retry', label: 'Retry the failed deliveries', command: `singularity-flow integrations retry ${failed.join(' ')}`, kind: 'remediation' })] : []
+  }), { json });
+}
+
+async function retryCommand(root, config, positionals, options, operation, json) {
+  const keys = positionals.slice(2);
+  const all = optionBoolean(options, 'all');
+  if (!keys.length && !all) {
+    throw new SingularityFlowError('integrations retry needs one or more delivery keys, or --all for every pending and failed delivery.', {
+      code: 'STEP_ACTION_DELIVERY_REQUIRED'
+    });
+  }
+  const { repositoryLogger } = await import('../logging.mjs');
+  const report = await deliverStepActions(root, { keys: keys.length ? keys : null, includeFailed: all, logger: repositoryLogger(root, config) });
+  if (!json) {
+    for (const entry of [...report.delivered, ...report.retrying, ...report.unavailable, ...report.failed]) {
+      const state = report.delivered.includes(entry) ? 'delivered' : report.failed.includes(entry) ? 'failed' : report.unavailable.includes(entry) ? 'unavailable here' : 'will retry';
+      console.log(`${state.padEnd(16)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})${entry.detail ? `: ${entry.detail}` : ''}`);
+    }
+    for (const entry of report.skipped) console.log(`${'skipped'.padEnd(16)} ${entry.key}: ${entry.reason}`);
+  }
+  return emitCommandResult(result(operation, succeeded('integrations.retried', {
+    count: report.delivered.length + report.retrying.length + report.unavailable.length + report.failed.length,
+    delivered: report.delivered.length, pending: report.retrying.length + report.unavailable.length, failed: report.failed.length
+  }), { data: { report }, changed: true }), { json });
+}
+
+function redactedHeaders(headers) {
+  return Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, SECRET_HEADERS.has(name) ? '[redacted]' : value]));
+}
+
+async function testCommand(root, config, positionals, options, operation, json) {
+  const targetId = positionals[2];
+  const integrations = normalizeIntegrations(config.integrations);
+  const target = targetId ? integrations.targets[targetId] : null;
+  if (!target) {
+    const known = Object.keys(integrations.targets);
+    throw new SingularityFlowError(`integrations test needs a configured target.${known.length ? ` Configured: ${known.join(', ')}.` : ' None are configured.'}`, {
+      code: 'STEP_ACTION_TARGET_UNKNOWN'
+    });
+  }
+  const trigger = optionString(options, 'trigger') ?? 'approved';
+  if (!STEP_ACTION_TRIGGERS.includes(trigger)) throw new SingularityFlowError(`--trigger must be one of: ${STEP_ACTION_TRIGGERS.join(', ')}.`, { code: 'STEP_ACTION_INVALID' });
+  const send = optionString(options, 'send') ?? 'event';
+  if (!STEP_ACTION_SENDS.includes(send) || !INTEGRATION_TARGET_KINDS[target.kind].sends.includes(send)) {
+    throw new SingularityFlowError(`A ${target.kind} target accepts --send ${INTEGRATION_TARGET_KINDS[target.kind].sends.join(' or ')}.`, { code: 'STEP_ACTION_SEND_UNSUPPORTED' });
+  }
+  const phaseId = optionString(options, 'phase') ?? 'example-step';
+  const actionEntry = { id: 'test', on: [trigger], target: target.id, send, targetSpec: target };
+  const key = stepActionDeliveryKey({ workId: 'TEST', phaseId, generation: 0, trigger, actionId: `test-${Date.now()}` });
+  const event = buildStepActionEvent({
+    workflow: { workItem: { id: 'TEST', title: 'Test delivery from singularity-flow integrations test', branch: null }, phases: { [phaseId]: { status: trigger === 'approved' ? 'approved' : 'awaiting_approval', generation: 0, artifacts: [] } }, resolution: { phases: [] } },
+    phaseId, trigger, action: actionEntry, deliveryKey: key, event: { createdAt: new Date().toISOString() }
+  });
+  event.test = true;
+  if (send === 'summary') event.summary = { title: 'Example artifact title', acceptanceCriteria: ['Example acceptance criterion'] };
+  const record = { key, trigger, action: actionEntry, event };
+  const request = deliveryRequest(record, process.env);
+  const preview = request.url ? { method: 'POST', url: request.url, headers: redactedHeaders(request.headers), body: JSON.parse(request.body) } : null;
+  const sendIt = optionBoolean(options, 'send-test');
+  let delivery = null;
+  if (sendIt && request.url) {
+    delivery = await postDelivery({ ...request, timeoutMs: (target.timeoutSeconds ?? 10) * 1000, network: target.network });
+  }
+  if (!json) {
+    if (request.unavailable) console.log(`Cannot build the request on this machine: ${request.unavailable.detail}`);
+    else if (request.failed) console.log(`Cannot build the request: ${request.failed.detail}`);
+    else {
+      console.log(`POST ${preview.url}`);
+      for (const [name, value] of Object.entries(preview.headers)) console.log(`${name}: ${value}`);
+      console.log('');
+      console.log(JSON.stringify(preview.body, null, 2));
+      if (delivery) console.log(`\n${delivery.outcome === 'delivered' ? 'Sent' : 'Not delivered'}${delivery.status ? ` (HTTP ${delivery.status})` : ''}${delivery.detail ? `: ${delivery.detail}` : ''}.`);
+    }
+  }
+  return emitCommandResult(result(operation, succeeded('integrations.tested', {
+    target: target.id, sent: Boolean(delivery), outcome: delivery?.outcome ?? (request.url ? 'previewed' : 'unavailable'), status: delivery?.status ?? null
+  }), { data: { target: target.id, request: preview, unavailable: request.unavailable ?? null, failed: request.failed ?? null, delivery } }), { json });
+}
+
+export async function run(_argv, { positionals, options, operation: given = null }) {
+  const subcommand = positionals[1] ?? 'status';
+  const operation = given ?? { id: `integrations.${subcommand}`, classification: subcommand === 'retry' ? 'mutation' : 'read' };
+  const json = optionBoolean(options, 'json');
+  const root = repoRoot();
+  if (subcommand === 'status') return statusCommand(root, options, operation, json);
+  const config = await loadConfig(root);
+  if (subcommand === 'list') return listCommand(root, config, options, operation, json);
+  if (subcommand === 'retry') return retryCommand(root, config, positionals, options, operation, json);
+  if (subcommand === 'test') return testCommand(root, config, positionals, options, operation, json);
+  throw new SingularityFlowError(`Unknown integrations subcommand '${subcommand}'. Available: list, status, retry, test.`, { code: 'UNKNOWN_SUBCOMMAND' });
+}

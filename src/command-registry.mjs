@@ -1,11 +1,11 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck', 'skill']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product', 'review-source']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product', 'review-source']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -32,6 +32,7 @@ const LAZY_MODULES = Object.freeze({
   goal: './commands/goal.mjs',
   journal: './commands/journal.mjs',
   push: './commands/push.mjs',
+  integrations: './commands/integrations.mjs',
   auto: './commands/auto.mjs',
   adhoc: './commands/adhoc.mjs',
   land: './commands/adhoc.mjs',
@@ -113,7 +114,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
-  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['review-source'], ['workflow'], ['skill'],
+  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['integrations'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['review-source'], ['workflow'], ['skill'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['import'], ['imports'], ['marketplace'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
@@ -306,6 +307,9 @@ const JOURNAL_SUBCOMMANDS = Object.freeze(['settings', ...JOURNAL_READ_SUBCOMMAN
 const PUSH_READ_SUBCOMMANDS = Object.freeze(['status']);
 const PUSH_MUTATION_SUBCOMMANDS = Object.freeze(['retry']);
 const PUSH_SUBCOMMANDS = Object.freeze([...PUSH_READ_SUBCOMMANDS, ...PUSH_MUTATION_SUBCOMMANDS]);
+const INTEGRATIONS_READ_SUBCOMMANDS = Object.freeze(['list', 'status', 'test']);
+const INTEGRATIONS_MUTATION_SUBCOMMANDS = Object.freeze(['retry']);
+const INTEGRATIONS_SUBCOMMANDS = Object.freeze([...INTEGRATIONS_READ_SUBCOMMANDS, ...INTEGRATIONS_MUTATION_SUBCOMMANDS]);
 const IMPACT_READ_SUBCOMMANDS = Object.freeze(['preview', 'explain', 'refresh', 'status', 'study', 'compare', 'verify', 'doctor']);
 const IMPACT_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'disposition', 'expansion', 'export', 'enroll', 'evidence', 'finalize']);
 const IMPACT_SUBCOMMANDS = Object.freeze([...IMPACT_READ_SUBCOMMANDS, ...IMPACT_MUTATION_SUBCOMMANDS, 'exposure']);
@@ -441,6 +445,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   goal: GOAL_SUBCOMMANDS,
   journal: JOURNAL_SUBCOMMANDS,
   push: PUSH_SUBCOMMANDS,
+  integrations: INTEGRATIONS_SUBCOMMANDS,
   impact: IMPACT_SUBCOMMANDS,
   context: CONTEXT_SUBCOMMANDS,
   tokens: TOKENS_SUBCOMMANDS,
@@ -954,6 +959,13 @@ function resolveJournalOperation(definition, positionals, options) {
   }
   if (JOURNAL_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`journal.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('journal', subcommand, JOURNAL_SUBCOMMANDS);
+}
+
+function resolveIntegrationsOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (INTEGRATIONS_READ_SUBCOMMANDS.includes(subcommand)) return never(`integrations.${subcommand}`, definition, 'read');
+  if (INTEGRATIONS_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`integrations.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('integrations', subcommand, INTEGRATIONS_SUBCOMMANDS);
 }
 
 function resolvePushOperation(definition, positionals) {
@@ -1479,6 +1491,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
   if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
   if (definition.name === 'push') return resolvePushOperation(definition, positionals);
+  if (definition.name === 'integrations') return resolveIntegrationsOperation(definition, positionals);
   if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
@@ -1600,6 +1613,7 @@ export function operationCatalog() {
   const goalDefinition = commandDefinition('goal');
   const journalDefinition = commandDefinition('journal');
   const pushDefinition = commandDefinition('push');
+  const integrationsDefinition = commandDefinition('integrations');
   const secretsDefinition = commandDefinition('secrets');
   const envDefinition = commandDefinition('env');
   const productDefinition = commandDefinition('product');
@@ -1822,6 +1836,8 @@ export function operationCatalog() {
     never('journal.export.preview', journalDefinition, 'read'),
     ...PUSH_READ_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'read')),
     ...PUSH_MUTATION_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'mutation')),
+    ...INTEGRATIONS_READ_SUBCOMMANDS.map((name) => never(`integrations.${name}`, integrationsDefinition, 'read')),
+    ...INTEGRATIONS_MUTATION_SUBCOMMANDS.map((name) => never(`integrations.${name}`, integrationsDefinition, 'mutation')),
     ...IMPACT_READ_SUBCOMMANDS.filter((name) => name !== 'study').map((name) => never(`impact.${name}`, impactDefinition, 'read')),
     ...IMPACT_MUTATION_SUBCOMMANDS.map((name) => never(`impact.${name}`, impactDefinition, 'mutation')),
     ...CONTEXT_READ_SUBCOMMANDS.map((name) => never(`context.${name}`, contextDefinition, 'read')),

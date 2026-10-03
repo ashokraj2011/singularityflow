@@ -906,6 +906,13 @@ Usage:
   singularity-flow workspace doctor [--network] [--repository URL]... [--json]
   singularity-flow push status [INTENT-ID] [--all] [--json]
   singularity-flow push retry <INTENT-ID> [--json]
+  singularity-flow integrations list [--work-id ID] [--json]
+  singularity-flow integrations status [--work-id ID] [--all] [--json]
+  singularity-flow integrations retry <DELIVERY-KEY...>|--all [--json]
+  singularity-flow integrations test <TARGET> [--trigger submitted|approved|rejected] [--send event|summary]
+    [--phase ID] [--send-test] [--json]
+    (after-step actions: what each step sends to webhooks, log services and Teams once it is
+     submitted, approved or rejected; test shows the exact request and sends only with --send-test)
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
   singularity-flow repositories providers [--json]
   singularity-flow repositories list [--scope known|provider|all] [--provider github] [--host HOST]

@@ -143,6 +143,10 @@ import {
   prepareRevisionPublicationSelection, verifyPreparedRevisionPublicationSelection
 } from './revision/publication-selection.mjs';
 import { assertNoInteractiveRevisionPublication } from './revision/publication-adapter.mjs';
+import {
+  deliverStepActions, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning, storyUsesStepActions
+} from './step-action-delivery.mjs';
+import { repositoryLogger } from './logging.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import {
   approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
@@ -9346,10 +9350,25 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     event: result.event
   });
   warnNotificationFailures(notifications);
+  // After-step actions run from the actions this Story pinned, once the commit is published (or at
+  // once when publication is off). A commit that could not be pushed holds them until sync does.
+  const stepActions = await runStepActionsAfterTransition(root, workflow, {
+    event: result.event,
+    commit: result.sha,
+    remote: governedPublicationAuthority?.url ?? null,
+    published: Boolean(result.pushed) || workflowPublicationMode(config, workflow) === 'off',
+    logger: stepActionLogger(root, config, workflow)
+  });
+  const stepActionNotice = stepActionWarning(stepActions);
+  if (stepActionNotice) console.warn(`Warning: ${stepActionNotice}`);
   return {
-    ...result, notifications, pendingCleanup,
+    ...result, notifications, stepActions, pendingCleanup,
     ...(revisionSelection ? { revisionSelection } : {})
   };
+}
+
+function stepActionLogger(root, config, workflow) {
+  try { return repositoryLogger(root, config, { context: { workId: workflow?.workItem?.id ?? null } }); } catch { return null; }
 }
 
 export async function syncPublication(root, config, workflow, { fault = null } = {}) {
@@ -9660,13 +9679,24 @@ export async function syncPublication(root, config, workflow, { fault = null } =
     }
     await clearPendingPublication(root, pendingOptions);
     const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
+    // Deliveries that waited for this commit to reach the remote are due now.
+    let stepActions = null;
+    if (storyUsesStepActions(workflow)) try {
+      await releaseWaitingStepActions(root, { workId: workflow.workItem.id });
+      stepActions = await deliverStepActions(root, { logger: stepActionLogger(root, config, workflow) });
+      const notice = stepActionWarning(stepActions);
+      if (notice) console.warn(`Warning: ${notice}`);
+    } catch (error) {
+      stepActions = { error: { code: error?.code ?? 'STEP_ACTION_RUNTIME_FAILED' } };
+    }
     return {
       pending: false,
       pushed: rootPushed ? record.commit : null,
       remote: record.remote,
       branch: record.branch,
       capabilityPublished: capability.published,
-      ledger
+      ledger,
+      stepActions
     };
   });
 }

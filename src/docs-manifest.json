@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f6991f4d97caff011334af2b9683f6091d678043",
-  "topicCount": 74,
-  "contentSha256": "4741d25b8e8220b3ad6d06cd87b19c0c2560b09d96dadddb994da205ab85b814",
+  "sourceCommit": "d6d70405c4edd9a0c2df84c7457ec21450dadde9",
+  "topicCount": 75,
+  "contentSha256": "11bdce19a1227dad2c2e0dc8daec7ed27d9f8e00b548a69ea8e7c07dc93780e3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -20,6 +20,14 @@
       "sha256": "0dc8cdc41de88086703aaded5f51fc5957d4826db7bc3f977887d332042f062e",
       "routingSha256": "5cc50cf586524cc24138d4c473af6f13631cf3b7e7e040184507630319ddba23",
       "file": "ad-hoc-work.md"
+    },
+    {
+      "id": "after-step-actions",
+      "title": "After-step actions and integrations",
+      "version": 1,
+      "sha256": "536edbf2fcc5bc2c07832f96f6671ecab66dd3420f590cff4c523fe0f5d9250a",
+      "routingSha256": "13e342acfd47757d04f7d8aa2f855d713c4136f64dc55c322441e0b74ff132d4",
+      "file": "after-step-actions.md"
     },
     {
       "id": "agents-and-routing",

@@ -316,6 +316,30 @@ export async function doctorSnapshot(root, {
           : `Trust and start '${server.hostReference}' in the host, then run singularity-flow mcp attest ${server.id} --confirm ${server.id}.`
     ));
   }
+  // After-step action targets: a secret this machine lacks holds its deliveries here, and a failed
+  // delivery waits for a person. Neither blocks work, so both warn.
+  try {
+    const { normalizeIntegrations } = await import('./step-actions.mjs');
+    const targets = Object.values(normalizeIntegrations(definition?.integrations).targets);
+    if (targets.length) {
+      const { listStepActionDeliveries } = await import('./step-action-delivery.mjs');
+      const failed = (await listStepActionDeliveries(root, { includeDelivered: false })).filter((entry) => entry.status === 'failed' || entry.status === 'tampered');
+      for (const target of targets) {
+        const missing = [target.signingSecret, target.tokenSecret, target.urlSecret].filter((name) => name && !String(process.env[name] ?? '').trim());
+        const stuck = failed.filter((entry) => entry.target === target.id).length;
+        checks.push(check(
+          `integration-${target.id}`,
+          missing.length || stuck ? 'warn' : 'pass',
+          `Integration target ${target.id} (${target.kind}): ${missing.length ? `secret ${missing.join(', ')} is not set on this machine` : 'secrets set'}${stuck ? `; ${stuck} failed deliver${stuck === 1 ? 'y' : 'ies'}` : ''}.`,
+          missing.length
+            ? `Set ${missing.join(', ')} in this machine's environment (VS Code passes the secrets it stores), then run singularity-flow integrations retry --all.`
+            : stuck ? `Run singularity-flow integrations status, fix the target, then singularity-flow integrations retry --all.` : null
+        ));
+      }
+    }
+  } catch (error) {
+    checks.push(check('integrations', 'warn', `Integration targets could not be checked: ${error.message}`, 'Run singularity-flow integrations list for details.'));
+  }
   const telemetryLaunches = await explainTelemetryStatus({ root });
   const telemetryCapability = await probeTelemetry({
     root, provider: 'github-copilot', runtime: 'copilot-cli', host: 'cli'

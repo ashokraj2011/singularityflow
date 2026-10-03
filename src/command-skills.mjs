@@ -66,6 +66,7 @@ const entries = {
   goal: ['sf-goal'],
   journal: ['sf-journal'],
   push: ['sf-push'],
+  integrations: ['sf-integrations'],
   auto: ['sf-auto'],
   adhoc: ['sf-adhoc'],
   land: ['sf-adhoc'],

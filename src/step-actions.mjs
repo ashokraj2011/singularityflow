@@ -49,6 +49,7 @@ export const INTEGRATION_TARGET_KINDS = Object.freeze({
 });
 
 export const HTTP_LOG_FORMATS = Object.freeze(['json', 'splunk-hec', 'datadog', 'elastic', 'loki']);
+const TOKEN_REQUIRED_FORMATS = new Set(['splunk-hec', 'datadog', 'elastic']);
 
 /** The fields each available kind accepts, besides `kind`, `label`, `network` and `timeoutSeconds`. */
 const TARGET_FIELDS = Object.freeze({
@@ -170,6 +171,9 @@ function normalizeTarget(id, raw, label) {
     }
     target.format = format;
     if (raw.tokenSecret != null) target.tokenSecret = assertSecretName(raw.tokenSecret, `${label} tokenSecret`);
+    else if (TOKEN_REQUIRED_FORMATS.has(format)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} writes to ${format}, which needs tokenSecret: the name of the secret holding its API token.`, { location: label });
+    }
     if (raw.labels != null) {
       if (!plainObject(raw.labels) || Object.keys(raw.labels).length > 16) {
         refuse('INTEGRATION_TARGET_INVALID', `${label} labels must be an object of at most 16 text values.`, { location: label });
@@ -347,4 +351,57 @@ export function buildStepActionEvent({
     artifacts,
     decision
   };
+}
+
+const MAX_SUMMARY_CRITERIA = 20;
+const MAX_SUMMARY_TEXT = 300;
+
+function clip(text, limit = MAX_SUMMARY_TEXT) {
+  const value = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+}
+
+/**
+ * The title and acceptance criteria of a Markdown artifact, for actions that send `summary`:
+ * enough for a person to recognise the work, never the whole document.
+ */
+export function summarizeArtifact(markdown) {
+  const lines = String(markdown ?? '').split(/\r?\n/);
+  const title = lines.map((line) => /^#\s+(.+)$/.exec(line)?.[1]).find(Boolean) ?? null;
+  const criteria = [];
+  let inCriteria = false;
+  let level = 0;
+  for (const line of lines) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      if (inCriteria && heading[1].length <= level) inCriteria = false;
+      if (/acceptance criteria/i.test(heading[2])) { inCriteria = true; level = heading[1].length; }
+      continue;
+    }
+    if (!inCriteria || criteria.length >= MAX_SUMMARY_CRITERIA) continue;
+    const item = /^\s*(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line)?.[1];
+    const row = /^\s*\|(.+)\|\s*$/.exec(line)?.[1];
+    if (item) criteria.push(clip(item));
+    else if (row && !/^[\s|:-]+$/.test(row)) {
+      const cells = row.split('|').map((cell) => cell.trim()).filter(Boolean);
+      if (cells.length && !/^clause$/i.test(cells[0])) criteria.push(clip(cells.join(' — ')));
+    }
+  }
+  return { title: title ? clip(title, 200) : null, acceptanceCriteria: criteria };
+}
+
+const TRIGGER_WORDS = Object.freeze({ submitted: 'submitted for approval', approved: 'approved', rejected: 'sent back' });
+
+/** One readable message for chat and log services: what happened, to which Story, and where. */
+export function stepActionText(event) {
+  const step = event?.step?.label ?? event?.step?.id ?? 'A step';
+  const story = [event?.story?.id, event?.story?.title].filter(Boolean).join(' ');
+  const lines = [`Singularity Flow — ${step} ${TRIGGER_WORDS[event?.delivery?.trigger] ?? event?.delivery?.trigger ?? 'changed'}`];
+  if (story) lines.push(`${story}${Number.isSafeInteger(event?.step?.generation) ? ` · generation ${event.step.generation}` : ''}`);
+  const where = [event?.story?.branch ? `Branch ${event.story.branch}` : null, event?.commit?.sha ? `commit ${event.commit.sha.slice(0, 12)}` : null].filter(Boolean);
+  if (where.length) lines.push(where.join(' · '));
+  if (event?.decision?.returnedTo) lines.push(`Returned to ${event.decision.returnedTo}${event.decision.reason ? `: ${clip(event.decision.reason, 200)}` : ''}`);
+  if (event?.summary?.title) lines.push(`${event.summary.title}`);
+  for (const criterion of (event?.summary?.acceptanceCriteria ?? []).slice(0, 5)) lines.push(`• ${criterion}`);
+  return lines.join('\n');
 }

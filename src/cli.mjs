@@ -18640,6 +18640,7 @@ async function dispatch(command, positionals, options) {
     goal: async () => (await import('./commands/goal.mjs')).run([], { positionals, options }),
     journal: async () => (await import('./commands/journal.mjs')).run([], { positionals, options }),
     push: async () => (await import('./commands/push.mjs')).run([], { positionals, options }),
+    integrations: async () => (await import('./commands/integrations.mjs')).run([], { positionals, options }),
     auto: async () => (await import('./commands/auto.mjs')).run(argv, { positionals, options }),
     adhoc: async () => (await import('./commands/adhoc.mjs')).run(argv, {
       positionals, options, definition: commandDefinition('adhoc')

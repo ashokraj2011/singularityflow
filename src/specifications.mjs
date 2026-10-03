@@ -16,6 +16,7 @@ import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN } from './traceability-ids.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
+import { normalizeVerificationContracts } from './verification/contracts.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -834,10 +835,13 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
   const supportingFiles = kind === 'planned'
     ? normalizePaths(value.supportingFiles ?? [], 'supportingFiles', normalized.limits) : [];
   const supportingFileDetails = kind === 'planned' ? normalizeSupportingFileDetails(value.supportingFileDetails, supportingFiles) : [];
+  // How each criterion must be verified, from the plan's own contracts table [E2G-013].
+  const verificationContracts = kind === 'planned' ? normalizeVerificationContracts(value.verificationContracts) : [];
   const result = {
     schemaVersion: currentSchemaVersion('specification-claim-map'), kind, recordedAt: nowIso(), claims,
     ...(supportingFiles.length ? { supportingFiles } : {}),
-    ...(supportingFileDetails.length ? { supportingFileDetails } : {})
+    ...(supportingFileDetails.length ? { supportingFileDetails } : {}),
+    ...(verificationContracts.length ? { verificationContracts } : {})
   };
   const bytes = Buffer.byteLength(canonicalJson(result));
   if (bytes > normalized.limits.maxClaimBytes) throw new SingularityFlowError(`${kind} claim map exceeds ${normalized.limits.maxClaimBytes} bytes.`);

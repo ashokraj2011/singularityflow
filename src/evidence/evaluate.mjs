@@ -19,9 +19,10 @@ import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
 import {
-  ASSURANCE, DEFAULT_REQUIRED_ASSURANCE, ROW_RESULTS, assuranceAtLeast, obligationId, weakestAssurance
+  DEFAULT_REQUIRED_ASSURANCE, ROW_RESULTS, obligationId, weakestAssurance
 } from './vocabulary.mjs';
-import { aggregateWitnesses, witnessResult } from '../verification/witness-results.mjs';
+import { contractResult } from '../verification/contract-results.mjs';
+import { effectiveContract, mergedVerificationContracts, witnessMappingCore, witnessMappingSha256 } from '../verification/contracts.mjs';
 
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
 const STORY_RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);
@@ -70,40 +71,6 @@ function executionOutcome(delivery, commandId) {
 function aggregateOutcome(outcomes) {
   for (const outcome of ['failed', 'unavailable', 'passed-with-skips']) if (outcomes.includes(outcome)) return outcome;
   return outcomes.length ? 'passed' : 'not-run';
-}
-
-/** One word for what a criterion's witnesses' runs showed, from the strongest blocker down. */
-function executionWord(results) {
-  const outcomes = results.map((entry) => entry.outcome);
-  for (const outcome of ['failed', 'unavailable', 'flaky', 'ambiguous', 'inconclusive', 'unverified-skipped', 'missing', 'passed-with-skips', 'not-run']) {
-    if (outcomes.includes(outcome)) return outcome === 'unverified-skipped' ? 'skipped' : outcome;
-  }
-  return outcomes.length ? 'passed' : 'not-run';
-}
-
-const WITNESS_FINDINGS = Object.freeze({
-  failed: ['EVIDENCE_TEST_FAILED', (id, entry) => !entry.identityKey ? `The test command covering ${id} failed.`
-    : (entry.reasons ?? []).includes('RUN_FAILED') ? `The test command covering ${id} failed; its test ${entry.label} passed, but a pass inside a failed run does not count.`
-      : (entry.reasons ?? []).includes('RUN_FAILED_WITHOUT_RESULT') ? `The test command covering ${id} failed without a result for its test ${entry.label}.`
-        : `${id}'s test ${entry.label} failed.`],
-  unavailable: ['EVIDENCE_TEST_UNAVAILABLE', (id) => `The test command covering ${id} produced no usable result.`],
-  'passed-with-skips': ['EVIDENCE_TESTS_SKIPPED', (id, entry) => `The test command covering ${id} passed with ${entry.skipped} skipped test(s); which test was skipped is not joined to the criterion.`],
-  flaky: ['EVIDENCE_TEST_FLAKY', (id, entry) => `${id}'s test ${entry.label} passed only after failing in the same run; a flaky pass is not a pass.`],
-  'unverified-skipped': ['EVIDENCE_TEST_SKIPPED', (id, entry) => `${id}'s test ${entry.label} was skipped, so it verified nothing.`],
-  missing: ['EVIDENCE_TEST_NOT_RUN', (id, entry) => `${id}'s test ${entry.label} has no result in the run of its candidate.`],
-  ambiguous: ['EVIDENCE_TEST_AMBIGUOUS', (id, entry) => `${id}'s test ${entry.label} matches more than one result, so none can be credited.`],
-  inconclusive: ['EVIDENCE_TEST_IDENTITY_INCONCLUSIVE', (id, entry) => `${id}'s test ${entry.label} cannot be tied to one exact result (${(entry.reasons ?? []).join(', ') || 'unknown'}).`],
-  'not-run': ['EVIDENCE_TEST_NOT_RUN', (id, entry) => `${id}'s test ${entry.label} has not run against the published candidate.`]
-});
-
-function witnessFinding(id, entry, verifyId) {
-  if (entry.shortfall) {
-    return finding('EVIDENCE_ASSURANCE_SHORTFALL',
-      `${id}'s test ${entry.label} reached ${entry.assurance}; its module's runner can reach ${entry.requiredAssurance}, so that is required.`,
-      { obligationIds: [verifyId] });
-  }
-  const [code, message] = WITNESS_FINDINGS[entry.outcome] ?? WITNESS_FINDINGS.inconclusive;
-  return finding(code, message(id, entry), { obligationIds: [verifyId] });
 }
 
 /** The attempt a witness is judged against: the delivery's bound attempt of its command. */
@@ -305,6 +272,20 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   const planSteps = holders(workflow, 'plan');
   const verifySteps = holders(workflow, 'verify');
   const inspections = graph.inspections ?? [];
+  // How each criterion must be verified [E2G-013], and what reviewers decided about each exact test
+  // that witnesses one [E2G-014]: a decision binds the test's exact revision and the criterion's text.
+  const contracts = mergedVerificationContracts(records.planned ?? []);
+  const clauseBodies = new Map(clauses.map((clause) => [clause.id, clause.bodySha256]));
+  const adequacy = new Map();
+  for (const phase of Object.values(phases)) {
+    for (const approval of (phase.approvals ?? []).filter((entry) => !entry.invalidatedAt)) {
+      for (const mapping of approval.witnessMappings ?? []) adequacy.set(mapping.mappingSha256, mapping);
+    }
+  }
+  const adequacyDecision = (entry, id, contract) => {
+    if (!entry.witness.identity || (entry.witness.gaps ?? []).length) return null;
+    return adequacy.get(witnessMappingSha256(witnessMappingCore(entry.witness, { clauseBodySha256: clauseBodies.get(id), contract }))) ?? null;
+  };
 
   const rows = clauses.map((clause) => {
     const id = clause.id;
@@ -388,9 +369,11 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       let skipped = 0;
       let inspectedBy = [];
       let witnessResults = [];
+      let contractSlots = [];
       let identityFacet = tagged.length ? 'declared' : 'none';
       let executionFacet = 'none';
       let requiredLevel = requiredAssurance;
+      const contract = noCode ? null : effectiveContract(id, contracts, planned);
       if (noCode) {
         // A reviewer approved verification evidence that cites the criterion; no test proves it.
         inspectedBy = inspections.filter((entry) => entry.text.includes(id) && phaseFinished(phases[entry.phaseId])
@@ -399,49 +382,27 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         assurance = inspectedBy.length ? 'declared' : 'none';
         status = inspectedBy.length ? 'met' : verifySteps.length && verifySteps.every((step) => phaseFinished(phases[step])) ? 'missing' : 'pending';
         if (status === 'missing') rowFindings.push(finding('EVIDENCE_INSPECTION_MISSING', `No approved verification step cites ${id}.`, { obligationIds: [verifyId] }));
-      } else if (planned?.testDisposition === 'not-applicable') {
+      } else if (!contract) {
         status = 'excepted';
         exception = 'not-applicable';
         assurance = 'none';
-      } else if (!submitted.length) {
-        status = rowSubmitted ? 'missing' : 'pending';
-        assurance = tagged.length ? 'declared' : 'none';
-        // A published delivery shows what its preflight run observed, still pending its submission.
-        witnessResults = tagged.map((entry) => witnessResult(entry.witness, entry.attempt, { submitted: false }));
-        if (witnessResults.length) execution = executionWord(witnessResults);
-        if (status === 'missing') {
-          rowFindings.push(unattached.has(id)
-            ? finding('EVIDENCE_TAG_NOT_ON_TEST', `${id} is tagged at ${unattached.get(id).join(', ')}, but not on a test, so it verifies nothing.`, { obligationIds: [verifyId] })
-            : finding('EVIDENCE_WITNESS_MISSING', `No submitted test is tagged for ${id}.`, { obligationIds: [verifyId] }));
-        }
       } else {
-        // Each witness is judged against the authoritative attempt of its own command [E2G-016].
-        witnessResults = submitted.map((entry) => witnessResult(entry.witness, entry.attempt, { submitted: true }));
-        const aggregate = aggregateWitnesses(witnessResults);
-        skipped = witnessResults.reduce((sum, entry) => sum + Number(entry.skipped ?? 0), 0);
-        execution = executionWord(witnessResults);
-        identityFacet = aggregate.identity;
-        executionFacet = aggregate.execution;
-        // D2: at least what the Story requires, and the strongest each witness's runner can reach.
-        requiredLevel = [requiredAssurance, ...witnessResults.map((entry) => entry.requiredAssurance)]
-          .reduce((left, right) => (ASSURANCE.indexOf(left) >= ASSURANCE.indexOf(right) ? left : right));
-        const accepted = submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk');
-        if (aggregate.status === 'met') {
-          assurance = aggregate.assurance;
-          status = assuranceAtLeast(assurance, requiredLevel) ? 'met' : 'inconclusive';
-          if (status !== 'met') rowFindings.push(finding('EVIDENCE_ASSURANCE_SHORTFALL', `${id} reached ${assurance}; ${requiredLevel} is required.`, { obligationIds: [verifyId] }));
-        } else if (['failed', 'inconclusive'].includes(aggregate.status) && accepted
-            && witnessResults.every((entry) => ['failed', 'unavailable'].includes(entry.outcome) || entry.status === 'met')) {
-          assurance = 'declared';
-          status = 'excepted';
-          exception = 'accepted-risk';
-        } else {
-          assurance = aggregate.assurance;
-          status = aggregate.status;
-          for (const result of witnessResults.filter((entry) => entry.status !== 'met')) {
-            rowFindings.push(witnessFinding(id, result, verifyId));
-          }
-        }
+        // The criterion against its verification contract [E2G-013]: each slot judged on its own,
+        // each test joined to the authoritative attempt of its own command [E2G-016].
+        const result = contractResult(id, contract, tagged, {
+          submitted: submitted.length > 0, rowSubmitted, requiredAssurance, at,
+          decisionFor: (entry) => adequacyDecision(entry, id, contract),
+          unattached: unattached.get(id) ?? [],
+          records: graph.witnessRecords ?? [],
+          acceptedRisk: submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk')
+        });
+        ({ status, exception, assurance, witnessResults, skipped } = result);
+        contractSlots = result.slots;
+        if (witnessResults.length) execution = result.executionWord;
+        identityFacet = result.identity;
+        executionFacet = result.execution;
+        requiredLevel = result.requiredAssurance;
+        for (const entry of result.findings) rowFindings.push(finding(entry.code, entry.message, { obligationIds: [verifyId] }));
       }
       verification = {
         association: noCode ? 'inspection' : !tagged.length ? 'none'
@@ -459,7 +420,14 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
           attemptId: entry.attemptId, outcome: entry.outcome, status: entry.status, assurance: entry.assurance,
           identity: entry.identity, execution: entry.execution, requiredAssurance: entry.requiredAssurance,
           reasons: entry.reasons ?? []
-        }))
+        })),
+        contract: contract ? {
+          stated: contract.stated, combination: contract.combination,
+          slots: contractSlots.map((entry) => ({
+            slot: entry.slot, method: entry.method, role: entry.role, status: entry.status, assurance: entry.assurance,
+            requiredAssurance: entry.requiredAssurance, witnesses: entry.results.map((result) => result.label)
+          }))
+        } : null
       };
       obligations.push({
         id: verifyId, responsibility: 'verify', subject: id, owningSteps: noCode ? inspectedBy : [...new Set(tagged.map((entry) => entry.phaseId))], status,

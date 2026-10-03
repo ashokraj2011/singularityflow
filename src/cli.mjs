@@ -6685,9 +6685,9 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
   for (const mapping of review.witnessReview?.mappings ?? []) {
     const safe = (value) => String(value ?? 'unavailable')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '�');
-    console.log(`\n  Witness mapping ${safe(mapping.mappingSha256)}`);
+    console.log(`\n  Witness ${safe(mapping.mappingSha256)} (accepted as adequate on approval unless decided with --witness-mapping)`);
     console.log(`    Clause: ${safe(mapping.clauseId)} · ${safe(mapping.clauseStatus)}`);
-    console.log(`    Test: ${safe(mapping.sourcePath)} · ${safe(mapping.logicalTestId)}`);
+    console.log(`    Test: ${safe(mapping.test ?? mapping.sourcePath)}${mapping.slot ? ` · slot ${safe(mapping.slot)}` : ''} · ${safe(mapping.logicalTestId)}`);
     console.log(`    Declaration: ${safe(mapping.sourceDeclarationSha256)}`);
     console.log(`    Behavior: ${safe(mapping.clauseFields?.behavior)}`);
     console.log(`    Observable: ${safe(mapping.clauseFields?.observable)}`);
@@ -8153,11 +8153,14 @@ function witnessMappingDecisions(options) {
   const decisions = mappings.map((entry) => {
     const separator = String(entry).indexOf('=');
     const mappingSha256 = separator === -1 ? '' : String(entry).slice(0, separator).trim();
-    const decision = separator === -1 ? '' : String(entry).slice(separator + 1).trim();
+    // An exception names the adequacy facets the test falls short on: exception:assertions,boundaries.
+    const [decision, facets = ''] = (separator === -1 ? '' : String(entry).slice(separator + 1).trim()).split(':');
+    const inadequate = facets.split(',').map((facet) => facet.trim()).filter(Boolean);
     if (!/^sha256:[a-f0-9]{64}$/.test(mappingSha256)
-        || !['satisfied', 'exception', 'not-applicable'].includes(decision)) {
+        || !['satisfied', 'exception', 'not-applicable'].includes(decision)
+        || (decision === 'exception') !== (inadequate.length > 0)) {
       throw new SingularityFlowError(
-        `--witness-mapping must be <sha256>=satisfied|exception|not-applicable; got '${entry}'.`
+        `--witness-mapping must be <sha256>=satisfied, <sha256>=exception:<facet>[,<facet>] (facets: setup, action, assertions, boundaries, implementation) or <sha256>=not-applicable; got '${entry}'.`
       );
     }
     const needsReason = decision !== 'satisfied';
@@ -8165,6 +8168,7 @@ function witnessMappingDecisions(options) {
     return {
       mappingSha256,
       decision,
+      ...(inadequate.length ? { inadequate } : {}),
       ...(needsReason ? { reason: reasons[reasonIndex++] ?? null } : {}),
       ...(needsExpiry ? { expiresAt: expiries[expiryIndex++] ?? null } : {})
     };

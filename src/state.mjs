@@ -222,6 +222,7 @@ import {
 } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
+import { parseVerificationContracts } from './verification/contracts.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
@@ -1783,6 +1784,15 @@ function plannedClaimContract(phase, authored, {
       { code: 'SPEC_PLANNED_ALLOCATION_INVALID', details: { phase: phase.id, idle, codeSteps } }
     );
   }
+  // Each criterion's verification contract is validated with the plan, before any code exists [E2G-013].
+  let contracts;
+  try {
+    contracts = parseVerificationContracts(authored, { clauseIds, plannedClaims: derived.claimMap.claims });
+  } catch (error) {
+    throw new SingularityFlowError(`${subject} because its verification contracts are invalid: ${error.message} Fix the 'Verification contracts' table ${where} and ${again}.`, {
+      code: error.code ?? 'SPEC_VERIFICATION_CONTRACT_INVALID', details: { phase: phase.id, ...(error.details ?? {}) }
+    });
+  }
   const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
   if (gaps.length && enforce) {
     throw new SingularityFlowError(
@@ -1792,7 +1802,7 @@ function plannedClaimContract(phase, authored, {
       { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: gaps } }
     );
   }
-  return { derived, gaps };
+  return { derived, gaps, contracts };
 }
 
 /**
@@ -1833,7 +1843,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
   const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
-  const { derived, gaps } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath, codeSteps });
+  const { derived, gaps, contracts } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath, codeSteps });
   if (gaps.length) {
     console.warn(`Warning: phase ${phase.id} planned-test contract is incomplete for ${gaps.join(', ')}.`);
   }
@@ -1845,6 +1855,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const existing = await existingClaimMap(root, relative, workflow, phase, 'planned', clauseIds, policy);
   const record = {
     ...derived.claimMap,
+    ...(contracts.length ? { verificationContracts: contracts } : {}),
     ...(existing ? { recordedAt: existing.record.recordedAt } : {}),
     workId: workflow.workItem.id,
     phase: phase.id,
@@ -5952,14 +5963,17 @@ export async function approvePhase(root, config, workflow, {
       );
     }
   }
+  // Approving accepts every submitted witness as adequate unless the reviewer decided otherwise; an
+  // earlier decision on an identical witness carries forward [E2G-014].
   const witnessReview = evaluateWitnessMappingReview({
     mappings: submittedWitnessMappings,
-    decisions: witnessMappings
+    decisions: witnessMappings,
+    prior: [...(phase.approvals ?? [])].reverse().flatMap((entry) => entry.witnessMappings ?? [])
   });
   if (!witnessReview.valid) {
     throw new SingularityFlowError(
-      `Phase ${phase.id} witness mapping review is incomplete:\n- ${witnessReview.errors.join('\n- ')}\n`
-      + `Record every mapping with --witness-mapping <sha256>=satisfied|exception|not-applicable; exceptions also require --witness-mapping-reason and --witness-mapping-expires.`,
+      `Phase ${phase.id} witness review is invalid:\n- ${witnessReview.errors.join('\n- ')}\n`
+      + `Decide a witness with --witness-mapping <sha256>=exception:<facet>[,<facet>] (with --witness-mapping-reason and --witness-mapping-expires) or <sha256>=not-applicable (with --witness-mapping-reason); every other witness is accepted as adequate.`,
       { code: 'WEL_WITNESS_MAPPING_UNREVIEWED' }
     );
   }

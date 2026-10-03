@@ -342,13 +342,13 @@ function witnessMappingSection(bundle) {
   const review = bundle.witnessReview;
   if (!review?.mappings?.length) return [];
   const lines = [
-    '## Witness mapping review — human decision required', '',
-    '> Exact static identity and a passing local report do not prove the requirement. Each mapping remains non-authoritative until this review is recorded.', ''
+    '## Witness adequacy review', '',
+    '> A test that passes proves only what it asserts. Approving this step accepts each test below as adequate for its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. Record an exception or rule a test out with --witness-mapping.', ''
   ];
   for (const mapping of review.mappings) {
-    lines.push(`### \`${mapping.clauseId}\` → \`${mapping.logicalTestId}\``, '',
+    lines.push(`### \`${mapping.clauseId}\` → ${mapping.test ?? `\`${mapping.logicalTestId}\``}`, '',
       `- Mapping: \`${mapping.mappingSha256}\``,
-      `- Test: \`${mapping.sourcePath}\``,
+      `- Test: \`${mapping.sourcePath}\`${mapping.slot ? ` (slot ${mapping.slot})` : ''}`,
       `- Declaration: \`${mapping.sourceDeclarationSha256}\``,
       `- Clause bytes: **${mapping.clauseStatus}** · \`${mapping.clauseBodySha256}\``,
       `- Behavior: ${mapping.clauseFields?.behavior ?? '_unavailable_'}`,

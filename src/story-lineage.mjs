@@ -20,7 +20,7 @@ import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { validateTrpRecord } from './test-recovery-policy.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { canonicalJson } from './records.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
 } from './world-model/canonicalize.mjs';
@@ -39,7 +39,9 @@ import {
 } from './publication-pending.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
-import { loadActiveSpecRecords } from './specifications.mjs';
+import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
+import { effectiveContract, mergedVerificationContracts, witnessMappingCore, witnessMappingSha256 } from './verification/contracts.mjs';
+import { witnessLabel } from './verification/witness-results.mjs';
 import { verifySkillPhasePublication, verifyStoredSkillEvidence } from './skp-phase-evidence.mjs';
 
 function hash(value) {
@@ -132,18 +134,14 @@ function validateSubmittedArchitectureIntent(root, config, workflow, packet, evi
   return binding;
 }
 
+/**
+ * The witnesses a reviewer decides about [E2G-014]: every exact test the submitted delivery ties to a
+ * criterion, each bound to the criterion's exact text, the test's exact revision, its adapter profile
+ * and the contract slot it serves. Approving the step accepts them as adequate unless the reviewer
+ * records an exception or rules one out; a decision carries forward while every digest is unchanged.
+ */
 async function witnessReviewSnapshot(root, config, workflow, phase) {
   const status = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
-  const testcaseObservations = [];
-  const clauseMappings = new Map();
-  let clauses = null;
-  const activeClauses = async () => {
-    if (clauses) return clauses;
-    const specRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-    clauses = new Map((specRecords.indexes ?? []).flatMap((index) => index.clauses ?? [])
-      .map((clause) => [clause.id, clause]));
-    return clauses;
-  };
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
     const stored = JSON.parse(await readFile(path.join(root, execution.receiptPath), 'utf8'));
     const storedSha256 = createHash('sha256').update(canonicalJson(stored)).digest('hex');
@@ -159,106 +157,36 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
         || stored.recordSha256 !== phase.deliveryEvidence.testRecovery?.observationSha256) {
         throw new SingularityFlowError('The risk observation differs from the submission binding.', { code: 'STORY_REVIEW_EVIDENCE_STALE' });
       }
-      // Risk acceptance is not a passing WEL witness, even when individual cases really ran.
-      continue;
+    } else {
+      readRecord('test-execution', stored);
     }
-    const receipt = readRecord('test-execution', stored).record;
-    const observation = receipt.testcaseObservation;
-    if (!observation) continue;
-    const localDiagnostic = observation.status === 'observed'
-      && observation.assurance === 'testcase-local-observed'
-      && observation.verdict === 'inconclusive'
-      && receipt.testcaseExecutionProven === false
-      && receipt.candidate == null && receipt.program == null && receipt.attempt == null;
-    const outcomes = (observation.occurrences ?? []).reduce((summary, occurrence) => {
-      if (observation.exact === true && ['passed', 'failed', 'skipped'].includes(occurrence.outcome)) {
-        summary[occurrence.outcome] += 1;
-      } else summary.inconclusive += 1;
-      if (!['observed-name-only', 'exact-static-identity'].includes(occurrence.identityStatus)) {
-        summary.ambiguous += 1;
-      }
-      return summary;
-    }, { passed: 0, failed: 0, skipped: 0, inconclusive: 0, ambiguous: 0 });
-    for (const proposal of localDiagnostic && observation.exact === true
-      ? observation.mappingProposals ?? [] : []) {
-      const { mappingSha256, reviewStatus, ...proposalCore } = proposal;
-      if (!/^sha256:[a-f0-9]{64}$/.test(mappingSha256 ?? '')
-          || reviewStatus !== 'unreviewed'
-          || mappingSha256 !== `sha256:${recordSha256(proposalCore)}`) {
-        throw new SingularityFlowError(
-          `Test execution '${execution.commandId}' contains an invalid WEL mapping proposal.`,
-          { code: 'STORY_REVIEW_EVIDENCE_INVALID' }
-        );
-      }
-      const clause = (await activeClauses()).get(proposal.clauseId);
+  }
+  const clauseMappings = new Map();
+  if (phase.deliveryEvidence?.status === 'ready' && phase.deliveryEvidence.receiptPath) {
+    const receipt = JSON.parse(await readFile(path.join(root, phase.deliveryEvidence.receiptPath), 'utf8'));
+    const specRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+    const clauses = new Map((specRecords.indexes ?? []).flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
+    const contracts = mergedVerificationContracts(specRecords.planned ?? []);
+    const planned = mergePlannedClaimRecords(specRecords.planned ?? []);
+    for (const witness of receipt.traceability?.witnesses ?? []) {
+      if (!witness.identity || (witness.gaps ?? []).length) continue;
+      const clause = clauses.get(witness.clauseId);
       if (!clause?.bodySha256) {
-        throw new SingularityFlowError(
-          `WEL mapping proposal '${mappingSha256}' references unavailable clause '${proposal.clauseId}'.`,
-          { code: 'WEL_WITNESS_MAPPING_STALE' }
-        );
+        throw new SingularityFlowError(`The test witnessing '${witness.clauseId}' names a criterion the active specification does not hold.`, { code: 'WEL_WITNESS_MAPPING_STALE' });
       }
-      const clauseBodySha256 = `sha256:${String(clause.bodySha256).replace(/^sha256:/, '')}`;
-      const reviewMappingCore = {
-        sourceProposalSha256: proposal.mappingSha256,
-        clauseId: proposal.clauseId,
-        witnessType: proposal.witnessType,
-        executionProfile: proposal.executionProfile,
-        logicalTestId: proposal.logicalTestId,
-        sourcePath: proposal.sourcePath,
-        sourceDeclarationSha256: proposal.sourceDeclarationSha256,
-        parserManifestSha256: proposal.parserManifestSha256,
-        clauseBodySha256
-      };
-      const reviewMappingSha256 = `sha256:${recordSha256(reviewMappingCore)}`;
-      clauseMappings.set(reviewMappingSha256, {
-        mappingSha256: reviewMappingSha256,
-        ...reviewMappingCore,
-        reviewStatus: 'unreviewed',
-        decision: null,
-        reason: null,
-        expiresAt: null
-      });
+      const contract = effectiveContract(witness.clauseId, contracts, planned[witness.clauseId] ?? null);
+      if (!contract) continue;
+      const core = witnessMappingCore(witness, { clauseBodySha256: clause.bodySha256, contract });
+      const mappingSha256 = witnessMappingSha256(core);
+      clauseMappings.set(mappingSha256, { mappingSha256, ...core, test: witnessLabel(witness), reviewStatus: 'unreviewed', decision: null, reason: null, expiresAt: null });
     }
-    testcaseObservations.push({
-      commandId: execution.commandId,
-      receiptSha256: storedSha256,
-      status: localDiagnostic
-        ? 'observed'
-        : ['unavailable', 'unsupported'].includes(observation.status) ? observation.status : 'inconclusive',
-      assurance: localDiagnostic ? 'testcase-local-observed' : 'unavailable',
-      exact: localDiagnostic && observation.exact === true,
-      verdict: 'inconclusive',
-      disposition: localDiagnostic && observation.exact === true
-        ? 'unreviewed-witness-observed' : 'witness-inconclusive',
-      profile: observation.profile ?? null,
-      occurrences: (observation.occurrences ?? []).length,
-      outcomes,
-      catalogSha256: observation.catalog?.catalogSha256 ?? null,
-      mappingProposalCount: (observation.mappingProposals ?? []).length,
-      rawReports: (observation.rawReports ?? []).map(({ path: reportPath, sha256, bytes }) => ({
-        path: reportPath, sha256, bytes
-      })),
-      lifecycle: {
-        status: receipt.lifecycle?.status ?? 'unavailable',
-        candidate: receipt.lifecycle?.candidate ?? null,
-        program: receipt.lifecycle?.program ?? null,
-        attempt: receipt.lifecycle?.attempt ?? null,
-        retryLineage: receipt.lifecycle?.retryLineage ?? [],
-        enforcementEligible: receipt.lifecycle?.enforcementEligible === true,
-        gaps: receipt.lifecycle?.gaps ?? ['WEL_LIFECYCLE_JOIN_UNAVAILABLE']
-      },
-      notice: localDiagnostic
-        ? observation.notice ?? null
-        : 'testcase evidence did not satisfy the supported non-exact local-observation contract'
-    });
   }
   return {
     enrollment: status.classification === 'enrolled' ? status.enrollment : null,
     enrollmentClassification: status.classification,
     enrollmentReason: status.reason,
-    clauseMappings: [...clauseMappings.values()].sort((left, right) =>
-      left.mappingSha256.localeCompare(right.mappingSha256)),
-    testcaseObservations
+    clauseMappings: [...clauseMappings.values()].sort((left, right) => left.mappingSha256.localeCompare(right.mappingSha256)),
+    testcaseObservations: []
   };
 }
 

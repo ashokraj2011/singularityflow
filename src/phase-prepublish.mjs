@@ -22,6 +22,7 @@ import {
   predecessorSpecClauses
 } from './specifications.mjs';
 import { exists, posix, secureRepositoryPath, snapshot } from './util.mjs';
+import { parseVerificationContracts } from './verification/contracts.mjs';
 
 function findingKey(finding) {
   return [finding.code, finding.path ?? '', finding.line ?? '',
@@ -153,6 +154,13 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         const sourceSnapshot = await snapshot(source.absolute);
         const authored = authoredArtifactText(await readFile(source.absolute, 'utf8'));
         const derived = derivePlannedClaimMap(authored, { clauseIds, policy: specPolicy });
+        // Verification contracts are checked here too, so a defect shows before publishing [E2G-013].
+        let contracts = [];
+        try {
+          contracts = parseVerificationContracts(authored, { clauseIds, plannedClaims: derived.claimMap.claims });
+        } catch (error) {
+          add('specification.verification-contract-invalid', 'verification-contracts', error.message, { details: error.details ?? {} });
+        }
         const placeholders = Object.entries(derived.claimMap.claims)
           .filter(([, claim]) => claim.testDisposition === 'not-applicable'
             && placeholderTestReason(claim.testReason))
@@ -182,7 +190,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
           }
           normalizeClaimMap(existing, { kind: 'planned', clauseIds, policy: specPolicy });
           const expected = {
-            ...derived.claimMap, recordedAt: existing.recordedAt,
+            ...derived.claimMap, ...(contracts.length ? { verificationContracts: contracts } : {}), recordedAt: existing.recordedAt,
             workId: workflow.workItem.id, phase: phase.id, generation: draft.generation,
             source: { path: artifactPath, sha256: sourceSnapshot.sha256,
               bytes: sourceSnapshot.size }

@@ -55,7 +55,7 @@ async function governedRepository(t, workId, files, { executables = [] } = {}) {
   return { root, cli };
 }
 
-async function intake(root, cli, workId, criteria, planned) {
+async function intake(root, cli, workId, criteria, planned, { columns = ['Clause', 'Expected paths', 'Planned tests'], extra = [] } = {}) {
   cli('start', workId, '--from-branch', 'main', '--work-type', 'classic-delivery',
     '--title', 'Exact verification', '--description', 'Show exact test results per criterion.');
   const item = path.join(root, 'singularity/work-items', workId);
@@ -66,8 +66,9 @@ async function intake(root, cli, workId, criteria, planned) {
     '## Scope and constraints', '', 'Change only the value module and its tests.', '',
     '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|',
     ...criteria.map(([id, text]) => `| [${workId}:${id}] | ${text} |`), '',
-    '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests |', '|---|---|---|',
-    ...planned.map(([id, paths, tests]) => `| \`${workId}:${id}\` | ${paths} | ${tests} |`), '',
+    '## Planned implementation evidence', '', `| ${columns.join(' | ')} |`, `|${columns.map(() => '---').join('|')}|`,
+    ...planned.map(([id, ...cells]) => `| \`${workId}:${id}\` | ${cells.join(' | ')} |`), '',
+    ...extra,
     '## Initial evidence', '', 'The baseline module and tests at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
@@ -239,4 +240,55 @@ test('§12 #8 for JUnit 5 through a real Story: skipped, filtered, missing and d
   for (const id of ['AC-002', 'AC-003', 'AC-004']) {
     assert.notEqual(rows[id].obligations.find((entry) => entry.responsibility === 'verify').status, 'met', id);
   }
+});
+
+test('a verification contract through a real Story: an inspection-only criterion needs no tag, and the reviewer decides adequacy', async (t) => {
+  const workId = 'EXACT-3';
+  const { root, cli } = await governedRepository(t, workId, {
+    'package.json': JSON.stringify({ type: 'module', private: true, scripts: { test: 'node tools/jest-shim.mjs --runner jest' } }),
+    '.gitignore': '.sflow/\n',
+    'tools/jest-shim.mjs': await readFile(SHIM, 'utf8'),
+    'src/value.js': 'export const value = 1;\n',
+    'test/value.test.js': "import { value } from '../src/value.js';\ntest('baseline value', () => { expect(value).toBe(1); });\n"
+  });
+  const item = await intake(root, cli, workId, [
+    ['AC-001', 'The exported value equals 2.'],
+    ['AC-002', 'The runbook states the approved value.']
+  ], [
+    ['AC-001', '`src/value.js`', '`test/value.test.js`', 'modified'],
+    ['AC-002', '`docs/runbook.md`', 'not-applicable: a reviewer inspects the runbook', 'document']
+  ], {
+    columns: ['Clause', 'Expected paths', 'Planned tests', 'Fulfillment'],
+    extra: [
+      '## Verification contracts', '', '| Criterion | Slot | Method | Witness |', '|---|---|---|---|',
+      `| \`${workId}:AC-001\` | unit | test | \`test/value.test.js\` |`,
+      `| \`${workId}:AC-002\` | runbook | inspection | \`docs/runbook.md\` |`, ''
+    ]
+  });
+  await writeFile(path.join(root, 'src/value.js'), `// @clause:${workId}:AC-001 returns the approved value two\nexport const value = 2;\n`);
+  await writeFile(path.join(root, 'test/value.test.js'), [
+    "import { value } from '../src/value.js';", '', `// @ac:${workId}:AC-001`, "test('exported value is two', () => { expect(value).toBe(2); });", ''
+  ].join('\n'));
+  await mkdir(path.join(root, 'docs'), { recursive: true });
+  await writeFile(path.join(root, 'docs/runbook.md'), '# Runbook\n\nThe exported value is two.\n');
+  await completeSummary(item);
+  // AC-002 is verified by inspection, so no test needs an @ac tag for it.
+  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'implementation');
+  const review = JSON.parse(cli('phase', 'show', 'implementation', '--json').stdout);
+  assert.equal(review.witnessReview.mappings.length, 1, 'one exact test is proposed for review');
+  const [mapping] = review.witnessReview.mappings;
+  assert.equal(mapping.clauseId, `${workId}:AC-001`);
+  assert.equal(mapping.slot, 'unit');
+  const expires = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  cli('approve', 'implementation', '--yes', '--witness-mapping', `${mapping.mappingSha256}=exception:boundaries`,
+    '--witness-mapping-reason', 'No negative value case yet; it is tracked as follow-up work.', '--witness-mapping-expires', expires);
+  const rows = Object.fromEntries(JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
+    .map((entry) => [entry.id.split(':').at(-1), entry]));
+  const verify = (id) => rows[id].obligations.find((entry) => entry.responsibility === 'verify');
+  assert.equal(verify('AC-001').status, 'excepted');
+  assert.equal(verify('AC-001').facets.exception, 'witness-exception');
+  assert.equal(verify('AC-001').facets.execution, 'passed', 'the exception never rewrites what was observed');
+  assert.equal(rows['AC-002'].verification.contract.slots[0].method, 'inspection');
+  assert.equal(verify('AC-002').status, 'missing', 'the runbook still needs its inspection record');
 });

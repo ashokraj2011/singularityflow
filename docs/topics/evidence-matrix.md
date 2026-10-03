@@ -14,6 +14,8 @@ keywords:
   - exact-local-observed
   - assurance
   - per-criterion verification
+  - verification contract
+  - witness adequacy
 commands:
   - evidence
 related:
@@ -21,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 14
+version: 15
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -63,6 +65,16 @@ A criterion is tied to a test by an `@ac:<clause>` comment on the line directly 
 Every run of a test command is kept as an immutable attempt with its raw report, failed runs and retries included, and the criterion is judged against the attempt bound to the published candidate. An exact test reads, in this order: failed; no result (the run failed or ended without one); flaky (it passed only after failing in the same run); ambiguous (more than one result carries its identity); not exact (its declaration cannot be pinned down, for example a dynamic title or a duplicate); skipped; not in the run (filtered out, or in a file the runner did not run); passed. Only passed verifies, and only inside a run that completed and succeeded; an unrelated passing test in the same file never stands in for it.
 
 Assurance has two facets on each verify obligation: identity (`declared` for a tagged file, `source-bound` for one exact test) and execution (`none`, `module-observed` or `exact-local-observed`). Each criterion requires the strongest assurance its runner can reach, and never less than `module-observed`; a pass below that is an assurance shortfall, resolved by repairing the test configuration, tagging another test, or accepting the risk with the `assurance-shortfall` category. Exact-local-observed is a local observation of the candidate's own tests; nothing promotes it to authenticated.
+
+### Verification contracts
+
+A plan may say exactly how each acceptance criterion is verified, in its own `## Verification contracts` table beside the planned-evidence table. Each row is one witness slot: `| Criterion | Slot | Method | Witness |`, with optional `Role` (primary or supporting), `Required assurance`, `Combination` (all or any) and `Reason` columns. The method is `test` (an executable test file, which must be one of the criterion's planned tests), `inspection` (a reviewer inspects an exact file) or `visual` (visual evidence of a named screen). Publishing the plan refuses a contract that could never verify honestly: an unknown criterion, an unsupported method such as a measurement, a slot named twice, a criterion with only supporting witnesses, `any` without a reason, a test that is not planned, or a required assurance the method cannot reach (nothing reaches exact-authenticated here).
+
+Every primary slot must be met (`all`), or, when the plan gives a reason, one of them (`any`). A supporting slot is shown but never satisfies a criterion. A criterion with no row keeps one test slot over its planned tests. Only a criterion with a primary test slot needs an `@ac` tag: one verified by inspection or visual evidence, or whose tests the plan reviewed as not applicable, needs none.
+
+### Witness adequacy review
+
+A passing test proves only what it asserts, so the reviewer decides whether each exact test adequately verifies its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. The submission lists every exact test with the criterion's text, and approving the step accepts all of them as adequate, as one batch over their exact digests. To record a shortfall, approve with `--witness-mapping <sha256>=exception:<facet>[,<facet>] --witness-mapping-reason TEXT --witness-mapping-expires YYYY-MM-DD`; the criterion then reads satisfied with an exception until the expiry, after which the test stops counting. To rule a test out, use `<sha256>=not-applicable` with a reason; it then verifies nothing. A decision carries forward to a later generation only while the test, its support code, the criterion's text and the contract are all unchanged.
 
 ### Accepting a risk
 
@@ -129,6 +141,9 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **A criterion's test was skipped or is not in the run:** remove the skip, or make the runner select its file (a `*Spec` class or a file outside the runner's pattern never runs), then publish and submit again.
 - **A criterion's test is ambiguous, flaky or not exact:** give it a unique literal title or method, fix the flaky test, or move the tag to a test with a static identity.
 - **`EVIDENCE_TAG_NOT_ON_TEST`:** the tag is not on the line directly above a test; move it there.
+- **`SPEC_VERIFICATION_CONTRACT_INVALID`:** the plan's verification contracts table has a defect; the message names the row and what to change.
+- **`EVIDENCE_INSPECTION_MISSING` or `EVIDENCE_VISUAL_MISSING`:** a contract slot needs its inspection or visual record.
+- **`EVIDENCE_WITNESS_NOT_APPLICABLE` or `EVIDENCE_WITNESS_EXCEPTION_EXPIRED`:** the reviewer ruled the criterion's tests out, or an adequacy exception lapsed; tag an adequate test, or review the test again.
 - **`EVIDENCE_ASSURANCE_SHORTFALL`:** the criterion passed below what its runner can reach or the Story requires; repair the test configuration, tag another test, or accept the risk with the `assurance-shortfall` category.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 - **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.

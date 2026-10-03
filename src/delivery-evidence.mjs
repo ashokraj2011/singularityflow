@@ -33,6 +33,7 @@ import {
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
 import { codeCandidateScope } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
+import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
@@ -313,7 +314,12 @@ export async function acceptanceIds(root, config, workflow, phase) {
       const steps = (planned[id] ?? planned[String(id).toUpperCase()])?.steps ?? [];
       return !steps.length || steps.includes(phase.id);
     };
-    return [...new Set(indexed.filter(owedHere))].sort();
+    // Only a criterion a test must verify needs an @ac tag [E2G-013]: one verified by inspection or
+    // visual evidence, or whose tests the plan reviewed as not applicable, needs none.
+    const contracts = mergedVerificationContracts(records.planned ?? []);
+    const tested = (id) => contractRequiresTestTag(effectiveContract(String(id).toUpperCase(), contracts,
+      planned[id] ?? planned[String(id).toUpperCase()] ?? null));
+    return [...new Set(indexed.filter(owedHere).filter(tested))].sort();
   }
   // Compatibility for workflows created before specification indexes existed. New records always
   // preserve the namespace; a legacy bare suffix is normalized only when a configured namespace

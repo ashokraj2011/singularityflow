@@ -26,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 41
+version: 42
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -174,6 +174,22 @@ approval (`CONVERGENCE_HUMAN_APPROVAL_REQUIRED`), it is submitted only through `
 decision may follow it. It reconciles the code step before it with the steps that define the scope
 and plan the claims, whatever they are called. A step merely named `convergence` with another
 artifact kind is an ordinary step.
+
+The same holds for every role:
+
+- **Conformance report** (`conformance-report`): every such step, including a spec-driven release
+  report, must have a row for each clause, a recognised verdict, a disclosure of every self-approved
+  phase and identity, and must still match the source tree it compared.
+- **Visual verification** (`visual-test-evidence`): `verification.profiles` need such a step, and
+  visual evidence is recorded only while it is active.
+- **Source review and intent amendment**: a step that defines the scope is reviewed as a
+  specification and one that plans the claims as a plan; an amendment changes the scope step, and a
+  step may propose one from feedback when it sits in a rework loop that restarts from that step.
+- **Initiative milestones**: a child Story reaches its plan, verification and conformance milestones
+  when the steps that plan its claims, record its test evidence and report its conformance are
+  approved.
+- **Low-risk waiver**: a Story signed off by a waiver policy stays within that policy's changed-path
+  limit and protected paths, whatever its work type is called.
 
 ## Use it from each surface
 

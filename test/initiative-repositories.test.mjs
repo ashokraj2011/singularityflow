@@ -325,16 +325,23 @@ test('repository sync observes child workflow milestones and all-blocking readin
     workItem: { id: 'API-1', branch: 'API-1', workType: 'feature' },
     resolution: {
       workType: 'feature', workItemRoot: childRoot,
-      phases: ['implementation-spec', 'implementation', 'verification', 'conformance'].map((id) => ({ id }))
+      phases: ['implementation-spec', 'implementation', 'verification', 'conformance'].map((id) => ({ id })),
+      // Milestones are read from what each step does, as the child Story pinned it.
+      obligationGraph: { nodes: [
+        { id: 'implementation-spec', responsibilities: ['scope', 'plan', 'review'] },
+        { id: 'implementation', responsibilities: ['implement', 'verify', 'review'] },
+        { id: 'verification', responsibilities: ['implement', 'verify', 'review'] },
+        { id: 'conformance', responsibilities: ['review'] }
+      ] }
     },
     status: 'in_progress',
     currentPhase: 'implementation',
     phaseOrder: ['implementation-spec', 'implementation', 'verification', 'conformance'],
     phases: {
-      'implementation-spec': { status: 'approved' },
-      implementation: { status: 'in_progress' },
-      verification: { status: 'not_started' },
-      conformance: { status: 'not_started' }
+      'implementation-spec': { status: 'approved', requiredArtifact: { kind: 'implementation-spec' } },
+      implementation: { status: 'in_progress', requiredArtifact: { kind: 'implementation-summary' } },
+      verification: { status: 'not_started', requiredArtifact: { kind: 'test-evidence' } },
+      conformance: { status: 'not_started', requiredArtifact: { kind: 'conformance-report' } }
     }
   }, null, 2));
   run('git', ['add', '.'], { cwd: author });

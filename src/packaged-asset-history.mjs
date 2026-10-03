@@ -67,8 +67,10 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/prompts/copilot-planning.md': Object.freeze([
     'd4a47524fb1563faa4a07d63bec271a0c8e3361689fdf75e1d99ea78851af9b6'
   ]),
+  // Before the release conformance report disclosed self-approval like every conformance report.
   'singularity/templates/spec-driven/release.md': Object.freeze([
-    'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f'
+    'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f',
+    'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7'
   ]),
   // Before the chore intake said which files a chore may change, and before it became the chore's
   // scope-and-plan checkpoint.
@@ -367,7 +369,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-code-test-loop/testing.md': 'eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
   'singularity/templates/spec-driven/plan.md': '5e70231c6271f9b637f876862847c10ad938bafcab33ad56cdb1d3ad8e5bee5f',
-  'singularity/templates/spec-driven/release.md': 'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7',
+  'singularity/templates/spec-driven/release.md': '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe',
   'singularity/templates/spec-driven/spec.md': '55b0d6c4c9aa5ba19739493825f6c993f03d63bed9e1a5e2bb7d5c099b8b91bb',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'

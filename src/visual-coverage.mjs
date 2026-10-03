@@ -1,3 +1,4 @@
+import { visualVerificationPhaseOf } from './phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
@@ -19,9 +20,9 @@ function expectedGeneration(phase) {
 export async function evaluateVisualCoverage(root, workflow, { itemDirectory = null } = {}) {
   const configured = policy(workflow);
   const profiles = configured.profiles ?? [];
-  if (!profiles.length) return { schemaVersion: 1, status: 'not-configured', mode: configured.coverage ?? 'warn', phase: 'visual-verification', generation: null, profiles: [], covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
-  const phase = workflow.phases?.['visual-verification'];
-  if (!phase) throw new SingularityFlowError('Verification profiles require a visual-verification phase.', { code: 'VISUAL_PHASE_MISSING' });
+  if (!profiles.length) return { schemaVersion: 1, status: 'not-configured', mode: configured.coverage ?? 'warn', phase: visualVerificationPhaseOf(workflow)?.id ?? null, generation: null, profiles: [], covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
+  const phase = visualVerificationPhaseOf(workflow);
+  if (!phase) throw new SingularityFlowError('Verification profiles require a visual verification step (an artifact of kind visual-test-evidence).', { code: 'VISUAL_PHASE_MISSING' });
   const generation = expectedGeneration(phase), integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const candidates = integrity.records.filter((record) => record.kind === 'visual-artifact' && record.phase === phase.id);
   const current = candidates.filter((record) => Number(record.targetGeneration) === generation);

@@ -1,3 +1,4 @@
+import { isVisualVerificationPhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
@@ -208,7 +209,7 @@ async function writeMcpEvidence(root, workflow, {
     if (fileVersionCreatedAt && (!Number.isFinite(Date.parse(fileVersionCreatedAt)) || !String(fileVersionCreatedAt).endsWith('Z'))) throw new SingularityFlowError('--file-version-created-at must be a UTC ISO-8601 timestamp.', { code: 'MCP_EVIDENCE_INVALID' });
   }
   if (kind === 'visual-artifact') {
-    if (activePhase !== 'visual-verification') throw new SingularityFlowError('Visual-artifact evidence may only be recorded in the visual-verification phase.', { code: 'MCP_EVIDENCE_INVALID' });
+    if (!isVisualVerificationPhase(workflow.phases?.[activePhase])) throw new SingularityFlowError('Visual-artifact evidence may only be recorded in a visual verification step (an artifact of kind visual-test-evidence).', { code: 'MCP_EVIDENCE_INVALID' });
     if (!profileId || !screenId || !stateId) throw new SingularityFlowError('Visual-artifact evidence requires --profile-id, --screen-id, and --state-id.', { code: 'MCP_EVIDENCE_INVALID' });
     const profiles = workflow.resolution?.verification?.profiles ?? [];
     if (!profiles.some((profile) => profile.id === profileId)) throw new SingularityFlowError(`Unknown verification profile '${profileId}'.`, { code: 'MCP_EVIDENCE_INVALID' });
@@ -485,7 +486,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     }
     if (record.kind === 'visual-artifact') {
       const profiles = workflow.resolution?.verification?.profiles ?? [];
-      if (record.phase !== 'visual-verification') errors.push(`${prefix} is outside the visual-verification phase.`);
+      if (!isVisualVerificationPhase(workflow.phases?.[record.phase])) errors.push(`${prefix} is outside a visual verification step.`);
       if (!profiles.some((profile) => profile.id === record.profileId)) errors.push(`${prefix} references unknown verification profile '${record.profileId ?? 'unknown'}'.`);
       if (!record.screenId || !record.stateId) errors.push(`${prefix} is missing screen/state identity.`);
       if (record.output?.mediaType !== 'image/png') errors.push(`${prefix} is not a PNG visual artifact.`);

@@ -97,6 +97,8 @@ test('all governed impact mutations are accepted by the publication event envelo
 test('implementation preparation is blocked until enrolled work is classified', () => {
   const workflow = {
     workItem: { id: 'STORY-101' },
+    // The gate stands before a code step, whatever it is called.
+    phases: { implementation: { id: 'implementation', generationPolicy: { task: 'code' } }, build: { id: 'build', generationPolicy: { task: 'code' } }, design: { id: 'design', generationPolicy: { task: 'analyze' } } },
     measurement: {
       status: 'classification-required',
       plan: { studyId: 'delivery-study' },
@@ -104,6 +106,8 @@ test('implementation preparation is blocked until enrolled work is classified', 
     }
   };
   assert.match(impactImplementationGate(workflow, 'implementation'), /Confirm complexity and risk/);
+  assert.match(impactImplementationGate(workflow, 'build'), /Confirm complexity and risk/);
+  assert.equal(impactImplementationGate(workflow, 'design'), null, 'a step that delivers no code is not gated');
   workflow.measurement.classification.confirmed = { complexity: 'small', risk: 'medium' };
   assert.equal(impactImplementationGate(workflow, 'implementation'), null);
   workflow.measurement.classification.confirmed = null;

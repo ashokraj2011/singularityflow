@@ -1,3 +1,4 @@
+import { conformancePhaseOf, isConformancePhase, isTestEvidencePhase, stepResponsibilities } from './phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -968,10 +969,15 @@ export async function materializeInitiative(root, initiativeId, {
   return { dryRun: false, review, attempt, failures };
 }
 
-function milestoneReached(workflow, phaseId) {
+/**
+ * Whether every step of a child Story that passes `test` is decided, at least one approved. The
+ * milestones an Initiative waits for are read from what the steps do, never their names [E2G-001].
+ */
+function milestoneReached(workflow, test) {
   if (!workflow) return false;
-  const phase = workflow.phases?.[phaseId];
-  return phase?.status === 'approved';
+  const steps = (workflow.phaseOrder ?? []).filter((id) => test(id, workflow.phases?.[id]));
+  return steps.length > 0 && steps.every((id) => ['approved', 'skipped'].includes(workflow.phases[id]?.status))
+    && steps.some((id) => workflow.phases[id]?.status === 'approved');
 }
 
 const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'closed', 'cancelled']);
@@ -1250,9 +1256,10 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       invalidatedBy: null,
       error: null,
       milestones: {
-        implementationSpec: milestoneReached(workflow, 'implementation-spec') || milestoneReached(workflow, 'fix-spec'),
-        verification: milestoneReached(workflow, 'verification'),
-        conformance: milestoneReached(workflow, 'conformance')
+        // The plan, the verification evidence and the conformance report, whatever each step is called.
+        implementationSpec: milestoneReached(workflow, (id) => stepResponsibilities(workflow, id).includes('plan')),
+        verification: milestoneReached(workflow, (id, phase) => isTestEvidencePhase(phase)),
+        conformance: milestoneReached(workflow, (id, phase) => isConformancePhase(phase))
       },
       telemetry: workflow ? childTelemetry(workflow) : previous.telemetry ?? null
     };
@@ -1267,9 +1274,10 @@ export async function syncInitiativeRepositories(root, initiativeId) {
         ?? initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy
         ?? 'pr';
       current.requiredChecks = structuredClone(workflow.lineage?.requiredChecks ?? []);
-      current.conformance = workflow.phases?.conformance ? {
-        status: workflow.phases.conformance.status,
-        treeSha256: workflow.phases.conformance.conformanceTree ?? null
+      const conformance = conformancePhaseOf(workflow);
+      current.conformance = conformance ? {
+        status: conformance.status,
+        treeSha256: conformance.conformanceTree ?? null
       } : null;
     }
     recordMilestoneRegressions(previous, current, story.id, regressions);

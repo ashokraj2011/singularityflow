@@ -1,3 +1,4 @@
+import { conformancePhaseOf } from './phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { branch, identity } from './git.mjs';
@@ -147,9 +148,10 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
       passes: gate.passes
     },
     conformance: {
-      phaseStatus: workflow.phases.conformance?.status ?? null,
-      treeSha256: workflow.phases.conformance?.conformanceTree ?? null,
-      fresh: workflow.phases.conformance?.conformanceTree === packet.sourceTreeSha256
+      phase: conformancePhaseOf(workflow)?.id ?? null,
+      phaseStatus: conformancePhaseOf(workflow)?.status ?? null,
+      treeSha256: conformancePhaseOf(workflow)?.conformanceTree ?? null,
+      fresh: conformancePhaseOf(workflow)?.conformanceTree === packet.sourceTreeSha256
     },
     actor: identity(root),
     recordedAt: nowIso()

@@ -13,6 +13,14 @@
 /** The artifact kind of the engine's convergence report: the step a person reviews to advance. */
 export const CONVERGENCE_ARTIFACT_KIND = 'convergence-report';
 
+/** The artifact kind of a conformance report: the final account of every clause against the code. */
+export const CONFORMANCE_ARTIFACT_KIND = 'conformance-report';
+
+/** The artifact kind of visual verification evidence: screens checked against declared profiles. */
+export const VISUAL_EVIDENCE_ARTIFACT_KIND = 'visual-test-evidence';
+
+const TEST_EVIDENCE_KINDS = new Set(['test-evidence', VISUAL_EVIDENCE_ARTIFACT_KIND]);
+
 /** The kind of a step's required artifact, from Story state, a resolved definition or configuration. */
 export function artifactKindOf(phase) {
   return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
@@ -86,4 +94,37 @@ export function loopAmendmentSource(workflow, phaseId) {
   const scope = scopeStepIdOf(workflow);
   return Boolean(scope && phaseId) && (workflow?.resolution?.reworkLoops ?? [])
     .some((loop) => loop.resetOnPhase === scope && (loop.from === phaseId || loop.to === phaseId));
+}
+
+/** A step whose output is a conformance report, whatever it is called. */
+export function isConformancePhase(phase) {
+  return artifactKindOf(phase) === CONFORMANCE_ARTIFACT_KIND;
+}
+
+/** Every conformance step of a Story, in order. */
+export function conformancePhasesOf(workflow) {
+  return (workflow?.phaseOrder ?? []).map((id) => workflow.phases?.[id]).filter(isConformancePhase);
+}
+
+/** A Story's final conformance step: the last one in order. */
+export function conformancePhaseOf(workflow) {
+  return conformancePhasesOf(workflow).at(-1) ?? null;
+}
+
+/** A step that verifies screens against declared profiles, whatever it is called. */
+export function isVisualVerificationPhase(phase) {
+  return artifactKindOf(phase) === VISUAL_EVIDENCE_ARTIFACT_KIND;
+}
+
+/** A Story's visual verification step, or null. */
+export function visualVerificationPhaseOf(workflow) {
+  for (const id of workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {})) {
+    if (isVisualVerificationPhase(workflow.phases?.[id])) return workflow.phases[id];
+  }
+  return null;
+}
+
+/** A step whose output is test evidence, the record that the change was verified. */
+export function isTestEvidencePhase(phase) {
+  return TEST_EVIDENCE_KINDS.has(artifactKindOf(phase));
 }

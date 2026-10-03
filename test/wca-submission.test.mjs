@@ -66,7 +66,7 @@ async function fixture(t, { attributes = null, templatesRoot = 'singularity/temp
   const first = path.join(base, 'first'); const second = path.join(base, 'second'); const remote = path.join(base, 'authority.git');
   await mkdir(first); git(base, 'init', '--bare', '-q', '-b', 'main', remote); git(first, 'init', '-q', '-b', 'main');
   git(first, 'config', 'user.name', 'Submission First'); git(first, 'config', 'user.email', 'submission.first@example.test');
-  const phase = (id) => ({ label: id, artifact: { path: `artifacts/${id}/${id}.md`, minimumBytes: 20, maximumBytes: 16_384 },
+  const phase = (id) => ({ label: id, artifact: { path: `artifacts/${id}/${id}.md`, ...({ intake: { kind: 'intake' }, conformance: { kind: 'conformance-report' } }[id] ?? {}), minimumBytes: 20, maximumBytes: 16_384 },
     defaultTemplate: 'common/empty.md', inputs: [], approval: { mode: 'none' }, writeScope: 'artifact-only',
     generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
   const definition = { version: 2, templatesRoot,

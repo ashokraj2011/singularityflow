@@ -1,3 +1,4 @@
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -277,8 +278,9 @@ export async function verifyImpactPlanBinding(root, workflow) {
   return { valid: errors.length === 0, plan, errors };
 }
 
+/** Applies before the first code step, whatever it is called. */
 export function impactImplementationGate(workflow, phaseId) {
-  if (phaseId !== 'implementation' || !workflow.measurement?.plan || workflow.measurement.status === 'opted-out') return null;
+  if (!phaseRequiresCodeDelivery(workflow.phases?.[phaseId]) || !workflow.measurement?.plan || workflow.measurement.status === 'opted-out') return null;
   const confirmed = workflow.measurement.classification?.confirmed;
   if (confirmed?.complexity && confirmed?.risk) return null;
   return `Story '${workflow.workItem.id}' is enrolled in impact study '${workflow.measurement.plan.studyId}'. Confirm complexity and risk before implementation: singularity-flow impact enroll ${workflow.workItem.id} --complexity <${IMPACT_BANDS.join('|')}> --risk <${IMPACT_BANDS.join('|')}> --confirm.`;

@@ -1,3 +1,4 @@
+import { conformancePhaseOf, isVisualVerificationPhase } from './phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -469,7 +470,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     }
     artifacts.push(artifact);
   }
-  const visualAssurance = phase.id === 'visual-verification' ? {
+  const visualAssurance = isVisualVerificationPhase(phase) ? {
     coverage: await evaluateVisualCoverage(root, workflow),
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
@@ -821,7 +822,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
   });
   const reviewPacket = [...(workflow.lineage?.submissions ?? [])]
     .reverse()
-    .find((entry) => entry.phase === 'conformance')
+    .find((entry) => entry.phase === conformancePhaseOf(workflow)?.id)
     ?? workflow.lineage?.submissions?.at(-1)
     ?? null;
   if (!reviewPacket) {

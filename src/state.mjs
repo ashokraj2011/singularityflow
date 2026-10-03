@@ -1,4 +1,6 @@
-import { convergencePhaseOf, isConvergencePhase, loopAmendmentSource, scopeStepOf } from './phase-roles.mjs';
+import {
+  convergencePhaseOf, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, loopAmendmentSource, scopeStepOf
+} from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -3739,7 +3741,8 @@ export async function publishGeneration(root, config, workflow, {
     ].sort((left, right) => left.generation - right.generation);
   }
   phase.sourceCommit = head(root);
-  if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root, config, workflow);
+  // Every conformance report is bound to the tree it compared, so any of them can be checked for freshness.
+  if (isConformancePhase(phase)) phase.conformanceTree = await sourceTreeHash(root, config, workflow);
   phase.usage.push(...normalizedUsage);
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
     itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
@@ -5056,7 +5059,7 @@ async function submitPhaseTransition(root, config, workflow, {
       }
     }
   }
-  if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+  if (isVisualVerificationPhase(phase)) await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   if (isConvergencePhase(phase)) {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   }

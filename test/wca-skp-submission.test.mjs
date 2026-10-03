@@ -117,7 +117,7 @@ async function fixture(t, { classified = true } = {}) {
   await mkdir(first); git(base, 'init', '--bare', '-q', '-b', 'main', remote); git(first, 'init', '-q', '-b', 'main');
   git(first, 'config', 'user.name', 'SKP First'); git(first, 'config', 'user.email', 'skp.first@example.test');
   git(first, 'config', 'core.autocrlf', 'false');
-  const ordinary = (id) => ({ label: id, artifact: { path: `artifacts/${id}/${id}.md`, minimumBytes: 20, maximumBytes: 16_384 },
+  const ordinary = (id) => ({ label: id, artifact: { path: `artifacts/${id}/${id}.md`, ...({ intake: { kind: 'intake' }, conformance: { kind: 'conformance-report' } }[id] ?? {}), minimumBytes: 20, maximumBytes: 16_384 },
     defaultTemplate: 'common/empty.md', inputs: [], approval: { mode: 'none' }, writeScope: 'artifact-only',
     generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
   const definition = { version: 2, templatesRoot: 'singularity/templates',

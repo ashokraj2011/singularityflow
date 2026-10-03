@@ -8,7 +8,7 @@ import { compareVisualArtifacts } from '../src/visual-compare.mjs';
 import { evaluateVisualCoverage } from '../src/visual-coverage.mjs';
 
 function workflow(root) {
-  return { workItem: { id: 'VIS-1' }, resolution: { workItemRoot: 'singularity/work-items', verification: { coverage: 'enforce', profiles: [{ id: 'phone', width: 2, height: 1, deviceScaleFactor: 1 }], comparison: { mode: 'enforce', channelTolerance: 0, maxDifferingPixelRatio: 0, maxDifferingPixels: 0, maxPixels: 100 } } }, phases: { 'visual-verification': { id: 'visual-verification', generation: 1 } } };
+  return { workItem: { id: 'VIS-1' }, resolution: { workItemRoot: 'singularity/work-items', verification: { coverage: 'enforce', profiles: [{ id: 'phone', width: 2, height: 1, deviceScaleFactor: 1 }], comparison: { mode: 'enforce', channelTolerance: 0, maxDifferingPixelRatio: 0, maxDifferingPixels: 0, maxPixels: 100 } } }, phaseOrder: ['visual-verification'], phases: { 'visual-verification': { id: 'visual-verification', generation: 1, requiredArtifact: { kind: 'visual-test-evidence' } } } };
 }
 
 test('RGBA8 PNG codec and deterministic visual comparison', async () => {

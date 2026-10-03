@@ -1,3 +1,4 @@
+import { conformancePhasesOf } from './phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -697,8 +698,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
   }
 
-  if (workflow.phases.conformance?.generation > 0) {
-    const phase = workflow.phases.conformance; const reportPath = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
+  // Every conformance report is governed alike, whatever its step is called [E2G-001]: its rows,
+  // its disclosure of self-approval, its verdicts and its freshness against the tree it compared.
+  for (const phase of conformancePhasesOf(workflow).filter((candidate) => candidate.generation > 0)) {
+    const reportPath = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
     const expected = new Set();
     // The stronger row contract is pinned into new Stories. Historical Story snapshots retain
     // their original substring check; a framework upgrade must not retroactively reject a report
@@ -709,47 +712,28 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       : [];
     if (qualifiedRows.length) {
       qualifiedRows.forEach((id) => expected.add(id));
-      for (const entry of qualifiedConformanceErrors(report, qualifiedRows)) refuse(entry.code, entry.message, { phase: 'conformance' });
+      for (const entry of qualifiedConformanceErrors(report, qualifiedRows)) refuse(entry.code, entry.message, { phase: phase.id });
     } else {
       for (const source of traceabilitySources(workflow)) {
         const text = await readFile(path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path), 'utf8').catch(() => '');
         ids(text, /\b(?:AC|SPEC)-\d+\b/g).forEach((id) => expected.add(id));
       }
-      for (const id of expected) if (!report.includes(id)) refuse('gate.conformance.missing-row', `conformance report has no row for ${id}`, { phase: 'conformance' });
+      for (const id of expected) if (!report.includes(id)) refuse('gate.conformance.missing-row', `conformance report has no row for ${id}`, { phase: phase.id });
     }
     for (const [phaseId, prior] of Object.entries(workflow.phases)) {
       for (const approval of prior.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) {
         const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name;
-        if (!report.includes(phaseId) || (actor && !report.includes(actor))) refuse('gate.conformance.self-approval-undisclosed', `conformance report does not disclose self-approval for ${phaseId} by ${actor}`, { phase: 'conformance' });
+        if (!report.includes(phaseId) || (actor && !report.includes(actor))) refuse('gate.conformance.self-approval-undisclosed', `conformance report does not disclose self-approval for ${phaseId} by ${actor}`, { phase: phase.id });
       }
     }
-    if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) refuse('gate.conformance.verdict-missing', 'conformance report has no recognized verdict', { phase: 'conformance' });
+    if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) refuse('gate.conformance.verdict-missing', 'conformance report has no recognized verdict', { phase: phase.id });
     if (!qualifiedRows.length) {
       for (const finding of blockingConformanceVerdicts(report)) {
-        refuse('gate.conformance.blocking-verdict', `conformance ${finding.clauseId} remains ${finding.verdict}`, { phase: 'conformance' });
+        refuse('gate.conformance.blocking-verdict', `conformance ${finding.clauseId} remains ${finding.verdict}`, { phase: phase.id });
       }
     }
-    if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) refuse('gate.conformance.stale', 'conformance report is stale: source/test tree changed after comparison', { phase: 'conformance' });
+    if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) refuse('gate.conformance.stale', 'conformance report is stale: source/test tree changed after comparison', { phase: phase.id });
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
-  }
-
-  // Some workflows name their final conformance report `release`. Apply the same new, pinned
-  // clause-row contract there without inventing a historical release freshness record.
-  if (terminal && specPolicy.conformanceRows === 'qualified') {
-    const reportPhases = workflow.phaseOrder.map((id) => workflow.phases[id]).filter((phase) =>
-      phase?.id !== 'conformance' && phase?.requiredArtifact?.kind === 'conformance-report'
-      && phase.generation > 0);
-    if (reportPhases.length) {
-      const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-      const clauseIds = [...new Set(records.indexes.flatMap((index) =>
-        (index.clauses ?? []).map((clause) => clause.id)))];
-      if (clauseIds.length) {
-        for (const phase of reportPhases) {
-          const report = await readFile(path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path), 'utf8');
-          for (const entry of qualifiedConformanceErrors(report, clauseIds)) refuse(entry.code, `${phase.id}: ${entry.message}`, { phase: phase.id });
-        }
-      }
-    }
   }
 
   // A transition being evaluated before its own commit is published by that transaction, which

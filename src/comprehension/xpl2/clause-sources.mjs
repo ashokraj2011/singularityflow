@@ -7,6 +7,7 @@
  * supplied path, or repairs a malformed artifact. An unreadable or malformed artifact is reported
  * with its own state so a missing clause is never mistaken for a clause that does not exist.
  */
+import { stepResponsibilities } from '../../phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
@@ -28,7 +29,7 @@ function specificationArtifacts(workflow) {
     if (!phase || !ACTIVE_PHASE_STATES.has(phase.status)) continue;
     for (const artifact of phase.artifacts ?? []) {
       if (typeof artifact?.path !== 'string' || !artifact.path) continue;
-      if (artifact.kind !== 'requirements' && !/specification|requirements/u.test(phaseId)) continue;
+      if (artifact.kind !== 'requirements' && !stepResponsibilities(workflow, phaseId).includes('scope')) continue;
       if (artifacts.some((entry) => entry.path === artifact.path)) continue;
       artifacts.push({ path: artifact.path, phase: phaseId, phaseStatus: phase.status });
     }

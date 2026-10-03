@@ -34,10 +34,16 @@ async function fixture({ protectedPaths = [] } = {}) {
   const workflow = {
     workItem: { id: 'WORK-1', workType: 'quick-fix', branch: 'WORK-1' },
     currentPhase: 'implement',
+    // A quick fix is signed off by a low-risk waiver policy; that, not its name, bounds what it may change.
+    phaseOrder: ['implement', 'verify'],
     phases: {
       implement: {
         id: 'implement', generation: 0, status: 'in_progress', writeScope: 'source-and-artifact',
         approvalPolicy: { maximumChangedPaths: 5 }
+      },
+      verify: {
+        id: 'verify', generation: 0, status: 'not_started',
+        approvalPolicy: { mode: 'policy', policy: 'quick-fix-low-risk-v1', maximumChangedPaths: 5 }
       }
     },
     resolution: {

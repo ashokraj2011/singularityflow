@@ -1,4 +1,4 @@
-import { isConvergencePhase, sourceReviewKind } from './phase-roles.mjs';
+import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
 import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary } from './commands/kernel.mjs';
@@ -5981,9 +5981,11 @@ async function specCommand(positionals, options) {
    * specification; giving it a command of its own would suggest it is a thing you author.
    */
   if (subcommand === 'tasks') {
-    const specificationPhase = Object.values(workflow.phases).find((entry) => entry.requiredArtifact?.kind === 'requirements');
-    if (!specificationPhase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no specification phase to derive tasks from.`);
-    const planningPhase = workflow.phases.planning ?? null;
+    // The scope step and the step that plans its claims, whatever each is called.
+    const specificationPhase = scopeStepOf(workflow);
+    if (!specificationPhase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no step that defines the scope to derive tasks from.`);
+    const planningPhase = (workflow.phaseOrder ?? []).map((id) => workflow.phases[id])
+      .find((entry) => entry && entry.id !== specificationPhase.id && stepResponsibilities(workflow, entry.id).includes('plan')) ?? null;
     const map = deriveAdvisoryTasks({
       workId: workflow.workItem.id,
       specification: await approvedSource(root, itemRelative, specificationPhase),

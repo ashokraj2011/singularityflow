@@ -1,4 +1,4 @@
-import { scopeStepOf } from '../phase-roles.mjs';
+import { scopeStepOf, stepResponsibilities } from '../phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 
 import { loadDefinition } from '../config.mjs';
@@ -45,7 +45,7 @@ async function observedClauses(root, workflow) {
   for (const phase of Object.values(workflow.phases ?? {})) {
     if (!['approved', 'awaiting_approval', 'in_progress'].includes(phase.status)) continue;
     for (const artifact of phase.artifacts ?? []) {
-      if (artifact.kind !== 'requirements' && !/specification|requirements/u.test(phase.id)) continue;
+      if (artifact.kind !== 'requirements' && !stepResponsibilities(workflow, phase.id).includes('scope')) continue;
       try {
         const secured = await secureRepositoryPath(root, artifact.path, {
           label: 'GDP specification source', mustExist: true, type: 'file'

@@ -139,14 +139,20 @@ function workflowSubjectRevision(workflow, phase) {
   });
 }
 
+/** The step a low-risk waiver policy signs off, if this Story has one. */
+function lowRiskWaiverStep(workflow) {
+  return (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])
+    .find((candidate) => candidate?.approvalPolicy?.mode === 'policy') ?? null;
+}
+
 function intervalPolicy(config, workflow, phase) {
   const guards = protectedPaths(config, workflow);
   return {
     protectedPaths: guards,
     approvalPolicy: phase.approvalPolicy ?? {},
     reconciliation: {
-      changedPathLimit: Number(phase.approvalPolicy?.maximumChangedPaths ?? 5),
-      escalationTarget: workflow.workItem.workType === 'quick-fix' && config.workTypes?.feature ? 'feature' : null,
+      changedPathLimit: Number(lowRiskWaiverStep(workflow)?.approvalPolicy?.maximumChangedPaths ?? phase.approvalPolicy?.maximumChangedPaths ?? 5),
+      escalationTarget: lowRiskWaiverStep(workflow) && config.workTypes?.feature ? 'feature' : null,
       localProvidersOnly: true
     }
   };
@@ -391,13 +397,16 @@ export async function reconcileWorkInterval(root, config, workflow, {
     clauseIds: [...(planned.get(entry.path) ?? [])].sort(),
     protected: pathProtected(entry.path, guards, { caseInsensitive })
   }));
-  const changedPathLimit = Number(phase.approvalPolicy?.maximumChangedPaths ?? 5);
+  // A Story signed off by a low-risk waiver policy stays within that policy's bounds, whatever its
+  // work type is called [E2G-001].
+  const waiver = lowRiskWaiverStep(workflow);
+  const changedPathLimit = Number(waiver?.approvalPolicy?.maximumChangedPaths ?? phase.approvalPolicy?.maximumChangedPaths ?? 5);
   const reasons = [];
-  if (workflow.workItem.workType === 'quick-fix' && findings.length > changedPathLimit) {
-    reasons.push(`${findings.length} changed paths exceed the quick-fix limit of ${changedPathLimit}`);
+  if (waiver && findings.length > changedPathLimit) {
+    reasons.push(`${findings.length} changed paths exceed the low-risk policy limit of ${changedPathLimit}`);
   }
   const protectedChanged = findings.filter((entry) => entry.protected).map((entry) => entry.path);
-  if (workflow.workItem.workType === 'quick-fix' && protectedChanged.length) {
+  if (waiver && protectedChanged.length) {
     reasons.push(`protected paths changed: ${protectedChanged.join(', ')}`);
   }
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));

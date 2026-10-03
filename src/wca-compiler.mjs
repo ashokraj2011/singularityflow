@@ -1,4 +1,5 @@
 /** Deterministic, source-bound authoring preview. Nothing here approves, installs or executes. */
+import { artifactKindOf, isConformancePhase } from './phase-roles.mjs';
 import { readFile, lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -70,6 +71,9 @@ function portable(value, label) {
   return value;
 }
 function optionalArray(value, label) { if (value !== undefined && !Array.isArray(value)) fail(`${label} must be an explicit array.`); return value ?? []; }
+/** The artifact kinds of a step that takes in the request a Story starts from. */
+const INTAKE_ARTIFACT_KINDS = new Set(['intake', 'requirements', 'poc-intake', 'design-intake']);
+
 function reviewedNonCodeFinish(order, symbols, candidate) {
   const last = order.at(-1);
   const phase = candidate.phases[last];
@@ -936,9 +940,10 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     const selectedOrder = replacement?.definition.phases ?? value.phases;
     if (!Array.isArray(selectedOrder) || !selectedOrder.length || selectedOrder.length > WCA_COMPILER_LIMITS.phases) fail('Workflow phase order must be explicit and bounded.', 'WCA_GRAPH_INVALID');
     const order = selectedOrder.map((entry) => { const selected = resolve(entry, 'phase', 'Workflow phase'); return selected.id ?? (typeof entry === 'string' ? entry : entry.id); });
-    if (new Set(order).size !== order.length || !sharedObjectChanges && (order[0] !== 'intake'
-        || order.at(-1) !== 'conformance' && !reviewedNonCodeFinish(order, symbols, candidate))) {
-      fail('Workflow order must be unique and start with Intake; code workflows end with Conformance, while non-code workflows may end with a reviewed artifact-only phase that consumes the preceding output.', 'WCA_GRAPH_INVALID');
+    // The first and last steps are read by what they produce, never by their names [E2G-001].
+    if (new Set(order).size !== order.length || !sharedObjectChanges && (!INTAKE_ARTIFACT_KINDS.has(artifactKindOf(candidate.phases[order[0]]))
+        || !isConformancePhase(candidate.phases[order.at(-1)]) && !reviewedNonCodeFinish(order, symbols, candidate))) {
+      fail('Workflow order must be unique and start with an intake step; code workflows end with a conformance report, while non-code workflows may end with a reviewed artifact-only phase that consumes the preceding output.', 'WCA_GRAPH_INVALID');
     }
     candidate.workTypes[key] = replacement ? { ...structuredClone(replacement.definition), phases: order }
       : { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}), ...(value.omits !== undefined ? { omits: value.omits } : {}) };

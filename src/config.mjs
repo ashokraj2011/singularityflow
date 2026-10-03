@@ -44,7 +44,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
-import { isConvergencePhase, reviewKindForResponsibilities } from './phase-roles.mjs';
+import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
@@ -854,7 +854,8 @@ export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) 
   };
 }
 
-export function normalizeVerificationPolicy(value = null, { phases = [] } = {}) {
+/** `visualStep(id)` says whether a step verifies screens: its artifact kind, never its name [E2G-001]. */
+export function normalizeVerificationPolicy(value = null, { phases = [], visualStep = null } = {}) {
   const source = value ?? {};
   if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError('verification must be an object.');
   for (const key of Object.keys(source)) if (!['coverage', 'profiles', 'comparison'].includes(key)) throw new SingularityFlowError(`verification contains unknown field '${key}'.`);
@@ -876,7 +877,9 @@ export function normalizeVerificationPolicy(value = null, { phases = [] } = {}) 
     if (!Number.isFinite(scale) || scale <= 0 || scale > 8) throw new SingularityFlowError(`${label}.deviceScaleFactor must be greater than 0 and at most 8.`);
     return { id: profile.id, label: profile.label.trim(), width: profile.width, height: profile.height, deviceScaleFactor: scale };
   });
-  if (normalizedProfiles.length && !phases.includes('visual-verification')) throw new SingularityFlowError('verification.profiles require the visual-verification phase.');
+  if (normalizedProfiles.length && !phases.some((id) => (visualStep ? visualStep(id) : false))) {
+    throw new SingularityFlowError('verification.profiles require a visual verification step (an artifact of kind visual-test-evidence).');
+  }
   if (coverage === 'enforce' && !normalizedProfiles.length) throw new SingularityFlowError('verification.coverage enforce requires at least one profile.');
   const comparison = source.comparison ?? {};
   if (!comparison || typeof comparison !== 'object' || Array.isArray(comparison)) throw new SingularityFlowError('verification.comparison must be an object.');
@@ -1359,7 +1362,12 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     // is held to it. Validated here so a typo cannot resolve into a policy that governs nothing.
     constitutionPolicy(workType.constitution);
     workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
-    workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
+    workType.verification = normalizeVerificationPolicy(workType.verification, {
+      phases: workType.phases,
+      visualStep: (phaseId) => isVisualVerificationPhase({
+        artifact: { ...(definition.phases?.[phaseId]?.artifact ?? {}), ...(workType.phaseOverrides?.[phaseId]?.artifact ?? {}) }
+      })
+    });
     workType.intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${id}' intelligence`);
     workType.auto = normalizeAutoWorkTypePolicy(workType.auto, `Work type '${id}' auto`, workType.phases);
     workType.references = normalizeReferenceRepositoryPolicy(
@@ -2329,7 +2337,9 @@ export function resolveWorkType(definition, workTypeId) {
     harnessImports: normalizeHarnessImports(definition.harnessImports),
     documents,
     designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),
-    verification: normalizeVerificationPolicy(workType.verification, { phases: workType.phases }),
+    verification: normalizeVerificationPolicy(workType.verification, {
+      phases: workType.phases, visualStep: (phaseId) => isVisualVerificationPhase(phases.find((phase) => phase.id === phaseId))
+    }),
     phases
   };
 }

@@ -223,6 +223,7 @@ import {
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
+import { assertPlannedTestsRunnable, sealStoryTestPolicy } from './verification/test-policy.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
@@ -979,7 +980,8 @@ export async function createWorkflow(root, config, {
   testRecoveryPlan = null,
   executionOrigin = null,
   worldModelAuthorityRefreshes = {},
-  approvedConfigurationSnapshot = null
+  approvedConfigurationSnapshot = null,
+  baselineFailures = null
 } = {}) {
   validateId(config, id);
   // Prove the configured storage boundary before any capability materialization or generated
@@ -1030,6 +1032,12 @@ export async function createWorkflow(root, config, {
   if (!freshTrpPlan.enabled && testRecoveryPlan != null) {
     throw new SingularityFlowError('The approved workflow does not enable this Story test policy.', { code: 'TRP_NOT_ENABLED' });
   }
+  // The Story's test policy and the repository's test capability are sealed before anything is
+  // written; a base whose failures must be resolved outside this Story refuses creation [E2G-019, D13].
+  const sealedTestPolicy = await sealStoryTestPolicy(root, {
+    workId: id, baseCommit, phases: resolution.phases ?? [], baselineFailures,
+    trpChoices: freshTrpPlan.enabled ? freshTrpPlan.choices : null
+  });
   const initialTrpRows = [];
   const originalTrpBaselines = [];
   if (freshTrpPlan.enabled) {
@@ -1321,7 +1329,9 @@ export async function createWorkflow(root, config, {
       })
     );
   }
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeJson(path.join(workDir(root, config, id), sealedTestPolicy.relativePath), sealedTestPolicy.record);
+  workflow.testPolicy = { path: sealedTestPolicy.relativePath, sha256: sealedTestPolicy.sha256 };
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [context/test-policy.json](./context/test-policy.json) — sealed test policy and the repository's test capability at creation\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   const firstPhaseNeedsReadinessRepair = ['readiness-repair', 'baseline-risk-publication'].includes(workflow.testRecovery?.route)
     && phaseRequiresCodeDelivery(phases[0]);
   if (!firstPhaseNeedsReadinessRepair) await ensureWorkIntervalBaseline(root, config, workflow, {
@@ -1844,6 +1854,16 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
   const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
   const { derived, gaps, contracts } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath, codeSteps });
+  // A planned test that could never run here is named now, not first at publication [§12 #18].
+  try {
+    await assertPlannedTestsRunnable(root, workflow, {
+      subject: `Phase ${phase.id} cannot publish`, codeSteps, claims: derived.claimMap.claims,
+      contracts: new Map(contracts.map((entry) => [entry.clauseId, entry]))
+    });
+  } catch (error) {
+    if (enforce || error?.code !== 'TEST_CAPABILITY_UNSUPPORTED') throw error;
+    console.warn(`Warning: ${error.message}`);
+  }
   if (gaps.length) {
     console.warn(`Warning: phase ${phase.id} planned-test contract is incomplete for ${gaps.join(', ')}.`);
   }

@@ -17,6 +17,7 @@
   "phase-risk-revocation": [{ "schemaVersion": 1 }],
   "phase-gate-evaluation": [{ "schemaVersion": 1 }],
   "story-test-policy-amendment": [{ "schemaVersion": 1 }],
+  "story-test-policy": [{ "schemaVersion": 1 }],
   "phase-repair-receipt": [{ "schemaVersion": 1 }],
   "trp-authority-receipt": [{ "schemaVersion": 1 }],
   "trp-readiness-checkpoint": [{ "schemaVersion": 1 }],

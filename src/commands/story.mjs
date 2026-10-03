@@ -835,8 +835,12 @@ export async function storyCommand(positionals, options) {
     const workflow = await loadStoryAggregate(root, config, positionals[3] ?? optionString(options, 'work-id'));
     const { loadStoryTestRecoveryAgreement } = await import('../state.mjs');
     const agreement = await loadStoryTestRecoveryAgreement(root, config, workflow);
+    // The policy and test capability sealed with the Story [E2G-019]; never recomputed by this read.
+    const { readSealedStoryTestPolicy } = await import('../verification/test-policy.mjs');
+    const sealed = await readSealedStoryTestPolicy(root, config, workflow);
     const result = {
       schemaVersion: 1, resultType: 'story-test-policy', workId: workflow.workItem.id,
+      sealed,
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
       supported: { readinessRepair: true, selectionPreview: true, riskActivation: true,
@@ -849,7 +853,14 @@ export async function storyCommand(positionals, options) {
         : 'This Story retains its original test policy; it has not opted into the pilot.'
     };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(result.message);
+    else {
+      if (sealed?.record) {
+        const { capabilityLines } = await import('../verification/capability.mjs');
+        console.log(`Sealed test policy: ${sealed.record.executionScope} tests; base failures: ${sealed.record.baselineFailures}; criteria verified by ${sealed.record.witnessDefault} unless their contract says otherwise.`);
+        for (const line of capabilityLines(sealed.record.capability)) console.log(`  ${line}`);
+      } else if (sealed?.error) console.warn(`Sealed test policy: ${sealed.error}`);
+      console.log(result.message);
+    }
     return result;
   }
   if (subcommand === 'start') {

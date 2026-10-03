@@ -94,7 +94,7 @@ Usage:
     Document phases and storage are given once for every document, or once per document in the same order.
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
-    [--isolated-worktree] [--intake-receipt ID]
+    [--isolated-worktree] [--intake-receipt ID] [--baseline-failures repair-in-story|resolve-outside]
     [--test-baseline-disposition fix --test-execution-mode changed-and-affected|all-configured --test-baseline-scope reuse --test-policy-confirm PLAN-DIGEST]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]

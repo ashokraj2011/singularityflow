@@ -166,6 +166,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
+import { capabilityLines } from './verification/capability.mjs';
 import {
   evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
   retainSourceReviewDecision, sourceReviewContext, sourceReviewInput
@@ -3274,7 +3275,8 @@ export async function startCommand(positionals, options) {
           capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH]
             ?? legacyCapabilityEvidence?.mapSha256 ?? null,
           referenceRepositories,
-          worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight)
+          worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight),
+          baselineFailures: optionString(options, 'baseline-failures') ?? null
         });
         returnLocator = await writeReturnLocator(root, config, workflow);
         publication = await commitAndPublish(
@@ -3374,6 +3376,9 @@ export async function startCommand(positionals, options) {
     launched: false,
     command: 'singularity-flow wm ast build --all'
   };
+  // What this repository can test, sealed with the Story and disclosed before any code [E2G-019, §12 #18].
+  const sealedTestPolicy = workflow.testPolicy
+    ? await readJson(path.join(workDir(root, config, workflow.workItem.id), workflow.testPolicy.path)).catch(() => null) : null;
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -3387,6 +3392,10 @@ export async function startCommand(positionals, options) {
     data: {
       workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch, title: workflow.workItem.title },
       id: workflow.workItem.id,
+      testPolicy: sealedTestPolicy ? {
+        path: workflow.testPolicy.path, sha256: workflow.testPolicy.sha256, baselineFailures: sealedTestPolicy.baselineFailures,
+        executionScope: sealedTestPolicy.executionScope, capability: sealedTestPolicy.capability
+      } : null,
       repositoryPath: root,
       workType,
       currentPhase: workflow.currentPhase,
@@ -3472,6 +3481,10 @@ export async function startCommand(positionals, options) {
     summary(workflow);
     console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
     for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
+    if (sealedTestPolicy?.capability?.modules?.length) {
+      console.log('Test capability (sealed with the Story; plan each criterion where its test can run):');
+      for (const line of capabilityLines(sealedTestPolicy.capability)) console.log(`  ${line}`);
+    }
     if (startReadiness.warnings?.some((warning) => warning.id === 'configuration-authority')) {
       printCommandRoutes(startReadiness.upgrade.shell, {
         skill: startReadiness.upgrade.copilot,

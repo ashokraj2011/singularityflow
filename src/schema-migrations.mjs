@@ -2912,6 +2912,8 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true
   }),
   family({ id: 'specification-acceptance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/acceptance\/[^/]+\.json$/], immutable: true }),
+  // The test policy and repository test capability sealed with a Story at creation [E2G-019].
+  family({ id: 'story-test-policy', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/test-policy\.json$/], immutable: true }),
   family({
     id: 'story-submission-packet', currentVersion: 3,
     steps: [migration(1, 2, storySubmissionPacketV1ToV2), migration(2, 3, identity(3))],

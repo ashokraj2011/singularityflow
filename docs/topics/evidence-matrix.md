@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 15
+version: 16
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -141,6 +141,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **A criterion's test was skipped or is not in the run:** remove the skip, or make the runner select its file (a `*Spec` class or a file outside the runner's pattern never runs), then publish and submit again.
 - **A criterion's test is ambiguous, flaky or not exact:** give it a unique literal title or method, fix the flaky test, or move the tag to a test with a static identity.
 - **`EVIDENCE_TAG_NOT_ON_TEST`:** the tag is not on the line directly above a test; move it there.
+- **`TEST_CAPABILITY_UNSUPPORTED`:** a planned test sits in a module whose tests cannot run here (no supported runner, two build systems, or no covering command); configure a supported test command, plan the test in a supported module, or verify the criterion another way in the plan's verification contracts.
 - **`SPEC_VERIFICATION_CONTRACT_INVALID`:** the plan's verification contracts table has a defect; the message names the row and what to change.
 - **`EVIDENCE_INSPECTION_MISSING` or `EVIDENCE_VISUAL_MISSING`:** a contract slot needs its inspection or visual record.
 - **`EVIDENCE_WITNESS_NOT_APPLICABLE` or `EVIDENCE_WITNESS_EXCEPTION_EXPIRED`:** the reviewer ruled the criterion's tests out, or an adequacy exception lapsed; tag an adequate test, or review the test again.

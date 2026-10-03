@@ -657,6 +657,16 @@
         "additionalProperties": false
       }
     },
+    "testPolicy": {
+      "description": "The digest of the Story's sealed test policy and test capability record, written once at creation.",
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "const": "context/test-policy.json" },
+        "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
     "planAmendments": {
       "description": "Append-only narrow plan amendments: a changed path accounted for as part of one row's delivery, or listed as a supporting change of a closed class, recorded by someone in the group that approves the plan.",
       "type": "array",

@@ -152,7 +152,7 @@ import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
   buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap,
-  evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase,
+  evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
   loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
   predecessorSpecClauses
@@ -1988,11 +1988,16 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
       || !phaseRequiresCodeDelivery(phase)) return null;
   const codePhases = (workflow.phaseOrder ?? []).filter((id) =>
     phaseRequiresCodeDelivery(workflow.phases?.[id]));
-  if (codePhases.at(-1) !== phase.id) return null;
+  const finalStep = codePhases.at(-1) === phase.id;
   const records = await loadBoundActiveSpecRecords(
     root, workDir(root, config, workflow.workItem.id), workflow, policy,
-    { requireCommitted: true }
+    { requireCommitted: true, throughPhase: finalStep ? null : phase.id }
   );
+  // An earlier code step answers for the rows the plan allocates to it by name [E2G-009]; the last
+  // one answers for everything.
+  const planned = mergePlannedClaimRecords(records.planned ?? []);
+  const allocatedHere = Object.entries(planned).filter(([, claim]) => (claim.steps ?? []).includes(phase.id)).map(([id]) => id);
+  if (!finalStep && !allocatedHere.length) return null;
   const changedPaths = changedRepositoryPaths(root, {
     base: workflow.workItem.baseCommit
       ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit
@@ -2006,8 +2011,10 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
   // implementation survived in the exact code revision being approved. Deletions remain valid
   // because Git includes their paths in the base-to-submission change set.
   const finalChangedPaths = new Set(changedPaths);
+  // Existing behaviour is cited unchanged and a removal is evidenced by absence, so neither is
+  // expected in the change set [E2G-010].
   const revertedClaims = [...new Set(records.observed.flatMap((record) =>
-    Object.entries(record.claims ?? {}).flatMap(([id, claim]) =>
+    Object.entries(record.claims ?? {}).filter(([id]) => !['existing', 'removed'].includes(planned[id]?.fulfillment)).flatMap(([id, claim]) =>
       (claim.observedPaths ?? [])
         .filter((candidate) => !finalChangedPaths.has(candidate))
         .map((candidate) => `${id} references source evidence absent from the final change set: ${candidate}`)
@@ -2017,6 +2024,16 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
         invalidEvidence: [...new Set([...coverageResult.invalidEvidence, ...revertedClaims])].sort(),
         complete: false, severity: 'error' }
     : coverageResult;
+  if (!finalStep) {
+    const open = coverage.unimplemented.filter((id) => allocatedHere.includes(id));
+    if (!open.length) return coverage;
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' cannot be approved because rows the plan allocates to it are not implemented:\n- `
+      + open.map((id) => `clause ${id} is not fully implemented`).join('\n- ')
+      + '\nReturn this phase for correction, complete their source and test evidence, then publish and submit a new generation.',
+      { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, evidenceCommit, allocated: allocatedHere, open } }
+    );
+  }
   if (coverage.complete) return coverage;
   const findings = [
     ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),

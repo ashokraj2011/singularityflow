@@ -249,14 +249,20 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     const implementId = obligationId(workId, 'implement', id);
     const testOnly = clause.type === 'AC' && planned && !(planned.expectedPaths ?? []).length
       && (planned.tests ?? []).length > 0 && (observed?.testResults ?? []).length === planned.tests.length;
-    const implementers = implementSteps;
+    // A row allocated to some code steps is implemented, reviewed and verified by those steps.
+    const allocatedSteps = noCode ? [] : (planned?.steps ?? []).filter((step) => codePhaseIds.includes(step));
+    const implementers = allocatedSteps.length ? allocatedSteps : implementSteps;
+    const rowSubmitted = allocatedSteps.length
+      ? allocatedSteps.every((step) => phaseFinished(phases[step])
+        || deliveries.some((delivery) => delivery.phaseId === step && delivery.receipt?.status === 'ready'))
+      : submittedCode;
     const implementReview = implementers.length ? reviewFacet(phases[implementers.at(-1)]) : 'not-required';
     let implementStatus;
     if (!implementers.length) implementStatus = 'not-applicable';
     else if (noCode) implementStatus = implementers.every((step) => phaseFinished(phases[step])) ? 'met' : 'pending';
     else if (observed?.verdict === 'matched' || testOnly) implementStatus = 'met';
     else if (observed && ['partial', 'deviated'].includes(observed.verdict)) implementStatus = 'partial';
-    else implementStatus = submittedCode ? 'missing' : 'pending';
+    else implementStatus = rowSubmitted ? 'missing' : 'pending';
     if (implementStatus === 'partial') {
       rowFindings.push(finding(observed.verdict === 'deviated' ? 'EVIDENCE_IMPLEMENTATION_DEVIATED' : 'EVIDENCE_IMPLEMENTATION_PARTIAL',
         observed.verdict === 'deviated'
@@ -300,7 +306,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         exception = 'not-applicable';
         assurance = 'none';
       } else if (!submitted.length) {
-        status = submittedCode ? 'missing' : 'pending';
+        status = rowSubmitted ? 'missing' : 'pending';
         assurance = tagged.length ? 'declared' : 'none';
         if (status === 'missing') rowFindings.push(finding('EVIDENCE_WITNESS_MISSING', `No submitted test is tagged for ${id}.`, { obligationIds: [verifyId] }));
       } else {
@@ -354,7 +360,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     // Review: the decision of the step that delivered the change.
     const reviewId = obligationId(workId, 'review', id);
     const reviewState = reviewStatus(implementReview);
-    if (reviewState === 'pending' && submittedCode) rowFindings.push(finding('EVIDENCE_REVIEW_PENDING', `The delivery of ${id} is not approved yet.`, { obligationIds: [reviewId] }));
+    if (reviewState === 'pending' && rowSubmitted) rowFindings.push(finding('EVIDENCE_REVIEW_PENDING', `The delivery of ${id} is not approved yet.`, { obligationIds: [reviewId] }));
     obligations.push({
       id: reviewId, responsibility: 'review', subject: id, owningSteps: implementers.slice(-1), status: reviewState,
       facets: { coverage: 'not-applicable', execution: 'not-applicable', assurance: 'not-applicable', review: implementReview, freshness: 'current', exception: 'none' }

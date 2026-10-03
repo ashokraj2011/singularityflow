@@ -30,7 +30,7 @@ async function write(root, relative, contents) {
   await writeFile(target, contents);
 }
 
-async function fixture({ baselineFirst = false, supportingFiles = [] } = {}) {
+async function fixture({ baselineFirst = false, supportingFiles = [], steps = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-code-coverage-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Coverage Test');
@@ -59,11 +59,13 @@ async function fixture({ baselineFirst = false, supportingFiles = [] } = {}) {
     ...normalizeClaimMap({ claims: {
       'COVER-1:REQ-001': {
         expectedPaths: ['src/first.mjs'], tests: [], testDisposition: 'not-applicable',
-        testReason: 'The required compile-time contract is checked without a runtime test.'
+        testReason: 'The required compile-time contract is checked without a runtime test.',
+        ...(steps ? { steps: [steps[0]] } : {})
       },
       'COVER-1:REQ-002': {
         expectedPaths: ['src/second.mjs'], tests: [], testDisposition: 'not-applicable',
-        testReason: 'The required compile-time contract is checked without a runtime test.'
+        testReason: 'The required compile-time contract is checked without a runtime test.',
+        ...(steps ? { steps: [steps[1]] } : {})
       }
     }, supportingFiles }, { kind: 'planned', clauseIds: ids }),
     workId: ID, phase: 'planning', generation: 1
@@ -165,6 +167,28 @@ test('historical and intermediate code phases retain their pinned coverage bound
   };
   workflow.phaseOrder.push('finalization');
   assert.equal(await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision), null);
+});
+
+test('an earlier code step answers for the rows allocated to it, and only those', async () => {
+  const { root, config, workflow } = await fixture({ steps: ['implementation', 'finalization'] });
+  workflow.phases.finalization = { id: 'finalization', generation: 0, requiredArtifact: { kind: 'implementation-summary' } };
+  workflow.phaseOrder.push('finalization');
+  workflow.resolution.plannedClaims.owners.finalization = 'planning';
+  const revision = git(root, 'rev-parse', 'HEAD');
+  // REQ-001 is allocated here and implemented; REQ-002 belongs to the later step.
+  const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, workflow.phases.implementation, revision);
+  assert.deepEqual(coverage.unimplemented, ['COVER-1:REQ-002']);
+
+  const swapped = await fixture({ steps: ['finalization', 'implementation'] });
+  swapped.workflow.phases.finalization = { id: 'finalization', generation: 0, requiredArtifact: { kind: 'implementation-summary' } };
+  swapped.workflow.phaseOrder.push('finalization');
+  swapped.workflow.resolution.plannedClaims.owners.finalization = 'planning';
+  await assert.rejects(
+    () => assertFinalCodeSpecificationCoverage(swapped.root, swapped.config, swapped.workflow, swapped.workflow.phases.implementation,
+      git(swapped.root, 'rev-parse', 'HEAD')),
+    (error) => error.code === 'SPEC_COVERAGE_INCOMPLETE' && error.details.open.join() === 'COVER-1:REQ-002'
+      && /rows the plan allocates to it are not implemented/.test(error.message)
+  );
 });
 
 test('final code approval refuses a claimed source path reverted to its pre-Story bytes', async () => {

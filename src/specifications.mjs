@@ -1297,7 +1297,7 @@ export async function loadActiveSpecRecords(itemDirectory, workflow) {
  * through the exact current-generation bindings in the workflow aggregate.
  */
 export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy = {}, {
-  requireCommitted = false
+  requireCommitted = false, throughPhase = null
 } = {}) {
   const plannedPolicy = workflow?.resolution?.plannedClaims;
   if (!requireCommitted && plannedPolicy?.mode !== 'required') {
@@ -1354,9 +1354,12 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
       root, itemDirectory, workflow, owner, 'planned', { clauseIds, policy, requireCommitted }
     ));
   }
-  const codePhaseIds = plannedPolicy?.mode === 'required'
+  // An earlier code step is judged before later ones have run, so only the steps up to it count.
+  const limit = throughPhase ? phaseOrder.indexOf(throughPhase) : -1;
+  const codePhaseIds = (plannedPolicy?.mode === 'required'
     ? Object.keys(plannedPolicy.owners ?? {})
-    : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.observed);
+    : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.observed))
+    .filter((phaseId) => limit < 0 || phaseOrder.indexOf(phaseId) <= limit);
   for (const codePhaseId of codePhaseIds) {
     const codePhase = workflow.phases?.[codePhaseId];
     observed.push(await readBoundSpecificationClaimMap(

@@ -7,6 +7,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
+import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
+import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { derivePlannedClaimMap, mergePlannedClaimRecords, normalizeClaimMap } from '../src/specifications.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -63,6 +65,37 @@ test('each fulfillment type is checked for what it must name', () => {
   assert.throws(() => derivePlannedClaimMap(table('| Clause | Expected paths | Planned tests | Steps |', [
     `| \`${W}:REQ-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | Implementation Step |`
   ]), { clauseIds: ids }), (error) => error.code === 'SPEC_PLANNED_ALLOCATION_INVALID');
+});
+
+test('each row is implemented and reviewed by the code steps it is allocated to', () => {
+  const policy = { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [] };
+  const approval = { decision: 'approved', actor: { login: 'bob' }, authorityGroup: 'reviewers', at: '2026-10-03T00:00:00Z' };
+  const workflow = {
+    workItem: { id: W, title: 'Two code steps' }, status: 'in_progress', currentPhase: 'hardening',
+    phaseOrder: ['intake', 'implementation', 'hardening'],
+    resolution: { plannedClaims: { mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake', hardening: 'intake' } } },
+    phases: {
+      intake: { id: 'intake', status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval], requiredArtifact: { kind: 'requirements' } },
+      implementation: { id: 'implementation', status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval], generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' } },
+      hardening: { id: 'hardening', status: 'in_progress', generation: 0, approvalPolicy: policy, approvals: [], generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' } }
+    }
+  };
+  const clause = (id, line) => ({ id, type: 'REQ', source: { path: 'intake.md', line }, bodySha256: 'a'.repeat(64), dependsOn: [] });
+  const evaluation = evaluateEvidence(evidenceGraph({ workflow, records: {
+    indexes: [{ workId: W, phase: 'intake', generation: 1, clauses: [clause(ids[0], 3), clause(`${W}:REQ-002`, 4)] }],
+    planned: [{ workId: W, phase: 'intake', generation: 1, kind: 'planned', claims: {
+      [ids[0]]: { expectedPaths: ['src/a.mjs'], tests: [], testDisposition: 'unspecified', testReason: null, steps: ['implementation'] },
+      [`${W}:REQ-002`]: { expectedPaths: ['src/b.mjs'], tests: [], testDisposition: 'unspecified', testReason: null, steps: ['hardening'] }
+    } }],
+    observed: [{ workId: W, phase: 'implementation', generation: 1, kind: 'observed', claims: {
+      [ids[0]]: { observedPaths: ['src/a.mjs'], testResults: [], commits: [], verdict: 'matched' }
+    } }],
+    acceptance: []
+  }, deliveries: [] }));
+  const implement = (id) => evaluation.rows.find((row) => row.id === id).obligations.find((entry) => entry.responsibility === 'implement');
+  assert.deepEqual([implement(ids[0]).status, implement(ids[0]).owningSteps], ['met', ['implementation']]);
+  assert.deepEqual([implement(`${W}:REQ-002`).status, implement(`${W}:REQ-002`).owningSteps], ['pending', ['hardening']],
+    'the row allocated to the step that has not run yet is pending, not missing');
 });
 
 function run(command, args, cwd, { allowFailure = false } = {}) {

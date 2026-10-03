@@ -7,7 +7,8 @@
  *   test    the exact request a target would receive; --send-test sends one marked as a test
  *           (for a Jira target: the comment it would write; --send-test checks the connection and
  *           the issue without writing anything; for a Git target: the commit it would make;
- *           --send-test checks that the repository can be read)
+ *           --send-test checks that the repository can be read; for Confluence: the page it would
+ *           write; --send-test reads the parent page)
  */
 import { repoRoot } from '../git.mjs';
 import { loadConfig } from '../state-stores.mjs';
@@ -23,7 +24,9 @@ import {
   stepActionDeliveryKey
 } from '../step-actions.mjs';
 import { gitDeliveryHint, gitDeliveryMessage, jiraAttachmentName, jiraCommentText } from '../step-action-writers.mjs';
-import { DEFAULT_GIT_DELIVERY_PATH, renderGitDeliveryPath } from '../step-actions.mjs';
+import { DEFAULT_GIT_DELIVERY_PATH, renderConfluenceTitle, renderGitDeliveryPath } from '../step-actions.mjs';
+import { confluencePageBody } from '../step-action-confluence.mjs';
+import { pinnedHttpRequest } from '../pinned-http.mjs';
 import { getCurrentUser, jiraConnectionFromEnv, listIssueTransitions } from '../jira.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
@@ -65,6 +68,7 @@ function jiraConnected(env) {
 function targetAddress(target) {
   if (target.kind === 'jira') return target.issue ?? "each Story's Jira issue";
   if (target.kind === 'git') return `${target.repository} → ${target.branch}`;
+  if (target.kind === 'confluence') return `${target.url} (under page ${target.parentPage})`;
   return target.url ?? `(address in ${target.urlSecret})`;
 }
 
@@ -192,6 +196,7 @@ async function testCommand(root, config, positionals, options, operation, json) 
   const record = { key, trigger, action: actionEntry, event };
   if (target.kind === 'jira') return jiraTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   if (target.kind === 'git') return gitTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
+  if (target.kind === 'confluence') return confluenceTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   const request = deliveryRequest(record, process.env);
   const preview = request.url ? { method: 'POST', url: request.url, headers: redactedHeaders(request.headers), body: JSON.parse(request.body) } : null;
   const sendIt = optionBoolean(options, 'send-test');
@@ -297,6 +302,51 @@ async function gitTest(target, record, { operation, json, sendIt }) {
     console.log(`File: ${plan.path}`);
     console.log('');
     console.log(plan.message);
+    if (checks.length) {
+      console.log('');
+      for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);
+    }
+  }
+  const ok = checks.every((entry) => entry.ok);
+  return emitCommandResult(result(operation, succeeded('integrations.tested', {
+    target: target.id, sent: false, outcome: checks.length ? (ok ? 'checked' : 'check-failed') : 'previewed', status: null
+  }), { data: { target: target.id, request: null, plan, checks, unavailable: null, failed: null, delivery: null } }), { json });
+}
+
+/**
+ * A Confluence target's test: the page title and body a delivery would write, and with --send-test
+ * a read of the parent page with the token. It never writes.
+ */
+async function confluenceTest(target, record, { operation, json, sendIt }) {
+  if (record.action.send === 'artifact') record.artifact = { path: 'artifacts/example-step/example-step.md', sha256: null, mediaType: 'text/markdown', base64: Buffer.from('# Example artifact\n\nThe approved document appears here.\n').toString('base64') };
+  const title = renderConfluenceTitle(target.title, { workId: record.workId, stepLabel: record.event?.step?.label ?? record.phaseId, storyTitle: record.event?.story?.title });
+  const plan = { url: target.url, parentPage: target.parentPage, title, body: confluencePageBody(record) };
+  const checks = [];
+  if (sendIt) {
+    const token = String(process.env[target.tokenSecret] ?? '').trim();
+    if (!token) checks.push({ check: `Secret ${target.tokenSecret}`, ok: false, detail: 'not set on this machine' });
+    else {
+      const cloud = target.deployment !== 'data-center';
+      const authorization = cloud ? `Basic ${Buffer.from(`${target.user}:${token}`).toString('base64')}` : `Bearer ${token}`;
+      const route = cloud ? `/api/v2/pages/${encodeURIComponent(target.parentPage)}` : `/rest/api/content/${encodeURIComponent(target.parentPage)}`;
+      const answer = await pinnedHttpRequest({
+        url: `${String(target.url).replace(/\/+$/, '')}${route}`, method: 'GET', timeoutMs: (target.timeoutSeconds ?? 10) * 1000,
+        network: target.network ?? 'public', maxResponseBytes: 256 * 1024, headers: { accept: 'application/json', authorization }
+      });
+      if (answer.transport) checks.push({ check: `Can reach ${target.url}`, ok: false, detail: answer.transport.detail });
+      else {
+        let page = null;
+        try { page = JSON.parse(answer.text); } catch { page = null; }
+        const ok = answer.status >= 200 && answer.status < 300;
+        checks.push({ check: `Can see parent page ${target.parentPage}`, ok, detail: ok ? (page?.title ?? null) : `HTTP ${answer.status}` });
+      }
+    }
+  }
+  if (!json) {
+    console.log(`Under page ${plan.parentPage} at ${plan.url}`);
+    console.log(`Title: ${plan.title}`);
+    console.log('');
+    console.log(plan.body);
     if (checks.length) {
       console.log('');
       for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);

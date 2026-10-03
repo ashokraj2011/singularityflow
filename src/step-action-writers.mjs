@@ -10,6 +10,7 @@ import {
   addComment, assertJiraConnectionPolicy, assertJiraIssuePolicy, jiraConnectionFromEnv, jiraRequest,
   listIssueTransitions, setIssueProperty, uploadJiraAttachment
 } from './jira.mjs';
+import { deliverToConfluence } from './step-action-confluence.mjs';
 import { DEFAULT_GIT_DELIVERY_PATH, jiraTransitionFor, renderGitDeliveryPath, stepActionText } from './step-actions.mjs';
 
 const JIRA_PROPERTY_PREFIX = 'sflow.delivery.';
@@ -303,4 +304,4 @@ export async function deliverToGit(record, { root = null, env = process.env, git
 }
 
 /** Writers by target kind; HTTP kinds go through the outbox's own request path instead. */
-export const STEP_ACTION_WRITERS = Object.freeze({ jira: deliverToJira, git: deliverToGit });
+export const STEP_ACTION_WRITERS = Object.freeze({ jira: deliverToJira, git: deliverToGit, confluence: deliverToConfluence });

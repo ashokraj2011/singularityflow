@@ -50,7 +50,7 @@ export const INTEGRATION_TARGET_KINDS = Object.freeze({
   teams: Object.freeze({ available: true, label: 'Microsoft Teams', sends: Object.freeze(['event', 'summary']) }),
   jira: Object.freeze({ available: true, label: 'Jira', sends: Object.freeze(['event', 'summary', 'artifact']) }),
   git: Object.freeze({ available: true, label: 'Git', sends: Object.freeze(['artifact']) }),
-  confluence: Object.freeze({ available: false, label: 'Confluence', sends: Object.freeze(['summary', 'artifact']) }),
+  confluence: Object.freeze({ available: true, label: 'Confluence', sends: Object.freeze(['summary', 'artifact']) }),
   onedrive: Object.freeze({ available: false, label: 'OneDrive or SharePoint', sends: Object.freeze(['artifact']) })
 });
 
@@ -63,8 +63,18 @@ const TARGET_FIELDS = Object.freeze({
   'http-log': Object.freeze(['url', 'format', 'tokenSecret', 'labels']),
   teams: Object.freeze(['urlSecret']),
   jira: Object.freeze(['issue', 'transition']),
-  git: Object.freeze(['repository', 'branch', 'path'])
+  git: Object.freeze(['repository', 'branch', 'path']),
+  confluence: Object.freeze(['url', 'deployment', 'parentPage', 'user', 'tokenSecret', 'title'])
 });
+export const DEFAULT_CONFLUENCE_TITLE = '{story} — {step}';
+const CONFLUENCE_TITLE_PLACEHOLDERS = Object.freeze(['story', 'step', 'storyTitle']);
+
+/** The page title a Confluence delivery writes: one page per Story and step. */
+export function renderConfluenceTitle(template, { workId, stepLabel, storyTitle }) {
+  const values = { story: String(workId ?? ''), step: String(stepLabel ?? ''), storyTitle: String(storyTitle ?? '') };
+  return String(template ?? DEFAULT_CONFLUENCE_TITLE).replace(/\{([A-Za-z]+)\}/g, (_, name) => values[name] ?? name)
+    .replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 255);
+}
 export const DEFAULT_GIT_DELIVERY_PATH = 'sflow/{story}/{step}/{file}';
 const GIT_PATH_PLACEHOLDERS = Object.freeze(['story', 'step', 'generation', 'trigger', 'file']);
 // HTTPS without credentials, query or fragment; or SSH, as ssh://user@host/path or user@host:path.
@@ -277,6 +287,37 @@ function normalizeTarget(id, raw, label) {
       target.issue = raw.issue;
     }
     if (raw.transition != null) target.transition = normalizeJiraTransition(raw.transition, label);
+  } else if (kind === 'confluence') {
+    target.url = assertTargetUrl(raw.url, `${label} url`);
+    const deployment = raw.deployment ?? 'cloud';
+    if (!['cloud', 'data-center'].includes(deployment)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} deployment must be cloud or data-center.`, { location: label });
+    }
+    target.deployment = deployment;
+    if (typeof raw.parentPage !== 'string' || !/^[1-9][0-9]{0,19}$/.test(raw.parentPage)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} parentPage must be the numeric ID of the page new pages go under, as a string such as '123456'.`, { location: label });
+    }
+    target.parentPage = raw.parentPage;
+    if (deployment === 'cloud') {
+      if (typeof raw.user !== 'string' || !/^[^@\s]{1,100}@[^@\s]{1,100}$/.test(raw.user)) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} user must be the Atlassian account email the API token belongs to.`, { location: label });
+      }
+      target.user = raw.user;
+    } else if (raw.user != null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is Confluence Data Center, which signs in with the token alone; leave user out.`, { location: label });
+    }
+    if (raw.tokenSecret == null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} needs tokenSecret: the name of the secret holding the Confluence API token or personal access token.`, { location: label });
+    }
+    target.tokenSecret = assertSecretName(raw.tokenSecret, `${label} tokenSecret`);
+    if (raw.title != null) {
+      const names = typeof raw.title === 'string' ? [...raw.title.matchAll(/\{([^}]*)\}/g)].map((match) => match[1]) : [];
+      if (typeof raw.title !== 'string' || !raw.title.trim() || raw.title.length > 200 || CONTROL_CHARACTERS.test(raw.title)
+          || names.some((name) => !CONFLUENCE_TITLE_PLACEHOLDERS.includes(name))) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} title must be text of at most 200 characters, using only {story}, {step} and {storyTitle}.`, { location: label });
+      }
+      target.title = raw.title;
+    }
   } else if (kind === 'git') {
     const repository = raw.repository;
     if (typeof repository !== 'string' || repository.length > 512

@@ -783,7 +783,7 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["webhook", "http-log", "teams", "jira", "git"] },
+        "kind": { "enum": ["webhook", "http-log", "teams", "jira", "git", "confluence"] },
         "label": { "type": "string", "maxLength": 80 },
         "network": { "enum": ["public", "private"] },
         "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
@@ -793,6 +793,10 @@
         "urlSecret": { "$ref": "#/$defs/secretName" },
         "format": { "enum": ["json", "splunk-hec", "datadog", "elastic", "loki"] },
         "labels": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "string", "maxLength": 200 } },
+        "deployment": { "enum": ["cloud", "data-center"], "description": "Confluence Cloud (REST v2, account email and API token) or Data Center (REST v1, personal access token)." },
+        "parentPage": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$", "description": "The ID of the Confluence page new pages are created under." },
+        "user": { "type": "string", "maxLength": 201, "description": "Confluence Cloud: the Atlassian account email the API token belongs to." },
+        "title": { "type": "string", "maxLength": 200, "description": "The page title, using {story}, {step} and {storyTitle}. Defaults to {story} — {step}." },
         "repository": { "type": "string", "maxLength": 512, "description": "The repository a Git target commits to: https:// without credentials, or SSH such as git@git.example.com:team/docs.git." },
         "branch": { "type": "string", "maxLength": 200, "pattern": "^(?!sflow/)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "The branch a Git target commits to, fast-forward only. sflow/ branches belong to Singularity Flow." },
         "path": { "type": "string", "maxLength": 300, "description": "Where the artifact is written: a relative path using {story}, {step}, {generation}, {trigger} and {file}. Defaults to sflow/{story}/{step}/{file}." },
@@ -818,7 +822,8 @@
         { "if": { "properties": { "kind": { "const": "http-log" } } }, "then": { "required": ["url"] } },
         { "if": { "properties": { "kind": { "const": "teams" } } }, "then": { "required": ["urlSecret"] } },
         { "if": { "properties": { "kind": { "const": "jira" } } }, "then": { "not": { "required": ["network"] } } },
-        { "if": { "properties": { "kind": { "const": "git" } } }, "then": { "required": ["repository", "branch"], "not": { "required": ["network"] } } }
+        { "if": { "properties": { "kind": { "const": "git" } } }, "then": { "required": ["repository", "branch"], "not": { "required": ["network"] } } },
+        { "if": { "properties": { "kind": { "const": "confluence" } } }, "then": { "required": ["url", "parentPage", "tokenSecret"] } }
       ]
     },
     "afterStep": {

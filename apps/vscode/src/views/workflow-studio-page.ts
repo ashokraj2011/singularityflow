@@ -2170,7 +2170,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   var GIT_HTTPS = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+$/;
   var GIT_SSH = /^(ssh:\/\/[A-Za-z0-9._-]+@[A-Za-z0-9.-]+(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
   var GIT_DEFAULT_PATH = 'sflow/{story}/{step}/{file}';
-  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the approved document to a branch', confluence: 'Publish a page', onedrive: 'Upload the document' };
+  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the approved document to a branch', confluence: 'A page per Story and step under a parent page', onedrive: 'Upload the document' };
   var FORMAT_LABELS = { json: 'Any JSON endpoint', 'splunk-hec': 'Splunk HTTP Event Collector', datadog: 'Datadog logs', elastic: 'Elasticsearch', loki: 'Grafana Loki' };
 
   /** JSON with object keys sorted, so equal targets compare equal however their fields were set. */
@@ -2189,6 +2189,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function targetAddress(target) {
     if (target.kind === 'jira') return target.issue ? 'Issue ' + target.issue : 'The Jira issue each Story was started from';
     if (target.kind === 'git') return target.repository + ' → ' + target.branch + ' · ' + (target.path || GIT_DEFAULT_PATH);
+    if (target.kind === 'confluence') return target.url + ' · under page ' + target.parentPage + ' · ' + (target.deployment === 'data-center' ? 'Data Center' : 'Cloud');
     return target.url ? target.url : target.urlSecret ? 'Address kept in ' + target.urlSecret : '';
   }
   /** A Jira status per trigger, as the form shows it; one status for every trigger fills all three. */
@@ -2303,7 +2304,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function newTargetForm(kind) {
-    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', problem: null };
+    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', deployment: 'cloud', parentPage: '', user: '', title: '', problem: null };
   }
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
@@ -2312,7 +2313,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       labels: Object.keys(target.labels || {}).map(function (key) { return key + '=' + target.labels[key]; }).join('\n'),
       network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '',
       issue: target.issue || '', transitions: jiraTransitionFields(target.transition),
-      repository: target.repository || '', branch: target.branch || '', path: target.path || '', problem: null };
+      repository: target.repository || '', branch: target.branch || '', path: target.path || '',
+      deployment: target.deployment || 'cloud', parentPage: target.parentPage || '', user: target.user || '', title: target.title || '', problem: null };
   }
   /** A secret name made from the target's ID, such as SFLOW_SECRET_TEAM_EVENTS_KEY. */
   function suggestedSecret(id, suffix) {
@@ -2321,7 +2323,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
   /** Fill the secret the kind needs with a name made from the ID, unless someone typed their own. */
   function suggestSecrets(form, previousId) {
-    [['signingSecret', 'KEY', form.kind === 'webhook'], ['tokenSecret', 'TOKEN', form.kind === 'http-log' && TOKEN_FORMATS.indexOf(form.format) >= 0], ['urlSecret', 'URL', form.kind === 'teams']].forEach(function (entry) {
+    [['signingSecret', 'KEY', form.kind === 'webhook'], ['tokenSecret', 'TOKEN', (form.kind === 'http-log' && TOKEN_FORMATS.indexOf(form.format) >= 0) || form.kind === 'confluence'], ['urlSecret', 'URL', form.kind === 'teams']].forEach(function (entry) {
       var current = form[entry[0]];
       var ours = !current || current === suggestedSecret(previousId, entry[1]) || current === suggestedSecret(form.id, entry[1]);
       if (ours) form[entry[0]] = entry[2] && form.id ? suggestedSecret(form.id, entry[1]) : '';
@@ -2333,6 +2335,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (copy.network === 'public') delete copy.network;
     if (copy.timeoutSeconds === 10) delete copy.timeoutSeconds;
     if (copy.path === GIT_DEFAULT_PATH) delete copy.path;
+    if (copy.kind === 'confluence' && copy.deployment === 'cloud') delete copy.deployment;
+    if (copy.title === '{story} — {step}') delete copy.title;
     return canonical(copy);
   }
 
@@ -2372,6 +2376,28 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else if (form.kind === 'teams') {
       problem = secret('urlSecret', 'The name of the secret holding the webhook address', true);
       if (problem) return { problem: problem };
+    } else if (form.kind === 'confluence') {
+      var site = String(form.url || '').trim();
+      if (!/^https:\/\/[^\s/]+\S*$/.test(site) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?(\/\S*)?$/.test(site)) return { problem: 'The Confluence address must start with https://.' };
+      target.url = site;
+      if (form.deployment === 'data-center') target.deployment = 'data-center';
+      var parentPage = String(form.parentPage || '').trim();
+      if (!/^[1-9][0-9]{0,19}$/.test(parentPage)) return { problem: 'The parent page is its numeric ID, shown in the page address.' };
+      target.parentPage = parentPage;
+      if (form.deployment !== 'data-center') {
+        var user = String(form.user || '').trim();
+        if (!/^[^@\s]{1,100}@[^@\s]{1,100}$/.test(user)) return { problem: 'Confluence Cloud needs the account email the API token belongs to.' };
+        target.user = user;
+      }
+      problem = secret('tokenSecret', 'The token secret name', true);
+      if (problem) return { problem: problem };
+      var pageTitle = String(form.title || '').trim();
+      if (pageTitle && pageTitle !== '{story} — {step}') {
+        var titleNames = (pageTitle.match(/\{[^}]*\}/g) || []).map(function (token) { return token.slice(1, -1); });
+        if (pageTitle.length > 200 || titleNames.some(function (name) { return ['story', 'step', 'storyTitle'].indexOf(name) < 0; })) return { problem: 'The title uses only {story}, {step} and {storyTitle}, in at most 200 characters.' };
+        target.title = pageTitle;
+      }
+      if (form.network === 'private') target.network = 'private';
     } else if (form.kind === 'git') {
       var repository = String(form.repository || '').trim();
       if (!GIT_HTTPS.test(repository) && !GIT_SSH.test(repository)) return { problem: 'The repository must be an https:// address with no user or password, or an SSH address such as git@git.example.com:team/docs.git.' };
@@ -2480,14 +2506,15 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         select('test-send-' + id, sends.map(function (send) { return { value: send, label: SEND_LABELS[send] || send }; }), test.send,
           function (value) { test.send = value; test.result = null; render(); }, { 'aria-label': 'What, for the preview' }),
         button(test.busy === 'preview' ? 'Building…' : 'Preview the request', function () { run(false); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-preview-' + id }),
-        button(test.busy === 'send' ? (target.kind === 'jira' || target.kind === 'git' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : target.kind === 'git' ? 'Check access' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
+        button(test.busy === 'send' ? (target.kind === 'jira' || target.kind === 'git' || target.kind === 'confluence' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : target.kind === 'git' || target.kind === 'confluence' ? 'Check access' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
       test.failed ? el('div', { class: 'callout bad', role: 'alert', text: test.failed }) : null,
       result && result.unavailable ? el('div', { class: 'callout wait', text: 'Not ready on this machine: ' + (result.unavailable.detail || 'a secret it needs is not set.') }) : null,
       result && result.failed ? el('div', { class: 'callout bad', text: result.failed.detail || 'The request cannot be built.' }) : null,
       delivery ? el('div', { class: 'callout ' + (delivery.outcome === 'delivered' ? 'ok' : 'bad'), role: 'status',
         text: (delivery.outcome === 'delivered' ? 'Sent' : 'Not delivered') + (delivery.status ? ' (HTTP ' + delivery.status + ')' : '') + (delivery.detail ? ': ' + delivery.detail : '') + '.' }) : null,
       result && result.plan && result.plan.repository ? el('pre', { class: 'preview-text', 'aria-label': 'The commit a delivery makes' }, 'Repository: ' + result.plan.repository + '\n' + 'Branch: ' + result.plan.branch + ' (fast-forward only)\n' + 'File: ' + result.plan.path + '\n\n' + result.plan.message) : null,
-      result && result.plan && !result.plan.repository ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
+      result && result.plan && result.plan.parentPage ? el('pre', { class: 'preview-text', 'aria-label': 'The page a delivery writes' }, 'Page: ' + result.plan.title + '\n' + 'Under page ' + result.plan.parentPage + ' at ' + result.plan.url + '\n\n' + result.plan.body) : null,
+      result && result.plan && !result.plan.repository && !result.plan.parentPage ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
         + (result.plan.attachment ? 'Attachment: ' + result.plan.attachment + '\n' : '') + (result.plan.transition ? 'Then moves it to: ' + result.plan.transition + '\n' : '') + '\n' + result.plan.comment) : null,
       result && (result.checks || []).length ? el('ul', { class: 'checks' }, result.checks.map(function (entry) {
         return el('li', { class: entry.ok ? 'ok-text' : 'bad-text' }, (entry.ok ? '✓ ' : '✗ ') + entry.check + (entry.detail ? ': ' + entry.detail : ''));
@@ -2530,6 +2557,19 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
         function (value) { form.network = value; render(); }), form.network === 'private' ? 'Private addresses are allowed because you say so here, where reviewers see it.' : 'Private and internal addresses are refused unless you choose our private network.'));
+    } else if (form.kind === 'confluence') {
+      card.appendChild(el('div', { class: 'callout', text: 'Confluence targets keep one page per Story and step under a parent page, with the step summary or the approved document. A later generation updates the page; an older one never writes over it.' }));
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('target-url', 'Confluence address', textInput('target-url', form.url, function (value) { form.url = value.trim(); }, { placeholder: 'https://example.atlassian.net/wiki' })),
+        field('target-deployment', 'Kind', select('target-deployment', [{ value: 'cloud', label: 'Confluence Cloud' }, { value: 'data-center', label: 'Confluence Data Center' }], form.deployment || 'cloud', function (value) { form.deployment = value; render(); }))));
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('target-parent', 'Parent page ID', textInput('target-parent', form.parentPage, function (value) { form.parentPage = value.trim(); }, { placeholder: '123456' }), 'The number in the parent page address.'),
+        form.deployment === 'data-center' ? el('span') : field('target-user', 'Account email', textInput('target-user', form.user, function (value) { form.user = value.trim(); }, { placeholder: 'flow-bot@example.com' }), 'The account the API token belongs to.')));
+      card.appendChild(field('target-token', 'Token secret name', textInput('target-token', form.tokenSecret, function (value) { form.tokenSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'TOKEN') }),
+        form.deployment === 'data-center' ? 'A personal access token, stored on each machine that moves Stories.' : 'An Atlassian API token, stored on each machine that moves Stories.'));
+      card.appendChild(field('target-title', 'Page title (optional)', textInput('target-title', form.title, function (value) { form.title = value; }, { placeholder: '{story} — {step}' }), 'Uses {story}, {step} and {storyTitle}.'));
+      card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
+        function (value) { form.network = value; render(); })));
     } else if (form.kind === 'git') {
       card.appendChild(el('div', { class: 'callout', text: 'Git targets commit the approved document to a branch, fast-forward only, using the Git credentials of the machine that moves the Story. Use them with actions that send the document. The branch must not be one of this repository that changes only through review.' }));
       card.appendChild(field('target-repository', 'Repository', textInput('target-repository', form.repository, function (value) { form.repository = value.trim(); }, { placeholder: 'https://git.example.com/team/docs.git' }), 'https:// with no user or password, or SSH such as git@git.example.com:team/docs.git.'));
@@ -2560,7 +2600,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var view = integrationsState();
     var ids = targetIds();
     main.appendChild(el('header', null, el('h1', { text: 'Integrations' }),
-      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service, a Teams channel or the Jira issue of the Story. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
+      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service, a Teams channel, the Jira issue of the Story, a branch of another repository or a Confluence page. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
     askSecretStatus(ids.reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
     if (view.form) main.appendChild(renderTargetForm(view.form));
     else main.appendChild(el('div', { class: 'studio-row' }, button('Add a target', function () { view.form = newTargetForm('webhook'); render(); }, { class: 'primary', 'data-key': 'target-add' })));

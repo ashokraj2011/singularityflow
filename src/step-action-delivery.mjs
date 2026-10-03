@@ -16,19 +16,16 @@
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { request as httpRequest } from 'node:http';
-import { request as httpsRequest } from 'node:https';
-import { isIP } from 'node:net';
 import { lstat, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
 import { recordSha256 } from './records.mjs';
-import { isPublicRemoteAddress } from './remote-fetch.mjs';
 import {
   actionsForTrigger, buildStepActionEvent, stepActionDeliveryKey, stepActionText, stepActionTriggers, summarizeArtifact
 } from './step-actions.mjs';
 import { STEP_ACTION_WRITERS } from './step-action-writers.mjs';
+import { pinnedHttpRequest } from './pinned-http.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const STEP_ACTION_OUTBOX = 'action-outbox';
@@ -37,13 +34,11 @@ export const MAX_DELIVERY_ATTEMPTS = 8;
 /** Seconds to wait after the nth failed attempt before trying again. */
 export const RETRY_BACKOFF_SECONDS = Object.freeze([30, 120, 600, 1800, 7200, 21600, 86400]);
 export const INLINE_DELIVERY_BUDGET_MS = 15_000;
-const MAX_RESPONSE_BYTES = 16 * 1024;
 const MAX_ARTIFACT_READ_BYTES = 256 * 1024;
 /** The largest approved artifact an action sends as a file (Jira attachment, Git commit, upload). */
 export const MAX_ARTIFACT_SEND_BYTES = 4 * 1024 * 1024;
 const LOCK_STALE_MS = 2 * 60 * 1000;
 const MAX_RECORDED_ATTEMPTS = 20;
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const USER_AGENT = 'singularity-flow-step-actions/1';
 
 function nowIso(clock) { return new Date(clock()).toISOString(); }
@@ -128,54 +123,11 @@ function secretValue(name, env) {
  * cannot redirect it. A public target refuses private addresses; plain http reaches only this
  * machine; redirects are never followed.
  */
+export { pinnedHttpRequest };
+
 export async function postDelivery({ url, headers, body, timeoutMs, network = 'public', lookupImpl = dnsLookup }) {
-  const parsed = new URL(url);
-  const host = parsed.hostname.replace(/^\[|\]$/g, '');
-  const loopback = LOOPBACK_HOSTS.has(host);
-  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) {
-    return { outcome: 'failed', code: 'STEP_ACTION_ADDRESS_REFUSED', detail: 'Only https:// addresses, or http:// to this machine, are delivered to.' };
-  }
-  let addresses;
-  try {
-    addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookupImpl(host, { all: true, verbatim: true });
-  } catch (error) {
-    return { outcome: 'retry', code: 'STEP_ACTION_DNS_FAILED', detail: boundedDetail(error?.message) };
-  }
-  if (!addresses?.length) return { outcome: 'retry', code: 'STEP_ACTION_DNS_FAILED', detail: `${host} did not resolve.` };
-  if (network === 'public' && !loopback) {
-    const blocked = addresses.find((entry) => !isPublicRemoteAddress(entry.address));
-    if (blocked) {
-      return { outcome: 'failed', code: 'STEP_ACTION_ADDRESS_REFUSED',
-        detail: `${host} resolved to a private address. Mark the target network: private if it is an internal service.` };
-    }
-  }
-  const pinned = addresses[0];
-  const bytes = Buffer.from(body, 'utf8');
-  const requestImpl = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
-    const request = requestImpl(parsed, {
-      method: 'POST',
-      headers: { ...headers, 'content-length': String(bytes.length) },
-      lookup: (_hostname, options, callback) => {
-        if (options?.all) callback(null, [{ address: pinned.address, family: pinned.family }]);
-        else callback(null, pinned.address, pinned.family);
-      }
-    }, (response) => {
-      const chunks = [];
-      let size = 0;
-      response.on('data', (chunk) => { if (size < MAX_RESPONSE_BYTES) { chunks.push(chunk); size += chunk.length; } });
-      response.on('error', (error) => finish({ outcome: 'retry', code: 'STEP_ACTION_NETWORK_FAILED', detail: boundedDetail(error?.message) }));
-      response.on('end', () => finish(classifyResponse(response.statusCode ?? 0, Buffer.concat(chunks).toString('utf8'))));
-    });
-    const timer = setTimeout(() => {
-      request.destroy();
-      finish({ outcome: 'retry', code: 'STEP_ACTION_TIMEOUT', detail: `No answer within ${Math.round(timeoutMs / 1000)} seconds.` });
-    }, timeoutMs);
-    request.on('error', (error) => finish({ outcome: 'retry', code: 'STEP_ACTION_NETWORK_FAILED', detail: boundedDetail(error?.message) }));
-    request.end(bytes);
-  });
+  const answer = await pinnedHttpRequest({ url, method: 'POST', headers, body, timeoutMs, network, lookupImpl });
+  return answer.transport ?? classifyResponse(answer.status, answer.text);
 }
 
 /** What an answer means for the delivery: done, try again later, or needs a person. */

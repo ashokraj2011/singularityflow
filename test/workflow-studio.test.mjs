@@ -569,7 +569,10 @@ test('integration targets and the actions a step sends after it are edited from 
   const model = json(root, ['workflow', 'studio']);
   assert.deepEqual(model.integrations.targets, []);
   assert.ok(model.choices.integrationKinds.some((kind) => kind.id === 'webhook' && kind.available));
-  assert.ok(model.choices.integrationKinds.some((kind) => kind.id === 'confluence' && !kind.available), 'kinds this build cannot deliver to are shown as not available');
+  const { INTEGRATION_TARGET_KINDS } = await import('../src/step-actions.mjs');
+  for (const [id, entry] of Object.entries(INTEGRATION_TARGET_KINDS)) {
+    assert.equal(model.choices.integrationKinds.find((kind) => kind.id === id)?.available, entry.available, `${id} is offered exactly when this build can deliver to it`);
+  }
   assert.deepEqual(model.choices.actionTriggers, ['submitted', 'approved', 'rejected']);
 
   // intake is shared by several workflows, so an action set for Feature is Feature's alone.

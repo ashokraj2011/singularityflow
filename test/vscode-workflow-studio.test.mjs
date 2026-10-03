@@ -959,3 +959,47 @@ test('a Git target is set up in the form, sends the approved document, and the e
   assert.deepEqual(written.integrations.targets['docs-repo'], { kind: 'git', repository: 'git@git.example.com:team/docs.git', branch: 'docs/approved' });
   assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'docs-repo', on: ['approved'], target: 'docs-repo', send: 'artifact' }]);
 });
+
+test('a Confluence target is set up in the form for Cloud or Data Center, and the engine accepts it', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('confluence');
+  view.form.id = 'team-wiki';
+  for (const [fields, problem] of [
+    [{ url: 'http://wiki.example.com' }, /must start with https/],
+    [{ url: 'https://example.atlassian.net/wiki', parentPage: 'home' }, /numeric ID/],
+    [{ parentPage: '123456', user: 'flow' }, /account email/],
+    [{ user: 'flow@example.com', tokenSecret: 'WIKI_TOKEN' }, /must start with SFLOW_SECRET_/]
+  ]) {
+    Object.assign(view.form, fields, { problem: null });
+    assert.equal(page.saveTargetForm(), null);
+    assert.match(view.form.problem, problem);
+  }
+  Object.assign(view.form, { tokenSecret: 'SFLOW_SECRET_TEAM_WIKI_TOKEN', title: '{story} — {step}', problem: null });
+  assert.equal(page.saveTargetForm(), 'team-wiki');
+  assert.deepEqual(state.draft.integrations['team-wiki'], { kind: 'confluence', url: 'https://example.atlassian.net/wiki', parentPage: '123456', user: 'flow@example.com', tokenSecret: 'SFLOW_SECRET_TEAM_WIKI_TOKEN' });
+
+  view.form = page.newTargetForm('confluence');
+  Object.assign(view.form, { id: 'dc-wiki', url: 'https://confluence.example.com', deployment: 'data-center', parentPage: '77', tokenSecret: 'SFLOW_SECRET_DC_WIKI_TOKEN' });
+  assert.equal(page.saveTargetForm(), 'dc-wiki');
+  assert.deepEqual(state.draft.integrations['dc-wiki'], { kind: 'confluence', url: 'https://confluence.example.com', deployment: 'data-center', parentPage: '77', tokenSecret: 'SFLOW_SECRET_DC_WIKI_TOKEN' });
+
+  const action = page.addStepAction('feature', 'intake');
+  page.setActionTarget(action, 'team-wiki');
+  assert.equal(action.send, 'summary', 'a Confluence target takes the summary or the document');
+  const plan = await planStudioChangeSet(root, page.changeSetFrom(model, state.draft), { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(written.integrations.targets['dc-wiki'].deployment, 'data-center');
+  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'dc-wiki', on: ['approved'], target: 'team-wiki', send: 'summary' }]);
+  const after = await buildStudioModel(root);
+  const reload = loadedStudio(after);
+  reload.integrationsState().form = reload.editTargetForm('team-wiki');
+  reload.saveTargetForm();
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'reopening a Confluence target changes nothing');
+});

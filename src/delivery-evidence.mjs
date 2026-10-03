@@ -32,6 +32,7 @@ import {
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
 import { codeCandidateScope } from './candidate-scope.mjs';
+import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
@@ -203,7 +204,16 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
     });
     if (base !== packet.evidenceCommit) changedPaths = await unpermittedReviewPaths(root, base, subject, permission);
   }
-  if (changedPaths.length) throw refuse(`source or tests changed after their approved execution: ${changedPaths.join(', ')}.`, changedPaths);
+  if (changedPaths.length) {
+    // One evaluator maps the change to its obligations and the returns the workflow permits [E2G-022].
+    const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
+    const described = describeCrossPhaseChange(change, { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', gate: 'consumption', workflow, phase });
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' requires current Code evidence: source or tests changed after their approved execution: ${changedPaths.join(', ')}. ${described.text}`,
+      { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { phase: phase.id, sourcePhase: source.id, changedPaths,
+        repairCommand: change.returns.find((entry) => entry.permitted)?.command ?? null, crossPhase: change, gate: described.gate } }
+    );
+  }
   const riskReference = source.deliveryEvidence?.testRecovery;
   if (riskReference) {
     const { assertStoryTestRiskGate } = await import('./test-recovery-runtime.mjs');

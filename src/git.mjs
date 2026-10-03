@@ -1022,6 +1022,18 @@ export function changedPaths(root, paths, { env = process.env } = {}) {
   return String(output).split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean).sort();
 }
 
+/**
+ * A digest of every tracked entry at HEAD (mode, object id and path) outside `excludedRoot`, or null
+ * when HEAD cannot be read. Rework compares it to tell whether an approval's code is unchanged.
+ */
+export function headTreeDigest(root, { excludedRoot = null, env = process.env } = {}) {
+  const listed = git(['ls-tree', '-r', '-z', '--full-tree', 'HEAD'], { cwd: root, env, allowFailure: true });
+  if (listed.status !== 0) return null;
+  const entries = String(listed.stdout).split('\0')
+    .filter((entry) => entry && !(excludedRoot && entry.slice(entry.indexOf('\t') + 1).startsWith(excludedRoot)));
+  return `sha256:${createHash('sha256').update(entries.join('\0')).digest('hex')}`;
+}
+
 /** The names of a commit's top-level tree entries. */
 export function topLevelEntries(root, commit, { env = process.env } = {}) {
   const output = git(['ls-tree', '-z', '--name-only', commit], { cwd: root, env }).stdout;

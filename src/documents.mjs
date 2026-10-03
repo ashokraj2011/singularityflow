@@ -333,6 +333,9 @@ function assertDocumentPathTrackable(root, relative) {
   }
 }
 
+/** The Story's document catalog as recorded, including detached documents. */
+export async function loadDocumentManifest(root, config, workflow) { return loadManifest(root, config, workflow); }
+
 async function loadManifest(root, config, workflow) {
   const file = manifestPath(root, config, workflow);
   const manifest = await exists(file)

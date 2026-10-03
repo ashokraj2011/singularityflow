@@ -29,10 +29,17 @@ function openObligations(evaluation) {
     .map((obligation) => ({
       id: obligation.id, responsibility: obligation.responsibility, subject: obligation.subject,
       status: obligation.status, owningSteps: [...(obligation.owningSteps ?? [])],
-      // Freshness is current for every obligation this version evaluates; a stale relationship is
-      // named here once evidence records carry their upstream digests.
       stale: obligation.facets?.freshness === 'stale' ? { relationship: 'upstream-changed' } : null
     }));
+}
+
+/** Obligations a gate names itself, such as the ones a cross-phase change made stale [E2G-022]. */
+function namedObligations(entries) {
+  return entries.slice(0, MAX_LISTED).map((obligation) => ({
+    id: obligation.id, responsibility: obligation.responsibility, subject: obligation.subject,
+    status: obligation.status, owningSteps: [...(obligation.owningSteps ?? [])],
+    stale: obligation.status === 'stale' ? { relationship: 'changed-paths' } : null
+  }));
 }
 
 /** The one recovery that unblocks the most: decide first, then repair what failed, then the rest. */
@@ -42,7 +49,7 @@ function recoveryClassOf({ obligations, findings, nonWaivable }) {
   if (codes.has('APPLICABILITY_DECISION_REQUIRED')) return 'decide-applicability';
   const statuses = (responsibility, ...wanted) => obligations.some((entry) =>
     entry.responsibility === responsibility && wanted.includes(entry.status));
-  if (statuses('verify', 'failed') || statuses('implement', 'missing', 'partial')) return 'repair-implementation';
+  if (statuses('verify', 'failed') || statuses('implement', 'missing', 'partial', 'stale')) return 'repair-implementation';
   if (statuses('verify', 'inconclusive', 'missing')) return 'rerun-verification';
   if (statuses('scope', 'missing', 'pending') || statuses('plan', 'missing')) return 'amend-scope-or-plan';
   if (statuses('review', 'pending')) return 're-review';
@@ -55,11 +62,11 @@ function recoveryClassOf({ obligations, findings, nonWaivable }) {
  * errors), and `actions` the recovery commands in the order to try them.
  */
 export function gateRefusal({
-  code, gate, subject = {}, evaluation = null, findings = [], actions = [],
-  checkpoint = null, risk = null, fingerprint = null
+  code, gate, subject = {}, evaluation = null, obligations: named = null, findings = [], actions = [],
+  checkpoint = null, risk = null, fingerprint = null, preserved = null
 }) {
   if (!GATE_BOUNDARIES.includes(gate)) throw new Error(`Unknown gate '${gate}'.`);
-  const obligations = openObligations(evaluation);
+  const obligations = Array.isArray(named) ? namedObligations(named) : openObligations(evaluation);
   const reasons = findings.slice(0, MAX_LISTED).map((entry) => (typeof entry === 'string'
     ? { code: null, message: text(entry) }
     : { code: text(entry?.code, 120), message: text(entry?.message) })).filter((entry) => entry.message);
@@ -75,7 +82,9 @@ export function gateRefusal({
     },
     obligations,
     findings: reasons,
-    preserved: { state: 'unchanged', description: 'Nothing was recorded; the Story stays where it was.' },
+    preserved: preserved
+      ? { state: text(preserved.state, 40) ?? 'unchanged', description: text(preserved.description, 300) }
+      : { state: 'unchanged', description: 'Nothing was recorded; the Story stays where it was.' },
     checkpoint: text(checkpoint, 200) ?? obligations.find((entry) => entry.owningSteps.length)?.owningSteps.at(-1) ?? null,
     recoveryClass: recoveryClassOf({ obligations, findings: [...(evaluation?.findings ?? []), ...reasons], nonWaivable }),
     actions: actions.slice(0, 10).map((entry) => (typeof entry === 'string' ? { command: entry, confirmation: null }

@@ -65,6 +65,8 @@ import {
   publishedArchitectureIntentBinding, resolveArchitectureIntentPublicationBinding
 } from './architecture-intent-service.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
+import { retainUnchangedPhases } from './phase-retention.mjs';
+import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
@@ -246,6 +248,7 @@ import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
+import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { obligationId } from './evidence/vocabulary.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
@@ -3520,7 +3523,12 @@ export async function publishGeneration(root, config, workflow, {
     if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
       const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
       const outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed));
-      if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
+      if (outside.length) {
+        const change = await crossPhaseChange(root, config, workflow, phase, outside);
+        const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase });
+        throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`,
+          { code: 'PHASE_ARTIFACT_ONLY_CHANGES', details: { phase: phase.id, changedPaths: outside, crossPhase: change, gate: described.gate } });
+      }
     } else {
       const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
       const sourceChanges = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowedArtifact));
@@ -4948,9 +4956,11 @@ async function submitPhaseTransition(root, config, workflow, {
       const changedPaths = [...new Set(applicationChanges.flatMap((entry) => [
         entry.oldPath, entry.newPath
       ]).filter(Boolean))].sort();
+      const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
+      const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase });
       throw new SingularityFlowError(
-        `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published. `
-        + `Move these changes to the appropriate code-delivery phase, then submit the unchanged ${phase.id} generation again: ${changedPaths.join(', ')}`,
+        `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published: `
+        + `${changedPaths.join(', ')}. Move them to the code step that owns them, then submit the unchanged ${phase.id} generation again. ${described.text}`,
         {
           code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION',
           details: {
@@ -4958,7 +4968,9 @@ async function submitPhaseTransition(root, config, workflow, {
             phase: phase.id,
             generation: phase.generation,
             generationCommit: exactGenerationCommit,
-            changedPaths
+            changedPaths,
+            crossPhase: change,
+            gate: described.gate
           }
         }
       );
@@ -5364,6 +5376,9 @@ async function submitPhaseTransition(root, config, workflow, {
       at: phase.submittedAt, actor: actorKey(session.actor),
       completionDisposition: phase.approvalDisposition
     });
+    const automaticRetention = !automaticOutcome || automaticOutcome.kind === 'next'
+      ? await retainUnchangedPhases(root, config, workflow, phase, { at: phase.submittedAt, actor: session.actor, agent: session.agent })
+      : null;
     const { upcoming, pending: automaticPending } = applyCompletionOutcome(workflow, phase, automaticOutcome, {
       at: phase.submittedAt, actor: session.actor, agent: session.agent
     });
@@ -5388,8 +5403,8 @@ async function submitPhaseTransition(root, config, workflow, {
       reconciliationSha256: phase.workIntervalReconciliation?.reconciliationSha256 ?? null,
       changedPathsHash: waiver.changedPathsHash,
       predicates: waiver.predicates,
-      detail: `deterministic policy waiver${advanceDetail(workflow, automaticPending)}`
-    } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${advanceDetail(workflow, automaticPending)}` });
+      detail: `deterministic policy waiver${retentionDetail(automaticRetention)}${advanceDetail(workflow, automaticPending)}`
+    } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${retentionDetail(automaticRetention)}${advanceDetail(workflow, automaticPending)}` });
   } else {
     phase.status = 'awaiting_approval';
     // People review this generation; a waiver recorded for an earlier one does not authorize it.
@@ -5417,6 +5432,7 @@ async function submitPhaseTransition(root, config, workflow, {
   if (phase.status === 'approved') {
     await registerApprovedSnapshot(root, config, workflow, phase);
     await refreshPhaseSpecificationIndex(root, config, workflow, phase);
+    await settleRetainedPhases(root, config, workflow, phase.submittedAt);
   }
   if (persist && flightPlanBoundary) {
     await persistChangeFlightPlanBoundary(root, config, workflow, flightPlanBoundary);
@@ -5953,6 +5969,8 @@ export async function approvePhase(root, config, workflow, {
     ? (await readJson(path.join(root, phase.deliveryEvidence.receiptPath)).catch(() => null))?.implementationBindings ?? null
     : null;
   const bindingReview = reviewBindings(submittedBindings, bindingDecisions);
+  // What this approval decides over, so rework can retain it when none of it changes [E2G-021, D16].
+  const upstream = await phaseUpstream(root, config, workflow, phase).catch(() => null);
   const decision = {
     decision: 'approved',
     phase: phase.id,
@@ -5986,6 +6004,7 @@ export async function approvePhase(root, config, workflow, {
       witnessMappingsSha256: `sha256:${createHash('sha256').update(canonicalJson(reviewedWitnessMappings)).digest('hex')}`
     } : {}),
     ...(actionContext ? { actionContext } : {}),
+    ...(upstream ? { upstream } : {}),
     selfApproval: actorKey(phase.generatedBy ?? {}) === key
   };
   if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
@@ -6003,6 +6022,7 @@ export async function approvePhase(root, config, workflow, {
   // kept it across a reopen) no longer describes it.
   clearApprovalDisposition(phase);
   let approvalPending = null;
+  let retention = null;
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
     closeWorkInterval(workflow, {
@@ -6024,6 +6044,9 @@ export async function approvePhase(root, config, workflow, {
       });
       logDecision(workflow, { outcome: approvalOutcome, at: decision.at, actor: session.actor, agent: session.agent });
     } else {
+      if (!approvalOutcome || approvalOutcome.kind === 'next') {
+        retention = await retainUnchangedPhases(root, config, workflow, phase, { at: decision.at, actor: session.actor, agent: session.agent });
+      }
       ({ upcoming, pending: approvalPending } = applyCompletionOutcome(workflow, phase, approvalOutcome, {
         at: decision.at, actor: session.actor, agent: session.agent
       }));
@@ -6047,7 +6070,7 @@ export async function approvePhase(root, config, workflow, {
       await recordApprovedScopeRevision(root, config, workflow, phase, decision.at);
     }
   }
-  workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${approvalOutcome?.kind === 'loop' ? `; ${describeOutcome(workflow, approvalOutcome)}` : advanceDetail(workflow, approvalPending)}` : 'approval recorded' });
+  workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${approvalOutcome?.kind === 'loop' ? `; ${describeOutcome(workflow, approvalOutcome)}` : `${retentionDetail(retention)}${advanceDetail(workflow, approvalPending)}`}` : 'approval recorded' });
   if (persist) {
     // A partial threshold decision must not rewrite the artifact under review. Doing so made the
     // next reviewer see different bytes and invalidated the immutable submission packet even
@@ -6060,6 +6083,11 @@ export async function approvePhase(root, config, workflow, {
         stage: 'approved', decision
       });
       await refreshPhaseSpecificationIndex(root, config, workflow, phase);
+      for (const retainedPhase of await settleRetainedPhases(root, config, workflow, decision.at)) {
+        await writeJson(approvalPath(root, config, workflow.workItem.id, retainedPhase.id), {
+          schemaVersion: currentSchemaVersion('phase-approval'), phase: retainedPhase.id, decisions: retainedPhase.approvals
+        });
+      }
     }
     await writeDecision(root, config, workflow, phase, decision);
     await saveWorkflow(root, config, workflow);
@@ -6506,6 +6534,31 @@ function resolvePhaseChangeRequests(workflow, phase, { at, actor, completionDisp
   return resolved.map((request) => request.id);
 }
 
+/** What rework retained after a completion, or which phase runs again and why [E2G-021]. */
+function retentionDetail(retention) {
+  const parts = [];
+  if (retention?.retained?.length) parts.push(`; retained ${retention.retained.map((entry) => entry.phase).join(', ')} by rule E1`);
+  if (retention?.stale) parts.push(`; ${retention.stale.phase} runs again because ${retention.stale.changed.join(', ')} changed`);
+  return parts.join('');
+}
+
+/**
+ * Render the approved state of the phases rework just retained, exactly as an approval does:
+ * managed metadata, the approved artifact snapshot, and the specification index over those bytes.
+ */
+async function settleRetainedPhases(root, config, workflow, at) {
+  const settled = [];
+  for (const id of workflow.phaseOrder ?? []) {
+    const retained = workflow.phases[id];
+    if (retained?.status !== 'approved' || retained.retention?.at !== at) continue;
+    await updateArtifactMetadata(root, config, workflow, retained);
+    await registerApprovedSnapshot(root, config, workflow, retained);
+    await refreshPhaseSpecificationIndex(root, config, workflow, retained);
+    settled.push(retained);
+  }
+  return settled;
+}
+
 function advanceDetail(workflow, pending) {
   if (pending) return `; waiting for a decision: ${pending.label}`;
   return workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; closed';
@@ -6895,8 +6948,9 @@ export async function rejectPhase(root, config, workflow, {
     createdAt: timestamp
   });
   if (budgetPreview) workflow.repairBudgets = budgetPreview.repairBudgets;
+  // Approved phases after the target may keep their approval when nothing they decided over changes.
   for (const id of reopenPhaseRange(workflow, {
-    targetId, at: timestamp, actor: key, reason: changeRequest.comment
+    targetId, at: timestamp, actor: key, reason: changeRequest.comment, retain: true
   })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
@@ -7583,7 +7637,7 @@ export async function reopenWorkflow(root, config, workflow, {
     createdAt: timestamp
   });
   for (const id of reopenPhaseRange(workflow, {
-    targetId, at: timestamp, actor: key, reason: changeRequest.comment
+    targetId, at: timestamp, actor: key, reason: changeRequest.comment, retain: true
   })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
   // Reopening changes execution state, never the pinned operational contract. Legacy phases with
   // no task declaration already fail closed through phaseRequiresCodeDelivery and are hydrated by
@@ -9090,6 +9144,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               // was rendered. Rebuild it against the exact final approved bytes so downstream
               // clause context can verify source, index and workflow anchor before injection.
               await refreshPhaseSpecificationIndex(root, config, workflow, requestedPhase);
+              await settleRetainedPhases(root, config, workflow, approval.at);
             }
             await writeDecision(root, config, workflow, requestedPhase, approval);
             // The advancing phase's interval baseline is a durable write like the three above, and

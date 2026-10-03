@@ -23,6 +23,8 @@ export function nextPhaseAfterSkillAmendment(workflow, phase) {
     const candidate = workflow.phases[workflow.phaseOrder[index]];
     // Only an accepted amendment's verified independence proof preserves existing approval.
     if (amendment?.preservedPhaseIds.includes(candidate.id) && candidate.status === 'approved') continue;
+    // A phase whose approval rework retained by rule [E2G-021] is already complete.
+    if (candidate.status === 'approved' && candidate.retention?.generation === candidate.generation) continue;
     return candidate;
   }
   return null;
@@ -89,24 +91,32 @@ export function skipPhaseRange(workflow, phaseIds, { at, decision, route }) {
  * applies exactly this: its decisions are invalidated, its review and approval are cleared, it
  * needs a new generation, and nothing recorded about its previous completion carries over. The
  * caller adds what only it records, such as who rejected the phase or which decision invalidated it.
+ *
+ * `retainable` marks an approved phase whose approval may be retained when the Story reaches it
+ * again and nothing it decided over changed (src/phase-retention.mjs).
  */
-export function resetPhaseForRework(phase, { at, status, invalidation = {} }) {
+export function resetPhaseForRework(phase, { at, status, invalidation = {}, retainable = false }) {
+  const approved = phase.status === 'approved';
   for (const approval of phase.approvals ?? []) {
     if (!approval.invalidatedAt) Object.assign(approval, { invalidatedAt: at, ...invalidation });
   }
   phase.status = status;
   phase.submittedAt = null; phase.approvedAt = null; phase.approvedBy = null;
   phase.submissionArchitectureDecision = null;
-  phase.reworkRevalidation = { generation: phase.generation, invalidatedAt: at };
+  phase.reworkRevalidation = { generation: phase.generation, invalidatedAt: at, ...(retainable && approved ? { retainable: true } : {}) };
+  delete phase.retention;
   clearDecisionState(phase);
   clearApprovalDisposition(phase);
 }
 
 /**
  * Reset the target and every phase after it for rework, and make the target current. The whole
- * range is reset, not just dependency descendants. Nothing changes when any phase in it is malformed.
+ * range is reset, not just dependency descendants: what a later phase depends on is known only once
+ * the phases before it complete again. With `retain`, approved phases after the target may keep
+ * their approval then, when nothing they decided over changed. Nothing changes when any phase in
+ * the range is malformed.
  */
-export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation = {} }) {
+export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation = {}, retain = false }) {
   const targetIndex = phaseIndex(workflow, targetId);
   const affectedIds = workflow.phaseOrder.slice(targetIndex);
   if (affectedIds.some((id) => !Array.isArray(workflow.phases[id].approvals)
@@ -115,7 +125,7 @@ export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation 
       { code: 'LIFECYCLE_TRANSITION_INVALID' });
   }
   for (const [index, id] of affectedIds.entries()) {
-    resetPhaseForRework(workflow.phases[id], { at, status: index === 0 ? 'in_progress' : 'not_started', invalidation });
+    resetPhaseForRework(workflow.phases[id], { at, status: index === 0 ? 'in_progress' : 'not_started', invalidation, retainable: retain && index > 0 });
   }
   // Reopened phases run again, so their decisions are taken again; a question still waiting
   // after one of them no longer describes the Story.
@@ -126,9 +136,12 @@ export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation 
   return affectedIds;
 }
 
-/** A rejection or reopen: the range is reset and the target records who sent it back and why. */
-export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
-  const affectedIds = resetPhaseRangeForRework(workflow, { targetId, at });
+/**
+ * A rejection, a reopen or a decision's loop: the range is reset and the target records who sent it
+ * back and why. A loop passes no `retain`: each round gets its own evidence [E2G-023].
+ */
+export function reopenPhaseRange(workflow, { targetId, at, actor, reason, retain = false }) {
+  const affectedIds = resetPhaseRangeForRework(workflow, { targetId, at, retain });
   const target = workflow.phases[targetId];
   target.rejectedAt = at; target.rejectedBy = actor; target.rejectionReason = reason;
   return affectedIds;

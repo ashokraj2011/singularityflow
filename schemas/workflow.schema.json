@@ -750,7 +750,8 @@
             "required": ["generation", "invalidatedAt"],
             "properties": {
               "generation": { "type": "integer", "minimum": 0 },
-              "invalidatedAt": { "type": "string" }
+              "invalidatedAt": { "type": "string" },
+              "retainable": { "const": true, "description": "The phase was approved when rework reset it; its approval may be retained by rule E1 when nothing it decided over changed." }
             },
             "additionalProperties": false
           },

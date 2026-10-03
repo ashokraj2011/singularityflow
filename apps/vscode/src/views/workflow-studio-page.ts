@@ -214,11 +214,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), compiledSkill: Boolean(step.compiledSkill) };
+        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill) };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
     });
     (model.agents || []).forEach(function (agent) {
       draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null };
@@ -256,7 +256,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var own = home && home !== workflowId && draft.steps[home] && draft.steps[home][phaseId] ? draft.steps[home][phaseId] : phase;
     var phases = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
     return { approval: clone(own.approval || { group: null, minimum: 1 }), inputs: (own.inputs || []).filter(function (input) { return phases.indexOf(input) >= 0; }),
-      authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), compiledSkill: Boolean(phase.compiledSkill) };
+      authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill) };
   }
 
   /**
@@ -283,6 +283,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       clarification: baseline && source.clarification === baseline.clarification ? settings.clarification || 'off' : source.clarification,
       authoringSkill: settings.authoringSkill || null,
       generatedByEngine: settings.generatedByEngine !== undefined ? Boolean(settings.generatedByEngine) : Boolean(source.generatedByEngine),
+      convergence: settings.convergence !== undefined ? Boolean(settings.convergence) : Boolean(source.convergence),
       compiledSkill: settings.compiledSkill !== undefined ? Boolean(settings.compiledSkill) : Boolean(source.compiledSkill) });
     delete copy.setAsideSkill;
     return copy;
@@ -1650,10 +1651,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var output = stepOutput(workflowId, phaseId);
     if (output === 'none') return null;
     // How this workflow runs the step, where its settings say; otherwise how the step itself is.
-    // Convergence is refused by its name as well, as configuration refuses it.
+    // Convergence is known by its artifact kind, which the engine reports, never by the step's name.
     var route = settings.generatedByEngine !== undefined ? settings : state.draft.phases[phaseId] || {};
-    if (route.generatedByEngine || phaseId === 'convergence') {
-      return phaseId === 'convergence'
+    if (route.generatedByEngine || route.convergence) {
+      return route.convergence
         ? { fixed: '/sf-converge', hint: 'Deterministic convergence always uses /sf-converge.' }
         : { fixed: 'Generated by the engine', hint: 'Only the engine\'s deterministic generator produces this step, so no drafting skill can be chosen.' };
     }

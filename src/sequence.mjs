@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { readFile } from 'node:fs/promises';
@@ -69,17 +70,17 @@ export function sequenceGuidance(workflow) {
     alternativeSecond: true
   };
   if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) return {
-    summary: phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase)
+    summary: isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase)
       ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
       : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
     actions: [
       copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}` }),
-      ...(phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase) ? [] : [
+      ...(isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase) ? [] : [
         copilotAction({ skill: generationSkillForPhase(phase, workflow), command: phasePublicationCommand(phase) })
       ])
     ]
   };
-  if (phase.status === 'in_progress' && phase.id === 'convergence') return {
+  if (phase.status === 'in_progress' && isConvergencePhase(phase)) return {
     summary: "Review the published deterministic convergence result, then explicitly confirm advancement before submission.",
     actions: [copilotAction({
       skill: '/sflow-submit',

@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
@@ -260,7 +261,7 @@ export function submissionReadinessSnapshot(workflow, {
         })
   });
 
-  if (phase.id === 'convergence') return result(workflow, phase, {
+  if (isConvergencePhase(phase)) return result(workflow, phase, {
     ...draft,
     classification: 'convergence-advance-required',
     lifecycleReady: true,

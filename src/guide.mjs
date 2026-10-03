@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -18,7 +19,7 @@ function currentPhase(workflow) {
  */
 export function phaseHandoff(workflow, phase) {
   const noApproval = phase.approvalPolicy?.mode === 'none';
-  if (phase.id === 'convergence') return [
+  if (isConvergencePhase(phase)) return [
     copilotAction({
       skill: '/sflow-submit',
       command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
@@ -69,7 +70,7 @@ function nextActions(workflow, phase) {
     copilotAction({
       skill: generationSkillForPhase(phase, workflow),
       command: `singularity-flow prepare ${phase.id}`,
-      reason: phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase)
+      reason: isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase)
         ? 'Compute the deterministic convergence projection, then follow its returned adjudication, rework, amendment, or publication action.'
         : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
     })

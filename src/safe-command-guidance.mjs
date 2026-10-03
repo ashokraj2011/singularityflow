@@ -273,20 +273,21 @@ export function safeCommandGuidance(value) {
     : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'prepublish', 'show'].includes(safe.argv[1])
       ? safe.argv[2]
       : null;
-  // A repository may name a code-delivery phase freely, and names confer no authority: even a
-  // packaged step can have a verified code-producing override. `/sf-code` and every listed
-  // authoring skill re-read the step's verified route before doing any work, so presenting one for
-  // that step's prepare/phase commands only renders a route. Convergence is the exception: only the
-  // deterministic generator produces it and it cannot name a skill, so only `/sf-converge` joins
-  // its canonical route. The catalog is read only when a skill is asserted.
-  if (phaseId === 'convergence') allowedSkills.add('/sf-converge');
-  else if (phaseId) allowedSkills.add('/sf-code');
+  // A repository names its steps freely, and names confer no authority: a step called anything may
+  // deliver code or be the engine's convergence step, and only its pinned structure says which.
+  // `/sf-code`, `/sf-converge` and every listed authoring skill re-read the step's verified route
+  // before doing any work, so presenting one for that step's prepare/phase commands only renders a
+  // route; the engine chooses which one to present. The catalog is read only when a skill is asserted.
+  if (phaseId) {
+    allowedSkills.add('/sf-code');
+    allowedSkills.add('/sf-converge');
+  }
   const assertedSkill = input.skill != null
     ? normalizedSkill(input.skill)
     : input.copilotCommand != null
       ? directCopilotSkillId(input.copilotCommand)
       : null;
-  if (phaseId && phaseId !== 'convergence' && assertedSkill && !allowedSkills.has(assertedSkill)
+  if (phaseId && assertedSkill && !allowedSkills.has(assertedSkill)
       && authoringSkillEntry(assertedSkill.slice(1))) {
     allowedSkills.add(assertedSkill);
   }

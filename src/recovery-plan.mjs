@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 
@@ -234,7 +235,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
     actions.push(generation.action);
   }
 
-  const deterministicConvergence = phase.id === 'convergence';
+  const deterministicConvergence = isConvergencePhase(phase);
   let artifactFindings = [];
   if (deterministicConvergence) {
     try {
@@ -252,7 +253,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
         id: review ? `convergence-${review.kind}` : 'prepare-convergence',
         detail: review?.guidance
           ?? 'Recompute the canonical projection from the current bound inputs, then follow only its returned review or publication action.',
-        command: review?.command ?? 'singularity-flow prepare convergence',
+        command: review?.command ?? `singularity-flow prepare ${phase.id}`,
         skill: review?.skill ?? '/sf-converge'
       }));
     }

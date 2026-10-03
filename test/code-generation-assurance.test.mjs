@@ -907,7 +907,7 @@ test('all code tasks route to the canonical skill without hard-coded phase names
   assert.equal(generationSkillForPhase({ id: 'poc-test-generation', generationPolicy: { task: 'code' } }), '/sflow-code');
   assert.equal(generationSkillForPhase({ id: 'analysis', generationPolicy: { task: 'analyze' } }), '/sflow-phase');
   assert.equal(generationSkillForPhase({
-    id: 'convergence', generationPolicy: {
+    id: 'closure', requiredArtifact: { kind: 'convergence-report' }, generationPolicy: {
       task: 'analyze', defaultProducer: 'deterministic', allowedProducers: ['deterministic']
     }
   }), '/sflow-converge');

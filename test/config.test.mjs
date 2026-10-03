@@ -25,6 +25,7 @@ import {
   validateDefinition
 } from '../src/config.mjs';
 import { groundingMode } from '../src/grounding.mjs';
+import { isConvergencePhase } from '../src/phase-roles.mjs';
 import {
   contextBoundaryHandoff, normalizeContextPolicy
 } from '../src/context-policy.mjs';
@@ -455,6 +456,51 @@ test('convergence approval cannot be waived by base policy or work-type override
       `work-type convergence approval ${typeof approval === 'string' ? approval : approval.mode} was accepted`
     );
   }
+});
+
+/** The packaged definition with one step renamed everywhere a workflow refers to it. */
+function renameStep(definition, from, to) {
+  const renamed = structuredClone(definition);
+  const id = (value) => (value === from ? to : value);
+  const input = (entry) => (typeof entry === 'string' ? id(entry) : entry && typeof entry === 'object' ? { ...entry, phase: id(entry.phase) } : entry);
+  const rekey = (map) => (map && Object.hasOwn(map, from) ? Object.fromEntries(Object.entries(map).map(([key, value]) => [id(key), value])) : map);
+  const references = (phase) => {
+    if (Array.isArray(phase?.inputs)) phase.inputs = phase.inputs.map(input);
+    if (Array.isArray(phase?.approval?.rejectTo)) phase.approval.rejectTo = phase.approval.rejectTo.map(id);
+  };
+  renamed.phases = rekey(renamed.phases);
+  Object.values(renamed.phases).forEach(references);
+  for (const workType of Object.values(renamed.workTypes)) {
+    workType.phases = workType.phases.map(id);
+    workType.templateOverrides = rekey(workType.templateOverrides);
+    workType.phaseOverrides = rekey(workType.phaseOverrides);
+    Object.values(workType.phaseOverrides ?? {}).forEach(references);
+    if (workType.fastPath?.converge && from === 'convergence') workType.fastPath.converge = { ...workType.fastPath.converge, phases: [to] };
+  }
+  return renamed;
+}
+
+test('a renamed copy of convergence keeps its rules, and the name alone confers none [E2G-001]', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const renamed = renameStep(definition, 'convergence', 'closure');
+  const closure = resolveWorkType(validateDefinition(renamed), 'spec-driven-standard').phases.find((phase) => phase.id === 'closure');
+  assert.equal(isConvergencePhase(closure), true, 'its artifact kind makes the renamed step convergence');
+  for (const approval of ['none', { ...renamed.phases.closure.approval, mode: 'policy', policy: 'convergence-auto-waiver-v1' }]) {
+    const waived = structuredClone(renamed);
+    waived.phases.closure.approval = approval;
+    assert.throws(() => validateDefinition(waived), (error) => error.code === 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED' && /closure/.test(error.message),
+      'a renamed convergence step still needs a person to approve it');
+  }
+  const drafted = structuredClone(renamed);
+  drafted.phases.closure.generation = { requirement: 'required', producer: 'agent', task: 'analyze' };
+  assert.throws(() => validateDefinition(drafted), /closure.*convergence phase.*only deterministic authorship/);
+
+  // Only the kind confers the role: a step that keeps the name but not the kind is ordinary.
+  const ordinary = structuredClone(definition);
+  ordinary.phases.convergence.artifact = { ...ordinary.phases.convergence.artifact, kind: 'review-report' };
+  ordinary.phases.convergence.approval = { ...ordinary.phases.convergence.approval, mode: 'policy', policy: 'quick-fix-low-risk-v1', maximumChangedPaths: 5 };
+  const resolved = resolveWorkType(validateDefinition(ordinary), 'spec-driven-standard').phases.find((phase) => phase.id === 'convergence');
+  assert.equal(isConvergencePhase(resolved), false);
 });
 
 test('every shipped Story workflow phase renders a contract-consistent guarded artifact', async () => {

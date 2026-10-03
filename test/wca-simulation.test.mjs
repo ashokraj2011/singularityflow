@@ -439,7 +439,7 @@ test('unconfirmed skill proposal is incomplete and never receives an invented ru
 });
 
 test('convergence requires deterministic publication and its separate exact human advancement', () => {
-  const resolved = fixture(); const phase = resolved.phases[1]; phase.id = 'convergence'; phase.artifact.path = 'artifacts/convergence/result.md';
+  const resolved = fixture(); const phase = resolved.phases[1]; phase.id = 'convergence'; phase.artifact.path = 'artifacts/convergence/result.md'; phase.artifact.kind = 'convergence-report';
   phase.generation = normalizeGenerationPolicy({ requirement: 'required', defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }, 'convergence');
   const report = simulateResolvedWorkflowLifecycle(resolved);
   assert.equal(report.status, 'complete-for-profile'); assert.equal(find(report, 'convergence-human-advance').events[0].disposition, 'refused-human-advance-required');

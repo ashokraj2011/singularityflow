@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
 import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary } from './commands/kernel.mjs';
@@ -4394,7 +4395,7 @@ async function resolveNextStepsSnapshotInScope(root, positionals, options, appro
         : null;
       const activeAgent = activeSessionAgent ?? active?.defaultAgent ?? null;
       const modelMode = operationContext()?.modelMode ?? { enabled: optionBoolean(options, 'model', true) };
-      const deterministicConvergence = active?.id === 'convergence'
+      const deterministicConvergence = isConvergencePhase(active)
         && effectivePhasePublicationProducer(active, { modelEnabled: modelMode.enabled }) === 'deterministic';
       if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
       else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
@@ -4676,7 +4677,7 @@ async function nextCommand(options) {
   }
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nCopilot: /sf-nextsteps ${workflow.workItem.id}`);
   if (!phaseNeedsGeneration(workflow, phase)) {
-    if (phase.id === 'convergence') {
+    if (isConvergencePhase(phase)) {
       printCommandRoutes(`singularity-flow story advance --work-id ${workflow.workItem.id}`, {
         label: 'Review and advance convergence'
       });
@@ -4694,7 +4695,7 @@ async function nextCommand(options) {
   const effectiveProducer = effectivePhasePublicationProducer(phase, {
     modelEnabled: operationContext()?.modelMode.enabled !== false
   });
-  const deterministicConvergence = phase.id === 'convergence' && effectiveProducer === 'deterministic';
+  const deterministicConvergence = isConvergencePhase(phase) && effectiveProducer === 'deterministic';
   // Approval advances the workflow while the local session can still name the previous phase's
   // agent. Only model-authored generation needs agent activation; deterministic convergence reads
   // repository-owned evidence directly and must not be blocked by an agent or world model.
@@ -5376,7 +5377,7 @@ async function prepareConfiguredPhase(root, config, workflow, phase) {
   const publicationProducer = effectivePhasePublicationProducer(phase, {
     modelEnabled: operationContext()?.modelMode.enabled !== false
   });
-  if (phase.id === 'convergence' && publicationProducer === 'deterministic') {
+  if (isConvergencePhase(phase) && publicationProducer === 'deterministic') {
     const { prepareDeterministicConvergence } = await import('./commands/story.mjs');
     const prepared = await prepareDeterministicConvergence(root, config, workflow.workItem.id);
     return {
@@ -6946,9 +6947,9 @@ async function phaseCommand(positionals, options) {
     changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
   });
   if (!explicitAuthored && authored !== 'deterministic') console.warn('Deprecation warning: phase publish without --authored records legacy-unspecified. Pass --authored human or --authored governed-agent.');
-  if (requestedPhase.id === 'convergence' && sourcePath) {
+  if (isConvergencePhase(requestedPhase) && sourcePath) {
     throw new SingularityFlowError(
-      'The convergence artifact is a kernel-owned deterministic projection and cannot be imported. Run singularity-flow prepare convergence.',
+      `The convergence artifact is a kernel-owned deterministic projection and cannot be imported. Run singularity-flow prepare ${requestedPhase.id}.`,
       { code: 'CONVERGENCE_ARTIFACT_KERNEL_OWNED' }
     );
   }
@@ -6973,7 +6974,7 @@ async function phaseCommand(positionals, options) {
     baseline: requestedPhase.authoringBaseline ?? null,
     retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase, workflow))
   };
-  const deterministicConvergence = requestedPhase.id === 'convergence';
+  const deterministicConvergence = isConvergencePhase(requestedPhase);
   const inspectPublicationArtifact = deterministicConvergence
     ? (candidatePath) => inspectDeterministicInPlaceArtifact(candidatePath, publicationArtifactContract)
     : (candidatePath) => inspectInPlaceArtifact(candidatePath, publicationArtifactContract, publicationAuthoringOptions);
@@ -7094,7 +7095,7 @@ async function phaseCommand(positionals, options) {
             const currentConvergence = await assertConvergencePublicationReady(root, config, workflow, phase);
             if (currentConvergence.snapshotSha256 !== expectedConvergenceSnapshotSha256) {
               throw new SingularityFlowError(
-                'The reviewed convergence projection or one of its exact inputs changed while publication was running. Nothing was committed; run singularity-flow prepare convergence again.',
+                `The reviewed convergence projection or one of its exact inputs changed while publication was running. Nothing was committed; run singularity-flow prepare ${phase.id} again.`,
                 {
                   code: 'PUBLICATION_SNAPSHOT_CHANGED',
                   details: {
@@ -7498,7 +7499,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
   // an interrupted commit. The committed aggregate already proves the exact phase and generation
   // awaiting review, so no transaction or override is appropriate.
   if (initialPhase.status === 'awaiting_approval') {
-    if (initialPhase.id === 'convergence') {
+    if (isConvergencePhase(initialPhase)) {
       await assertConvergencePublicationReady(root, config, workflow, initialPhase);
     }
     if (await storyPublicationPending(root, config, workflow.workItem.id)) {
@@ -7520,7 +7521,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
   // Refuse a generic `submit convergence` before telemetry reconciliation or any other write. The
   // only combined confirmation route is `story advance --confirm`; command-line options cannot
   // set this private function argument.
-  if (initialPhase.id === 'convergence') {
+  if (isConvergencePhase(initialPhase)) {
     if (typeof convergenceConfirmation !== 'string'
         || !/^sha256:[0-9a-f]{64}$/.test(convergenceConfirmation)) {
       throw new SingularityFlowError(
@@ -7530,7 +7531,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
     }
     if (initialPhase.approvalPolicy?.mode !== 'required') {
       throw new SingularityFlowError(
-        "Phase 'convergence' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.",
+        `Convergence phase '${initialPhase.id}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
         { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED' }
       );
     }
@@ -7582,7 +7583,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
   const registrationRepairCount = requested.artifactRegistrationRepairs?.length ?? 0;
   let phase = requested;
   let reviewPacket = null;
-  const expectedConvergenceSnapshotSha256 = requested.id === 'convergence'
+  const expectedConvergenceSnapshotSha256 = isConvergencePhase(requested)
     ? (await assertConvergencePublicationReady(root, config, workflow, requested)).snapshotSha256
     : null;
   const expectedSubmissionArchitectureIdentity = await architectureIntentStabilityIdentity(
@@ -7595,7 +7596,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
         const current = await assertConvergencePublicationReady(root, config, workflow, requested);
         if (current.snapshotSha256 !== expectedConvergenceSnapshotSha256) {
           throw new SingularityFlowError(
-            'The reviewed convergence projection or one of its exact inputs changed while submission was running. Nothing was committed; run singularity-flow prepare convergence again.',
+            `The reviewed convergence projection or one of its exact inputs changed while submission was running. Nothing was committed; run singularity-flow prepare ${requested.id} again.`,
             {
               code: 'PUBLICATION_SNAPSHOT_CHANGED',
               details: {
@@ -7632,7 +7633,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
     {
       rollbackWorkflow: workflowBeforeSubmission,
       beforeStateWrite: async () => {
-        const submit = requested.id === 'convergence'
+        const submit = isConvergencePhase(requested)
           ? submitConfirmedConvergencePhase
           : submitPhase;
         const deterministicSubmission = phaseUsesDeterministicGeneration(requested);
@@ -7643,7 +7644,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
           persist: false,
           decisionValues,
           ...(deterministicSubmission ? { actor: actionActor(root), agent: null } : {}),
-          ...(requested.id === 'convergence'
+          ...(isConvergencePhase(requested)
             ? { confirmation: convergenceConfirmation }
             : {})
         });
@@ -8226,7 +8227,7 @@ async function approveCommand(positionals, options) {
     root, config, approvalStabilityWorkflow, approvalStabilityPhase, phase.generation,
     { candidateSnapshot: optionString(options, 'candidate-snapshot'), operation: 'the approval commit' }
   );
-  const expectedConvergenceApprovalSnapshot = phase.id === 'convergence'
+  const expectedConvergenceApprovalSnapshot = isConvergencePhase(phase)
     ? (await assertConvergencePublicationReady(
         root, config, approvalStabilityWorkflow, approvalStabilityPhase
       )).snapshotSha256
@@ -10902,7 +10903,7 @@ async function runCommand(positionals, options) {
     console.log('Follow only the exact next action returned by preparation.');
     return;
   }
-  if (phase.id === 'convergence') {
+  if (isConvergencePhase(phase)) {
     const { storyAdvanceCommand } = await import('./commands/story.mjs');
     await storyAdvanceCommand([], {
       ...options, confirm: false, 'work-id': workflow.workItem.id

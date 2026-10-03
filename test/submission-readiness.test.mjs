@@ -15,7 +15,8 @@ function workflow({
   publicationRecord = publication,
   rejectedAt = null,
   history = [],
-  sequenceGates = { default: 'hard' }
+  sequenceGates = { default: 'hard' },
+  kind = phaseId === 'convergence' ? 'convergence-report' : null
 } = {}) {
   const generationPublications = publication ? [{
     generation,
@@ -36,6 +37,7 @@ function workflow({
         status,
         generation,
         generationPolicy: { requirement },
+        ...(kind ? { requiredArtifact: { kind } } : {}),
         generationPublications,
         ...(rejectedAt ? { rejectedAt } : {})
       }

@@ -72,6 +72,10 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     // Previous starter required six human checklist decisions at Specification approval.
     specification: Object.freeze([
       '11ef5fa9479175bd8e27d5a07af58a74471473fe8322116ba6dd7e93d5ccb527'
+    ]),
+    // Before convergence was recognised by its own artifact kind rather than its name.
+    convergence: Object.freeze([
+      'd34e5232cf52c5adca8f5a23648a9ea5fd77e4e29f24c858c658c3e495ebf121'
     ])
   }),
   artifactSets: Object.freeze({
@@ -108,7 +112,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   phases: Object.freeze({
     'component-mapping': '35e812770061284af78d1c9bac956ced7f331ca184cb4bea7f3ca04d7f9c95eb',
     conformance: '32fcd6ab14993013675265d3244d9682538373bc8f7ca30f99ec5940a706b02e',
-    convergence: 'd34e5232cf52c5adca8f5a23648a9ea5fd77e4e29f24c858c658c3e495ebf121',
+    convergence: '1fd5cf156969db6a33e686376399f0d2c3368c7f5ad1c9d229704190a5745e48',
     design: 'f7ee1f2db131d69f8b8bdca489722ec0142daee15e7bcab4cd2e69e1d2b6ab32',
     'design-intake': 'c627e7856b5c077ac9b6f2395623d0ab440ab9ad02a2a2f983679830968719e1',
     'design-inventory': 'abd5671883bb6f98ea452790bfdc05b56d826d667055fbe24d9f7a61405a2d3c',

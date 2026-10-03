@@ -385,13 +385,13 @@ test('VS Code accepts a registered policy-selected generation skill without wide
     copilotCommand: '/sf-code'
   }), null);
   // A step's name confers no authority and `/sf-code` re-reads the step's verified route, so any
-  // step but convergence may present it; convergence is produced only by the deterministic generator.
+  // step may present it: a step called convergence may deliver code, as one called anything may converge.
   assert.deepEqual(commandGuidance({
     command: 'singularity-flow prepare planning', skill: '/sf-code', copilotCommand: '/sf-code'
   }), expectedGuidance('singularity-flow prepare planning', ['prepare', 'planning'], '/sf-code'));
-  assert.equal(commandGuidance({
+  assert.deepEqual(commandGuidance({
     command: 'singularity-flow prepare convergence', skill: '/sf-code', copilotCommand: '/sf-code'
-  }), null);
+  }), expectedGuidance('singularity-flow prepare convergence', ['prepare', 'convergence'], '/sf-code'));
   assert.equal(commandGuidance({
     command: 'singularity-flow phase publish intake', skill: '/sf-verify', copilotCommand: '/sf-verify'
   }), null);

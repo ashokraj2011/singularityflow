@@ -41,6 +41,7 @@ test('a deterministic convergence policy routes through projection preparation',
   state.phases = {
     convergence: {
       id: 'convergence', label: 'Convergence', status: 'in_progress', generation: 0,
+      requiredArtifact: { path: 'artifacts/convergence/convergence.md', kind: 'convergence-report' },
       generationPolicy: {
         requirement: 'required', defaultProducer: 'deterministic',
         allowedProducers: ['deterministic']

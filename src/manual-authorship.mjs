@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
@@ -102,17 +103,17 @@ export function phaseUsesDeterministicGeneration(phase) {
 export function effectivePhasePublicationProducer(phase, {
   modelEnabled = true, requestedProducer = null
 } = {}) {
-  if (phase?.id === 'convergence') {
+  if (isConvergencePhase(phase)) {
     const allowed = allowedPublicationProducers(phase);
     if (allowed.length !== 1 || allowed[0] !== 'deterministic') {
       throw new SingularityFlowError(
-        "Phase 'convergence' must permit only deterministic authorship because its artifact is a kernel-owned projection.",
+        `Phase '${phase.id}' is a convergence phase and must permit only deterministic authorship because its artifact is a kernel-owned projection.`,
         { code: 'CONVERGENCE_GENERATION_POLICY_INVALID' }
       );
     }
     if (requestedProducer != null && requestedProducer !== 'deterministic') {
       throw new SingularityFlowError(
-        "Phase 'convergence' records deterministic authorship only; human and model review decisions are separate governed records.",
+        `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate governed records.`,
         { code: 'CONVERGENCE_AUTHORSHIP_INVALID' }
       );
     }
@@ -205,9 +206,9 @@ export function normalizeAuthorshipOptions({
 
 export function assertProducerAllowed(phase, producer) {
   const allowed = allowedPublicationProducers(phase);
-  if (phase?.id === 'convergence' && producer !== 'deterministic') {
+  if (isConvergencePhase(phase) && producer !== 'deterministic') {
     throw new SingularityFlowError(
-      "Phase 'convergence' records deterministic authorship only; human and model review decisions are separate governed records.",
+      `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate governed records.`,
       { code: 'CONVERGENCE_AUTHORSHIP_INVALID', details: { phase: phase.id, producer } }
     );
   }

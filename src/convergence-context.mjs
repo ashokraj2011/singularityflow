@@ -6,6 +6,8 @@ import {
   assertConvergenceCandidateSource, assertConvergencePublishable, convergenceBindings,
   convergenceFacts, decodeConvergenceRecord
 } from './convergence.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { convergencePhaseOf, isConvergencePhase, latestStepBefore, stepResponsibilities } from './phase-roles.mjs';
 import { authoredArtifactFingerprint, authoredArtifactText, requiredArtifactRepoPath } from './publication-preflight.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
@@ -75,8 +77,8 @@ function assertCommittedPath(root, relative, label) {
   }
 }
 
-async function verifiedUpstreamArtifacts(root, config, workflow) {
-  const convergenceIndex = workflow.phaseOrder.indexOf('convergence');
+async function verifiedUpstreamArtifacts(root, config, workflow, convergence) {
+  const convergenceIndex = workflow.phaseOrder.indexOf(convergence.id);
   const bindings = [];
   for (const phaseId of workflow.phaseOrder.slice(0, Math.max(0, convergenceIndex))) {
     const phase = workflow.phases?.[phaseId];
@@ -172,15 +174,19 @@ async function assertReconciliationTargetCurrent(root, config, workflow, reconci
  * after the specification, claims, acceptance evidence, or reconciliation has moved.
  */
 export async function currentConvergenceContext(root, config, workflow) {
-  const phase = workflow.phases.convergence;
+  const phase = convergencePhaseOf(workflow);
   if (!phase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase.`);
-  const implementation = workflow.phases.implementation;
-  if (!implementation) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no implementation phase to converge.`);
+  // The steps it reconciles are found by what they do: the code step before it, and the steps that
+  // define the scope and plan the claims, whatever each is called.
+  const implementation = latestStepBefore(workflow, phase.id, phaseRequiresCodeDelivery);
+  if (!implementation) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no code phase before '${phase.id}' to converge.`);
+  const holding = (responsibility) => latestStepBefore(workflow, phase.id,
+    (candidate) => stepResponsibilities(workflow, candidate.id).includes(responsibility));
   const reconciliationRef = implementation.workIntervalReconciliation;
   if (!reconciliationRef?.path) {
     throw new SingularityFlowError(
-      'Convergence operates on the reconciliation record for the implementation generation, and none exists yet. '
-      + 'Run singularity-flow submit implementation first.'
+      `Convergence operates on the reconciliation record for the ${implementation.id} generation, and none exists yet. `
+      + `Run singularity-flow submit ${implementation.id} first.`
     );
   }
   const itemDirectory = path.join(
@@ -223,7 +229,7 @@ export async function currentConvergenceContext(root, config, workflow) {
   const records = await loadBoundActiveSpecRecords(
     root, itemDirectory, workflow, policy, { requireCommitted: true }
   );
-  const upstreamArtifacts = await verifiedUpstreamArtifacts(root, config, workflow);
+  const upstreamArtifacts = await verifiedUpstreamArtifacts(root, config, workflow, phase);
   const iteration = Math.max(1, Number(implementation.generation ?? 1));
   const acceptance = evaluateSpecAcceptance(records, policy, {
     workId: workflow.workItem.id,
@@ -246,8 +252,8 @@ export async function currentConvergenceContext(root, config, workflow) {
     constitutionSha256: workflow.resolution?.constitutionPin?.indexSha256
       ?? workflow.resolution?.constitutionPin?.fileSha256
       ?? null,
-    specification: exactConvergencePhaseArtifactRef(workflow.phases.specification, upstreamArtifacts),
-    planning: exactConvergencePhaseArtifactRef(workflow.phases.planning, upstreamArtifacts),
+    specification: exactConvergencePhaseArtifactRef(holding('scope'), upstreamArtifacts),
+    planning: exactConvergencePhaseArtifactRef(holding('plan'), upstreamArtifacts),
     indexes: records.indexes,
     reconciliation,
     planned: records.planned,
@@ -484,7 +490,7 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
   } catch (error) {
     throw new SingularityFlowError(
       `Convergence iteration ${current.iteration} has no valid deterministic projection. `
-      + 'Run singularity-flow prepare convergence before continuing.',
+      + `Run singularity-flow prepare ${current.phase.id} before continuing.`,
       {
         code: 'CONVERGENCE_PROJECTION_REQUIRED',
         details: { iteration: current.iteration, path: projectionRelative }, cause: error
@@ -522,8 +528,8 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
  * all call this same service, preventing a source from changing after one surface approved it.
  */
 export async function assertConvergencePublicationReady(root, config, workflow, phase = null) {
-  const selected = phase ?? workflow.phases?.convergence;
-  if (selected?.id !== 'convergence') {
+  const selected = phase ?? convergencePhaseOf(workflow);
+  if (!isConvergencePhase(selected)) {
     throw new SingularityFlowError('Deterministic convergence publication requires the convergence phase.', {
       code: 'CONVERGENCE_PHASE_REQUIRED'
     });

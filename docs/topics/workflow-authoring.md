@@ -26,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 40
+version: 41
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -163,6 +163,17 @@ engine**, a compiled skill step shows that its binding decides (a copy keeps eit
 sign-off-only step has no drafting skill. When a step's output changes so that a chosen skill can no
 longer draft it, the step's own choice and each workflow's go back to **Automatic** and the check
 summary says so; changing the output back before publishing restores them.
+
+## A step is governed by what it is, not what it is called
+
+A step's id is only its name. The engine reads what a step is for from its structure, so renaming a
+step, or copying it under another name, keeps every rule that governs it, and naming a step after a
+packaged one confers nothing. A step is convergence because its artifact kind is
+`convergence-report`: such a step must allow only deterministic generation and require a person's
+approval (`CONVERGENCE_HUMAN_APPROVAL_REQUIRED`), it is submitted only through `story advance`, and no
+decision may follow it. It reconciles the code step before it with the steps that define the scope
+and plan the claims, whatever they are called. A step merely named `convergence` with another
+artifact kind is an ordinary step.
 
 ## Use it from each surface
 

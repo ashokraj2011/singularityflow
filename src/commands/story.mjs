@@ -2382,7 +2382,8 @@ export async function storyAdvanceCommand(positionals, options) {
     }
     const blocked = advancementBlocked(projection);
     if (blocked.length) {
-      throw new SingularityFlowError(`Convergence cannot advance to verification:\n- ${blocked.join('\n- ')}`);
+      const following = workflow.phaseOrder[workflow.phaseOrder.indexOf(subject.phase.id) + 1] ?? null;
+      throw new SingularityFlowError(`Convergence cannot advance${following ? ` to ${following}` : ''}:\n- ${blocked.join('\n- ')}`);
     }
     const reviewed = await assertConvergencePublicationReady(root, config, workflow, subject.phase);
     const confirmation = optionString(options, 'confirm');

@@ -1,3 +1,4 @@
+import { convergencePhaseOf, isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -291,7 +292,7 @@ function convergenceAdvanceRequired(workflow, details = {}) {
 function assertRequiredConvergenceApproval(phase) {
   if (phase?.approvalPolicy?.mode === 'required') return;
   throw new SingularityFlowError(
-    "Phase 'convergence' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.",
+    `Convergence phase '${phase?.id ?? ''}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
     {
       code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED',
       details: { mode: phase?.approvalPolicy?.mode ?? null }
@@ -301,7 +302,7 @@ function assertRequiredConvergenceApproval(phase) {
 
 async function assertConvergenceConfirmation(root, config, workflow, phase, confirmation) {
   if (typeof confirmation !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(confirmation)) {
-    throw convergenceAdvanceRequired(workflow, { phase: 'convergence' });
+    throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
   }
   assertRequiredConvergenceApproval(phase);
   const verified = await assertConvergencePublicationReady(root, config, workflow, phase);
@@ -2258,7 +2259,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !remote.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...remote.outputs];
   }
   if (!dryRun) {
-    if (phase.id === 'convergence'
+    if (isConvergencePhase(phase)
         && phase.generationPolicy?.producer === 'deterministic'
         && artifactExistedBeforePreparation) {
       // The convergence kernel already rendered this artifact from its sealed projection. A
@@ -3253,7 +3254,7 @@ export async function publishGeneration(root, config, workflow, {
   // Convergence is a kernel-owned projection regardless of which legacy/mixed producer label an
   // upgraded workflow carried. Never let an alternate or omitted producer bypass exact review,
   // source, fact, and artifact validation.
-  const deterministicConvergence = phase.id === 'convergence';
+  const deterministicConvergence = isConvergencePhase(phase);
   if (deterministicConvergence) {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   }
@@ -4650,7 +4651,7 @@ async function submitPhaseTransition(root, config, workflow, {
   // Keep this guard in the domain transition as well as the CLI. Alternate hosts and future
   // command services therefore cannot advance convergence by calling `submitPhase` directly. It
   // precedes even soft sequence reconciliation, pruning, or any other in-memory mutation.
-  if (requestedPhase?.id === 'convergence') {
+  if (isConvergencePhase(requestedPhase)) {
     if (submissionContext !== CONFIRMED_CONVERGENCE_SUBMISSION) {
       throw convergenceAdvanceRequired(workflow, { phase: requestedPhase.id });
     }
@@ -5056,11 +5057,11 @@ async function submitPhaseTransition(root, config, workflow, {
     }
   }
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  if (phase.id === 'convergence') {
+  if (isConvergencePhase(phase)) {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   }
   const errors = await validatePhase(root, config, workflow, phase, {
-    placeholders: phase.id !== 'convergence',
+    placeholders: !isConvergencePhase(phase),
     content: true
   });
   const validation = qualityValidationVerdict(phase.checks);
@@ -5329,14 +5330,14 @@ export async function submitPhase(root, config, workflow, options = {}) {
  * retain it and then feed it into generic submission.
  */
 export async function submitConfirmedConvergencePhase(root, config, workflow, {
-  confirmation, phaseId = 'convergence', runChecks = true, persist = true,
+  confirmation, phaseId = null, runChecks = true, persist = true,
   architectureCandidateSnapshot = null, actor = identity(root), agent = null
 } = {}) {
-  const phase = workflow.phases?.[phaseId] ?? null;
-  if (phase?.id !== 'convergence') throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
+  const phase = phaseId == null ? convergencePhaseOf(workflow) : workflow.phases?.[phaseId] ?? null;
+  if (!isConvergencePhase(phase)) throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
   await assertConvergenceConfirmation(root, config, workflow, phase, confirmation);
   return submitPhaseTransition(root, config, workflow, {
-    phaseId,
+    phaseId: phase.id,
     runChecks,
     persist,
     architectureCandidateSnapshot,
@@ -5376,7 +5377,7 @@ export async function approvePhase(root, config, workflow, {
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'be approved');
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
-  if (phase.id === 'convergence') {
+  if (isConvergencePhase(phase)) {
     await assertConvergencePublicationReady(root, config, workflow, phase);
   } else {
     // Submission binds exact hashes, but approval is a separate trust boundary and must also prove
@@ -7216,8 +7217,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const preservedEvidence = [];
   for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
     const phase = workflow.phases[workflow.phaseOrder[index]];
-    let directlyAffected = phase.id === 'convergence'
-      || (phase.id === 'implementation' && Number(proposal.radius?.totals?.affected ?? 0) > 0);
+    let directlyAffected = isConvergencePhase(phase)
+      || (phaseRequiresCodeDelivery(phase) && Number(proposal.radius?.totals?.affected ?? 0) > 0);
     for (const artifact of phase.artifacts ?? []) {
       let affected = evidencePaths.has(posix(artifact.path));
       if (!affected) {
@@ -9502,12 +9503,12 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
   } else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
   const active = currentPhase(workflow);
   if (strict && active && active.status === 'awaiting_approval') {
-    if (active.id === 'convergence') {
+    if (isConvergencePhase(active)) {
       try { await assertConvergencePublicationReady(root, config, workflow, active); }
       catch (error) { errors.push(`Convergence publication integrity: ${error.message}`); }
     }
     errors.push(...await validatePhase(root, config, workflow, active, {
-      placeholders: active.id !== 'convergence',
+      placeholders: !isConvergencePhase(active),
       content: true
     }));
   }

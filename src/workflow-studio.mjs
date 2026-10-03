@@ -10,6 +10,7 @@
  * the way a Configuration Center save validates one file, and only then are the changed files
  * written — in one review proposal, or in a local authority's working tree.
  */
+import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -219,7 +220,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
           authoringSkillSource: route.authoringSkillSource,
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
-          generatedByEngine: phase.id === 'convergence' || deterministicOnlyGeneration(phase),
+          generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
+          convergence: isConvergencePhase(phase),
           compiledSkill: compiledSkillStep(phase)
         };
       })
@@ -243,7 +245,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       id, label: phase.label ?? id, output: outputOf(phase),
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
-      generatedByEngine: id === 'convergence' || deterministicOnlyGeneration(phase),
+      generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
+      convergence: isConvergencePhase(phase),
       compiledSkill: compiledSkillStep(phase),
       views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
       template: phase.defaultTemplate ?? null, artifact: phase.artifact?.path ?? null,

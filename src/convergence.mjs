@@ -677,7 +677,7 @@ export function assertConvergenceIntegrity(record, {
   }
   if (currentFacts && canonicalJson(record.facts ?? []) !== canonicalJson(currentFacts)) {
     convergenceIntegrityFailure(
-      'Convergence facts no longer match the deterministic result for the current approved inputs. Run singularity-flow prepare convergence again before publishing, adjudicating, or advancing.',
+      'Convergence facts no longer match the deterministic result for the current approved inputs. Prepare the convergence step again before publishing, adjudicating, or advancing.',
       'CONVERGENCE_FACTS_STALE',
       {
         storedFactsSha256: recordSha256(record.facts ?? []),
@@ -852,7 +852,7 @@ export function assertConvergencePublishable(projection, authoredArtifactBody) {
     throw new SingularityFlowError(
       `Convergence iteration ${projection.iteration} has not completed human review. `
       + `Allowed next action${allowed.length === 1 ? ' is' : 's are'}: ${allowed.join(', ') || 'none'}. `
-      + 'Record the required adjudications or rework, then run singularity-flow prepare convergence again.',
+      + 'Record the required adjudications or rework, then prepare the convergence step again.',
       {
         code: 'CONVERGENCE_REVIEW_REQUIRED',
         details: {
@@ -869,7 +869,7 @@ export function assertConvergencePublishable(projection, authoredArtifactBody) {
   if (actual !== expected) {
     throw new SingularityFlowError(
       'The convergence artifact no longer matches the reviewed deterministic projection. '
-      + 'Run singularity-flow prepare convergence to restore the canonical artifact before publishing.',
+      + 'Prepare the convergence step again to restore the canonical artifact before publishing.',
       {
         code: 'CONVERGENCE_ARTIFACT_MISMATCH',
         details: {

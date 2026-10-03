@@ -71,7 +71,7 @@ test('publication guidance derives producer and channel from the phase contract'
   }, 'human', { source: '<FILE>', noModel: true }),
   'singularity-flow phase publish design --authored human --channel manual-import --from <FILE> --no-model');
   assert.throws(() => phasePublicationCommandForProducer({
-    id: 'convergence',
+    id: 'convergence', requiredArtifact: { kind: 'convergence-report' },
     generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }
   }, 'human'), /deterministic authorship only/);
   assert.throws(() => phasePublicationCommand({

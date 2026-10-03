@@ -1,4 +1,5 @@
 /** Deterministic structural scenarios only. No receipts, permissions or runtime effects are minted. */
+import { isConvergencePhase } from './phase-roles.mjs';
 import { recordSha256 } from './records.mjs';
 import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
@@ -157,7 +158,7 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
           || !Array.isArray(phase.inputs) || !Array.isArray(phase.qualityCommands ?? [])) {
         finding('WCA_SIMULATION_PHASE_INVALID', phase.id); continue;
       }
-      if (phase.id === 'convergence' && (phase.approval.mode !== 'required'
+      if (isConvergencePhase(phase) && (phase.approval.mode !== 'required'
           || phase.generation.requirement !== 'required' || phase.generation.defaultProducer !== 'deterministic'
           || !Array.isArray(phase.generation.allowedProducers) || phase.generation.allowedProducers.length !== 1
           || phase.generation.allowedProducers[0] !== 'deterministic')) finding('WCA_SIMULATION_CONVERGENCE_POLICY_INVALID', phase.id);
@@ -247,7 +248,7 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
       ], { generationRequirement: phase.generation.requirement, approvalMode: phase.approval.mode });
       happyEvents.push(event('publish-assumed-output', 'in_progress', 'published', 'hypothetical', 'state:publishGeneration'));
       state.generation = 1; happy.history.push({ phase: state.id, event: 'phase_generated', at: at(happyEvents.length) });
-      if (phase.id === 'convergence') {
+      if (isConvergencePhase(phase)) {
         scenario('convergence-human-advance', phase.id, 'direct-submit-refuses-exact-human-advance-required', 'expected-wait', [
           event('ordinary-submit-convergence', 'published', 'published', 'refused-human-advance-required', 'state:submitConfirmedConvergencePhase'),
           event('exact-human-advance-assumed', 'published', 'awaiting_approval', 'hypothetical-direct-human-confirmation', 'state:assertConvergenceConfirmation')

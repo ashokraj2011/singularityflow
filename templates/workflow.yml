@@ -1311,7 +1311,9 @@ phases:
   convergence:
     label: Convergence
     defaultTemplate: spec-driven/convergence.md
-    artifact: { path: artifacts/convergence/convergence.md, kind: verification-report, minimumBytes: 200 }
+    # The convergence-report kind is what makes a step convergence, whatever it is called: the
+    # engine generates it, and only explicit human advancement and approval pass it [E2G-001].
+    artifact: { path: artifacts/convergence/convergence.md, kind: convergence-report, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: analyze }
     worldModel: { views: [development], depth: quick }
     writeScope: artifact-only

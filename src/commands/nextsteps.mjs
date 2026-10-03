@@ -1,3 +1,4 @@
+import { isConvergencePhase } from '../phase-roles.mjs';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { branch, gitDir, repoRoot } from '../git.mjs';
@@ -68,7 +69,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
     ? session.agent
     : null;
   const activeAgent = activeSessionAgent ?? active?.defaultAgent ?? null;
-  const deterministicConvergence = active?.id === 'convergence'
+  const deterministicConvergence = isConvergencePhase(active)
     && effectivePhasePublicationProducer(active, {
       modelEnabled: modelMode.enabled
     }) === 'deterministic';

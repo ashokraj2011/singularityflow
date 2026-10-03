@@ -55,6 +55,7 @@ function story(current, statuses = {}) {
     requirement: 'required', defaultProducer: 'deterministic',
     allowedProducers: ['deterministic'], producer: 'deterministic'
   };
+  workflow.phases.convergence.requiredArtifact = { path: 'artifacts/convergence/convergence.md', kind: 'convergence-report' };
   return workflow;
 }
 

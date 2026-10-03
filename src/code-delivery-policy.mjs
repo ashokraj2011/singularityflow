@@ -1,6 +1,7 @@
 import { SingularityFlowError } from './util.mjs';
 import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { isConvergencePhase } from './phase-roles.mjs';
 import { WEL_EXACT_TEST_ADAPTERS } from './wel-adapters.mjs';
 import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 
@@ -275,7 +276,7 @@ export function compiledSkillStep(phase) {
  * configuration, so Workflow Studio shows the same fixed route a Story uses.
  */
 function deterministicConvergence(phase) {
-  if (phase?.id !== 'convergence') return false;
+  if (!isConvergencePhase(phase)) return false;
   if (phase.generationPolicy) return phaseUsesDeterministicGeneration(phase);
   return deterministicOnlyGeneration(phase);
 }

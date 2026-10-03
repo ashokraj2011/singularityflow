@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
@@ -93,7 +94,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let convergenceReview = null;
   let codeEvidenceRepair = null;
 
-  if (phase.id === 'convergence') {
+  if (isConvergencePhase(phase)) {
     try {
       await assertConvergencePublicationReady(root, config, workflow, phase);
     } catch (error) {

@@ -16,6 +16,7 @@
  * limit stops and asks instead of carrying on. Everything here is pure: it validates configuration
  * and computes outcomes. The lifecycle owner applies them, inside its own transaction.
  */
+import { isConvergencePhase } from './phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
@@ -297,8 +298,8 @@ export function normalizeDecisions(value, {
     if (afters.has(entry.after)) throw invalid(`${where}: phase '${entry.after}' already has a decision after it.`);
     afters.add(entry.after);
     const after = byId.get(entry.after);
-    if (after.id === 'convergence' || after.convergence != null) {
-      throw invalid(`${where} cannot follow convergence; convergence already ends in a person's disposition.`);
+    if (isConvergencePhase(after) || after.convergence != null) {
+      throw invalid(`${where} cannot follow convergence phase '${after.id}'; convergence already ends in a person's disposition.`);
     }
     if (!DECISION_KINDS.includes(entry.kind)) throw invalid(`${where}.kind must be branch, loop, or ask.`);
     const kind = entry.kind;

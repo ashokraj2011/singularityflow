@@ -1,3 +1,4 @@
+import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -123,7 +124,7 @@ export function workflowNextSteps(workflow, {
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
   const effectiveProducer = effectivePhasePublicationProducer(phase, { modelEnabled: modelMode.enabled });
-  const convergenceProjectionRequired = phase.id === 'convergence'
+  const convergenceProjectionRequired = isConvergencePhase(phase)
     && effectiveProducer === 'deterministic';
   if (needsGeneration && convergenceProjectionRequired) {
     immediate = immediate.map((entry) => entry.command === `singularity-flow prepare ${phase.id}`
@@ -176,7 +177,7 @@ export function workflowNextSteps(workflow, {
     return actions;
   }
   const noApproval = phase.approvalPolicy?.mode === 'none';
-  if (needsGeneration) actions.push(phase.id === 'convergence'
+  if (needsGeneration) actions.push(isConvergencePhase(phase)
     ? action(
         'then', '/sflow-submit', `singularity-flow story advance --work-id ${workId}`,
         'After deterministic publication, review every convergence disposition and explicitly confirm advancement before submission.'

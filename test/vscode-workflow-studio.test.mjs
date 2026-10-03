@@ -885,3 +885,43 @@ test('a new step carries its actions when it is created, and a copy keeps what t
   const edited = again.changeSetFrom(model, again.state().draft).changes.find((change) => change.op === 'phase.create' && change.id === copyId);
   assert.deepEqual(edited.afterStep, []);
 });
+
+test('a Jira target is set up in the form with an optional issue and a status per trigger, and the engine accepts it', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  assert.equal(model.choices.integrationKinds.find((kind) => kind.id === 'jira').available, true);
+  const page = loadedStudio(model);
+  const state = page.state();
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('jira');
+  Object.assign(view.form, { id: 'story-jira', issue: 'ops-12' });
+  assert.equal(page.saveTargetForm(), null);
+  assert.match(view.form.problem, /Jira key such as OPS-12/);
+  Object.assign(view.form, { issue: '', transitions: { submitted: 'In Review', approved: 'Done', rejected: '' }, problem: null });
+  assert.equal(page.saveTargetForm(), 'story-jira');
+  assert.deepEqual(state.draft.integrations['story-jira'], { kind: 'jira', transition: { submitted: 'In Review', approved: 'Done' } });
+
+  view.form = page.newTargetForm('jira');
+  Object.assign(view.form, { id: 'ops-log', issue: 'OPS-12', transitions: { submitted: 'Logged', approved: 'Logged', rejected: 'Logged' } });
+  page.saveTargetForm();
+  assert.deepEqual(state.draft.integrations['ops-log'], { kind: 'jira', issue: 'OPS-12', transition: 'Logged' }, 'one status for every trigger is written once');
+
+  const action = page.addStepAction('feature', 'intake');
+  page.setActionTarget(action, 'story-jira');
+  action.send = 'artifact';
+  const changeSet = page.changeSetFrom(model, state.draft);
+  assert.match(page.describe(changeSet.changes[0], state.draft), /^New target ops-log \(Jira\): issue OPS-12$/);
+  const plan = await planStudioChangeSet(root, changeSet, { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.integrations.targets['story-jira'], { kind: 'jira', transition: { submitted: 'In Review', approved: 'Done' } });
+  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'ops-log', on: ['approved'], target: 'story-jira', send: 'artifact' }]);
+
+  const after = await buildStudioModel(root);
+  const reload = loadedStudio(after);
+  reload.integrationsState().form = reload.editTargetForm('ops-log');
+  reload.saveTargetForm();
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'reopening a Jira target changes nothing');
+});

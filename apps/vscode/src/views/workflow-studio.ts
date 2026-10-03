@@ -39,6 +39,8 @@ export interface IntegrationSecretStore {
   status(names: readonly string[]): Promise<Record<string, IntegrationSecretSource>>;
   store(name: string, value: string): Promise<void>;
   clear(name: string): Promise<void>;
+  /** Whether Jira is connected for Singularity Flow on this machine: stored in VS Code, set in the environment, or not. */
+  jiraStatus(): Promise<IntegrationSecretSource>;
 }
 
 
@@ -105,6 +107,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.secretStatus': (message) => this.secretStatus((message as { names?: unknown }).names),
     'studio.storeSecret': (message) => this.storeSecret(stringField(message, 'name')),
     'studio.clearSecret': (message) => this.clearSecret(stringField(message, 'name')),
+    'studio.connectJira': () => this.connectJira(),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
       stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
   });
@@ -116,7 +119,14 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       : [];
     const store = this.actions.integrationSecrets;
     const status = store ? await store.status(names) : {};
-    this.post({ type: 'studio.secretStatus', status, canStore: Boolean(store) });
+    const jira = store ? await store.jiraStatus() : null;
+    this.post({ type: 'studio.secretStatus', status, jira, canStore: Boolean(store) });
+  }
+
+  /** Jira targets use the Jira connection VS Code keeps; connecting is VS Code's own flow. */
+  private async connectJira(): Promise<void> {
+    await vscode.commands.executeCommand('singularityFlow.connectJira');
+    await this.secretStatus([]);
   }
 
   /** The value is typed into VS Code's own password box, so it never passes through the page. */
@@ -162,7 +172,11 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       this.post({ type: 'studio.integrationTested', target, failed: 'Choose a published target, when it fires and what it sends.' });
       return;
     }
-    if (sendTest) {
+    // The kind comes from the model this host read, never from the page: a Jira "test" only signs in
+    // and reads the issue, so it needs no consent; every other test sends a request somewhere.
+    const targets = ((this.model as { integrations?: { targets?: Array<{ id?: string; kind?: string }> } } | null)?.integrations?.targets) ?? [];
+    const readOnly = targets.find((entry) => entry.id === target)?.kind === 'jira';
+    if (sendTest && !readOnly) {
       const confirmed = await vscode.window.showWarningMessage(`Send a test delivery to '${target}'?`, {
         modal: true,
         detail: 'One request marked as a test goes to the address the target names, signed or authenticated with its secret. Nothing in the repository changes.'

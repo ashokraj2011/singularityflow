@@ -14,12 +14,12 @@
  *
  * Nothing here can fail a lifecycle transition: every error becomes an outcome on a record.
  */
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
-import { open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
@@ -28,6 +28,7 @@ import { isPublicRemoteAddress } from './remote-fetch.mjs';
 import {
   actionsForTrigger, buildStepActionEvent, stepActionDeliveryKey, stepActionText, stepActionTriggers, summarizeArtifact
 } from './step-actions.mjs';
+import { STEP_ACTION_WRITERS } from './step-action-writers.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const STEP_ACTION_OUTBOX = 'action-outbox';
@@ -38,6 +39,8 @@ export const RETRY_BACKOFF_SECONDS = Object.freeze([30, 120, 600, 1800, 7200, 21
 export const INLINE_DELIVERY_BUDGET_MS = 15_000;
 const MAX_RESPONSE_BYTES = 16 * 1024;
 const MAX_ARTIFACT_READ_BYTES = 256 * 1024;
+/** The largest approved artifact an action sends as a file (Jira attachment, Git commit, upload). */
+export const MAX_ARTIFACT_SEND_BYTES = 4 * 1024 * 1024;
 const LOCK_STALE_MS = 2 * 60 * 1000;
 const MAX_RECORDED_ATTEMPTS = 20;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
@@ -262,11 +265,19 @@ function nextAttemptAt(record, clock) {
 }
 
 /** Try one record now and write its outcome. Returns the updated record. */
-async function attemptRecord(directory, record, { env, clock, post, logger }) {
+async function attemptRecord(directory, record, { env, clock, post, logger, writers = STEP_ACTION_WRITERS, root = null }) {
   const at = nowIso(clock);
   let result;
   if (env?.SINGULARITY_FLOW_NO_NETWORK === '1' || env?.SINGULARITY_FLOW_NO_NETWORK === 'true') {
     result = { outcome: 'unavailable', code: 'STEP_ACTION_NETWORK_DISABLED', detail: 'SINGULARITY_FLOW_NO_NETWORK is set, so nothing is sent.' };
+  } else if (Object.hasOwn(writers, record.action?.targetSpec?.kind ?? '')) {
+    // Jira and the other writers talk to their service themselves; they check the delivery key
+    // there before writing, and never throw.
+    try {
+      result = await writers[record.action.targetSpec.kind](record, { root, env, timeoutMs: (record.action.targetSpec.timeoutSeconds ?? 10) * 1000 });
+    } catch (error) {
+      result = { outcome: 'retry', code: 'STEP_ACTION_WRITER_FAILED', detail: boundedDetail(error?.message) };
+    }
   } else {
     const request = deliveryRequest(record, env, clock);
     if (request.unavailable) result = { outcome: 'unavailable', ...request.unavailable };
@@ -306,6 +317,32 @@ async function attemptRecord(directory, record, { env, clock, post, logger }) {
   return updated;
 }
 
+/**
+ * The approved artifact's bytes, for actions that send `artifact`: read once, when the transition
+ * commits, and kept only if they hash to what the step recorded. The record is sealed, so a
+ * delivery sends exactly the approved bytes, whatever the working tree holds by then.
+ */
+async function readArtifactForDelivery(root, workflow, phaseId) {
+  const artifact = (workflow.phases?.[phaseId]?.artifacts ?? []).find((entry) => typeof entry?.path === 'string'
+    && !path.isAbsolute(entry.path) && !entry.path.split(/[\\/]/).includes('..'));
+  if (!artifact) return { path: null, sha256: null, problem: 'This step recorded no artifact to send.' };
+  const described = { path: artifact.path, sha256: typeof artifact.sha256 === 'string' ? artifact.sha256 : null };
+  try {
+    const file = path.join(root, artifact.path);
+    const info = await lstat(file);
+    if (!info.isFile()) return { ...described, problem: `${artifact.path} is not a regular file, so it is not sent.` };
+    if (info.size > MAX_ARTIFACT_SEND_BYTES) return { ...described, problem: `${artifact.path} is larger than ${MAX_ARTIFACT_SEND_BYTES / (1024 * 1024)} MiB, so it is not sent.` };
+    const bytes = await readFile(file);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (described.sha256 && sha256 !== described.sha256) {
+      return { ...described, problem: `${artifact.path} no longer matches the hash the step recorded, so it is not sent.` };
+    }
+    return { ...described, sha256, mediaType: /\.md$/i.test(artifact.path) ? 'text/markdown' : 'application/octet-stream', base64: bytes.toString('base64') };
+  } catch {
+    return { ...described, problem: `${artifact.path} could not be read on this machine.` };
+  }
+}
+
 async function readArtifactSummary(root, workflow, phaseId) {
   const artifact = (workflow.phases?.[phaseId]?.artifacts ?? []).find((entry) => typeof entry?.path === 'string'
     && !path.isAbsolute(entry.path) && !entry.path.split(/[\\/]/).includes('..'));
@@ -338,6 +375,7 @@ export async function enqueueStepActions(root, workflow, {
     ? { returnedTo: event.payload?.targetPhaseId ?? null, changeRequest: event.payload?.changeRequestId ?? null }
     : null;
   let summary;
+  let artifact;
   const written = [];
   for (const trigger of triggers) {
     for (const action of actionsForTrigger(resolved, trigger)) {
@@ -349,12 +387,14 @@ export async function enqueueStepActions(root, workflow, {
         summary ??= await readArtifactSummary(root, workflow, phaseId);
         payload.summary = summary ?? { title: null, acceptanceCriteria: [] };
       }
+      if (action.send === 'artifact') artifact ??= await readArtifactForDelivery(root, workflow, phaseId);
       const at = nowIso(clock);
       const record = {
         schema: STEP_ACTION_RECORD_SCHEMA, key, workId: workflow.workItem.id, phaseId, generation, trigger,
         action: structuredClone(action), event: payload, commit: commit ?? null,
         status: published ? 'pending' : 'waiting', createdAt: at, updatedAt: at, nextAttemptAt: published ? at : null,
-        deliveredAt: null, attempts: []
+        deliveredAt: null, attempts: [],
+        ...(action.send === 'artifact' ? { artifact } : {})
       };
       await writeRecord(directory, record);
       written.push(record);
@@ -384,7 +424,7 @@ export async function releaseWaitingStepActions(root, { workId, clock = Date.now
  */
 export async function deliverStepActions(root, {
   keys = null, includeFailed = false, budgetMs = INLINE_DELIVERY_BUDGET_MS, env = process.env, clock = Date.now,
-  post = postDelivery, logger = null, concurrency = 4
+  post = postDelivery, logger = null, concurrency = 4, writers = STEP_ACTION_WRITERS
 } = {}) {
   const directory = outboxPath(root);
   const started = clock();
@@ -406,7 +446,7 @@ export async function deliverStepActions(root, {
     while (index < due.length) {
       if (clock() - started > budgetMs) return;
       const record = due[index++];
-      const outcome = await withRecordLock(directory, record.key, clock, () => attemptRecord(directory, record, { env, clock, post, logger }));
+      const outcome = await withRecordLock(directory, record.key, clock, () => attemptRecord(directory, record, { env, clock, post, logger, writers, root }));
       if (outcome?.skipped) { report.skipped.push({ key: record.key, reason: outcome.skipped }); continue; }
       const last = outcome.attempts.at(-1);
       const entry = { key: record.key, action: record.action.id, target: record.action.target, trigger: record.trigger,

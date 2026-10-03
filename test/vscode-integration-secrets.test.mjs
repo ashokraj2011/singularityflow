@@ -94,7 +94,10 @@ test('the Studio host never shows a secret to the page and asks before it stores
   assert.doesNotMatch(host, /type: 'studio\.secret[A-Za-z]*', [^}]*value/, 'no message to the page carries a value');
   assert.match(host, /Remove \$\{name\} from this machine's keychain\?[\s\S]{0,200}'Remove'\);[\s\S]{0,40}if \(confirmed !== 'Remove'\) return;/);
   // A test delivery is sent only after the person confirms, through the engine.
-  assert.match(host, /if \(sendTest\) \{[\s\S]{0,400}'Send test'\);[\s\S]{0,40}if \(confirmed !== 'Send test'\)/);
+  assert.match(host, /if \(sendTest && !readOnly\) \{[\s\S]{0,400}'Send test'\);[\s\S]{0,40}if \(confirmed !== 'Send test'\)/);
+  // Only a Jira check skips that consent, and the host decides it from the model it read, not from the page.
+  assert.match(host, /const readOnly = targets\.find\(\(entry\) => entry\.id === target\)\?\.kind === 'jira';/);
+  assert.match(host, /const targets = \(\(this\.model as/);
   assert.match(host, /this\.client\.run<\{ data\?: Record<string, unknown> \}>\(\[\s*'integrations', 'test', target, '--trigger', trigger, '--send', send, \.\.\.\(sendTest \? \['--send-test'\] : \[\]\), '--json'\s*\]\)/);
   // Names are checked against the engine's rule before anything is asked of the keychain.
   assert.match(host, /INTEGRATION_SECRET_NAME\.test\(name\)/);

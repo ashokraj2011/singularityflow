@@ -24,13 +24,20 @@ function uniqueMessages(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
 }
 
-function credentialSnapshot(env) {
+/**
+ * The variables the Jira client reads, with the same alternatives it accepts: a username or an
+ * email, and a PAT or an API token. VS Code passes JIRA_USERNAME and JIRA_PAT, so asking for
+ * JIRA_EMAIL and JIRA_API_TOKEN reported a working connection as missing credentials.
+ */
+export function jiraCredentialSnapshot(env) {
   const deployment = String(env.JIRA_DEPLOYMENT ?? 'cloud').trim().toLowerCase();
   const dataCenter = deployment === 'data-center';
-  const required = dataCenter
-    ? ['JIRA_BASE_URL', 'JIRA_PAT']
-    : ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN'];
-  const present = Object.fromEntries(required.map((name) => [name, Boolean(String(env[name] ?? '').trim())]));
+  const requirements = dataCenter
+    ? [['JIRA_BASE_URL'], ['JIRA_PAT', 'JIRA_API_TOKEN']]
+    : [['JIRA_BASE_URL'], ['JIRA_USERNAME', 'JIRA_EMAIL'], ['JIRA_PAT', 'JIRA_API_TOKEN']];
+  const set = (name) => Boolean(String(env[name] ?? '').trim());
+  const required = requirements.map((names) => names.join(' or '));
+  const present = Object.fromEntries(requirements.map((names) => [names.join(' or '), names.some(set)]));
   return {
     deployment: dataCenter ? 'data-center' : 'cloud',
     source: 'process-environment',
@@ -98,7 +105,7 @@ function permissionSummary(permissions) {
 
 export async function jiraDoctor(root, { env = process.env } = {}) {
   const [workspace, policy] = await Promise.all([workspaceSnapshot(env), policySnapshot(root)]);
-  const credentials = credentialSnapshot(env);
+  const credentials = jiraCredentialSnapshot(env);
   const result = {
     ok: false,
     checkedAt: new Date().toISOString(),

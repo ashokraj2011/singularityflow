@@ -12,9 +12,9 @@ related:
   - activity-and-prompt-audit
 commands:
   - integrations
-version: 3
+version: 4
 ---
-A workflow step can send an event to another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, or a Microsoft Teams channel. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
+A workflow step can tell another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, a Microsoft Teams channel, or the Story's Jira issue. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
 
 ## Purpose and prerequisites
 
@@ -35,6 +35,11 @@ integrations:
     team-channel:
       kind: teams
       urlSecret: SFLOW_SECRET_TEAMS_URL
+    story-jira:
+      kind: jira                  # the issue each Story was started from, unless issue: OPS-12 names one
+      transition:                 # optional: one status for every trigger, or one per trigger
+        submitted: In Review
+        approved: Done
 phases:
   requirements:
     afterStep:
@@ -44,11 +49,11 @@ phases:
         send: event                # or summary: adds the artifact's title and acceptance criteria
 ```
 
-A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<step>.afterStep`. Addresses must use `https://` (plain `http://` only to this machine) and carry no credentials; a target that is an internal service declares `network: private`. Jira, Git, Confluence and OneDrive targets are refused until this build can deliver to them.
+A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<step>.afterStep`. Addresses must use `https://` (plain `http://` only to this machine) and carry no credentials; a target that is an internal service declares `network: private`. A Jira target uses the Jira connection of the machine that delivers (in VS Code, **Singularity Flow: Connect Jira Securely**; otherwise `JIRA_BASE_URL` with `JIRA_USERNAME` and `JIRA_PAT`), so it names no address or secret. It comments on the issue (`send: summary` adds the title and acceptance criteria), attaches the approved artifact when an action sends `artifact`, and then moves the issue to the status the target names for that trigger. When the repository's portfolio turns its Jira policy on, its allowed hosts and projects decide which issues a delivery may write to. Git, Confluence and OneDrive targets are refused until this build can deliver to them.
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test.
+- **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test; for a Jira target it shows the comment, attachment and status change instead, and `--send-test` only checks that this machine can sign in and see the issue.
 - **Copilot:** `/sf-integrations` explains delivery status, checks a target's request, and retries deliveries after asking. It never asks for a secret value.
 - **VS Code:** in Workflow Studio, **Integrations** adds, changes and removes targets, shows whether each secret is set on this machine, stores a secret in the keychain (**Store**), and, for a published target, previews the exact request or sends a test after you confirm. On the board, **Actions after this step** chooses what a step sends, to which target and when; the card shows it in its THEN lane. Actions belong to the workflow, like sign-off: on a step several workflows share, the others keep their own. For a Story, **Journey** lists what it pinned and every delivery on this machine with its last result, and retries one or all of them; after a step moves, a delivery that did not go out raises one notification with **Show deliveries** and **Retry now**.
 
@@ -62,9 +67,9 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 
 ## State and safety
 
-Every action sends one JSON event (`sflow-step-action@1`): the Story id and title, the step and its generation, the trigger, who acted and when, the commit that records it, and each artifact's repository path and SHA-256. It never carries source code, diffs, prompts, secrets or paths on someone's machine. Webhook requests carry `Idempotency-Key`, `X-SFlow-Trigger`, and, with a signing secret, `X-SFlow-Timestamp` and `X-SFlow-Signature: v1=<HMAC-SHA256 of "<timestamp>.<body>">`. Triggers follow the step's state: a submit that approved itself sends `approved`, and an approval below the step's threshold sends nothing.
+Every action sends one JSON event (`sflow-step-action@1`): the Story id and title, the step and its generation, the trigger, who acted and when, the commit that records it, and each artifact's repository path and SHA-256. It never carries source code, diffs, prompts, secrets or paths on someone's machine; the Story's Jira issue key is included when it was started from Jira. An action that sends `artifact` also seals the approved artifact's bytes, checked against the hash the step recorded, into its delivery when the step moves, so later edits never change what is sent. Webhook requests carry `Idempotency-Key`, `X-SFlow-Trigger`, and, with a signing secret, `X-SFlow-Timestamp` and `X-SFlow-Signature: v1=<HMAC-SHA256 of "<timestamp>.<body>">`. Triggers follow the step's state: a submit that approved itself sends `approved`, and an approval below the step's threshold sends nothing.
 
-Deliveries start after the governed commit is published; with publication `off` they start at once, and a commit that could not be pushed holds them until `singularity-flow sync` publishes it. Each delivery is written to this repository's action outbox on this machine and tried within the command's time budget. The same delivery is never sent twice. A delivery never changes governed state or undoes a transition, and the outbox and activity log are machine-local, never governance evidence. `SINGULARITY_FLOW_NO_NETWORK=1` stops every delivery.
+Deliveries start after the governed commit is published; with publication `off` they start at once, and a commit that could not be pushed holds them until `singularity-flow sync` publishes it. Each delivery is written to this repository's action outbox on this machine and tried within the command's time budget. The same delivery is never sent twice: a Jira delivery records its key as an issue property and in its comment, and a retry finds either before it writes. A delivery never changes governed state or undoes a transition, and the outbox and activity log are machine-local, never governance evidence. `SINGULARITY_FLOW_NO_NETWORK=1` stops every delivery.
 
 ## Troubleshooting
 
@@ -72,6 +77,9 @@ Deliveries start after the governed commit is published; with publication `off` 
 - **HTTP 5xx, 429 or a timeout:** the delivery is retried with backoff by later transitions, `sync` or `integrations retry`; after eight attempts it waits for a person.
 - **HTTP 401, 403 or 404:** the target refused the request; fix its address or secret, then retry the delivery by its key.
 - **Resolved to a private address:** a public target never reaches an internal address; declare `network: private` on a target that is an internal service.
+- **Jira is not connected on this machine:** connect Jira (VS Code, or the `JIRA_*` variables) and retry; the delivery waits without spending an attempt.
+- **The Story was not started from a Jira issue:** give the target an `issue`, or start Stories from Jira.
+- **The issue cannot move to the status:** the workflow in Jira offers no such transition from where the issue is, or it asks for fields; move it in Jira, or change the target's `transition`.
 - **A record no longer matches its seal:** it was changed on disk and is never delivered; it appears as tampered in `integrations status`.
 
 ## Related topics

@@ -7690,7 +7690,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         integrationSecrets: {
           status: (names) => secureCredentials.integrationSecretStatus(names),
           store: async (name, value) => { await secureCredentials.saveIntegrationSecret(name, value); cliEnvironment = await resolvedCliEnvironment(); },
-          clear: async (name) => { await secureCredentials.resetIntegrationSecret(name); cliEnvironment = await resolvedCliEnvironment(); }
+          clear: async (name) => { await secureCredentials.resetIntegrationSecret(name); cliEnvironment = await resolvedCliEnvironment(); },
+          jiraStatus: async () => ((await secureCredentials.jiraStatus()).connected ? 'stored'
+            : String(process.env.JIRA_BASE_URL ?? '').trim() && String(process.env.JIRA_PAT ?? process.env.JIRA_API_TOKEN ?? '').trim() ? 'environment' : 'missing')
         }
       });
     },

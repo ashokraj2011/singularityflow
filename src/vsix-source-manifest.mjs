@@ -23,6 +23,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/gal-async-read.mjs',
   'src/step-actions.mjs',
   'src/step-action-delivery.mjs',
+  'src/step-action-writers.mjs',
   'src/commands/integrations.mjs',
   'src/revision/approved-runner-boundary.mjs',
   'src/revision/approved-runner-contract.mjs',

@@ -5,6 +5,8 @@
  *   status  deliveries in this repository's outbox: waiting, pending, failed (--all adds delivered)
  *   retry   deliver now: named delivery keys, or every pending and failed one with --all
  *   test    the exact request a target would receive; --send-test sends one marked as a test
+ *           (for a Jira target: the comment it would write; --send-test checks the connection and
+ *           the issue without writing anything)
  */
 import { repoRoot } from '../git.mjs';
 import { loadConfig } from '../state-stores.mjs';
@@ -16,9 +18,11 @@ import {
   deliverStepActions, deliveryRequest, listStepActionDeliveries, postDelivery
 } from '../step-action-delivery.mjs';
 import {
-  INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, buildStepActionEvent, normalizeIntegrations,
+  INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, buildStepActionEvent, jiraTransitionFor, normalizeIntegrations,
   stepActionDeliveryKey
 } from '../step-actions.mjs';
+import { jiraAttachmentName, jiraCommentText } from '../step-action-writers.mjs';
+import { getCurrentUser, jiraConnectionFromEnv, listIssueTransitions } from '../jira.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 const SECRET_HEADERS = new Set(['authorization', 'dd-api-key', 'x-sflow-signature']);
@@ -49,6 +53,22 @@ function configuredUse(config) {
     }
   }
   return { targets: Object.values(integrations.targets), uses };
+}
+
+function jiraConnected(env) {
+  try { jiraConnectionFromEnv(env); return true; } catch { return false; }
+}
+
+/** Where a target delivers, in a few words. */
+function targetAddress(target) {
+  if (target.kind === 'jira') return target.issue ?? "each Story's Jira issue";
+  return target.url ?? `(address in ${target.urlSecret})`;
+}
+
+/** What a target needs on this machine: its secrets, or for Jira the Jira connection. */
+function credentialSummary(target, env) {
+  if (target.kind === 'jira') return jiraConnected(env) ? 'Jira connection' : 'Jira connection (not connected here)';
+  return secretStatus(target, env).map((entry) => `${entry.name}${entry.set ? '' : ' (not set here)'}`).join(', ') || '—';
 }
 
 function secretStatus(target, env) {
@@ -84,8 +104,7 @@ async function listCommand(root, config, options, operation, json) {
   if (!json) {
     if (!targets.length) console.log('No integration targets are configured. Add them under integrations.targets in singularity/workflow.yml, or in Workflow Studio.');
     else {
-      console.log(table(targets.map((target) => [target.id, target.kind, target.url ?? `(address in ${target.urlSecret})`,
-        secretStatus(target, env).map((entry) => `${entry.name}${entry.set ? '' : ' (not set here)'}`).join(', ') || '—']), ['TARGET', 'KIND', 'ADDRESS', 'SECRETS']));
+      console.log(table(targets.map((target) => [target.id, target.kind, targetAddress(target), credentialSummary(target, env)]), ['TARGET', 'KIND', 'ADDRESS', 'NEEDS']));
       if (uses.length) {
         console.log('');
         console.log(table(uses.map((use) => [use.workflow, use.step, use.action, use.on.join(','), use.target, use.send]), ['WORKFLOW', 'STEP', 'ACTION', 'ON', 'TARGET', 'SENDS']));
@@ -93,7 +112,7 @@ async function listCommand(root, config, options, operation, json) {
     }
   }
   return emitCommandResult(result(operation, succeeded('integrations.listed', { targets: targets.length, actions: uses.length, scope: 'repository' }), {
-    data: { targets: targets.map((target) => ({ ...target, secrets: secretStatus(target, env) })), uses }
+    data: { targets: targets.map((target) => ({ ...target, secrets: secretStatus(target, env), ...(target.kind === 'jira' ? { connection: { kind: 'jira', connected: jiraConnected(env) } } : {}) })), uses }
   }), { json });
 }
 
@@ -167,6 +186,7 @@ async function testCommand(root, config, positionals, options, operation, json) 
   event.test = true;
   if (send === 'summary') event.summary = { title: 'Example artifact title', acceptanceCriteria: ['Example acceptance criterion'] };
   const record = { key, trigger, action: actionEntry, event };
+  if (target.kind === 'jira') return jiraTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   const request = deliveryRequest(record, process.env);
   const preview = request.url ? { method: 'POST', url: request.url, headers: redactedHeaders(request.headers), body: JSON.parse(request.body) } : null;
   const sendIt = optionBoolean(options, 'send-test');
@@ -188,6 +208,60 @@ async function testCommand(root, config, positionals, options, operation, json) 
   return emitCommandResult(result(operation, succeeded('integrations.tested', {
     target: target.id, sent: Boolean(delivery), outcome: delivery?.outcome ?? (request.url ? 'previewed' : 'unavailable'), status: delivery?.status ?? null
   }), { data: { target: target.id, request: preview, unavailable: request.unavailable ?? null, failed: request.failed ?? null, delivery } }), { json });
+}
+
+/**
+ * A Jira target's test: the comment, attachment and transition a delivery would make, and with
+ * --send-test a check that this machine can sign in and see the issue. It never writes to Jira.
+ */
+async function jiraTest(target, record, { operation, json, sendIt }) {
+  if (record.action.send === 'artifact') record.artifact = { path: 'artifacts/example-step/example-step.md', sha256: null, mediaType: 'text/markdown', base64: Buffer.from('# Example artifact\n').toString('base64') };
+  const transition = jiraTransitionFor(target, record.trigger);
+  const plan = {
+    issue: target.issue ?? null,
+    comment: jiraCommentText(record),
+    attachment: record.action.send === 'artifact' ? jiraAttachmentName(record) : null,
+    transition
+  };
+  const checks = [];
+  if (sendIt) {
+    let connection = null;
+    try { connection = jiraConnectionFromEnv(process.env); }
+    catch (error) { checks.push({ check: 'Jira connection on this machine', ok: false, detail: error.message }); }
+    if (connection) {
+      const options = { connection, maxRetries: 0, requestTimeoutMs: (target.timeoutSeconds ?? 10) * 1000 };
+      try {
+        const user = await getCurrentUser(options);
+        checks.push({ check: 'Signed in to Jira', ok: true, detail: user?.displayName ?? user?.name ?? user?.accountId ?? connection.baseUrl });
+      } catch (error) { checks.push({ check: 'Signed in to Jira', ok: false, detail: error.message }); }
+      if (target.issue) {
+        try {
+          const transitions = await listIssueTransitions(target.issue, options);
+          checks.push({ check: `Can see ${target.issue}`, ok: true, detail: null });
+          const wanted = typeof target.transition === 'string' ? [target.transition] : Object.values(target.transition ?? {});
+          for (const status of wanted) {
+            const found = transitions.some((item) => item.id === status || item.name?.toLowerCase() === status.toLowerCase() || item.to?.toLowerCase() === status.toLowerCase());
+            checks.push({ check: `Can move ${target.issue} to ${status} now`, ok: found, detail: found ? null : `Available now: ${transitions.map((item) => item.to ?? item.name).join(', ') || 'none'}` });
+          }
+        } catch (error) { checks.push({ check: `Can see ${target.issue}`, ok: false, detail: error.message }); }
+      }
+    }
+  }
+  if (!json) {
+    console.log(`Issue: ${plan.issue ?? "the issue each Story was started from"}`);
+    if (plan.attachment) console.log(`Attachment: ${plan.attachment}`);
+    if (plan.transition) console.log(`Then moves it to: ${plan.transition}`);
+    console.log('');
+    console.log(plan.comment);
+    if (checks.length) {
+      console.log('');
+      for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);
+    }
+  }
+  const ok = checks.every((entry) => entry.ok);
+  return emitCommandResult(result(operation, succeeded('integrations.tested', {
+    target: target.id, sent: false, outcome: checks.length ? (ok ? 'checked' : 'check-failed') : 'previewed', status: null
+  }), { data: { target: target.id, request: null, plan, checks, unavailable: null, failed: null, delivery: null } }), { json });
 }
 
 export async function run(_argv, { positionals, options, operation: given = null }) {

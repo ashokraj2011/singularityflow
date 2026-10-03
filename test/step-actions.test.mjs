@@ -174,7 +174,7 @@ test('the event carries what happened and where it is recorded, and nothing from
   });
   assert.equal(event.schema, 'sflow-step-action@1');
   assert.deepEqual(event.delivery, { key: 'sad_x', action: 'announce', target: 'team-events', trigger: 'approved', send: 'event' });
-  assert.deepEqual(event.story, { id: 'STORY-1', title: 'Checkout retry', workflow: 'feature', branch: 'STORY-1' });
+  assert.deepEqual(event.story, { id: 'STORY-1', title: 'Checkout retry', workflow: 'feature', branch: 'STORY-1', jiraKey: null }, 'a Story not started from Jira names no issue');
   assert.deepEqual(event.step, { id: 'requirements', label: 'Requirements', generation: 2, status: 'approved' });
   assert.deepEqual(event.artifacts.map((artifact) => artifact.path), ['singularity/work-items/STORY-1/artifacts/requirements.md'],
     'machine paths and paths outside the repository are never sent');

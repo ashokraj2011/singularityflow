@@ -324,15 +324,23 @@ export async function doctorSnapshot(root, {
     if (targets.length) {
       const { listStepActionDeliveries } = await import('./step-action-delivery.mjs');
       const failed = (await listStepActionDeliveries(root, { includeDelivered: false })).filter((entry) => entry.status === 'failed' || entry.status === 'tampered');
+      const { jiraConnectionFromEnv } = await import('./jira.mjs');
+      const jiraConnected = (() => { try { jiraConnectionFromEnv(process.env); return true; } catch { return false; } })();
       for (const target of targets) {
-        const missing = [target.signingSecret, target.tokenSecret, target.urlSecret].filter((name) => name && !String(process.env[name] ?? '').trim());
+        // A Jira target needs this machine's Jira connection rather than secrets of its own.
+        const missing = target.kind === 'jira'
+          ? (jiraConnected ? [] : ['the Jira connection'])
+          : [target.signingSecret, target.tokenSecret, target.urlSecret].filter((name) => name && !String(process.env[name] ?? '').trim());
         const stuck = failed.filter((entry) => entry.target === target.id).length;
+        const have = target.kind === 'jira' ? 'Jira connected' : 'secrets set';
         checks.push(check(
           `integration-${target.id}`,
           missing.length || stuck ? 'warn' : 'pass',
-          `Integration target ${target.id} (${target.kind}): ${missing.length ? `secret ${missing.join(', ')} is not set on this machine` : 'secrets set'}${stuck ? `; ${stuck} failed deliver${stuck === 1 ? 'y' : 'ies'}` : ''}.`,
+          `Integration target ${target.id} (${target.kind}): ${missing.length ? (target.kind === 'jira' ? 'Jira is not connected on this machine' : `secret ${missing.join(', ')} is not set on this machine`) : have}${stuck ? `; ${stuck} failed deliver${stuck === 1 ? 'y' : 'ies'}` : ''}.`,
           missing.length
-            ? `Set ${missing.join(', ')} in this machine's environment (VS Code passes the secrets it stores), then run singularity-flow integrations retry --all.`
+            ? (target.kind === 'jira'
+              ? 'Connect Jira in VS Code, or set JIRA_BASE_URL with JIRA_USERNAME and JIRA_PAT, then run singularity-flow integrations retry --all.'
+              : `Set ${missing.join(', ')} in this machine's environment (VS Code passes the secrets it stores), then run singularity-flow integrations retry --all.`)
             : stuck ? `Run singularity-flow integrations status, fix the target, then singularity-flow integrations retry --all.` : null
         ));
       }

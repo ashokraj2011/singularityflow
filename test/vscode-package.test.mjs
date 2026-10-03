@@ -238,6 +238,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'authoring-skills.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'step-actions.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'step-action-delivery.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'step-action-writers.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'commands', 'integrations.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'applicability.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'command.mjs'), '// fixture\n'),
@@ -332,6 +333,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/authoring-skills.mjs',
     'src/step-actions.mjs',
     'src/step-action-delivery.mjs',
+    'src/step-action-writers.mjs',
     'src/commands/integrations.mjs',
     ...['applicability', 'command', 'evaluate', 'gate-refusal', 'graph', 'labels', 'matrix', 'obligation-compiler', 'refusal-memory', 'responsibilities', 'terminal', 'vocabulary']
       .map((name) => `src/evidence/${name}.mjs`),

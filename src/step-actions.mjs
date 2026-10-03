@@ -48,7 +48,7 @@ export const INTEGRATION_TARGET_KINDS = Object.freeze({
   webhook: Object.freeze({ available: true, label: 'Webhook', sends: Object.freeze(['event', 'summary']) }),
   'http-log': Object.freeze({ available: true, label: 'Log service', sends: Object.freeze(['event', 'summary']) }),
   teams: Object.freeze({ available: true, label: 'Microsoft Teams', sends: Object.freeze(['event', 'summary']) }),
-  jira: Object.freeze({ available: false, label: 'Jira', sends: Object.freeze(['event', 'summary', 'artifact']) }),
+  jira: Object.freeze({ available: true, label: 'Jira', sends: Object.freeze(['event', 'summary', 'artifact']) }),
   git: Object.freeze({ available: false, label: 'Git', sends: Object.freeze(['artifact']) }),
   confluence: Object.freeze({ available: false, label: 'Confluence', sends: Object.freeze(['summary', 'artifact']) }),
   onedrive: Object.freeze({ available: false, label: 'OneDrive or SharePoint', sends: Object.freeze(['artifact']) })
@@ -61,8 +61,11 @@ const TOKEN_REQUIRED_FORMATS = new Set(['splunk-hec', 'datadog', 'elastic']);
 const TARGET_FIELDS = Object.freeze({
   webhook: Object.freeze(['url', 'signingSecret']),
   'http-log': Object.freeze(['url', 'format', 'tokenSecret', 'labels']),
-  teams: Object.freeze(['urlSecret'])
+  teams: Object.freeze(['urlSecret']),
+  jira: Object.freeze(['issue', 'transition'])
 });
+const JIRA_ISSUE_KEY = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
 const COMMON_TARGET_FIELDS = Object.freeze(['kind', 'label', 'network', 'timeoutSeconds']);
 
 function refuse(code, message, details = {}) {
@@ -125,6 +128,36 @@ function assertNoInlineSecrets(raw, label) {
   }
 }
 
+/** One status (or transition) for every trigger, or one per trigger: { submitted, approved, rejected }. */
+function normalizeJiraTransition(value, label) {
+  const one = (text, where) => {
+    if (typeof text !== 'string' || !text.trim() || text.length > 80 || CONTROL_CHARACTERS.test(text)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${where} must name a Jira status or transition of at most 80 characters.`, { location: label });
+    }
+    return text.trim();
+  };
+  if (typeof value === 'string') return one(value, `${label} transition`);
+  if (!plainObject(value) || !Object.keys(value).length) {
+    refuse('INTEGRATION_TARGET_INVALID', `${label} transition must be a status name, or one per trigger such as { approved: Done }.`, { location: label });
+  }
+  const byTrigger = {};
+  for (const trigger of Object.keys(value)) {
+    if (!STEP_ACTION_TRIGGERS.includes(trigger)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} transition names '${trigger}'; it accepts ${STEP_ACTION_TRIGGERS.join(', ')}.`, { location: label });
+    }
+  }
+  for (const trigger of STEP_ACTION_TRIGGERS) {
+    if (value[trigger] != null) byTrigger[trigger] = one(value[trigger], `${label} transition.${trigger}`);
+  }
+  return byTrigger;
+}
+
+/** The Jira status a target moves its issue to for one trigger, if any. */
+export function jiraTransitionFor(target, trigger) {
+  if (typeof target?.transition === 'string') return target.transition;
+  return target?.transition?.[trigger] ?? null;
+}
+
 function normalizeTarget(id, raw, label) {
   if (!plainObject(raw)) refuse('INTEGRATION_TARGET_INVALID', `${label} must be an object with a kind.`, { location: label });
   assertNoInlineSecrets(raw, label);
@@ -154,14 +187,22 @@ function normalizeTarget(id, raw, label) {
     }
     target.label = raw.label.trim();
   }
-  const network = raw.network ?? 'public';
-  if (!['public', 'private'].includes(network)) {
-    refuse('INTEGRATION_TARGET_INVALID', `${label} network must be public or private.`, { location: label });
+  if (kind === 'jira') {
+    // Jira is reached through this machine's Jira connection (JIRA_BASE_URL), never an address the
+    // configuration chooses, so the address rules do not apply to it.
+    if (raw.network != null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is a Jira target: it uses the Jira connection on the delivering machine, so network does not apply.`, { location: label });
+    }
+  } else {
+    const network = raw.network ?? 'public';
+    if (!['public', 'private'].includes(network)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} network must be public or private.`, { location: label });
+    }
+    if (kind === 'teams' && network !== 'public') {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is a Teams webhook, which is always a public address.`, { location: label });
+    }
+    target.network = network;
   }
-  if (kind === 'teams' && network !== 'public') {
-    refuse('INTEGRATION_TARGET_INVALID', `${label} is a Teams webhook, which is always a public address.`, { location: label });
-  }
-  target.network = network;
   const timeout = raw.timeoutSeconds ?? DEFAULT_TARGET_TIMEOUT_SECONDS;
   if (!Number.isInteger(timeout) || timeout < 1 || timeout > MAX_TARGET_TIMEOUT_SECONDS) {
     refuse('INTEGRATION_TARGET_INVALID', `${label} timeoutSeconds must be a whole number from 1 to ${MAX_TARGET_TIMEOUT_SECONDS}.`, { location: label });
@@ -200,6 +241,14 @@ function normalizeTarget(id, raw, label) {
         { location: label });
     }
     target.urlSecret = assertSecretName(raw.urlSecret, `${label} urlSecret`);
+  } else if (kind === 'jira') {
+    if (raw.issue != null) {
+      if (typeof raw.issue !== 'string' || !JIRA_ISSUE_KEY.test(raw.issue)) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} issue must be a Jira issue key such as OPS-12. Leave it out to write to the issue each Story was started from.`, { location: label });
+      }
+      target.issue = raw.issue;
+    }
+    if (raw.transition != null) target.transition = normalizeJiraTransition(raw.transition, label);
   }
   return target;
 }
@@ -344,7 +393,8 @@ export function buildStepActionEvent({
       id: workflow?.workItem?.id ?? null,
       title: workflow?.workItem?.title ?? null,
       workflow: workflow?.resolution?.workType ?? workflow?.workType ?? null,
-      branch: workflow?.workItem?.branch ?? event.subject?.branch ?? null
+      branch: workflow?.workItem?.branch ?? event.subject?.branch ?? null,
+      jiraKey: typeof workflow?.lineage?.currentJiraKey === 'string' ? workflow.lineage.currentJiraKey : null
     },
     step: {
       id: phaseId,

@@ -238,6 +238,8 @@ const STUDIO_STYLE = `
 .secret-state.stored,.secret-state.environment{border-color:var(--sf-ok)}
 .secret-state.missing{border-color:var(--sf-wait)}
 .test-box{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--sf-border-color);padding-top:8px}
+.test-box .checks{margin:0;padding-left:0;list-style:none;font-size:12px}
+.bad-text{color:var(--sf-bad)}
 .test-box select{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
 .decision-box{border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;margin:0;display:flex;flex-direction:column;gap:6px}
 .decision-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -499,7 +501,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'import.generated': return agentName(change.agent) + ' fetches ' + change.target + ' for ' + phaseName(change.phase);
       case 'import.mcpServer': return (change.replace ? 'Update MCP server' : 'MCP server') + ' from ' + change.source + (change.agents && change.agents.length ? ' for ' + change.agents.map(agentName).join(', ') : ', for imports only');
       case 'import.remove': return 'Remove ' + change.key;
-      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : '');
+      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : change.target.issue ? ': issue ' + change.target.issue : change.target.kind === 'jira' ? ': each Story issue' : '');
       case 'integration.target.update': return 'Target ' + change.id + ' changed';
       case 'integration.target.remove': return 'Remove target ' + change.id;
       case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
@@ -724,7 +726,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
     // A target some step sends to, whose secret this machine does not have: its deliveries would wait.
     var secretsHere = integrationsState().secrets;
-    var missingSecrets = targetIds().filter(function (id) { return targetUsers(id).length && targetSecrets(state.draft.integrations[id]).some(function (name) { return secretsHere[name] === 'missing'; }); }).length;
+    var jiraHere = integrationsState().jira;
+    var missingSecrets = targetIds().filter(function (id) {
+      var target = state.draft.integrations[id];
+      if (!targetUsers(id).length) return false;
+      return target.kind === 'jira' ? jiraHere === 'missing' : targetSecrets(target).some(function (name) { return secretsHere[name] === 'missing'; });
+    }).length;
     // On the canvas the navigation folds to icons, so the workflow gets the width.
     var compact = state.view === 'board';
     function item(view, label, iconName, count, attention) {
@@ -2158,7 +2165,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   var SEND_WORDS = { event: 'the event', summary: 'a summary', artifact: 'the document' };
   var SEND_LABELS = { event: 'The event', summary: 'A summary with the acceptance criteria', artifact: 'The document' };
   var SECRET_WORDS = { stored: 'Stored on this machine', environment: 'Set in the environment', missing: 'Not set on this machine' };
-  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on or move an issue', git: 'Commit the document to a repository', confluence: 'Publish a page', onedrive: 'Upload the document' };
+  var JIRA_WORDS = { stored: 'Connected in VS Code', environment: 'Connected through the environment', missing: 'Not connected on this machine' };
+  var JIRA_ISSUE = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;
+  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the document to a repository', confluence: 'Publish a page', onedrive: 'Upload the document' };
   var FORMAT_LABELS = { json: 'Any JSON endpoint', 'splunk-hec': 'Splunk HTTP Event Collector', datadog: 'Datadog logs', elastic: 'Elasticsearch', loki: 'Grafana Loki' };
 
   /** JSON with object keys sorted, so equal targets compare equal however their fields were set. */
@@ -2174,7 +2183,17 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function targetIds() { return Object.keys((state.draft && state.draft.integrations) || {}).sort(); }
   function publishedTargets() { return (state.model && state.model.integrations && state.model.integrations.targets) || []; }
   function targetSecrets(target) { return [target.signingSecret, target.tokenSecret, target.urlSecret].filter(Boolean); }
-  function targetAddress(target) { return target.url ? target.url : target.urlSecret ? 'Address kept in ' + target.urlSecret : ''; }
+  function targetAddress(target) {
+    if (target.kind === 'jira') return target.issue ? 'Issue ' + target.issue : 'The Jira issue each Story was started from';
+    return target.url ? target.url : target.urlSecret ? 'Address kept in ' + target.urlSecret : '';
+  }
+  /** A Jira status per trigger, as the form shows it; one status for every trigger fills all three. */
+  function jiraTransitionFields(transition) {
+    var fields = { submitted: '', approved: '', rejected: '' };
+    if (typeof transition === 'string') { fields.submitted = transition; fields.approved = transition; fields.rejected = transition; }
+    else if (transition) Object.keys(fields).forEach(function (trigger) { fields[trigger] = transition[trigger] || ''; });
+    return fields;
+  }
   /** A target the configuration has exactly as the draft has it, so the engine can test it now. */
   function targetPublished(id) {
     var published = publishedTargets().find(function (target) { return target.id === id; });
@@ -2272,20 +2291,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function askSecretStatus(names) {
     var view = integrationsState();
     var unknown = names.filter(function (name, index) { return SECRET_NAME.test(name) && !view.asked[name] && names.indexOf(name) === index; });
-    if (!unknown.length) return;
+    var jira = !view.askedJira && targetIds().some(function (id) { return state.draft.integrations[id].kind === 'jira'; });
+    if (jira) view.askedJira = true;
+    if (!unknown.length && !jira) return;
     unknown.forEach(function (name) { view.asked[name] = true; });
     post({ type: 'studio.secretStatus', names: unknown });
   }
 
   function newTargetForm(kind) {
-    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', problem: null };
+    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), problem: null };
   }
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
     return { mode: 'edit', id: id, label: target.label || '', kind: target.kind, url: target.url || '', format: target.format || 'json',
       signingSecret: target.signingSecret || '', tokenSecret: target.tokenSecret || '', urlSecret: target.urlSecret || '',
       labels: Object.keys(target.labels || {}).map(function (key) { return key + '=' + target.labels[key]; }).join('\n'),
-      network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '', problem: null };
+      network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '',
+      issue: target.issue || '', transitions: jiraTransitionFields(target.transition), problem: null };
   }
   /** A secret name made from the target's ID, such as SFLOW_SECRET_TEAM_EVENTS_KEY. */
   function suggestedSecret(id, suffix) {
@@ -2344,6 +2366,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else if (form.kind === 'teams') {
       problem = secret('urlSecret', 'The name of the secret holding the webhook address', true);
       if (problem) return { problem: problem };
+    } else if (form.kind === 'jira') {
+      var issue = String(form.issue || '').trim();
+      if (issue) {
+        if (!JIRA_ISSUE.test(issue)) return { problem: 'The issue must be a Jira key such as OPS-12, or empty to use each Story issue.' };
+        target.issue = issue;
+      }
+      var moves = {}; var bad = null;
+      ['submitted', 'approved', 'rejected'].forEach(function (trigger) {
+        var status = String((form.transitions || {})[trigger] || '').trim();
+        if (!status) return;
+        if (status.length > 80 || /[\u0000-\u001F\u007F]/.test(status)) bad = 'A Jira status has at most 80 characters.'; else moves[trigger] = status;
+      });
+      if (bad) return { problem: bad };
+      var used = Object.keys(moves);
+      // The same status for every trigger is written once.
+      if (used.length === 3 && moves.submitted === moves.approved && moves.approved === moves.rejected) target.transition = moves.approved;
+      else if (used.length) target.transition = moves;
     } else {
       return { problem: kindOf(form.kind).label + ' targets are not available in this version yet.' };
     }
@@ -2390,6 +2429,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         view.canStore && source === 'stored' ? button('Remove', function () { post({ type: 'studio.clearSecret', name: name }); }, { class: 'secondary', 'aria-label': 'Remove ' + name + ' from this machine' }) : null));
   }
 
+  /** Whether this machine has the Jira connection Jira targets use, and a way to connect it. */
+  function jiraRow() {
+    var view = integrationsState();
+    var source = view.jira;
+    return el('div', { class: 'secret-row' },
+      el('span', { text: 'Jira connection' }),
+      el('span', { class: 'secret-state ' + (source || 'unknown'), text: source ? JIRA_WORDS[source] || source : 'Checking…' }),
+      view.canStore ? button(source === 'stored' ? 'Reconnect' : 'Connect Jira', function () { post({ type: 'studio.connectJira' }); }, { class: 'secondary' }) : el('span'));
+  }
+
   function testPanel(id, target) {
     var view = integrationsState();
     var sends = kindOf(target.kind).sends;
@@ -2408,12 +2457,17 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         select('test-send-' + id, sends.map(function (send) { return { value: send, label: SEND_LABELS[send] || send }; }), test.send,
           function (value) { test.send = value; test.result = null; render(); }, { 'aria-label': 'What, for the preview' }),
         button(test.busy === 'preview' ? 'Building…' : 'Preview the request', function () { run(false); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-preview-' + id }),
-        button(test.busy === 'send' ? 'Sending…' : 'Send a test', function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
+        button(test.busy === 'send' ? (target.kind === 'jira' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
       test.failed ? el('div', { class: 'callout bad', role: 'alert', text: test.failed }) : null,
       result && result.unavailable ? el('div', { class: 'callout wait', text: 'Not ready on this machine: ' + (result.unavailable.detail || 'a secret it needs is not set.') }) : null,
       result && result.failed ? el('div', { class: 'callout bad', text: result.failed.detail || 'The request cannot be built.' }) : null,
       delivery ? el('div', { class: 'callout ' + (delivery.outcome === 'delivered' ? 'ok' : 'bad'), role: 'status',
         text: (delivery.outcome === 'delivered' ? 'Sent' : 'Not delivered') + (delivery.status ? ' (HTTP ' + delivery.status + ')' : '') + (delivery.detail ? ': ' + delivery.detail : '') + '.' }) : null,
+      result && result.plan ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
+        + (result.plan.attachment ? 'Attachment: ' + result.plan.attachment + '\n' : '') + (result.plan.transition ? 'Then moves it to: ' + result.plan.transition + '\n' : '') + '\n' + result.plan.comment) : null,
+      result && (result.checks || []).length ? el('ul', { class: 'checks' }, result.checks.map(function (entry) {
+        return el('li', { class: entry.ok ? 'ok-text' : 'bad-text' }, (entry.ok ? '✓ ' : '✗ ') + entry.check + (entry.detail ? ': ' + entry.detail : ''));
+      })) : null,
       request ? el('pre', { class: 'preview-text', 'aria-label': 'The request, secrets hidden' }, 'POST ' + request.url + '\n'
         + Object.keys(request.headers || {}).map(function (name) { return name + ': ' + request.headers[name]; }).join('\n') + '\n\n' + JSON.stringify(request.body, null, 2)) : null);
   }
@@ -2452,6 +2506,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
         function (value) { form.network = value; render(); }), form.network === 'private' ? 'Private addresses are allowed because you say so here, where reviewers see it.' : 'Private and internal addresses are refused unless you choose our private network.'));
+    } else if (form.kind === 'jira') {
+      card.appendChild(el('div', { class: 'callout', text: 'Jira targets use the Jira connection on the machine that moves the Story: in VS Code, Singularity Flow: Connect Jira Securely. They comment on the issue, attach the approved document when an action sends it, and can move the issue to a status.' }));
+      card.appendChild(field('target-issue', 'Issue (optional)', textInput('target-issue', form.issue, function (value) { form.issue = value.trim().toUpperCase(); }, { placeholder: 'OPS-12' }),
+        'Leave empty to write to the Jira issue each Story was started from.'));
+      card.appendChild(el('div', { class: 'grid-3' }, ['submitted', 'approved', 'rejected'].map(function (trigger) {
+        return field('target-move-' + trigger, 'Move when ' + trigger + ' (optional)', textInput('target-move-' + trigger, (form.transitions || {})[trigger] || '', function (value) { form.transitions[trigger] = value; },
+          { placeholder: trigger === 'submitted' ? 'In Review' : trigger === 'approved' ? 'Done' : 'In Progress' }));
+      })));
     } else if (form.kind === 'teams') {
       card.appendChild(field('target-url-secret', 'Secret holding the webhook address', textInput('target-url-secret', form.urlSecret, function (value) { form.urlSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'URL') }),
         'A Teams webhook address is itself a credential, so configuration names the secret that holds it.'));
@@ -2468,7 +2530,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var view = integrationsState();
     var ids = targetIds();
     main.appendChild(el('header', null, el('h1', { text: 'Integrations' }),
-      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service or a Teams channel. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
+      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service, a Teams channel or the Jira issue of the Story. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
     askSecretStatus(ids.reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
     if (view.form) main.appendChild(renderTargetForm(view.form));
     else main.appendChild(el('div', { class: 'studio-row' }, button('Add a target', function () { view.form = newTargetForm('webhook'); render(); }, { class: 'primary', 'data-key': 'target-add' })));
@@ -2491,8 +2553,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
               title: users.length ? 'Used by ' + users.length + (users.length === 1 ? ' action' : ' actions') + '; remove those first' : null }))),
         el('span', { class: 'muted', text: [targetAddress(target), target.format ? FORMAT_LABELS[target.format] || target.format : null, target.network === 'private' ? 'private network' : null].filter(Boolean).join(' · ') }),
         el('div', { class: 'muted', text: users.length ? 'Sent by ' + users.map(function (user) { return stepLabel(user.step) + ' in ' + state.draft.workflows[user.workflow].label + ' (' + user.action.on.join(', ') + ')'; }).join('; ') : 'No step sends to it yet.' }),
-        secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))
-          : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret: requests are sent unsigned.' : 'No token: entries are sent without one.' }),
+        target.kind === 'jira' ? jiraRow()
+          : secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))
+            : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret: requests are sent unsigned.' : 'No token: entries are sent without one.' }),
         testPanel(id, target)));
     });
     if (ids.length) main.appendChild(grid);
@@ -3103,6 +3166,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       var offered = library(); offered.busy = null; offered.mcp = message.result; offered.mcpForms = {}; render();
     } else if (message.type === 'studio.secretStatus') {
       var secretView = integrationsState(); secretView.canStore = message.canStore !== false;
+      if (message.jira) secretView.jira = message.jira;
       Object.keys(message.status || {}).forEach(function (name) { secretView.secrets[name] = message.status[name]; });
       render();
     } else if (message.type === 'studio.secretStored') {

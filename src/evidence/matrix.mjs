@@ -73,11 +73,14 @@ function verificationCell(row) {
   }
   if (verification.testDisposition === 'not-applicable') return 'tests n/a';
   if (verification.association === 'none') return 'no tagged test';
+  // Exact tests are named by their own result; a tagged file only by its module command's.
   const outcome = {
-    passed: 'module passed', failed: 'failed', unavailable: 'no result',
+    passed: verification.association === 'test-file-tag' ? 'module passed' : 'passed', failed: 'failed', unavailable: 'no result',
+    flaky: 'flaky', ambiguous: 'ambiguous', inconclusive: 'not exact', skipped: 'skipped', missing: 'not in the run',
     'passed-with-skips': `${verification.skippedTests} skipped`, 'not-run': 'not run yet'
   }[verification.execution] ?? verification.execution;
-  return `tag · ${outcome}`;
+  const kind = { 'exact-test': 'exact test', mixed: 'exact test + tag', 'test-file-tag': 'tag' }[verification.association] ?? verification.association;
+  return `${kind} · ${outcome}`;
 }
 
 function resultCell(row) {
@@ -126,7 +129,7 @@ export function matrixText({ evaluation, page }) {
   if (attention.length) lines.push('', 'Needs attention:', ...attention.map((entry) => `  - ${entry.message}`));
   const loadProblems = evaluation.findings.filter((entry) => entry.category === 'records');
   if (loadProblems.length) lines.push('', 'Evidence that could not be read:', ...loadProblems.map((entry) => `  - ${entry.message}`));
-  lines.push('', '"module-observed" means the test command covering a criterion\'s tagged test passed; no test-case result is joined to a criterion yet.');
+  lines.push('', "\"module-observed\" means the test command covering a criterion's tagged test file passed; \"exact-local-observed\" means the criterion's own test was found passing in the local run of the published candidate.");
   return lines.join('\n');
 }
 
@@ -145,7 +148,7 @@ export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
     `- Completion: **${evaluation.completion.label}**${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
     `- Lifecycle: ${evaluation.lifecycle.words}`,
     `- Rows: ${evaluation.summary.rows} — ${results}`,
-    `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; no test-case result is joined to a criterion yet`,
+    `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; ${evaluation.summary.testCaseResults}`,
     ...(evaluation.summary.scope ? [`- Scope: ${scopeLine(evaluation.summary.scope)}`] : []),
     ...(evaluation.summary.scopeRevision?.changes ? [`- Scope revision: ${evaluation.summary.scopeRevision.words}`] : [])
   ];

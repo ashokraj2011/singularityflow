@@ -1,6 +1,6 @@
 # ADR 0008 — WEL authority and two-plane storage
 
-- **Status:** Accepted for the observe-only pilot
+- **Status:** Accepted for the observe-only pilot; superseded by ADR 0016 where it keeps exact local observations non-gating
 - **Date:** 2026-09-05
 - **Scope:** Witnessed Engineering Loop (WEL) local observations and human mapping review
 

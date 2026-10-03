@@ -1,6 +1,6 @@
 # ADR 0015 — Exact local Jest and Vitest identity without loading Candidate modules
 
-- **Status:** Accepted for observe-only use
+- **Status:** Accepted for observe-only use; superseded by ADR 0016 (jest-static-v2 and vitest-static-v2 replace the v1 profiles)
 - **Date:** 2026-09-06
 - **Scope:** One Node module using the Jest or Vitest JSON reporter
 

@@ -11,6 +11,7 @@ questions:
   - Why is my Story not shown as complete?
 keywords:
   - module-observed
+  - exact-local-observed
   - assurance
   - per-criterion verification
 commands:
@@ -19,7 +20,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 12
+version: 13
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -39,7 +40,7 @@ Each row carries up to four obligations, identified by `OBL:<WORK-ID>:<responsib
 
 - **plan:** the approved plan lists the clause with its expected paths and planned tests.
 - **implement:** the code step's delivery changed the planned paths (or, for a test-only criterion, delivered its planned tests).
-- **verify** (acceptance criteria only): a delivered test file is tagged `@ac:<clause>`, and the test command that covered it passed. Requirements are verified through the criteria that depend on them.
+- **verify** (acceptance criteria only): the test an `@ac:<clause>` comment sits directly above passed in the run of the published candidate. Where the module's runner reports only counts, the test command covering the tagged file passed instead. Requirements are verified through the criteria that depend on them.
 - **review:** the step that delivered the change was approved under its approval rule; a self-approval is shown as such.
 
 Every obligation reports six facets separately: coverage, execution, assurance, review, freshness and exception. The row's result is the most serious state of its obligations: failed, inconclusive, missing, pending, satisfied with an exception, or satisfied.
@@ -53,6 +54,14 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
+
+### Exact tests and attempts
+
+A criterion is tied to a test by an `@ac:<clause>` comment on the line directly above the test's declaration. A tag anywhere else in the file binds nothing, and publishing refuses a criterion the step owes whose tags sit on no test. For Jest and Vitest (JSON reporters) and JUnit 5 (Maven Surefire or Gradle reports) the tagged test is read exactly: its file, its literal `describe` path or class, its title or method, and a digest of its whole body, so weakening its assertion is a new revision. A table-driven test (`.each`, `@ParameterizedTest`, `@RepeatedTest`) passes only when every instance it declares passed. Other runners only count tests, so their criteria rest on the module's test command.
+
+Every run of a test command is kept as an immutable attempt with its raw report, failed runs and retries included, and the criterion is judged against the attempt bound to the published candidate. An exact test reads, in this order: failed; no result (the run failed or ended without one); flaky (it passed only after failing in the same run); ambiguous (more than one result carries its identity); not exact (its declaration cannot be pinned down, for example a dynamic title or a duplicate); skipped; not in the run (filtered out, or in a file the runner did not run); passed. Only passed verifies, and only inside a run that completed and succeeded; an unrelated passing test in the same file never stands in for it.
+
+Assurance has two facets on each verify obligation: identity (`declared` for a tagged file, `source-bound` for one exact test) and execution (`none`, `module-observed` or `exact-local-observed`). Each criterion requires the strongest assurance its runner can reach, and never less than `module-observed`; a pass below that is an assurance shortfall, resolved by repairing the test configuration, tagging another test, or accepting the risk with the `assurance-shortfall` category. Exact-local-observed is a local observation of the candidate's own tests; nothing promotes it to authenticated.
 
 ### Accepting a risk
 
@@ -104,7 +113,7 @@ The matrix header, the pull request summary and `evidence scope` show both state
 
 ## State and safety
 
-Assurance is stated at its real strength. A passing test command over a criterion's tagged test is `module-observed`: no individual test-case result is joined to a criterion yet. A command that passed with skipped tests makes the criterion inconclusive, because which test was skipped is not known. A failed command fails the criterion unless a governed risk decision accepted it, and the failed observation stays visible beside the exception.
+Assurance is stated at its real strength. A criterion whose own test was found passing is `exact-local-observed`; one whose runner only counts tests is `module-observed`, and a command that passed with skipped tests leaves it inconclusive, because which test was skipped is not known. A failed test or command fails the criterion unless a governed risk decision accepted it, and the failed observation stays visible beside the exception. Submitting a code step warns about each criterion whose test did not pass; the Story cannot complete until it passes or its risk is accepted.
 
 The completion line never derives "complete" from where the Story stands. An in-progress or cancelled Story reads "Incomplete — verification pending or insufficient". A Story closes only when the final evaluation passes inside the transition that ends it; that evaluation is recorded on the Story, and while it still matches the evidence the line reads "Complete" or "Complete with accepted exceptions". A closed Story whose evidence changed afterwards reads "Incomplete — final verification not evaluated".
 
@@ -116,6 +125,10 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **A row is missing:** a finished step did not deliver it, for example no submitted test is tagged for the criterion.
 - **Every row is inconclusive:** a claim map or index no longer matches its binding in the Story; the matrix lists the record it could not trust.
 - **A row is inconclusive with skipped tests:** remove the skip or make the criterion's test run, then submit again.
+- **A criterion's test was skipped or is not in the run:** remove the skip, or make the runner select its file (a `*Spec` class or a file outside the runner's pattern never runs), then publish and submit again.
+- **A criterion's test is ambiguous, flaky or not exact:** give it a unique literal title or method, fix the flaky test, or move the tag to a test with a static identity.
+- **`EVIDENCE_TAG_NOT_ON_TEST`:** the tag is not on the line directly above a test; move it there.
+- **`EVIDENCE_ASSURANCE_SHORTFALL`:** the criterion passed below what its runner can reach or the Story requires; repair the test configuration, tag another test, or accept the risk with the `assurance-shortfall` category.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 - **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.
 - **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a scope revision changed this clause after its evidence was produced; run the step that owns the stale obligation again.

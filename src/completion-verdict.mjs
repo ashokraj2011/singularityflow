@@ -75,9 +75,11 @@ export function finalCheckRefusalMessage(workId, verdict) {
 export function printCompletionVerdict(verdict, { write = console.log, warn = console.warn } = {}) {
   if (verdict.verified) {
     write(verdict.label ? `Final governance check passed: ${verdict.label}.` : 'Final governance check passed.');
-    // The check proves the Story's records are consistent, not that each criterion was tested.
+    // The check proves the Story's records are consistent; the assurance says how each criterion was tested.
     if (verdict.assurance === 'module-observed') {
-      write('Assurance: acceptance criteria are linked to tests by tags and the module test commands passed; no test-case result is joined to a criterion yet.');
+      write('Assurance: at least module-observed — the test commands covering the acceptance criteria passed; the evidence matrix shows which criteria were joined to their own test result.');
+    } else if (verdict.assurance === 'exact-local-observed') {
+      write('Assurance: exact-local-observed — each acceptance criterion\'s own test was found passing in a local run; no run was independently attested.');
     }
     verdict.warnings.forEach((message) => warn(`  warning: ${message}`));
     return;

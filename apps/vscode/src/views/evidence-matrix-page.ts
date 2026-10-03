@@ -112,7 +112,7 @@ export function evidenceMatrixHtml(view: EvidenceView | null, selected: string |
     </div>
     <div class="evidence-layout">${table}${drawerHtml(current)}</div>
     ${unreadable}
-    <p class="muted">"module-observed" means the test command covering a criterion's tagged test passed; no test-case result is joined to a criterion yet.</p>`;
+    <p class="muted">"module-observed" means the test command covering a criterion's tagged test file passed; "exact-local-observed" means the criterion's own test was found passing in the local run of the published candidate.</p>`;
 }
 
 export const EVIDENCE_MATRIX_SCRIPT = `

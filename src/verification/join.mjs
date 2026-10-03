@@ -40,7 +40,8 @@ function candidateOccurrences(declaration, occurrences, language) {
     }
     return inClass.filter((occurrence) => occurrence.name === declaration.methodName || occurrence.name === `${declaration.methodName}()`);
   }
-  const inSuite = occurrences.filter((occurrence) => sameList(occurrence.ancestorTitles ?? [], declaration.suitePath));
+  // A persisted attempt names an occurrence's describe path `suitePath`; a fresh parse, `ancestorTitles`.
+  const inSuite = occurrences.filter((occurrence) => sameList(occurrence.suitePath ?? occurrence.ancestorTitles ?? [], declaration.suitePath));
   const named = declaration.parameters
     ? (() => {
       if (!declaration.parameters.titlePattern) return [];

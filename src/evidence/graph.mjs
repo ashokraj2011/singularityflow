@@ -31,6 +31,29 @@ async function readJsonAt(root, relative) {
   return JSON.parse(await readFile(path.join(root, relative), 'utf8'));
 }
 
+/** What the evaluator needs of one test attempt: how it ended and every occurrence it observed. */
+function attemptProjection(record) {
+  return {
+    attemptId: record.attemptId ?? null, purpose: record.purpose ?? null, status: record.status,
+    exitCode: record.exitCode ?? null, timedOut: record.timedOut === true, terminal: record.terminal !== false,
+    candidateTreeSha256: record.candidate?.treeSha256 ?? null, tests: record.tests ?? {},
+    occurrences: record.occurrences ?? []
+  };
+}
+
+/** Read one bound test attempt, or report it. */
+async function loadAttempt(root, entry, phase, findings, label) {
+  try {
+    return attemptProjection(readRecord('test-execution', await readFile(path.join(root, entry.receiptPath))).record);
+  } catch (error) {
+    findings.push({
+      code: 'EVIDENCE_TEST_RECEIPT_UNREADABLE', category: 'records', blocking: true, obligationIds: [],
+      message: `The ${label} for '${entry.commandId}' in ${phase.id} could not be read: ${error.message}`
+    });
+    return null;
+  }
+}
+
 /** The committed delivery evidence of one code phase: receipt, test receipts and dispositions. */
 async function loadDelivery(root, phase, findings) {
   const evidence = phase.deliveryEvidence;
@@ -49,17 +72,19 @@ async function loadDelivery(root, phase, findings) {
       executions.push({ commandId: entry.commandId, kind: entry.kind, status: entry.status, receiptPath: entry.receiptPath, record: null });
       continue;
     }
-    let record = null;
-    try { record = readRecord('test-execution', await readFile(path.join(root, entry.receiptPath))).record; } catch (error) {
-      findings.push({
-        code: 'EVIDENCE_TEST_RECEIPT_UNREADABLE', category: 'records', blocking: true, obligationIds: [],
-        message: `The test receipt for '${entry.commandId}' in ${phase.id} could not be read: ${error.message}`
-      });
-    }
+    const record = await loadAttempt(root, entry, phase, findings, 'test receipt');
     executions.push({
       commandId: entry.commandId, kind: entry.kind ?? 'test-execution', status: entry.status ?? null,
-      receiptPath: entry.receiptPath, record: record ? { status: record.status, tests: record.tests ?? {} } : null
+      receiptPath: entry.receiptPath, record
     });
+  }
+  // A published delivery not yet submitted shows what its preflight runs observed.
+  const preflight = [];
+  if (evidence.status !== 'ready') {
+    for (const entry of evidence.preflightAttempts ?? []) {
+      const record = await loadAttempt(root, entry, phase, findings, 'preflight test attempt');
+      if (record) preflight.push({ commandId: entry.commandId, record });
+    }
   }
   return {
     phaseId: phase.id,
@@ -68,7 +93,11 @@ async function loadDelivery(root, phase, findings) {
     validation: evidence.validation ? { status: evidence.validation.status } : null,
     testRecovery: evidence.testRecovery ? { disposition: evidence.testRecovery.disposition, observedOutcome: evidence.testRecovery.observedOutcome } : null,
     acceptanceCriteria: evidence.acceptanceCriteria
-      ? { bindings: (evidence.acceptanceCriteria.bindings ?? []).map((binding) => ({ clauseId: binding.clauseId, testSource: binding.testSource })) }
+      ? {
+        bindings: (evidence.acceptanceCriteria.bindings ?? []).map((binding) => ({ clauseId: binding.clauseId, testSource: binding.testSource })),
+        witnesses: evidence.acceptanceCriteria.witnesses ?? null,
+        unattachedTags: evidence.acceptanceCriteria.unattachedTags ?? []
+      }
       : null,
     // What each obligation delivered in source was bound to, and how its author explained it [E2G-011].
     implementationBindings: receipt?.implementationBindings ? {
@@ -87,10 +116,14 @@ async function loadDelivery(root, phase, findings) {
       traceability: {
         bindings: (receipt.traceability?.bindings ?? []).map((binding) => ({
           clauseId: binding.clauseId, testSource: binding.testSource, commandId: binding.commandId ?? null
-        }))
+        })),
+        witnesses: receipt.traceability?.witnesses ?? null,
+        unattachedTags: receipt.traceability?.unattachedTags ?? []
       }
     } : null,
-    executions
+    executions,
+    preflight,
+    attemptHistory: evidence.attemptHistory ?? []
   };
 }
 

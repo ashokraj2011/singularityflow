@@ -58,7 +58,13 @@ test('a passing final check still states the assurance behind delivered code', (
   printCompletionVerdict({ verified: true, assurance: 'module-observed', errors: [], warnings: [], findings: [] }, sink);
   assert.deepEqual(lines, [
     'Final governance check passed.',
-    'Assurance: acceptance criteria are linked to tests by tags and the module test commands passed; no test-case result is joined to a criterion yet.'
+    'Assurance: at least module-observed — the test commands covering the acceptance criteria passed; the evidence matrix shows which criteria were joined to their own test result.'
+  ]);
+  lines.length = 0;
+  printCompletionVerdict({ verified: true, assurance: 'exact-local-observed', errors: [], warnings: [], findings: [] }, sink);
+  assert.deepEqual(lines, [
+    'Final governance check passed.',
+    "Assurance: exact-local-observed — each acceptance criterion's own test was found passing in a local run; no run was independently attested."
   ]);
   lines.length = 0;
   printCompletionVerdict({ verified: true, assurance: null, errors: [], warnings: [], findings: [] }, sink);

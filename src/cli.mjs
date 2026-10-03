@@ -165,13 +165,13 @@ import {
   redactDiagnosticText
 } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
+import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import {
   evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
   retainSourceReviewDecision, sourceReviewContext, sourceReviewInput
 } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 import {
   materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions,
   resolveReferenceRepositoryPins
@@ -6545,33 +6545,33 @@ async function phaseReview(root, config, workflow, phase) {
       });
     }
   }
-  const testcaseObservations = [];
-  const welLifecycles = [];
+  // Each criterion witness of this delivery, judged against the attempt its command bound [E2G-016];
+  // a delivery published but not yet submitted shows what its preflight run observed.
+  const attempts = new Map();
   let skippedTests = 0;
-  for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
+  const submittedDelivery = phase.deliveryEvidence?.status === 'ready';
+  const boundAttempts = submittedDelivery ? phase.deliveryEvidence?.testExecutions : phase.deliveryEvidence?.preflightAttempts;
+  for (const execution of boundAttempts ?? []) {
+    if (execution.kind === 'phase-validation-observation') continue;
     try {
-      const stored = await readFile(path.join(root, execution.receiptPath));
-      const receipt = readRecord('test-execution', stored).record;
+      const receipt = readRecord('test-execution', await readFile(path.join(root, execution.receiptPath))).record;
       skippedTests += Math.max(0, Number(receipt.tests?.skipped ?? 0) || 0);
-      if (receipt.testcaseObservation) testcaseObservations.push(receipt.testcaseObservation);
-      if (receipt.lifecycle) welLifecycles.push(receipt.lifecycle);
+      attempts.set(execution.commandId, receipt);
     } catch {
-      testcaseObservations.push({
-        status: 'unavailable', assurance: 'unavailable', occurrences: [],
-        notice: `test receipt '${execution.commandId}' is unavailable`
-      });
-      welLifecycles.push(null);
+      attempts.set(execution.commandId, { attemptId: null, status: 'unavailable', terminal: false, tests: {}, occurrences: [] });
     }
   }
-  const localObservations = testcaseObservations.filter((entry) => entry.status === 'observed'
-    && entry.assurance === 'testcase-local-observed'
-    && entry.verdict === 'inconclusive');
-  const observedTestcases = localObservations
-    .flatMap((entry) => entry.occurrences ?? []);
+  const covering = (testSource) => (boundAttempts ?? []).find((execution) =>
+    (execution.affectedRoots ?? []).some((affected) => affected === '.' || testSource === affected
+      || testSource.startsWith(`${affected.replace(/\/$/u, '')}/`)))?.commandId ?? null;
+  const criteria = criterionResults((phase.deliveryEvidence?.acceptanceCriteria?.witnesses ?? []).map((witness) => {
+    const commandId = attempts.has(witness.commandId) ? witness.commandId : covering(witness.testSource);
+    return witnessResult({ ...witness, commandId }, attempts.get(commandId) ?? null, { submitted: submittedDelivery });
+  }));
+  const verifiedCriteria = criteria.filter((entry) => entry.status === 'met');
+  const exactCriteria = verifiedCriteria.filter((entry) => entry.identity === 'source-bound').length;
+  const unmet = criteria.length - verifiedCriteria.length;
   const witnessReview = await witnessMappingReview(root, config, workflow, phase);
-  const welReadiness = unavailableWelEnforcementReadiness({
-    enrollment: workflow.resolution?.wel ?? null
-  });
   // Only an available, current submitted review can be bound by a human approval surface.
   // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
   const reviewBinding = phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
@@ -6590,45 +6590,24 @@ async function phaseReview(root, config, workflow, phase) {
     testEvidence: phase.deliveryEvidence ? {
       status: phase.deliveryEvidence.status ?? 'unavailable',
       executions: phase.deliveryEvidence.testExecutions?.length ?? 0,
-      executionAssurance: 'module-executed',
-      testcaseExecutionProven: false,
-      // What the approver is actually shown about acceptance criteria, stated at its real strength.
+      attempts: phase.deliveryEvidence.attemptHistory?.length ?? 0,
+      // What the approver is shown about acceptance criteria, stated at its real strength [E2G-017].
       acceptance: {
-        association: 'test-file-tag',
-        execution: 'module-observed',
+        criteria: criteria.map((entry) => ({
+          clauseId: entry.clauseId, status: entry.status, assurance: entry.assurance, identity: entry.identity, execution: entry.execution,
+          witnesses: entry.witnesses.map((result) => ({
+            test: result.label, testSource: result.testSource, profile: result.profile, commandId: result.commandId,
+            attemptId: result.attemptId, outcome: result.outcome, status: result.status, assurance: result.assurance,
+            requiredAssurance: result.requiredAssurance, reasons: result.reasons ?? [], words: describeWitnessResult(result)
+          }))
+        })),
+        unattachedTags: phase.deliveryEvidence.acceptanceCriteria?.unattachedTags ?? [],
         skippedTests,
-        statement: 'Acceptance criteria are linked to tests by @ac tags in the delivered test files, and the module test commands passed. No test-case result is joined to a criterion yet.'
+        statement: criteria.length
+          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; submission runs the tests again.'}`
+          : 'No acceptance criterion is tagged on a test in this delivery.'
       },
-      testcaseObservation: {
-        status: localObservations.length
-          ? 'observed'
-          : ['unavailable', 'unsupported'].includes(testcaseObservations.at(-1)?.status)
-            ? testcaseObservations.at(-1).status : 'inconclusive',
-        assurance: localObservations.length ? 'testcase-local-observed' : 'unavailable',
-        exact: localObservations.length > 0 && localObservations.every((entry) => entry.exact === true),
-        verdict: 'inconclusive',
-        occurrences: observedTestcases.length,
-        mappingProposals: localObservations.reduce((total, entry) =>
-          total + (entry.mappingProposals?.length ?? 0), 0),
-        notice: localObservations.length
-          ? localObservations.every((entry) => entry.exact === true)
-            ? 'exact static testcase identities observed locally; verdict is inconclusive until human mapping review and independent execution authority exist'
-            : 'candidate-controlled testcase results observed locally as non-exact diagnostics; verdict is inconclusive and there is no independent attestation or reviewed witness mapping'
-          : testcaseObservations.at(-1)?.notice ?? 'exact testcase observation unavailable'
-      },
-      lifecycle: {
-        status: welLifecycles.length
-          && welLifecycles.every((entry) => entry?.status === 'unavailable')
-          ? 'unavailable' : 'not-recorded',
-        joined: false,
-        retryLineage: welLifecycles.reduce((count, entry) =>
-          count + (entry?.retryLineage?.length ?? 0), 0),
-        enforcementAvailable: welReadiness.enforcementAvailable,
-        authority: welReadiness.authority,
-        gaps: welReadiness.gaps,
-        recoveryActions: welReadiness.nextActions
-      },
-      notice: 'module execution remains the authoritative delivery evidence; testcase observation is diagnostic and non-blocking'
+      notice: 'A criterion is judged by its own tagged test where the runner reports test cases (Jest, Vitest, JUnit 5) and by its module test command elsewhere; a local observation is not independent attestation.'
     } : null,
     witnessReview,
     documents,
@@ -6687,18 +6666,20 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
     if (review.authoringSkillWarning) console.log(`  ${review.authoringSkillWarning}`);
   }
   if (review.testEvidence) {
-    console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s)`);
+    console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s) · ${review.testEvidence.attempts} attempt(s)`);
     console.log(`  ${review.testEvidence.notice}`);
     if (review.testEvidence.acceptance) {
       console.log(`Acceptance evidence: ${review.testEvidence.acceptance.statement}`);
-      if (review.testEvidence.acceptance.skippedTests > 0) {
-        console.warn(`  ${review.testEvidence.acceptance.skippedTests} test(s) were skipped; a skipped test may be one a criterion relies on.`);
+      for (const criterion of review.testEvidence.acceptance.criteria) {
+        console.log(`  ${criterion.clauseId} ${criterion.status}${criterion.status === 'met' ? ` (${criterion.assurance})` : ''}`);
+        for (const witness of criterion.witnesses) console.log(`    - ${witness.words}`);
       }
-    }
-    console.log(`  Testcase observation: ${review.testEvidence.testcaseObservation.status} · ${review.testEvidence.testcaseObservation.occurrences} occurrence(s) · ${review.testEvidence.testcaseObservation.assurance} · ${review.testEvidence.testcaseObservation.verdict}`);
-    console.log(`  ${review.testEvidence.testcaseObservation.notice}`);
-    if (review.testEvidence.testcaseObservation.mappingProposals) {
-      console.log(`  Witness mapping proposals awaiting human review: ${review.testEvidence.testcaseObservation.mappingProposals}`);
+      for (const tag of review.testEvidence.acceptance.unattachedTags) {
+        console.warn(`  The tag for ${tag.clauseIds.join(', ')} at ${tag.testSource}${tag.line ? `:${tag.line}` : ''} is not on a test, so it binds nothing.`);
+      }
+      if (review.testEvidence.acceptance.skippedTests > 0) {
+        console.warn(`  ${review.testEvidence.acceptance.skippedTests} test(s) were skipped; a skipped test verifies nothing.`);
+      }
     }
   }
   for (const mapping of review.witnessReview?.mappings ?? []) {

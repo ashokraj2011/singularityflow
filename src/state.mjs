@@ -219,6 +219,7 @@ import {
   resolveAffectedModule, structuredTestCommandRequiredError, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
+import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
@@ -4689,6 +4690,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
             deliveryEvidence.testRecovery = { observationSha256: observation.recordSha256,
               observedOutcome: observation.observedOutcome, disposition: 'accepted-risk', evidenceUse: 'executed',
               evaluationSha256: accepted.evaluation.recordSha256 };
+            // An accepted risk publishes too, so its attempts are committed with it [E2G-016].
+            await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
             return { commands, checks: [], testRecovery: { observation, evaluation: accepted.evaluation } };
           }
           throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication.`, { code: 'CODE_TEST_FAILED' });
@@ -5060,6 +5063,7 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   const testExecutions = [];
   const attemptHistory = [];
+  const submittedAttempts = new Map();
   if (codeDeliveryRequired) {
     try {
       for (const command of requiredTestCommands) {
@@ -5120,6 +5124,7 @@ async function submitPhaseTransition(root, config, workflow, {
           status: receipt.status,
           affectedRoots: command.affectedRoots
         });
+        submittedAttempts.set(command.id, receipt);
       }
     } finally {
       const acceptedIds = new Set(testExecutions.map((execution) => execution.commandId));
@@ -5234,9 +5239,15 @@ async function submitPhaseTransition(root, config, workflow, {
         assuranceNotice: 'module executed; tagged test execution not independently proven'
       });
     }
+    // Each witness is judged against the submission attempt of the command that covers its file.
+    const witnesses = (deliveryReceipt.traceability?.witnesses ?? []).map((witness) => ({
+      ...witness,
+      commandId: traceabilityBindings.find((binding) => binding.clauseId === witness.clauseId
+        && binding.testSource === witness.testSource)?.commandId ?? witness.commandId ?? null
+    }));
     const readyReceipt = {
       ...deliveryReceipt,
-      traceability: { ...deliveryReceipt.traceability, bindings: traceabilityBindings },
+      traceability: { ...deliveryReceipt.traceability, bindings: traceabilityBindings, witnesses },
       testExecutions: testExecutions.map(({ affectedRoots, ...entry }) => ({ ...entry,
         ...(entry.kind === 'phase-validation-observation' ? { affectedRoots } : {}) })),
       ...(retainedRisk ? { testRecovery: structuredClone(phase.deliveryEvidence.testRecovery) } : {}),
@@ -5255,6 +5266,12 @@ async function submitPhaseTransition(root, config, workflow, {
       : phase.deliveryEvidence.receiptPath;
     await writeJson(path.join(root, validatedReceiptPath), readyReceipt);
     phase.deliveryEvidence.receiptPath = validatedReceiptPath;
+    // Exposed now, judged at the end: a criterion whose own test did not pass keeps the Story from
+    // completing until it passes or its risk is accepted [E2G-016, E2G-028].
+    for (const witness of witnesses) {
+      const result = witnessResult(witness, submittedAttempts.get(witness.commandId) ?? null);
+      if (result.status !== 'met') console.warn(`Acceptance evidence: ${witness.clauseId}: ${describeWitnessResult(result)}; it does not verify the criterion.`);
+    }
     phase.deliveryEvidence.receiptSha256 = createHash('sha256').update(canonicalJson(readyReceipt)).digest('hex');
     await recordTestCommandEpochValidation(root, config, workflow, phase, testCommandEpochRun);
     await refreshObservedSpecificationClaims(root, config, workflow, phase, readyReceipt);

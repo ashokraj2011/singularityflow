@@ -65,7 +65,7 @@ test('the evidence matrix panel shows the rows and labels the engine returned, a
   assert.match(html, /<tr class="entry selected" tabindex="0" data-entry="EV-1:AC-002">/);
   assert.match(html, /EV-1:AC-002 passed with 1 skipped test\./, 'the selected row opens what needs attention');
   assert.match(html, /claim map binding mismatch/);
-  assert.match(html, /no test-case result is joined to a criterion yet/);
+  assert.match(html, /"exact-local-observed" means the criterion's own test was found passing/);
   assert.doesNotMatch(html, /\bstory is complete\b|all tests passed/i);
   assert.match(evidenceMatrixHtml(null, null, 'Open a Story to see its evidence matrix.', 'n'), /Open a Story to see its evidence matrix\./);
 

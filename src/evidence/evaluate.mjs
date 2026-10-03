@@ -6,9 +6,10 @@
  * requirement or acceptance criterion becomes one row of obligations with six separate facets, and
  * the row's result is the most serious of them; nothing is rounded up into "covered".
  *
- * This first version evaluates what today's records can prove: planned and observed claim maps,
- * test files tagged for a criterion, and module test commands. A passing module command is
- * module-observed assurance; no test-case result is joined to a criterion yet.
+ * A criterion's verification joins each of its witnesses to the run of its candidate: an exact
+ * witness (the Jest, Vitest or JUnit 5 test a tag sits on) passes only through its own occurrence
+ * in the authoritative attempt and reaches exact-local-observed; a witness in a module whose
+ * adapter only counts tests passes through its module command and stops at module-observed.
  */
 import { approvalRequirementsMet } from '../approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
@@ -18,8 +19,9 @@ import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
 import {
-  DEFAULT_REQUIRED_ASSURANCE, ROW_RESULTS, assuranceAtLeast, obligationId, weakestAssurance
+  ASSURANCE, DEFAULT_REQUIRED_ASSURANCE, ROW_RESULTS, assuranceAtLeast, obligationId, weakestAssurance
 } from './vocabulary.mjs';
+import { aggregateWitnesses, witnessResult } from '../verification/witness-results.mjs';
 
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
 const STORY_RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);
@@ -70,6 +72,53 @@ function aggregateOutcome(outcomes) {
   return outcomes.length ? 'passed' : 'not-run';
 }
 
+/** One word for what a criterion's witnesses' runs showed, from the strongest blocker down. */
+function executionWord(results) {
+  const outcomes = results.map((entry) => entry.outcome);
+  for (const outcome of ['failed', 'unavailable', 'flaky', 'ambiguous', 'inconclusive', 'unverified-skipped', 'missing', 'passed-with-skips', 'not-run']) {
+    if (outcomes.includes(outcome)) return outcome === 'unverified-skipped' ? 'skipped' : outcome;
+  }
+  return outcomes.length ? 'passed' : 'not-run';
+}
+
+const WITNESS_FINDINGS = Object.freeze({
+  failed: ['EVIDENCE_TEST_FAILED', (id, entry) => !entry.identityKey ? `The test command covering ${id} failed.`
+    : (entry.reasons ?? []).includes('RUN_FAILED') ? `The test command covering ${id} failed; its test ${entry.label} passed, but a pass inside a failed run does not count.`
+      : (entry.reasons ?? []).includes('RUN_FAILED_WITHOUT_RESULT') ? `The test command covering ${id} failed without a result for its test ${entry.label}.`
+        : `${id}'s test ${entry.label} failed.`],
+  unavailable: ['EVIDENCE_TEST_UNAVAILABLE', (id) => `The test command covering ${id} produced no usable result.`],
+  'passed-with-skips': ['EVIDENCE_TESTS_SKIPPED', (id, entry) => `The test command covering ${id} passed with ${entry.skipped} skipped test(s); which test was skipped is not joined to the criterion.`],
+  flaky: ['EVIDENCE_TEST_FLAKY', (id, entry) => `${id}'s test ${entry.label} passed only after failing in the same run; a flaky pass is not a pass.`],
+  'unverified-skipped': ['EVIDENCE_TEST_SKIPPED', (id, entry) => `${id}'s test ${entry.label} was skipped, so it verified nothing.`],
+  missing: ['EVIDENCE_TEST_NOT_RUN', (id, entry) => `${id}'s test ${entry.label} has no result in the run of its candidate.`],
+  ambiguous: ['EVIDENCE_TEST_AMBIGUOUS', (id, entry) => `${id}'s test ${entry.label} matches more than one result, so none can be credited.`],
+  inconclusive: ['EVIDENCE_TEST_IDENTITY_INCONCLUSIVE', (id, entry) => `${id}'s test ${entry.label} cannot be tied to one exact result (${(entry.reasons ?? []).join(', ') || 'unknown'}).`],
+  'not-run': ['EVIDENCE_TEST_NOT_RUN', (id, entry) => `${id}'s test ${entry.label} has not run against the published candidate.`]
+});
+
+function witnessFinding(id, entry, verifyId) {
+  if (entry.shortfall) {
+    return finding('EVIDENCE_ASSURANCE_SHORTFALL',
+      `${id}'s test ${entry.label} reached ${entry.assurance}; its module's runner can reach ${entry.requiredAssurance}, so that is required.`,
+      { obligationIds: [verifyId] });
+  }
+  const [code, message] = WITNESS_FINDINGS[entry.outcome] ?? WITNESS_FINDINGS.inconclusive;
+  return finding(code, message(id, entry), { obligationIds: [verifyId] });
+}
+
+/** The attempt a witness is judged against: the delivery's bound attempt of its command. */
+function attemptFor(delivery, commandId, ready) {
+  if (ready) {
+    const execution = (delivery.executions ?? []).find((entry) => entry.commandId === commandId);
+    if (!execution) return null;
+    if (execution.kind === 'phase-validation-observation' || !execution.record) {
+      return { attemptId: null, status: execution.status === 'passed' ? 'passed' : execution.status === 'failed' ? 'failed' : 'unavailable', exitCode: execution.status === 'passed' ? 0 : null, terminal: true, tests: {}, occurrences: [] };
+    }
+    return execution.record;
+  }
+  return (delivery.preflight ?? []).find((entry) => entry.commandId === commandId)?.record ?? null;
+}
+
 function rowResult(obligations) {
   const statuses = obligations.map((entry) => entry.status);
   if (statuses.length && statuses.every((status) => status === 'not-applicable')) return 'not-applicable';
@@ -99,6 +148,17 @@ function combinedReview(facets) {
 function ordered(records, workflow) {
   const order = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
   return [...records].sort((left, right) => order.indexOf(left.phase) - order.indexOf(right.phase));
+}
+
+/** How many criteria rest on an exact test result, how many on a module command, and how many on neither. */
+function testCaseResultWords(rows) {
+  const tested = rows.filter((row) => row.type === 'AC' && (row.verification?.witnesses ?? []).length);
+  const exact = tested.filter((row) => row.verification.witnesses.every((entry) => entry.identity === 'source-bound')).length;
+  // A test in an exact module whose identity cannot be pinned down rests on nothing exact.
+  const inexact = tested.filter((row) => row.verification.witnesses.some((entry) => entry.identity !== 'source-bound'
+    && entry.requiredAssurance !== 'module-observed')).length;
+  return `${exact} criterion row(s) joined to an exact test result; ${tested.length - exact - inexact} rest on a module test command`
+    + (inexact ? `; ${inexact} cannot be tied to one exact test` : '');
 }
 
 /** Evaluate a loaded evidence graph. `boundary` names the evaluation point; views use `view`. */
@@ -159,18 +219,39 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   const deliveries = (graph.deliveries ?? []).filter((delivery) =>
     Number(delivery.generation) === Number(phases[delivery.phaseId]?.generation));
 
-  // Tagged tests per criterion: submitted deliveries carry the command that covered each test;
-  // a published delivery not yet submitted carries only the tag.
+  // Witnesses per criterion: the exact test each tag sits on (or, where the module's adapter only
+  // counts tests, the tagged file), each with the attempt it is judged against. A submitted delivery
+  // binds its submission attempts; a published one shows its preflight runs, still pending.
   const witnesses = new Map();
+  // Tags that sit on no test bind nothing; they are named so the author can move them [E2G-015].
+  const unattached = new Map();
   for (const delivery of deliveries) {
     const ready = delivery.receipt?.status === 'ready';
     const bindings = ready ? delivery.receipt.traceability?.bindings ?? [] : delivery.acceptanceCriteria?.bindings ?? [];
-    for (const binding of bindings) {
-      const id = String(binding.clauseId ?? '').toUpperCase();
+    // A delivery that recorded no witness list at all (not an empty one) predates exact reading: its
+    // tagged files count only through their module command.
+    const declared = (ready ? delivery.receipt.traceability?.witnesses : delivery.acceptanceCriteria?.witnesses)
+      ?? bindings.map((binding) => ({
+        clauseId: binding.clauseId, testSource: binding.testSource, profile: 'module-counts-v1',
+        commandId: binding.commandId ?? null, identity: null, gaps: ['ADAPTER_COUNTS_ONLY']
+      }));
+    for (const tag of (ready ? delivery.receipt.traceability?.unattachedTags : delivery.acceptanceCriteria?.unattachedTags) ?? []) {
+      for (const clauseId of tag.clauseIds ?? []) {
+        const key = String(clauseId).toUpperCase();
+        unattached.set(key, [...(unattached.get(key) ?? []), `${tag.testSource}${tag.line ? `:${tag.line}` : ''}`]);
+      }
+    }
+    for (const witness of declared) {
+      const id = String(witness.clauseId ?? '').toUpperCase();
       if (!id) continue;
-      const list = witnesses.get(id) ?? [];
-      list.push({ phaseId: delivery.phaseId, testSource: binding.testSource, commandId: ready ? binding.commandId ?? null : null, ready, delivery });
-      witnesses.set(id, list);
+      const binding = bindings.find((entry) => String(entry.clauseId ?? '').toUpperCase() === id && entry.testSource === witness.testSource);
+      const commandId = (ready ? binding?.commandId : null) ?? witness.commandId ?? binding?.commandId ?? null;
+      const entries = witnesses.get(id) ?? [];
+      entries.push({
+        phaseId: delivery.phaseId, testSource: witness.testSource, commandId: ready ? commandId : null, ready, delivery,
+        witness: { ...witness, commandId }, attempt: attemptFor(delivery, commandId, ready)
+      });
+      witnesses.set(id, entries);
     }
   }
 
@@ -306,6 +387,10 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       let exception = 'none';
       let skipped = 0;
       let inspectedBy = [];
+      let witnessResults = [];
+      let identityFacet = tagged.length ? 'declared' : 'none';
+      let executionFacet = 'none';
+      let requiredLevel = requiredAssurance;
       if (noCode) {
         // A reviewer approved verification evidence that cites the criterion; no test proves it.
         inspectedBy = inspections.filter((entry) => entry.text.includes(id) && phaseFinished(phases[entry.phaseId])
@@ -321,48 +406,66 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       } else if (!submitted.length) {
         status = rowSubmitted ? 'missing' : 'pending';
         assurance = tagged.length ? 'declared' : 'none';
-        if (status === 'missing') rowFindings.push(finding('EVIDENCE_WITNESS_MISSING', `No submitted test is tagged for ${id}.`, { obligationIds: [verifyId] }));
+        // A published delivery shows what its preflight run observed, still pending its submission.
+        witnessResults = tagged.map((entry) => witnessResult(entry.witness, entry.attempt, { submitted: false }));
+        if (witnessResults.length) execution = executionWord(witnessResults);
+        if (status === 'missing') {
+          rowFindings.push(unattached.has(id)
+            ? finding('EVIDENCE_TAG_NOT_ON_TEST', `${id} is tagged at ${unattached.get(id).join(', ')}, but not on a test, so it verifies nothing.`, { obligationIds: [verifyId] })
+            : finding('EVIDENCE_WITNESS_MISSING', `No submitted test is tagged for ${id}.`, { obligationIds: [verifyId] }));
+        }
       } else {
-        const outcomes = submitted.map((entry) => executionOutcome(entry.delivery, entry.commandId));
-        skipped = outcomes.reduce((sum, entry) => sum + entry.skipped, 0);
-        execution = aggregateOutcome(outcomes.map((entry) => entry.outcome));
+        // Each witness is judged against the authoritative attempt of its own command [E2G-016].
+        witnessResults = submitted.map((entry) => witnessResult(entry.witness, entry.attempt, { submitted: true }));
+        const aggregate = aggregateWitnesses(witnessResults);
+        skipped = witnessResults.reduce((sum, entry) => sum + Number(entry.skipped ?? 0), 0);
+        execution = executionWord(witnessResults);
+        identityFacet = aggregate.identity;
+        executionFacet = aggregate.execution;
+        // D2: at least what the Story requires, and the strongest each witness's runner can reach.
+        requiredLevel = [requiredAssurance, ...witnessResults.map((entry) => entry.requiredAssurance)]
+          .reduce((left, right) => (ASSURANCE.indexOf(left) >= ASSURANCE.indexOf(right) ? left : right));
         const accepted = submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk');
-        if (execution === 'passed') {
-          assurance = 'module-observed';
-          status = assuranceAtLeast(assurance, requiredAssurance) ? 'met' : 'inconclusive';
-          if (status !== 'met') rowFindings.push(finding('EVIDENCE_ASSURANCE_SHORTFALL', `${id} reached ${assurance}; ${requiredAssurance} is required.`, { obligationIds: [verifyId] }));
-        } else if (['failed', 'unavailable'].includes(execution) && accepted) {
+        if (aggregate.status === 'met') {
+          assurance = aggregate.assurance;
+          status = assuranceAtLeast(assurance, requiredLevel) ? 'met' : 'inconclusive';
+          if (status !== 'met') rowFindings.push(finding('EVIDENCE_ASSURANCE_SHORTFALL', `${id} reached ${assurance}; ${requiredLevel} is required.`, { obligationIds: [verifyId] }));
+        } else if (['failed', 'inconclusive'].includes(aggregate.status) && accepted
+            && witnessResults.every((entry) => ['failed', 'unavailable'].includes(entry.outcome) || entry.status === 'met')) {
           assurance = 'declared';
           status = 'excepted';
           exception = 'accepted-risk';
-        } else if (execution === 'failed') {
-          assurance = 'declared';
-          status = 'failed';
-          rowFindings.push(finding('EVIDENCE_TEST_FAILED', `The test command covering ${id} failed.`, { obligationIds: [verifyId] }));
-        } else if (execution === 'unavailable') {
-          assurance = 'declared';
-          status = 'inconclusive';
-          rowFindings.push(finding('EVIDENCE_TEST_UNAVAILABLE', `The test command covering ${id} produced no usable result.`, { obligationIds: [verifyId] }));
         } else {
-          assurance = 'declared';
-          status = 'inconclusive';
-          rowFindings.push(finding('EVIDENCE_TESTS_SKIPPED',
-            `The test command covering ${id} passed with ${skipped} skipped test(s); which test was skipped is not joined to the criterion.`,
-            { obligationIds: [verifyId] }));
+          assurance = aggregate.assurance;
+          status = aggregate.status;
+          for (const result of witnessResults.filter((entry) => entry.status !== 'met')) {
+            rowFindings.push(witnessFinding(id, result, verifyId));
+          }
         }
       }
       verification = {
-        association: noCode ? 'inspection' : submitted.length || tagged.length ? 'test-file-tag' : 'none',
+        association: noCode ? 'inspection' : !tagged.length ? 'none'
+          : tagged.every((entry) => entry.witness.identity) ? 'exact-test'
+            : tagged.some((entry) => entry.witness.identity) ? 'mixed' : 'test-file-tag',
         inspectedBy,
         tests: [...new Set(tagged.map((entry) => entry.testSource))].sort(),
         commands: [...new Set(submitted.map((entry) => entry.commandId).filter(Boolean))].sort(),
         execution,
         skippedTests: skipped,
         testDisposition: planned?.testDisposition ?? null,
-        testReason: planned?.testReason ?? null
+        testReason: planned?.testReason ?? null,
+        witnesses: witnessResults.map((entry) => ({
+          test: entry.label, testSource: entry.testSource, profile: entry.profile, commandId: entry.commandId,
+          attemptId: entry.attemptId, outcome: entry.outcome, status: entry.status, assurance: entry.assurance,
+          identity: entry.identity, execution: entry.execution, requiredAssurance: entry.requiredAssurance,
+          reasons: entry.reasons ?? []
+        }))
       };
       obligations.push({
         id: verifyId, responsibility: 'verify', subject: id, owningSteps: noCode ? inspectedBy : [...new Set(tagged.map((entry) => entry.phaseId))], status,
+        // The two assurance facets [E2G-017], kept apart: how the test is tied, how its run was seen.
+        assuranceFacets: { identity: noCode ? (inspectedBy.length ? 'declared' : 'none') : identityFacet, execution: noCode ? 'none' : executionFacet },
+        requiredAssurance: noCode ? 'declared' : requiredLevel,
         facets: {
           coverage: tagged.length ? 'linked' : planned?.testDisposition === 'not-applicable' ? 'not-applicable' : 'unlinked',
           execution, assurance, review: implementReview, freshness: 'current', exception
@@ -573,7 +676,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     requiredAssurance: {
       level: requiredAssurance,
       source: noCode ? 'no code step: criteria are verified by inspection of approved verification evidence'
-        : 'default; the repository capability profile is not computed yet'
+        : 'default: at least module-observed, and for each criterion the strongest its tests\' runner can reach'
     },
     endpoint: endpoint ? { from: endpoint.from, decision: endpoint.decision, route: endpoint.route } : null,
     applicability,
@@ -583,7 +686,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       rows: allRows.length,
       results: Object.fromEntries(ROW_RESULTS.map((result) => [result, counts[result] ?? 0])),
       assuranceFloor: weakestAssurance(verified.map((row) => row.assurance)),
-      testCaseResults: 'not joined to criteria yet',
+      testCaseResults: testCaseResultWords(clauseRows),
       scope: graph.scope ? scopeSummary(graph.scope, graph.completenessReview) : null,
       scopeRevision: workflow.scopeRevisions?.length ? scopeRevisionSummary(workflow.scopeRevisions.at(-1), clauseRows) : null
     },

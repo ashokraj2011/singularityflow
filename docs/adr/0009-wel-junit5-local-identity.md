@@ -1,6 +1,6 @@
 # ADR 0009 — Exact local JUnit 5 identity without executing Candidate code
 
-- **Status:** Accepted for the observe-only pilot
+- **Status:** Accepted for the observe-only pilot; superseded by ADR 0016 for the tag vocabulary and the gating of exact local results
 - **Date:** 2026-09-05
 - **Scope:** One Maven module, JUnit Jupiter, and Maven Surefire XML
 

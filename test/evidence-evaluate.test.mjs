@@ -61,19 +61,35 @@ function records({ ids = {}, ac2Tests = ['test/two.test.mjs'], ac2Disposition = 
   };
 }
 
-function delivery({ implementation = 'implementation', tests = { discovered: 2, passed: 2, failed: 0, skipped: 0 }, status = 'passed', recovery = null, ready = true } = {}) {
+/** A tagged file in a module whose runner only counts tests: it can reach module-observed. */
+const countsWitness = (clauseId, testSource) => ({
+  clauseId, testSource, profile: 'module-counts-v1', commandId: 'unit', identity: null, logicalTestId: null, gaps: ['ADAPTER_COUNTS_ONLY']
+});
+/** The exact Jest test a tag sits on: it can reach exact-local-observed. */
+const jestWitness = (clauseId, name, { suitePath = ['value'], gaps = [], parameters = null } = {}) => ({
+  clauseId, testSource: 'test/value.test.js', profile: 'jest-static-v2', commandId: 'unit', resultAdapter: 'jest-json',
+  identity: { framework: 'jest', suitePath, name }, logicalTestId: `sha256:${name}`, declarationSha256: 'b'.repeat(64),
+  supportSha256: null, line: 3, parameters, skipped: false, exact: gaps.length === 0, gaps
+});
+const occurrence = (name, outcome = 'passed', extra = {}) => ({ suitePath: ['value'], name, outcome, durationMs: 1, ...extra });
+const MODULE_WITNESSES = [countsWitness(AC1, 'test/one.test.mjs'), countsWitness(AC2, 'test/two.test.mjs')];
+
+function delivery({
+  implementation = 'implementation', tests = { discovered: 2, passed: 2, failed: 0, skipped: 0 }, status = 'passed', recovery = null, ready = true,
+  witnesses = MODULE_WITNESSES, occurrences = [], unattachedTags = []
+} = {}) {
+  const bindings = [...new Map(witnesses.map((entry) => [`${entry.clauseId} ${entry.testSource}`, { clauseId: entry.clauseId, testSource: entry.testSource }])).values()];
+  const record = { attemptId: 'TA-0123456789abcdef0123', status, exitCode: status === 'passed' ? 0 : 1, terminal: true, tests, occurrences };
   return {
     phaseId: implementation, generation: 1, status: ready ? 'ready' : 'pending-tests',
     testRecovery: recovery,
-    acceptanceCriteria: { bindings: [{ clauseId: AC1, testSource: 'test/one.test.mjs' }, { clauseId: AC2, testSource: 'test/two.test.mjs' }] },
+    acceptanceCriteria: { bindings, witnesses, unattachedTags },
     receipt: ready ? {
       status: 'ready',
-      traceability: { bindings: [
-        { clauseId: AC1, testSource: 'test/one.test.mjs', commandId: 'unit' },
-        { clauseId: AC2, testSource: 'test/two.test.mjs', commandId: 'unit' }
-      ] }
+      traceability: { bindings: bindings.map((binding) => ({ ...binding, commandId: 'unit' })), witnesses, unattachedTags }
     } : { status: 'pending-tests', traceability: { bindings: [] } },
-    executions: ready ? [{ commandId: 'unit', kind: 'test-execution', status, record: { status, tests } }] : []
+    executions: ready ? [{ commandId: 'unit', kind: 'test-execution', status, record }] : [],
+    preflight: ready ? [] : [{ commandId: 'unit', record: { ...record, purpose: 'preflight' } }]
   };
 }
 
@@ -136,9 +152,7 @@ test('in-flight work is pending; work a finished step should have delivered is m
   assert.equal(row(inFlight, AC1).result, 'pending');
   assert.equal(inFlight.lifecycle.words, 'In progress at Code');
 
-  const untagged = delivery();
-  untagged.receipt.traceability.bindings = untagged.receipt.traceability.bindings.filter((binding) => binding.clauseId !== AC2);
-  const missing = evaluate({ workflow: story(), records: records(), deliveries: [untagged] });
+  const missing = evaluate({ workflow: story(), records: records(), deliveries: [delivery({ witnesses: [countsWitness(AC1, 'test/one.test.mjs')] })] });
   assert.equal(row(missing, AC2).result, 'missing');
   assert.ok(missing.findings.some((entry) => entry.code === 'EVIDENCE_WITNESS_MISSING' && entry.message.includes(AC2)));
 });
@@ -205,7 +219,7 @@ test('the matrix pages, filters by row, result and facet, and renders the same r
   assert.match(text, /Evidence matrix — EV-1: Evidence fixture/);
   assert.match(text, /tag · 1 skipped/);
   assert.match(text, /Completion: Incomplete — verification pending or insufficient \(2 inconclusive\)/);
-  assert.match(text, /no test-case result is joined to a criterion yet/);
+  assert.match(text, /"exact-local-observed" means the criterion's own test was found passing/);
   const csv = matrixCsv(matrixPage(evaluation).rows).split('\n');
   assert.equal(csv.length, 4);
   assert.match(csv[2], /^"EV-1:AC-001","AC",".*","inconclusive","declared"/);
@@ -217,12 +231,109 @@ test('the pull request summary repeats the evaluation and claims nothing beyond 
   assert.match(summary, /^- Completion: \*\*Incomplete — verification pending or insufficient\*\* \(2 inconclusive\)/);
   assert.match(summary, /- Lifecycle: In progress at Testing/);
   assert.match(summary, /- Rows: 3 — 2 inconclusive · 1 satisfied/);
-  assert.match(summary, /- Assurance floor: .*; no test-case result is joined to a criterion yet/);
+  assert.match(summary, /- Assurance floor: .*; 0 criterion row\(s\) joined to an exact test result; 2 rest on a module test command/);
   assert.match(summary, /- Open obligations \(2\):\n  - `OBL:EV-1:verify:AC-001` is inconclusive\n  - `OBL:EV-1:verify:AC-002` is inconclusive/);
   assert.doesNotMatch(summary, /all tests passed|requirements satisfied/i);
   const body = storyPullRequestBody(story(), null, { evidence: summary });
   assert.match(body, /### Evidence\n\n- Completion: \*\*Incomplete/);
   assert.match(storyPullRequestBody(story(), null, {}), /### Evidence\n\n_The evidence matrix could not be evaluated for this preview\._/);
+});
+
+test('an exact test verifies its criterion only through its own result, at exact-local-observed', () => {
+  const evaluation = evaluate({
+    workflow: story(), records: records(),
+    deliveries: [delivery({ witnesses: [jestWitness(AC1, 'adds'), countsWitness(AC2, 'test/two.test.mjs')], occurrences: [occurrence('adds'), occurrence('subtracts')] })]
+  });
+  const verify = row(evaluation, AC1).obligations.find((entry) => entry.responsibility === 'verify');
+  assert.equal(row(evaluation, AC1).result, 'satisfied');
+  assert.equal(row(evaluation, AC1).assurance, 'exact-local-observed');
+  assert.deepEqual(verify.assuranceFacets, { identity: 'source-bound', execution: 'exact-local-observed' });
+  assert.equal(verify.requiredAssurance, 'exact-local-observed', 'D2: the strongest the module runner can reach');
+  assert.equal(row(evaluation, AC1).verification.association, 'exact-test');
+  assert.deepEqual(row(evaluation, AC1).verification.witnesses.map((entry) => [entry.test, entry.outcome, entry.attemptId]),
+    [["'value › adds' in test/value.test.js", 'passed', 'TA-0123456789abcdef0123']]);
+  assert.equal(row(evaluation, AC2).assurance, 'module-observed', 'a counts-only module stays at module-observed');
+  assert.deepEqual(row(evaluation, AC2).obligations.find((entry) => entry.responsibility === 'verify').assuranceFacets,
+    { identity: 'declared', execution: 'module-observed' });
+  assert.equal(evaluation.summary.testCaseResults, '1 criterion row(s) joined to an exact test result; 1 rest on a module test command');
+  assert.equal(evaluation.summary.assuranceFloor, 'module-observed');
+  assert.match(matrixText({ evaluation, page: matrixPage(evaluation) }), /exact test · passed/);
+});
+
+test('a tagged file with unrelated passing tests does not satisfy an exact criterion (E2G #7)', () => {
+  const unrelated = evaluate({
+    workflow: story(), records: records(),
+    deliveries: [delivery({ witnesses: [jestWitness(AC1, 'adds'), countsWitness(AC2, 'test/two.test.mjs')], occurrences: [occurrence('subtracts'), occurrence('multiplies')] })]
+  });
+  assert.equal(row(unrelated, AC1).result, 'missing');
+  assert.notEqual(row(unrelated, AC1).assurance, 'module-observed');
+  assert.ok(unrelated.findings.some((entry) => entry.code === 'EVIDENCE_TEST_NOT_RUN' && entry.message.includes("'value › adds'")));
+  assert.equal(unrelated.decision.gate, 'block');
+
+  const offTest = evaluate({
+    workflow: story(), records: records(),
+    deliveries: [delivery({
+      witnesses: [countsWitness(AC2, 'test/two.test.mjs')], occurrences: [occurrence('subtracts')],
+      unattachedTags: [{ testSource: 'test/value.test.js', line: 1, clauseIds: [AC1], code: 'TAG_NOT_ON_DECLARATION', message: 'not above a test' }]
+    })]
+  });
+  assert.equal(row(offTest, AC1).result, 'missing');
+  assert.ok(offTest.findings.some((entry) => entry.code === 'EVIDENCE_TAG_NOT_ON_TEST' && entry.message.includes('test/value.test.js:1')));
+});
+
+test('skipped, filtered, missing, ambiguous and flaky exact tests stay unverified (E2G #8)', () => {
+  const judge = (occurrences, witness = jestWitness(AC1, 'adds'), extra = {}) => {
+    const evaluation = evaluate({
+      workflow: story(), records: records(),
+      deliveries: [delivery({ witnesses: [witness, countsWitness(AC2, 'test/two.test.mjs')], occurrences, ...extra })]
+    });
+    return { row: row(evaluation, AC1), codes: evaluation.findings.map((entry) => entry.code), gate: evaluation.decision.gate };
+  };
+  const cases = [
+    ['skipped', [occurrence('adds', 'skipped')], 'missing', 'EVIDENCE_TEST_SKIPPED', 'skipped'],
+    ['filtered out of the run', [occurrence('subtracts')], 'missing', 'EVIDENCE_TEST_NOT_RUN', 'missing'],
+    ['ambiguous', [occurrence('adds'), occurrence('adds')], 'inconclusive', 'EVIDENCE_TEST_AMBIGUOUS', 'ambiguous'],
+    ['flaky', [occurrence('adds', 'passed', { flaky: true })], 'inconclusive', 'EVIDENCE_TEST_FLAKY', 'flaky'],
+    ['failed', [occurrence('adds', 'failed')], 'failed', 'EVIDENCE_TEST_FAILED', 'failed']
+  ];
+  for (const [label, occurrences, result, code, execution] of cases) {
+    const judged = judge(occurrences, jestWitness(AC1, 'adds'), label === 'failed' ? { status: 'failed', tests: { discovered: 1, passed: 0, failed: 1, skipped: 0 } } : {});
+    assert.equal(judged.row.result, result, label);
+    assert.ok(judged.codes.includes(code), `${label}: ${judged.codes.join(', ')}`);
+    assert.equal(judged.row.verification.execution, execution, label);
+    assert.equal(judged.gate, 'block', label);
+  }
+  const dynamic = judge([occurrence('adds 1')], jestWitness(AC1, 'adds %i', { gaps: ['PARAMETERS_DYNAMIC'], parameters: { kind: 'dynamic', count: null } }));
+  assert.equal(dynamic.row.result, 'inconclusive');
+  assert.ok(dynamic.codes.includes('EVIDENCE_TEST_IDENTITY_INCONCLUSIVE'));
+  const failedRun = judge([occurrence('adds')], jestWitness(AC1, 'adds'), { status: 'failed', tests: { discovered: 2, passed: 1, failed: 1, skipped: 0 } });
+  assert.equal(failedRun.row.result, 'failed', 'a pass inside a failed run does not count');
+  assert.match(failedRun.row.findings.find((entry) => entry.code === 'EVIDENCE_TEST_FAILED').message, /a pass inside a failed run does not count/);
+});
+
+test('a parameterized declaration passes only when every static instance passed', () => {
+  const witness = jestWitness(AC1, 'adds %i', { parameters: { kind: 'static', count: 2, titlePattern: '^adds \\d+$' } });
+  const all = evaluate({ workflow: story(), records: records(), deliveries: [delivery({ witnesses: [witness, countsWitness(AC2, 'test/two.test.mjs')], occurrences: [occurrence('adds 1'), occurrence('adds 2')] })] });
+  assert.equal(row(all, AC1).result, 'satisfied');
+  const one = evaluate({ workflow: story(), records: records(), deliveries: [delivery({ witnesses: [witness, countsWitness(AC2, 'test/two.test.mjs')], occurrences: [occurrence('adds 1')] })] });
+  assert.equal(row(one, AC1).result, 'missing');
+});
+
+test('a Story requiring more than a module runner can show reads an assurance shortfall, not a pass', () => {
+  const evaluation = evaluate({ workflow: story(), records: records(), deliveries: [delivery()] }, { requiredAssurance: 'exact-local-observed' });
+  assert.equal(row(evaluation, AC1).result, 'inconclusive');
+  assert.equal(row(evaluation, AC1).obligations.find((entry) => entry.responsibility === 'verify').requiredAssurance, 'exact-local-observed');
+  assert.ok(evaluation.findings.some((entry) => entry.code === 'EVIDENCE_ASSURANCE_SHORTFALL' && entry.message.includes('module-observed')));
+});
+
+test('a published delivery shows what its preflight run observed while it is still pending', () => {
+  const evaluation = evaluate({
+    workflow: story({ code: 'in_progress', currentPhase: 'implementation', codeApprovals: [] }), records: records({ observed: false }),
+    deliveries: [delivery({ ready: false, witnesses: [jestWitness(AC1, 'adds')], occurrences: [occurrence('adds')] })]
+  });
+  assert.equal(row(evaluation, AC1).result, 'pending');
+  assert.equal(row(evaluation, AC1).verification.execution, 'passed');
+  assert.deepEqual(row(evaluation, AC1).verification.witnesses.map((entry) => entry.outcome), ['passed']);
 });
 
 test('lifecycle words never claim completion', () => {

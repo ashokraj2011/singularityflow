@@ -111,12 +111,15 @@ test('the evidence matrix shows each criterion at its real assurance through a r
     coverage: 'linked', execution: 'passed', assurance: 'module-observed', review: 'self-approved', freshness: 'current', exception: 'none'
   });
   assert.equal(delivered.evaluation.decision.gate, 'allow');
-  assert.equal(delivered.evaluation.summary.testCaseResults, 'not joined to criteria yet');
+  // node:test reports only counts, so the criterion rests on its module command, and says so.
+  assert.equal(delivered.evaluation.summary.testCaseResults, '0 criterion row(s) joined to an exact test result; 1 rest on a module test command');
+  assert.deepEqual(row.obligations.find((entry) => entry.responsibility === 'verify').assuranceFacets, { identity: 'declared', execution: 'module-observed' });
 
   const human = cli('evidence', 'matrix').stdout;
   assert.match(human, /Evidence matrix — MATRIX-1: Change the value/);
   assert.match(human, /satisfied \(module-observed\)/);
-  assert.match(human, /no test-case result is joined to a criterion yet/);
+  assert.match(human, /"module-observed" means the test command covering a criterion's tagged test file passed/);
+  assert.match(human, /tag · module passed/);
   const csv = cli('evidence', 'matrix', '--format', 'csv').stdout.trim().split('\n');
   assert.equal(csv.length, 2);
   assert.match(csv[1], /^"MATRIX-1:AC-001","AC",/);

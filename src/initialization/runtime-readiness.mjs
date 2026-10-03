@@ -824,7 +824,8 @@ function sanitizedTestObservation(command, parsed) {
     status: 'available',
     counts: parsed.tests,
     report: {
-      sha256: parsed.result.sha256,
+      // A parsed report file carries a bare hex digest; the receipt names digests with their algorithm.
+      sha256: String(parsed.result.sha256).startsWith('sha256:') ? parsed.result.sha256 : `sha256:${parsed.result.sha256}`,
       bytes: parsed.result.bytes,
       files: (parsed.result.files ?? []).map((entry) => ({
         sourcePath: entry.sourcePath ?? null, sha256: entry.sha256, bytes: entry.bytes

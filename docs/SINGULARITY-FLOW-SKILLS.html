@@ -3476,7 +3476,7 @@ disable-model-invocation: true
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~483 body tokens</span>
+          <span class="pill">~489 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-evidence</code></dd></div>
@@ -3504,7 +3504,7 @@ argument-hint: &quot;[WORK-ID] [--row ID] [--result RESULT]&quot;
 1. Use the Boundary repository. With an explicit Work ID, do not require or change the active Story. Without an ID, run `singularity-flow session current --json` and require its `ready` Story; use its exact `repositoryPath` as cwd.
 2. Run `singularity-flow evidence matrix &lt;WORK-ID&gt; --json`, or without the ID for the attached Story, adding only `--row`, `--result` or `--facet` when the person asked for them.
 3. From `data.matrix.evaluation`, show `completion.label` with its `reasons`, `lifecycle.words`, the counts in `summary.results`, `summary.assuranceFloor`, and `summary.scope.words` and `summary.scopeRevision.words` when present. Then show `page.rows` as a table: row ID, result, assurance, and each obligation&#39;s `responsibility` and `status`.
-4. Use only the labels the CLI returned. Never say a Story is complete, all tests passed or all requirements are satisfied unless `completion.label` says so; &quot;module-observed&quot; means a covering test command passed, not that each criterion&#39;s test-case result is known.
+4. Use only the labels the CLI returned. Never say a Story is complete, all tests passed or all requirements are satisfied unless `completion.label` says so; &quot;module-observed&quot; means a covering test command passed; only &quot;exact-local-observed&quot; means the criterion&#39;s own test was seen passing.
 5. List `findings` that need attention and each row&#39;s `actions` commands as next steps, without running them.
 6. When the person asks which requirement statements the Story&#39;s sources hold, run `singularity-flow evidence scope &lt;WORK-ID&gt; --json` instead: show each item&#39;s `id`, `text`, `sourceId` and `disposition`, the unreadable sources, `structurallyComplete` and `completenessReview`. A review never means the scope is correct.
 7. Do not change files or lifecycle state.

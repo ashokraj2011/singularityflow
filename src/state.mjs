@@ -577,9 +577,10 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
   } catch { return false; }
   if (!before || !after) return false;
   // An applicability decision or a scope disposition: each appends to its own list only.
-  const kind = recordSha256(before.scopeDispositions ?? null) !== recordSha256(after.scopeDispositions ?? null)
-    ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }
-    : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
+  const changedList = (key) => recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null);
+  const kind = changedList('scopeDispositions') ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }
+    : changedList('completenessReviews') ? { list: 'completenessReviews', event: 'completeness_reviewed', decision: 'completeness' }
+      : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
   const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (!DECISION_KEYS.has(key) && recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null)) return false;

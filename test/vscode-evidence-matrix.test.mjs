@@ -104,4 +104,19 @@ test('a scope inventory row shows its statement and disposition as the engine re
   assert.match(html, /<dt>Disposition<\/dt><dd>unresolved<\/dd>/);
   assert.match(html, /decision scope --item SRI-0123456789ab/);
   assert.equal(evidenceView(result).rows[0].statement, null, 'a clause row has no statement of its own');
+  assert.equal(evidenceView(result).scope, null, 'a matrix without a scope summary shows no scope card');
+});
+
+test('the scope card shows structural completeness and the completeness review apart, in the words the engine chose', () => {
+  const reviewed = structuredClone(result);
+  reviewed.data.matrix.evaluation.summary.scope = {
+    structurallyComplete: true, completenessReviewed: true, correctness: 'never-claimed',
+    words: { structure: 'structurally complete (3 statements)', review: 'completeness reviewed by po@example.test (product-approvers)', correctness: 'correctness is never claimed' }
+  };
+  const view = evidenceView(reviewed);
+  assert.deepEqual([view.scope.structurallyComplete, view.scope.completenessReviewed], [true, true]);
+  const html = evidenceMatrixHtml(view, null, null, 'n');
+  assert.match(html, /<span class="eyebrow">Scope<\/span><strong>structurally complete \(3 statements\)<\/strong>/);
+  assert.match(html, /completeness reviewed by po@example\.test \(product-approvers\); correctness is never claimed/);
+  assert.doesNotMatch(html, /scope is correct|guarantee/i);
 });

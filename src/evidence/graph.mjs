@@ -12,6 +12,7 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { recordSha256 } from '../records.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { readRecord } from '../schema-migrations.mjs';
+import { currentCompletenessReview } from '../scope/decisions.mjs';
 import { buildScopeInventory } from '../scope/inventory.mjs';
 import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
@@ -130,7 +131,9 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
 
 /** Build the graph from records already in memory; the loader and the tests both use this. */
 export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], findings = [], untrusted = false, terminal = null, scope = null }) {
-  const graph = { workflow, records, deliveries, inspections, findings, untrusted, terminal, scope };
+  // A completeness review counts only for the exact inventory it reviewed [E2G-007].
+  const completenessReview = currentCompletenessReview(workflow, scope);
+  const graph = { workflow, records, deliveries, inspections, findings, untrusted, terminal, scope, completenessReview };
   // What the evaluation was computed from, so a cache or a stored decision can tell whether its
   // inputs are still current without re-reading every record.
   graph.inputSha256 = `sha256:${recordSha256({
@@ -155,7 +158,8 @@ export function evidenceGraph({ workflow, records, deliveries = [], inspections 
     applicability: (workflow.applicability ?? []).filter((entry) => !entry.withdrawnAt)
       .map((entry) => ({ responsibility: entry.responsibility, authorityGroup: entry.authorityGroup ?? null, at: entry.at ?? null })),
     findings: findings.map((entry) => entry.code),
-    scope: scope?.inventorySha256 ?? null
+    scope: scope?.inventorySha256 ?? null,
+    completenessReview: completenessReview ? recordSha256(completenessReview) : null
   })}`;
   // A final evaluation counts only for the evidence it was made over.
   if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;

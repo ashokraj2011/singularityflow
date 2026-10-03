@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 4
+version: 5
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -29,8 +29,8 @@ Use the matrix to see what a Story's evidence actually proves before you approve
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow evidence matrix [WORK-ID]` prints one page of rows. `--row AC-001` shows one row, `--result pending` or `--facet execution=failed` filters, `--page` and `--page-size` move through large specifications, and `--format json` or `--format csv` export the same rows. `singularity-flow pr describe` carries the same summary in the pull request's Evidence section. `singularity-flow evidence scope [WORK-ID]` lists the accepted-scope inventory, and `singularity-flow decision scope --item <ID> --as <disposition> --reason TEXT` records a disposition.
-- **Copilot:** `/sf-evidence` relays the matrix: the completion label and its reasons, the results, the assurance floor and each row's obligations. It changes nothing.
+- **Shell:** `singularity-flow evidence matrix [WORK-ID]` prints one page of rows. `--row AC-001` shows one row, `--result pending` or `--facet execution=failed` filters, `--page` and `--page-size` move through large specifications, and `--format json` or `--format csv` export the same rows. `singularity-flow pr describe` carries the same summary in the pull request's Evidence section. `singularity-flow evidence scope [WORK-ID]` lists the accepted-scope inventory, `singularity-flow decision scope --item <ID> --as <disposition> --reason TEXT` records a disposition, and `singularity-flow decision completeness --confirm <inventory> --article <id>=<decision>... --reason TEXT` records a completeness review.
+- **Copilot:** `/sf-evidence` relays the matrix: the completion label and its reasons, the results, the assurance floor and each row's obligations. It changes nothing. `/sf-decide` records scope dispositions and the completeness review with the person's own answers.
 - **VS Code:** **Singularity Flow: Evidence Matrix** (also under the active Story in the sidebar) shows the same rows as a table; selecting a row opens its obligations, what needs attention and its next commands.
 
 ## Guided workflow
@@ -56,6 +56,16 @@ Every requirement statement found in the Story's sources must reach a dispositio
 
 A document the inventory cannot read (an HTTPS link, a file kept on one machine, a PDF without a text layer) is listed as unreadable and stays unresolved until someone records a decision for it. A decision binds the statement's text: if the statement changes, it is a new item. Someone in the group that approves the step defining the Story's scope records each decision; when the workflow leaves scope out and that group decided scope does not apply, the decision covers every undisposed statement and the inventory says so.
 
+### Completeness review
+
+Three states are kept apart and shown separately:
+
+- **Structurally complete:** every identified statement has a disposition. Completeness is claimed only relative to the statements the inventory identified.
+- **Completeness reviewed:** once the inventory is structurally complete, someone in the same group reviews its interpretation and answers every article of the requirements-quality checklist: completeness, ambiguity, consistency, verifiability, boundary conditions and non-functional requirements. Each answer is satisfied, an exception or not applicable, and anything but satisfied needs a reason. The review names the exact inventory digest it read (`--confirm`), so a later change to any statement or disposition makes it no longer current.
+- **Correctness:** never claimed. A review says a person assessed the interpretation, not that the scope is right.
+
+The matrix header, the pull request summary and `evidence scope` show both states. A reviewer agent may propose findings and mappings; only a person records the review.
+
 ## State and safety
 
 Assurance is stated at its real strength. A passing test command over a criterion's tagged test is `module-observed`: no individual test-case result is joined to a criterion yet. A command that passed with skipped tests makes the criterion inconclusive, because which test was skipped is not known. A failed command fails the criterion unless a governed risk decision accepted it, and the failed observation stays visible beside the exception.
@@ -72,6 +82,9 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **A row is inconclusive with skipped tests:** remove the skip or make the criterion's test run, then submit again.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.
 - **`SCOPE_ITEMS_UNRESOLVED`:** a requirement statement in the Story's sources has no disposition; run `singularity-flow evidence scope` and record each with `decision scope`.
+- **`SCOPE_INVENTORY_INCOMPLETE`:** the completeness review waits until every statement has a disposition.
+- **`SCOPE_INVENTORY_CHANGED`:** the inventory changed after you read it; run `singularity-flow evidence scope` again, review it, and confirm the digest it shows now.
+- **`SCOPE_CHECKLIST_INCOMPLETE`:** answer each checklist article exactly once with `--article <id>=<decision>`, with `--article-reason` for any exception or not applicable.
 
 ## Related topics
 

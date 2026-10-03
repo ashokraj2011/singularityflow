@@ -94,6 +94,11 @@ export function matrixCells(row) {
   return { row: row.id, type: row.type, plan: planCell(row), implementation: implementationCell(row), verification: verificationCell(row), result: resultCell(row) };
 }
 
+/** The scope status in words: three separate states, and never a claim of correctness [E2G-007]. */
+function scopeLine(scope) {
+  return `${scope.words.structure}; ${scope.words.review}; ${scope.words.correctness}`;
+}
+
 /** Narrow-terminal rendering of one page. */
 export function matrixText({ evaluation, page }) {
   const results = evaluation.summary.results;
@@ -104,6 +109,7 @@ export function matrixText({ evaluation, page }) {
     `Lifecycle: ${evaluation.lifecycle.words}`,
     `Completion: ${evaluation.completion.label}${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
     `Required assurance: ${evaluation.requiredAssurance.level} (${evaluation.requiredAssurance.source})`,
+    ...(evaluation.summary.scope ? [`Scope: ${scopeLine(evaluation.summary.scope)}`] : []),
     ''
   ];
   if (page.rows.length) {
@@ -138,7 +144,8 @@ export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
     `- Completion: **${evaluation.completion.label}**${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
     `- Lifecycle: ${evaluation.lifecycle.words}`,
     `- Rows: ${evaluation.summary.rows} — ${results}`,
-    `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; no test-case result is joined to a criterion yet`
+    `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; no test-case result is joined to a criterion yet`,
+    ...(evaluation.summary.scope ? [`- Scope: ${scopeLine(evaluation.summary.scope)}`] : [])
   ];
   if (open.length) {
     lines.push(`- Open obligations (${open.length}):`, ...open.slice(0, limit).map((entry) => `  - ${entry}`));

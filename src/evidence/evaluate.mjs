@@ -100,6 +100,30 @@ function ordered(records, workflow) {
 }
 
 /** Evaluate a loaded evidence graph. `boundary` names the evaluation point; views use `view`. */
+/**
+ * The accepted scope in three separate states [E2G-007]: every identified statement has a
+ * disposition; a person reviewed the interpretation of exactly this inventory; and correctness,
+ * which is never claimed. Every surface shows these words rather than composing its own.
+ */
+function scopeSummary(inventory, review) {
+  const statements = inventory.items.length;
+  const unresolved = inventory.summary.unresolved;
+  return {
+    inventorySha256: inventory.inventorySha256,
+    statements,
+    unresolved,
+    structurallyComplete: inventory.structurallyComplete,
+    completenessReviewed: Boolean(review),
+    completenessReview: review ? { actor: review.actor, authorityGroup: review.authorityGroup, at: review.at } : null,
+    correctness: 'never-claimed',
+    words: {
+      structure: inventory.structurallyComplete ? `structurally complete (${statements} statement${statements === 1 ? '' : 's'})` : `${unresolved} of ${statements} statement(s) unresolved`,
+      review: review ? `completeness reviewed by ${review.actor} (${review.authorityGroup})` : 'not reviewed for completeness',
+      correctness: 'correctness is never claimed'
+    }
+  };
+}
+
 export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE } = {}) {
   const workflow = graph.workflow;
   const workId = workflow.workItem.id;
@@ -446,7 +470,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       rows: allRows.length,
       results: Object.fromEntries(ROW_RESULTS.map((result) => [result, counts[result] ?? 0])),
       assuranceFloor: weakestAssurance(verified.map((row) => row.assurance)),
-      testCaseResults: 'not joined to criteria yet'
+      testCaseResults: 'not joined to criteria yet',
+      scope: graph.scope ? scopeSummary(graph.scope, graph.completenessReview) : null
     },
     decision: { gate, boundary },
     completion: completionLabel({ workflow, rows: allRows, terminal: graph.terminal ?? null, gate })

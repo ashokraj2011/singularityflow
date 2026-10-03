@@ -37,6 +37,19 @@ export type EvidenceRow = {
   readonly statement: { readonly text: string; readonly disposition: string; readonly coveredBy: string | null } | null;
 };
 
+/**
+ * The accepted scope in the engine's three separate states [E2G-007]: whether every identified
+ * statement has a disposition, whether a person reviewed exactly this inventory, and correctness,
+ * which is never claimed.
+ */
+export type EvidenceScope = {
+  readonly structurallyComplete: boolean;
+  readonly completenessReviewed: boolean;
+  readonly structure: string;
+  readonly review: string;
+  readonly correctness: string;
+};
+
 export type EvidenceView = {
   readonly workId: string;
   readonly title: string | null;
@@ -46,6 +59,7 @@ export type EvidenceView = {
   readonly counts: readonly { readonly result: string; readonly count: number }[];
   readonly assuranceFloor: string | null;
   readonly requiredAssurance: string | null;
+  readonly scope: EvidenceScope | null;
   readonly rows: readonly EvidenceRow[];
   readonly total: number;
   readonly unreadable: readonly string[];
@@ -73,6 +87,18 @@ function applicabilityOf(value: any): EvidenceApplicability | null {
     declaredReason: typeof value.declaredReason === 'string' ? value.declaredReason : null,
     satisfied: value.satisfied === true,
     decision
+  };
+}
+
+function scopeOf(value: any): EvidenceScope | null {
+  const words = value?.words;
+  if (!words || typeof words.structure !== 'string' || typeof words.review !== 'string') return null;
+  return {
+    structurallyComplete: value.structurallyComplete === true,
+    completenessReviewed: value.completenessReviewed === true,
+    structure: words.structure,
+    review: words.review,
+    correctness: text(words.correctness)
   };
 }
 
@@ -114,6 +140,7 @@ export function evidenceView(result: unknown): EvidenceView | null {
     counts,
     assuranceFloor: typeof evaluation.summary?.assuranceFloor === 'string' ? evaluation.summary.assuranceFloor : null,
     requiredAssurance: typeof evaluation.requiredAssurance?.level === 'string' ? evaluation.requiredAssurance.level : null,
+    scope: scopeOf(evaluation.summary?.scope),
     rows,
     total: typeof matrix.page?.total === 'number' ? matrix.page.total : rows.length,
     unreadable: list<string>(evaluation.findings, (finding) => (finding?.category === 'records' && typeof finding.message === 'string' ? finding.message : null))

@@ -7,7 +7,7 @@
  */
 import { repoRoot } from '../git.mjs';
 import { loadEvidenceGraph } from '../evidence/graph.mjs';
-import { because, commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
+import { action, because, commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, SingularityFlowError } from '../util.mjs';
 
@@ -29,6 +29,12 @@ export async function run(_argv, { positionals, options }) {
     effects: noEffects(),
     why: [because('scope.from-pinned-sources', 'evidence', { ref: inventory.workId, topic: 'evidence-matrix' })],
     restState: 'informational',
-    data: { scope: inventory }
+    next: inventory.structurallyComplete && !graph.completenessReview ? [action({
+      id: 'scope-completeness-review',
+      label: 'Review the interpretation, then answer each checklist article once (completeness, ambiguity, consistency, verifiability, boundary-conditions, non-functional) and say what you assessed; a review never says the scope is correct.',
+      command: `singularity-flow decision completeness ${inventory.workId} --confirm ${inventory.inventorySha256} --article <article>=satisfied|exception|not-applicable --reason <reason>`,
+      kind: 'review'
+    })] : [],
+    data: { scope: inventory, completenessReview: graph.completenessReview ?? null }
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
 }

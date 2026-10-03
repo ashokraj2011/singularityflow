@@ -187,6 +187,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.workId)}: ${slot(s.items, '0')} requirement statement(s) from ${slot(s.sources, '0')} source(s); ${slot(s.unresolved, '0')} without a disposition.`,
     preserves: true
   },
+  'decision.completeness.succeeded': {
+    headline: (s) => `Recorded a completeness review of scope inventory ${slot(s.inventory)}; a person reviewed it, which never says it is correct.`,
+    preserves: false
+  },
   'decision.scope.succeeded': {
     headline: (s) => `Recorded that ${slot(s.item)} is ${slot(s.disposition)}.`,
     preserves: false

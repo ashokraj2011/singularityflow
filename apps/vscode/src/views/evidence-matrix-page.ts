@@ -75,6 +75,13 @@ function drawerHtml(row: EvidenceRow | null): string {
 }
 
 /** The page body; `selected` is a row ID the panel looked up in the rows it loaded. */
+/** Structural completeness and the completeness review side by side; correctness is never claimed. */
+function scopeCard(view: EvidenceView): string {
+  if (!view.scope) return '';
+  return `<div class="summary-card${view.scope.structurallyComplete ? '' : ' important'}"><span class="eyebrow">Scope</span><strong>${escape(view.scope.structure)}</strong>
+        <small>${escape(view.scope.review)}; ${escape(view.scope.correctness)}</small></div>`;
+}
+
 export function evidenceMatrixHtml(view: EvidenceView | null, selected: string | null, error: string | null, token: string): string {
   const header = `<header class="inbox-header">
       <h1>${icon('gate', { size: 20 })}Evidence matrix</h1>
@@ -100,6 +107,7 @@ export function evidenceMatrixHtml(view: EvidenceView | null, selected: string |
       <div class="summary-card"><span class="eyebrow">Assurance floor</span><strong>${escape(view.assuranceFloor ?? 'none')}</strong>
         <small>required: ${escape(view.requiredAssurance ?? '—')}</small></div>
       <div class="summary-card"><span class="eyebrow">Rows</span><strong>${escape(String(view.total))}</strong><small>${escape(counts)}</small></div>
+      ${scopeCard(view)}
     </div>
     <div class="evidence-layout">${table}${drawerHtml(current)}</div>
     ${unreadable}

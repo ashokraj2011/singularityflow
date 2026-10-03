@@ -11,7 +11,8 @@ import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { extractNormativeStatements, normalizeStatement, scopeItemId, statementSha256, storySourceStatements } from '../src/scope/extract.mjs';
 import { buildScopeInventory } from '../src/scope/inventory.mjs';
-import { recordScopeDecision } from '../src/scope/decisions.mjs';
+import { matrixMarkdown, matrixPage, matrixText } from '../src/evidence/matrix.mjs';
+import { currentCompletenessReview, recordCompletenessReview, recordScopeDecision } from '../src/scope/decisions.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'singularity-flow.mjs');
@@ -147,6 +148,59 @@ test('a decision that scope does not apply covers every undisposed statement, vi
   assert.equal(inventory.structurallyComplete, true);
 });
 
+const ARTICLES = ['completeness', 'ambiguity', 'consistency', 'verifiability', 'boundary-conditions', 'non-functional'];
+
+test('a completeness review answers every checklist article for exactly one structurally complete inventory', async (t) => {
+  const { root, directory } = await storyDirectory(t);
+  const story = workflow();
+  const source = { description: 'The API must stay stable.' };
+  const open = await buildScopeInventory(root, directory, story, { source, clauses: [] });
+  const checklist = ARTICLES.map((article) => ({ article, decision: 'satisfied' }));
+  const review = (inventory, overrides = {}) => recordCompletenessReview(story, {
+    inventory, confirm: inventory.inventorySha256, checklist, reason: 'Read every source against the checklist; nothing is missing.',
+    actor: 'po@example.test', authorityGroup: 'product-approvers', at: '2026-10-03T00:00:00.000Z', ...overrides
+  });
+  assert.throws(() => review(open), (error) => error.code === 'SCOPE_INVENTORY_INCOMPLETE', 'unresolved statements come first');
+
+  const covered = await buildScopeInventory(root, directory, story, { source, clauses: [], scopeNotApplicable: true });
+  assert.equal(covered.structurallyComplete, true);
+  assert.throws(() => review(covered, { confirm: open.inventorySha256 }), (error) => error.code === 'SCOPE_INVENTORY_CHANGED');
+  assert.throws(() => review(covered, { checklist: checklist.slice(1) }), (error) => error.code === 'SCOPE_CHECKLIST_INCOMPLETE', 'no article may be skipped');
+  assert.throws(() => review(covered, { checklist: [...checklist, { article: 'vibes', decision: 'satisfied' }] }), (error) => error.code === 'SCOPE_CHECKLIST_INCOMPLETE');
+  assert.throws(() => review(covered, { checklist: checklist.map((entry) => (entry.article === 'non-functional' ? { article: entry.article, decision: 'exception' } : entry)) }),
+    (error) => error.code === 'SCOPE_CHECKLIST_INCOMPLETE', 'an exception needs its reason');
+  assert.throws(() => review(covered, { reason: 'fine' }), (error) => error.code === 'SCOPE_REASON_REQUIRED');
+  assert.equal(story.completenessReviews, undefined, 'a refusal records nothing');
+
+  const recorded = review(covered, { checklist: checklist.map((entry) => (entry.article === 'non-functional'
+    ? { article: entry.article, decision: 'not-applicable', reason: 'A wording change has no latency or privacy aspect.' } : entry)) });
+  assert.deepEqual(recorded.checklist.decisions.map((entry) => entry.article), ARTICLES, 'decisions follow the checklist order');
+  assert.equal(recorded.checklist.decisions.at(-1).reason, 'A wording change has no latency or privacy aspect.');
+  assert.equal(currentCompletenessReview(story, covered), recorded);
+  assert.equal(currentCompletenessReview(story, open), null, 'a review speaks only for the inventory it read');
+
+  const evaluation = evaluateEvidence(evidenceGraph({ workflow: story, records: { indexes: [] }, scope: covered }));
+  assert.deepEqual(
+    [evaluation.summary.scope.structurallyComplete, evaluation.summary.scope.completenessReviewed, evaluation.summary.scope.correctness],
+    [true, true, 'never-claimed']
+  );
+  assert.match(matrixMarkdown(evaluation), /- Scope: structurally complete \(\d+ statements?\); completeness reviewed by po@example\.test \(product-approvers\); correctness is never claimed/);
+  assert.match(matrixText({ evaluation, page: matrixPage(evaluation) }), /Scope: structurally complete/);
+  assert.doesNotMatch(matrixMarkdown(evaluation), /\bis correct\b|guarantee/i);
+
+  // A changed disposition is a different inventory: the earlier review no longer speaks for it.
+  const item = open.items.find((entry) => entry.text === 'The API must stay stable.');
+  recordScopeDecision(story, {
+    item: item.id, disposition: 'excluded', reason: 'Stability is owned by the platform team, not this Story.',
+    actor: 'po@example.test', authorityGroup: 'product-approvers', at: '2026-10-03T01:00:00.000Z', inventory: open, knownClauseIds: []
+  });
+  const changed = await buildScopeInventory(root, directory, story, { source, clauses: [], scopeNotApplicable: true });
+  assert.notEqual(changed.inventorySha256, covered.inventorySha256);
+  const later = evaluateEvidence(evidenceGraph({ workflow: story, records: { indexes: [] }, scope: changed }));
+  assert.deepEqual([later.summary.scope.completenessReviewed, later.summary.scope.words.review], [false, 'not reviewed for completeness']);
+  assert.notEqual(later.inputSha256, evaluation.inputSha256);
+});
+
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',
@@ -196,4 +250,24 @@ test('the CLI shows the inventory and records a scope decision through the scope
   const workflowState = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-1/workflow.json'), 'utf8'));
   assert.equal(workflowState.scopeDispositions.at(-1).authorityGroup, 'product-approvers');
   assert.equal(workflowState.history.at(-1).event, 'scope_decided');
+
+  // The completeness review [E2G-007] names the inventory it read and answers every article.
+  const articles = ARTICLES.flatMap((article) => ['--article', `${article}=satisfied`]);
+  const stale = run(process.execPath, [CLI, '--no-model', 'decision', 'completeness', '--confirm', shown.data.scope.inventorySha256, ...articles,
+    '--reason', 'Every source read against the six checklist articles.', '--json'], root, { allowFailure: true });
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stdout + stale.stderr, /SCOPE_INVENTORY_CHANGED/);
+  const offered = JSON.parse(sflow('evidence', 'scope', '--json').stdout);
+  assert.match(offered.next[0].command, /decision completeness SCOPE-1 --confirm sha256:[0-9a-f]{64} --article /);
+  sflow('decision', 'completeness', '--confirm', after.inventorySha256, ...articles, '--reason', 'Every source read against the six checklist articles.');
+  const reviewed = JSON.parse(sflow('evidence', 'scope', '--json').stdout);
+  assert.equal(reviewed.data.completenessReview.authorityGroup, 'product-approvers');
+  assert.deepEqual(reviewed.next, [], 'a current review is not offered again');
+  assert.match(sflow('evidence', 'scope').stdout, /Completeness reviewed: yes, by .+ through product-approvers/);
+  const matrix = JSON.parse(sflow('evidence', 'matrix', '--format', 'json').stdout);
+  const summary = (matrix.data?.matrix?.evaluation ?? matrix.evaluation ?? matrix).summary;
+  assert.equal(summary.scope.completenessReviewed, true);
+  const reviewedState = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-1/workflow.json'), 'utf8'));
+  assert.equal(reviewedState.history.at(-1).event, 'completeness_reviewed');
+  assert.equal(reviewedState.completenessReviews.at(-1).inventorySha256, after.inventorySha256);
 });

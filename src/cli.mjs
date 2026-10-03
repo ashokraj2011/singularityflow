@@ -1,4 +1,4 @@
-import { recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
+import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
 import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
@@ -8708,7 +8708,8 @@ async function decisionCommand(positionals, options) {
   if (action === 'choose') return decisionChooseCommand(positionals, options);
   if (action === 'applicability') return decisionApplicabilityCommand(positionals, options);
   if (action === 'scope') return decisionScopeCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability or decision scope.`,
+  if (action === 'completeness') return decisionCompletenessCommand(positionals, options);
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope or decision completeness.`,
     { code: 'COMMAND_UNKNOWN' });
 }
 
@@ -8962,6 +8963,87 @@ async function decisionScopeCommand(positionals, options) {
     outcome: succeeded('decision.scope.succeeded', { item, disposition }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     data: { commit: publication.sha, pushed: publication.pushed, decision }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+/**
+ * `decision completeness`: someone in the group that approves the scope step records that they
+ * reviewed the inventory's interpretation, bound to its exact digest [E2G-007].
+ */
+async function decisionCompletenessCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    await checkout(root, requestedId, {
+      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
+    });
+  }
+  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
+  const id = workflow.workItem.id;
+  if (workflow.status !== 'in_progress') {
+    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its scope is reviewed while it is in progress.`, { code: 'SCOPE_STORY_CLOSED' });
+  }
+  const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
+  const inventory = (await evidenceGraphFromAggregate(root, config, workflow)).scope;
+  if (!inventory) {
+    throw new SingularityFlowError('The scope inventory of this Story cannot be built; see singularity-flow evidence scope.', { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
+  }
+  const groups = scopeAuthorities(workflow);
+  if (!groups.length) {
+    throw new SingularityFlowError('No step of this Story defines its scope with an approval group, so nobody can review it.', { code: 'SCOPE_AUTHORITY_UNAVAILABLE' });
+  }
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const checklist = await checklistDecisions(options);
+  const decide = (aggregate) => recordCompletenessReview(aggregate, {
+    inventory, confirm: optionString(options, 'confirm') ?? null, checklist, reason: optionString(options, 'reason') ?? '',
+    actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso()
+  });
+  decide(structuredClone(workflow));
+  const { value: review, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'completeness', inventorySha256: inventory.inventorySha256 }
+    },
+    `[${id}][scope:completeness] reviewed`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record a completeness review');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'completeness_reviewed', phase: aggregate.currentPhase ?? null,
+        detail: `Scope inventory ${recorded.inventorySha256} reviewed for completeness. ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'completeness', inventorySha256: recorded.inventorySha256, reviewPacketSha256: null }
+      })
+    }
+  );
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Recorded that ${review.actor} reviewed the scope of ${id} for completeness through ${review.authorityGroup}.`);
+    console.log(publication.pushed
+      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.completeness', classification: 'mutation' },
+    subject: { kind: 'story', id },
+    outcome: succeeded('decision.completeness.succeeded', { inventory: review.inventorySha256.slice(7, 19) }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, review }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

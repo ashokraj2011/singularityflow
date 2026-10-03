@@ -554,6 +554,8 @@ export function renderCommandResult(result) {
     return [
       style.heading(headline(result)),
       `Structurally complete: ${scope.structurallyComplete ? 'yes, every identified statement has a disposition' : 'no'} (inventory ${scope.inventorySha256.slice(7, 19)})`,
+      `Completeness reviewed: ${result.data.completenessReview ? `yes, by ${result.data.completenessReview.actor} through ${result.data.completenessReview.authorityGroup} on ${result.data.completenessReview.at.slice(0, 10)}` : 'no'}`,
+      'Correctness: never claimed; a review says a person assessed the interpretation.',
       '', style.heading('Sources:'),
       ...scope.sources.map((source) => `  ${source.id} (${source.kind}): ${source.readable ? `${source.statements} statement(s)` : `unreadable: ${source.reason}`}`),
       ...order.flatMap((disposition) => {
@@ -563,6 +565,7 @@ export function renderCommandResult(result) {
           ...items.map((item) => `  ${item.id} [${item.sourceId}${item.line ? `:${item.line}` : ''}] ${item.text}${item.clauseIds?.length ? ` → ${item.clauseIds.join(', ')}` : ''}${item.duplicateOf ? ` (duplicate of ${item.duplicateOf})` : ''}`)];
       }),
       ...(scope.summary.unresolved ? ['', 'Record each unresolved statement: singularity-flow decision scope --item <ID> --as <disposition> --reason "<why>"'] : []),
+      ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
     ].join('\n');
   }

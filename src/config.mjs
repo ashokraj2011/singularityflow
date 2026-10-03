@@ -71,6 +71,7 @@ import {
   phaseRequiresCodeDelivery, pinCodeDeliveryTask, stepOutputKind
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
+import { normalizeIntegrations, normalizeStepActions, pinStepActions } from './step-actions.mjs';
 import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
 } from './intelligence-policy.mjs';
@@ -1010,14 +1011,18 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
+  // Integration targets first: every step's after-step actions are checked against them.
+  definition.integrations = normalizeIntegrations(definition.integrations);
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
     assertConfiguredPhaseProducer(phase, `Phase '${phaseId}'`, phaseId, definition.version);
     if (phase && typeof phase === 'object') assertStepAuthoringSkill({ ...phase, id: phaseId }, `Phase '${phaseId}'`);
     else assertAuthoringSkillValue(phase?.authoringSkill, `Phase '${phaseId}'`);
+    normalizeStepActions(phase?.afterStep, definition.integrations, `Phase '${phaseId}'`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
       assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
+      normalizeStepActions(override?.afterStep, definition.integrations, `Work type '${workTypeId}' phase '${phaseId}' override`);
       if (definition.version === 3 && definition.phases[phaseId]?.kind === 'skill') {
         assertNoSkillPhaseOverride(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
       } else assertSupportedPhaseProducer(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
@@ -2249,6 +2254,12 @@ export function resolveWorkType(definition, workTypeId) {
     const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
     assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     assertStepAuthoringSkill(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
+    // Pinned with each target's settings, so a running Story keeps the actions it started with. A step
+    // without actions keeps its existing resolved shape, so workflows that use none hash as before.
+    const integrations = normalizeIntegrations(definition.integrations);
+    const afterStep = normalizeStepActions(merged.afterStep, integrations, `Work type '${workTypeId}' phase '${id}'`);
+    if (afterStep.length) resolvedPhase.afterStep = pinStepActions(afterStep, integrations);
+    else delete resolvedPhase.afterStep;
     return resolvedPhase;
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));

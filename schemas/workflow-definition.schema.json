@@ -267,6 +267,7 @@
       },
       "additionalProperties": false
     },
+    "integrations": { "$ref": "#/$defs/integrations" },
     "collaboration": {
       "type": "object",
       "properties": {
@@ -482,6 +483,7 @@
                 "inputs": { "$ref": "#/$defs/phaseInputs" },
                 "clarification": { "$ref": "#/$defs/clarificationPolicy" },
                 "authoringSkill": { "$ref": "#/$defs/authoringSkill" },
+                "afterStep": { "$ref": "#/$defs/afterStep" },
                 "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
               }
             }
@@ -511,6 +513,7 @@
           "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
           "clarification": { "$ref": "#/$defs/clarificationPolicy" },
           "authoringSkill": { "$ref": "#/$defs/authoringSkill" },
+          "afterStep": { "$ref": "#/$defs/afterStep" },
           "generation": { "$ref": "#/$defs/generationPolicy" },
           "mcp": { "$ref": "#/$defs/phaseMcpPolicy" },
           "repairBudget": { "$ref": "#/$defs/repairBudget" },
@@ -758,6 +761,62 @@
     }
   ],
   "$defs": {
+    "secretName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+      "description": "The name of an environment secret on the delivering machine. Configuration names secrets; it never holds their values."
+    },
+    "integrations": {
+      "type": "object",
+      "description": "Named connections that after-step actions deliver to. Targets hold addresses and secret names only.",
+      "properties": {
+        "targets": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+          "additionalProperties": { "$ref": "#/$defs/integrationTarget" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrationTarget": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["webhook", "http-log", "teams"] },
+        "label": { "type": "string", "maxLength": 80 },
+        "network": { "enum": ["public", "private"] },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "url": { "type": "string", "pattern": "^(https://|http://(localhost|127\\.0\\.0\\.1|\\[::1\\]))", "maxLength": 2048 },
+        "signingSecret": { "$ref": "#/$defs/secretName" },
+        "tokenSecret": { "$ref": "#/$defs/secretName" },
+        "urlSecret": { "$ref": "#/$defs/secretName" },
+        "format": { "enum": ["json", "splunk-hec", "datadog", "elastic", "loki"] },
+        "labels": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "string", "maxLength": 200 } }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "webhook" } } }, "then": { "required": ["url"] } },
+        { "if": { "properties": { "kind": { "const": "http-log" } } }, "then": { "required": ["url"] } },
+        { "if": { "properties": { "kind": { "const": "teams" } } }, "then": { "required": ["urlSecret"] } }
+      ]
+    },
+    "afterStep": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Actions this step sends to integration targets after it is submitted, approved or rejected. A Story pins them when it starts; a failed delivery never undoes a transition.",
+      "items": {
+        "type": "object",
+        "required": ["id", "on", "target"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 63 },
+          "on": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["submitted", "approved", "rejected"] } },
+          "target": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+          "send": { "enum": ["event", "summary", "artifact"] }
+        },
+        "additionalProperties": false
+      }
+    },
     "authoringSkill": {
       "type": ["string", "null"],
       "pattern": "^sf-[a-z0-9]+(?:-[a-z0-9]+)*$",

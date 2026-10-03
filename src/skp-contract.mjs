@@ -27,7 +27,7 @@ export const SKP_CONTRACT_COMPILER = 'skp-contract/v1';
 export const SKP_PHASE_BINDING_VERSION = 1;
 const PHASE_POLICY_FIELDS = [
   'label', 'artifact', 'inputs', 'qualityCommands', 'approval', 'writeScope',
-  'generation', 'clarification', 'artifactSet'
+  'generation', 'clarification', 'artifactSet', 'afterStep'
 ];
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;

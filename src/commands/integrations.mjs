@@ -8,7 +8,8 @@
  *           (for a Jira target: the comment it would write; --send-test checks the connection and
  *           the issue without writing anything; for a Git target: the commit it would make;
  *           --send-test checks that the repository can be read; for Confluence: the page it would
- *           write; --send-test reads the parent page)
+ *           write; --send-test reads the parent page; for OneDrive: the file it would upload;
+ *           --send-test reads the drive)
  */
 import { repoRoot } from '../git.mjs';
 import { loadConfig } from '../state-stores.mjs';
@@ -26,6 +27,7 @@ import {
 import { gitDeliveryHint, gitDeliveryMessage, jiraAttachmentName, jiraCommentText } from '../step-action-writers.mjs';
 import { DEFAULT_GIT_DELIVERY_PATH, renderConfluenceTitle, renderGitDeliveryPath } from '../step-actions.mjs';
 import { confluencePageBody } from '../step-action-confluence.mjs';
+import { GRAPH_BASE, graphDrivePath, oneDriveItemPath } from '../step-action-onedrive.mjs';
 import { pinnedHttpRequest } from '../pinned-http.mjs';
 import { getCurrentUser, jiraConnectionFromEnv, listIssueTransitions } from '../jira.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
@@ -69,6 +71,7 @@ function targetAddress(target) {
   if (target.kind === 'jira') return target.issue ?? "each Story's Jira issue";
   if (target.kind === 'git') return `${target.repository} → ${target.branch}`;
   if (target.kind === 'confluence') return `${target.url} (under page ${target.parentPage})`;
+  if (target.kind === 'onedrive') return `drive ${target.drive}${target.site ? ` on site ${target.site}` : ''}`;
   return target.url ?? `(address in ${target.urlSecret})`;
 }
 
@@ -196,6 +199,7 @@ async function testCommand(root, config, positionals, options, operation, json) 
   const record = { key, trigger, action: actionEntry, event };
   if (target.kind === 'jira') return jiraTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   if (target.kind === 'git') return gitTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
+  if (target.kind === 'onedrive') return oneDriveTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   if (target.kind === 'confluence') return confluenceTest(target, { ...record, workId: 'TEST', phaseId, generation: 0 }, { operation, json, sendIt: optionBoolean(options, 'send-test') });
   const request = deliveryRequest(record, process.env);
   const preview = request.url ? { method: 'POST', url: request.url, headers: redactedHeaders(request.headers), body: JSON.parse(request.body) } : null;
@@ -302,6 +306,43 @@ async function gitTest(target, record, { operation, json, sendIt }) {
     console.log(`File: ${plan.path}`);
     console.log('');
     console.log(plan.message);
+    if (checks.length) {
+      console.log('');
+      for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);
+    }
+  }
+  const ok = checks.every((entry) => entry.ok);
+  return emitCommandResult(result(operation, succeeded('integrations.tested', {
+    target: target.id, sent: false, outcome: checks.length ? (ok ? 'checked' : 'check-failed') : 'previewed', status: null
+  }), { data: { target: target.id, request: null, plan, checks, unavailable: null, failed: null, delivery: null } }), { json });
+}
+
+/**
+ * A OneDrive target's test: where the file would go, and with --send-test a read of the drive with
+ * the token. It never uploads.
+ */
+async function oneDriveTest(target, record, { operation, json, sendIt }) {
+  record.artifact = { path: 'artifacts/example-step/example-step.md', sha256: null, mediaType: 'text/markdown', base64: Buffer.from('# Example artifact\n').toString('base64') };
+  const plan = { drive: target.drive, site: target.site ?? null, file: oneDriveItemPath(record), replaces: false };
+  const checks = [];
+  if (sendIt) {
+    const token = String(process.env[target.tokenSecret] ?? '').trim();
+    if (!token) checks.push({ check: `Secret ${target.tokenSecret}`, ok: false, detail: 'not set on this machine' });
+    else {
+      const answer = await pinnedHttpRequest({
+        url: `${GRAPH_BASE}${graphDrivePath(target)}/root`, method: 'GET', timeoutMs: (target.timeoutSeconds ?? 10) * 1000,
+        network: 'public', maxResponseBytes: 256 * 1024, headers: { accept: 'application/json', authorization: `Bearer ${token}` }
+      });
+      if (answer.transport) checks.push({ check: 'Can reach Microsoft Graph', ok: false, detail: answer.transport.detail });
+      else {
+        const ok = answer.status >= 200 && answer.status < 300;
+        checks.push({ check: `Can see drive ${target.drive}`, ok, detail: ok ? null : `HTTP ${answer.status}${answer.status === 401 ? ' (the token has expired or lacks Files permissions)' : ''}` });
+      }
+    }
+  }
+  if (!json) {
+    console.log(`Drive: ${plan.drive}${plan.site ? ` on site ${plan.site}` : ''}`);
+    console.log(`File: ${plan.file} (never replaces a file already there)`);
     if (checks.length) {
       console.log('');
       for (const entry of checks) console.log(`${entry.ok ? 'ok  ' : 'FAIL'} ${entry.check}${entry.detail ? `: ${entry.detail}` : ''}`);

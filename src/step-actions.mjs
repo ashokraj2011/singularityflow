@@ -51,7 +51,7 @@ export const INTEGRATION_TARGET_KINDS = Object.freeze({
   jira: Object.freeze({ available: true, label: 'Jira', sends: Object.freeze(['event', 'summary', 'artifact']) }),
   git: Object.freeze({ available: true, label: 'Git', sends: Object.freeze(['artifact']) }),
   confluence: Object.freeze({ available: true, label: 'Confluence', sends: Object.freeze(['summary', 'artifact']) }),
-  onedrive: Object.freeze({ available: false, label: 'OneDrive or SharePoint', sends: Object.freeze(['artifact']) })
+  onedrive: Object.freeze({ available: true, label: 'OneDrive or SharePoint', sends: Object.freeze(['artifact']) })
 });
 
 export const HTTP_LOG_FORMATS = Object.freeze(['json', 'splunk-hec', 'datadog', 'elastic', 'loki']);
@@ -64,8 +64,18 @@ const TARGET_FIELDS = Object.freeze({
   teams: Object.freeze(['urlSecret']),
   jira: Object.freeze(['issue', 'transition']),
   git: Object.freeze(['repository', 'branch', 'path']),
-  confluence: Object.freeze(['url', 'deployment', 'parentPage', 'user', 'tokenSecret', 'title'])
+  confluence: Object.freeze(['url', 'deployment', 'parentPage', 'user', 'tokenSecret', 'title']),
+  onedrive: Object.freeze(['drive', 'site', 'folder', 'tokenSecret'])
 });
+export const DEFAULT_ONEDRIVE_FOLDER = 'sflow/{story}/{step}/generation-{generation}';
+const ONEDRIVE_FOLDER_PLACEHOLDERS = Object.freeze(['story', 'step', 'generation', 'trigger']);
+
+/** The drive folder an upload goes to, from the target's folder template and one delivery. */
+export function renderOneDriveFolder(template, { workId, phaseId, generation, trigger }) {
+  const safe = (value) => String(value ?? '').replace(/[^A-Za-z0-9 ._()-]+/g, '-').replace(/\.{2,}/g, '.').replace(/^[ .-]+|[ .]+$/g, '').slice(0, 120) || 'x';
+  const values = { story: safe(workId), step: safe(phaseId), generation: String(Number.isSafeInteger(generation) ? generation : 0), trigger: safe(trigger) };
+  return String(template ?? DEFAULT_ONEDRIVE_FOLDER).replace(/\{([a-z]+)\}/g, (_, name) => values[name] ?? name);
+}
 export const DEFAULT_CONFLUENCE_TITLE = '{story} — {step}';
 const CONFLUENCE_TITLE_PLACEHOLDERS = Object.freeze(['story', 'step', 'storyTitle']);
 
@@ -221,7 +231,9 @@ function normalizeTarget(id, raw, label) {
     }
     target.label = raw.label.trim();
   }
-  if (kind === 'git' && raw.network != null) {
+  if (kind === 'onedrive') {
+    // Microsoft Graph is one fixed public host; the network check comes with the other fields.
+  } else if (kind === 'git' && raw.network != null) {
     refuse('INTEGRATION_TARGET_INVALID', `${label} is a Git target: it reaches its repository through Git, so network does not apply.`, { location: label });
   } else if (kind === 'git') {
     // Git transport has its own rules; see the repository check below.
@@ -287,6 +299,36 @@ function normalizeTarget(id, raw, label) {
       target.issue = raw.issue;
     }
     if (raw.transition != null) target.transition = normalizeJiraTransition(raw.transition, label);
+  } else if (kind === 'onedrive') {
+    if (typeof raw.drive !== 'string' || !/^[A-Za-z0-9!_.-]{1,200}$/.test(raw.drive)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} drive must be the ID of a OneDrive or SharePoint document library drive, such as b!Xy3k...`, { location: label });
+    }
+    target.drive = raw.drive;
+    if (raw.site != null) {
+      if (typeof raw.site !== 'string' || !/^[A-Za-z0-9.,_:-]{1,300}$/.test(raw.site)) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} site must be a SharePoint site ID such as contoso.sharepoint.com,<id>,<id>.`, { location: label });
+      }
+      target.site = raw.site;
+    }
+    if (raw.folder != null) {
+      const folder = raw.folder;
+      const names = typeof folder === 'string' ? [...folder.matchAll(/\{([^}]*)\}/g)].map((match) => match[1]) : [];
+      if (typeof folder !== 'string' || !folder.trim() || folder.length > 300 || folder.startsWith('/')
+          || folder.split('/').some((part) => !/^[A-Za-z0-9 ._(){}-]+$/.test(part) || /^\s|\s$/.test(part) || part === '.' || part === '..')
+          || names.some((name) => !ONEDRIVE_FOLDER_PLACEHOLDERS.includes(name)) || !names.includes('generation')) {
+        refuse('INTEGRATION_TARGET_INVALID',
+          `${label} folder must be a relative path that includes {generation}, such as Specs/{story}/{step}/generation-{generation}, using only {story}, {step}, {generation} and {trigger}.`,
+          { location: label });
+      }
+      target.folder = folder;
+    }
+    if (raw.network != null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is a OneDrive target: it always reaches Microsoft Graph, so network does not apply.`, { location: label });
+    }
+    if (raw.tokenSecret == null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} needs tokenSecret: the name of the secret holding a Microsoft Graph access token.`, { location: label });
+    }
+    target.tokenSecret = assertSecretName(raw.tokenSecret, `${label} tokenSecret`);
   } else if (kind === 'confluence') {
     target.url = assertTargetUrl(raw.url, `${label} url`);
     const deployment = raw.deployment ?? 'cloud';

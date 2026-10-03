@@ -783,7 +783,7 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["webhook", "http-log", "teams", "jira", "git", "confluence"] },
+        "kind": { "enum": ["webhook", "http-log", "teams", "jira", "git", "confluence", "onedrive"] },
         "label": { "type": "string", "maxLength": 80 },
         "network": { "enum": ["public", "private"] },
         "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
@@ -793,6 +793,9 @@
         "urlSecret": { "$ref": "#/$defs/secretName" },
         "format": { "enum": ["json", "splunk-hec", "datadog", "elastic", "loki"] },
         "labels": { "type": "object", "maxProperties": 16, "additionalProperties": { "type": "string", "maxLength": 200 } },
+        "drive": { "type": "string", "pattern": "^[A-Za-z0-9!_.-]{1,200}$", "description": "The OneDrive or SharePoint document library drive an upload goes to." },
+        "site": { "type": "string", "pattern": "^[A-Za-z0-9.,_:-]{1,300}$", "description": "The SharePoint site the drive belongs to, when it is a site library." },
+        "folder": { "type": "string", "maxLength": 300, "description": "The folder an upload goes to; must include {generation}. Uses {story}, {step}, {generation} and {trigger}." },
         "deployment": { "enum": ["cloud", "data-center"], "description": "Confluence Cloud (REST v2, account email and API token) or Data Center (REST v1, personal access token)." },
         "parentPage": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$", "description": "The ID of the Confluence page new pages are created under." },
         "user": { "type": "string", "maxLength": 201, "description": "Confluence Cloud: the Atlassian account email the API token belongs to." },
@@ -823,7 +826,8 @@
         { "if": { "properties": { "kind": { "const": "teams" } } }, "then": { "required": ["urlSecret"] } },
         { "if": { "properties": { "kind": { "const": "jira" } } }, "then": { "not": { "required": ["network"] } } },
         { "if": { "properties": { "kind": { "const": "git" } } }, "then": { "required": ["repository", "branch"], "not": { "required": ["network"] } } },
-        { "if": { "properties": { "kind": { "const": "confluence" } } }, "then": { "required": ["url", "parentPage", "tokenSecret"] } }
+        { "if": { "properties": { "kind": { "const": "confluence" } } }, "then": { "required": ["url", "parentPage", "tokenSecret"] } },
+        { "if": { "properties": { "kind": { "const": "onedrive" } } }, "then": { "required": ["drive", "tokenSecret"], "not": { "required": ["network"] } } }
       ]
     },
     "afterStep": {

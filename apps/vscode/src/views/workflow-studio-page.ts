@@ -501,7 +501,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'import.generated': return agentName(change.agent) + ' fetches ' + change.target + ' for ' + phaseName(change.phase);
       case 'import.mcpServer': return (change.replace ? 'Update MCP server' : 'MCP server') + ' from ' + change.source + (change.agents && change.agents.length ? ' for ' + change.agents.map(agentName).join(', ') : ', for imports only');
       case 'import.remove': return 'Remove ' + change.key;
-      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : change.target.repository ? ': ' + change.target.repository + ' → ' + change.target.branch : change.target.issue ? ': issue ' + change.target.issue : change.target.kind === 'jira' ? ': each Story issue' : '');
+      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : change.target.repository ? ': ' + change.target.repository + ' → ' + change.target.branch : change.target.drive ? ': drive ' + change.target.drive : change.target.issue ? ': issue ' + change.target.issue : change.target.kind === 'jira' ? ': each Story issue' : '');
       case 'integration.target.update': return 'Target ' + change.id + ' changed';
       case 'integration.target.remove': return 'Remove target ' + change.id;
       case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
@@ -2170,7 +2170,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   var GIT_HTTPS = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+$/;
   var GIT_SSH = /^(ssh:\/\/[A-Za-z0-9._-]+@[A-Za-z0-9.-]+(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
   var GIT_DEFAULT_PATH = 'sflow/{story}/{step}/{file}';
-  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the approved document to a branch', confluence: 'A page per Story and step under a parent page', onedrive: 'Upload the document' };
+  var DRIVE_DEFAULT_FOLDER = 'sflow/{story}/{step}/generation-{generation}';
+  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on, attach to or move the Story issue', git: 'Commit the approved document to a branch', confluence: 'A page per Story and step under a parent page', onedrive: 'Upload the approved document to a folder' };
   var FORMAT_LABELS = { json: 'Any JSON endpoint', 'splunk-hec': 'Splunk HTTP Event Collector', datadog: 'Datadog logs', elastic: 'Elasticsearch', loki: 'Grafana Loki' };
 
   /** JSON with object keys sorted, so equal targets compare equal however their fields were set. */
@@ -2190,6 +2191,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (target.kind === 'jira') return target.issue ? 'Issue ' + target.issue : 'The Jira issue each Story was started from';
     if (target.kind === 'git') return target.repository + ' → ' + target.branch + ' · ' + (target.path || GIT_DEFAULT_PATH);
     if (target.kind === 'confluence') return target.url + ' · under page ' + target.parentPage + ' · ' + (target.deployment === 'data-center' ? 'Data Center' : 'Cloud');
+    if (target.kind === 'onedrive') return 'Drive ' + target.drive + (target.site ? ' on site ' + target.site : '') + ' · ' + (target.folder || DRIVE_DEFAULT_FOLDER);
     return target.url ? target.url : target.urlSecret ? 'Address kept in ' + target.urlSecret : '';
   }
   /** A Jira status per trigger, as the form shows it; one status for every trigger fills all three. */
@@ -2304,7 +2306,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function newTargetForm(kind) {
-    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', deployment: 'cloud', parentPage: '', user: '', title: '', problem: null };
+    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', deployment: 'cloud', parentPage: '', user: '', title: '', drive: '', site: '', folder: '', problem: null };
   }
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
@@ -2314,7 +2316,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '',
       issue: target.issue || '', transitions: jiraTransitionFields(target.transition),
       repository: target.repository || '', branch: target.branch || '', path: target.path || '',
-      deployment: target.deployment || 'cloud', parentPage: target.parentPage || '', user: target.user || '', title: target.title || '', problem: null };
+      deployment: target.deployment || 'cloud', parentPage: target.parentPage || '', user: target.user || '', title: target.title || '',
+      drive: target.drive || '', site: target.site || '', folder: target.folder || '', problem: null };
   }
   /** A secret name made from the target's ID, such as SFLOW_SECRET_TEAM_EVENTS_KEY. */
   function suggestedSecret(id, suffix) {
@@ -2323,7 +2326,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
   /** Fill the secret the kind needs with a name made from the ID, unless someone typed their own. */
   function suggestSecrets(form, previousId) {
-    [['signingSecret', 'KEY', form.kind === 'webhook'], ['tokenSecret', 'TOKEN', (form.kind === 'http-log' && TOKEN_FORMATS.indexOf(form.format) >= 0) || form.kind === 'confluence'], ['urlSecret', 'URL', form.kind === 'teams']].forEach(function (entry) {
+    [['signingSecret', 'KEY', form.kind === 'webhook'], ['tokenSecret', 'TOKEN', (form.kind === 'http-log' && TOKEN_FORMATS.indexOf(form.format) >= 0) || form.kind === 'confluence' || form.kind === 'onedrive'], ['urlSecret', 'URL', form.kind === 'teams']].forEach(function (entry) {
       var current = form[entry[0]];
       var ours = !current || current === suggestedSecret(previousId, entry[1]) || current === suggestedSecret(form.id, entry[1]);
       if (ours) form[entry[0]] = entry[2] && form.id ? suggestedSecret(form.id, entry[1]) : '';
@@ -2337,6 +2340,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (copy.path === GIT_DEFAULT_PATH) delete copy.path;
     if (copy.kind === 'confluence' && copy.deployment === 'cloud') delete copy.deployment;
     if (copy.title === '{story} — {step}') delete copy.title;
+    if (copy.folder === DRIVE_DEFAULT_FOLDER) delete copy.folder;
     return canonical(copy);
   }
 
@@ -2375,6 +2379,26 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (form.network === 'private') target.network = 'private';
     } else if (form.kind === 'teams') {
       problem = secret('urlSecret', 'The name of the secret holding the webhook address', true);
+      if (problem) return { problem: problem };
+    } else if (form.kind === 'onedrive') {
+      var drive = String(form.drive || '').trim();
+      if (!/^[A-Za-z0-9!_.-]{1,200}$/.test(drive)) return { problem: 'Give the drive ID of the document library, such as b!Xy3k...' };
+      target.drive = drive;
+      var driveSite = String(form.site || '').trim();
+      if (driveSite) {
+        if (!/^[A-Za-z0-9.,_:-]{1,300}$/.test(driveSite)) return { problem: 'The site is a SharePoint site ID such as contoso.sharepoint.com,<id>,<id>, or empty.' };
+        target.site = driveSite;
+      }
+      var folder = String(form.folder || '').trim();
+      if (folder && folder !== DRIVE_DEFAULT_FOLDER) {
+        var folderNames = (folder.match(/\{[^}]*\}/g) || []).map(function (token) { return token.slice(1, -1); });
+        if (folder.charAt(0) === '/' || folder.length > 300 || folder.split('/').some(function (part) { return !/^[A-Za-z0-9 ._(){}-]+$/.test(part) || part.trim() !== part || part === '.' || part === '..'; })
+            || folderNames.some(function (name) { return ['story', 'step', 'generation', 'trigger'].indexOf(name) < 0; }) || folderNames.indexOf('generation') < 0) {
+          return { problem: 'The folder is a relative path that includes {generation}, such as Specs/{story}/{step}/generation-{generation}.' };
+        }
+        target.folder = folder;
+      }
+      problem = secret('tokenSecret', 'The Graph token secret name', true);
       if (problem) return { problem: problem };
     } else if (form.kind === 'confluence') {
       var site = String(form.url || '').trim();
@@ -2506,15 +2530,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         select('test-send-' + id, sends.map(function (send) { return { value: send, label: SEND_LABELS[send] || send }; }), test.send,
           function (value) { test.send = value; test.result = null; render(); }, { 'aria-label': 'What, for the preview' }),
         button(test.busy === 'preview' ? 'Building…' : 'Preview the request', function () { run(false); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-preview-' + id }),
-        button(test.busy === 'send' ? (target.kind === 'jira' || target.kind === 'git' || target.kind === 'confluence' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : target.kind === 'git' || target.kind === 'confluence' ? 'Check access' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
+        button(test.busy === 'send' ? (target.kind === 'jira' || target.kind === 'git' || target.kind === 'confluence' || target.kind === 'onedrive' ? 'Checking…' : 'Sending…') : (target.kind === 'jira' ? 'Check the connection' : target.kind === 'git' || target.kind === 'confluence' || target.kind === 'onedrive' ? 'Check access' : 'Send a test'), function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
       test.failed ? el('div', { class: 'callout bad', role: 'alert', text: test.failed }) : null,
       result && result.unavailable ? el('div', { class: 'callout wait', text: 'Not ready on this machine: ' + (result.unavailable.detail || 'a secret it needs is not set.') }) : null,
       result && result.failed ? el('div', { class: 'callout bad', text: result.failed.detail || 'The request cannot be built.' }) : null,
       delivery ? el('div', { class: 'callout ' + (delivery.outcome === 'delivered' ? 'ok' : 'bad'), role: 'status',
         text: (delivery.outcome === 'delivered' ? 'Sent' : 'Not delivered') + (delivery.status ? ' (HTTP ' + delivery.status + ')' : '') + (delivery.detail ? ': ' + delivery.detail : '') + '.' }) : null,
       result && result.plan && result.plan.repository ? el('pre', { class: 'preview-text', 'aria-label': 'The commit a delivery makes' }, 'Repository: ' + result.plan.repository + '\n' + 'Branch: ' + result.plan.branch + ' (fast-forward only)\n' + 'File: ' + result.plan.path + '\n\n' + result.plan.message) : null,
+      result && result.plan && result.plan.drive ? el('pre', { class: 'preview-text', 'aria-label': 'The file a delivery uploads' }, 'Drive: ' + result.plan.drive + (result.plan.site ? ' on site ' + result.plan.site : '') + '\n' + 'File: ' + result.plan.file + '\n(never replaces a file already there)') : null,
       result && result.plan && result.plan.parentPage ? el('pre', { class: 'preview-text', 'aria-label': 'The page a delivery writes' }, 'Page: ' + result.plan.title + '\n' + 'Under page ' + result.plan.parentPage + ' at ' + result.plan.url + '\n\n' + result.plan.body) : null,
-      result && result.plan && !result.plan.repository && !result.plan.parentPage ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
+      result && result.plan && !result.plan.repository && !result.plan.parentPage && !result.plan.drive ? el('pre', { class: 'preview-text', 'aria-label': 'What the delivery writes in Jira' }, 'Issue: ' + (result.plan.issue || 'the issue each Story was started from') + '\n'
         + (result.plan.attachment ? 'Attachment: ' + result.plan.attachment + '\n' : '') + (result.plan.transition ? 'Then moves it to: ' + result.plan.transition + '\n' : '') + '\n' + result.plan.comment) : null,
       result && (result.checks || []).length ? el('ul', { class: 'checks' }, result.checks.map(function (entry) {
         return el('li', { class: entry.ok ? 'ok-text' : 'bad-text' }, (entry.ok ? '✓ ' : '✗ ') + entry.check + (entry.detail ? ': ' + entry.detail : ''));
@@ -2557,6 +2582,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
         function (value) { form.network = value; render(); }), form.network === 'private' ? 'Private addresses are allowed because you say so here, where reviewers see it.' : 'Private and internal addresses are refused unless you choose our private network.'));
+    } else if (form.kind === 'onedrive') {
+      card.appendChild(el('div', { class: 'callout', text: 'OneDrive targets upload the approved document through Microsoft Graph to a folder of a OneDrive or SharePoint library. Each generation has its own folder and nothing is ever replaced. The token is a Graph access token with permission to write files; it expires, so store a fresh one when deliveries say so.' }));
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('target-drive', 'Drive ID', textInput('target-drive', form.drive, function (value) { form.drive = value.trim(); }, { placeholder: 'b!Xy3k…' }), 'The document library drive.'),
+        field('target-site', 'SharePoint site ID (optional)', textInput('target-site', form.site, function (value) { form.site = value.trim(); }, { placeholder: 'contoso.sharepoint.com,…,…' }))));
+      card.appendChild(field('target-folder', 'Folder (optional)', textInput('target-folder', form.folder, function (value) { form.folder = value.trim(); }, { placeholder: DRIVE_DEFAULT_FOLDER }), 'Includes {generation}; may use {story}, {step} and {trigger}.'));
+      card.appendChild(field('target-token', 'Graph token secret name', textInput('target-token', form.tokenSecret, function (value) { form.tokenSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'TOKEN') }), 'A Microsoft Graph access token, stored on each machine that moves Stories.'));
     } else if (form.kind === 'confluence') {
       card.appendChild(el('div', { class: 'callout', text: 'Confluence targets keep one page per Story and step under a parent page, with the step summary or the approved document. A later generation updates the page; an older one never writes over it.' }));
       card.appendChild(el('div', { class: 'grid-2' },
@@ -2600,7 +2632,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var view = integrationsState();
     var ids = targetIds();
     main.appendChild(el('header', null, el('h1', { text: 'Integrations' }),
-      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service, a Teams channel, the Jira issue of the Story, a branch of another repository or a Confluence page. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
+      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service, a Teams channel, the Jira issue of the Story, a branch of another repository, a Confluence page or a OneDrive or SharePoint folder. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
     askSecretStatus(ids.reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
     if (view.form) main.appendChild(renderTargetForm(view.form));
     else main.appendChild(el('div', { class: 'studio-row' }, button('Add a target', function () { view.form = newTargetForm('webhook'); render(); }, { class: 'primary', 'data-key': 'target-add' })));

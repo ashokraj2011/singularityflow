@@ -175,7 +175,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     // The kind comes from the model this host read, never from the page: a Jira or Git "test" only
     // signs in and reads, so it needs no consent; every other test sends a request somewhere.
     const targets = ((this.model as { integrations?: { targets?: Array<{ id?: string; kind?: string }> } } | null)?.integrations?.targets) ?? [];
-    const readOnly = ['jira', 'git', 'confluence'].includes(targets.find((entry) => entry.id === target)?.kind ?? '');
+    const readOnly = ['jira', 'git', 'confluence', 'onedrive'].includes(targets.find((entry) => entry.id === target)?.kind ?? '');
     if (sendTest && !readOnly) {
       const confirmed = await vscode.window.showWarningMessage(`Send a test delivery to '${target}'?`, {
         modal: true,

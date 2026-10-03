@@ -1003,3 +1003,33 @@ test('a Confluence target is set up in the form for Cloud or Data Center, and th
   reload.saveTargetForm();
   assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'reopening a Confluence target changes nothing');
 });
+
+test('a OneDrive target is set up in the form with a folder per generation, and the engine accepts it', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('onedrive');
+  view.form.id = 'team-drive';
+  for (const [fields, problem] of [
+    [{ drive: 'b!x/y' }, /drive ID/],
+    [{ drive: 'b!lib-1', folder: 'Specs/{story}' }, /includes \{generation\}/],
+    [{ folder: '', tokenSecret: 'GRAPH_TOKEN' }, /must start with SFLOW_SECRET_/]
+  ]) {
+    Object.assign(view.form, fields, { problem: null });
+    assert.equal(page.saveTargetForm(), null);
+    assert.match(view.form.problem, problem);
+  }
+  Object.assign(view.form, { tokenSecret: 'SFLOW_SECRET_TEAM_DRIVE_TOKEN', folder: 'sflow/{story}/{step}/generation-{generation}', problem: null });
+  assert.equal(page.saveTargetForm(), 'team-drive');
+  assert.deepEqual(state.draft.integrations['team-drive'], { kind: 'onedrive', drive: 'b!lib-1', tokenSecret: 'SFLOW_SECRET_TEAM_DRIVE_TOKEN' }, 'the default folder is not written');
+  const action = page.addStepAction('feature', 'intake');
+  assert.equal(action.send, 'artifact');
+  const plan = await planStudioChangeSet(root, page.changeSetFrom(model, state.draft), { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.integrations.targets['team-drive'], { kind: 'onedrive', drive: 'b!lib-1', tokenSecret: 'SFLOW_SECRET_TEAM_DRIVE_TOKEN' });
+});

@@ -194,7 +194,8 @@ export function storageAdapter(providerId, provider, runtime = {}) {
       async put({ initiativeId, filename, bytes, sha256: contentSha }) {
         const objectPath = `${provider.repository}/singularity-flow/${encodeURIComponent(initiativeId)}/${contentSha}/${encodeURIComponent(filename)}`;
         const url = new URL(objectPath.slice(`${provider.repository}/`.length), repositoryScope);
-        await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'PUT', body: bytes, maxBytes: bytes.length + 1 });
+        // The answer describes the stored object; its size has nothing to do with the upload's.
+        await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'PUT', body: bytes, maxBytes: 1024 * 1024 });
         return { objectId: objectPath, url: url.toString(), version: contentSha, etag: null };
       },
       async get(reference, { maxBytes }) {
@@ -214,7 +215,9 @@ export function storageAdapter(providerId, provider, runtime = {}) {
       async put({ initiativeId, filename, bytes, sha256: contentSha }) {
         const objectPath = `${initiativeId}/${contentSha}/${filename}`;
         const url = `${graph}/sites/${encodeURIComponent(provider.siteId)}/drives/${encodeURIComponent(provider.driveId)}/root:/${objectPath.split('/').map(encodeURIComponent).join('/')}:/content`;
-        const result = await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'PUT', body: bytes, maxBytes: bytes.length + 1024 });
+        // The answer is Graph's description of the new item, not the file: a small file's JSON reply
+        // is larger than the file plus a kilobyte, which made small uploads fail as oversized.
+        const result = await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'PUT', body: bytes, maxBytes: 1024 * 1024 });
         const item = JSON.parse(result.bytes.toString('utf8'));
         return { objectId: item.id, url: item['@microsoft.graph.downloadUrl'] ?? item.webUrl, version: item.eTag ?? item.cTag, etag: item.eTag ?? null, providerMetadata: { webUrl: item.webUrl ?? null } };
       },

@@ -14,6 +14,17 @@ function workflow() {
   return {
     workItem: { id: 'LOOP-1', workType: 'spec-code-test-loop' },
     currentPhase: 'implementation',
+    phaseOrder: ['specification', 'implementation', 'testing'],
+    // What makes Code and Testing feedback eligible is structure, as the Story pinned it: they sit in
+    // a rework loop that restarts from the step that defines the scope.
+    resolution: {
+      obligationGraph: { nodes: [
+        { id: 'specification', responsibilities: ['scope', 'plan', 'review'] },
+        { id: 'implementation', responsibilities: ['implement', 'verify', 'review'] },
+        { id: 'testing', responsibilities: ['verify', 'review'] }
+      ] },
+      reworkLoops: [{ from: 'testing', to: 'implementation', maxAttempts: 3, resetOnPhase: 'specification' }]
+    },
     phases: {
       specification: { status: 'approved', generation: 1 },
       implementation: {
@@ -72,7 +83,10 @@ test('loop amendment source binds the active phase before or after its artifact 
     code: 'INTENT_AMENDMENT_SOURCE_INVALID'
   });
   active.phases.specification.status = 'approved';
+  // The work type's name changes nothing [E2G-001]; a workflow with no loop back to the scope does.
   active.workItem.workType = 'classic-delivery';
+  assert.equal((await loopIntentAmendmentSource(root, {}, active, 'implementation')).phaseId, 'implementation');
+  active.resolution.reworkLoops = [];
   await assert.rejects(() => loopIntentAmendmentSource(root, {}, active, 'implementation'), {
     code: 'INTENT_AMENDMENT_SOURCE_INVALID'
   });

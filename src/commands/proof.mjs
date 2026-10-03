@@ -1,3 +1,4 @@
+import { scopeStepOf } from '../phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 
 import { loadDefinition } from '../config.mjs';
@@ -132,7 +133,7 @@ async function observedJunit(root, workflow) {
 async function m4Observation(root, definition, workflow, diagnostic) {
   if (!diagnostic.records?.proofSubject) return null;
   const junit = await observedJunit(root, workflow);
-  const specification = workflow.phases?.specification;
+  const specification = scopeStepOf(workflow);
   const approvalChecklist = specification
     ? resolvedSpecificationQualityPolicy(definition, workflow, specification).approvalChecklist
     : undefined;

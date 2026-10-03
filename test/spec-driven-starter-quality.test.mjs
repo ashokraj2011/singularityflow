@@ -32,9 +32,13 @@ test('independent review is an explicit pinned policy, not a retroactive Story g
   assert.equal(sourceReviewRequired({ resolution: { sourceReview: current } }, 'specification'), true);
   assert.equal(sourceReviewRequired({ resolution: { sourceReview: current } }, 'implementation'), false);
   assert.equal(sourceReviewRequired({ resolution: {} }, 'specification'), false);
-  assert.throws(() => normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['implementation'],
+  assert.throws(() => normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['nonexistent'],
     reviewerAgent: 'sflow-source-reviewer' }, { workTypeId: 'bad', phases: starter.phases }),
-  /distinct active specification\/planning/);
+  /distinct active steps/);
+  // Whether a step is reviewable is its structure, which the work type's obligation graph supplies.
+  assert.throws(() => normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['implementation'],
+    reviewerAgent: 'sflow-source-reviewer' }, { workTypeId: 'bad', phases: starter.phases, reviewable: (id) => id !== 'implementation' }),
+  /define the scope or plan the claims/);
   assert.throws(() => assertSourceReviewerAvailable(current, [], {
     workTypeId: 'spec-driven-standard'
   }), { code: 'SOURCE_REVIEW_AGENT_UNAVAILABLE' });

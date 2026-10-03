@@ -15,6 +15,7 @@
  * service runs, so the call is safe, and keeping it dynamic is what stops the import cycle from
  * pulling the router's whole graph back in here.
  */
+import { convergencePhaseOf, loopAmendmentSource, scopeStepOf } from '../phase-roles.mjs';
 import readline from 'node:readline/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -1683,16 +1684,16 @@ function proposalDigest(value) {
 
 /** Bind Code/Testing feedback to the exact current phase and its artifact, even before prepare. */
 export async function loopIntentAmendmentSource(root, config, workflow, sourcePhaseId) {
-  const specification = workflow.phases.specification;
+  // The steps inside a rework loop that starts again from the scope step may propose amending it.
+  const specification = scopeStepOf(workflow);
   const phase = workflow.phases[sourcePhaseId];
-  if (workflow.workItem.workType !== 'spec-code-test-loop'
-      || !['implementation', 'testing'].includes(sourcePhaseId)
+  if (!loopAmendmentSource(workflow, sourcePhaseId)
       || workflow.currentPhase !== sourcePhaseId || !phase
       || !['in_progress', 'awaiting_approval'].includes(phase.status)
       || specification?.status !== 'approved' || specification.generation < 1
       || typeof phase.requiredArtifact?.path !== 'string') {
     throw new SingularityFlowError(
-      'A loop intent amendment must name the current Code or Testing phase after Specification approval.',
+      'A loop intent amendment must name the current step of a rework loop that restarts from the approved scope.',
       { code: 'INTENT_AMENDMENT_SOURCE_INVALID' }
     );
   }
@@ -1704,7 +1705,7 @@ export async function loopIntentAmendmentSource(root, config, workflow, sourcePh
     label: 'Intent-amendment source artifact', mustExist: false
   });
   if (artifact.entry && !artifact.entry.isFile()) {
-    throw new SingularityFlowError('Code or Testing source artifact is not a regular file.', {
+    throw new SingularityFlowError('The source step artifact is not a regular file.', {
       code: 'INTENT_AMENDMENT_SOURCE_INVALID'
     });
   }
@@ -1730,7 +1731,7 @@ export function loopIntentAmendmentClauses(diff, supplied) {
 }
 
 async function proposeIntentAmendment(root, config, workflow, verifiedConvergence, options) {
-  const phaseFeedback = workflow.workItem.workType === 'spec-code-test-loop';
+  const phaseFeedback = loopAmendmentSource(workflow, workflow.currentPhase);
   const projection = verifiedConvergence?.projection ?? null;
   const findings = (projection?.findings ?? []).filter((finding) => finding.disposition === 'update-intent');
   if (!phaseFeedback && !findings.length) {
@@ -1744,9 +1745,9 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
       code: 'INTENT_AMENDMENT_ALREADY_PENDING'
     });
   }
-  const specification = workflow.phases.specification;
+  const specification = scopeStepOf(workflow);
   if (!specification?.requiredArtifact?.path) {
-    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no specification artifact to amend.`, {
+    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no scope artifact to amend.`, {
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
@@ -1897,7 +1898,7 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
     workflow,
     {
       type: LIFECYCLE_EVENT.INTENT_AMENDMENT_PROPOSED,
-      phaseId: 'specification',
+      phaseId: specification.id,
       generation: specification.generation,
       payload: { proposalId: id, proposalSha256: proposal.proposalSha256, changedClauses: diff.changed }
     },
@@ -1949,7 +1950,7 @@ export function intentAmendmentBlastRadius(diff, records = {}) {
  * approval's actor or review packet from commitAndPublish's pre-transition seed.
  */
 export function intentAmendmentDecisionEvent(result, {
-  proposalId, proposalSha256, decision, generation
+  proposalId, proposalSha256, decision, generation, phaseId = 'specification'
 } = {}) {
   const authority = result?.eventDecision;
   if (!authority || !result?.decisionSha256) {
@@ -1962,7 +1963,7 @@ export function intentAmendmentDecisionEvent(result, {
     agent: authority.agent,
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance,
-    phaseId: 'specification',
+    phaseId,
     generation,
     payload: {
       proposalId,
@@ -2001,8 +2002,8 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
     workflow,
     {
       type: decision === 'approve' ? LIFECYCLE_EVENT.INTENT_AMENDMENT_APPROVED : LIFECYCLE_EVENT.INTENT_AMENDMENT_REJECTED,
-      phaseId: 'specification',
-      generation: workflow.phases.specification?.generation ?? null,
+      phaseId: scopeStepOf(workflow)?.id ?? null,
+      generation: scopeStepOf(workflow)?.generation ?? null,
       payload: { proposalId, proposalSha256: proposal.proposalSha256, decision }
     },
     `[${workflow.workItem.id}][intent-amendment:${decision}] ${proposalId}`,
@@ -2024,11 +2025,12 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
         proposalId,
         proposalSha256: proposal.proposalSha256,
         decision,
-        generation: workflow.phases.specification.generation
+        generation: scopeStepOf(workflow).generation,
+        phaseId: scopeStepOf(workflow).id
       }),
       afterEventFinalize: async (publicationEvent, transactionContext, result) => {
         if (!result?.applied) return;
-        await persistGenerationPublicationRecord(root, workflow, workflow.phases.specification, {
+        await persistGenerationPublicationRecord(root, workflow, scopeStepOf(workflow), {
           publicationEvent,
           transactionId: transactionContext.transactionId,
           expectedHead: transactionContext.expectedHead,
@@ -2084,7 +2086,7 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     return;
   }
   if (action === 'propose') {
-    const verified = workflow.workItem.workType === 'spec-code-test-loop'
+    const verified = loopAmendmentSource(workflow, workflow.currentPhase) || !convergencePhaseOf(workflow)
       ? null : await loadVerifiedConvergenceProjection(root, config, workflow);
     const result = await proposeIntentAmendment(root, config, workflow, verified, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
@@ -2217,7 +2219,8 @@ export async function storyReworkCommand(positionals, options) {
         await exactInputGuard();
         return rejectPhase(root, config, workflow, {
           phaseId: subject.phase.id,
-          target: 'implementation',
+          // Rework returns to the code step convergence reconciled, whatever it is called.
+          target: subject.implementation.id,
           reason,
           clauseIds,
           // `[SPK:REQ-183]`'s sibling: the projection is what authorises rejecting an unsubmitted

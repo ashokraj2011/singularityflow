@@ -470,12 +470,23 @@ function renameStep(definition, from, to) {
   };
   renamed.phases = rekey(renamed.phases);
   Object.values(renamed.phases).forEach(references);
+  for (const key of ['allowedPhases', 'blockRequiredUnfulfilledAt']) {
+    if (Array.isArray(renamed.architectureIntent?.[key])) renamed.architectureIntent[key] = renamed.architectureIntent[key].map(id);
+  }
   for (const workType of Object.values(renamed.workTypes)) {
     workType.phases = workType.phases.map(id);
     workType.templateOverrides = rekey(workType.templateOverrides);
     workType.phaseOverrides = rekey(workType.phaseOverrides);
     Object.values(workType.phaseOverrides ?? {}).forEach(references);
     if (workType.fastPath?.converge && from === 'convergence') workType.fastPath.converge = { ...workType.fastPath.converge, phases: [to] };
+    for (const verb of Object.values(workType.fastPath ?? {})) if (Array.isArray(verb?.phases)) verb.phases = verb.phases.map(id);
+    if (Array.isArray(workType.reworkLoops)) workType.reworkLoops = workType.reworkLoops.map((loop) => ({ ...loop, from: id(loop.from), to: id(loop.to), ...(loop.resetOnPhase ? { resetOnPhase: id(loop.resetOnPhase) } : {}) }));
+    if (Array.isArray(workType.sourceReview?.phases)) workType.sourceReview.phases = workType.sourceReview.phases.map(id);
+    if (Array.isArray(workType.documents?.allowedPhases)) workType.documents.allowedPhases = workType.documents.allowedPhases.map(id);
+    if (workType.plannedClaims) {
+      if (Array.isArray(workType.plannedClaims.clausePhases)) workType.plannedClaims.clausePhases = workType.plannedClaims.clausePhases.map(id);
+      if (workType.plannedClaims.owners) workType.plannedClaims.owners = Object.fromEntries(Object.entries(workType.plannedClaims.owners).map(([key, value]) => [id(key), id(value)]));
+    }
   }
   return renamed;
 }
@@ -501,6 +512,17 @@ test('a renamed copy of convergence keeps its rules, and the name alone confers 
   ordinary.phases.convergence.approval = { ...ordinary.phases.convergence.approval, mode: 'policy', policy: 'quick-fix-low-risk-v1', maximumChangedPaths: 5 };
   const resolved = resolveWorkType(validateDefinition(ordinary), 'spec-driven-standard').phases.find((phase) => phase.id === 'convergence');
   assert.equal(isConvergencePhase(resolved), false);
+});
+
+test('source review follows the steps that define the scope and plan the claims, whatever they are called [E2G-001]', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const renamed = renameStep(renameStep(definition, 'specification', 'scope-spec'), 'planning', 'claim-plan');
+  const resolved = resolveWorkType(validateDefinition(renamed), 'spec-driven-standard');
+  assert.deepEqual(resolved.sourceReview.phases, ['scope-spec', 'claim-plan'], 'renamed scope and plan steps stay reviewable');
+  const code = structuredClone(renamed);
+  code.workTypes['spec-driven-standard'].sourceReview.phases = ['implementation'];
+  assert.throws(() => resolveWorkType(validateDefinition(code), 'spec-driven-standard'), /define the scope or plan the claims/,
+    'a step that neither defines the scope nor plans the claims has no source review, whatever it is called');
 });
 
 test('every shipped Story workflow phase renders a contract-consistent guarded artifact', async () => {

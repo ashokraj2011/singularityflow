@@ -51,3 +51,39 @@ export function latestStepBefore(workflow, phaseId, test) {
   }
   return null;
 }
+
+/**
+ * What a source review of a step checks: a step that defines the scope is reviewed as a
+ * specification, one that plans the claims as a plan, and any other step has no source review.
+ */
+export function reviewKindForResponsibilities(responsibilities = []) {
+  if (responsibilities.includes('scope')) return 'specification';
+  if (responsibilities.includes('plan')) return 'planning';
+  return null;
+}
+
+/** The source-review kind of one step of a Story, from its pinned responsibilities. */
+export function sourceReviewKind(workflow, phaseId) {
+  return workflow?.phases?.[phaseId] ? reviewKindForResponsibilities(stepResponsibilities(workflow, phaseId)) : null;
+}
+
+/** The id of the step that defines a Story's scope: the first step that holds it, whatever it is called. */
+function scopeStepIdOf(workflow) {
+  return (workflow?.phaseOrder ?? []).find((id) => stepResponsibilities(workflow, id).includes('scope')) ?? null;
+}
+
+/** The step that defines a Story's scope. */
+export function scopeStepOf(workflow) {
+  const id = scopeStepIdOf(workflow);
+  return id ? workflow.phases?.[id] ?? null : null;
+}
+
+/**
+ * Whether a step's feedback may propose amending the scope it was built from: it is inside a
+ * declared rework loop that starts again from the scope step.
+ */
+export function loopAmendmentSource(workflow, phaseId) {
+  const scope = scopeStepIdOf(workflow);
+  return Boolean(scope && phaseId) && (workflow?.resolution?.reworkLoops ?? [])
+    .some((loop) => loop.resetOnPhase === scope && (loop.from === phaseId || loop.to === phaseId));
+}

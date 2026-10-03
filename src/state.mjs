@@ -1,4 +1,4 @@
-import { convergencePhaseOf, isConvergencePhase } from './phase-roles.mjs';
+import { convergencePhaseOf, isConvergencePhase, loopAmendmentSource, scopeStepOf } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -6896,18 +6896,17 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       code: 'INTENT_AMENDMENT_INVALID'
     });
   }
-  const specification = workflow.phases.specification;
+  const specification = scopeStepOf(workflow);
   if (!specification) {
-    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no specification phase to amend.`, {
+    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no step that defines the scope to amend.`, {
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
   if (proposal.source != null) {
     const source = proposal.source;
     const phase = workflow.phases[source.phaseId];
-    if (workflow.workItem.workType !== 'spec-code-test-loop'
+    if (!loopAmendmentSource(workflow, source.phaseId)
         || source.kind !== 'phase-feedback'
-        || !['implementation', 'testing'].includes(source.phaseId)
         || workflow.currentPhase !== source.phaseId
         || !phase
         || phase.generation !== source.generation
@@ -6918,7 +6917,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
         || typeof source.sourceTreeSha256 !== 'string'
         || requiredRepoPath(config, workflow, phase) !== source.artifactPath) {
       throw new SingularityFlowError(
-        `Intent amendment '${proposal.id}' no longer matches its Code or Testing phase.`,
+        `Intent amendment '${proposal.id}' no longer matches its source phase '${source.phaseId}'.`,
         { code: 'INTENT_AMENDMENT_SOURCE_STALE' }
       );
     }
@@ -6973,7 +6972,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     Object.assign(summary, { status: 'rejected', decidedAt: at, decision: recorded });
     workflow.history.push({
       at, actor: key, agent, event: 'intent_amendment_rejected',
-      phase: 'specification', detail: `${proposal.id}: ${recorded.reason ?? 'rejected by specification authority'}`
+      phase: scopeStepOf(workflow)?.id ?? null, detail: `${proposal.id}: ${recorded.reason ?? 'rejected by specification authority'}`
     });
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
     return {
@@ -7099,7 +7098,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     artifact: {
       phaseId: specification.id,
       generation: specification.generation,
-      outputId: specification.requiredArtifact?.id ?? 'specification',
+      outputId: specification.requiredArtifact?.id ?? specification.id,
       path: proposal.specification.proposedPath,
       mediaType: 'text/markdown'
     },
@@ -7281,7 +7280,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     revalidatedPhases: []
   });
   workflow.history.push({
-    at, actor: key, agent, event: 'intent_amendment_approved', phase: 'specification',
+    at, actor: key, agent, event: 'intent_amendment_approved', phase: specification.id,
     detail: `${proposal.id} created specification generation ${specification.generation}; `
       + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
   });
@@ -7341,7 +7340,7 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
   phase.intentAmendmentRevalidation.revalidatedAt = at;
   phase.intentAmendmentRevalidation.revalidatedBy = actor;
   summary.revalidatedPhases = [...new Set([...(summary.revalidatedPhases ?? []), phase.id])];
-  const required = workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('specification') + 1)
+  const required = workflow.phaseOrder.slice(workflow.phaseOrder.indexOf(scopeStepOf(workflow)?.id) + 1)
     .filter((phaseId) => workflow.phases[phaseId]?.status !== 'skipped');
   if (required.every((phaseId) => summary.revalidatedPhases.includes(phaseId))) {
     summary.status = 'revalidated';

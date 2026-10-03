@@ -1,7 +1,11 @@
 import { SingularityFlowError } from './util.mjs';
 
 /** A pinned, opt-in gate. Older Story resolutions without this field stay unchanged. */
-export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workflow', phases = [] } = {}) {
+/**
+ * `reviewable(phaseId)`, when given, says whether a step defines the scope or plans the claims; the
+ * policy is read from the step's structure, never its name [E2G-001].
+ */
+export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workflow', phases = [], reviewable = null } = {}) {
   if (value == null) return { mode: 'off', phases: [], reviewerAgent: null };
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview must be an object.`);
@@ -17,8 +21,8 @@ export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workfl
   }
   const selected = value.phases ?? [];
   if (!Array.isArray(selected) || new Set(selected).size !== selected.length
-      || selected.some((phase) => !['specification', 'planning'].includes(phase) || !phases.includes(phase))) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.phases must list distinct active specification/planning phases.`);
+      || selected.some((phase) => !phases.includes(phase) || (reviewable && !reviewable(phase)))) {
+    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.phases must list distinct active steps that define the scope or plan the claims.`);
   }
   const reviewerAgent = value.reviewerAgent ?? null;
   if (reviewerAgent != null && (typeof reviewerAgent !== 'string'

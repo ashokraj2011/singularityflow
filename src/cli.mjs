@@ -1,4 +1,4 @@
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase, sourceReviewKind } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
 import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary } from './commands/kernel.mjs';
@@ -9883,12 +9883,13 @@ async function reviewSourceCommand(positionals, options) {
   if (!['context', 'submit', 'decide', 'status'].includes(action)) {
     throw new SingularityFlowError("Source review action must be context, submit, decide, or status.");
   }
-  const phaseId = requirePositional(positionals, 2, 'specification or planning phase');
-  if (!['specification', 'planning'].includes(phaseId)) {
-    throw new SingularityFlowError('Source review phase must be specification or planning.');
-  }
+  const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
   const root = repoRoot();
   const { config, workflow } = await loadAcceptedStoryExecution(root);
+  // Reviewable by what the step does, not what it is called [E2G-001].
+  if (!sourceReviewKind(workflow, phaseId)) {
+    throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
+  }
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch is not registered for Story '${workflow.workItem.id}'.`);
   }

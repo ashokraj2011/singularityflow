@@ -44,7 +44,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase, reviewKindForResponsibilities } from './phase-roles.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
@@ -2272,16 +2272,18 @@ export function resolveWorkType(definition, workTypeId) {
     workTypeId, phases, plannedClaims,
     approvalAuthorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity)
   });
-  const sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
-    workTypeId, phases: workType.phases
-  });
-  if (definition.agentCatalog?.length) assertSourceReviewerAvailable(sourceReview,
-    definition.agentCatalog, { workTypeId });
   // Which responsibilities every route guarantees. Never throws: a work type with error findings
   // stays readable, and Story start refuses it.
   const obligationGraph = compileObligationGraph({
     id: workTypeId, phases, decisions, reworkLoops, plannedClaims, omits: workType.omits
   }, { authorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity) });
+  // A source review checks a step that defines the scope or plans the claims, whatever it is called.
+  const sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
+    workTypeId, phases: workType.phases,
+    reviewable: (id) => reviewKindForResponsibilities(obligationGraph.nodes?.find((node) => node.id === id)?.responsibilities) != null
+  });
+  if (definition.agentCatalog?.length) assertSourceReviewerAvailable(sourceReview,
+    definition.agentCatalog, { workTypeId });
   return {
     id: workTypeId,
     obligationGraph,

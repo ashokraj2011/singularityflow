@@ -1,4 +1,5 @@
 /** Durable, read-only source packet and append-only review evidence for published Story generations. */
+import { latestStepBefore, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -30,8 +31,8 @@ function actorIdentity(actor) { return {
 function itemRelative(config, workId) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', workId)); }
 
 export function sourceReviewDirectory(root, config, workflow, phaseId) {
-  if (!['specification', 'planning'].includes(phaseId)) {
-    throw new SingularityFlowError('Source review applies only to specification or planning.');
+  if (!sourceReviewKind(workflow, phaseId)) {
+    throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
   }
   const phase = workflow.phases?.[phaseId];
   if (!phase) throw new SingularityFlowError(`Story has no '${phaseId}' phase.`);
@@ -253,17 +254,19 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
   }
   const { sources, unreadable } = await storySources(root, config, workflow, phaseId);
   const artifact = await phaseArtifact(root, config, workflow, phaseId);
-  const upstreamSpec = phaseId === 'planning'
+  // A plan is reviewed against the approved scope it plans: the step before it that defines it.
+  const kind = sourceReviewKind(workflow, phaseId);
+  const upstreamSpec = kind === 'planning'
     ? await (async () => {
-        const approved = workflow.phases.specification;
+        const approved = latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope'));
         if (approved?.status !== 'approved') throw new SingularityFlowError(
           'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED' }
         );
-        return phaseArtifact(root, config, workflow, 'specification');
+        return phaseArtifact(root, config, workflow, approved.id);
       })()
     : null;
   const context = {
-    kind: phaseId, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
+    kind, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
     sources, ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
     authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256
   };

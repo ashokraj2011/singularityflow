@@ -73,8 +73,10 @@ async function fixture(t, { document = 'file', notes = NOTES, spec = SPEC, extra
     agents: { 'sflow-source-reviewer': { sha256: REVIEWER_SHA256,
       metadata: { 'sflow-mode': 'read-only-review' } } } };
   const workflow = {
-    workItem: { id: ID }, currentPhase: 'specification', history: [],
+    workItem: { id: ID }, currentPhase: 'specification', history: [], phaseOrder: ['specification'],
+    // The step is reviewed as a specification because it defines the scope, not because of its name.
     resolution: { sourceSha256: sha(source),
+      obligationGraph: { nodes: [{ id: 'specification', responsibilities: ['scope', 'review'] }] },
       agents: { 'sflow-source-reviewer': { sha256: REVIEWER_SHA256 } } },
     publicationProjections: [],
     phases: { specification: {

@@ -15,6 +15,7 @@ import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
+import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
   STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioPublishArgs, workflowStudioBody, type StudioAuthority
 } from './workflow-studio-page.ts';
@@ -28,6 +29,17 @@ const MAX_CHANGE_SET_BYTES = 1024 * 1024;
 const IMPORT_KINDS = new Set(['skill', 'template', 'agent', 'mcp-server']);
 const SERVER_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_REFERENCE_LENGTH = 2048;
+const TARGET_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const ACTION_TRIGGERS = new Set(['submitted', 'approved', 'rejected']);
+const ACTION_SENDS = new Set(['event', 'summary', 'artifact']);
+const MAX_SECRET_NAMES = 64;
+
+/** Where integration secrets are kept on this machine. The page only ever learns whether each is set. */
+export interface IntegrationSecretStore {
+  status(names: readonly string[]): Promise<Record<string, IntegrationSecretSource>>;
+  store(name: string, value: string): Promise<void>;
+  clear(name: string): Promise<void>;
+}
 
 
 export interface WorkflowStudioActions {
@@ -35,6 +47,8 @@ export interface WorkflowStudioActions {
   refresh(): Promise<void>;
   /** Review and activate a configuration proposal the way the Workflow Designer does. */
   reviewProposal(branch: string): Promise<void>;
+  /** The operating-system keychain, through VS Code, for the secrets integration targets name. */
+  integrationSecrets?: IntegrationSecretStore;
 }
 
 export class WorkflowStudioPanel implements vscode.Disposable {
@@ -87,8 +101,83 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.mcpSources': (message) => this.mcpSources(stringField(message, 'id')),
     'studio.mcpHostAdd': (message) => this.mcpHostAdd(stringField(message, 'id')),
     'studio.marketplaceBrowse': (message) => this.marketplaceBrowse(stringField(message, 'id')),
-    'studio.importsCheck': () => this.importsCheck()
+    'studio.importsCheck': () => this.importsCheck(),
+    'studio.secretStatus': (message) => this.secretStatus((message as { names?: unknown }).names),
+    'studio.storeSecret': (message) => this.storeSecret(stringField(message, 'name')),
+    'studio.clearSecret': (message) => this.clearSecret(stringField(message, 'name')),
+    'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
+      stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
   });
+
+  /** Whether each secret is stored through VS Code, inherited from the environment, or missing. Never a value. */
+  private async secretStatus(rawNames: unknown): Promise<void> {
+    const names = Array.isArray(rawNames)
+      ? [...new Set(rawNames.filter((name): name is string => typeof name === 'string' && INTEGRATION_SECRET_NAME.test(name)))].slice(0, MAX_SECRET_NAMES)
+      : [];
+    const store = this.actions.integrationSecrets;
+    const status = store ? await store.status(names) : {};
+    this.post({ type: 'studio.secretStatus', status, canStore: Boolean(store) });
+  }
+
+  /** The value is typed into VS Code's own password box, so it never passes through the page. */
+  private async storeSecret(name: string | null): Promise<void> {
+    const store = this.actions.integrationSecrets;
+    if (!store || !name || !INTEGRATION_SECRET_NAME.test(name)) return;
+    const value = await vscode.window.showInputBox({
+      title: `Store ${name}`,
+      prompt: 'Kept in the operating-system keychain and passed only to Singularity Flow commands on this machine. It is never written to Git or shown again.',
+      password: true,
+      ignoreFocusOut: true,
+      validateInput: (text) => text.trim() ? null : 'Enter the secret value.'
+    });
+    if (!value) return;
+    try {
+      await store.store(name, value);
+      this.post({ type: 'studio.secretStored', name });
+      await this.secretStatus([name]);
+    } catch (error) {
+      this.post({ type: 'studio.failed', message: (error as Error).message });
+    }
+  }
+
+  private async clearSecret(name: string | null): Promise<void> {
+    const store = this.actions.integrationSecrets;
+    if (!store || !name || !INTEGRATION_SECRET_NAME.test(name)) return;
+    const confirmed = await vscode.window.showWarningMessage(`Remove ${name} from this machine's keychain?`, {
+      modal: true,
+      detail: 'Deliveries that need it wait and retry until it is stored again or set in the environment.'
+    }, 'Remove');
+    if (confirmed !== 'Remove') return;
+    await store.clear(name);
+    await this.secretStatus([name]);
+  }
+
+  /**
+   * The exact request a published target would receive, secrets redacted; on request, one delivery
+   * marked as a test. The engine reads targets from approved configuration, so the page offers this
+   * only for targets that are published and unchanged in the draft.
+   */
+  private async integrationTest(target: string | null, trigger: string | null, send: string | null, sendTest: boolean): Promise<void> {
+    if (!target || !TARGET_ID.test(target) || !trigger || !ACTION_TRIGGERS.has(trigger) || !send || !ACTION_SENDS.has(send)) {
+      this.post({ type: 'studio.integrationTested', target, failed: 'Choose a published target, when it fires and what it sends.' });
+      return;
+    }
+    if (sendTest) {
+      const confirmed = await vscode.window.showWarningMessage(`Send a test delivery to '${target}'?`, {
+        modal: true,
+        detail: 'One request marked as a test goes to the address the target names, signed or authenticated with its secret. Nothing in the repository changes.'
+      }, 'Send test');
+      if (confirmed !== 'Send test') { this.post({ type: 'studio.integrationTested', target, cancelled: true }); return; }
+    }
+    try {
+      const result = await this.client.run<{ data?: Record<string, unknown> }>([
+        'integrations', 'test', target, '--trigger', trigger, '--send', send, ...(sendTest ? ['--send-test'] : []), '--json'
+      ]);
+      this.post({ type: 'studio.integrationTested', target, result: result.data ?? null });
+    } catch (error) {
+      this.post({ type: 'studio.integrationTested', target, failed: (error as Error).message });
+    }
+  }
 
   /**
    * The engine fetches, checks and stages what a person wants to import; the page shows the exact

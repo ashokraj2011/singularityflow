@@ -563,3 +563,55 @@ test('a change leaves a null list as it is and refuses a list that is not one', 
     assert.match(plan.problems[0].message, /must be a list\.$/);
   }
 });
+
+test('integration targets and the actions a step sends after it are edited from the Studio as one reviewed change', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  assert.deepEqual(model.integrations.targets, []);
+  assert.ok(model.choices.integrationKinds.some((kind) => kind.id === 'webhook' && kind.available));
+  assert.ok(model.choices.integrationKinds.some((kind) => kind.id === 'confluence' && !kind.available), 'kinds this build cannot deliver to are shown as not available');
+  assert.deepEqual(model.choices.actionTriggers, ['submitted', 'approved', 'rejected']);
+
+  // intake is shared by several workflows, so an action set for Feature is Feature's alone.
+  const file = await changeSet(root, [
+    { op: 'integration.target.create', id: 'team-events', target: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_EVENTS_KEY' } },
+    { op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event' }] }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.ok(plan.summary.some((line) => /actions after the step changed for Feature only/.test(line)), JSON.stringify(plan.summary));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.integrations.targets['team-events'], { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_EVENTS_KEY' });
+  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events' }]);
+  assert.equal(written.phases.intake.afterStep, undefined, 'the shared step itself is unchanged');
+  const after = json(root, ['workflow', 'studio']);
+  const step = (workflowId) => after.workflows.find((entry) => entry.id === workflowId).steps.find((entry) => entry.id === 'intake');
+  assert.deepEqual(step('feature').afterStep, [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event' }]);
+  assert.equal(step('feature').afterStepSetByWorkflow, true);
+  assert.deepEqual(step('bugfix').afterStep, []);
+  assert.deepEqual(after.integrations.targets.map((target) => target.id), ['team-events']);
+
+  // A target still in use cannot be removed, and a secret value is refused where it is typed.
+  const inUse = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [{ op: 'integration.target.remove', id: 'team-events' }], after.base), '--dry-run']);
+  assert.equal(inUse.valid, false);
+  assert.equal(inUse.problems[0].code, 'STUDIO_TARGET_IN_USE');
+  assert.match(inUse.problems[0].message, /Intake in Feature/);
+  const inline = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'integration.target.create', id: 'leaky', target: { kind: 'webhook', url: 'https://hooks.example.com/x', token: 'abc' } }
+  ], after.base), '--dry-run']);
+  assert.equal(inline.valid, false);
+  assert.equal(inline.problems[0].code, 'INTEGRATION_SECRET_INLINE');
+  const unknown = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'phase.update', id: 'design', afterStep: [{ id: 'x', on: ['approved'], target: 'missing' }] }
+  ], after.base), '--dry-run']);
+  assert.equal(unknown.valid, false);
+  assert.ok(unknown.problems.some((problem) => problem.code === 'STEP_ACTION_TARGET_UNKNOWN'), JSON.stringify(unknown.problems));
+
+  // Removing the action and then the target in one change set is fine.
+  const cleared = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [] },
+    { op: 'integration.target.remove', id: 'team-events' }
+  ], after.base), '--dry-run']);
+  assert.equal(cleared.valid, true, JSON.stringify(cleared.problems));
+});

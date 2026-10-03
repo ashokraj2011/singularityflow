@@ -12,13 +12,13 @@ related:
   - activity-and-prompt-audit
 commands:
   - integrations
-version: 1
+version: 2
 ---
 A workflow step can send an event to another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, or a Microsoft Teams channel. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
 
 ## Purpose and prerequisites
 
-Use this topic to tell other systems about a step's decisions: a team channel, an audit log, or an internal service that records approvals. Targets and actions are workflow configuration, so add them through Workflow Studio or the normal reviewed configuration change. Each secret a target names must be set in the environment of the machine that delivers: VS Code passes the secrets it stores, and a pipeline passes its own.
+Use this topic to tell other systems about a step's decisions: a team channel, an audit log, or an internal service that records approvals. Targets and actions are workflow configuration, so add them through Workflow Studio or the normal reviewed configuration change. Each secret a target names must be set in the environment of the machine that delivers: VS Code passes the secrets it stores, and a pipeline passes its own. Secret names start with `SFLOW_SECRET_`, so a workflow can only read values someone set up for it and never another tool's credentials, such as `JIRA_PAT` or `GITHUB_TOKEN`.
 
 ```yaml
 integrations:
@@ -26,15 +26,15 @@ integrations:
     team-events:
       kind: webhook
       url: https://hooks.example.com/sflow
-      signingSecret: SFLOW_EVENTS_SIGNING_KEY
+      signingSecret: SFLOW_SECRET_EVENTS_KEY
     audit-log:
       kind: http-log
       format: splunk-hec          # json, splunk-hec, datadog, elastic or loki
       url: https://logs.example.com/services/collector
-      tokenSecret: SPLUNK_HEC_TOKEN
+      tokenSecret: SFLOW_SECRET_SPLUNK_TOKEN
     team-channel:
       kind: teams
-      urlSecret: TEAMS_WEBHOOK_URL
+      urlSecret: SFLOW_SECRET_TEAMS_URL
 phases:
   requirements:
     afterStep:
@@ -50,14 +50,14 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 
 - **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test.
 - **Copilot:** `/sf-integrations` explains delivery status, checks a target's request, and retries deliveries after asking. It never asks for a secret value.
-- **VS Code:** the Workflow Studio step panel lists a step's actions, and the terminal commands above work in the integrated terminal.
+- **VS Code:** in Workflow Studio, **Integrations** adds, changes and removes targets, shows whether each secret is set on this machine, stores a secret in the keychain (**Store**), and, for a published target, previews the exact request or sends a test after you confirm. On the board, **Actions after this step** chooses what a step sends, to which target and when; the card shows it in its THEN lane. Actions belong to the workflow, like sign-off: on a step several workflows share, the others keep their own.
 
 ## Guided workflow
 
-1. Declare a target under `integrations.targets` and name its secret. Set that secret in this machine's environment.
-2. Add an action to a step's `afterStep` with the triggers it fires on.
-3. Run `singularity-flow integrations test <TARGET>` to see the request; add `--send-test` to send a sample.
-4. Publish the configuration change. Stories started afterwards send the action; running Stories keep the actions they started with.
+1. Declare a target under `integrations.targets` (in Workflow Studio: **Integrations** → **Add a target**) and name its secret. Set that secret in this machine's environment, or store it from the target's card in VS Code.
+2. Add an action to a step's `afterStep` with the triggers it fires on (in Workflow Studio: select the step → **Actions after this step** → **Add an action**).
+3. Publish the configuration change. Stories started afterwards send the action; running Stories keep the actions they started with.
+4. Run `singularity-flow integrations test <TARGET>` to see the request; add `--send-test` to send a sample (in Workflow Studio: **Preview the request** or **Send a test** on the target's card).
 5. After a submit, approval or rejection, check `singularity-flow integrations status` if a delivery was reported as not delivered.
 
 ## State and safety

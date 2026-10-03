@@ -15,9 +15,9 @@ const starter = () => YAML.parse(readFileSync(path.join(packageRoot, 'templates'
 const code = (fn) => { try { fn(); } catch (error) { return error.code; } return null; };
 
 const TARGETS = {
-  'team-events': { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_EVENTS_SIGNING_KEY' },
-  'audit-log': { kind: 'http-log', format: 'splunk-hec', url: 'https://logs.example.com/services/collector', tokenSecret: 'SPLUNK_HEC_TOKEN', labels: { service: 'sflow' } },
-  teams: { kind: 'teams', urlSecret: 'SINGULARITY_FLOW_TEAMS_WEBHOOK_URL' }
+  'team-events': { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_EVENTS_KEY' },
+  'audit-log': { kind: 'http-log', format: 'splunk-hec', url: 'https://logs.example.com/services/collector', tokenSecret: 'SFLOW_SECRET_SPLUNK_TOKEN', labels: { service: 'sflow' } },
+  teams: { kind: 'teams', urlSecret: 'SFLOW_SECRET_TEAMS_URL' }
 };
 
 test('integration targets are named connections that hold addresses and secret names, never secrets', () => {
@@ -25,7 +25,7 @@ test('integration targets are named connections that hold addresses and secret n
   assert.deepEqual(Object.keys(normalized.targets), ['team-events', 'audit-log', 'teams']);
   assert.deepEqual(normalized.targets['team-events'], {
     id: 'team-events', kind: 'webhook', network: 'public', timeoutSeconds: 10,
-    url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_EVENTS_SIGNING_KEY'
+    url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_EVENTS_KEY'
   });
   assert.equal(normalized.targets['audit-log'].format, 'splunk-hec');
   assert.deepEqual(normalizeIntegrations(normalized), normalized, 'normalizing twice changes nothing');
@@ -40,11 +40,17 @@ test('integration targets are named connections that hold addresses and secret n
     [{ kind: 'webhook', url: 'http://hooks.example.com/x' }, 'INTEGRATION_TARGET_URL_INVALID'],
     [{ kind: 'webhook', url: 'https://hooks.example.com/#x' }, 'INTEGRATION_TARGET_URL_INVALID'],
     [{ kind: 'webhook', url: 'https://hooks.example.com', signingSecret: 'lower-case' }, 'INTEGRATION_SECRET_NAME_INVALID'],
+    // Another tool's credential can never become a target's token: only SFLOW_SECRET_ names are read.
+    [{ kind: 'http-log', url: 'https://logs.example.com', tokenSecret: 'JIRA_PAT' }, 'INTEGRATION_SECRET_NAME_INVALID'],
+    [{ kind: 'http-log', url: 'https://logs.example.com', tokenSecret: 'GITHUB_TOKEN' }, 'INTEGRATION_SECRET_NAME_INVALID'],
+    [{ kind: 'webhook', url: 'https://hooks.example.com', signingSecret: 'AWS_SECRET_ACCESS_KEY' }, 'INTEGRATION_SECRET_NAME_INVALID'],
+    [{ kind: 'teams', urlSecret: 'SINGULARITY_FLOW_TEAMS_WEBHOOK_URL' }, 'INTEGRATION_SECRET_NAME_INVALID'],
+    [{ kind: 'webhook', url: 'https://hooks.example.com', signingSecret: 'SFLOW_SECRET_' }, 'INTEGRATION_SECRET_NAME_INVALID'],
     [{ kind: 'webhook', url: 'https://hooks.example.com', retries: 3 }, 'INTEGRATION_TARGET_FIELD_UNKNOWN'],
     [{ kind: 'webhook', url: 'https://hooks.example.com', timeoutSeconds: 60 }, 'INTEGRATION_TARGET_INVALID'],
     [{ kind: 'http-log', url: 'https://logs.example.com', format: 'syslog' }, 'INTEGRATION_TARGET_INVALID'],
     [{ kind: 'teams' }, 'INTEGRATION_TARGET_INVALID'],
-    [{ kind: 'teams', urlSecret: 'TEAMS_URL', network: 'private' }, 'INTEGRATION_TARGET_INVALID'],
+    [{ kind: 'teams', urlSecret: 'SFLOW_SECRET_TEAMS_URL', network: 'private' }, 'INTEGRATION_TARGET_INVALID'],
     [{ kind: 'pager' }, 'INTEGRATION_TARGET_KIND_UNKNOWN']
   ];
   for (const [target, expected] of refusals) {
@@ -68,7 +74,7 @@ test('a step lists actions against declared targets, and each is pinned with its
   assert.deepEqual(actions[0], { id: 'announce', on: ['submitted', 'approved', 'rejected'], target: 'team-events', send: 'event' },
     'triggers are kept in lifecycle order and the default send is the event');
   const pinned = pinStepActions(actions, integrations);
-  assert.equal(pinned[1].targetSpec.tokenSecret, 'SPLUNK_HEC_TOKEN', 'the pinned target names its secret, nothing more');
+  assert.equal(pinned[1].targetSpec.tokenSecret, 'SFLOW_SECRET_SPLUNK_TOKEN', 'the pinned target names its secret, nothing more');
   pinned[1].targetSpec.url = 'https://changed.example.com';
   assert.equal(integrations.targets['audit-log'].url, 'https://logs.example.com/services/collector', 'pinning copies the target');
   assert.deepEqual(normalizeStepActions(null, integrations, 'x'), []);
@@ -161,7 +167,7 @@ test('the event carries what happened and where it is recorded, and nothing from
       }
     }
   };
-  const action = { id: 'announce', target: 'team-events', send: 'event', targetSpec: { signingSecret: 'SFLOW_EVENTS_SIGNING_KEY' } };
+  const action = { id: 'announce', target: 'team-events', send: 'event', targetSpec: { signingSecret: 'SFLOW_SECRET_EVENTS_KEY' } };
   const event = buildStepActionEvent({
     workflow, phaseId: 'requirements', trigger: 'approved', action, deliveryKey: 'sad_x',
     event: { actor: 'Ada <ada@example.com>', createdAt: '2026-10-03T10:00:00.000Z' }, commit: 'f'.repeat(40), remote: 'https://git.example.test/app.git'
@@ -172,6 +178,6 @@ test('the event carries what happened and where it is recorded, and nothing from
   assert.deepEqual(event.step, { id: 'requirements', label: 'Requirements', generation: 2, status: 'approved' });
   assert.deepEqual(event.artifacts.map((artifact) => artifact.path), ['singularity/work-items/STORY-1/artifacts/requirements.md'],
     'machine paths and paths outside the repository are never sent');
-  assert.equal(JSON.stringify(event).includes('SFLOW_EVENTS_SIGNING_KEY'), false, 'not even the name of a secret');
+  assert.equal(JSON.stringify(event).includes('SFLOW_SECRET_EVENTS_KEY'), false, 'not even the name of a secret');
   assert.equal(event.commit.sha, 'f'.repeat(40));
 });

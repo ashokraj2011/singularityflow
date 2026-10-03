@@ -80,11 +80,11 @@ function storyWorkflow(actions, integrations, { status = 'awaiting_approval' } =
 
 test('each target kind builds its request, and a missing secret makes the delivery unavailable here', () => {
   const integrations = normalizeIntegrations({ targets: {
-    hook: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'HOOK_KEY' },
-    splunk: { kind: 'http-log', format: 'splunk-hec', url: 'https://logs.example.com/services/collector', tokenSecret: 'HEC', labels: { index: 'eng' } },
-    datadog: { kind: 'http-log', format: 'datadog', url: 'https://http-intake.logs.datadoghq.com/api/v2/logs', tokenSecret: 'DD', labels: { service: 'flow', team: 'eng' } },
+    hook: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_HOOK_KEY' },
+    splunk: { kind: 'http-log', format: 'splunk-hec', url: 'https://logs.example.com/services/collector', tokenSecret: 'SFLOW_SECRET_HEC', labels: { index: 'eng' } },
+    datadog: { kind: 'http-log', format: 'datadog', url: 'https://http-intake.logs.datadoghq.com/api/v2/logs', tokenSecret: 'SFLOW_SECRET_DD', labels: { service: 'flow', team: 'eng' } },
     loki: { kind: 'http-log', format: 'loki', url: 'https://loki.example.com/loki/api/v1/push' },
-    teams: { kind: 'teams', urlSecret: 'TEAMS_URL' }
+    teams: { kind: 'teams', urlSecret: 'SFLOW_SECRET_TEAMS_URL' }
   } });
   const record = (target) => ({
     key: 'sad_' + '1'.repeat(40), trigger: 'approved',
@@ -93,26 +93,26 @@ test('each target kind builds its request, and a missing secret makes the delive
   });
   const clock = () => Date.parse('2026-10-03T10:00:00.000Z');
 
-  const hook = deliveryRequest(record('hook'), { HOOK_KEY: SECRET }, clock);
+  const hook = deliveryRequest(record('hook'), { SFLOW_SECRET_HOOK_KEY: SECRET }, clock);
   assert.equal(hook.headers['idempotency-key'], 'sad_' + '1'.repeat(40));
   const expected = createHmac('sha256', SECRET).update(`${hook.headers['x-sflow-timestamp']}.${hook.body}`).digest('hex');
   assert.equal(hook.headers['x-sflow-signature'], `v1=${expected}`, 'receivers can verify the body and timestamp');
   assert.deepEqual(deliveryRequest(record('hook'), {}, clock).unavailable.code, 'STEP_ACTION_SECRET_MISSING');
 
-  const splunk = deliveryRequest(record('splunk'), { HEC: 'hec-token' }, clock);
+  const splunk = deliveryRequest(record('splunk'), { SFLOW_SECRET_HEC: 'hec-token' }, clock);
   assert.equal(splunk.headers.authorization, 'Splunk hec-token');
   assert.equal(JSON.parse(splunk.body).fields.index, 'eng');
-  const datadog = deliveryRequest(record('datadog'), { DD: 'dd-key' }, clock);
+  const datadog = deliveryRequest(record('datadog'), { SFLOW_SECRET_DD: 'dd-key' }, clock);
   assert.equal(datadog.headers['dd-api-key'], 'dd-key');
   assert.equal(JSON.parse(datadog.body)[0].ddtags, 'team:eng');
   const loki = deliveryRequest(record('loki'), {}, clock);
   assert.equal(JSON.parse(loki.body).streams[0].values[0][0], `${Date.parse('2026-10-03T10:00:00.000Z')}000000`);
   assert.equal(loki.headers.authorization, undefined, 'loki without a token sends none');
 
-  const teams = deliveryRequest(record('teams'), { TEAMS_URL: 'https://example.webhook.office.com/abc' }, clock);
+  const teams = deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: 'https://example.webhook.office.com/abc' }, clock);
   assert.equal(teams.url, 'https://example.webhook.office.com/abc');
   assert.match(JSON.parse(teams.body).text, /Intake approved/);
-  assert.equal(deliveryRequest(record('teams'), { TEAMS_URL: 'http://plain.example.com' }, clock).failed.code, 'STEP_ACTION_ADDRESS_REFUSED');
+  assert.equal(deliveryRequest(record('teams'), { SFLOW_SECRET_TEAMS_URL: 'http://plain.example.com' }, clock).failed.code, 'STEP_ACTION_ADDRESS_REFUSED');
 });
 
 test('an answer decides the delivery: done, try later, or needs a person', () => {
@@ -143,7 +143,7 @@ test('requests go only where the target allows, and never follow a redirect', as
 
 test('the outbox delivers once, retries with backoff, holds unavailable deliveries without spending attempts, and refuses tampered records', async (t) => {
   const root = await gitRepository(t);
-  const integrations = normalizeIntegrations({ targets: { hook: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'HOOK_KEY' } } });
+  const integrations = normalizeIntegrations({ targets: { hook: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_HOOK_KEY' } } });
   const workflow = storyWorkflow([{ id: 'announce', on: ['submitted', 'approved'], target: 'hook' }], integrations);
   const event = { type: 'approval-requested', phaseId: 'intake', generation: 1, actor: 'ada', createdAt: '2026-10-03T10:00:00.000Z' };
   let now = Date.parse('2026-10-03T10:00:00.000Z');
@@ -162,18 +162,18 @@ test('the outbox delivers once, retries with backoff, holds unavailable deliveri
   assert.equal(report.unavailable.length, 1);
   assert.equal(sent.length, 0);
 
-  report = await deliverStepActions(root, { env: { HOOK_KEY: SECRET }, clock, post });
+  report = await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   assert.equal(report.retrying.length, 1);
   assert.equal(sent.length, 1);
-  report = await deliverStepActions(root, { env: { HOOK_KEY: SECRET }, clock, post });
+  report = await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   assert.equal(sent.length, 1, 'not due again until its backoff passes');
   now += 31_000;
   answer = 'ok';
-  report = await deliverStepActions(root, { env: { HOOK_KEY: SECRET }, clock, post });
+  report = await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   assert.equal(report.delivered.length, 1);
   assert.equal(sent[1].body, sent[0].body, 'a retry sends exactly the same body');
   assert.equal(sent[1].headers['idempotency-key'], sent[0].headers['idempotency-key']);
-  report = await deliverStepActions(root, { env: { HOOK_KEY: SECRET }, clock, post });
+  report = await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   assert.equal(sent.length, 2, 'a delivered record is never sent again');
   const [listed] = await listStepActionDeliveries(root);
   assert.equal(listed.status, 'delivered');
@@ -185,13 +185,13 @@ test('the outbox delivers once, retries with backoff, holds unavailable deliveri
   answer = 'retry';
   for (let attempt = 0; attempt < MAX_DELIVERY_ATTEMPTS + 1; attempt += 1) {
     now += 90_000_000;
-    await deliverStepActions(root, { env: { HOOK_KEY: SECRET }, clock, post });
+    await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   }
   const failed = (await listStepActionDeliveries(root)).find((entry) => entry.trigger === 'approved');
   assert.equal(failed.status, 'failed');
   assert.match(stepActionWarning({ failed: [{ action: 'announce', target: 'hook', status: 503 }], retrying: [], unavailable: [] }), /integrations retry/);
   answer = 'ok';
-  report = await deliverStepActions(root, { keys: [failed.key], env: { HOOK_KEY: SECRET }, clock, post });
+  report = await deliverStepActions(root, { keys: [failed.key], env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   assert.equal(report.delivered.length, 1);
 
   // A record changed on disk is never delivered.
@@ -202,7 +202,7 @@ test('the outbox delivers once, retries with backoff, holds unavailable deliveri
   const stored = JSON.parse(await readFile(file, 'utf8'));
   stored.action.targetSpec.url = 'https://attacker.example.com/';
   await writeFile(file, JSON.stringify(stored));
-  report = await deliverStepActions(root, { env: { HOOK_KEY: SECRET }, clock, post });
+  report = await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
   assert.deepEqual(report.tampered.map((entry) => entry.key), [tampered.key]);
   assert.equal(sent.some((request) => request.url.includes('attacker')), false);
   assert.equal((await readdir(directory)).some((name) => name.endsWith('.lock')), false, 'no lock is left behind');
@@ -231,7 +231,7 @@ test('a Story sends its pinned actions on submit and approve, signed, exactly on
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-step-action-story-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
-  const env = { STEP_HOOK_KEY: SECRET };
+  const env = { SFLOW_SECRET_STEP_HOOK: SECRET };
   const cli = (...args) => runAsync(process.execPath, [CLI, '--no-model', ...args], root, env);
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Delivery Tester'], root);
@@ -246,7 +246,7 @@ test('a Story sends its pinned actions on submit and approve, signed, exactly on
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
-  config.integrations = { targets: { 'team-events': { kind: 'webhook', url: local.url, signingSecret: 'STEP_HOOK_KEY' } } };
+  config.integrations = { targets: { 'team-events': { kind: 'webhook', url: local.url, signingSecret: 'SFLOW_SECRET_STEP_HOOK' } } };
   config.phases.intake.afterStep = [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events' }];
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
@@ -306,5 +306,5 @@ test('a Story sends its pinned actions on submit and approve, signed, exactly on
   const checks = report.data?.checks ?? report.checks ?? [];
   const integration = checks.find((entry) => entry.id === 'integration-team-events');
   assert.equal(integration?.status, 'warn', 'without the secret in its environment, doctor says this machine cannot sign deliveries');
-  assert.match(integration.message, /STEP_HOOK_KEY is not set on this machine/);
+  assert.match(integration.message, /SFLOW_SECRET_STEP_HOOK is not set on this machine/);
 });

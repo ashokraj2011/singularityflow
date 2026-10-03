@@ -26,7 +26,13 @@ export const DEFAULT_TARGET_TIMEOUT_SECONDS = 10;
 export const MAX_TARGET_TIMEOUT_SECONDS = 30;
 
 const ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const SECRET_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
+/**
+ * Integration secrets have their own namespace. Configuration chooses which secret a target sends
+ * and where, so without it a workflow could name another tool's credential (JIRA_PAT, GITHUB_TOKEN,
+ * a cloud key) as a target's token and deliver it to an address of its choosing.
+ */
+export const INTEGRATION_SECRET_PREFIX = 'SFLOW_SECRET_';
+const SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
 const LABEL_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 // A value under one of these keys would be a secret written into reviewed configuration.
@@ -71,7 +77,8 @@ function plainObject(value) {
 export function assertSecretName(value, label) {
   if (typeof value !== 'string' || !SECRET_NAME.test(value)) {
     refuse('INTEGRATION_SECRET_NAME_INVALID',
-      `${label} must name an environment secret in capitals, such as SFLOW_EVENTS_SIGNING_KEY, and never hold its value.`,
+      `${label} must name an environment secret that starts with SFLOW_SECRET_, such as SFLOW_SECRET_EVENTS_KEY, and never hold its value. `
+        + 'Integration secrets have their own names so a workflow can never send another tool\'s credentials, such as JIRA_PAT or GITHUB_TOKEN.',
       { location: label });
   }
   return value;
@@ -189,7 +196,7 @@ function normalizeTarget(id, raw, label) {
   } else if (kind === 'teams') {
     if (raw.urlSecret == null) {
       refuse('INTEGRATION_TARGET_INVALID',
-        `${label} needs urlSecret: the Teams webhook address carries its own credential, so it is named as a secret, for example SINGULARITY_FLOW_TEAMS_WEBHOOK_URL.`,
+        `${label} needs urlSecret: the Teams webhook address carries its own credential, so it is named as a secret, for example SFLOW_SECRET_TEAMS_URL.`,
         { location: label });
     }
     target.urlSecret = assertSecretName(raw.urlSecret, `${label} urlSecret`);

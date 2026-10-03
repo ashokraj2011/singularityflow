@@ -261,6 +261,8 @@ function cacheableRead(args: string[]): boolean {
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset'
+    // A test delivery reaches another system every time it is asked for; never replay the last answer.
+    && !(args[0] === 'integrations' && args[1] === 'test' && enabledBooleanOption(args, 'send-test'))
     // A readiness check that mints an intake receipt answers with a single-use bearer token. Sharing
     // one answer between two callers would hand both of them the same receipt.
     && !(args[0] === 'workspace' && args[1] === 'branches' && args.includes('--mint-intake-receipt'));
@@ -270,6 +272,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
   if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
   if (args[0] === 'jira') return args[1] === 'status' ? 'read' : 'mutation';
+  if (args[0] === 'integrations') return ['list', 'status', 'test'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'prompt-log') return ['status', 'list', 'view'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'impact') {
     if (args[1] === 'study') return ['list', 'show', 'prompt-hash'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
@@ -516,8 +519,11 @@ export function resolveCli(options: ResolveOptions = {}): CliLocation {
 export interface ClientOptions {
   location: CliLocation;
   repository: string;
-  /** Secrets are supplied by VS Code SecretStorage and exist only in the child process. */
-  environment?: NodeJS.ProcessEnv;
+  /**
+   * Secrets are supplied by VS Code SecretStorage and exist only in the child process. A function is
+   * read at every spawn, so a secret stored after activation reaches the next command without a reload.
+   */
+  environment?: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv);
   onOutput?: (text: string, stream: OutputStream) => void;
   /** Sanitized completion diagnostics independent of whether child output is displayed. */
   onTiming?: (event: CliCommandTiming) => void;
@@ -662,7 +668,7 @@ export class SingularityFlowClient {
       args,
       json,
       input,
-      env: { ...(this.options.environment ?? process.env) },
+      env: { ...((typeof this.options.environment === 'function' ? this.options.environment() : this.options.environment) ?? process.env) },
       timeoutMs,
       commandClass: classification,
       onOutput: visibleOutput,

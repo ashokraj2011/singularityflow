@@ -763,8 +763,8 @@
   "$defs": {
     "secretName": {
       "type": "string",
-      "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
-      "description": "The name of an environment secret on the delivering machine. Configuration names secrets; it never holds their values."
+      "pattern": "^SFLOW_SECRET_[A-Z0-9_]{1,51}$",
+      "description": "The name of an environment secret on the delivering machine, starting with SFLOW_SECRET_ so a workflow can never read another tool's credentials. Configuration names secrets; it never holds their values."
     },
     "integrations": {
       "type": "object",

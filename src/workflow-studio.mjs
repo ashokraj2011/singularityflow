@@ -39,6 +39,9 @@ import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, YAML_OUTPUT, posix } from './util.mjs';
+import {
+  HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations
+} from './step-actions.mjs';
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
 
 export const STUDIO_CHANGE_SET_SCHEMA = 'sflow-studio-change-set@1';
@@ -219,6 +222,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           authoringSkillSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'authoringSkill')),
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
           authoringSkillSource: route.authoringSkillSource,
+          afterStep: (phase.afterStep ?? []).map((action) => ({ id: action.id, on: [...(action.on ?? [])], target: action.target, send: action.send ?? 'event' })),
+          afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
           convergence: isConvergencePhase(phase),
@@ -241,10 +246,14 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     },
     problems,
     workflows,
+    integrations: {
+      targets: Object.entries(raw.integrations?.targets ?? {}).map(([id, target]) => ({ id, ...structuredClone(target) }))
+    },
     phases: Object.entries(phases).map(([id, phase]) => ({
       id, label: phase.label ?? id, output: outputOf(phase),
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
+      afterStep: (Array.isArray(phase.afterStep) ? phase.afterStep : []).map((action) => ({ id: action?.id, on: [...(action?.on ?? [])], target: action?.target, send: action?.send ?? 'event' })),
       generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
       convergence: isConvergencePhase(phase),
       compiledSkill: compiledSkillStep(phase),
@@ -286,7 +295,11 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       views: (raw.worldModel?.views ?? definition?.worldModel?.views ?? []).map((view) => String(view).replace(/@[1-9][0-9]*$/, '')),
       tools: [...new Set([...Object.keys(TOOL_LABELS), ...discovered.flatMap((agent) => agent.tools ?? [])])]
         .map((id) => ({ id, label: TOOL_LABELS[id] ?? id })),
-      roles: AGENT_ROLES
+      roles: AGENT_ROLES,
+      integrationKinds: Object.entries(INTEGRATION_TARGET_KINDS).map(([id, entry]) => ({ id, label: entry.label, available: entry.available, sends: [...entry.sends] })),
+      httpLogFormats: [...HTTP_LOG_FORMATS],
+      actionTriggers: [...STEP_ACTION_TRIGGERS],
+      actionSends: [...STEP_ACTION_SENDS]
     }
   };
 }
@@ -426,10 +439,23 @@ export function unifiedDiff(before, after, file) {
 // lists, so who owns a per-workflow setting is decided by the lists the change set ends with
 // (finalWorkflowPhases), not by the lists at that moment.
 const RANK = Object.freeze({
-  'marketplace.add': 0, 'marketplace.remove': 0, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
+  'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
   'import.template': 3.5, 'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7,
-  'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11
+  'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11,
+  'integration.target.remove': 11.5
 });
+
+/** A step's after-step actions as the page sends them: the written shape, checked for form only. */
+function studioActions(value, name) {
+  if (!Array.isArray(value)) throw new SingularityFlowError(`The actions after ${name} must be a list.`, { code: 'STUDIO_ACTIONS_INVALID' });
+  return value.map((action, index) => {
+    if (!action || typeof action !== 'object' || Array.isArray(action)
+        || Object.keys(action).some((key) => !['id', 'on', 'target', 'send'].includes(key))) {
+      throw new SingularityFlowError(`Action ${index + 1} after ${name} must have only id, on, target and send.`, { code: 'STUDIO_ACTIONS_INVALID' });
+    }
+    return { id: action.id, on: Array.isArray(action.on) ? [...action.on] : action.on, target: action.target, ...(action.send && action.send !== 'event' ? { send: action.send } : {}) };
+  });
+}
 
 function requireId(value, label) {
   const id = String(value ?? '').trim();
@@ -618,6 +644,9 @@ class StudioCandidate {
       case 'workflow.update': return this.updateWorkflow(change);
       case 'marketplace.add': return this.addMarketplace(change);
       case 'marketplace.remove': return this.removeMarketplace(change);
+      case 'integration.target.create': return this.createTarget(change);
+      case 'integration.target.update': return this.updateTarget(change);
+      case 'integration.target.remove': return this.removeTarget(change);
       case 'import.skill': return this.importSkill(change);
       case 'import.template': return this.importTemplate(change);
       case 'import.agent': return this.importAgent(change);
@@ -753,6 +782,61 @@ class StudioCandidate {
       ...(marketplace.allowedOrigins.length ? { allowedOrigins: [...marketplace.allowedOrigins] } : {})
     }));
     this.summary.push(`This repository trusts marketplace ${marketplace.label} (${marketplace.index}).`);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Integration targets: named connections after-step actions send to. Addresses and secret names
+  // only; configuration never holds a secret value.
+
+  targetNode(id, target) {
+    if (!target || typeof target !== 'object' || Array.isArray(target)) {
+      throw new SingularityFlowError(`Integration target '${id}' needs its settings.`, { code: 'STUDIO_TARGET_INVALID' });
+    }
+    const { id: _ignored, ...fields } = target;
+    // The configuration's own rules, so the page reports the same refusal the engine would.
+    normalizeIntegrations({ targets: { [id]: fields } });
+    return this.document.createNode(fields);
+  }
+
+  createTarget({ id, target }) {
+    const targetId = requireId(id, 'An integration target ID');
+    if (this.content.integrations?.targets?.[targetId]) {
+      throw new SingularityFlowError(`There is already an integration target called '${targetId}'.`, { code: 'STUDIO_TARGET_EXISTS' });
+    }
+    this.document.setIn(['integrations', 'targets', targetId], this.targetNode(targetId, target));
+    this.summary.push(`Integration target ${targetId} (${target.kind}) added.`);
+  }
+
+  updateTarget({ id, target }) {
+    const targetId = requireId(id, 'An integration target ID');
+    if (!this.content.integrations?.targets?.[targetId]) {
+      throw new SingularityFlowError(`There is no integration target called '${targetId}'.`, { code: 'STUDIO_TARGET_UNKNOWN' });
+    }
+    this.document.setIn(['integrations', 'targets', targetId], this.targetNode(targetId, target));
+    this.summary.push(`Integration target ${targetId} changed.`);
+  }
+
+  removeTarget({ id }) {
+    const targetId = requireId(id, 'An integration target ID');
+    const content = this.content;
+    if (!content.integrations?.targets?.[targetId]) {
+      throw new SingularityFlowError(`There is no integration target called '${targetId}'.`, { code: 'STUDIO_TARGET_UNKNOWN' });
+    }
+    const users = [
+      ...Object.entries(content.phases ?? {}).filter(([, phase]) => (phase?.afterStep ?? []).some((action) => action?.target === targetId))
+        .map(([phaseId]) => this.phaseLabel(phaseId)),
+      ...Object.entries(content.workTypes ?? {}).flatMap(([workTypeId, type]) => Object.entries(type?.phaseOverrides ?? {})
+        .filter(([, override]) => (override?.afterStep ?? []).some((action) => action?.target === targetId))
+        .map(([phaseId]) => `${this.phaseLabel(phaseId)} in ${type?.label ?? workTypeId}`))
+    ];
+    if (users.length) {
+      throw new SingularityFlowError(`Integration target ${targetId} is still used by ${users.join(', ')}. Remove those actions first.`, {
+        code: 'STUDIO_TARGET_IN_USE', details: { target: targetId, users }
+      });
+    }
+    this.document.deleteIn(['integrations', 'targets', targetId]);
+    if (!Object.keys(this.content.integrations?.targets ?? {}).length) this.document.deleteIn(['integrations']);
+    this.summary.push(`Integration target ${targetId} removed.`);
   }
 
   removeMarketplace({ id }) {
@@ -1054,7 +1138,7 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification }) {
+  createPhase({ id, label, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
@@ -1120,12 +1204,21 @@ class StudioCandidate {
       if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ ...(node.clarification ?? {}), mode: clarification }));
     }
+    // What the new step sends after it: the list the change names, so a copy can also drop its source's.
+    let actionCount = 0;
+    if (afterStep !== undefined && afterStep !== null) {
+      const actions = studioActions(afterStep, name);
+      actionCount = actions.length;
+      if (actions.length) this.document.setIn(['phases', phaseId, 'afterStep'], this.document.createNode(actions));
+      else if (this.document.hasIn(['phases', phaseId, 'afterStep'])) this.document.deleteIn(['phases', phaseId, 'afterStep']);
+    }
     const agentId = agent ?? (copyOf ? [...this.agents.values()].find((entry) => entry.defaultFor.includes(copyOf))?.id : null);
     if (!agentId) throw new SingularityFlowError(`Choose the agent that drafts ${name}.`, { code: 'STUDIO_PHASE_AGENT_REQUIRED' });
     this.setDefaultAgent(phaseId, requireId(agentId, 'An agent ID'));
     this.summary.push(copyOf
       ? `New step ${name}, a copy of ${this.phaseLabel(copyOf)}, drafted by ${this.agentLabel(agentId)}.`
       : `New step ${name}: drafted by ${this.agentLabel(agentId)}, ${node.approval === 'none' ? 'no sign-off' : `signed off by ${this.content.approvalAuthorities?.[approvalSummary(node.approval).authorities[0]]?.label ?? 'its group'}`}.`);
+    if (actionCount) this.summary.push(`${name} sends ${actionCount} ${actionCount === 1 ? 'action' : 'actions'} after it.`);
     const droppedLine = authoringSkill === undefined ? this.droppedSkillLine(phaseId, name, dropped) : null;
     if (droppedLine) this.summary.push(droppedLine);
   }
@@ -1149,7 +1242,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill }) {
+  updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill, afterStep }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -1215,13 +1308,22 @@ class StudioCandidate {
       } else this.document.setIn([...scope, 'authoringSkill'], requireAuthoringSkill(authoringSkill));
       changed.push('drafting skill');
     }
+    if (afterStep !== undefined) {
+      // What the step sends after it is submitted, approved or rejected: per workflow on a shared
+      // step, like sign-off. An empty list on a workflow's override stops the step's own actions there.
+      const scope = scopeFor('afterStep');
+      const actions = studioActions(afterStep, name);
+      if (actions.length || scope === override) this.document.setIn([...scope, 'afterStep'], this.document.createNode(actions));
+      else if (this.document.hasIn([...scope, 'afterStep'])) this.document.deleteIn([...scope, 'afterStep']);
+      changed.push('actions after the step');
+    }
     if (clarification != null) {
       if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });
       if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
       changed.push('questions');
     }
-    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
+    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined || afterStep !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
     const droppedLine = this.droppedSkillLine(phaseId, label ?? name, dropped);
     if (droppedLine) this.summary.push(droppedLine);
   }

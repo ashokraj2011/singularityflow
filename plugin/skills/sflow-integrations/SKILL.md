@@ -15,7 +15,7 @@ argument-hint: "[list | status | retry <DELIVERY-KEY...>|--all | test <TARGET>]"
 Use this skill when someone asks what a step sends after approval, why a webhook, log service or Teams channel did not hear about a step, or how to send a delivery again.
 
 1. Run `singularity-flow integrations status --json` (add `--work-id <ID>` for one Story). Explain each open delivery: the step, the trigger, the target, its last outcome and when it is retried.
-2. For configuration questions run `singularity-flow integrations list --json`. A secret shown as not set must be set in this machine's environment or in VS Code; never ask for a secret value in chat and never print one.
+2. For configuration questions run `singularity-flow integrations list --json`. A secret shown as not set (names start with `SFLOW_SECRET_`) must be set in this machine's environment or in VS Code; never ask for a secret value in chat and never print one.
 3. To check a target, run `singularity-flow integrations test <TARGET> --json` and show the request. Send a test only when the user asks, with `--send-test`.
 4. Ask before mutation. When the user chooses to retry, run `singularity-flow integrations retry <KEY...> --json` (or `--all`) exactly once and report each outcome.
 

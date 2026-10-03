@@ -4339,7 +4339,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         extensionPath: context.extensionPath
       }),
       repository,
-      environment: cliEnvironment,
+      environment: () => cliEnvironment,
       onOutput: (text) => output.append(text)
     });
   } catch (error) {
@@ -4352,7 +4352,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const activeSelectionClient = new SingularityFlowClient({
     location: client.location,
     repository: process.cwd(),
-    environment: cliEnvironment,
+    environment: () => cliEnvironment,
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
@@ -7670,7 +7670,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { WorkflowStudioPanel } = lazyPanels();
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
-        reviewProposal: async () => { await vscode.commands.executeCommand('singularityFlow.openDesigner'); }
+        reviewProposal: async () => { await vscode.commands.executeCommand('singularityFlow.openDesigner'); },
+        // Integration secrets go to the keychain; the next command (a delivery, a test) reads them.
+        integrationSecrets: {
+          status: (names) => secureCredentials.integrationSecretStatus(names),
+          store: async (name, value) => { await secureCredentials.saveIntegrationSecret(name, value); cliEnvironment = await resolvedCliEnvironment(); },
+          clear: async (name) => { await secureCredentials.resetIntegrationSecret(name); cliEnvironment = await resolvedCliEnvironment(); }
+        }
       });
     },
     'singularityFlow.openDesigner': async () => {

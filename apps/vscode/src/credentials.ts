@@ -5,6 +5,18 @@ const JIRA_TOKEN = 'singularityFlow.jira.token';
 const STORAGE_PREFIX = 'singularityFlow.storage.';
 const STORAGE_INDEX = 'singularityFlow.storage.index';
 const TEAMS_WEBHOOK = 'singularityFlow.teams.webhook';
+const INTEGRATION_PREFIX = 'singularityFlow.integration.';
+const INTEGRATION_INDEX = 'singularityFlow.integration.index';
+/** An environment secret an integration target names, such as SFLOW_SECRET_EVENTS_KEY (the engine's rule). */
+export const INTEGRATION_SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+
+/** Where an integration secret comes from on this machine, if anywhere. */
+export type IntegrationSecretSource = 'stored' | 'environment' | 'missing';
+
+/** The environment variable the engine reads a storage provider's token from. */
+export function storageTokenVariable(providerId: string): string {
+  return `SINGULARITY_FLOW_STORAGE_TOKEN_${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+}
 
 export interface JiraSecretConfig {
   deployment: 'cloud' | 'data-center';
@@ -51,7 +63,52 @@ export class SecureCredentials {
     }
     const teamsWebhook = await this.secrets.get(TEAMS_WEBHOOK);
     if (teamsWebhook) env.SINGULARITY_FLOW_TEAMS_WEBHOOK_URL = teamsWebhook;
+    // Storage provider tokens reach the engine under the variable it reads; they were saved but never passed.
+    for (const providerId of await this.index(STORAGE_INDEX)) {
+      const token = await this.secrets.get(`${STORAGE_PREFIX}${providerId}`);
+      if (token) env[storageTokenVariable(providerId)] = token;
+    }
+    // Integration secrets: what after-step actions sign and authenticate with. A stored value wins
+    // over one inherited from the shell, because someone chose it here.
+    for (const name of await this.index(INTEGRATION_INDEX)) {
+      const value = await this.secrets.get(`${INTEGRATION_PREFIX}${name}`);
+      if (value) env[name] = value;
+    }
     return env;
+  }
+
+  private async index(key: string): Promise<string[]> {
+    try {
+      const parsed = JSON.parse(await this.secrets.get(key) ?? '[]') as unknown;
+      return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : [];
+    } catch { return []; }
+  }
+
+  /** Store an integration secret by the name a target uses; the value never leaves the keychain except into the CLI. */
+  async saveIntegrationSecret(name: string, value: string): Promise<void> {
+    if (!INTEGRATION_SECRET_NAME.test(name)) throw new Error('Integration secret names start with SFLOW_SECRET_, such as SFLOW_SECRET_EVENTS_KEY.');
+    if (!value.trim()) throw new Error('The secret value is empty.');
+    await this.secrets.store(`${INTEGRATION_PREFIX}${name}`, value.trim());
+    const names = [...new Set([...(await this.index(INTEGRATION_INDEX)), name])].sort();
+    await this.secrets.store(INTEGRATION_INDEX, JSON.stringify(names));
+  }
+
+  async resetIntegrationSecret(name: string): Promise<void> {
+    if (!INTEGRATION_SECRET_NAME.test(name)) return;
+    await this.secrets.delete(`${INTEGRATION_PREFIX}${name}`);
+    const names = (await this.index(INTEGRATION_INDEX)).filter((entry) => entry !== name);
+    await this.secrets.store(INTEGRATION_INDEX, JSON.stringify(names));
+  }
+
+  /** Whether each named secret is stored here, inherited from the environment, or missing. Never the values. */
+  async integrationSecretStatus(names: readonly string[], base: NodeJS.ProcessEnv = process.env): Promise<Record<string, IntegrationSecretSource>> {
+    const status: Record<string, IntegrationSecretSource> = {};
+    for (const name of names) {
+      if (!INTEGRATION_SECRET_NAME.test(name)) continue;
+      if (await this.secrets.get(`${INTEGRATION_PREFIX}${name}`)) status[name] = 'stored';
+      else status[name] = String(base[name] ?? '').trim() ? 'environment' : 'missing';
+    }
+    return status;
   }
 
   async saveTeamsWebhook(value: string): Promise<void> {
@@ -81,9 +138,12 @@ export class SecureCredentials {
   async resetAll(): Promise<void> {
     let providerIds: string[] = [];
     try { providerIds = JSON.parse(await this.secrets.get(STORAGE_INDEX) ?? '[]') as string[]; } catch { /* ignore corrupt index */ }
+    const integrationNames = await this.index(INTEGRATION_INDEX);
     await Promise.all([
       this.resetJira(),
       this.resetTeamsWebhook(),
+      ...integrationNames.map((name) => this.secrets.delete(`${INTEGRATION_PREFIX}${name}`)),
+      this.secrets.delete(INTEGRATION_INDEX),
       ...providerIds.filter((id) => typeof id === 'string').map((id) => this.secrets.delete(`${STORAGE_PREFIX}${id}`)),
       this.secrets.delete(STORAGE_INDEX)
     ]);

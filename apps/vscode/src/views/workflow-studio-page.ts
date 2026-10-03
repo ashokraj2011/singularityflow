@@ -121,6 +121,8 @@ const STUDIO_STYLE = `
 .mark-chip.bad{color:var(--sf-bad)}
 .mark-chip.decision{color:var(--vscode-charts-purple,#b180d7)}
 .mark-chip.back{color:var(--vscode-charts-orange,#d18616)}
+.chip-action{flex:none;max-width:45%;border-color:color-mix(in srgb,var(--sf-link) 55%,transparent);color:var(--sf-link)}
+.mark-chip.action{color:var(--sf-link)}
 .node-fold{position:absolute;top:7px;right:6px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--sf-dim,inherit);cursor:pointer}
 .node.collapsed .node-fold{top:9px}
 .studio .canvas .node-fold:hover:not(:disabled){border-color:var(--sf-border-color);color:var(--vscode-foreground);background:var(--sf-surface-raised,transparent)}
@@ -219,6 +221,24 @@ const STUDIO_STYLE = `
 .diff .add{color:var(--vscode-gitDecoration-addedResourceForeground,#73c991)}
 .diff .del{color:var(--vscode-gitDecoration-deletedResourceForeground,#c74e39)}
 .studio-status{min-height:1.2em;font-size:12px}
+.action-box{border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.trigger-row{display:flex;flex-wrap:wrap;gap:4px 14px}
+.trigger-row label{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:400}
+.kind-choices{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:var(--sf-space-2)}
+.studio .kind-choice{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:4px;min-height:0;max-width:none;text-align:left;font:inherit;letter-spacing:normal;color:inherit;background:var(--sf-surface);border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;box-shadow:none;cursor:pointer}
+.studio .kind-choice[aria-checked=true]{border:2px solid var(--sf-accent);padding:7px 9px}
+.studio .kind-choice:hover:not(:disabled){background:var(--vscode-list-hoverBackground);box-shadow:none}
+.studio .kind-choice:active:not(:disabled){transform:none}
+.studio .kind-choice:disabled{opacity:.55;cursor:not-allowed}
+.targets-grid{display:flex;flex-direction:column;gap:var(--sf-space-3);max-width:1100px}
+.secrets{display:flex;flex-direction:column;gap:6px}
+.secret-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--sf-space-2);align-items:center;font-size:12px}
+.secret-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.secret-state{font-size:11px;padding:1px 8px;border-radius:10px;border:1px solid var(--sf-border-color);white-space:nowrap}
+.secret-state.stored,.secret-state.environment{border-color:var(--sf-ok)}
+.secret-state.missing{border-color:var(--sf-wait)}
+.test-box{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--sf-border-color);padding-top:8px}
+.test-box select{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
 .decision-box{border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;margin:0;display:flex;flex-direction:column;gap:6px}
 .decision-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .preview-text{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre-wrap;overflow:auto;max-height:280px;border:1px solid var(--sf-border-color);border-radius:6px;padding:8px;margin:0}
@@ -251,23 +271,27 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- The draft and the change set ---------------------------------------------------------
 
   function initialDraft(model) {
-    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, order: [], imports: [] };
+    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [] };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill) };
+        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow) };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice() };
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []) };
     });
     (model.agents || []).forEach(function (agent) {
       draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null };
     });
     (model.groups || []).forEach(function (group) {
       draft.groups[group.id] = { id: group.id, label: group.label, members: clone(group.members || []), status: group.status, isNew: false };
+    });
+    // Integration targets as written: addresses and secret names, never secret values.
+    ((model.integrations && model.integrations.targets) || []).forEach(function (target) {
+      var copy = clone(target); delete copy.id; draft.integrations[target.id] = copy;
     });
     return draft;
   }
@@ -299,7 +323,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var own = home && home !== workflowId && draft.steps[home] && draft.steps[home][phaseId] ? draft.steps[home][phaseId] : phase;
     var phases = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
     return { approval: clone(own.approval || { group: null, minimum: 1 }), inputs: (own.inputs || []).filter(function (input) { return phases.indexOf(input) >= 0; }),
-      authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill) };
+      authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill),
+      afterStep: clone(own.afterStep || []) };
   }
 
   /**
@@ -325,6 +350,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       views: baseline && same(source.views, baseline.views) && settings.views ? settings.views.slice() : (source.views || []).slice(),
       clarification: baseline && source.clarification === baseline.clarification ? settings.clarification || 'off' : source.clarification,
       authoringSkill: settings.authoringSkill || null,
+      // The engine copies the step as its workflow runs it, actions included; that is the copy's start.
+      afterStep: clone(settings.afterStep || source.afterStep || []), copiedAfterStep: clone(settings.afterStep || source.afterStep || []),
       generatedByEngine: settings.generatedByEngine !== undefined ? Boolean(settings.generatedByEngine) : Boolean(source.generatedByEngine),
       convergence: settings.convergence !== undefined ? Boolean(settings.convergence) : Boolean(source.convergence),
       compiledSkill: settings.compiledSkill !== undefined ? Boolean(settings.compiledSkill) : Boolean(source.compiledSkill) });
@@ -344,6 +371,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (!same(before.members, group.members)) patch.members = group.members;
       if (Object.keys(patch).length > 2) changes.push(patch);
     });
+    // Targets compare by meaning, so one rebuilt by the form with its fields in another order is unchanged.
+    var targetsNow = draft.integrations || {};
+    Object.keys(targetsNow).sort().forEach(function (id) {
+      if (!base.integrations[id]) changes.push({ op: 'integration.target.create', id: id, target: clone(targetsNow[id]) });
+      else if (canonical(base.integrations[id]) !== canonical(targetsNow[id])) changes.push({ op: 'integration.target.update', id: id, target: clone(targetsNow[id]) });
+    });
+    Object.keys(base.integrations).sort().forEach(function (id) { if (!targetsNow[id]) changes.push({ op: 'integration.target.remove', id: id }); });
     Object.keys(draft.agents).forEach(function (id) {
       var agent = draft.agents[id]; var before = base.agents[id];
       if (!before) { changes.push({ op: 'agent.create', id: id, label: agent.label, description: agent.description, role: agent.role || 'blank', tools: agent.tools, views: agent.views, instructions: agent.instructions }); return; }
@@ -358,10 +392,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       var phase = draft.phases[id];
       if (phase.isNew) {
         var home = homeWorkflow(draft, id);
-        var step = home && draft.steps[home] && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs, authoringSkill: phase.authoringSkill };
+        var step = home && draft.steps[home] && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs, authoringSkill: phase.authoringSkill, afterStep: phase.afterStep };
         var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
         if (phase.copyOf) create.copyOf = phase.copyOf;
         if (phase.copyFromWorkflow) create.copyFromWorkflow = phase.copyFromWorkflow;
+        // A new step sends what its home workflow gives it; a copy starts with its source's actions,
+        // so it says only when they were edited.
+        var actions = step.afterStep || [];
+        if (phase.copyOf ? !same(actions, phase.copiedAfterStep || []) : actions.length) create.afterStep = clone(actions);
         changes.push(create);
         return;
       }
@@ -420,7 +458,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         } else {
           reference = before && base.steps[id] && base.steps[id][phaseId] ? base.steps[id][phaseId]
             : copySource && base.steps[copySource] && base.steps[copySource][phaseId] ? base.steps[copySource][phaseId]
-              : { approval: (base.phases[phaseId] || phase).approval, inputs: (base.phases[phaseId] || phase).inputs };
+              : { approval: (base.phases[phaseId] || phase).approval, inputs: (base.phases[phaseId] || phase).inputs, afterStep: (base.phases[phaseId] || phase).afterStep };
           // A workflow that sets the skill itself keeps it; any other follows the step's own skill as
           // this draft leaves it, which an output change can send back to automatic. The engine
           // writes a change where the workflow owns it: an override on a shared or already
@@ -431,6 +469,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
         if (!same(reference.inputs, step.inputs)) update.inputs = step.inputs;
         if ((step.authoringSkill || null) !== referenceSkill) update.authoringSkill = step.authoringSkill || null;
+        if (!same(reference.afterStep || [], step.afterStep || [])) update.afterStep = clone(step.afterStep || []);
         if (Object.keys(update).length > 3) changes.push(update);
       });
     });
@@ -447,8 +486,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'workflow.create': return 'New workflow ' + change.label + (change.copyOf ? ', a copy of ' + ((draft.workflows[change.copyOf] || {}).label || change.copyOf) : '') + ': ' + change.phases.map(phaseName).join(' → ');
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
       case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions' }[key] || key; }).join(', ') + ' changed';
-      case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent) + (change.authoringSkill ? ' with /' + change.authoringSkill : '');
-      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
+      case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent) + (change.authoringSkill ? ' with /' + change.authoringSkill : '') + (change.afterStep && change.afterStep.length ? ', sending ' + change.afterStep.length + (change.afterStep.length === 1 ? ' action' : ' actions') + ' after it' : '');
+      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill', afterStep: 'actions after it' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined || change.afterStep !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
       case 'phase.agent': return phaseName(change.phase) + ' is now drafted by ' + agentName(change.agent);
       case 'agent.create': return 'New agent ' + change.label;
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
@@ -460,6 +499,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'import.generated': return agentName(change.agent) + ' fetches ' + change.target + ' for ' + phaseName(change.phase);
       case 'import.mcpServer': return (change.replace ? 'Update MCP server' : 'MCP server') + ' from ' + change.source + (change.agents && change.agents.length ? ' for ' + change.agents.map(agentName).join(', ') : ', for imports only');
       case 'import.remove': return 'Remove ' + change.key;
+      case 'integration.target.create': return 'New target ' + change.id + ' (' + kindOf(change.target.kind).label + ')' + (change.target.url ? ': ' + change.target.url : '');
+      case 'integration.target.update': return 'Target ' + change.id + ' changed';
+      case 'integration.target.remove': return 'Remove target ' + change.id;
       case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
       case 'marketplace.remove': return 'Stop trusting marketplace ' + change.id;
       default: return change.op;
@@ -479,7 +521,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     copyStepForWorkflow: function () { return copyStepForWorkflow.apply(null, arguments); }, stepSettings: function () { return stepSettings.apply(null, arguments); },
     stepOutput: function () { return stepOutput.apply(null, arguments); }, setStepOutput: function () { return setStepOutput.apply(null, arguments); },
     skillPicker: function () { return skillPicker.apply(null, arguments); }, chooseAuthoringSkill: function () { return chooseAuthoringSkill.apply(null, arguments); },
-    authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); } };
+    authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); },
+    addStepAction: function () { return addStepAction.apply(null, arguments); }, setActionTarget: function () { return setActionTarget.apply(null, arguments); },
+    setActionTrigger: function () { return setActionTrigger.apply(null, arguments); }, actionLine: function () { return actionLine.apply(null, arguments); },
+    targetUsers: function () { return targetUsers.apply(null, arguments); }, targetFromForm: function () { return targetFromForm.apply(null, arguments); },
+    newTargetForm: function () { return newTargetForm.apply(null, arguments); }, editTargetForm: function () { return editTargetForm.apply(null, arguments); },
+    saveTargetForm: function () { return saveTargetForm.apply(null, arguments); }, removeTarget: function () { return removeTarget.apply(null, arguments); },
+    integrationsState: function () { return integrationsState(); }, canonical: canonical };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -572,9 +620,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var firstGroup = Object.keys(state.draft.groups)[0] || null;
     var phases = workflowSteps(workflowId);
     var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
-    state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous };
+    state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [] };
     insertStep(workflowId, id, afterId);
-    state.draft.steps[workflowId][id] = { approval: { group: firstGroup, minimum: 1 }, inputs: previous };
+    state.draft.steps[workflowId][id] = { approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [] };
     state.step = id;
     changed();
     return id;
@@ -596,6 +644,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     draft.steps[workflowId][id] = settings;
     // The copy is a step of its own: what it produces and its drafting skill are its own values.
     draft.steps[workflowId][id].authoringSkillSetByWorkflow = false;
+    draft.steps[workflowId][id].afterStepSetByWorkflow = false;
     draft.steps[workflowId][id].overridden = false;
     delete draft.steps[workflowId][id].setAsideSkill;
     draft.phases[id].authoringSkill = draft.steps[workflowId][id].authoringSkill || null;
@@ -673,6 +722,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function renderNav(root) {
     var pending = changesNow().length;
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
+    // A target some step sends to, whose secret this machine does not have: its deliveries would wait.
+    var secretsHere = integrationsState().secrets;
+    var missingSecrets = targetIds().filter(function (id) { return targetUsers(id).length && targetSecrets(state.draft.integrations[id]).some(function (name) { return secretsHere[name] === 'missing'; }); }).length;
     // On the canvas the navigation folds to icons, so the workflow gets the width.
     var compact = state.view === 'board';
     function item(view, label, iconName, count, attention) {
@@ -691,6 +743,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
+      item('integrations', 'Integrations', 'plug', missingSecrets || targetIds().length || null, missingSecrets > 0),
       item('changes', 'Changes', 'list', pending, pending > 0),
       compact ? null : el('p', { class: 'note', text: 'Running Stories keep the workflow they started with. What you publish applies to new Stories after review.' })));
   }
@@ -1241,7 +1294,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     unfoldAll: 'M7 6l5 5 5-5 M7 13l5 5 5-5',
     info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 11v5 M12 7.5h.01',
     panel: 'M3 4h18v16H3z M15 4v16',
-    wrap: 'M4 6h16 M4 12h13a3 3 0 0 1 0 6h-5 M12 15l-3 3 3 3 M4 18h4'
+    wrap: 'M4 6h16 M4 12h13a3 3 0 0 1 0 6h-5 M12 15l-3 3 3 3 M4 18h4',
+    send: 'M21 3L10 14 M21 3l-6.5 18-4.5-7-7-4.5z',
+    plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4'
   };
 
   function svgEl(tag, attrs) {
@@ -1420,6 +1475,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     (workflow.reworkLoops || []).filter(function (loop) { return loop.from === phaseId; }).forEach(function (loop) {
       chips.push({ tone: 'back', icon: 'back', text: stepLabel(loop.to), title: 'If rejected, back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times') });
     });
+    var actions = (state.draft.steps[workflow.id] && state.draft.steps[workflow.id][phaseId] && state.draft.steps[workflow.id][phaseId].afterStep) || [];
+    if (actions.length) {
+      var crowded = chips.some(function (entry) { return entry.tone === 'back'; });
+      chips.push({ tone: 'action', icon: 'send', count: actions.length, text: crowded ? String(actions.length) : actions.length === 1 ? actions[0].target : actions.length + ' actions',
+        title: 'Sends after it: ' + actions.map(actionLine).join('; ') });
+    }
     return chips;
   }
   function chip(entry) {
@@ -1449,6 +1510,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var then = chips.map(function (entry) { return entry.title; }).join('; ');
     var decisionChip = chips.find(function (entry) { return entry.tone === 'decision'; });
     var backChip = chips.find(function (entry) { return entry.tone === 'back'; });
+    var actionChip = chips.find(function (entry) { return entry.tone === 'action'; });
     var inside = node.collapsed ? [
       el('span', { class: 'node-icon' }, icon(look.icon, 12)),
       el('span', { class: 'node-num', text: String(node.index + 1) }),
@@ -1456,7 +1518,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       el('span', { class: 'node-marks' },
         group ? el('span', { class: 'mark-chip' + (blocked ? ' bad' : ''), title: signText }, icon('people', 11), String(minimum)) : null,
         decisionChip ? el('span', { class: 'mark-chip decision', title: decisionChip.title }, icon('diamond', 10)) : null,
-        backChip ? el('span', { class: 'mark-chip back', title: backChip.title }, icon('back', 11)) : null)
+        backChip ? el('span', { class: 'mark-chip back', title: backChip.title }, icon('back', 11)) : null,
+        actionChip ? el('span', { class: 'mark-chip action', title: actionChip.title }, icon('send', 10), String(actionChip.count)) : null)
     ] : [
       el('span', { class: 'node-head' }, el('span', { class: 'node-icon' }, icon(look.icon, 14)), el('span', { class: 'node-step', text: 'STEP ' + (node.index + 1) }),
         phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null,
@@ -1568,6 +1631,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       ['document', 'analysis', 'code', 'none'].map(function (output) { var look = OUTPUT_LOOK[output]; return el('span', { class: 'legend tone-' + look.tone }, el('span', { class: 'legend-dot' }), look.label); }),
       el('span', { class: 'legend tone-purple' }, el('span', { class: 'legend-dot diamond-dot' }), 'Decision'),
       el('span', { class: 'legend tone-orange' }, el('span', { class: 'legend-line' }), 'Send back'),
+      el('span', { class: 'legend chip-action' }, icon('send', 11), 'Sends to an integration'),
       el('span', { class: 'legend' }, icon('up', 11), 'Minimize a step'),
       el('span', { class: 'legend hint-text', text: 'Drag the background to move · Ctrl or Cmd + wheel to zoom' }));
   }
@@ -2073,7 +2137,365 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       state.decision = created.id; changed();
     }), 'Add a decision to branch, loop until a goal, or let a person choose.'), null, after ? after.label : 'next step'));
 
+    var actionCount = (settings.afterStep || []).length;
+    aside.appendChild(section('actions', 'Actions after this step', actionsEditor(workflowId, phaseId, settings, users), null,
+      actionCount ? actionCount + (actionCount === 1 ? ' action' : ' actions') : 'none', !actionCount));
+
     return aside;
+  }
+
+  // ---- After-step actions and integration targets ---------------------------------------------
+  //
+  // A target is a named place a step can tell about its decisions: your own service, a log service
+  // or a Teams channel. A step's actions say which target hears, when (submitted, approved,
+  // rejected) and what it is sent. Like sign-off, actions belong to the workflow: on a step two
+  // workflows share, each keeps its own. Configuration names secrets but never holds them; each
+  // machine keeps its own, and VS Code stores them in the operating-system keychain.
+
+  var SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+  var TOKEN_FORMATS = ['splunk-hec', 'datadog', 'elastic'];
+  var TRIGGER_WORDS = { submitted: 'submitted', approved: 'approved', rejected: 'rejected' };
+  var SEND_WORDS = { event: 'the event', summary: 'a summary', artifact: 'the document' };
+  var SEND_LABELS = { event: 'The event', summary: 'A summary with the acceptance criteria', artifact: 'The document' };
+  var SECRET_WORDS = { stored: 'Stored on this machine', environment: 'Set in the environment', missing: 'Not set on this machine' };
+  var KIND_HINTS = { webhook: 'Your own service: signed JSON', 'http-log': 'Splunk, Datadog, Elastic, Loki or JSON', teams: 'A message in a Teams channel', jira: 'Comment on or move an issue', git: 'Commit the document to a repository', confluence: 'Publish a page', onedrive: 'Upload the document' };
+  var FORMAT_LABELS = { json: 'Any JSON endpoint', 'splunk-hec': 'Splunk HTTP Event Collector', datadog: 'Datadog logs', elastic: 'Elasticsearch', loki: 'Grafana Loki' };
+
+  /** JSON with object keys sorted, so equal targets compare equal however their fields were set. */
+  function canonical(value) {
+    if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+    if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(function (key) { return JSON.stringify(key) + ':' + canonical(value[key]); }).join(',') + '}';
+    return JSON.stringify(value === undefined ? null : value);
+  }
+  function kindOf(kind) {
+    return ((state.model && state.model.choices && state.model.choices.integrationKinds) || []).find(function (entry) { return entry.id === kind; })
+      || { id: kind, label: kind, available: false, sends: ['event'] };
+  }
+  function targetIds() { return Object.keys((state.draft && state.draft.integrations) || {}).sort(); }
+  function publishedTargets() { return (state.model && state.model.integrations && state.model.integrations.targets) || []; }
+  function targetSecrets(target) { return [target.signingSecret, target.tokenSecret, target.urlSecret].filter(Boolean); }
+  function targetAddress(target) { return target.url ? target.url : target.urlSecret ? 'Address kept in ' + target.urlSecret : ''; }
+  /** A target the configuration has exactly as the draft has it, so the engine can test it now. */
+  function targetPublished(id) {
+    var published = publishedTargets().find(function (target) { return target.id === id; });
+    if (!published || !state.draft.integrations[id]) return false;
+    var copy = clone(published); delete copy.id;
+    return canonical(copy) === canonical(state.draft.integrations[id]);
+  }
+  /** One action in words: "On approved, sends the event to team-events". */
+  function actionLine(action) {
+    return 'On ' + (action.on || []).map(function (trigger) { return TRIGGER_WORDS[trigger] || trigger; }).join(' or ') + ', sends ' + (SEND_WORDS[action.send || 'event'] || action.send) + ' to ' + action.target;
+  }
+  /** Every step, in every workflow of the draft, whose actions send to a target. */
+  function targetUsers(targetId) {
+    var users = [];
+    Object.keys(state.draft.workflows).forEach(function (workflowId) {
+      workflowSteps(workflowId).forEach(function (phaseId) {
+        var settings = state.draft.steps[workflowId] && state.draft.steps[workflowId][phaseId];
+        ((settings && settings.afterStep) || []).forEach(function (action) {
+          if (action.target === targetId) users.push({ workflow: workflowId, step: phaseId, action: action });
+        });
+      });
+    });
+    return users;
+  }
+  function addStepAction(workflowId, phaseId) {
+    var targets = targetIds();
+    if (!targets.length) { setStatus('Add a target in Integrations first.'); render(); return null; }
+    var settings = stepSettings(workflowId, phaseId);
+    var list = settings.afterStep || (settings.afterStep = []);
+    var target = targets[0];
+    var action = { id: uniqueId(target, list.map(function (entry) { return entry.id; })), on: ['approved'], target: target, send: kindOf(state.draft.integrations[target].kind).sends[0] || 'event' };
+    list.push(action);
+    state.sections.actions = true;
+    changed();
+    return action;
+  }
+  function setActionTarget(action, targetId) {
+    var target = state.draft.integrations[targetId];
+    if (!target) return;
+    action.target = targetId;
+    var sends = kindOf(target.kind).sends;
+    if (sends.indexOf(action.send) < 0) action.send = sends[0] || 'event';
+    changed();
+  }
+  function setActionTrigger(action, trigger, on) {
+    var next = ((state.model && state.model.choices.actionTriggers) || ['submitted', 'approved', 'rejected']).filter(function (entry) { return entry === trigger ? on : action.on.indexOf(entry) >= 0; });
+    if (!next.length) { setStatus('An action needs at least one moment; remove it to stop it.'); render(); return false; }
+    action.on = next; changed();
+    return true;
+  }
+
+  function actionsEditor(workflowId, phaseId, settings, users) {
+    var list = settings.afterStep || (settings.afterStep = []);
+    var targets = targetIds();
+    var triggers = state.model.choices.actionTriggers || ['submitted', 'approved', 'rejected'];
+    var body = [];
+    if (users.length && list.length) {
+      body.push(el('span', { class: 'hint', text: 'Only ' + state.draft.workflows[workflowId].label + ' sends these; ' + (users.length > 2
+        ? 'the ' + users.length + ' other workflows that use this step keep their own.'
+        : users.map(function (id) { return state.draft.workflows[id].label; }).join(' and ') + ' keep' + (users.length === 1 ? 's its' : ' their') + ' own.') }));
+    }
+    list.forEach(function (action, index) {
+      var target = state.draft.integrations[action.target];
+      var options = targets.map(function (id) { return { value: id, label: state.draft.integrations[id].label || id, title: id + ' · ' + kindOf(state.draft.integrations[id].kind).label }; });
+      if (!target) options.unshift({ value: action.target, label: action.target + ' (no longer a target)', disabled: true });
+      var sends = target ? kindOf(target.kind).sends : [action.send || 'event'];
+      body.push(el('div', { class: 'action-box', role: 'group', 'aria-label': actionLine(action) },
+        el('div', { class: 'grid-2' },
+          field('action-target-' + index, 'Sends to', select('action-target-' + index, options, action.target, function (value) { setActionTarget(action, value); })),
+          field('action-send-' + index, 'What', select('action-send-' + index, sends.map(function (send) { return { value: send, label: SEND_LABELS[send] || send }; }), action.send || 'event', function (value) { action.send = value; changed(); }))),
+        el('div', { class: 'field' }, el('span', { class: 'label', text: 'When the step is' }),
+          el('div', { class: 'trigger-row' }, triggers.map(function (trigger) {
+            return el('label', null, el('input', { type: 'checkbox', 'data-key': 'action-on-' + index + '-' + trigger, checked: action.on.indexOf(trigger) >= 0,
+              onchange: function (event) { setActionTrigger(action, trigger, event.target.checked); } }), TRIGGER_WORDS[trigger] || trigger);
+          }))),
+        target ? null : el('div', { class: 'callout bad', text: 'Target ' + action.target + ' was removed. Choose another target or remove this action.' }),
+        el('div', { class: 'studio-row spread' }, el('span', { class: 'muted', text: actionLine(action) }),
+          button('Remove', function () { settings.afterStep = list.filter(function (entry) { return entry !== action; }); changed(); }, { class: 'secondary', 'aria-label': 'Remove the action: ' + actionLine(action) }))));
+    });
+    if (!targets.length) {
+      body.push(el('div', { class: 'callout' }, el('div', { text: 'Add a target first: your own service, a log service or a Teams channel. Then choose here what this step sends to it, and when.' }),
+        button('Open Integrations', function () { state.view = 'integrations'; render(); }, { class: 'secondary', style: 'margin-top:6px' })));
+    } else {
+      body.push(el('div', { class: 'studio-row' },
+        button('Add an action', function () { addStepAction(workflowId, phaseId); }, { class: 'secondary', 'data-key': 'action-add' }),
+        button('Integrations', function () { state.view = 'integrations'; render(); }, { class: 'secondary' })));
+    }
+    body.push(el('span', { class: 'hint', text: 'Actions never hold the Story back: a delivery that fails is retried, and Integrations shows it.' }));
+    return body;
+  }
+
+  function integrationsState() { return state.integrations || (state.integrations = { form: null, tests: {}, asked: {}, secrets: {}, canStore: true }); }
+
+  /** Ask the host which secrets this machine has, once per name; storing or removing one updates it. */
+  function askSecretStatus(names) {
+    var view = integrationsState();
+    var unknown = names.filter(function (name, index) { return SECRET_NAME.test(name) && !view.asked[name] && names.indexOf(name) === index; });
+    if (!unknown.length) return;
+    unknown.forEach(function (name) { view.asked[name] = true; });
+    post({ type: 'studio.secretStatus', names: unknown });
+  }
+
+  function newTargetForm(kind) {
+    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', problem: null };
+  }
+  function editTargetForm(id) {
+    var target = state.draft.integrations[id];
+    return { mode: 'edit', id: id, label: target.label || '', kind: target.kind, url: target.url || '', format: target.format || 'json',
+      signingSecret: target.signingSecret || '', tokenSecret: target.tokenSecret || '', urlSecret: target.urlSecret || '',
+      labels: Object.keys(target.labels || {}).map(function (key) { return key + '=' + target.labels[key]; }).join('\n'),
+      network: target.network || 'public', timeoutSeconds: target.timeoutSeconds ? String(target.timeoutSeconds) : '', problem: null };
+  }
+  /** A secret name made from the target's ID, such as SFLOW_SECRET_TEAM_EVENTS_KEY. */
+  function suggestedSecret(id, suffix) {
+    var stem = String(id || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 38);
+    return 'SFLOW_SECRET_' + (stem ? stem + '_' : '') + suffix;
+  }
+  /** Fill the secret the kind needs with a name made from the ID, unless someone typed their own. */
+  function suggestSecrets(form, previousId) {
+    [['signingSecret', 'KEY', form.kind === 'webhook'], ['tokenSecret', 'TOKEN', form.kind === 'http-log' && TOKEN_FORMATS.indexOf(form.format) >= 0], ['urlSecret', 'URL', form.kind === 'teams']].forEach(function (entry) {
+      var current = form[entry[0]];
+      var ours = !current || current === suggestedSecret(previousId, entry[1]) || current === suggestedSecret(form.id, entry[1]);
+      if (ours) form[entry[0]] = entry[2] && form.id ? suggestedSecret(form.id, entry[1]) : '';
+    });
+  }
+  /** What a target means, with the engine's defaults left out, to tell a real edit from a rebuild. */
+  function targetMeaning(target) {
+    var copy = clone(target);
+    if (copy.network === 'public') delete copy.network;
+    if (copy.timeoutSeconds === 10) delete copy.timeoutSeconds;
+    return canonical(copy);
+  }
+
+  /** The target a form describes, in the written shape, or the first thing it is missing. */
+  function targetFromForm(form) {
+    var id = String(form.id || '').trim();
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(id) || id.length > 63) return { problem: 'Give the target a lower-case ID such as team-events.' };
+    if (form.mode === 'create' && state.draft.integrations[id]) return { problem: 'There is already a target called ' + id + '.' };
+    var target = { kind: form.kind };
+    if (String(form.label || '').trim()) target.label = String(form.label).trim().slice(0, 80);
+    function secret(name, label, required) {
+      var value = String(form[name] || '').trim();
+      if (!value) return required ? label + ' is required.' : null;
+      if (!SECRET_NAME.test(value)) return label + ' must start with SFLOW_SECRET_ and use capitals, digits and underscores, such as ' + suggestedSecret(id, 'KEY') + '.';
+      target[name] = value;
+      return null;
+    }
+    var problem = null;
+    if (form.kind === 'webhook' || form.kind === 'http-log') {
+      var url = String(form.url || '').trim();
+      if (!/^https:\/\/[^\s/]+\S*$/.test(url) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?(\/\S*)?$/.test(url)) return { problem: 'The address must start with https:// (plain http only to this machine).' };
+      target.url = url;
+      if (form.kind === 'http-log') target.format = form.format || 'json';
+      problem = form.kind === 'webhook' ? secret('signingSecret', 'The signing secret name', false) : secret('tokenSecret', 'The token secret name', TOKEN_FORMATS.indexOf(target.format) >= 0);
+      if (problem) return { problem: problem };
+      if (form.kind === 'http-log') {
+        var labels = {}; var bad = null;
+        String(form.labels || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean).forEach(function (line) {
+          var at = line.indexOf('='); var key = at > 0 ? line.slice(0, at).trim() : ''; var value = at > 0 ? line.slice(at + 1).trim() : '';
+          if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key) || !value) bad = 'Write each label as name=value on its own line, such as service=sflow.';
+          else labels[key] = value;
+        });
+        if (bad) return { problem: bad };
+        if (Object.keys(labels).length) target.labels = labels;
+      }
+      if (form.network === 'private') target.network = 'private';
+    } else if (form.kind === 'teams') {
+      problem = secret('urlSecret', 'The name of the secret holding the webhook address', true);
+      if (problem) return { problem: problem };
+    } else {
+      return { problem: kindOf(form.kind).label + ' targets are not available in this version yet.' };
+    }
+    var timeout = String(form.timeoutSeconds || '').trim();
+    if (timeout) {
+      if (!/^[0-9]+$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > 30) return { problem: 'The timeout is a whole number of seconds from 1 to 30.' };
+      target.timeoutSeconds = Number(timeout);
+    }
+    return { id: id, target: target };
+  }
+  function saveTargetForm() {
+    var view = integrationsState();
+    var form = view.form;
+    if (!form) return null;
+    var built = targetFromForm(form);
+    if (built.problem) { form.problem = built.problem; render(); return null; }
+    var before = state.draft.integrations[built.id];
+    if (!before || targetMeaning(before) !== targetMeaning(built.target)) state.draft.integrations[built.id] = built.target;
+    view.form = null;
+    askSecretStatus(targetSecrets(built.target));
+    setStatus(form.mode === 'create' ? 'Target ' + built.id + ' is in your changes. Open a step to choose what it sends there.' : 'Target ' + built.id + ' changed in your changes.');
+    changed();
+    return built.id;
+  }
+  function removeTarget(id) {
+    var users = targetUsers(id);
+    if (users.length) {
+      setStatus(id + ' is still used by ' + users.map(function (user) { return stepLabel(user.step) + ' in ' + state.draft.workflows[user.workflow].label; }).join(', ') + '. Remove those actions first.');
+      render(); return false;
+    }
+    delete state.draft.integrations[id];
+    changed();
+    return true;
+  }
+
+  function secretRow(name) {
+    var view = integrationsState();
+    var source = view.secrets[name];
+    return el('div', { class: 'secret-row' },
+      el('code', { text: name, title: name }),
+      el('span', { class: 'secret-state ' + (source || 'unknown'), text: source ? SECRET_WORDS[source] : 'Checking…' }),
+      el('span', { class: 'studio-row' },
+        view.canStore ? button(source === 'stored' ? 'Replace' : 'Store', function () { post({ type: 'studio.storeSecret', name: name }); }, { class: 'secondary', 'aria-label': (source === 'stored' ? 'Replace ' : 'Store ') + name }) : null,
+        view.canStore && source === 'stored' ? button('Remove', function () { post({ type: 'studio.clearSecret', name: name }); }, { class: 'secondary', 'aria-label': 'Remove ' + name + ' from this machine' }) : null));
+  }
+
+  function testPanel(id, target) {
+    var view = integrationsState();
+    var sends = kindOf(target.kind).sends;
+    var test = view.tests[id] || (view.tests[id] = { trigger: 'approved', send: sends[0] || 'event', busy: null, result: null, failed: null });
+    if (!targetPublished(id)) {
+      return el('span', { class: 'hint', text: publishedTargets().some(function (entry) { return entry.id === id; }) ? 'Publish your edits to this target to preview or test it.' : 'Publish this target to preview or test it.' });
+    }
+    function run(sendTest) { test.busy = sendTest ? 'send' : 'preview'; test.failed = null; render(); post({ type: 'studio.integrationTest', target: id, trigger: test.trigger, send: test.send, sendTest: sendTest }); }
+    var result = test.result;
+    var request = result && result.request;
+    var delivery = result && result.delivery;
+    return el('div', { class: 'test-box' },
+      el('div', { class: 'studio-row' },
+        select('test-on-' + id, (state.model.choices.actionTriggers || ['submitted', 'approved', 'rejected']).map(function (trigger) { return { value: trigger, label: 'When ' + trigger }; }), test.trigger,
+          function (value) { test.trigger = value; test.result = null; render(); }, { 'aria-label': 'When, for the preview' }),
+        select('test-send-' + id, sends.map(function (send) { return { value: send, label: SEND_LABELS[send] || send }; }), test.send,
+          function (value) { test.send = value; test.result = null; render(); }, { 'aria-label': 'What, for the preview' }),
+        button(test.busy === 'preview' ? 'Building…' : 'Preview the request', function () { run(false); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-preview-' + id }),
+        button(test.busy === 'send' ? 'Sending…' : 'Send a test', function () { run(true); }, { class: 'secondary', disabled: Boolean(test.busy), 'data-key': 'test-send-now-' + id })),
+      test.failed ? el('div', { class: 'callout bad', role: 'alert', text: test.failed }) : null,
+      result && result.unavailable ? el('div', { class: 'callout wait', text: 'Not ready on this machine: ' + (result.unavailable.detail || 'a secret it needs is not set.') }) : null,
+      result && result.failed ? el('div', { class: 'callout bad', text: result.failed.detail || 'The request cannot be built.' }) : null,
+      delivery ? el('div', { class: 'callout ' + (delivery.outcome === 'delivered' ? 'ok' : 'bad'), role: 'status',
+        text: (delivery.outcome === 'delivered' ? 'Sent' : 'Not delivered') + (delivery.status ? ' (HTTP ' + delivery.status + ')' : '') + (delivery.detail ? ': ' + delivery.detail : '') + '.' }) : null,
+      request ? el('pre', { class: 'preview-text', 'aria-label': 'The request, secrets hidden' }, 'POST ' + request.url + '\n'
+        + Object.keys(request.headers || {}).map(function (name) { return name + ': ' + request.headers[name]; }).join('\n') + '\n\n' + JSON.stringify(request.body, null, 2)) : null);
+  }
+
+  function renderTargetForm(form) {
+    var kinds = state.model.choices.integrationKinds || [];
+    var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'New target' : 'Change target ' + form.id });
+    card.appendChild(el('h2', { text: form.mode === 'create' ? 'New target' : 'Change ' + form.id }));
+    if (form.mode === 'create') {
+      card.appendChild(el('div', { class: 'kind-choices', role: 'radiogroup', 'aria-label': 'Kind of target' }, kinds.map(function (kind) {
+        return el('button', { type: 'button', class: 'kind-choice', role: 'radio', 'aria-checked': form.kind === kind.id ? 'true' : 'false', 'data-key': 'target-kind-' + kind.id,
+          disabled: !kind.available, title: kind.available ? null : 'Not available in this version yet',
+          onclick: function () { form.kind = kind.id; form.problem = null; suggestSecrets(form, form.id); render(); } },
+        el('strong', { text: kind.label }), el('span', { class: 'muted', text: kind.available ? KIND_HINTS[kind.id] || '' : 'Coming later' }));
+      })));
+    }
+    card.appendChild(el('div', { class: 'grid-2' },
+      field('target-id', 'ID', textInput('target-id', form.id, function (value) { var previous = form.id; form.id = value.trim(); suggestSecrets(form, previous); form.problem = null; render(); },
+        { disabled: form.mode !== 'create', placeholder: 'team-events' }), form.mode === 'create' ? 'Steps name the target by this ID.' : null),
+      field('target-label', 'Name (optional)', textInput('target-label', form.label, function (value) { form.label = value; }, { placeholder: 'Team events' }))));
+    if (form.kind === 'webhook' || form.kind === 'http-log') {
+      if (form.kind === 'http-log') {
+        card.appendChild(field('target-format', 'Log service', select('target-format', (state.model.choices.httpLogFormats || ['json']).map(function (format) { return { value: format, label: FORMAT_LABELS[format] || format }; }), form.format,
+          function (value) { form.format = value; suggestSecrets(form, form.id); render(); })));
+      }
+      card.appendChild(field('target-url', 'Address', textInput('target-url', form.url, function (value) { form.url = value.trim(); },
+        { placeholder: form.kind === 'webhook' ? 'https://hooks.example.com/sflow' : 'https://logs.example.com/services/collector' }), 'https:// only; plain http only to this machine. Never put a password or token in the address.'));
+      if (form.kind === 'webhook') {
+        card.appendChild(field('target-signing', 'Signing secret name (recommended)', textInput('target-signing', form.signingSecret, function (value) { form.signingSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'KEY') }),
+          'Each request carries an x-sflow-signature made with this secret, so your service can check it came from your team.'));
+      } else {
+        card.appendChild(field('target-token', 'Token secret name' + (TOKEN_FORMATS.indexOf(form.format) >= 0 ? '' : ' (optional)'), textInput('target-token', form.tokenSecret, function (value) { form.tokenSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'TOKEN') }),
+          'The API token the log service expects, sent the way it expects it.'));
+        card.appendChild(field('target-labels', 'Labels (optional)', el('textarea', { id: 'target-labels', 'data-key': 'target-labels', rows: '3', value: form.labels, placeholder: 'service=sflow', onchange: function (event) { form.labels = event.target.value; } }),
+          'One name=value per line, added to every entry: Splunk fields, Datadog tags, Loki labels.'));
+      }
+      card.appendChild(field('target-network', 'Where it is', select('target-network', [{ value: 'public', label: 'On the internet' }, { value: 'private', label: 'On our private network' }], form.network,
+        function (value) { form.network = value; render(); }), form.network === 'private' ? 'Private addresses are allowed because you say so here, where reviewers see it.' : 'Private and internal addresses are refused unless you choose our private network.'));
+    } else if (form.kind === 'teams') {
+      card.appendChild(field('target-url-secret', 'Secret holding the webhook address', textInput('target-url-secret', form.urlSecret, function (value) { form.urlSecret = value.trim(); }, { placeholder: suggestedSecret(form.id, 'URL') }),
+        'A Teams webhook address is itself a credential, so configuration names the secret that holds it.'));
+    }
+    card.appendChild(field('target-timeout', 'Timeout in seconds (optional)', textInput('target-timeout', form.timeoutSeconds, function (value) { form.timeoutSeconds = value.trim(); }, { placeholder: '10', inputmode: 'numeric' })));
+    if (form.problem) card.appendChild(el('div', { class: 'callout bad', role: 'alert', text: form.problem }));
+    card.appendChild(el('div', { class: 'studio-row' },
+      button(form.mode === 'create' ? 'Add to changes' : 'Save to changes', function () { saveTargetForm(); }, { class: 'primary', 'data-key': 'target-save' }),
+      button('Cancel', function () { integrationsState().form = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function renderIntegrations(main) {
+    var view = integrationsState();
+    var ids = targetIds();
+    main.appendChild(el('header', null, el('h1', { text: 'Integrations' }),
+      el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service or a Teams channel. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
+    askSecretStatus(ids.reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
+    if (view.form) main.appendChild(renderTargetForm(view.form));
+    else main.appendChild(el('div', { class: 'studio-row' }, button('Add a target', function () { view.form = newTargetForm('webhook'); render(); }, { class: 'primary', 'data-key': 'target-add' })));
+    if (!ids.length && !view.form) main.appendChild(el('p', { class: 'muted', text: 'No targets yet. Add one, then open a step and choose what it sends after it is submitted, approved or rejected.' }));
+    var published = publishedTargets().map(function (target) { return target.id; });
+    var grid = el('div', { class: 'targets-grid' });
+    ids.forEach(function (id) {
+      var target = state.draft.integrations[id];
+      var users = targetUsers(id);
+      var isNew = published.indexOf(id) < 0;
+      var edited = !isNew && !targetPublished(id);
+      var secrets = targetSecrets(target);
+      grid.appendChild(el('article', { class: 'studio-card', 'aria-label': 'Target ' + id },
+        el('div', { class: 'studio-row spread' },
+          el('div', { class: 'studio-row' }, el('strong', { text: target.label || id }), target.label ? el('code', { text: id }) : null, el('span', { class: 'pill', text: kindOf(target.kind).label }),
+            isNew ? el('span', { class: 'pill new', text: 'NEW' }) : edited ? el('span', { class: 'pill new', text: 'CHANGED' }) : null),
+          el('div', { class: 'studio-row' },
+            button('Change', function () { view.form = editTargetForm(id); render(); }, { class: 'secondary', 'aria-label': 'Change ' + id }),
+            button('Remove', function () { removeTarget(id); }, { class: 'secondary', 'aria-label': 'Remove ' + id, disabled: users.length > 0,
+              title: users.length ? 'Used by ' + users.length + (users.length === 1 ? ' action' : ' actions') + '; remove those first' : null }))),
+        el('span', { class: 'muted', text: [targetAddress(target), target.format ? FORMAT_LABELS[target.format] || target.format : null, target.network === 'private' ? 'private network' : null].filter(Boolean).join(' · ') }),
+        el('div', { class: 'muted', text: users.length ? 'Sent by ' + users.map(function (user) { return stepLabel(user.step) + ' in ' + state.draft.workflows[user.workflow].label + ' (' + user.action.on.join(', ') + ')'; }).join('; ') : 'No step sends to it yet.' }),
+        secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))
+          : el('span', { class: 'hint', text: target.kind === 'webhook' ? 'No signing secret: requests are sent unsigned.' : 'No token: entries are sent without one.' }),
+        testPanel(id, target)));
+    });
+    if (ids.length) main.appendChild(grid);
   }
 
   function openAgentForm(context) {
@@ -2637,6 +3059,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     else if (state.view === 'agents') renderAgents(main);
     else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
+    else if (state.view === 'integrations') renderIntegrations(main);
     else if (state.view === 'changes') renderChanges(main);
     else renderHome(main);
     if (state.view !== 'board') main.appendChild(el('div', { id: 'studio-status', class: 'studio-status', role: 'status', 'aria-live': 'polite', text: state.status }));
@@ -2653,6 +3076,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       state.model = message.model; state.error = null;
       if (!keep) state.draft = initialDraft(message.model);
       if (state.workflow && !state.draft.workflows[state.workflow]) state.workflow = null;
+      // Whether this machine has the secrets the targets name decides the Integrations badge.
+      askSecretStatus(targetIds().reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
       state.busy = null; render();
     } else if (message.type === 'studio.plan') {
       state.plan = message.plan; state.planKey = message.changeSet; state.busy = null;
@@ -2676,6 +3101,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       setStatus(checks.check.some(function (entry) { return entry.updateCommand; }) ? 'Some imports changed at their source.' : 'Every import matches its source.'); render();
     } else if (message.type === 'studio.mcpSourcesListed') {
       var offered = library(); offered.busy = null; offered.mcp = message.result; offered.mcpForms = {}; render();
+    } else if (message.type === 'studio.secretStatus') {
+      var secretView = integrationsState(); secretView.canStore = message.canStore !== false;
+      Object.keys(message.status || {}).forEach(function (name) { secretView.secrets[name] = message.status[name]; });
+      render();
+    } else if (message.type === 'studio.secretStored') {
+      setStatus(message.name + ' is stored in the keychain on this machine.');
+    } else if (message.type === 'studio.integrationTested') {
+      var tested = integrationsState().tests[message.target];
+      if (tested) { tested.busy = null; tested.failed = message.failed || null; if (!message.cancelled) tested.result = message.result || null; }
+      render();
     } else if (message.type === 'studio.mcpHostAdded') {
       setStatus(message.summary || 'Host entry added.');
     } else if (message.type === 'studio.importFailed') {

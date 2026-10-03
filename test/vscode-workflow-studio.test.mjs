@@ -768,3 +768,120 @@ test('Drafted with shows each skill\'s description as its tooltip', async () => 
   const select = field.children.find((child) => child.tag === 'select');
   assert.deepEqual(select.children.map((option) => option.attributes.title), options.map((option) => option.title));
 });
+
+test('a target added in Integrations and the actions a step sends to it become one change set the engine writes', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  assert.equal(page.addStepAction('feature', 'intake'), null, 'a step has nothing to send to until a target exists');
+
+  // The form checks what the engine would refuse, in plain words, before anything is queued.
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('webhook');
+  for (const [fields, problem] of [
+    [{ id: 'Team Events' }, /lower-case ID/],
+    [{ id: 'team-events', url: 'http://hooks.example.com/sflow' }, /https:\/\//],
+    [{ id: 'team-events', url: 'https://hooks.example.com/sflow', signingSecret: 'JIRA_PAT' }, /start with SFLOW_SECRET_/]
+  ]) {
+    Object.assign(view.form, fields);
+    assert.equal(page.saveTargetForm(), null);
+    assert.match(view.form.problem, problem);
+  }
+  Object.assign(view.form, { signingSecret: 'SFLOW_SECRET_TEAM_EVENTS_KEY', problem: null });
+  assert.equal(page.saveTargetForm(), 'team-events');
+  assert.equal(view.form, null);
+
+  // An action on a step several workflows share belongs to this workflow, like sign-off.
+  const action = page.addStepAction('feature', 'intake');
+  assert.deepEqual(action, { id: 'team-events', on: ['approved'], target: 'team-events', send: 'event' });
+  assert.equal(page.setActionTrigger(action, 'rejected', true), true);
+  assert.equal(page.setActionTrigger(action, 'approved', false), true);
+  assert.equal(page.setActionTrigger(action, 'rejected', false), false, 'an action keeps at least one moment');
+  assert.equal(page.actionLine(action), 'On rejected, sends the event to team-events');
+  const changeSet = page.changeSetFrom(model, state.draft);
+  assert.deepEqual(changeSet.changes, [
+    { op: 'integration.target.create', id: 'team-events', target: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_TEAM_EVENTS_KEY' } },
+    { op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [{ id: 'team-events', on: ['rejected'], target: 'team-events', send: 'event' }] }
+  ]);
+  const words = changeSet.changes.map((change) => page.describe(change, state.draft));
+  assert.equal(words[0], 'New target team-events (Webhook): https://hooks.example.com/sflow');
+  assert.match(words[1], /: actions after it changed in Feature$/);
+
+  const plan = await planStudioChangeSet(root, changeSet, { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.integrations.targets['team-events'], { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_TEAM_EVENTS_KEY' });
+  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'team-events', on: ['rejected'], target: 'team-events' }], 'the default send is not written');
+  assert.equal(written.phases.intake.afterStep, undefined, 'the other workflows using the step send nothing');
+
+  const after = await buildStudioModel(root);
+  const reload = loadedStudio(after);
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+  assert.deepEqual(reload.state().draft.steps.feature.intake.afterStep, [{ id: 'team-events', on: ['rejected'], target: 'team-events', send: 'event' }]);
+  assert.deepEqual(reload.targetUsers('team-events').map((user) => [user.workflow, user.step]), [['feature', 'intake']]);
+  assert.equal(reload.removeTarget('team-events'), false, 'a target a step sends to cannot be removed');
+  assert.match(reload.state().status, /still used by .+ in Feature\. Remove those actions first\./);
+  // Opening the target in the form and saving it unchanged is not a change, whatever its field order.
+  reload.integrationsState().form = reload.editTargetForm('team-events');
+  assert.equal(reload.saveTargetForm(), 'team-events');
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, []);
+  // Removing the action and then the target writes both away.
+  reload.state().draft.steps.feature.intake.afterStep = [];
+  assert.equal(reload.removeTarget('team-events'), true);
+  const removal = reload.changeSetFrom(after, reload.state().draft);
+  assert.deepEqual(removal.changes.map((change) => change.op).sort(), ['integration.target.remove', 'phase.update']);
+  const cleared = await planStudioChangeSet(root, removal, { write: true });
+  assert.equal(cleared.valid, true, JSON.stringify(cleared.problems));
+  const final = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(final.integrations, undefined);
+  assert.deepEqual(final.workTypes.feature.phaseOverrides.intake.afterStep, [], 'an empty list on the override keeps Feature sending nothing');
+});
+
+test('a new step carries its actions when it is created, and a copy keeps what the step sent in its workflow', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const seeded = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'integration.target.create', id: 'audit-log', target: { kind: 'http-log', format: 'json', url: 'https://logs.example.com/ingest' } },
+    { op: 'phase.update', id: 'design', workflow: 'feature', afterStep: [{ id: 'audit', on: ['approved'], target: 'audit-log', send: 'summary' }] }
+  ] }, { write: true });
+  assert.equal(seeded.valid, true, JSON.stringify(seeded.problems));
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+
+  const id = page.createStep('chore', 'Release note', 'document', 'architect', 'intake');
+  const action = page.addStepAction('chore', id);
+  assert.deepEqual(action, { id: 'audit-log', on: ['approved'], target: 'audit-log', send: 'event' });
+  page.addExistingStep('feature', id, 'intake');
+  assert.deepEqual(state.draft.steps.feature[id].afterStep, [action], 'a second workflow starts with what the step is created with');
+
+  page.copyStepForWorkflow('feature', 'design');
+  const copyId = 'design-feature';
+  assert.deepEqual(state.draft.steps.feature[copyId].afterStep, [{ id: 'audit', on: ['approved'], target: 'audit-log', send: 'summary' }]);
+  const changes = page.changeSetFrom(model, state.draft).changes;
+  assert.deepEqual(changes.find((change) => change.op === 'phase.create' && change.id === id).afterStep, [action]);
+  assert.equal(changes.find((change) => change.op === 'phase.create' && change.id === copyId).afterStep, undefined,
+    'an unedited copy takes its actions from the step as Feature runs it');
+  assert.ok(!changes.some((change) => change.op === 'phase.update' && change.id === id), 'the second workflow sends nothing of its own');
+  assert.match(page.describe(changes.find((change) => change.op === 'phase.create' && change.id === id), state.draft), /, sending 1 action after it$/);
+
+  const plan = await planStudioChangeSet(root, page.changeSetFrom(model, state.draft), { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const after = await buildStudioModel(root);
+  const stepIn = (workflowId, stepId) => after.workflows.find((workflow) => workflow.id === workflowId).steps.find((step) => step.id === stepId);
+  assert.deepEqual(stepIn('chore', id).afterStep, [action]);
+  assert.deepEqual(stepIn('feature', id).afterStep, [action]);
+  assert.deepEqual(stepIn('feature', copyId).afterStep, [{ id: 'audit', on: ['approved'], target: 'audit-log', send: 'summary' }]);
+  const reload = loadedStudio(after);
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+
+  // A copy whose actions are edited before publishing says so in its creation.
+  const again = loadedStudio(model);
+  again.copyStepForWorkflow('feature', 'design');
+  again.state().draft.steps.feature[copyId].afterStep = [];
+  const edited = again.changeSetFrom(model, again.state().draft).changes.find((change) => change.op === 'phase.create' && change.id === copyId);
+  assert.deepEqual(edited.afterStep, []);
+});

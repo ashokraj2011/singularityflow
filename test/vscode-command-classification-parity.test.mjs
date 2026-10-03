@@ -88,7 +88,8 @@ test('dynamic read routes and unknown commands retain explicit read versus conse
     ['adhoc', 'status'], ['impact', 'status'], ['impact', 'doctor'], ['goal', 'inspect', 'GOAL-1'],
     ['jira', 'status'], ['prompt-log', 'list'], ['prompt-log', 'status'], ['prompt-log', 'view', 'latest'],
     ['workspace', 'bootstrap', 'status'], ['configuration', 'read', 'singularity/workflow.yml'],
-    ['configuration', 'validate'], ['factory-reset', '--dry-run']
+    ['configuration', 'validate'], ['factory-reset', '--dry-run'],
+    ['integrations', 'list'], ['integrations', 'status'], ['integrations', 'test', 'team-events', '--send-test']
   ];
   const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
   for (const args of reads) {
@@ -100,7 +101,7 @@ test('dynamic read routes and unknown commands retain explicit read versus conse
   for (const args of [
     ['jira', 'transition', 'ISSUE-1'], ['jira', 'unknown'], ['prompt-log', 'clear'],
     ['prompt-log', 'unknown'], ['configuration', 'future-action'], ['factory-reset', '--dry-run=false'],
-    ['factory-reset', '--no-dry-run']
+    ['factory-reset', '--no-dry-run'], ['integrations', 'retry', 'sad_0123']
   ]) {
     assert.equal(commandClass(args), 'mutation', args.join(' '));
     assert.equal(resolved(args).classification, 'mutation', args.join(' '));

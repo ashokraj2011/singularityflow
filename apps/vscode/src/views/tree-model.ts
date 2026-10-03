@@ -21,7 +21,7 @@ import {
 import { commandArgv } from '../commands.ts';
 import { buildCapabilityTree, type CapabilityReadiness } from './navigation-trees.ts';
 import {
-  exactSubmissionReadiness, phaseSubmissionPresentation, storyArtifactPublicationLabel,
+  exactSubmissionReadiness, phaseSubmissionPresentation, stepActionHoldLabel, storyArtifactPublicationLabel,
   submissionCommandArgv
 } from './submission-presentation.ts';
 
@@ -859,6 +859,22 @@ function storyPhaseActions(
     prefill: presentation.skill,
     contextValue: 'sflow.story.sourceReview'
   }] : [])];
+
+  if (presentation.kind === 'step-action-required') {
+    let holdArgv: string[] | null = null;
+    try { holdArgv = exact?.nextCommand ? commandArgv(exact.nextCommand) : null; } catch { holdArgv = null; }
+    return [{
+      kind: 'message', id: `story:${phase.id}:step-action-hold`,
+      label: presentation.statusLabel,
+      description: exact?.stepActionHold?.missing?.map((entry) => `${entry.action} → ${entry.target}`).join(', ') ?? '',
+      tooltip: presentation.detail,
+      icon: 'warning'
+    }, ...(holdArgv?.length ? [{
+      kind: 'action' as const, id: `story:${phase.id}:step-action-hold-run`,
+      label: stepActionHoldLabel(exact?.nextCommand), description: exact?.nextCommand ?? '', icon: 'send',
+      command: holdArgv, contextValue: 'sflow.story.stepActionHold'
+    }] : [])];
+  }
 
   // Missing or non-generation readiness is not permission to infer a Submit action. The shared
   // Continue safely action above remains available and will ask the engine for the legal route.

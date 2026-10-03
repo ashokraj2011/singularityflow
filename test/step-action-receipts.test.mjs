@@ -15,10 +15,14 @@ import YAML from 'yaml';
 
 import { recordSha256 } from '../src/records.mjs';
 import { familyForStoredPath, readRecord } from '../src/schema-migrations.mjs';
+import { deliverStepActions, enqueueStepActions } from '../src/step-action-delivery.mjs';
 import {
-  assertReceiptsMayBeRecorded, stepActionReceipt, stepActionReceiptDirectory, stepActionReceiptProblem, stepAwaitingApproval
+  assertReceiptsMayBeRecorded, assertRequiredStepActionsRecorded, planStepActionReceipts, stepActionReceipt, stepActionReceiptDirectory,
+  stepActionReceiptProblem, stepAwaitingApproval, writeStepActionReceipts
 } from '../src/step-action-receipts.mjs';
-import { normalizeIntegrations, normalizeStepActions, pinStepActions, stepActionDeliveryKey } from '../src/step-actions.mjs';
+import {
+  normalizeIntegrations, normalizeStepActions, pinStepActions, stepActionDeliveryKey, storyRequiresStepActions
+} from '../src/step-actions.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -43,15 +47,18 @@ function runAsync(command, args, cwd, env = {}, { allowFailure = false } = {}) {
   });
 }
 
-async function receiver(t) {
+/** A local receiver; it answers each request with the next scripted status, then 200. */
+async function receiver(t, statuses = []) {
   const requests = [];
+  const queue = [...statuses];
   const server = createServer((request, response) => {
     const chunks = [];
     request.on('data', (chunk) => chunks.push(chunk));
     request.on('end', () => {
       requests.push({ headers: request.headers, body: Buffer.concat(chunks).toString('utf8') });
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end('{}');
+      const status = queue.length ? queue.shift() : 200;
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(status >= 400 ? '{"error":"refused"}' : '{}');
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -229,4 +236,149 @@ test('integrations record commits each delivered delivery once, after review, an
   const state = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(state.currentPhase, 'implement', 'the Story carries on after its receipts');
   assert.equal(state.phases.intake.status, 'approved', 'recording receipts left the approval as it was');
+});
+
+test('a required action must fire on approved, and only required: true changes what is pinned', () => {
+  const [required] = normalizeStepActions([{ id: 'audit', on: ['submitted', 'approved'], target: 'team-events', required: true }], integrations, 'intake');
+  assert.deepEqual(required, { id: 'audit', on: ['submitted', 'approved'], target: 'team-events', send: 'event', required: true });
+  const [plain] = normalizeStepActions([{ id: 'audit', on: ['approved'], target: 'team-events', required: false }], integrations, 'intake');
+  assert.deepEqual(plain, { id: 'audit', on: ['approved'], target: 'team-events', send: 'event' }, 'required: false pins exactly like an action without it');
+  const refusal = (action) => { try { normalizeStepActions([action], integrations, 'intake'); return null; } catch (error) { return error; } };
+  const notApproved = refusal({ id: 'audit', on: ['submitted', 'rejected'], target: 'team-events', required: true });
+  assert.equal(notApproved.code, 'STEP_ACTION_INVALID');
+  assert.match(notApproved.message, /holds the next step until its approved delivery has a receipt, so its on must include approved/);
+  assert.equal(refusal({ id: 'audit', on: ['approved'], target: 'team-events', required: 'yes' }).code, 'STEP_ACTION_INVALID');
+  assert.equal(storyRequiresStepActions(storyFixture()), false);
+  assert.equal(storyRequiresStepActions(requiredFixture()), true);
+});
+
+function requiredFixture({ status = 'approved', generation = 1 } = {}) {
+  const afterStep = pinStepActions(normalizeStepActions([{ id: 'audit', on: ['approved'], target: 'team-events', required: true }], integrations, 'intake'), integrations);
+  return {
+    workItem: { id: 'STORY-9', title: 'Checkout retry', branch: 'STORY-9' },
+    phaseOrder: ['intake', 'implement'],
+    resolution: { workType: 'feature', phases: [{ id: 'intake', label: 'Intake', afterStep }, { id: 'implement', label: 'Implement', afterStep: [] }] },
+    phases: { intake: { status, generation, artifacts: [] }, implement: { status: 'in_progress', generation: 0, artifacts: [] } }
+  };
+}
+
+test('a required delivery holds the next step until its receipt is committed, and says what to run', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-step-action-required-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => run('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.test', ...args], root).stdout.trim();
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'base');
+  const workflow = requiredFixture();
+  const key = stepActionDeliveryKey({ workId: 'STORY-9', phaseId: 'intake', generation: 1, trigger: 'approved', actionId: 'audit' });
+  const held = () => assertRequiredStepActionsRecorded(root, {}, workflow, 'implement cannot be prepared').then(() => null, (error) => error);
+
+  let error = await held();
+  assert.equal(error.code, 'STEP_ACTION_REQUIRED_UNRECORDED');
+  assert.equal(error.message, 'implement cannot be prepared yet: the required after-step action audit → team-events (intake generation 1, approved) has no receipt in the Story. '
+    + 'This machine has no record of it: the machine that approved the step delivers it; record its receipt there.');
+  assert.deepEqual([error.details.missing[0].key, error.details.missing[0].here, error.details.nextAction], [key, 'absent', null]);
+
+  await enqueueStepActions(root, workflow, { event: { type: 'phase-approved', phaseId: 'intake', generation: 1 }, commit: git('rev-parse', 'HEAD') });
+  await deliverStepActions(root, { env: {}, post: async () => ({ outcome: 'failed', status: 401, code: 'STEP_ACTION_TARGET_REFUSED' }) });
+  error = await held();
+  assert.equal(error.details.missing[0].here, 'failed');
+  assert.equal(error.details.nextAction, `singularity-flow integrations retry ${key}`);
+  assert.match(error.message, /Its delivery failed and waits for a person; fix the target, then deliver it: singularity-flow integrations retry sad_/);
+
+  await deliverStepActions(root, { keys: [key], env: {}, post: async () => ({ outcome: 'delivered', status: 200 }) });
+  error = await held();
+  assert.equal(error.details.nextAction, 'singularity-flow integrations record');
+
+  const plan = await planStepActionReceipts(root, {}, workflow);
+  assert.deepEqual(plan.pending.map((record) => record.key), [key]);
+  await writeStepActionReceipts(root, {}, workflow, plan.pending, { recordedAt: '2026-10-04T12:00:00.000Z' });
+  assert.equal((await held())?.code, 'STEP_ACTION_REQUIRED_UNRECORDED', 'a receipt nobody committed holds the step as before');
+  git('add', '.');
+  git('commit', '-q', '-m', 'receipts');
+  assert.equal(await held(), null, 'the committed receipt releases the next step');
+
+  workflow.phases.intake.generation = 2;
+  assert.equal((await held())?.details.missing[0].generation, 2, 'a newer approval needs its own receipt');
+  workflow.phases.intake.status = 'in_progress';
+  assert.equal(await held(), null, 'a step that is not approved holds nothing');
+});
+
+/** A governed fixture repository whose intake step sends one required action to a local receiver. */
+async function requiredStory(t, local) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-step-action-required-story-'));
+  const remote = `${root}.git`;
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
+  const cli = (...args) => runAsync(process.execPath, [CLI, '--no-model', ...args], root);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Receipt Tester'], root);
+  run('git', ['config', 'user.email', 'receipt@example.test'], root);
+  await writeFile(path.join(root, 'README.md'), '# Fixture\n');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, 'test/fixture.test.mjs'), "import test from 'node:test';\ntest('fixture', () => {});\n");
+  await cli('init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  config.integrations = { targets: { 'audit-log': { kind: 'webhook', url: local.url } } };
+  config.phases.intake.afterStep = [{ id: 'audit', on: ['approved'], target: 'audit-log', required: true }];
+  await writeFile(configPath, YAML.stringify(config));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'Initialize the required-action fixture'], root);
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  const readiness = JSON.parse((await cli('precheck', '--run', '--scope', 'dependency-test', '--json')).stdout).data.plan;
+  await cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', readiness.planId, '--json');
+  const W = 'REQ-1';
+  await cli('start', W, '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Audit the approval', '--description', 'Required.');
+  const item = path.join(root, 'singularity/work-items', W);
+  await cli('prepare', 'intake');
+  await writeFile(path.join(item, 'artifacts/intake/intake.md'), [
+    `# ${W} — intake`, '', '## Request and outcome', '', 'Audit each approval.', '',
+    '## Scope and constraints', '', 'Only the audit.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${W}:AC-001] | An approval is audited. |`, '',
+    '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    `| \`${W}:AC-001\` | \`README.md\` | \`test/fixture.test.mjs\` | modified |`, '',
+    '## Initial evidence', '', 'The fixture.', ''
+  ].join('\n'));
+  await cli('wm', 'compose', '--phase', 'intake');
+  await cli('clarification', 'record', 'intake', '--question', 'Audit approvals?', '--answer', 'Yes.');
+  await cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  await cli('submit', 'intake');
+  return { root, cli, item, W };
+}
+
+test('a required delivery that went out at approval is recorded at once, so the next step starts [after-step actions]', async (t) => {
+  const local = await receiver(t);
+  const { root, cli } = await requiredStory(t, local);
+  const approved = await cli('approve', 'intake', '--yes');
+  assert.equal(local.requests.length, 1);
+  assert.match(approved.stdout, /Recorded 1 after-step receipt in commit [0-9a-f]{8} \(pushed\), so the next step is not held\./);
+  assert.equal(run('git', ['log', '-1', '--format=%s'], root).stdout.trim(), '[REQ-1][integrations][record] after-step action receipts');
+  await cli('prepare', 'implement');
+  const status = JSON.parse((await cli('integrations', 'status', '--all', '--json')).stdout);
+  assert.deepEqual(status.data.deliveries.map((entry) => [entry.status, entry.required, entry.recorded]), [['delivered', true, true]]);
+});
+
+test('a required delivery that failed holds the next step until a retry delivers and records it [after-step actions]', async (t) => {
+  const local = await receiver(t, [401]);
+  const { root, cli } = await requiredStory(t, local);
+  const approved = await cli('approve', 'intake', '--yes');
+  assert.doesNotMatch(approved.stdout, /Recorded \d+ after-step receipt/);
+  const refused = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], root, {}, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  const output = `${refused.stdout}${refused.stderr}`;
+  assert.match(output, /implement cannot be prepared yet: the required after-step action audit → audit-log \(intake generation 1, approved\) has no receipt in the Story/);
+  const key = /integrations retry (sad_[0-9a-f]{40})/.exec(output)?.[1];
+  assert.ok(key, output);
+  const headBefore = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const retried = JSON.parse((await cli('integrations', 'retry', key, '--json')).stdout);
+  assert.equal(retried.data.report.delivered.length, 1);
+  assert.equal(retried.data.receipts.count, 1, 'the retry that delivered it also recorded it');
+  assert.equal(run('git', ['rev-list', '--count', `${headBefore}..HEAD`], root).stdout.trim(), '1');
+  await cli('prepare', 'implement');
+  assert.equal(local.requests.length, 2);
 });

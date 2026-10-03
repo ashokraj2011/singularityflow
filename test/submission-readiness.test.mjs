@@ -311,3 +311,22 @@ test('every phase kind routes an unpublished generation to its guarded authoring
     assert.equal(result.nextSkill, expectedSkill, phaseId);
   }
 });
+
+test('a required after-step delivery of an earlier step holds the current one until it is recorded', () => {
+  const key = `sad_${'1'.repeat(40)}`;
+  const hold = {
+    missing: [{ key, phaseId: 'intake', generation: 1, action: 'audit', target: 'audit-log', here: 'failed' }],
+    nextAction: `singularity-flow integrations retry ${key}`,
+    reason: 'The next step waits: the required after-step action audit → audit-log (intake generation 1, approved) has no receipt in the Story.'
+  };
+  const held = submissionReadinessSnapshot(workflow({ generation: 0, publication: false }), { stepActionHold: hold });
+  assert.deepEqual([held.classification, held.lifecycleReady, held.nextCommand, held.nextSkill, held.reasonCode],
+    ['step-action-required', false, hold.nextAction, '/sf-integrations', 'STEP_ACTION_REQUIRED_UNRECORDED']);
+  assert.deepEqual(held.stepActionHold, { reason: hold.reason, runnableHere: true, missing: hold.missing });
+  const elsewhere = submissionReadinessSnapshot(workflow({ generation: 0, publication: false }), { stepActionHold: { ...hold, nextAction: null } });
+  assert.equal(elsewhere.nextCommand, 'singularity-flow integrations status --work-id READY-1 --all', 'when this machine cannot deliver it, the host can still look');
+  assert.equal(elsewhere.stepActionHold.runnableHere, false);
+  assert.equal(submissionReadinessSnapshot(workflow({ status: 'awaiting_approval' }), { stepActionHold: hold }).classification, 'already-submitted', 'a step in review is not held');
+  assert.equal(submissionReadinessSnapshot(workflow({ generation: 0, publication: false })).classification, 'generation-required');
+  assert.match(submissionReadinessText(held), /Classification: step-action-required\nPhase status: in_progress[\s\S]*The next step waits: the required after-step action audit → audit-log[\s\S]*Shell: singularity-flow integrations retry sad_1{40}\nCopilot: \/sf-integrations$/);
+});

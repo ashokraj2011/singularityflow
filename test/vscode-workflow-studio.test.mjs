@@ -801,6 +801,20 @@ test('a target added in Integrations and the actions a step sends to it become o
   assert.equal(page.setActionTrigger(action, 'approved', false), true);
   assert.equal(page.setActionTrigger(action, 'rejected', false), false, 'an action keeps at least one moment');
   assert.equal(page.actionLine(action), 'On rejected, sends the event to team-events');
+  // Required holds the next step on the approved delivery, so it exists only alongside approved.
+  page.setActionRequired(action, true);
+  assert.equal(action.required, undefined, 'an action that does not fire on approved cannot be required');
+  page.setActionTrigger(action, 'approved', true);
+  page.setActionRequired(action, true);
+  assert.equal(page.actionLine(action), 'On approved or rejected, sends the event to team-events; the next step waits for it');
+  page.setActionTrigger(action, 'approved', false);
+  assert.equal(action.required, undefined, 'turning approved off turns required off');
+  assert.match(state.status, /no longer required/);
+  page.setActionTrigger(action, 'approved', true);
+  page.setActionRequired(action, true);
+  page.setActionRequired(action, false);
+  assert.equal(Object.hasOwn(action, 'required'), false, 'required: false is never written');
+  page.setActionTrigger(action, 'approved', false);
   const changeSet = page.changeSetFrom(model, state.draft);
   assert.deepEqual(changeSet.changes, [
     { op: 'integration.target.create', id: 'team-events', target: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_TEAM_EVENTS_KEY' } },
@@ -1032,4 +1046,35 @@ test('a OneDrive target is set up in the form with a folder per generation, and 
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.deepEqual(written.integrations.targets['team-drive'], { kind: 'onedrive', drive: 'b!lib-1', tokenSecret: 'SFLOW_SECRET_TEAM_DRIVE_TOKEN' });
+});
+
+test('a required action is chosen on the board, written as required: true, and reloads without a phantom change', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('webhook');
+  Object.assign(view.form, { id: 'audit-log', url: 'https://audit.example.com/sflow' });
+  assert.equal(page.saveTargetForm(), 'audit-log');
+  const action = page.addStepAction('feature', 'intake');
+  page.setActionRequired(action, true);
+  assert.deepEqual(action, { id: 'audit-log', on: ['approved'], target: 'audit-log', send: 'event', required: true });
+  const changeSet = page.changeSetFrom(model, page.state().draft);
+  assert.deepEqual(changeSet.changes.at(-1), { op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [action] });
+  const plan = await planStudioChangeSet(root, changeSet, { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'audit-log', on: ['approved'], target: 'audit-log', required: true }]);
+  const after = await buildStudioModel(root);
+  const reload = loadedStudio(after);
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+  assert.equal(reload.state().draft.steps.feature.intake.afterStep[0].required, true);
+
+  // The engine refuses a required action that does not fire on approved, whatever the page sends.
+  const current = reload.changeSetFrom(after, reload.state().draft);
+  const refused = await planStudioChangeSet(root, { ...current, changes: [{ op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [{ id: 'audit-log', on: ['submitted'], target: 'audit-log', send: 'event', required: true }] }] }, { write: false });
+  assert.equal(refused.valid, false);
+  assert.match(JSON.stringify(refused.problems), /must include approved/);
 });

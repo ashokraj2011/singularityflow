@@ -453,6 +453,15 @@ export interface SubmissionReadiness {
   decision?: PendingDecisionView;
   /** Values the decision after this phase reads; a host asks for them before submitting. */
   decisionInputs?: DecisionInputSpec[];
+  /**
+   * When `classification` is `step-action-required`: the required after-step deliveries of earlier
+   * steps that have no receipt yet, what this machine knows about each, and why the step waits.
+   */
+  stepActionHold?: {
+    reason: string | null;
+    runnableHere: boolean;
+    missing: Array<{ key: string; phaseId: string; generation: number; action: string; target: string; here: string }>;
+  };
 }
 
 export interface StoryModelUsage {

@@ -222,7 +222,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           authoringSkillSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'authoringSkill')),
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
           authoringSkillSource: route.authoringSkillSource,
-          afterStep: (phase.afterStep ?? []).map((action) => ({ id: action.id, on: [...(action.on ?? [])], target: action.target, send: action.send ?? 'event' })),
+          afterStep: (phase.afterStep ?? []).map((action) => ({ id: action.id, on: [...(action.on ?? [])], target: action.target, send: action.send ?? 'event', ...(action.required === true ? { required: true } : {}) })),
           afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
@@ -253,7 +253,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       id, label: phase.label ?? id, output: outputOf(phase),
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
-      afterStep: (Array.isArray(phase.afterStep) ? phase.afterStep : []).map((action) => ({ id: action?.id, on: [...(action?.on ?? [])], target: action?.target, send: action?.send ?? 'event' })),
+      afterStep: (Array.isArray(phase.afterStep) ? phase.afterStep : []).map((action) => ({ id: action?.id, on: [...(action?.on ?? [])], target: action?.target, send: action?.send ?? 'event', ...(action?.required === true ? { required: true } : {}) })),
       generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
       convergence: isConvergencePhase(phase),
       compiledSkill: compiledSkillStep(phase),
@@ -450,10 +450,16 @@ function studioActions(value, name) {
   if (!Array.isArray(value)) throw new SingularityFlowError(`The actions after ${name} must be a list.`, { code: 'STUDIO_ACTIONS_INVALID' });
   return value.map((action, index) => {
     if (!action || typeof action !== 'object' || Array.isArray(action)
-        || Object.keys(action).some((key) => !['id', 'on', 'target', 'send'].includes(key))) {
-      throw new SingularityFlowError(`Action ${index + 1} after ${name} must have only id, on, target and send.`, { code: 'STUDIO_ACTIONS_INVALID' });
+        || Object.keys(action).some((key) => !['id', 'on', 'target', 'send', 'required'].includes(key))) {
+      throw new SingularityFlowError(`Action ${index + 1} after ${name} must have only id, on, target, send and required.`, { code: 'STUDIO_ACTIONS_INVALID' });
     }
-    return { id: action.id, on: Array.isArray(action.on) ? [...action.on] : action.on, target: action.target, ...(action.send && action.send !== 'event' ? { send: action.send } : {}) };
+    // Defaults are not written: send event and required false are what an action means without them.
+    // Any other required value is written as sent, so the engine's own check refuses it.
+    return {
+      id: action.id, on: Array.isArray(action.on) ? [...action.on] : action.on, target: action.target,
+      ...(action.send && action.send !== 'event' ? { send: action.send } : {}),
+      ...(action.required !== undefined && action.required !== false ? { required: action.required } : {})
+    };
   });
 }
 

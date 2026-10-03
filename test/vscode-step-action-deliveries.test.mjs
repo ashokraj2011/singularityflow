@@ -8,8 +8,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-  StepActionDeliveryMonitor, deliveryDetail, deliveryState, pinnedActionLine, pinnedStepActions,
-  stepActionRetryArgs, stepActionStatusArgs, storyUsesStepActions, transitionFingerprint, undeliveredNotice
+  StepActionDeliveryMonitor, deliveryDetail, deliveryState, heldBy, pinnedActionLine, pinnedStepActions,
+  stepActionRecordArgs, stepActionRetryArgs, stepActionStatusArgs, storyUsesStepActions, transitionFingerprint, undeliveredNotice,
+  unrecordedDeliveries
 } from '../apps/vscode/src/step-action-deliveries.ts';
 import { deliveriesHtml } from '../apps/vscode/src/views/journey-deliveries.ts';
 
@@ -40,7 +41,7 @@ const waiting = { key: key(6), status: 'waiting', workId: 'STORY-7', phaseId: 'i
 
 test('what a Story pinned and where each delivery stands, in words', () => {
   const pinned = pinnedStepActions(story());
-  assert.deepEqual(pinned, [{ phaseId: 'intake', label: 'Intake', actions: [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event', kind: 'webhook' }] }]);
+  assert.deepEqual(pinned, [{ phaseId: 'intake', label: 'Intake', actions: [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event', kind: 'webhook', required: false }] }]);
   assert.equal(pinnedActionLine(pinned[0].actions[0]), 'On submitted or approved, sends the event to team-events');
   assert.equal(storyUsesStepActions(story({ actions: false })), false);
   assert.equal(storyUsesStepActions(null), false);
@@ -118,7 +119,7 @@ test('the monitor reads only for Stories that send actions, after a step moved, 
 test('Journey lists each delivery with its reason, escapes what the outbox says, and offers Retry only where it helps', () => {
   const journey = { kind: 'story' };
   const hostile = { ...failed, target: '<img src=x onerror=alert(1)>', lastAttempt: { ...failed.lastAttempt, detail: '<script>bad()</script>' } };
-  const html = deliveriesHtml({ pinned: pinnedStepActions(story()), deliveries: [delivered, retrying, hostile, waiting], loaded: true, error: null }, journey);
+  const html = deliveriesHtml({ pinned: pinnedStepActions(story()), deliveries: [delivered, retrying, hostile, waiting], holds: [], loaded: true, error: null }, journey);
   assert.match(html, /After-step actions/);
   assert.match(html, /<strong>Intake<\/strong>: On submitted or approved, sends the event to team-events/);
   assert.doesNotMatch(html, /<script>|<img/);
@@ -140,7 +141,106 @@ test('the Journey retries only a delivery key, and the window announces deliveri
   assert.match(journey, /retryDelivery: \(message\) => \{\s*const key = stringField\(message, 'key'\);\s*if \(isDeliveryKey\(key\)\) void this\.retryDeliveries\(\[key\]\);/);
   assert.match(journey, /else if \(target\.dataset\.retry\) \{ target\.disabled = true; vscode\.postMessage\(\{ type: 'retryDelivery', key: target\.dataset\.retry \}\); \}/);
   const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
-  assert.match(extension, /if \(state\.snapshot && !state\.stale\) stepActionDeliveries\.observe\(state\.snapshot\.workflow \?\? null\);/);
+  assert.match(extension, /if \(state\.snapshot && !state\.stale\) stepActionDeliveries\.observe\(state\.snapshot\.workflow \?\? null, state\.snapshot\.submissionReadiness\?\.reasonCode \?\? ''\);/);
   assert.match(extension, /showWarningMessage\(notice\.message, 'Show deliveries', 'Retry now'\)/);
   assert.match(extension, /JourneyPanel\.show\(context, store, onJourneyMessage, stepActionDeliveries\)/);
+});
+
+test('a required action is shown as holding the next step until its approved delivery is delivered and recorded', async () => {
+  const required = story();
+  required.resolution.phases[0].afterStep[0].required = true;
+  const [pinnedRequired] = pinnedStepActions(required);
+  assert.equal(pinnedRequired.actions[0].required, true);
+  assert.equal(pinnedActionLine(pinnedRequired.actions[0]), 'On submitted or approved, sends the event to team-events; the next step waits for it');
+
+  const approvedRecorded = { ...delivered, key: key(7), trigger: 'approved', generation: 1, required: true, recorded: true };
+  const approvedUnrecorded = { ...approvedRecorded, key: key(8), recorded: false };
+  const approvedFailed = { ...failed, generation: 1, required: true, recorded: false };
+  const older = { ...approvedFailed, key: key(9), generation: 0 };
+  assert.equal(deliveryState(approvedRecorded).label, 'Delivered and recorded');
+  assert.equal(deliveryState(approvedUnrecorded).label, 'Delivered');
+  assert.deepEqual(unrecordedDeliveries([delivered, approvedRecorded, approvedUnrecorded, { ...delivered, key: key(5), recorded: null }]).map((entry) => entry.key), [key(8)],
+    'only a receipt this checkout could hold and does not is missing');
+  assert.deepEqual(heldBy([approvedRecorded, approvedUnrecorded, approvedFailed, older, { ...delivered, required: true, recorded: false }], required).map((entry) => entry.key), [key(8), key(4)],
+    'the submitted delivery and an older generation hold nothing');
+  assert.deepEqual(heldBy([approvedUnrecorded], story({ intake: 'in_progress' })), [], 'a step that is not approved holds nothing');
+  assert.match(undeliveredNotice([approvedFailed], new Set()).message, /Fix the target, then retry. The next step waits for it.$/);
+
+  const journey = { kind: 'story' };
+  const html = deliveriesHtml({ pinned: pinnedStepActions(required), deliveries: [approvedRecorded, approvedUnrecorded, approvedFailed], holds: heldBy([approvedUnrecorded, approvedFailed], required), loaded: true, error: null }, journey);
+  assert.match(html, /The next step waits for 2 required deliveries: announce → team-events \(Intake\), notify → team-channel \(Intake\)\. Retry it once its target is fixed/);
+  assert.match(html, /webhook · required/);
+  assert.match(html, /Delivered and recorded/);
+  assert.match(html, /<button class="secondary" data-record-receipts>Record its receipt<\/button>/);
+  assert.match(html, /Only a required action holds the Story/);
+  const quiet = deliveriesHtml({ pinned: pinnedStepActions(story()), deliveries: [delivered], holds: [], loaded: true, error: null }, journey);
+  assert.doesNotMatch(quiet, /data-record-receipts|The next step waits/);
+
+  const calls = [];
+  const client = { async run(args) {
+    calls.push(args);
+    if (args[1] === 'record') return { data: { receipts: [{}, {}], skipped: [] } };
+    if (args[1] === 'retry') return { data: { report: { delivered: [{}], retrying: [], failed: [], unavailable: [] }, receipts: { count: 1, commit: 'c'.repeat(40), pushed: true } } };
+    return { data: { deliveries: [approvedFailed] } };
+  } };
+  const monitor = new StepActionDeliveryMonitor(client, () => {}, () => {});
+  await monitor.refresh('STORY-7');
+  assert.equal(await monitor.retry('STORY-7', [key(4)]), 'Delivered. Its receipt is recorded, so the next step can start.');
+  assert.equal(await monitor.record('STORY-7'), 'Recorded 2 receipts in the Story.');
+  assert.deepEqual(calls.find((args) => args[1] === 'record'), stepActionRecordArgs());
+  assert.deepEqual(stepActionRecordArgs(), ['integrations', 'record', '--json']);
+  const journeySource = await readFile(path.join(packageRoot, 'apps/vscode/src/views/journey.ts'), 'utf8');
+  assert.match(journeySource, /else if \(target\.hasAttribute\('data-record-receipts'\)\) \{ target\.disabled = true; vscode\.postMessage\(\{ type: 'recordReceipts' \}\); \}/);
+  assert.match(journeySource, /recordReceipts: \(\) => \{ void this\.recordReceipts\(\); \}/);
+});
+
+test('a held step shows the required delivery as its next action, in the Journey and the tree', async () => {
+  const { buildJourney } = await import('../apps/vscode/src/views/journey-model.ts');
+  const { buildTree } = await import('../apps/vscode/src/views/tree-model.ts');
+  const { phaseSubmissionPresentation, stepActionHoldLabel } = await import('../apps/vscode/src/views/submission-presentation.ts');
+  const held = (nextCommand, runnableHere = true) => {
+    const workflow = story();
+    workflow.resolution.phases[0].afterStep[0].required = true;
+    workflow.phases.design = { id: 'design', label: 'Design', status: 'in_progress', generation: 0, artifacts: [], approvals: [] };
+    workflow.phases.intake = { id: 'intake', label: 'Intake', status: 'approved', generation: 1, artifacts: [], approvals: [] };
+    workflow.workItem.branch = 'STORY-7';
+    return {
+      initiative: null, initiatives: [], selectedInitiativeId: null, selectedWorkId: 'STORY-7', workItems: [{ id: 'STORY-7', title: 'Announce approvals' }],
+      identities: { git: { email: 'reviewer@example.com' } }, workflow,
+      submissionReadiness: {
+        phaseId: 'design', phaseStatus: 'in_progress', classification: 'step-action-required', lifecycleReady: false,
+        currentGeneration: 0, publishedGeneration: null, draftExists: false, draftModified: false, publicationRecorded: false,
+        nextSkill: '/sf-integrations', nextCommand, reasonCode: 'STEP_ACTION_REQUIRED_UNRECORDED',
+        stepActionHold: { reason: 'The next step waits: the required after-step action announce → team-events has no receipt in the Story.', runnableHere,
+          missing: [{ key: key(4), phaseId: 'intake', generation: 1, action: 'announce', target: 'team-events', here: 'failed' }] }
+      }
+    };
+  };
+  const snapshot = held(`singularity-flow integrations retry ${key(4)}`);
+  const presentation = phaseSubmissionPresentation(snapshot.workflow.phases.design, snapshot.submissionReadiness);
+  assert.deepEqual([presentation.kind, presentation.statusLabel], ['step-action-required', 'Waits for a required after-step delivery']);
+  assert.match(presentation.detail, /^The next step waits: /);
+  const journey = buildJourney(snapshot);
+  assert.deepEqual([journey.nextAction.label, journey.nextAction.execution, journey.nextAction.argv], ['Deliver the required action now', 'run', ['integrations', 'retry', key(4)]]);
+  assert.match(journey.nextAction.reason, /^The next step waits: /);
+  assert.equal(stepActionHoldLabel('singularity-flow integrations record'), 'Record its receipt');
+  assert.equal(stepActionHoldLabel('singularity-flow sync'), 'Publish the step first');
+  assert.equal(stepActionHoldLabel('singularity-flow integrations status --work-id STORY-7 --all'), 'See the required delivery');
+
+  const flatten = (nodes) => nodes.flatMap((node) => [node, ...flatten(node.children ?? [])]);
+  const nodes = flatten(buildTree(snapshot));
+  assert.ok(nodes.some((node) => node.id === 'story:design:step-action-hold' && node.label === 'Waits for a required after-step delivery'));
+  const run = nodes.find((node) => node.id === 'story:design:step-action-hold-run');
+  assert.deepEqual([run.label, run.command], ['Deliver the required action now', ['integrations', 'retry', key(4)]]);
+  assert.equal(nodes.some((node) => node.id === 'story:design:generate'), false, 'a held step offers no generation');
+
+  // A hold that clears changes no step's status, so the monitor reads again when readiness changes.
+  const calls = [];
+  const monitor = new StepActionDeliveryMonitor({ async run(args) { calls.push(args); return { data: { deliveries: [] } }; } }, () => {}, () => {});
+  monitor.observe(snapshot.workflow, 'STEP_ACTION_REQUIRED_UNRECORDED');
+  await monitor.refresh('STORY-7');
+  monitor.observe(snapshot.workflow, 'STEP_ACTION_REQUIRED_UNRECORDED');
+  monitor.observe(snapshot.workflow, 'PHASE_GENERATION_REQUIRED');
+  await monitor.refresh('STORY-7');
+  assert.equal(calls.length, 2);
 });

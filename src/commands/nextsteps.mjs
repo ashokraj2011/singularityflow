@@ -10,6 +10,7 @@ import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
+import { storyRequiresStepActions } from '../step-actions.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -168,10 +169,20 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
       phaseId: active.id
     });
   }
+  // Receipts are read from this checkout, so only the Story checked out here can be held by one.
+  let stepActionHold = null;
+  if (storyRequiresStepActions(workflow) && workflow.workItem?.branch === branch(root)) {
+    const [{ requiredStepActionHold, stepActionHoldSentence }, { loadDefinition }] = await Promise.all([
+      import('../step-action-receipts.mjs'), import('../config.mjs')
+    ]);
+    const hold = await requiredStepActionHold(root, await loadDefinition(root), workflow).catch(() => null);
+    stepActionHold = hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
+  }
   return {
     ...nextStepsSnapshot({
       branch: branch(root),
       workflow,
+      stepActionHold,
       publicationPending: Boolean(await readPendingPublication(root, {
         kind: 'story', id: selected.id, migrate: false,
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }

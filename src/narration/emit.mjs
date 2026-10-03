@@ -10,9 +10,9 @@ import { renderCommandResult } from './render-terminal.mjs';
 import { renderCommandResultJson } from './render-json.mjs';
 import { markCommandFeedback } from '../dx-timing-context.mjs';
 
-export function emitCommandResult(result, { json = false, postState = null, publicationPending = false, modelMode, restStateWhenIdle = null } = {}) {
+export function emitCommandResult(result, { json = false, postState = null, publicationPending = false, modelMode, restStateWhenIdle = null, stepActionHold = null } = {}) {
   const complete = assertContinuation(validateCommandResult(
-    attachContinuation(result, { postState, publicationPending, modelMode, restStateWhenIdle }),
+    attachContinuation(result, { postState, publicationPending, modelMode, restStateWhenIdle, stepActionHold }),
     { requireEnvelope: true }
   ));
   markCommandFeedback();

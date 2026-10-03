@@ -16,7 +16,7 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { deliveryState, isDeliveryKey, pinnedStepActions, type StepActionDeliveryMonitor } from '../step-action-deliveries.ts';
+import { deliveryState, heldBy, isDeliveryKey, pinnedStepActions, type StepActionDeliveryMonitor } from '../step-action-deliveries.ts';
 import { deliveriesHtml, type JourneyDeliveries } from './journey-deliveries.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -242,12 +242,13 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
 export const JOURNEY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide],[data-retry],[data-retry-all]');
+    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide],[data-retry],[data-retry-all],[data-record-receipts]');
     if (!target) return;
     event.preventDefault();
     if (target.dataset.copyRoute) navigator.clipboard.writeText(target.dataset.copyRoute).catch(() => {});
     else if (target.dataset.retry) { target.disabled = true; vscode.postMessage({ type: 'retryDelivery', key: target.dataset.retry }); }
     else if (target.hasAttribute('data-retry-all')) { target.disabled = true; vscode.postMessage({ type: 'retryDeliveries' }); }
+    else if (target.hasAttribute('data-record-receipts')) { target.disabled = true; vscode.postMessage({ type: 'recordReceipts' }); }
     else if (target.dataset.phase) vscode.postMessage({ type: 'phase', id: target.dataset.phase });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
@@ -342,7 +343,8 @@ export class JourneyPanel {
           ? this.deliveries.deliveriesFor(workId).deliveries.filter((delivery) => deliveryState(delivery).retryable).map((delivery) => delivery.key)
           : [];
         void this.retryDeliveries(open);
-      }
+      },
+      recordReceipts: () => { void this.recordReceipts(); }
     });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -396,12 +398,26 @@ export class JourneyPanel {
     this.render();
   }
 
+  /** Commit receipts for this Story's deliveries that went out; the engine decides what that means. */
+  private async recordReceipts(): Promise<void> {
+    const workId = this.store.current.snapshot?.workflow?.workItem?.id;
+    if (!this.deliveries || !workId) { this.render(); return; }
+    try {
+      const summary = await this.deliveries.record(workId);
+      void vscode.window.setStatusBarMessage(`$(check) ${summary}`, 6_000);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`The receipts were not recorded: ${(error as Error).message}`);
+    }
+    this.render();
+  }
+
   private deliveriesView(): JourneyDeliveries | null {
     const workflow = this.store.current.snapshot?.workflow;
     const workId = workflow?.workItem?.id;
     const pinned = pinnedStepActions(workflow);
     if (!this.deliveries || !workId || !pinned.length) return null;
-    return { pinned, ...this.deliveries.deliveriesFor(workId) };
+    const story = this.deliveries.deliveriesFor(workId);
+    return { pinned, ...story, holds: heldBy(story.deliveries, workflow) };
   }
 
   private render(): void {

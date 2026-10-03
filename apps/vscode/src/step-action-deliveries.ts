@@ -6,6 +6,10 @@
  * are not part of the snapshot. They are read with `integrations status`, and only for a Story that
  * pinned actions when it started, after one of its steps moved: a Story without actions, or a
  * refresh that changed no step, costs nothing.
+ *
+ * A delivery that went out can be recorded as a receipt in the Story. An action pinned as required
+ * holds the next step until its approved delivery is recorded; the machine that delivers it records
+ * it at once, so a hold usually means the delivery itself did not go out.
  */
 import type { StoryWorkflow } from './cli/snapshot.ts';
 
@@ -28,6 +32,10 @@ export interface StepActionDelivery {
   target?: string;
   kind?: string;
   send?: string;
+  /** The action was pinned as required: its approved delivery holds the next step until recorded. */
+  required?: boolean;
+  /** Its receipt is in this checkout (true or false), or this checkout does not hold the Story (null). */
+  recorded?: boolean | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   deliveredAt?: string | null;
@@ -36,7 +44,7 @@ export interface StepActionDelivery {
   lastAttempt?: StepActionAttempt | null;
 }
 
-export interface PinnedStepAction { id: string; on: string[]; target: string; send: string; kind: string | null }
+export interface PinnedStepAction { id: string; on: string[]; target: string; send: string; kind: string | null; required: boolean }
 export interface PinnedStep { phaseId: string; label: string; actions: PinnedStepAction[] }
 
 const DELIVERY_KEY = /^sad_[0-9a-f]{40}$/;
@@ -62,11 +70,11 @@ export function pinnedStepActions(workflow: StoryWorkflow | null | undefined): P
     if (!phaseId || !Array.isArray(entry.afterStep)) return [];
     const actions = entry.afterStep.flatMap((raw): PinnedStepAction[] => {
       if (!raw || typeof raw !== 'object') return [];
-      const action = raw as { id?: unknown; on?: unknown; target?: unknown; send?: unknown; targetSpec?: { kind?: unknown } };
+      const action = raw as { id?: unknown; on?: unknown; target?: unknown; send?: unknown; required?: unknown; targetSpec?: { kind?: unknown } };
       const id = text(action.id); const target = text(action.target);
       if (!id || !target || !Array.isArray(action.on)) return [];
       return [{ id, target, on: action.on.filter((trigger): trigger is string => typeof trigger === 'string'),
-        send: text(action.send) ?? 'event', kind: text(action.targetSpec?.kind) }];
+        send: text(action.send) ?? 'event', kind: text(action.targetSpec?.kind), required: action.required === true }];
     });
     return actions.length ? [{ phaseId, label: text(entry.label) ?? phaseId, actions }] : [];
   });
@@ -78,13 +86,14 @@ export function storyUsesStepActions(workflow: StoryWorkflow | null | undefined)
 
 /** One pinned action in words: "On approved, sends the event to team-events". */
 export function pinnedActionLine(action: PinnedStepAction): string {
-  return `On ${action.on.map((trigger) => TRIGGER_WORDS[trigger] ?? trigger).join(' or ')}, sends ${SEND_WORDS[action.send] ?? action.send} to ${action.target}`;
+  return `On ${action.on.map((trigger) => TRIGGER_WORDS[trigger] ?? trigger).join(' or ')}, sends ${SEND_WORDS[action.send] ?? action.send} to ${action.target}`
+    + (action.required ? '; the next step waits for it' : '');
 }
 
 /** Where a delivery stands, in words, and whether retrying it now can help. */
 export function deliveryState(delivery: StepActionDelivery): { label: string; tone: 'ok' | 'wait' | 'warn' | 'bad'; retryable: boolean } {
   switch (delivery.status) {
-    case 'delivered': return { label: 'Delivered', tone: 'ok', retryable: false };
+    case 'delivered': return { label: delivery.recorded ? 'Delivered and recorded' : 'Delivered', tone: 'ok', retryable: false };
     case 'waiting': return { label: 'Waits for the commit to be pushed', tone: 'wait', retryable: false };
     case 'failed': return { label: 'Not delivered', tone: 'bad', retryable: true };
     case 'tampered': return { label: 'Changed on disk; never sent', tone: 'bad', retryable: false };
@@ -126,10 +135,12 @@ export function undeliveredNotice(deliveries: readonly StepActionDelivery[], ann
   const what = first.action && first.target ? `${first.action} → ${first.target}` : first.key;
   const why = first.status === 'tampered' ? 'its record changed on disk' : deliveryDetail(first) ?? deliveryState(first).label.toLowerCase();
   const failed = fresh.some((delivery) => delivery.status === 'failed');
+  const holds = fresh.some((delivery) => delivery.required && delivery.trigger === 'approved');
   return {
     keys: fresh.map((delivery) => delivery.key),
     message: `${fresh.length} after-step ${fresh.length === 1 ? 'action was' : 'actions were'} not delivered (${what}: ${why}). `
       + (failed ? 'Fix the target, then retry.' : 'It is retried later; you can retry now.')
+      + (holds ? ' The next step waits for it.' : '')
   };
 }
 
@@ -141,6 +152,28 @@ export function stepActionRetryArgs(keys: readonly string[]): string[] {
   return ['integrations', 'retry', ...keys.filter(isDeliveryKey), '--json'];
 }
 
+export function stepActionRecordArgs(): string[] {
+  return ['integrations', 'record', '--json'];
+}
+
+/** Deliveries that went out but whose receipt this checkout does not hold yet. */
+export function unrecordedDeliveries(deliveries: readonly StepActionDelivery[]): StepActionDelivery[] {
+  return deliveries.filter((delivery) => delivery.status === 'delivered' && delivery.recorded === false);
+}
+
+/**
+ * The required approved deliveries that hold the next step: those of a step whose current approved
+ * generation they belong to, not yet delivered and recorded. An older generation holds nothing.
+ */
+export function heldBy(deliveries: readonly StepActionDelivery[], workflow: StoryWorkflow | null | undefined): StepActionDelivery[] {
+  return deliveries.filter((delivery) => {
+    if (!delivery.required || delivery.trigger !== 'approved' || !delivery.phaseId) return false;
+    const phase = workflow?.phases?.[delivery.phaseId] as { status?: string; generation?: number } | undefined;
+    if (phase?.status !== 'approved' || phase.generation !== delivery.generation) return false;
+    return !(delivery.status === 'delivered' && delivery.recorded === true);
+  });
+}
+
 function deliveriesFrom(value: unknown): StepActionDelivery[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is StepActionDelivery => Boolean(entry) && typeof entry === 'object'
@@ -148,6 +181,7 @@ function deliveriesFrom(value: unknown): StepActionDelivery[] {
 }
 
 interface RetryReport { delivered?: unknown[]; retrying?: unknown[]; failed?: unknown[]; unavailable?: unknown[] }
+interface RecordData { receipts?: unknown[]; skipped?: unknown[]; recorded?: number }
 
 export interface DeliveryClient { run<T = unknown>(args: string[]): Promise<T> }
 
@@ -187,11 +221,14 @@ export class StepActionDeliveryMonitor {
     return { dispose: () => { this.listeners.delete(listener); } };
   }
 
-  /** Called on every snapshot change; reads only when this Story sends actions and a step moved. */
-  observe(workflow: StoryWorkflow | null | undefined): void {
+  /**
+   * Called on every snapshot change; reads only when this Story sends actions and a step moved, or
+   * `readiness` changed (a hold that clears when a required delivery is recorded moves no step).
+   */
+  observe(workflow: StoryWorkflow | null | undefined, readiness = ''): void {
     const workId = workflow?.workItem?.id;
     if (!workId || !storyUsesStepActions(workflow)) return;
-    const fingerprint = transitionFingerprint(workflow);
+    const fingerprint = `${transitionFingerprint(workflow)}|${readiness}`;
     if (this.stories.get(workId)?.fingerprint === fingerprint) return;
     void this.refresh(workId, fingerprint);
   }
@@ -238,13 +275,24 @@ export class StepActionDeliveryMonitor {
     const known = new Set(this.deliveriesFor(workId).deliveries.map((delivery) => delivery.key));
     const chosen = [...new Set(keys)].filter((key) => isDeliveryKey(key) && known.has(key));
     if (!chosen.length) return 'There is nothing to retry for this Story.';
-    const result = await this.client.run<{ data?: { report?: RetryReport } }>(stepActionRetryArgs(chosen));
+    const result = await this.client.run<{ data?: { report?: RetryReport; receipts?: { count?: number } | null } }>(stepActionRetryArgs(chosen));
     const report = result?.data?.report ?? {};
     const count = (list: unknown[] | undefined) => (Array.isArray(list) ? list.length : 0);
     await this.refresh(workId);
     const delivered = count(report.delivered);
     const open = count(report.retrying) + count(report.failed) + count(report.unavailable);
-    if (!open) return delivered === 1 ? 'Delivered.' : `Delivered all ${delivered}.`;
-    return `${delivered ? `${delivered} delivered; ` : ''}${open} still not delivered. Journey shows why.`;
+    const recorded = result?.data?.receipts?.count ? ' Its receipt is recorded, so the next step can start.' : '';
+    if (!open) return (delivered === 1 ? 'Delivered.' : `Delivered all ${delivered}.`) + recorded;
+    return `${delivered ? `${delivered} delivered; ` : ''}${open} still not delivered. Journey shows why.${recorded}`;
+  }
+
+  /** Commit a receipt for each delivery of the checked-out Story that went out; returns a sentence. */
+  async record(workId: string): Promise<string> {
+    const result = await this.client.run<{ data?: RecordData }>(stepActionRecordArgs());
+    await this.refresh(workId);
+    const written = Array.isArray(result?.data?.receipts) ? result.data.receipts.length : 0;
+    if (written) return `Recorded ${written} ${written === 1 ? 'receipt' : 'receipts'} in the Story.`;
+    const skipped = Array.isArray(result?.data?.skipped) ? result.data.skipped.length : 0;
+    return skipped ? `Nothing was recorded: ${skipped} ${skipped === 1 ? 'delivery does' : 'deliveries do'} not match what the Story pinned.` : 'Nothing to record.';
   }
 }

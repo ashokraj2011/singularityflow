@@ -13,8 +13,10 @@
  *           write; --send-test reads the parent page; for OneDrive: the file it would upload;
  *           --send-test reads the drive)
  */
-import { identity, repoRoot } from '../git.mjs';
-import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+import { repoRoot } from '../git.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import {
   action, commandResult, effects, noEffects, succeeded
@@ -32,9 +34,7 @@ import { DEFAULT_GIT_DELIVERY_PATH, renderConfluenceTitle, renderGitDeliveryPath
 import { confluencePageBody } from '../step-action-confluence.mjs';
 import { GRAPH_BASE, graphDrivePath, oneDriveItemPath } from '../step-action-onedrive.mjs';
 import { pinnedHttpRequest } from '../pinned-http.mjs';
-import {
-  assertReceiptsMayBeRecorded, planStepActionReceipts, stepAwaitingApproval, writeStepActionReceipts
-} from '../step-action-receipts.mjs';
+import { planStepActionReceipts, stepActionReceiptDirectory, stepAwaitingApproval } from '../step-action-receipts.mjs';
 import { getCurrentUser, jiraConnectionFromEnv, listIssueTransitions } from '../jira.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
@@ -61,7 +61,7 @@ function configuredUse(config) {
       const override = workType.phaseOverrides?.[phaseId];
       const actions = override && Object.hasOwn(override, 'afterStep') ? override.afterStep : config.phases?.[phaseId]?.afterStep;
       for (const entry of actions ?? []) {
-        uses.push({ workflow: workflowId, step: phaseId, action: entry.id, on: entry.on, target: entry.target, send: entry.send ?? 'event' });
+        uses.push({ workflow: workflowId, step: phaseId, action: entry.id, on: entry.on, target: entry.target, send: entry.send ?? 'event', required: entry.required === true });
       }
     }
   }
@@ -106,11 +106,11 @@ async function listCommand(root, config, options, operation, json) {
     const { loadWorkflow } = await import('../state.mjs');
     const workflow = await loadWorkflow(root, config, workId);
     const pinned = (workflow.resolution?.phases ?? []).flatMap((phase) => (phase.afterStep ?? []).map((entry) => ({
-      step: phase.id, action: entry.id, on: entry.on, target: entry.target, kind: entry.targetSpec?.kind ?? null, send: entry.send
+      step: phase.id, action: entry.id, on: entry.on, target: entry.target, kind: entry.targetSpec?.kind ?? null, send: entry.send, required: entry.required === true
     })));
     if (!json) {
       console.log(pinned.length
-        ? table(pinned.map((entry) => [entry.step, entry.action, entry.on.join(','), `${entry.target} (${entry.kind})`, entry.send]), ['STEP', 'ACTION', 'ON', 'TARGET', 'SENDS'])
+        ? table(pinned.map((entry) => [entry.step, `${entry.action}${entry.required ? ' (required)' : ''}`, entry.on.join(','), `${entry.target} (${entry.kind})`, entry.send]), ['STEP', 'ACTION', 'ON', 'TARGET', 'SENDS'])
         : `${workId} pinned no after-step actions when it started.`);
     }
     return emitCommandResult(result(operation, succeeded('integrations.listed', { targets: new Set(pinned.map((entry) => entry.target)).size, actions: pinned.length, scope: workId }),
@@ -124,7 +124,7 @@ async function listCommand(root, config, options, operation, json) {
       console.log(table(targets.map((target) => [target.id, target.kind, targetAddress(target), credentialSummary(target, env)]), ['TARGET', 'KIND', 'ADDRESS', 'NEEDS']));
       if (uses.length) {
         console.log('');
-        console.log(table(uses.map((use) => [use.workflow, use.step, use.action, use.on.join(','), use.target, use.send]), ['WORKFLOW', 'STEP', 'ACTION', 'ON', 'TARGET', 'SENDS']));
+        console.log(table(uses.map((use) => [use.workflow, use.step, `${use.action}${use.required ? ' (required)' : ''}`, use.on.join(','), use.target, use.send]), ['WORKFLOW', 'STEP', 'ACTION', 'ON', 'TARGET', 'SENDS']));
       }
     }
   }
@@ -133,12 +133,27 @@ async function listCommand(root, config, options, operation, json) {
   }), { json });
 }
 
+/**
+ * Whether each delivery's receipt is in this checkout: true or false for a Story this checkout
+ * holds, null for one it does not (its receipts live on that Story's branch).
+ */
+async function withReceiptState(root, deliveries) {
+  if (!deliveries.some((entry) => entry.workId)) return deliveries;
+  const config = await loadConfig(root).catch(() => ({}));
+  return deliveries.map((entry) => {
+    if (!entry.workId) return entry;
+    const directory = path.join(root, stepActionReceiptDirectory(config, entry.workId));
+    const story = path.dirname(path.dirname(directory));
+    return { ...entry, recorded: existsSync(story) ? existsSync(path.join(directory, `${entry.key}.json`)) : null };
+  });
+}
+
 async function statusCommand(root, options, operation, json) {
-  const deliveries = await listStepActionDeliveries(root, { workId: optionString(options, 'work-id'), includeDelivered: optionBoolean(options, 'all') });
+  const deliveries = await withReceiptState(root, await listStepActionDeliveries(root, { workId: optionString(options, 'work-id'), includeDelivered: optionBoolean(options, 'all') }));
   const open = deliveries.filter((entry) => ['pending', 'waiting', 'failed', 'tampered'].includes(entry.status));
   if (!json) {
     if (deliveries.length) {
-      console.log(table(deliveries.map((entry) => [entry.status, entry.workId, entry.phaseId, entry.trigger, `${entry.action} → ${entry.target}`, entry.attempts,
+      console.log(table(deliveries.map((entry) => [entry.status === 'delivered' && entry.recorded ? 'recorded' : entry.status, entry.workId, entry.phaseId, entry.trigger, `${entry.action}${entry.required ? ' (required)' : ''} → ${entry.target}`, entry.attempts,
         entry.lastAttempt ? (entry.lastAttempt.status ? `HTTP ${entry.lastAttempt.status}` : entry.lastAttempt.code ?? entry.lastAttempt.outcome) : '', entry.key]),
       ['STATUS', 'STORY', 'STEP', 'ON', 'ACTION', 'TRIES', 'LAST', 'KEY']));
     }
@@ -160,17 +175,25 @@ async function retryCommand(root, config, positionals, options, operation, json)
   }
   const { repositoryLogger } = await import('../logging.mjs');
   const report = await deliverStepActions(root, { keys: keys.length ? keys : null, includeFailed: all, logger: repositoryLogger(root, config) });
+  let recorded = null;
+  if (report.delivered.length) {
+    const { recordRequiredReceiptsAfterDelivery } = await import('../step-action-recording.mjs');
+    try { recorded = await recordRequiredReceiptsAfterDelivery(root); } catch (error) {
+      if (!json) console.warn(`Warning: the delivery went out, but its required receipt could not be recorded: ${error.message} Run singularity-flow integrations record.`);
+    }
+  }
   if (!json) {
     for (const entry of [...report.delivered, ...report.retrying, ...report.unavailable, ...report.failed]) {
       const state = report.delivered.includes(entry) ? 'delivered' : report.failed.includes(entry) ? 'failed' : report.unavailable.includes(entry) ? 'unavailable here' : 'will retry';
       console.log(`${state.padEnd(16)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})${entry.detail ? `: ${entry.detail}` : ''}`);
     }
     for (const entry of report.skipped) console.log(`${'skipped'.padEnd(16)} ${entry.key}: ${entry.reason}`);
+    if (recorded?.written?.length) console.log(`Recorded ${recorded.written.length} after-step receipt(s) in commit ${recorded.publication.sha.slice(0, 8)}${recorded.publication.pushed ? ' and pushed' : ''}, so the next step is not held.`);
   }
   return emitCommandResult(result(operation, succeeded('integrations.retried', {
     count: report.delivered.length + report.retrying.length + report.unavailable.length + report.failed.length,
     delivered: report.delivered.length, pending: report.retrying.length + report.unavailable.length, failed: report.failed.length
-  }), { data: { report }, changed: true }), { json });
+  }), { data: { report, receipts: recorded?.written?.length ? { count: recorded.written.length, commit: recorded.publication.sha, pushed: Boolean(recorded.publication.pushed) } : null }, changed: true }), { json });
 }
 
 /** One delivery as \`integrations record\` reports it. */
@@ -182,7 +205,7 @@ function receiptLine(record) {
 }
 
 async function recordCommand(root, config, options, operation, json) {
-  const { commitAndPublish, loadStoryAggregate } = await import('../state-stores.mjs');
+  const { loadStoryAggregate } = await import('../state-stores.mjs');
   const workflow = await loadStoryAggregate(root, config);
   const workId = workflow.workItem.id;
   const requested = optionString(options, 'work-id');
@@ -216,32 +239,8 @@ async function recordCommand(root, config, options, operation, json) {
     }
     return report(succeeded('integrations.recorded', { count: 0, pending: pending.length, recorded: plan.recorded, skipped: plan.skipped.length, dryRun }));
   }
-  assertReceiptsMayBeRecorded(workflow);
-  const who = identity(root, { offline: true });
-  const recordedBy = { name: who?.name || null, email: who?.email || null };
-  let written = [];
-  const publication = await commitAndPublish(
-    root,
-    config,
-    workflow,
-    { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'step-action-receipts' } },
-    `[${workId}][integrations][record] after-step action receipts`,
-    [],
-    {
-      beforeStateWrite: async () => {
-        // Planned again under the Story's lock, so two recordings at once never write a receipt twice.
-        const fresh = await planStepActionReceipts(root, config, workflow);
-        written = await writeStepActionReceipts(root, config, workflow, fresh.pending, { recordedAt: new Date().toISOString(), recordedBy });
-        if (!written.length) {
-          throw new SingularityFlowError('Another command recorded these receipts first; nothing was changed.', { code: 'STEP_ACTION_RECEIPTS_ALREADY_RECORDED' });
-        }
-        return written;
-      },
-      eventFromResult: (created) => ({
-        payload: { operation: 'step-action-receipts', deliveryKeys: (created ?? []).map((entry) => entry.receipt.deliveryKey) }
-      })
-    }
-  );
+  const { commitStepActionReceipts } = await import('../step-action-recording.mjs');
+  const { written, publication } = await commitStepActionReceipts(root, config, workflow);
   if (!json) {
     for (const { receipt } of written) console.log(`${'recorded'.padEnd(14)} ${receipt.action.id} → ${receipt.action.target} (${receipt.phaseId}, ${receipt.trigger})`);
     console.log(`Committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);

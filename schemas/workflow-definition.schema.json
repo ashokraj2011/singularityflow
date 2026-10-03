@@ -841,7 +841,8 @@
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 63 },
           "on": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["submitted", "approved", "rejected"] } },
           "target": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
-          "send": { "enum": ["event", "summary", "artifact"] }
+          "send": { "enum": ["event", "summary", "artifact"] },
+          "required": { "type": "boolean", "description": "Hold the next step, and finalize after the last one, until this action's approved delivery has a receipt in the Story. The action must fire on approved." }
         },
         "additionalProperties": false
       }

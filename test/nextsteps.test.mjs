@@ -230,3 +230,23 @@ test('a step reopened by rework or a skill amendment gets the grounding prerequi
   amended.phases[second].skillAmendmentRevalidation = { state: 'affected', generationAtAdoption: 1 };
   assert.equal(await grounding(amended), true);
 });
+
+test('a required after-step delivery comes before the held step\'s own work', () => {
+  const key = `sad_${'2'.repeat(40)}`;
+  const hold = {
+    missing: [{ key, phaseId: 'intake', generation: 1, action: 'audit', target: 'audit-log', here: 'failed' }],
+    nextAction: `singularity-flow integrations retry ${key}`,
+    reason: 'The next step waits: the required after-step action audit → audit-log has no receipt in the Story.'
+  };
+  const plain = workflowNextSteps(workflow());
+  assert.equal(plain.find((entry) => entry.command === 'singularity-flow prepare intake')?.timing, 'now');
+  const held = workflowNextSteps(workflow(), { stepActionHold: hold });
+  assert.deepEqual([held[0].timing, held[0].command, held[0].skill, held[0].reason], ['now', hold.nextAction, '/sf-integrations', hold.reason]);
+  assert.equal(held.find((entry) => entry.command === 'singularity-flow prepare intake')?.timing, 'then', 'the step\'s own work follows the delivery');
+  assert.equal(held.filter((entry) => entry.timing === 'now').length, 1);
+  const snapshot = nextStepsSnapshot({ workflow: workflow(), stepActionHold: hold });
+  assert.equal(snapshot.stepActionHold, hold);
+  assert.equal(snapshot.actions[0].command, hold.nextAction);
+  assert.match(nextStepsText(snapshot), /integrations retry sad_2{40}/);
+  assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { stepActionHold: hold })[0].command.includes('integrations'), false, 'a step in review is not held');
+});

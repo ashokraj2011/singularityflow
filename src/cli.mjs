@@ -314,6 +314,8 @@ import {
   writePendingPublication
 } from './publication-pending.mjs';
 import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
+import { storyRequiresStepActions } from './step-actions.mjs';
+import { assertRequiredStepActionsRecorded, requiredStepActionHold, stepActionHoldSentence } from './step-action-receipts.mjs';
 
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
@@ -374,6 +376,30 @@ async function postPublicationStep(label, workId, operation) {
     });
     return { ok: false, value: null, error };
   }
+}
+
+/**
+ * Right after this machine delivered a required after-step action, record the Story's receipts so
+ * the next step is not held. Returns a line to print, or null. Never fails the command it follows.
+ */
+async function recordRequiredReceiptsAfterTransition(root, workflow) {
+  if (!storyRequiresStepActions(workflow)) return null;
+  try {
+    const { recordRequiredReceiptsAfterDelivery, recordedReceiptsLine } = await import('./step-action-recording.mjs');
+    return recordedReceiptsLine(await recordRequiredReceiptsAfterDelivery(root, { workId: workflow.workItem.id }));
+  } catch (error) {
+    console.warn(`Warning: a required after-step action was delivered, but its receipt could not be recorded: ${redactDiagnosticText(error?.message ?? String(error))} Run singularity-flow integrations record.`);
+    return null;
+  }
+}
+
+/** What holds the Story after a transition, for the next actions it prints; null when nothing does. */
+async function stepActionHoldAfterTransition(root, config, workflow) {
+  if (!storyRequiresStepActions(workflow)) return null;
+  try {
+    const hold = await requiredStepActionHold(root, config, workflow);
+    return hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
+  } catch { return null; }
 }
 
 /** The only deliberately Shell-only instruction: restore a locally retained Git stash commit. */
@@ -7680,6 +7706,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
       return activateWorkItemSession(root, afterSubmission.config, afterSubmission.workflow);
     });
   }
+  const receiptsLine = phase.status === 'approved' ? await recordRequiredReceiptsAfterTransition(root, workflow) : null;
   if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
   else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
   else console.log(`\nSubmitted ${phase.id} phase for approval.`);
@@ -7688,6 +7715,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
   }
   console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
+  if (receiptsLine) console.log(receiptsLine);
   if (reviewPacket) {
     console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
   }
@@ -7722,7 +7750,10 @@ async function runSubmitCommand(positionals, options, submitContext) {
       registrationRepairs,
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
-  }), { postState: workflow, restStateWhenIdle: advanced || completion ? null : 'complete' });
+  }), {
+    postState: workflow, restStateWhenIdle: advanced || completion ? null : 'complete',
+    stepActionHold: phase.status === 'approved' ? await stepActionHoldAfterTransition(root, config, workflow) : null
+  });
 }
 
 /** Generic phase submission can never opt into the convergence advancement context. */
@@ -8340,6 +8371,8 @@ async function approveCommand(positionals, options) {
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
+  const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
+  if (receiptsLine) console.log(receiptsLine);
   formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
@@ -8357,7 +8390,7 @@ async function approveCommand(positionals, options) {
       commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup,
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
-  }), { postState: workflow });
+  }), { postState: workflow, stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
 }
 
 /** A Story that reached its end rests complete only when the final check passed; otherwise it says how to recover. */
@@ -9708,6 +9741,10 @@ async function syncCommand(positionals = [], options = {}) {
   } else if (result.noOp) {
     console.log(`Story ${workflow.workItem.id} has no pending publication; nothing was pushed.`);
   } else console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
+  if (result.stepActions?.delivered?.length) {
+    const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
+    if (receiptsLine) console.log(receiptsLine);
+  }
 }
 
 /**
@@ -18274,6 +18311,8 @@ export async function finalizeCommand(options) {
       { code: 'STORY_FINAL_CHECK_FAILED', exitCode: 2, details: { findings: finalCheck.findings } }
     );
   }
+  // A required after-step action of the last step holds finalization like it holds a next step.
+  await assertRequiredStepActionsRecorded(root, config, workflow, 'The Story cannot be finalized');
   const store = new StoryStateStore(root, config);
   const impactFinalization = Boolean(workflow.measurement?.plan && workflow.measurement?.status !== 'opted-out');
   const transaction = await store.transact(

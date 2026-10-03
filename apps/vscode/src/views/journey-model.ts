@@ -20,7 +20,7 @@ import {
   type DecisionInputSpec, type PendingDecisionView
 } from '../cli/snapshot.ts';
 import {
-  phaseSubmissionPresentation, storyArtifactPublicationLabel
+  phaseSubmissionPresentation, stepActionHoldLabel, storyArtifactPublicationLabel
 } from './submission-presentation.ts';
 import { commandGuidance } from '../copilot-command.ts';
 
@@ -244,6 +244,8 @@ function storyJourneyOf(
       ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : presentation?.kind === 'source-review-required' && presentation.skill && readiness?.nextCommand
         ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
+      : presentation?.kind === 'step-action-required' && readiness?.nextCommand
+        ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-integrations' })
       : null;
   // A waiting decision is the next action, before anything about submitting: the approved phase
   // has nothing left to do until a person chooses.
@@ -313,6 +315,17 @@ function storyJourneyOf(
             label: `Generate and publish ${currentStage?.label ?? 'current phase'}`,
             execution: 'prefill', skill: actionRoutes.skill
           }
+        : presentation?.kind === 'step-action-required' && actionRoutes
+          ? {
+              command: actionRoutes.command,
+              executable: actionRoutes.executable,
+              argv: actionRoutes.argv,
+              copilotCommand: actionRoutes.copilotCommand,
+              copyable: actionRoutes.copyable,
+              reason: presentation.detail,
+              label: stepActionHoldLabel(readiness?.nextCommand),
+              execution: 'run', skill: actionRoutes.skill
+            }
         : presentation?.kind === 'source-review-required' && actionRoutes
           ? {
               command: actionRoutes.command,

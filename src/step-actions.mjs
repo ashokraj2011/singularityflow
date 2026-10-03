@@ -426,8 +426,8 @@ export function normalizeStepActions(raw, integrations, label) {
     const where = `${label} afterStep[${index}]`;
     if (!plainObject(action)) refuse('STEP_ACTION_INVALID', `${where} must be an object with id, on and target.`, { location: where });
     for (const key of Object.keys(action)) {
-      if (!['id', 'on', 'target', 'send'].includes(key)) {
-        refuse('STEP_ACTION_FIELD_UNKNOWN', `${where} has unknown field '${key}'. An action accepts: id, on, target, send.`, { location: where, field: key });
+      if (!['id', 'on', 'target', 'send', 'required'].includes(key)) {
+        refuse('STEP_ACTION_FIELD_UNKNOWN', `${where} has unknown field '${key}'. An action accepts: id, on, target, send, required.`, { location: where, field: key });
       }
     }
     if (typeof action.id !== 'string' || !ID.test(action.id) || action.id.length > 63) {
@@ -452,7 +452,17 @@ export function normalizeStepActions(raw, integrations, label) {
       refuse('STEP_ACTION_SEND_UNSUPPORTED',
         `${where} sends '${send}' to a ${kind} target, which accepts: ${INTEGRATION_TARGET_KINDS[kind].sends.join(', ')}.`, { location: where, kind, send });
     }
-    return { id: action.id, on: STEP_ACTION_TRIGGERS.filter((trigger) => on.includes(trigger)), target: action.target, send };
+    if (action.required !== undefined && typeof action.required !== 'boolean') refuse('STEP_ACTION_INVALID', `${where} required must be true or false.`, { location: where });
+    // A required action holds the Story after its step until the step's approved delivery has a
+    // receipt, so it must fire on approved. Only `required: true` is kept: an action without it
+    // pins exactly as before.
+    if (action.required === true && !on.includes('approved')) {
+      refuse('STEP_ACTION_INVALID', `${where} is required, which holds the next step until its approved delivery has a receipt, so its on must include approved.`, { location: where });
+    }
+    return {
+      id: action.id, on: STEP_ACTION_TRIGGERS.filter((trigger) => on.includes(trigger)), target: action.target, send,
+      ...(action.required === true ? { required: true } : {})
+    };
   });
 }
 
@@ -480,6 +490,11 @@ export function stepActionTriggers(eventType, phase) {
   if (eventType === 'phase-approved') return phase.status === 'approved' ? ['approved'] : [];
   if (eventType === 'phase-rejected') return ['rejected'];
   return [];
+}
+
+/** Whether a Story pinned any required action; a Story that did not pays nothing at its gates. */
+export function storyRequiresStepActions(workflow) {
+  return (workflow?.resolution?.phases ?? []).some((phase) => (phase?.afterStep ?? []).some((action) => action?.required === true));
 }
 
 /** The pinned actions of a step that fire for a trigger, in the written order. */

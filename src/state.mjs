@@ -146,6 +146,7 @@ import { assertNoInteractiveRevisionPublication } from './revision/publication-a
 import {
   deliverStepActions, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning, storyUsesStepActions
 } from './step-action-delivery.mjs';
+import { assertRequiredStepActionsRecorded } from './step-action-receipts.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import {
@@ -2288,6 +2289,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  // A required after-step action holds every later step (prepare, publish, submit) until its
+  // approved delivery has a receipt.
+  if (!dryRun) await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be prepared`);
   await assertDocumentInputs(root, config, workflow, phase);
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
@@ -3382,6 +3386,7 @@ export async function publishGeneration(root, config, workflow, {
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
+  await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be published`);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
@@ -4855,6 +4860,7 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be submitted`);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'submit');
   const testCommandEpochRun = beginTestCommandEpochValidation(workflow, phase);

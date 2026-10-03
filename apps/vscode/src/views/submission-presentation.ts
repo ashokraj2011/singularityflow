@@ -4,7 +4,7 @@ import { commandArgv } from '../commands.ts';
 export type GenerationSkill = `/sf-${string}`;
 
 export interface PhaseSubmissionPresentation {
-  kind: 'generation-required' | 'source-review-required' | 'ready-to-submit' | 'unavailable';
+  kind: 'generation-required' | 'source-review-required' | 'step-action-required' | 'ready-to-submit' | 'unavailable';
   statusLabel: string;
   detail: string;
   generation: number | null;
@@ -55,11 +55,29 @@ export function submissionCommandArgv(
  * It deliberately has no "generation > 0 therefore ready" fallback. An older or incomplete
  * snapshot fails closed and leaves the engine's read-only Continue action as the recovery path.
  */
+/** What pressing the hold's command does, in words: deliver it, record it, or publish the step first. */
+export function stepActionHoldLabel(command: string | null | undefined): string {
+  if (/^singularity-flow integrations retry /u.test(command ?? '')) return 'Deliver the required action now';
+  if (/^singularity-flow integrations record\b/u.test(command ?? '')) return 'Record its receipt';
+  if (/^singularity-flow sync\b/u.test(command ?? '')) return 'Publish the step first';
+  return 'See the required delivery';
+}
+
 export function phaseSubmissionPresentation(
   phase: StoryPhase,
   readiness: SubmissionReadiness | null | undefined
 ): PhaseSubmissionPresentation {
   const exact = exactSubmissionReadiness(readiness, phase.id);
+  // A required after-step action of an earlier step holds this one: its delivery is what comes next.
+  if (exact?.classification === 'step-action-required') {
+    return {
+      kind: 'step-action-required',
+      statusLabel: 'Waits for a required after-step delivery',
+      detail: exact.stepActionHold?.reason ?? 'A required after-step delivery has no receipt in the Story yet.',
+      generation: exact.currentGeneration,
+      skill: null
+    };
+  }
   if (exact?.lifecycleReady === true) {
     if (!exact.publicationRecorded) {
       return {

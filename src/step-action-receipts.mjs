@@ -11,15 +11,19 @@
  * Story, step, generation, trigger and action; its action and target are the pinned ones; and its
  * transition commit is in this branch's history. Receipts are never committed while a step awaits
  * approval, because any commit during review makes that step's submission stale.
+ *
+ * An action pinned with `required: true` holds the Story after its step: preparing any later step,
+ * and finalizing after the last one, waits until the step's approved delivery of that action has a
+ * committed receipt.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { commitIsAncestor } from './git.mjs';
+import { commitIsAncestor, exactFileAtObject, head } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { readDeliveredStepActions } from './step-action-delivery.mjs';
-import { stepActionDeliveryKey } from './step-actions.mjs';
+import { readDeliveredStepActions, readStepActionDelivery } from './step-action-delivery.mjs';
+import { stepActionDeliveryKey, storyRequiresStepActions } from './step-actions.mjs';
 import { SingularityFlowError, writeAtomicExclusive } from './util.mjs';
 
 export const STEP_ACTION_RECEIPT_FAMILY = 'step-action-receipt';
@@ -143,4 +147,102 @@ export async function writeStepActionReceipts(root, config, workflow, records, {
     written.push({ path: file, receipt });
   }
   return written;
+}
+
+export { storyRequiresStepActions };
+
+/** The approved deliveries the Story's required actions call for, one per approved step and action. Pure. */
+export function requiredStepActionDeliveries(workflow) {
+  const deliveries = [];
+  for (const resolved of workflow?.resolution?.phases ?? []) {
+    const actions = (resolved?.afterStep ?? []).filter((action) => action?.required === true);
+    const state = workflow.phases?.[resolved.id];
+    if (!actions.length || state?.status !== 'approved' || !Number.isSafeInteger(state.generation)) continue;
+    for (const action of actions) {
+      deliveries.push({
+        phaseId: resolved.id, generation: state.generation, trigger: 'approved', action: action.id, target: action.target,
+        key: stepActionDeliveryKey({ workId: workflow.workItem.id, phaseId: resolved.id, generation: state.generation, trigger: 'approved', actionId: action.id })
+      });
+    }
+  }
+  return deliveries;
+}
+
+/**
+ * The required deliveries without a committed receipt. A receipt counts only when HEAD holds it
+ * and it names exactly that delivery: a file someone wrote but did not commit holds nothing up.
+ */
+export async function missingRequiredStepActionReceipts(root, config, workflow) {
+  const required = requiredStepActionDeliveries(workflow);
+  if (!required.length) return [];
+  const commit = head(root);
+  const directory = stepActionReceiptDirectory(config, workflow.workItem.id);
+  return required.filter((entry) => {
+    const bytes = exactFileAtObject(root, commit, `${directory}/${entry.key}.json`);
+    if (!bytes) return true;
+    try {
+      const receipt = readRecord(STEP_ACTION_RECEIPT_FAMILY, bytes).record;
+      return !(receipt.deliveryKey === entry.key && receipt.workId === workflow.workItem.id && receipt.phaseId === entry.phaseId
+        && receipt.generation === entry.generation && receipt.trigger === 'approved' && receipt.action?.id === entry.action);
+    } catch { return true; }
+  });
+}
+
+const HELD_BECAUSE = Object.freeze({
+  delivered: 'It was delivered from this machine; record its receipt',
+  pending: 'It has not been delivered yet and is retried automatically; deliver it now',
+  failed: 'Its delivery failed and waits for a person; fix the target, then deliver it',
+  waiting: 'It waits for the step\'s commit to be published; publish it',
+  tampered: 'This machine\'s record of it no longer matches its seal and is never sent; deliver and record it from the machine that approved the step',
+  absent: 'This machine has no record of it: the machine that approved the step delivers it; record its receipt there'
+});
+
+/** What to run for one missing receipt, from what this machine's outbox knows about the delivery. */
+function nextForMissing(entry) {
+  if (entry.here === 'delivered') return 'singularity-flow integrations record';
+  if (entry.here === 'pending' || entry.here === 'failed') return `singularity-flow integrations retry ${entry.key}`;
+  if (entry.here === 'waiting') return 'singularity-flow sync';
+  return null;
+}
+
+/**
+ * What holds the Story now: each required delivery without a committed receipt, with what this
+ * machine's outbox knows about it, and the one command this machine can run about the first. Null
+ * when nothing holds the Story. Planners show it; prepare, publish, submit and finalize refuse on it.
+ */
+export async function requiredStepActionHold(root, config, workflow) {
+  if (!storyRequiresStepActions(workflow)) return null;
+  const missing = await missingRequiredStepActionReceipts(root, config, workflow);
+  if (!missing.length) return null;
+  const described = [];
+  for (const entry of missing) {
+    const record = await readStepActionDelivery(root, entry.key).catch(() => null);
+    described.push({ ...entry, here: record?.tampered ? 'tampered' : record?.status ?? 'absent' });
+  }
+  const first = described[0];
+  const nextAction = nextForMissing(first);
+  const list = described.map((entry) => `${entry.action} → ${entry.target} (${entry.phaseId} generation ${entry.generation}, approved)`).join(', ');
+  return {
+    missing: described,
+    nextAction,
+    what: `${described.length === 1 ? 'the required after-step action' : `${described.length} required after-step actions`} ${list} ${described.length === 1 ? 'has' : 'have'} no receipt in the Story`,
+    because: HELD_BECAUSE[first.here] ?? HELD_BECAUSE.absent
+  };
+}
+
+/** One sentence a planner shows for a hold; the planner shows the command beside it. */
+export function stepActionHoldSentence(hold) {
+  return hold ? `The next step waits: ${hold.what}. ${hold.because}.` : null;
+}
+
+/**
+ * Refuse while a required delivery of an approved step has no committed receipt. `held` names what
+ * waits, such as "implement cannot be prepared" or "the Story cannot be finalized".
+ */
+export async function assertRequiredStepActionsRecorded(root, config, workflow, held) {
+  const hold = await requiredStepActionHold(root, config, workflow);
+  if (!hold) return;
+  throw new SingularityFlowError(`${held} yet: ${hold.what}. ${hold.because}${hold.nextAction ? `: ${hold.nextAction}` : ''}.`, {
+    code: 'STEP_ACTION_REQUIRED_UNRECORDED', details: { workId: workflow.workItem.id, missing: hold.missing, nextAction: hold.nextAction }
+  });
 }

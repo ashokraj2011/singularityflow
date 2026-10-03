@@ -89,8 +89,8 @@ const PLANNER_RANKS = Object.freeze({ now: 'NOW', alternative: 'NOW', then: 'SOO
  * explaining why the step is the right one. That sentence is the label; guessing at `label`/`title`
  * produced a list of steps all captioned "Continue", which is worse than no caption at all.
  */
-function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode } = {}) {
-  return workflowNextSteps(workflow, { publicationPending, modelMode })
+function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode, stepActionHold = null } = {}) {
+  return workflowNextSteps(workflow, { publicationPending, modelMode, stepActionHold })
     // The planner's skill is the step's own route; it is kept whenever the pair is safe to show.
     .map((step, index) => plannedAction({
       id: step.command ? step.command.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 64) : `step-${index}`,
@@ -111,14 +111,14 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode }
  * rest-state branch is a bug in the reason codes — it means we stopped someone without telling them
  * how to proceed.
  */
-export function attachContinuation(result, { postState = null, publicationPending = false, modelMode, restStateWhenIdle = null } = {}) {
+export function attachContinuation(result, { postState = null, publicationPending = false, modelMode, restStateWhenIdle = null, stepActionHold = null } = {}) {
   if (result.next.length || result.restState) return result;
 
   const remediation = remediationActions(result, postState);
   if (remediation.length) return { ...result, next: Object.freeze(remediation) };
 
   if (result.subject?.kind === 'story' && postState) {
-    const planned = fromWorkflowPlanner(postState, { publicationPending, modelMode });
+    const planned = fromWorkflowPlanner(postState, { publicationPending, modelMode, stepActionHold });
     if (planned.length) return { ...result, next: Object.freeze(planned) };
   }
 

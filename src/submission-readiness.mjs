@@ -7,6 +7,7 @@ import { changedFiles } from './git.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
+import { storyRequiresStepActions } from './step-actions.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -136,11 +137,21 @@ export async function submissionReadiness(root, config, workflow, {
       };
     }
   }
+  // Only a Story that pinned a required action reads its receipts; any other pays nothing.
+  let stepActionHold = null;
+  if (phase?.status === 'in_progress' && storyRequiresStepActions(workflow)) {
+    try {
+      const { requiredStepActionHold, stepActionHoldSentence } = await import('./step-action-receipts.mjs');
+      const hold = await requiredStepActionHold(root, config, workflow);
+      stepActionHold = hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
+    } catch { stepActionHold = null; }
+  }
   return submissionReadinessSnapshot(workflow, {
     phaseId,
     pendingSynchronization,
     draftEvidence,
-    sourceReviewEvidence
+    sourceReviewEvidence,
+    stepActionHold
   });
 }
 
@@ -153,7 +164,8 @@ export function submissionReadinessSnapshot(workflow, {
   phaseId = workflow?.currentPhase ?? null,
   pendingSynchronization = false,
   draftEvidence = null,
-  sourceReviewEvidence = null
+  sourceReviewEvidence = null,
+  stepActionHold = null
 } = {}) {
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
   const draft = draftEvidence == null ? {} : {
@@ -211,6 +223,23 @@ export function submissionReadinessSnapshot(workflow, {
     ...draft,
     classification: 'not-applicable',
     reasonCode: 'PHASE_NOT_IN_PROGRESS'
+  });
+
+  // A required after-step action of an earlier step holds this one until its approved delivery has
+  // a receipt; prepare, publish and submit refuse until then, so the hold is the next action.
+  if (stepActionHold?.missing?.length) return result(workflow, phase, {
+    ...draft,
+    classification: 'step-action-required',
+    command: stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workflow.workItem.id} --all`,
+    nextSkill: '/sf-integrations',
+    reasonCode: 'STEP_ACTION_REQUIRED_UNRECORDED',
+    stepActionHold: {
+      reason: stepActionHold.reason ?? null,
+      runnableHere: Boolean(stepActionHold.nextAction),
+      missing: stepActionHold.missing.map((entry) => ({
+        key: entry.key, phaseId: entry.phaseId, generation: entry.generation, action: entry.action, target: entry.target, here: entry.here
+      }))
+    }
   });
 
   const publication = currentPublication(phase);
@@ -319,6 +348,7 @@ export function submissionReadinessText(snapshot) {
     snapshot.confirmationRequired ? `Human confirmation required: soft gate ${snapshot.sequenceGate}` : null,
     snapshot.sourceReviewStatus && snapshot.sourceReviewStatus !== 'ready'
       ? `Independent source review: ${snapshot.sourceReviewStatus}` : null,
+    snapshot.stepActionHold?.reason ?? null,
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,
     snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null

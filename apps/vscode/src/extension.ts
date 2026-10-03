@@ -4556,7 +4556,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
   context.subscriptions.push(store.onDidChange((state) => {
-    if (state.snapshot && !state.stale) stepActionDeliveries.observe(state.snapshot.workflow ?? null);
+    if (state.snapshot && !state.stale) stepActionDeliveries.observe(state.snapshot.workflow ?? null, state.snapshot.submissionReadiness?.reasonCode ?? '');
   }));
   interface WorkspaceLogsSummary {
     entries: Array<{ timestamp: string | null; severity: string }>;

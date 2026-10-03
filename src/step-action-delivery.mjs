@@ -427,12 +427,17 @@ export async function listStepActionDeliveries(root, { workId = null, includeDel
     records.push({
       key, status: record.status, workId: record.workId, phaseId: record.phaseId, generation: record.generation,
       trigger: record.trigger, action: record.action.id, target: record.action.target, kind: record.action.targetSpec.kind,
-      send: record.action.send, commit: record.commit, createdAt: record.createdAt, updatedAt: record.updatedAt,
+      send: record.action.send, required: record.action.required === true, commit: record.commit, createdAt: record.createdAt, updatedAt: record.updatedAt,
       deliveredAt: record.deliveredAt, nextAttemptAt: record.nextAttemptAt,
       attempts: record.attempts.length, lastAttempt: record.attempts.at(-1) ?? null
     });
   }
   return records.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+}
+
+/** One delivery record as this machine's outbox holds it: null when it has none, `{ tampered }` when its seal no longer matches. */
+export async function readStepActionDelivery(root, key) {
+  return readRecord(outboxPath(root), key);
 }
 
 /**

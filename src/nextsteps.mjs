@@ -84,7 +84,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
 }
 
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -120,6 +120,17 @@ export function workflowNextSteps(workflow, {
     item.reason
   ));
   if (phase.status === 'awaiting_approval') return [...undecided, ...immediate, ...afterCompletionActions(workflow, phase)];
+
+  // A required after-step action of an earlier step holds this one until its approved delivery has
+  // a receipt, so that delivery comes first and the step's own work follows it.
+  if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode });
+    return [
+      action('now', '/sf-integrations', stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`,
+        stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { operationId: 'integrations', route: 'step-action-hold' }),
+      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
+    ];
+  }
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
@@ -199,7 +210,7 @@ export function workflowNextSteps(workflow, {
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true } } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -235,7 +246,8 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     currentPhase: workflow.currentPhase,
     modelMode: modelMode.enabled ? 'auto' : 'disabled',
     recovery: recovery?.requiresRecovery ? recovery : null,
-    actions: workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode })
+    ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
+    actions: workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold })
   };
 }
 

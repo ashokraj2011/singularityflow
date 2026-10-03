@@ -526,6 +526,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); },
     addStepAction: function () { return addStepAction.apply(null, arguments); }, setActionTarget: function () { return setActionTarget.apply(null, arguments); },
     setActionTrigger: function () { return setActionTrigger.apply(null, arguments); }, actionLine: function () { return actionLine.apply(null, arguments); },
+    setActionRequired: function () { return setActionRequired.apply(null, arguments); },
     targetUsers: function () { return targetUsers.apply(null, arguments); }, targetFromForm: function () { return targetFromForm.apply(null, arguments); },
     newTargetForm: function () { return newTargetForm.apply(null, arguments); }, editTargetForm: function () { return editTargetForm.apply(null, arguments); },
     saveTargetForm: function () { return saveTargetForm.apply(null, arguments); }, removeTarget: function () { return removeTarget.apply(null, arguments); },
@@ -2153,9 +2154,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   // ---- After-step actions and integration targets ---------------------------------------------
   //
-  // A target is a named place a step can tell about its decisions: your own service, a log service
-  // or a Teams channel. A step's actions say which target hears, when (submitted, approved,
-  // rejected) and what it is sent. Like sign-off, actions belong to the workflow: on a step two
+  // A target is a named place a step can tell about its decisions: your own service, a log service,
+  // Teams, the Story's Jira issue, another repository, Confluence or OneDrive. A step's actions say
+  // which target hears, when (submitted, approved, rejected) and what it is sent; a required action
+  // holds the next step until its approved delivery is recorded. Like sign-off, actions belong to the workflow: on a step two
   // workflows share, each keeps its own. Configuration names secrets but never holds them; each
   // machine keeps its own, and VS Code stores them in the operating-system keychain.
 
@@ -2210,7 +2212,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
   /** One action in words: "On approved, sends the event to team-events". */
   function actionLine(action) {
-    return 'On ' + (action.on || []).map(function (trigger) { return TRIGGER_WORDS[trigger] || trigger; }).join(' or ') + ', sends ' + (SEND_WORDS[action.send || 'event'] || action.send) + ' to ' + action.target;
+    return 'On ' + (action.on || []).map(function (trigger) { return TRIGGER_WORDS[trigger] || trigger; }).join(' or ') + ', sends ' + (SEND_WORDS[action.send || 'event'] || action.send) + ' to ' + action.target
+      + (action.required ? '; the next step waits for it' : '');
   }
   /** Every step, in every workflow of the draft, whose actions send to a target. */
   function targetUsers(targetId) {
@@ -2248,8 +2251,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function setActionTrigger(action, trigger, on) {
     var next = ((state.model && state.model.choices.actionTriggers) || ['submitted', 'approved', 'rejected']).filter(function (entry) { return entry === trigger ? on : action.on.indexOf(entry) >= 0; });
     if (!next.length) { setStatus('An action needs at least one moment; remove it to stop it.'); render(); return false; }
-    action.on = next; changed();
+    action.on = next;
+    // Only the approved delivery can hold the next step, so an action that stops firing on approved stops being required.
+    if (action.required && next.indexOf('approved') < 0) { delete action.required; setStatus('Required needs the approved moment, so this action is no longer required.'); }
+    changed();
     return true;
+  }
+  /** Required is kept only when on: an action without it is written exactly as before. */
+  function setActionRequired(action, on) {
+    if (on && action.on.indexOf('approved') >= 0) action.required = true; else delete action.required;
+    changed();
   }
 
   function actionsEditor(workflowId, phaseId, settings, users) {
@@ -2276,19 +2287,22 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
             return el('label', null, el('input', { type: 'checkbox', 'data-key': 'action-on-' + index + '-' + trigger, checked: action.on.indexOf(trigger) >= 0,
               onchange: function (event) { setActionTrigger(action, trigger, event.target.checked); } }), TRIGGER_WORDS[trigger] || trigger);
           }))),
+        el('div', { class: 'trigger-row' }, el('label', { title: action.on.indexOf('approved') >= 0 ? 'The next step, or finishing after the last one, waits until the approved delivery has a receipt in the Story.' : 'Only an action sent when the step is approved can be required.' },
+          el('input', { type: 'checkbox', 'data-key': 'action-required-' + index, checked: action.required === true, disabled: action.on.indexOf('approved') < 0,
+            onchange: function (event) { setActionRequired(action, event.target.checked); } }), 'Required: the next step waits until the approved delivery is recorded')),
         target ? null : el('div', { class: 'callout bad', text: 'Target ' + action.target + ' was removed. Choose another target or remove this action.' }),
         el('div', { class: 'studio-row spread' }, el('span', { class: 'muted', text: actionLine(action) }),
           button('Remove', function () { settings.afterStep = list.filter(function (entry) { return entry !== action; }); changed(); }, { class: 'secondary', 'aria-label': 'Remove the action: ' + actionLine(action) }))));
     });
     if (!targets.length) {
-      body.push(el('div', { class: 'callout' }, el('div', { text: 'Add a target first: your own service, a log service or a Teams channel. Then choose here what this step sends to it, and when.' }),
+      body.push(el('div', { class: 'callout' }, el('div', { text: 'Add a target first: your own service, a log service, Teams, Jira, a Git repository, Confluence or OneDrive. Then choose here what this step sends to it, and when.' }),
         button('Open Integrations', function () { state.view = 'integrations'; render(); }, { class: 'secondary', style: 'margin-top:6px' })));
     } else {
       body.push(el('div', { class: 'studio-row' },
         button('Add an action', function () { addStepAction(workflowId, phaseId); }, { class: 'secondary', 'data-key': 'action-add' }),
         button('Integrations', function () { state.view = 'integrations'; render(); }, { class: 'secondary' })));
     }
-    body.push(el('span', { class: 'hint', text: 'Actions never hold the Story back: a delivery that fails is retried, and Integrations shows it.' }));
+    body.push(el('span', { class: 'hint', text: 'Only a required action holds the Story: the next step waits until its approved delivery is recorded. Any other delivery that fails is retried, and Integrations shows it.' }));
     return body;
   }
 

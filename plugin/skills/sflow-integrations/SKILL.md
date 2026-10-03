@@ -20,4 +20,6 @@ Use this skill when someone asks what a step sends after approval, why a target 
 4. Ask before mutation. When the user chooses to retry, run `singularity-flow integrations retry <KEY...> --json` (or `--all`) exactly once and report each outcome.
 5. To record what went out, on the checked-out Story whose deliveries they were, run `singularity-flow integrations record --dry-run --json` and show what it would commit; after the user agrees, run `singularity-flow integrations record --json` once. It is refused while a step awaits approval, because a commit then would require submitting that step again: say so and record after the decision.
 
-Deliveries never change governed state, and a failed one never undoes a transition; receipts are evidence only. Changing targets or actions is a workflow change: use Workflow Studio or `/sf-configure`, not this skill.
+6. When `prepare` or `finalize` is refused with `STEP_ACTION_REQUIRED_UNRECORDED`, a required action's approved delivery has no receipt: run only the command the refusal names (retry, record or sync), after asking.
+
+Deliveries never change governed state, and a failed one never undoes a transition; only a required action holds the next step. Receipts are evidence only. Changing targets or actions is a workflow change: use Workflow Studio or `/sf-configure`, not this skill.

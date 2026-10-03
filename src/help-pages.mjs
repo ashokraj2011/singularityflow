@@ -991,7 +991,12 @@ const PAGES = Object.freeze({
       'integrations record commits one receipt per delivery that went out, under the Story\'s',
       'evidence/step-actions/, so everyone sees what was delivered. Only deliveries that match what',
       'the Story pinned are recorded, and recording is refused while a step awaits approval, because',
-      'a commit then would require submitting that step again.'
+      'a commit then would require submitting that step again.',
+      '',
+      'An action marked required: true (it must fire on approved) holds the Story after its step:',
+      'preparing a later step, or finalizing after the last one, waits until that approved delivery',
+      'has a receipt. The machine that delivers it records the receipt at once; after a failed',
+      'delivery, integrations retry delivers it and records the receipt.'
     ],
     options: [
       ['--work-id ID', 'list: the actions a Story pinned when it started; status: only that Story\'s deliveries.'],

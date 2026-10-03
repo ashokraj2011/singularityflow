@@ -98,3 +98,31 @@ test('an unplanned path is accounted for first, and the returns follow where the
   const plain = await crossPhaseChange('/unused', {}, open, open.phases.review, ['src/api.mjs'], { records: { planned: [] } });
   assert.deepEqual([plain.owners, plain.unplanned, plain.obligations], [['frontend'], [], []]);
 });
+
+test('the same refusal reaches the CLI recovery plan and the VS Code card with the same actions [E2G criterion 16]', async () => {
+  const { refusalEnvelope } = await import('../src/refusal-remediation.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
+  const workflow = story();
+  const change = await crossPhaseChange('/unused', {}, workflow, workflow.phases.review, ['src/api.mjs', 'src/helper.mjs'], { records });
+  const described = describeCrossPhaseChange(change, { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', gate: 'consumption', workflow, phase: workflow.phases.review });
+  const error = new SingularityFlowError(`Phase 'review' requires current Code evidence. ${described.text}`,
+    { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { phase: 'review', changedPaths: change.paths, gate: described.gate } });
+  const envelope = refusalEnvelope(error, ['phase', 'publish', 'review', '--json']);
+  const gateCommands = envelope.error.details.gate.actions.map((entry) => entry.command);
+  assert.deepEqual(gateCommands, [
+    'singularity-flow decision plan --add-location <clause>=<path> --reason <reason>',
+    'singularity-flow reject review --to backend --repair --reason <REASON>',
+    'singularity-flow reject review --to frontend --repair --reason <REASON>'
+  ]);
+  const planned = envelope.remediationPlan.steps.map((entry) => entry.command).filter(Boolean);
+  assert.deepEqual(planned.slice(0, gateCommands.length), gateCommands, 'the recovery plan leads with the gate\'s actions');
+
+  const { view } = refusalFor({ result: envelope, message: envelope.error.message });
+  assert.deepEqual(view.actions.map((entry) => entry.command), planned.slice(0, 3), 'VS Code offers the plan\'s first actions');
+  const why = view.why.map((entry) => entry.label);
+  assert.equal(why[0], 'The consumption gate refused: nothing was recorded.');
+  for (const obligation of envelope.error.details.gate.obligations) assert.ok(why.includes(`${obligation.id} is stale`), why.join('\n'));
+  assert.ok(why.includes('The changed files stay in the worktree: src/api.mjs, src/helper.mjs.'));
+  assert.ok(why.includes('Responsible step: backend'));
+});

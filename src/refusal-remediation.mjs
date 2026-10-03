@@ -23,13 +23,17 @@ function explicitCommands(error) {
     typeof details?.nextAction === 'string' ? { command: details.nextAction } : details?.nextAction,
     details?.recoveryCommand,
     details?.retry,
-    ...(Array.isArray(details?.recoveryCommands) ? details.recoveryCommands : [])
+    ...(Array.isArray(details?.recoveryCommands) ? details.recoveryCommands : []),
+    // A gate refusal's own actions, so the recovery plan every surface renders is the gate's
+    // [E2G-024, criterion 16].
+    ...(Array.isArray(details?.gate?.actions) ? details.gate.actions.map((entry) => entry?.command) : [])
   ];
+  const seen = new Set();
   return values.map((value) => {
     if (typeof value === 'string') return safeCommandGuidance({ command: value });
     if (!value?.command) return null;
     return safeCommandGuidance(value);
-  }).filter(Boolean);
+  }).filter((guidance) => guidance && !seen.has(guidance.command) && seen.add(guidance.command));
 }
 
 function step(id, label, command = null, kind = 'diagnostic', skill = null) {

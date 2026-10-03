@@ -24,7 +24,7 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
    Code generation; retest and approve it before repeating the review.
 4. For a closed Story, run `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
 5. Stop on an unauthorized identity, disallowed target, disabled post-completion reopening, stale branch, or pending publication. Changing agents never grants decision authority.
-6. Show which approvals and later phases will be invalidated before recording the decision.
+6. Show which approvals and later phases will be invalidated before recording the decision. A later approved phase is kept (rule E1) only if nothing it decided over changes; the engine decides when the Story reaches it.
 7. Report the change-request ID, comment, human identity, authority group, governed agent, reopened target, invalidated phases, commit, and push.
 8. Stop after recording the request. Do not modify artifacts unless the user separately asks to address it.
 

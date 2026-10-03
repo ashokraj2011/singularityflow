@@ -118,7 +118,12 @@ function gateRefusalReasons(gate: any): Array<{ label: string }> {
     .filter((entry: any) => typeof entry?.message === 'string')
     .map((entry: any) => ({ label: String(entry.message).slice(0, 300) })) : [];
   const reasons = [...obligations, ...findings];
-  return reasons.length ? [{ label: `The ${String(gate.gate)} gate refused: nothing was recorded.` }, ...reasons] : [];
+  // What the gate left in place, and the step responsible, in its own words.
+  const preserved = gate.preserved?.state && gate.preserved.state !== 'unchanged' && typeof gate.preserved.description === 'string'
+    ? [{ label: String(gate.preserved.description).slice(0, 300) }] : [];
+  const checkpoint = typeof gate.checkpoint === 'string' && gate.checkpoint ? [{ label: `Responsible step: ${gate.checkpoint}` }] : [];
+  return reasons.length
+    ? [{ label: `The ${String(gate.gate)} gate refused: nothing was recorded.` }, ...reasons, ...preserved, ...checkpoint] : [];
 }
 
 /** Adapt bounded process-boundary guidance without claiming any effects or preservation. */

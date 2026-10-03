@@ -20,7 +20,8 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 13
+  - rejection-and-rework
+version: 14
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -134,6 +135,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a scope revision changed this clause after its evidence was produced; run the step that owns the stale obligation again.
 - **`RISK_NOT_WAIVABLE`:** the obligation is stale, untrusted, a review or the scope; repair it instead.
 - **`RISK_DECISION_EXPIRED`, `RISK_DECISION_REVOKED`, `RISK_DECISION_OVERTAKEN`:** the decision no longer covers the obligation; renew it or meet the obligation.
+- **`PRIOR_CODE_TEST_EVIDENCE_STALE`, `PHASE_SOURCE_CHANGED_AFTER_PUBLICATION` or `PHASE_ARTIFACT_ONLY_CHANGES`:** application files changed in a step that delivers no code. The refusal keeps them in your worktree, names the obligations they touch and the code step that owns each, and lists the returns the workflow permits; see `singularity-flow explain rejection-and-rework`.
 - **`GENERATION_EXCLUSIONS_UNSAFE`:** the code step changed code its plan does not name; account for it with `decision plan --add-location` or `--add-supporting`, or move it out of the worktree, then publish again.
 - **A changed path is not claimed by a clause:** account for it with `decision plan --add-location` or `--add-supporting`, or remove the change if it does not belong to the Story.
 - **`SCOPE_INVENTORY_INCOMPLETE`:** the completeness review waits until every statement has a disposition.

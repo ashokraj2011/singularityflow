@@ -60,7 +60,13 @@ async function prepareReviewClone(root, initiative, story) {
     git(clone, ['remote', 'set-url', 'origin', '--', approvedUrl]);
   }
   validateCloneRemote(clone, approvedUrl);
-  if (git(clone, ['status', '--porcelain']).stdout.trim()) {
+  // The clone has no index until a submission is first switched in (--no-checkout), so Git reports
+  // every file of the remote's default branch as a staged deletion. Until then only files someone
+  // put in its empty worktree are local changes.
+  const checkedOut = await exists(path.join(clone, '.git', 'index'));
+  const localChanges = git(clone, ['status', '--porcelain']).stdout.split('\n')
+    .filter((line) => line.trim() && (checkedOut || line.startsWith('?? ')));
+  if (localChanges.length) {
     throw new SingularityFlowError(`Isolated review checkout for '${story.repository}' has local changes; inspect ${clone}.`);
   }
   const actor = identity(root);

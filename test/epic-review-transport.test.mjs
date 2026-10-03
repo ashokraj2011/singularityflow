@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -14,8 +14,10 @@ function git(root, args) {
   return run('git', args, { cwd: root }).stdout.trim();
 }
 
-test('Epic review clone keeps the approved raw origin and refuses a changed cached origin', async () => {
+/** An Epic with one planned Story in a delivery repository whose HEAD names its pushed default branch. */
+async function epicWithDeliveryRepository(t) {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-epic-review-transport-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
   const source = path.join(parent, 'source');
   const remote = path.join(parent, 'delivery.git');
   const lead = path.join(parent, 'lead');
@@ -27,7 +29,9 @@ test('Epic review clone keeps the approved raw origin and refuses a changed cach
   await writeFile(path.join(source, 'README.md'), '# Delivery\n');
   git(source, ['add', '.']);
   git(source, ['commit', '-m', 'Delivery']);
-  git(parent, ['init', '--bare', remote]);
+  // Like a hosted repository, and whatever init.defaultBranch this machine has: the review clone
+  // starts on a real commit, not an unborn branch.
+  git(parent, ['init', '--bare', '-b', 'main', remote]);
   git(source, ['push', remote, 'main']);
 
   git(lead, ['init', '-b', 'main']);
@@ -61,11 +65,37 @@ test('Epic review clone keeps the approved raw origin and refuses a changed cach
   await saveInitiative(lead, portfolio, initiative);
   git(lead, ['add', '.']);
   git(lead, ['commit', '-m', 'Plan story']);
+  const clone = path.join(gitDir(lead), 'singularity-flow', 'reviews', 'EPIC-REVIEW', 'delivery');
+  return { parent, remote, lead, clone };
+}
+
+test('Epic review clone keeps the approved raw origin and refuses a changed cached origin', async (t) => {
+  const { parent, remote, lead, clone } = await epicWithDeliveryRepository(t);
 
   assert.deepEqual(await listEpicReviewInbox(lead, 'EPIC-REVIEW'), []);
-  const clone = path.join(gitDir(lead), 'singularity-flow', 'reviews', 'EPIC-REVIEW', 'delivery');
   assert.equal(git(clone, ['config', '--local', '--get', 'remote.origin.url']), remote);
 
   git(clone, ['remote', 'set-url', 'origin', path.join(parent, 'different.git')]);
   await assert.rejects(listEpicReviewInbox(lead, 'EPIC-REVIEW'), /origin differs from the approved repository URL/);
+});
+
+test('Epic review reuses its unchecked-out clone and still refuses local changes before and after a checkout', async (t) => {
+  const { lead, clone } = await epicWithDeliveryRepository(t);
+
+  assert.deepEqual(await listEpicReviewInbox(lead, 'EPIC-REVIEW'), []);
+  assert.deepEqual(await listEpicReviewInbox(lead, 'EPIC-REVIEW'), [], 'the clone is reused as it was made');
+
+  await writeFile(path.join(clone, 'notes.md'), 'Reviewer notes\n');
+  await assert.rejects(listEpicReviewInbox(lead, 'EPIC-REVIEW'), /has local changes/);
+  await rm(path.join(clone, 'notes.md'));
+
+  // Opening a submission checks a branch out; from then on every difference from it counts.
+  git(clone, ['switch', '-C', 'main', 'origin/main']);
+  assert.deepEqual(await listEpicReviewInbox(lead, 'EPIC-REVIEW'), []);
+  await writeFile(path.join(clone, 'README.md'), '# Edited in the review checkout\n');
+  await assert.rejects(listEpicReviewInbox(lead, 'EPIC-REVIEW'), /has local changes/);
+  git(clone, ['checkout', '--', 'README.md']);
+  git(clone, ['rm', '-q', '--cached', 'README.md']);
+  await assert.rejects(listEpicReviewInbox(lead, 'EPIC-REVIEW'), /has local changes/,
+    'a staged deletion in a checked-out clone is a local change');
 });

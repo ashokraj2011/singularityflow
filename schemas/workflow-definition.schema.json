@@ -787,6 +787,7 @@
         "label": { "type": "string", "maxLength": 80 },
         "network": { "enum": ["public", "private"] },
         "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "deliverFrom": { "enum": ["transition", "pipeline"], "description": "Who delivers this target's actions: the machine that moves the Story (transition, the default) or a pipeline that runs singularity-flow integrations deliver --commit with the organisation's credentials." },
         "url": { "type": "string", "pattern": "^(https://|http://(localhost|127\\.0\\.0\\.1|\\[::1\\]))", "maxLength": 2048 },
         "signingSecret": { "$ref": "#/$defs/secretName" },
         "tokenSecret": { "$ref": "#/$defs/secretName" },

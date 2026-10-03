@@ -6,6 +6,10 @@
  *   retry   deliver now: named delivery keys, or every pending and failed one with --all
  *   record  commit a receipt for each of this Story's delivered deliveries, as evidence everyone
  *           sees (refused while a step awaits approval; --dry-run shows what it would record)
+ *   deliver in a pipeline: deliver what a pushed lifecycle commit calls for to targets marked
+ *           deliverFrom: pipeline, only when the target matches the approved configuration on the
+ *           trusted ref (--trusted-ref, default the remote's default branch); --record commits
+ *           the receipts when the Story's branch is checked out
  *   test    the exact request a target would receive; --send-test sends one marked as a test
  *           (for a Jira target: the comment it would write; --send-test checks the connection and
  *           the issue without writing anything; for a Git target: the commit it would make;
@@ -252,6 +256,39 @@ async function recordCommand(root, config, options, operation, json) {
   });
 }
 
+/** A pipeline delivers what one pushed lifecycle commit calls for; a failed delivery fails the job. */
+async function deliverCommand(root, config, options, operation, json) {
+  const commit = optionString(options, 'commit');
+  if (!commit) {
+    throw new SingularityFlowError('integrations deliver needs --commit <SHA>: the pushed lifecycle commit to deliver for.', { code: 'STEP_ACTION_COMMIT_REQUIRED' });
+  }
+  const [{ deliverFromPipeline }, { repositoryLogger }] = await Promise.all([import('../step-action-pipeline.mjs'), import('../logging.mjs')]);
+  const delivery = await deliverFromPipeline(root, {
+    commit, trustedRef: optionString(options, 'trusted-ref'), record: optionBoolean(options, 'record'), logger: repositoryLogger(root, config)
+  });
+  const report = delivery.report ?? { delivered: [], retrying: [], failed: [], unavailable: [], skipped: [], notReached: [] };
+  const untrusted = delivery.actions.filter((entry) => !entry.trusted);
+  const open = report.failed.length + report.retrying.length + report.unavailable.length + (report.notReached?.length ?? 0);
+  if (!json) {
+    const short = String(delivery.commit).slice(0, 12);
+    if (!delivery.lifecycle) console.log(`${short} is not a lifecycle commit of a Story; nothing to deliver.`);
+    else if (!delivery.actions.length) console.log(`${short} (${delivery.workId} ${delivery.event.phaseId} generation ${delivery.event.generation}, ${delivery.event.type}) calls for no pipeline delivery.`);
+    for (const entry of [...report.delivered, ...report.retrying, ...report.unavailable, ...report.failed]) {
+      const state = report.delivered.includes(entry) ? 'delivered' : report.failed.includes(entry) ? 'failed' : report.unavailable.includes(entry) ? 'unavailable here' : 'not delivered';
+      console.log(`${state.padEnd(16)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})${entry.detail ? `: ${entry.detail}` : ''}`);
+    }
+    for (const entry of untrusted) console.log(`${'not trusted'.padEnd(16)} ${entry.action} → ${entry.target} (${delivery.event.phaseId}, ${entry.trigger}): ${entry.reason}`);
+    if (delivery.receipts?.recorded) console.log(`Recorded ${delivery.receipts.count} after-step receipt(s) in commit ${delivery.receipts.commit.slice(0, 8)}${delivery.receipts.pushed ? ' and pushed' : ''}.`);
+    else if (delivery.receipts) console.log(`Receipts not recorded: ${delivery.receipts.reason}`);
+  }
+  // A pipeline job shows red when a delivery did not go out or was not trusted, so someone looks.
+  if (open || untrusted.length) process.exitCode = 1;
+  return emitCommandResult(result(operation, succeeded('integrations.pipeline-delivered', {
+    lifecycle: delivery.lifecycle, count: delivery.actions.length, delivered: report.delivered.length, open, untrusted: untrusted.length,
+    commit: String(delivery.commit).slice(0, 12)
+  }), { data: { ...delivery }, changed: Boolean(report.delivered.length || delivery.receipts?.recorded) }), { json });
+}
+
 function redactedHeaders(headers) {
   return Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, SECRET_HEADERS.has(name) ? '[redacted]' : value]));
 }
@@ -486,7 +523,7 @@ async function confluenceTest(target, record, { operation, json, sendIt }) {
 
 export async function run(_argv, { positionals, options, operation: given = null }) {
   const subcommand = positionals[1] ?? 'status';
-  const operation = given ?? { id: `integrations.${subcommand}`, classification: ['retry', 'record'].includes(subcommand) ? 'mutation' : 'read' };
+  const operation = given ?? { id: `integrations.${subcommand}`, classification: ['retry', 'record', 'deliver'].includes(subcommand) ? 'mutation' : 'read' };
   const json = optionBoolean(options, 'json');
   const root = repoRoot();
   if (subcommand === 'status') return statusCommand(root, options, operation, json);
@@ -495,5 +532,6 @@ export async function run(_argv, { positionals, options, operation: given = null
   if (subcommand === 'retry') return retryCommand(root, config, positionals, options, operation, json);
   if (subcommand === 'test') return testCommand(root, config, positionals, options, operation, json);
   if (subcommand === 'record') return recordCommand(root, config, options, operation, json);
-  throw new SingularityFlowError(`Unknown integrations subcommand '${subcommand}'. Available: list, status, retry, record, test.`, { code: 'UNKNOWN_SUBCOMMAND' });
+  if (subcommand === 'deliver') return deliverCommand(root, config, options, operation, json);
+  throw new SingularityFlowError(`Unknown integrations subcommand '${subcommand}'. Available: list, status, retry, record, deliver, test.`, { code: 'UNKNOWN_SUBCOMMAND' });
 }

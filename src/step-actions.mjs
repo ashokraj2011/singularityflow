@@ -57,7 +57,7 @@ export const INTEGRATION_TARGET_KINDS = Object.freeze({
 export const HTTP_LOG_FORMATS = Object.freeze(['json', 'splunk-hec', 'datadog', 'elastic', 'loki']);
 const TOKEN_REQUIRED_FORMATS = new Set(['splunk-hec', 'datadog', 'elastic']);
 
-/** The fields each available kind accepts, besides `kind`, `label`, `network` and `timeoutSeconds`. */
+/** The fields each available kind accepts, besides `kind`, `label`, `network`, `timeoutSeconds` and `deliverFrom`. */
 const TARGET_FIELDS = Object.freeze({
   webhook: Object.freeze(['url', 'signingSecret']),
   'http-log': Object.freeze(['url', 'format', 'tokenSecret', 'labels']),
@@ -110,7 +110,12 @@ export function renderGitDeliveryPath(template, { workId, phaseId, generation, t
 }
 const JIRA_ISSUE_KEY = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
-const COMMON_TARGET_FIELDS = Object.freeze(['kind', 'label', 'network', 'timeoutSeconds']);
+const COMMON_TARGET_FIELDS = Object.freeze(['kind', 'label', 'network', 'timeoutSeconds', 'deliverFrom']);
+/**
+ * Who delivers a target's actions: the machine that moves the Story (the default), or a pipeline
+ * that runs `singularity-flow integrations deliver --commit` with the organisation's credentials.
+ */
+export const STEP_ACTION_DELIVERERS = Object.freeze(['transition', 'pipeline']);
 
 function refuse(code, message, details = {}) {
   throw new SingularityFlowError(message, { code, details });
@@ -258,6 +263,13 @@ function normalizeTarget(id, raw, label) {
     refuse('INTEGRATION_TARGET_INVALID', `${label} timeoutSeconds must be a whole number from 1 to ${MAX_TARGET_TIMEOUT_SECONDS}.`, { location: label });
   }
   target.timeoutSeconds = timeout;
+  if (raw.deliverFrom != null && !STEP_ACTION_DELIVERERS.includes(raw.deliverFrom)) {
+    refuse('INTEGRATION_TARGET_INVALID',
+      `${label} deliverFrom must be transition (the machine that moves the Story delivers) or pipeline (a pipeline delivers with singularity-flow integrations deliver).`,
+      { location: label });
+  }
+  // Only a pipeline is written: a target without it pins exactly as before.
+  if (raw.deliverFrom === 'pipeline') target.deliverFrom = 'pipeline';
   if (kind === 'webhook') {
     target.url = assertTargetUrl(raw.url, `${label} url`);
     if (raw.signingSecret != null) target.signingSecret = assertSecretName(raw.signingSecret, `${label} signingSecret`);

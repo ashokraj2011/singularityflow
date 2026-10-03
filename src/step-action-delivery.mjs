@@ -9,7 +9,9 @@
  * body, so a retry sends the same thing, and its key makes a retry the same delivery.
  *
  * The outbox is machine-local state under the repository's common Git directory. It is never
- * governance evidence: it records what this machine tried to send. Secrets are read from the
+ * governance evidence: it records what this machine tried to send. An action whose target is
+ * delivered from a pipeline is written with status `pipeline` and never tried here: the pipeline
+ * rebuilds it from the pushed commit (step-action-pipeline.mjs), with the same delivery key. Secrets are read from the
  * delivering process's environment when a request is made and are never written anywhere.
  *
  * Nothing here can fail a lifecycle transition: every error becomes an outcome on a record.
@@ -19,6 +21,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { lstat, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { committedFileBytes } from './git.mjs';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
 import { recordSha256 } from './records.mjs';
 import {
@@ -274,17 +277,25 @@ async function attemptRecord(directory, record, { env, clock, post, logger, writ
  * commits, and kept only if they hash to what the step recorded. The record is sealed, so a
  * delivery sends exactly the approved bytes, whatever the working tree holds by then.
  */
-async function readArtifactForDelivery(root, workflow, phaseId) {
+async function readArtifactForDelivery(root, workflow, phaseId, { commit = null } = {}) {
   const artifact = (workflow.phases?.[phaseId]?.artifacts ?? []).find((entry) => typeof entry?.path === 'string'
     && !path.isAbsolute(entry.path) && !entry.path.split(/[\\/]/).includes('..'));
   if (!artifact) return { path: null, sha256: null, problem: 'This step recorded no artifact to send.' };
   const described = { path: artifact.path, sha256: typeof artifact.sha256 === 'string' ? artifact.sha256 : null };
   try {
-    const file = path.join(root, artifact.path);
-    const info = await lstat(file);
-    if (!info.isFile()) return { ...described, problem: `${artifact.path} is not a regular file, so it is not sent.` };
-    if (info.size > MAX_ARTIFACT_SEND_BYTES) return { ...described, problem: `${artifact.path} is larger than ${MAX_ARTIFACT_SEND_BYTES / (1024 * 1024)} MiB, so it is not sent.` };
-    const bytes = await readFile(file);
+    let bytes;
+    if (commit) {
+      // A pipeline sends the bytes of the commit it delivers for, whatever its checkout holds.
+      bytes = committedFileBytes(root, commit, artifact.path);
+      if (!bytes) return { ...described, problem: `${artifact.path} is not in commit ${String(commit).slice(0, 12)}.` };
+      if (bytes.length > MAX_ARTIFACT_SEND_BYTES) return { ...described, problem: `${artifact.path} is larger than ${MAX_ARTIFACT_SEND_BYTES / (1024 * 1024)} MiB, so it is not sent.` };
+    } else {
+      const file = path.join(root, artifact.path);
+      const info = await lstat(file);
+      if (!info.isFile()) return { ...described, problem: `${artifact.path} is not a regular file, so it is not sent.` };
+      if (info.size > MAX_ARTIFACT_SEND_BYTES) return { ...described, problem: `${artifact.path} is larger than ${MAX_ARTIFACT_SEND_BYTES / (1024 * 1024)} MiB, so it is not sent.` };
+      bytes = await readFile(file);
+    }
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     if (described.sha256 && sha256 !== described.sha256) {
       return { ...described, problem: `${artifact.path} no longer matches the hash the step recorded, so it is not sent.` };
@@ -295,11 +306,15 @@ async function readArtifactForDelivery(root, workflow, phaseId) {
   }
 }
 
-async function readArtifactSummary(root, workflow, phaseId) {
+async function readArtifactSummary(root, workflow, phaseId, { commit = null } = {}) {
   const artifact = (workflow.phases?.[phaseId]?.artifacts ?? []).find((entry) => typeof entry?.path === 'string'
     && !path.isAbsolute(entry.path) && !entry.path.split(/[\\/]/).includes('..'));
   if (!artifact) return null;
   try {
+    if (commit) {
+      const bytes = committedFileBytes(root, commit, artifact.path);
+      return bytes && bytes.length <= MAX_ARTIFACT_READ_BYTES ? summarizeArtifact(bytes.toString('utf8')) : null;
+    }
     const file = path.join(root, artifact.path);
     const info = await stat(file);
     if (!info.isFile() || info.size > MAX_ARTIFACT_READ_BYTES) return null;
@@ -310,9 +325,13 @@ async function readArtifactSummary(root, workflow, phaseId) {
 /**
  * Write the deliveries a committed transition calls for. `published` is false when the commit
  * could not be pushed: those deliveries wait until `sync` publishes it.
+ *
+ * `deliverer` says who is writing: the machine that made the transition writes a pipeline target's
+ * deliveries as `pipeline` and never tries them; a pipeline writes only those, as due, and reads
+ * the artifact from the commit (`fromCommit`). `include` can leave further actions out.
  */
 export async function enqueueStepActions(root, workflow, {
-  event, commit, remote = null, published = true, clock = Date.now
+  event, commit, remote = null, published = true, clock = Date.now, deliverer = 'transition', fromCommit = false, include = null
 } = {}) {
   const phaseId = event?.phaseId;
   if (!phaseId || !workflow?.workItem?.id) return [];
@@ -329,22 +348,27 @@ export async function enqueueStepActions(root, workflow, {
   let summary;
   let artifact;
   const written = [];
+  const source = fromCommit ? { commit } : {};
   for (const trigger of triggers) {
     for (const action of actionsForTrigger(resolved, trigger)) {
+      const viaPipeline = action.targetSpec?.deliverFrom === 'pipeline';
+      if (deliverer === 'pipeline' && !viaPipeline) continue;
+      if (include && !include(action, trigger)) continue;
       const key = stepActionDeliveryKey({ workId: workflow.workItem.id, phaseId, generation, trigger, actionId: action.id });
       if (await readRecord(directory, key)) continue;
       const payload = buildStepActionEvent({ workflow, phaseId, trigger, action, deliveryKey: key, event, commit, remote, decision });
       payload.step.generation = generation;
       if (action.send === 'summary') {
-        summary ??= await readArtifactSummary(root, workflow, phaseId);
+        summary ??= await readArtifactSummary(root, workflow, phaseId, source);
         payload.summary = summary ?? { title: null, acceptanceCriteria: [] };
       }
-      if (action.send === 'artifact') artifact ??= await readArtifactForDelivery(root, workflow, phaseId);
+      if (action.send === 'artifact') artifact ??= await readArtifactForDelivery(root, workflow, phaseId, source);
       const at = nowIso(clock);
+      const status = deliverer === 'transition' && viaPipeline ? 'pipeline' : published ? 'pending' : 'waiting';
       const record = {
         schema: STEP_ACTION_RECORD_SCHEMA, key, workId: workflow.workItem.id, phaseId, generation, trigger,
         action: structuredClone(action), event: payload, commit: commit ?? null,
-        status: published ? 'pending' : 'waiting', createdAt: at, updatedAt: at, nextAttemptAt: published ? at : null,
+        status, createdAt: at, updatedAt: at, nextAttemptAt: status === 'pending' ? at : null,
         deliveredAt: null, attempts: [],
         ...(action.send === 'artifact' ? { artifact } : {})
       };
@@ -388,6 +412,8 @@ export async function deliverStepActions(root, {
     if (!record) { if (keys) report.skipped.push({ key, reason: 'unknown' }); continue; }
     if (record.tampered) { report.tampered.push({ key }); continue; }
     if (record.status === 'delivered' || record.status === 'waiting') { if (keys) report.skipped.push({ key, reason: record.status }); continue; }
+    // A pipeline delivers its own targets; a person can still name one to deliver it from here.
+    if (record.status === 'pipeline' && !keys) continue;
     if (record.status === 'failed' && !(includeFailed || keys)) continue;
     if (!keys && record.status === 'pending' && record.nextAttemptAt && Date.parse(record.nextAttemptAt) > clock()) continue;
     due.push(record.status === 'failed' ? { ...record, status: 'pending', attempts: record.attempts.map((attempt) => (

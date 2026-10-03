@@ -910,6 +910,7 @@ Usage:
   singularity-flow integrations status [--work-id ID] [--all] [--json]
   singularity-flow integrations retry <DELIVERY-KEY...>|--all [--json]
   singularity-flow integrations record [--dry-run] [--json]
+  singularity-flow integrations deliver --commit <SHA> [--trusted-ref REF] [--record] [--json]
   singularity-flow integrations test <TARGET> [--trigger submitted|approved|rejected] [--send event|summary]
     [--phase ID] [--send-test] [--json]
     (after-step actions: what each step sends to webhooks, logs, Teams, Jira, Git, Confluence or

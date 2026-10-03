@@ -52,7 +52,8 @@ export function deliveriesHtml(view: JourneyDeliveries | null, journey: Journey)
   const unrecorded = unrecordedDeliveries(view.deliveries);
   const holds = view.holds ?? [];
   const held = holds.length ? `<div class="notice warn"><p>The next step waits for ${holds.length === 1 ? 'a required delivery' : `${holds.length} required deliveries`}: ${holds.map((delivery) => escape(`${delivery.action ?? ''} → ${delivery.target ?? ''} (${labels.get(delivery.phaseId ?? '') ?? delivery.phaseId ?? ''})`)).join(', ')}. `
-    + (holds.some((delivery) => delivery.status !== 'delivered') ? 'Retry it once its target is fixed; its receipt is recorded when it goes out.' : 'Record its receipt.')
+    + (holds.some((delivery) => delivery.status === 'pipeline') ? 'A pipeline delivers it and records its receipt; refresh the branch once it has.'
+      : holds.some((delivery) => delivery.status !== 'delivered') ? 'Retry it once its target is fixed; its receipt is recorded when it goes out.' : 'Record its receipt.')
     + '</p></div>' : '';
   const table = view.deliveries.length ? `<div class="table-wrap"><table class="journey-deliveries">
       <thead><tr><th>State</th><th>Step</th><th>Action</th><th>Tries</th><th>Last result</th><th></th></tr></thead>

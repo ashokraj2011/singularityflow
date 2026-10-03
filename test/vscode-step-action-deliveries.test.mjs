@@ -244,3 +244,38 @@ test('a held step shows the required delivery as its next action, in the Journey
   await monitor.refresh('STORY-7');
   assert.equal(calls.length, 2);
 });
+
+test('a delivery left to a pipeline is shown as the pipeline\'s, holds like any required one, and is never retried here', async () => {
+  const { stepActionHoldLabel } = await import('../apps/vscode/src/views/submission-presentation.ts');
+  const pipeline = { key: key(7), status: 'pipeline', workId: 'STORY-7', phaseId: 'intake', generation: 1, trigger: 'approved', action: 'audit', target: 'audit-log', kind: 'webhook', attempts: 0, lastAttempt: null, required: true, recorded: false };
+  assert.deepEqual(deliveryState(pipeline), { label: 'A pipeline delivers it', tone: 'wait', retryable: false });
+  assert.deepEqual(deliveryState({ ...pipeline, recorded: true }), { label: 'Recorded by the pipeline', tone: 'ok', retryable: false });
+  assert.equal(undeliveredNotice([pipeline], new Set()), null, 'a pipeline delivery is not a failure on this machine');
+  assert.deepEqual(unrecordedDeliveries([pipeline]), [], 'this machine has nothing of it to record');
+  const required = story();
+  required.resolution.phases[0].afterStep[0].required = true;
+  assert.deepEqual(heldBy([pipeline], required).map((entry) => entry.key), [key(7)]);
+  const html = deliveriesHtml({ pinned: pinnedStepActions(required), deliveries: [pipeline], holds: heldBy([pipeline], required), loaded: true, error: null }, { kind: 'story' });
+  assert.match(html, /A pipeline delivers it and records its receipt; refresh the branch once it has\./);
+  assert.doesNotMatch(html, /data-retry=/, 'Journey offers no Retry for the pipeline\'s delivery');
+  assert.equal(stepActionHoldLabel('singularity-flow refresh-branch'), 'Bring in the pipeline receipt');
+});
+
+test('a hold whose receipt comes from a pipeline offers to bring it in, with its own Copilot route', async () => {
+  const { buildJourney } = await import('../apps/vscode/src/views/journey-model.ts');
+  const { submissionReadinessSnapshot } = await import('../src/submission-readiness.mjs');
+  const workflow = story();
+  workflow.resolution.phases[0].afterStep[0].required = true;
+  workflow.phases.design = { id: 'design', label: 'Design', status: 'in_progress', generation: 0, artifacts: [], approvals: [] };
+  workflow.workItem.branch = 'STORY-7';
+  const readiness = submissionReadinessSnapshot(workflow, { phaseId: 'design', stepActionHold: {
+    nextAction: 'singularity-flow refresh-branch', reason: 'The next step waits: a pipeline delivers it.',
+    missing: [{ key: key(7), phaseId: 'intake', generation: 1, action: 'announce', target: 'team-events', here: 'pipeline' }]
+  } });
+  assert.deepEqual([readiness.nextCommand, readiness.nextSkill], ['singularity-flow refresh-branch', '/sf-refresh-branch']);
+  const journey = buildJourney({
+    initiative: null, initiatives: [], selectedInitiativeId: null, selectedWorkId: 'STORY-7', workItems: [{ id: 'STORY-7', title: 'Announce approvals' }],
+    identities: { git: { email: 'reviewer@example.com' } }, workflow, submissionReadiness: readiness
+  });
+  assert.deepEqual([journey.nextAction?.label, journey.nextAction?.argv, journey.nextAction?.copilotCommand], ['Bring in the pipeline receipt', ['refresh-branch'], '/sf-refresh-branch']);
+});

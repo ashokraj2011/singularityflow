@@ -22,4 +22,4 @@ Use this skill when someone asks what a step sends after approval, why a target 
 
 6. When `prepare` or `finalize` is refused with `STEP_ACTION_REQUIRED_UNRECORDED`, a required action's approved delivery has no receipt: run only the command the refusal names (retry, record or sync), after asking.
 
-Deliveries never change governed state, and a failed one never undoes a transition; only a required action holds the next step. Receipts are evidence only. Changing targets or actions is a workflow change: use Workflow Studio or `/sf-configure`, not this skill.
+Deliveries never change governed state, and a failed one never undoes a transition; only a required action holds the next step. Receipts are evidence only. `singularity-flow integrations deliver` is for pipelines (targets marked `deliverFrom: pipeline`); do not run it from chat. Changing targets or actions is a workflow change: use Workflow Studio or `/sf-configure`, not this skill.

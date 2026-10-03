@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "30d2ecc73e7312848e78c644e5b289b8fbd77792",
+  "sourceCommit": "3e30a0183a7d3958fef9043efc42e07e3400150a",
   "topicCount": 75,
-  "contentSha256": "ab8823727a6ceaeb3c99721caff503f32c64a5592c77b044a761fe36f07d62c1",
+  "contentSha256": "29d623b7e97793488c42bbfda2cae6f1a879078ae3eab2f16645c2863d830a46",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -24,8 +24,8 @@
     {
       "id": "after-step-actions",
       "title": "After-step actions and integrations",
-      "version": 9,
-      "sha256": "76c8f321ed297519a94668d72a0f89adff2d82b2db26b9ef99f262e88eb79967",
+      "version": 10,
+      "sha256": "1ede7da920aa932a8573bb1825f0a2a70ae227e9b2f59115a104a9369afbd49d",
       "routingSha256": "13e342acfd47757d04f7d8aa2f855d713c4136f64dc55c322441e0b74ff132d4",
       "file": "after-step-actions.md"
     },

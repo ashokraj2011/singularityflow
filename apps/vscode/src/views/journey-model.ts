@@ -245,7 +245,7 @@ function storyJourneyOf(
       : presentation?.kind === 'source-review-required' && presentation.skill && readiness?.nextCommand
         ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : presentation?.kind === 'step-action-required' && readiness?.nextCommand
-        ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-integrations' })
+        ? commandGuidance({ command: readiness.nextCommand, skill: readiness.nextSkill ?? '/sf-integrations' })
       : null;
   // A waiting decision is the next action, before anything about submitting: the approved phase
   // has nothing left to do until a person chooses.

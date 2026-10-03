@@ -1,6 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
-import { copilotAction } from './copilot-guidance.mjs';
+import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
@@ -125,9 +125,10 @@ export function workflowNextSteps(workflow, {
   // a receipt, so that delivery comes first and the step's own work follows it.
   if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
     const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode });
+    const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [
-      action('now', '/sf-integrations', stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`,
-        stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { operationId: 'integrations', route: 'step-action-hold' }),
+      action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
+        stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { route: 'step-action-hold' }),
       ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
     ];
   }

@@ -996,12 +996,20 @@ const PAGES = Object.freeze({
       'An action marked required: true (it must fire on approved) holds the Story after its step:',
       'preparing a later step, or finalizing after the last one, waits until that approved delivery',
       'has a receipt. The machine that delivers it records the receipt at once; after a failed',
-      'delivery, integrations retry delivers it and records the receipt.'
+      'delivery, integrations retry delivers it and records the receipt.',
+      '',
+      'A target marked deliverFrom: pipeline is delivered by a pipeline with the organisation\'s',
+      'credentials: integrations deliver --commit <SHA> runs on each pushed lifecycle commit and sends',
+      'what it calls for, only to targets that match the approved configuration on the trusted ref',
+      '(the remote\'s default branch). With --record it also commits the receipts.'
     ],
     options: [
       ['--work-id ID', 'list: the actions a Story pinned when it started; status: only that Story\'s deliveries.'],
       ['--all', 'status: include delivered records; retry: every pending and failed delivery.'],
       ['--dry-run', 'record: show the receipts it would commit; nothing is committed.'],
+      ['--commit SHA', 'deliver: the pushed lifecycle commit to deliver for.'],
+      ['--trusted-ref REF', 'deliver: the reviewed branch whose configuration targets must match (default: the remote\'s default branch).'],
+      ['--record', 'deliver: commit the receipts too, when the Story\'s branch is checked out.'],
       ['--trigger submitted|approved|rejected', 'test: the trigger to show (default approved).'],
       ['--send event|summary', 'test: what to send (default event).'],
       ['--phase ID', 'test: the step name to show in the sample event.'],
@@ -1013,6 +1021,7 @@ const PAGES = Object.freeze({
       ['singularity-flow integrations status', 'Deliveries not yet delivered, with their last outcome.'],
       ['singularity-flow integrations retry --all', 'Deliver every pending and failed delivery now.'],
       ['singularity-flow integrations record', 'Commit a receipt for each of this Story\'s deliveries that went out.'],
+      ['singularity-flow integrations deliver --commit <SHA> --record', 'In a pipeline: deliver to pipeline targets for the pushed commit and record the receipts.'],
       ['singularity-flow integrations test team-events', 'Show the exact request the target would receive; nothing is sent.']
     ],
     seeAlso: ['sync', 'doctor', 'workflow']

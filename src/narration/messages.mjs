@@ -807,6 +807,13 @@ export const MESSAGES = Object.freeze({
         ? `Recorded ${slot(s.count)} after-step receipt(s) in commit ${slot(String(s.commit ?? '').slice(0, 8))}.`
         : `Nothing to record; ${slot(s.recorded, '0')} after-step receipt(s) already recorded.`
   },
+  'integrations.pipeline-delivered': {
+    headline: (s) => !s.lifecycle
+      ? `${slot(s.commit)} is not a lifecycle commit; nothing was delivered.`
+      : s.count
+        ? `Delivered ${slot(s.delivered, '0')} of ${slot(s.count)} pipeline deliver${s.count === 1 ? 'y' : 'ies'} for ${slot(s.commit)}${s.open ? `; ${slot(s.open)} did not go out` : ''}${s.untrusted ? `; ${slot(s.untrusted)} not trusted` : ''}.`
+        : `${slot(s.commit)} calls for no pipeline delivery.`
+  },
   'integrations.tested': {
     headline: (s) => s.sent
       ? `Sent a test delivery to ${slot(s.target)}: ${slot(s.outcome)}${s.status ? ` (HTTP ${slot(s.status)})` : ''}.`

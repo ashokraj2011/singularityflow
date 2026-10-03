@@ -311,6 +311,7 @@ Every public operation is classified before its implementation module is importe
 | initiative | mutation | never | — | — |
 | inputs.dry-run | read | never | — | — |
 | inputs.prepare | mutation | never | — | — |
+| integrations.deliver | mutation | never | — | — |
 | integrations.list | read | never | — | — |
 | integrations.record | mutation | never | — | — |
 | integrations.retry | mutation | never | — | — |

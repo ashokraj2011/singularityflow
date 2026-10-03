@@ -2320,7 +2320,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function newTargetForm(kind) {
-    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', deployment: 'cloud', parentPage: '', user: '', title: '', drive: '', site: '', folder: '', problem: null };
+    return { mode: 'create', id: '', label: '', kind: kind || 'webhook', url: '', format: 'json', signingSecret: '', tokenSecret: '', urlSecret: '', labels: '', network: 'public', timeoutSeconds: '', issue: '', transitions: jiraTransitionFields(null), repository: '', branch: '', path: '', deployment: 'cloud', parentPage: '', user: '', title: '', drive: '', site: '', folder: '', deliverFrom: 'transition', problem: null };
   }
   function editTargetForm(id) {
     var target = state.draft.integrations[id];
@@ -2331,7 +2331,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       issue: target.issue || '', transitions: jiraTransitionFields(target.transition),
       repository: target.repository || '', branch: target.branch || '', path: target.path || '',
       deployment: target.deployment || 'cloud', parentPage: target.parentPage || '', user: target.user || '', title: target.title || '',
-      drive: target.drive || '', site: target.site || '', folder: target.folder || '', problem: null };
+      drive: target.drive || '', site: target.site || '', folder: target.folder || '', deliverFrom: target.deliverFrom || 'transition', problem: null };
   }
   /** A secret name made from the target's ID, such as SFLOW_SECRET_TEAM_EVENTS_KEY. */
   function suggestedSecret(id, suffix) {
@@ -2478,6 +2478,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (!/^[0-9]+$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > 30) return { problem: 'The timeout is a whole number of seconds from 1 to 30.' };
       target.timeoutSeconds = Number(timeout);
     }
+    if (form.deliverFrom === 'pipeline') target.deliverFrom = 'pipeline';
     return { id: id, target: target };
   }
   function saveTargetForm() {
@@ -2635,6 +2636,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         'A Teams webhook address is itself a credential, so configuration names the secret that holds it.'));
     }
     card.appendChild(field('target-timeout', 'Timeout in seconds (optional)', textInput('target-timeout', form.timeoutSeconds, function (value) { form.timeoutSeconds = value.trim(); }, { placeholder: '10', inputmode: 'numeric' })));
+    card.appendChild(field('target-deliver-from', 'Delivered by', select('target-deliver-from', [{ value: 'transition', label: 'The machine that moves the Story' }, { value: 'pipeline', label: 'A pipeline, with the organisation credentials' }], form.deliverFrom || 'transition',
+      function (value) { form.deliverFrom = value; render(); }),
+      form.deliverFrom === 'pipeline'
+        ? 'A pipeline runs singularity-flow integrations deliver --commit on each pushed step change. It sends only to a target that matches the reviewed configuration on the default branch.'
+        : 'The person who submits, approves or rejects the step delivers it, with the secrets on their machine.'));
     if (form.problem) card.appendChild(el('div', { class: 'callout bad', role: 'alert', text: form.problem }));
     card.appendChild(el('div', { class: 'studio-row' },
       button(form.mode === 'create' ? 'Add to changes' : 'Save to changes', function () { saveTargetForm(); }, { class: 'primary', 'data-key': 'target-save' }),
@@ -2669,6 +2675,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
               title: users.length ? 'Used by ' + users.length + (users.length === 1 ? ' action' : ' actions') + '; remove those first' : null }))),
         el('span', { class: 'muted', text: [targetAddress(target), target.format ? FORMAT_LABELS[target.format] || target.format : null, target.network === 'private' ? 'private network' : null].filter(Boolean).join(' · ') }),
         el('div', { class: 'muted', text: users.length ? 'Sent by ' + users.map(function (user) { return stepLabel(user.step) + ' in ' + state.draft.workflows[user.workflow].label + ' (' + user.action.on.join(', ') + ')'; }).join('; ') : 'No step sends to it yet.' }),
+        target.deliverFrom === 'pipeline' ? el('div', { class: 'muted', text: 'Delivered by a pipeline (singularity-flow integrations deliver), not by the machine that moves the Story.' }) : null,
         target.kind === 'jira' ? jiraRow()
           : target.kind === 'git' ? el('span', { class: 'hint', text: 'Uses the Git credentials of the machine that moves the Story; the first delivery proves it can write.' })
           : secrets.length ? el('div', { class: 'secrets' }, secrets.map(secretRow))

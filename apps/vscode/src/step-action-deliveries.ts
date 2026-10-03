@@ -23,7 +23,7 @@ export interface StepActionAttempt {
 
 export interface StepActionDelivery {
   key: string;
-  status: 'pending' | 'waiting' | 'failed' | 'delivered' | 'tampered' | string;
+  status: 'pending' | 'waiting' | 'failed' | 'delivered' | 'tampered' | 'pipeline' | string;
   workId?: string;
   phaseId?: string;
   generation?: number;
@@ -95,6 +95,10 @@ export function deliveryState(delivery: StepActionDelivery): { label: string; to
   switch (delivery.status) {
     case 'delivered': return { label: delivery.recorded ? 'Delivered and recorded' : 'Delivered', tone: 'ok', retryable: false };
     case 'waiting': return { label: 'Waits for the commit to be pushed', tone: 'wait', retryable: false };
+    // A pipeline delivers it from the pushed commit; its receipt arrives with the branch.
+    case 'pipeline': return delivery.recorded
+      ? { label: 'Recorded by the pipeline', tone: 'ok', retryable: false }
+      : { label: 'A pipeline delivers it', tone: 'wait', retryable: false };
     case 'failed': return { label: 'Not delivered', tone: 'bad', retryable: true };
     case 'tampered': return { label: 'Changed on disk; never sent', tone: 'bad', retryable: false };
     default: {

@@ -193,6 +193,7 @@ const HELD_BECAUSE = Object.freeze({
   pending: 'It has not been delivered yet and is retried automatically; deliver it now',
   failed: 'Its delivery failed and waits for a person; fix the target, then deliver it',
   waiting: 'It waits for the step\'s commit to be published; publish it',
+  pipeline: 'A pipeline delivers it and records its receipt; once it has, bring that receipt here',
   tampered: 'This machine\'s record of it no longer matches its seal and is never sent; deliver and record it from the machine that approved the step',
   absent: 'This machine has no record of it: the machine that approved the step delivers it; record its receipt there'
 });
@@ -202,6 +203,7 @@ function nextForMissing(entry) {
   if (entry.here === 'delivered') return 'singularity-flow integrations record';
   if (entry.here === 'pending' || entry.here === 'failed') return `singularity-flow integrations retry ${entry.key}`;
   if (entry.here === 'waiting') return 'singularity-flow sync';
+  if (entry.here === 'pipeline') return 'singularity-flow refresh-branch';
   return null;
 }
 

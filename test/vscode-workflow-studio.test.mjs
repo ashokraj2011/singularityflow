@@ -1078,3 +1078,29 @@ test('a required action is chosen on the board, written as required: true, and r
   assert.equal(refused.valid, false);
   assert.match(JSON.stringify(refused.problems), /must include approved/);
 });
+
+test('a target delivered by a pipeline is chosen in the form, written as deliverFrom: pipeline, and reloads unchanged', async () => {
+  const YAML = (await import('yaml')).default;
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const view = page.integrationsState();
+  view.form = page.newTargetForm('webhook');
+  assert.equal(view.form.deliverFrom, 'transition');
+  Object.assign(view.form, { id: 'audit-log', url: 'https://audit.example.com/sflow', deliverFrom: 'pipeline' });
+  assert.equal(page.saveTargetForm(), 'audit-log');
+  assert.deepEqual(page.state().draft.integrations['audit-log'], { kind: 'webhook', url: 'https://audit.example.com/sflow', deliverFrom: 'pipeline' });
+  const plan = await planStudioChangeSet(root, page.changeSetFrom(model, page.state().draft), { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(written.integrations.targets['audit-log'].deliverFrom, 'pipeline');
+  const after = await buildStudioModel(root);
+  const reload = loadedStudio(after);
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+  reload.integrationsState().form = reload.editTargetForm('audit-log');
+  assert.equal(reload.integrationsState().form.deliverFrom, 'pipeline');
+  reload.integrationsState().form.deliverFrom = 'transition';
+  reload.saveTargetForm();
+  assert.equal(Object.hasOwn(reload.state().draft.integrations['audit-log'], 'deliverFrom'), false, 'the default is never written');
+});

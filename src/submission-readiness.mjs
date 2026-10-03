@@ -230,8 +230,9 @@ export function submissionReadinessSnapshot(workflow, {
   if (stepActionHold?.missing?.length) return result(workflow, phase, {
     ...draft,
     classification: 'step-action-required',
+    // The Copilot route follows the command: retry and record are /sf-integrations, a pipeline's
+    // receipt arrives with /sf-refresh-branch.
     command: stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workflow.workItem.id} --all`,
-    nextSkill: '/sf-integrations',
     reasonCode: 'STEP_ACTION_REQUIRED_UNRECORDED',
     stepActionHold: {
       reason: stepActionHold.reason ?? null,

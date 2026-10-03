@@ -12,7 +12,7 @@ related:
   - activity-and-prompt-audit
 commands:
   - integrations
-version: 9
+version: 10
 ---
 A workflow step can tell another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, a Microsoft Teams channel, the Story's Jira issue, a branch of another repository, a Confluence page, or a OneDrive or SharePoint folder. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
 
@@ -75,7 +75,7 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test; for a Jira target it shows the comment, attachment and status change instead, and `--send-test` only checks that this machine can sign in and see the issue; for a Git target it shows the file and commit, and `--send-test` only checks that the repository and branch can be read; for a Confluence target it shows the page, and `--send-test` only reads the parent page; for a OneDrive target it shows where the file goes, and `--send-test` only reads the drive. `singularity-flow integrations record` commits a receipt for each of the checked-out Story's deliveries that went out (`--dry-run` shows them first).
+- **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test; for a Jira target it shows the comment, attachment and status change instead, and `--send-test` only checks that this machine can sign in and see the issue; for a Git target it shows the file and commit, and `--send-test` only checks that the repository and branch can be read; for a Confluence target it shows the page, and `--send-test` only reads the parent page; for a OneDrive target it shows where the file goes, and `--send-test` only reads the drive. `singularity-flow integrations record` commits a receipt for each of the checked-out Story's deliveries that went out (`--dry-run` shows them first), and `singularity-flow integrations deliver --commit <SHA>` delivers a pushed commit's pipeline targets in a pipeline.
 - **Copilot:** `/sf-integrations` explains delivery status, checks a target's request, and retries deliveries or records receipts after asking. It never asks for a secret value.
 - **VS Code:** in Workflow Studio, **Integrations** adds, changes and removes targets, shows whether each secret is set on this machine, stores a secret in the keychain (**Store**), and, for a published target, previews the exact request or sends a test after you confirm. On the board, **Actions after this step** chooses what a step sends, to which target and when, and **Required** makes the next step wait for the approved delivery; the card shows it in its THEN lane. Actions belong to the workflow, like sign-off: on a step several workflows share, the others keep their own. For a Story, **Journey** lists what it pinned and every delivery on this machine with its last result, and retries one or all of them; it says when the next step waits for a required delivery, marks each delivery whose receipt is recorded, and **Record receipts** commits the rest. After a step moves, a delivery that did not go out raises one notification with **Show deliveries** and **Retry now**.
 
@@ -98,6 +98,22 @@ Receipts are the shared record. `singularity-flow integrations record` writes on
 
 A required action holds the Story: `prepare` of any later step, and `finalize` after the last one, refuse with `STEP_ACTION_REQUIRED_UNRECORDED` until the step's approved delivery of that action has a committed receipt for the generation that was approved. The refusal says what to run from what this machine knows: `singularity-flow integrations retry <KEY>` for a delivery that failed or is still retrying, `singularity-flow integrations record` for one that went out from here, `singularity-flow sync` for one waiting for its commit to be published, and nothing when this machine has no record of it, because the machine that approved the step delivers it. The machine that delivers a required action records its receipt at once, after `approve`, a `submit` that approves itself, `integrations retry` and `sync`, so a hold normally means the delivery did not go out. A receipt counts only when HEAD holds it. While a step is held, `singularity-flow nextsteps`, `singularity-flow status` and the Journey and lifecycle tree in VS Code show that delivery as the next action, and `publish` and `submit` of the held step refuse like `prepare`.
 
+### Delivering from a pipeline
+
+A target can be delivered by a pipeline instead of the person who moves the Story: set `deliverFrom: pipeline` on it (in Workflow Studio, **Delivered by: A pipeline**). The machine that submits, approves or rejects the step then writes the delivery as the pipeline's and never sends it; `integrations status` and the Journey show it as delivered by a pipeline. A pipeline that holds the organisation's credentials runs on every push to a Story branch:
+
+```yaml
+# A job on each push to a Story branch, with Singularity Flow installed and the branch checked out
+# with its history. The pipeline's Git identity and push right are needed only for --record.
+steps:
+  - run: git checkout -B "$BRANCH" "origin/$BRANCH"
+  - run: singularity-flow integrations deliver --commit "$PUSHED_SHA" --record
+    env:
+      SFLOW_SECRET_AUDIT_TOKEN: ${{ secrets.SFLOW_SECRET_AUDIT_TOKEN }}   # the target's secret
+```
+
+`singularity-flow integrations deliver --commit <SHA>` reads the commit's lifecycle event (the one its `Singularity-Flow-Event-SHA256` trailer binds), the Story state and artifact bytes in that commit, and sends what the transition calls for to pipeline targets, with the same delivery keys, so a receiver sees each delivery once. It trusts nothing a Story branch can change: it delivers an action only when the target the Story pinned is exactly the one the approved configuration declares on the trusted ref, which is the remote's default branch unless `--trusted-ref` names another. A commit that is not a lifecycle commit delivers nothing. The job fails when a delivery did not go out. With `--record` and the Story's branch checked out, it commits the receipts too (not while a step awaits approval), so a required pipeline action releases the next step once people run `singularity-flow refresh-branch`.
+
 ## Troubleshooting
 
 - **Secret is not set on this machine:** the delivery waits without spending an attempt; set the secret and run `singularity-flow integrations retry --all`.
@@ -112,6 +128,8 @@ A required action holds the Story: `prepare` of any later step, and `finalize` a
 - **A Confluence page with that title exists elsewhere in the space:** change the target's `title` or `parentPage`; a delivery never takes over a page it did not create under its parent.
 - **Microsoft Graph refused the token:** Graph tokens expire; store a fresh one (VS Code: Workflow Studio, Integrations, Store), then retry.
 - **A step cannot be prepared, or the Story finalized, because a required after-step action has no receipt:** run what the refusal names. A failed delivery: fix the target and run `singularity-flow integrations retry <KEY>`, which records the receipt when it goes out. One that went out from this machine: `singularity-flow integrations record`. When this machine has no record of it, the person who approved the step delivers and records it.
+- **A step waits for a pipeline delivery:** the pipeline delivers it and records its receipt; check its job, then run `singularity-flow refresh-branch` to bring the receipt in.
+- **The pipeline says a target is not trusted:** the target the Story pinned differs from the approved configuration on the trusted ref, because the target changed after the Story started or the branch changed it. The pipeline never sends it; someone with the secret can deliver it from their machine with `singularity-flow integrations retry <KEY>`.
 - **Recording receipts is refused while a step awaits approval:** a commit during review would make the submission stale; record after the step is approved or sent back.
 - **A delivery is not recorded:** `integrations record` names the reason, for example a transition commit that is not on this branch or an action the Story did not pin.
 - **A record no longer matches its seal:** it was changed on disk and is never delivered; it appears as tampered in `integrations status`.

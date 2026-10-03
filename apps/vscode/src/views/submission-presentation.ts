@@ -60,6 +60,7 @@ export function stepActionHoldLabel(command: string | null | undefined): string 
   if (/^singularity-flow integrations retry /u.test(command ?? '')) return 'Deliver the required action now';
   if (/^singularity-flow integrations record\b/u.test(command ?? '')) return 'Record its receipt';
   if (/^singularity-flow sync\b/u.test(command ?? '')) return 'Publish the step first';
+  if (/^singularity-flow refresh-branch\b/u.test(command ?? '')) return 'Bring in the pipeline receipt';
   return 'See the required delivery';
 }
 

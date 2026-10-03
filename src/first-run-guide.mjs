@@ -34,7 +34,7 @@ async function configureRepository(root) {
 }
 
 function greetingSource(greeting, { story = false } = {}) {
-  return `${story ? '// @clause:TOY-001:AC-001\n' : ''}export const greeting = ${JSON.stringify(greeting)};\n`;
+  return `${story ? '// @clause:TOY-001:AC-001 returns the greeting the guide asked for\n' : ''}export const greeting = ${JSON.stringify(greeting)};\n`;
 }
 
 function greetingTest(expected, { story = false } = {}) {

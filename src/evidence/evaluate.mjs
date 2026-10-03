@@ -271,12 +271,24 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         { obligationIds: [implementId] }));
     }
     if (implementStatus === 'missing') rowFindings.push(finding('EVIDENCE_IMPLEMENTATION_MISSING', `No delivered change implements ${id}.`, { obligationIds: [implementId] }));
+    // The binding the implementing step delivered for this row, and the reviewer's decision on it.
+    const binding = [...deliveries].reverse().filter((delivery) => implementers.includes(delivery.phaseId))
+      .map((delivery) => ({ delivery, entry: delivery.implementationBindings?.bindings?.find((item) => item.clauseId === id) }))
+      .find((candidate) => candidate.entry) ?? null;
+    const bindingDecision = binding
+      ? [...(phases[binding.delivery.phaseId]?.approvals ?? [])].reverse()
+        .find((approval) => !approval.invalidatedAt && approval.implementationBindings?.bindingsSha256 === binding.delivery.implementationBindings.bindingsSha256)
+        ?.implementationBindings.decisions.find((item) => item.clauseId === id) ?? null
+      : null;
+    if (bindingDecision?.decision === 'accepted-with-exception' && implementStatus === 'met') implementStatus = 'excepted';
     obligations.push({
       id: implementId, responsibility: 'implement', subject: id, owningSteps: implementers, status: implementStatus,
       fulfillment: noCode ? 'non-code' : planned?.fulfillment ?? (testOnly ? 'test-only' : 'new-or-modified'),
+      ...(binding ? { binding: { ...binding.entry, decision: bindingDecision?.decision ?? null, reason: bindingDecision?.reason ?? null } } : {}),
       facets: {
         coverage: observed?.observedPaths?.length || testOnly ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',
-        review: implementReview, freshness: 'current', exception: observed?.verdict === 'deviated' ? 'deviation' : 'none'
+        review: implementReview, freshness: 'current',
+        exception: observed?.verdict === 'deviated' ? 'deviation' : bindingDecision?.decision === 'accepted-with-exception' ? 'binding-exception' : 'none'
       }
     });
 

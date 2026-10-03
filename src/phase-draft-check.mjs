@@ -145,6 +145,14 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
           message: error.message, fingerprint: null
         });
       }
+      for (const missing of error.details?.explanationsMissing ?? []) {
+        findings.push({
+          code: 'code.delivery.clause-explanation-missing', category: 'traceability',
+          path: missing.path, line: missing.line, value: missing.clauseId,
+          message: `Explain how the change meets ${missing.clauseId} after its @clause tag${missing.path ? ` in ${missing.path}:${missing.line}` : ''}, in 10 to 300 characters.`,
+          fingerprint: null
+        });
+      }
       for (const missing of error.details?.sourceBindingsMissing ?? []) {
         findings.push({
           code: 'code.delivery.source-clause-tag-missing', category: 'traceability',

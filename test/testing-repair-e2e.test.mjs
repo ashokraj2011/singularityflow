@@ -93,7 +93,7 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
   }
 
   cli('prepare', codePhase);
-  await writeFile(path.join(root, 'src/value.mjs'), `// @clause:${workId}:AC-001\nexport const value = 2;\n`);
+  await writeFile(path.join(root, 'src/value.mjs'), `// @clause:${workId}:AC-001 returns the approved value 2\nexport const value = 2;\n`);
   const testPath = path.join(root, 'test/value.test.mjs');
   await writeFile(testPath, [
     `// @ac:${workId}:AC-001`,

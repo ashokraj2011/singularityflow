@@ -158,6 +158,7 @@ import {
   predecessorSpecClauses
 } from './specifications.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
+import { reviewBindings } from './implementation-bindings.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -3698,6 +3699,7 @@ export async function publishGeneration(root, config, workflow, {
         } : {})
       },
       ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
+      ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
       testExecutions: [],
       ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
       ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
@@ -5456,6 +5458,7 @@ export async function approvePhase(root, config, workflow, {
   actionContext = null,
   checklist = [],
   witnessMappings = [],
+  bindingDecisions = [],
   architectureCandidateSnapshot = null,
   actor: decisionActor = null,
   agent: decisionAgent = undefined,
@@ -5934,6 +5937,11 @@ export async function approvePhase(root, config, workflow, {
     );
   }
   const reviewedWitnessMappings = witnessReview.decisions;
+  // One decision per implementation binding the step submitted [E2G-011, D7].
+  const submittedBindings = phaseRequiresCodeDelivery(phase) && phase.deliveryEvidence?.receiptPath
+    ? (await readJson(path.join(root, phase.deliveryEvidence.receiptPath)).catch(() => null))?.implementationBindings ?? null
+    : null;
+  const bindingReview = reviewBindings(submittedBindings, bindingDecisions);
   const decision = {
     decision: 'approved',
     phase: phase.id,
@@ -5961,6 +5969,7 @@ export async function approvePhase(root, config, workflow, {
     // and a second approver's exceptions are their own. The checklist hash travels with them so a
     // later reader knows which version of the articles was answered.
     ...(review.mode === 'off' ? {} : { checklist: review.decisions, checklistSha256: review.checklistSha256 }),
+    ...(bindingReview ? { implementationBindings: bindingReview } : {}),
     ...(reviewedWitnessMappings.length ? {
       witnessMappings: reviewedWitnessMappings,
       witnessMappingsSha256: `sha256:${createHash('sha256').update(canonicalJson(reviewedWitnessMappings)).digest('hex')}`

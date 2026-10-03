@@ -220,10 +220,26 @@ test('code-delivery preflight refuses missing source tags before a generation is
   assert.equal(draft.findings.some((finding) =>
     finding.code === 'code.delivery.source-clause-tag-missing'
       && finding.value === 'BIND-1:REQ-001'), true);
+  // A bare tag associates the clause but explains nothing [E2G-011].
   await writeFile(path.join(item.root, 'src/payment.js'),
     '// @clause:BIND-1:REQ-001\nexport const payment = true;\n');
+  await assert.rejects(
+    evaluateCodeDeliveryPreflight(item.root, config, workflow, phase),
+    (error) => error.code === 'CODE_DELIVERY_EVIDENCE_REQUIRED'
+      && error.details?.explanationsMissing?.[0]?.clauseId === 'BIND-1:REQ-001'
+      && /needs an explanation of how the change meets it, after its @clause tag in src\/payment.js:1/.test(error.message)
+  );
+  const unexplained = await phaseDraftCheck(item.root, config, workflow, phase, {
+    session: { workId: 'BIND-1', phaseId: phase.id, agent: 'developer' }
+  });
+  assert.equal(unexplained.findings.some((finding) => finding.code === 'code.delivery.clause-explanation-missing'
+    && finding.value === 'BIND-1:REQ-001' && finding.path === 'src/payment.js' && finding.line === 1), true);
+  await writeFile(path.join(item.root, 'src/payment.js'),
+    '// @clause:BIND-1:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
   const evidence = await evaluateCodeDeliveryPreflight(item.root, config, workflow, phase);
   assert.deepEqual(evidence.sourceBindings.missing, []);
+  assert.deepEqual(evidence.implementationBindings.bindings.map((binding) => [binding.clauseId, binding.explanation]),
+    [['BIND-1:REQ-001', { text: 'marks an accepted payment as paid', path: 'src/payment.js', line: 1 }]]);
   assert.deepEqual(evidence.sourceBindings.bindings, [{
     clauseId: 'BIND-1:REQ-001', sourcePath: 'src/payment.js', line: 1, tag: 'clause'
   }]);

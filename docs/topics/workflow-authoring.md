@@ -26,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 42
+version: 43
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1055,8 +1055,12 @@ Newly authored/imported workflow definitions normalize
 explicitly.
 The former checks each approved,
 source-bound planned clause in an exact planned product-source path via an
-adjacent comment such as `// @clause:ORDER:REQ-001` (`REQ`, `BEH`, `IFC`, `AC`,
-or `CON`); acceptance tests use `// @ac:ORDER:AC-001` in executable test files.
+adjacent comment such as `// @clause:ORDER:REQ-001 rejects an expired card` (`REQ`, `BEH`, `IFC`, `AC`,
+or `CON`), whose text after the ID explains how the change meets the clause in 10 to 300
+characters; acceptance tests use `// @ac:ORDER:AC-001` in executable test files. Each such
+clause is bound to its exact changed hunks, the public declarations they touch (best effort,
+labelled heuristic) and that explanation, and approving the step accepts the bindings as a batch
+over their digest unless the reviewer records `--binding <clause>=exception` with a reason.
 A planned product-source deletion is recorded by its verified Git change-set
 object as a deletion witness, not a fictitious comment in a removed file. Bare
 `REQ-001` or `AC-001` labels cannot identify a Story across repositories.

@@ -31,6 +31,7 @@ import {
   SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, predecessorSpecClauses, readBoundSpecificationClaimMap
 } from './specifications.mjs';
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
+import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
@@ -891,6 +892,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
     deletedSourcePaths
   });
+  // Each obligation delivered in source is bound to its changed hunks and its explanation [E2G-011].
+  const bound = sourceBindings.mode === 'enforce' && sourceBindings.required.length
+    ? await implementationBindings(root, { changeSet, required: sourceBindings.required, tags: sourceBindings.bindings })
+    : null;
+  if (bound) errors.push(...bound.problems);
   if (sourceBindings.missing.length) {
     errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
       .map(({ clauseId, expectedPaths }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}`).join('; ')}`);
@@ -901,7 +907,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       + 'Implement the approved behavior, add acceptance-mapped tests, and publish again.',
       {
         code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
-        details: { sourceBindingsMissing: sourceBindings.missing }
+        details: { sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [] }
       }
     );
   }
@@ -942,7 +948,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       inferred: tags.inferred, bindings: tags.bindings
     },
     sourceBindings,
-    fulfillment: fulfillment.obligations
+    fulfillment: fulfillment.obligations,
+    implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
   };
 }
 
@@ -1178,6 +1185,23 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
   }
 
+  // The bindings a reviewer approves are exactly the recorded ones, and every explanation is still
+  // on its tag line in the committed generation [E2G-011].
+  if (receipt.implementationBindings) {
+    const { bindings, bindingsSha256 } = receipt.implementationBindings;
+    if (!Array.isArray(bindings) || bindingsDigest(bindings) !== bindingsSha256) fail('implementation bindings do not match their digest');
+    for (const binding of Array.isArray(bindings) ? bindings : []) {
+      if (!normalizeQualifiedClauseId(binding?.clauseId) || !Array.isArray(binding.regions)) { fail('an implementation binding is malformed'); continue; }
+      const explanation = binding.explanation;
+      if (explanation == null) continue;
+      const text = typeof explanation.text === 'string' ? explanation.text : '';
+      const bytes = generationCommit && safeEvidencePath(explanation.path) ? exactFileAtObject(root, generationCommit, explanation.path) : null;
+      const line = bytes?.toString('utf8').split(/\r?\n/u)[Number(explanation.line) - 1];
+      if (text.length < EXPLANATION_LIMITS.minimum || !line || !(clauseTagExplanation(line, binding.clauseId) ?? '').startsWith(text)) {
+        fail(`the explanation of ${binding.clauseId} is not on its tag line in the generation`);
+      }
+    }
+  }
   // Each fulfillment the delivery recorded is replayed against the committed generation [E2G-010].
   for (const obligation of receipt.fulfillment?.obligations ?? []) {
     for (const entry of obligation?.paths ?? []) {

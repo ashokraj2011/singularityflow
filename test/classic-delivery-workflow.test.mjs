@@ -101,7 +101,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
     await rm(remote, { recursive: true, force: true });
   });
   const workId = 'CLASSIC-1';
-  const approvedSource = `// @clause:${workId}:AC-001\nexport const value = 2;\n`;
+  const approvedSource = `// @clause:${workId}:AC-001 returns the approved value 2\nexport const value = 2;\n`;
   const cli = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root);
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Classic Delivery Tester'], root);
@@ -221,7 +221,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
       // Code checking relies on Code's tests exactly like Testing, so it is offered the same
       // guarded return of its source edits rather than a bare "Return to Code".
       await writeFile(path.join(root, 'src/value.mjs'),
-        `// @clause:${workId}:AC-001\nexport const value = 3;\n`);
+        `// @clause:${workId}:AC-001 returns the corrected value 3\nexport const value = 3;\n`);
       const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', phase,
         '--authored', 'human', '--channel', 'manual-in-place', '--json'], root, { allowFailure: true });
       assert.notEqual(refused.status, 0);

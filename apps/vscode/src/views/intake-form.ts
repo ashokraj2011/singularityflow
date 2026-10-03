@@ -780,7 +780,7 @@ function fieldsHtml(form: IntakeForm): string {
     </p>
     <p class="muted">Each line becomes an acceptance criterion. In code workflows with traceability
       enabled, executable tests later use qualified tags such as <code>@ac:WORK-ID:AC-001</code>;
-      planned product source uses <code>@clause:WORK-ID:REQ-001</code> for source-bound clauses.
+      planned product source uses <code>@clause:WORK-ID:REQ-001</code> followed by how the change meets it, for source-bound clauses.
       Reviewed test-only or opt-out work may not require source tags.</p>` : ''}`;
 }
 

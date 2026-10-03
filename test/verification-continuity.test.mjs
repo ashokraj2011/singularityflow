@@ -199,7 +199,7 @@ async function quickFixStory(t, id, { configure = () => {} } = {}) {
   const git = (...args) => execute('git', args).stdout.trim();
   const flow = (args, allowFailure = false) => execute(process.execPath, [bin, ...args, '--no-model'], allowFailure);
   const source = async (value, { tagged = true } = {}) => {
-    await writeFile(path.join(root, 'src/value.mjs'), `${tagged ? `// @clause:${id}:AC-001\n` : ''}export const value = ${value};\n`);
+    await writeFile(path.join(root, 'src/value.mjs'), `${tagged ? `// @clause:${id}:AC-001 returns the approved value\n` : ''}export const value = ${value};\n`);
     await writeFile(path.join(root, 'tests/value.test.mjs'), [
       "import test from 'node:test';", "import assert from 'node:assert/strict';", "import { value } from '../src/value.mjs';",
       ...(tagged ? [`/** @ac:${id}:AC-001 */`] : []), `test('exact value', () => assert.equal(value, ${value}));`, ''

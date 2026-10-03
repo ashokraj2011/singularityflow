@@ -8146,6 +8146,21 @@ async function checklistDecisions(options) {
   });
 }
 
+/**
+ * Per-binding decisions from `--binding <clause>=accept|exception`; each exception takes the next
+ * `--binding-reason`. Approving with none accepts every submitted binding as a batch [E2G-011].
+ */
+function implementationBindingDecisions(options) {
+  const reasons = optionStrings(options, 'binding-reason');
+  let next = 0;
+  return optionStrings(options, 'binding').map((entry) => {
+    const separator = String(entry).lastIndexOf('=');
+    if (separator < 1) throw new SingularityFlowError(`--binding must be <clause>=accept|exception; got '${entry}'.`, { code: 'IMPLEMENTATION_BINDING_DECISION_INVALID' });
+    const decision = String(entry).slice(separator + 1).trim();
+    return { clauseId: String(entry).slice(0, separator).trim(), decision, ...(decision === 'exception' ? { reason: reasons[next++] ?? null } : {}) };
+  });
+}
+
 function witnessMappingDecisions(options) {
   const mappings = optionStrings(options, 'witness-mapping');
   const reasons = optionStrings(options, 'witness-mapping-reason');
@@ -8221,6 +8236,7 @@ async function approveCommand(positionals, options) {
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const checklist = await checklistDecisions(options);
   const witnessMappings = witnessMappingDecisions(options);
+  const bindingDecisions = implementationBindingDecisions(options);
   // Freeze every architecture-sensitive input before the approval transition. The transition mutates
   // the aggregate in place, so both this guard and the convergence guard use an immutable pre-decision
   // projection while rereading external files/refs at the isolated-commit boundary.
@@ -8254,7 +8270,7 @@ async function approveCommand(positionals, options) {
   };
   const { value: result, publication } = await withRefusalMemory(root, {
     operation: 'approve', workId: workflow.workItem.id, phase: phase.id, actor: actorKey(session.actor),
-    args: [checklist ?? null, witnessMappings ?? null]
+    args: [checklist ?? null, witnessMappings ?? null, bindingDecisions]
   }, () => transactStory(
     root,
     config,
@@ -8274,6 +8290,7 @@ async function approveCommand(positionals, options) {
       actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
       checklist,
       witnessMappings,
+      bindingDecisions,
       architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
       actor: session.actor,
       agent: session.agent,

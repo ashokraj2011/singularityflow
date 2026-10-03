@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 8
+version: 9
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -53,6 +53,12 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
+
+### Implementation bindings
+
+Each row delivered by new or modified source is bound to what the delivery changed for it: the exact changed hunks of its planned paths, the public declarations those hunks touch (best effort, labelled heuristic, never proof) and its author's explanation, written after the clause's tag on the same comment line, for example `// @clause:ORDER:REQ-001 rejects an expired card`. The explanation must be 10 to 300 characters, and publishing refuses a row without one. The tag associates the row with the code; the explanation says how the change meets it; a person decides.
+
+Approving the step accepts every binding it submitted, as a batch over their exact digest. To accept one with a stated exception, approve with `--binding <clause>=exception --binding-reason TEXT`; that row then reads satisfied with an exception. To send a binding back for correction, reject the step. The matrix shows each row's explanation, regions and decision.
 
 ### Accepted scope
 

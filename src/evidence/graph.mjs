@@ -69,6 +69,18 @@ async function loadDelivery(root, phase, findings) {
     acceptanceCriteria: evidence.acceptanceCriteria
       ? { bindings: (evidence.acceptanceCriteria.bindings ?? []).map((binding) => ({ clauseId: binding.clauseId, testSource: binding.testSource })) }
       : null,
+    // What each obligation delivered in source was bound to, and how its author explained it [E2G-011].
+    implementationBindings: receipt?.implementationBindings ? {
+      bindingsSha256: receipt.implementationBindings.bindingsSha256 ?? null,
+      bindings: (receipt.implementationBindings.bindings ?? []).map((binding) => ({
+        clauseId: binding.clauseId,
+        explanation: binding.explanation ?? null,
+        regions: (binding.regions ?? []).map((region) => ({
+          path: region.path, change: region.change, hunks: (region.hunks ?? []).length,
+          symbols: (region.symbols ?? []).map((symbol) => symbol.name), symbolAssurance: region.symbolAssurance ?? null
+        }))
+      }))
+    } : null,
     receipt: receipt ? {
       status: receipt.status ?? null,
       traceability: {

@@ -863,11 +863,11 @@ test('feature profile publishes generations, records tokens, approvals, and conf
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
       await writeFile(path.join(root, 'src/feature.mjs'), [
-        '// @clause:FEATURE-101:AC-001',
-        '// @clause:FEATURE-101:CON-001',
-        '// @clause:FEATURE-101:CON-002',
-        '// @clause:FEATURE-101:IFC-001',
-        '// @clause:FEATURE-101:REQ-001',
+        '// @clause:FEATURE-101:AC-001 exports the feature value',
+        '// @clause:FEATURE-101:CON-001 keeps the module dependency-free',
+        '// @clause:FEATURE-101:CON-002 keeps the public API stable',
+        '// @clause:FEATURE-101:IFC-001 exposes the value as a named export',
+        '// @clause:FEATURE-101:REQ-001 returns the requested feature value',
         'export const feature = true; // SPEC-001', ''
       ].join('\n')); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:FEATURE-101:AC-001 SPEC-001\n');
     }
@@ -977,8 +977,8 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
       await writeFile(path.join(root, 'src/mobile.mjs'), [
-        '// @clause:MOBILE-101:AC-001',
-        '// @clause:MOBILE-101:IFC-001',
+        '// @clause:MOBILE-101:AC-001 renders the designed screen',
+        '// @clause:MOBILE-101:IFC-001 exposes the screen component',
         'export const mobile = true; // SPEC-001', ''
       ].join('\n'));
       await writeFile(path.join(root, 'tests/mobile.test.mjs'), '// @ac:MOBILE-101:AC-001 SPEC-001\n');

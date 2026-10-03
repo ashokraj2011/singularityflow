@@ -285,7 +285,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- implementation: source and artifact, one requirement deliberately unclaimed --------------
   sflow(root, ['prepare', 'implementation']);
-  await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001\nexport function retry() { return { attempt: 1 }; }\n');
+  await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001 starts the first retry attempt\nexport function retry() { return { attempt: 1 }; }\n');
   await write(root, 'tests/payments-retry.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
@@ -388,7 +388,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- implementation, generation two ------------------------------------------------------------
   sflow(root, ['prepare', 'implementation']);
-  await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\n// @clause:E2E:REQ-002\nexport function append(attempt) { return [...attempts, attempt]; }\n');
+  await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\n// @clause:E2E:REQ-002 appends each attempt to the history\nexport function append(attempt) { return [...attempts, attempt]; }\n');
   await write(root, 'tests/payments-attempts.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
@@ -512,7 +512,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // The amended operator-only requirement needs a fresh source/test witness in this generation;
   // merely republishing the prior summary would correctly leave the amended clause partial.
   await write(root, 'src/payments/retry.ts', [
-    '// @clause:E2E:REQ-001',
+    '// @clause:E2E:REQ-001 lets only a payments operator retry',
     "export function retry(role = 'operator') {",
     "  if (role !== 'operator') throw new Error('payments operator required');",
     '  return { attempt: 1 };',

@@ -88,7 +88,7 @@ test('the evidence matrix shows each criterion at its real assurance through a r
   assert.equal(planned.evaluation.lifecycle.words, 'In progress at Code');
 
   cli('prepare', 'implementation');
-  await writeFile(path.join(root, 'src/value.mjs'), `// @clause:${workId}:AC-001\nexport const value = 2;\n`);
+  await writeFile(path.join(root, 'src/value.mjs'), `// @clause:${workId}:AC-001 returns the approved value 2\nexport const value = 2;\n`);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
     `// @ac:${workId}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
     "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));", ''

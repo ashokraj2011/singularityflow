@@ -133,7 +133,7 @@ test('a real Story delivers modified, existing, test-only, removed and document 
   cli('approve', 'intake', '--yes');
 
   cli('prepare', 'implementation');
-  await write('src/value.mjs', `// @clause:${ac(1)}\nexport const value = 2;\n`);
+  await write('src/value.mjs', `// @clause:${ac(1)} — returns the approved value 2 instead of 1\nexport const value = 2;\n\n/** The approved value. */\nexport function readValue() {\n  return value;\n}\n`);
   await write('test/value.test.mjs', testFile(ac(1), ["import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));"]));
   await write('test/regression.test.mjs', testFile(ac(3), ["import { value } from '../src/value.mjs';", "test('value stays 2', () => assert.equal(value, 2));"]));
   await unlink(path.join(root, 'src/legacy.mjs'));
@@ -156,10 +156,23 @@ test('a real Story delivers modified, existing, test-only, removed and document 
   ]);
   assert.deepEqual(receipt.traceability.sourceRequired.map((entry) => entry.clauseId), [ac(1)],
     'only the modified obligation carries its clause in source');
+  // The modified obligation is bound to its exact hunk, the declaration it touches and its explanation.
+  const [binding] = receipt.implementationBindings.bindings;
+  assert.equal(binding.clauseId, ac(1));
+  assert.deepEqual(binding.explanation, { text: 'returns the approved value 2 instead of 1', path: 'src/value.mjs', line: 1 });
+  assert.deepEqual(binding.regions.map((region) => [region.path, region.change, region.symbols.map((symbol) => symbol.name), region.symbolAssurance]),
+    [['src/value.mjs', 'modified', ['readValue'], 'heuristic']]);
+  assert.ok(binding.regions[0].hunks.length > 0, 'hunks are mandatory');
+  assert.match(receipt.implementationBindings.bindingsSha256, /^sha256:[0-9a-f]{64}$/);
 
   const matrix = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix;
   const implement = Object.fromEntries(matrix.page.rows.map((row) => [row.id,
     row.obligations.find((entry) => entry.responsibility === 'implement')]));
   for (const number of [1, 2, 3, 4, 5]) assert.equal(implement[ac(number)].status, 'met', `${ac(number)} is implemented`);
   assert.deepEqual([2, 3, 4, 5].map((number) => implement[ac(number)].fulfillment), ['existing', 'test-only', 'removed', 'document']);
+  // Approving the step accepted its binding, and the matrix shows what was accepted.
+  assert.deepEqual([implement[ac(1)].binding.decision, implement[ac(1)].binding.explanation.text], ['accepted', 'returns the approved value 2 instead of 1']);
+  const approval = workflowState.phases.implementation.approvals.at(-1);
+  assert.deepEqual(approval.implementationBindings.decisions, [{ clauseId: ac(1), decision: 'accepted' }]);
+  assert.equal(approval.implementationBindings.bindingsSha256, receipt.implementationBindings.bindingsSha256);
 });

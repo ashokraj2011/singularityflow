@@ -26,6 +26,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/step-action-writers.mjs',
   'src/step-action-confluence.mjs',
   'src/step-action-onedrive.mjs',
+  'src/step-action-receipts.mjs',
   'src/confluence-storage.mjs',
   'src/pinned-http.mjs',
   'src/commands/integrations.mjs',

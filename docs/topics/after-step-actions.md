@@ -12,7 +12,7 @@ related:
   - activity-and-prompt-audit
 commands:
   - integrations
-version: 7
+version: 8
 ---
 A workflow step can tell another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, a Microsoft Teams channel, the Story's Jira issue, a branch of another repository, a Confluence page, or a OneDrive or SharePoint folder. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
 
@@ -71,8 +71,8 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test; for a Jira target it shows the comment, attachment and status change instead, and `--send-test` only checks that this machine can sign in and see the issue; for a Git target it shows the file and commit, and `--send-test` only checks that the repository and branch can be read; for a Confluence target it shows the page, and `--send-test` only reads the parent page; for a OneDrive target it shows where the file goes, and `--send-test` only reads the drive.
-- **Copilot:** `/sf-integrations` explains delivery status, checks a target's request, and retries deliveries after asking. It never asks for a secret value.
+- **Shell:** `singularity-flow integrations list` shows the targets, whether each secret is set on this machine, and which steps use them (`--work-id ID` shows what a Story pinned); `singularity-flow integrations status` lists deliveries not yet delivered (`--all` adds delivered ones); `singularity-flow integrations retry <KEY...>` or `--all` delivers now; `singularity-flow integrations test <TARGET>` shows the exact request with secrets redacted, and `--send-test` sends one marked as a test; for a Jira target it shows the comment, attachment and status change instead, and `--send-test` only checks that this machine can sign in and see the issue; for a Git target it shows the file and commit, and `--send-test` only checks that the repository and branch can be read; for a Confluence target it shows the page, and `--send-test` only reads the parent page; for a OneDrive target it shows where the file goes, and `--send-test` only reads the drive. `singularity-flow integrations record` commits a receipt for each of the checked-out Story's deliveries that went out (`--dry-run` shows them first).
+- **Copilot:** `/sf-integrations` explains delivery status, checks a target's request, and retries deliveries or records receipts after asking. It never asks for a secret value.
 - **VS Code:** in Workflow Studio, **Integrations** adds, changes and removes targets, shows whether each secret is set on this machine, stores a secret in the keychain (**Store**), and, for a published target, previews the exact request or sends a test after you confirm. On the board, **Actions after this step** chooses what a step sends, to which target and when; the card shows it in its THEN lane. Actions belong to the workflow, like sign-off: on a step several workflows share, the others keep their own. For a Story, **Journey** lists what it pinned and every delivery on this machine with its last result, and retries one or all of them; after a step moves, a delivery that did not go out raises one notification with **Show deliveries** and **Retry now**.
 
 ## Guided workflow
@@ -82,12 +82,15 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 3. Publish the configuration change. Stories started afterwards send the action; running Stories keep the actions they started with.
 4. Run `singularity-flow integrations test <TARGET>` to see the request; add `--send-test` to send a sample (in Workflow Studio: **Preview the request** or **Send a test** on the target's card).
 5. After a submit, approval or rejection, check `singularity-flow integrations status` (or the Story's Journey in VS Code) if a delivery was reported as not delivered.
+6. When the deliveries went out and no step awaits approval, run `singularity-flow integrations record` on the machine that delivered them, so the Story records what was sent.
 
 ## State and safety
 
 Every action sends one JSON event (`sflow-step-action@1`): the Story id and title, the step and its generation, the trigger, who acted and when, the commit that records it, and each artifact's repository path and SHA-256. It never carries source code, diffs, prompts, secrets or paths on someone's machine; the Story's Jira issue key is included when it was started from Jira. An action that sends `artifact` also seals the approved artifact's bytes, checked against the hash the step recorded, into its delivery when the step moves, so later edits never change what is sent. Webhook requests carry `Idempotency-Key`, `X-SFlow-Trigger`, and, with a signing secret, `X-SFlow-Timestamp` and `X-SFlow-Signature: v1=<HMAC-SHA256 of "<timestamp>.<body>">`. Triggers follow the step's state: a submit that approved itself sends `approved`, and an approval below the step's threshold sends nothing.
 
 Deliveries start after the governed commit is published; with publication `off` they start at once, and a commit that could not be pushed holds them until `singularity-flow sync` publishes it. Each delivery is written to this repository's action outbox on this machine and tried within the command's time budget. The same delivery is never sent twice: a Jira delivery records its key as an issue property and in its comment, and a retry finds either before it writes. A delivery never changes governed state or undoes a transition, and the outbox and activity log are machine-local, never governance evidence. `SINGULARITY_FLOW_NO_NETWORK=1` stops every delivery.
+
+Receipts are the shared record. `singularity-flow integrations record` writes one immutable receipt (`step-action-receipt`) per delivery that went out under the Story's `evidence/step-actions/`, in one `external-synchronized` commit. A receipt names the delivery key, the step, generation and trigger, the action and its target, the commit of the transition, the hash of the event that was sent and of the pinned target, and when it was delivered after how many attempts. Only a delivery that matches what the Story pinned, whose transition commit is on this branch, becomes a receipt; a repeat records nothing new. Recording is refused while a step awaits approval, because any commit during review would require submitting that step again; record after the decision.
 
 ## Troubleshooting
 
@@ -102,6 +105,8 @@ Deliveries start after the governed commit is published; with publication `off` 
 - **A Git target names a reviewed branch of this repository:** write to another branch or repository; main, the Story branches and their base change only through review.
 - **A Confluence page with that title exists elsewhere in the space:** change the target's `title` or `parentPage`; a delivery never takes over a page it did not create under its parent.
 - **Microsoft Graph refused the token:** Graph tokens expire; store a fresh one (VS Code: Workflow Studio, Integrations, Store), then retry.
+- **Recording receipts is refused while a step awaits approval:** a commit during review would make the submission stale; record after the step is approved or sent back.
+- **A delivery is not recorded:** `integrations record` names the reason, for example a transition commit that is not on this branch or an action the Story did not pin.
 - **A record no longer matches its seal:** it was changed on disk and is never delivered; it appears as tampered in `integrations status`.
 
 ## Related topics

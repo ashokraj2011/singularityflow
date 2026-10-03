@@ -435,6 +435,22 @@ export async function listStepActionDeliveries(root, { workId = null, includeDel
   return records.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
 }
 
+/**
+ * Every delivered record in the outbox, whole, for one Story when `workId` is given. Receipts are
+ * made from these; a record whose seal no longer matches its contents is never returned.
+ */
+export async function readDeliveredStepActions(root, { workId = null } = {}) {
+  const directory = outboxPath(root);
+  const delivered = [];
+  for (const key of await recordKeys(directory)) {
+    const record = await readRecord(directory, key);
+    if (!record || record.tampered || record.status !== 'delivered') continue;
+    if (workId && record.workId !== workId) continue;
+    delivered.push(record);
+  }
+  return delivered;
+}
+
 function plural(count, word) { return `${count} ${word}${count === 1 ? '' : 's'}`; }
 
 /** One line a person can act on, or null when everything went out. */

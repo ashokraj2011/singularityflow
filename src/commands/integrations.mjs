@@ -4,6 +4,8 @@
  *   list    targets and which steps use them (or one Story's pinned actions with --work-id)
  *   status  deliveries in this repository's outbox: waiting, pending, failed (--all adds delivered)
  *   retry   deliver now: named delivery keys, or every pending and failed one with --all
+ *   record  commit a receipt for each of this Story's delivered deliveries, as evidence everyone
+ *           sees (refused while a step awaits approval; --dry-run shows what it would record)
  *   test    the exact request a target would receive; --send-test sends one marked as a test
  *           (for a Jira target: the comment it would write; --send-test checks the connection and
  *           the issue without writing anything; for a Git target: the commit it would make;
@@ -11,7 +13,8 @@
  *           write; --send-test reads the parent page; for OneDrive: the file it would upload;
  *           --send-test reads the drive)
  */
-import { repoRoot } from '../git.mjs';
+import { identity, repoRoot } from '../git.mjs';
+import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import {
   action, commandResult, effects, noEffects, succeeded
@@ -29,6 +32,9 @@ import { DEFAULT_GIT_DELIVERY_PATH, renderConfluenceTitle, renderGitDeliveryPath
 import { confluencePageBody } from '../step-action-confluence.mjs';
 import { GRAPH_BASE, graphDrivePath, oneDriveItemPath } from '../step-action-onedrive.mjs';
 import { pinnedHttpRequest } from '../pinned-http.mjs';
+import {
+  assertReceiptsMayBeRecorded, planStepActionReceipts, stepAwaitingApproval, writeStepActionReceipts
+} from '../step-action-receipts.mjs';
 import { getCurrentUser, jiraConnectionFromEnv, listIssueTransitions } from '../jira.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
@@ -165,6 +171,86 @@ async function retryCommand(root, config, positionals, options, operation, json)
     count: report.delivered.length + report.retrying.length + report.unavailable.length + report.failed.length,
     delivered: report.delivered.length, pending: report.retrying.length + report.unavailable.length, failed: report.failed.length
   }), { data: { report }, changed: true }), { json });
+}
+
+/** One delivery as \`integrations record\` reports it. */
+function receiptLine(record) {
+  return {
+    key: record.key, phaseId: record.phaseId, generation: record.generation, trigger: record.trigger,
+    action: record.action.id, target: record.action.target, kind: record.action.targetSpec.kind, deliveredAt: record.deliveredAt ?? null
+  };
+}
+
+async function recordCommand(root, config, options, operation, json) {
+  const { commitAndPublish, loadStoryAggregate } = await import('../state-stores.mjs');
+  const workflow = await loadStoryAggregate(root, config);
+  const workId = workflow.workItem.id;
+  const requested = optionString(options, 'work-id');
+  if (requested && requested !== workId) {
+    throw new SingularityFlowError(
+      `--work-id ${requested} does not match the Story checked out here (${workId}). Receipts are committed on a Story's own branch: check out ${requested} first, or drop --work-id.`,
+      { code: 'STEP_ACTION_WORK_ID_MISMATCH', details: { requested, checkedOut: workId } }
+    );
+  }
+  const plan = await planStepActionReceipts(root, config, workflow);
+  const awaitingApproval = stepAwaitingApproval(workflow);
+  const dryRun = optionBoolean(options, 'dry-run');
+  const pending = plan.pending.map(receiptLine);
+  const report = (outcome, extra = {}) => emitCommandResult(result(operation, outcome, {
+    data: { workId, receipts: [], pending, skipped: plan.skipped, recorded: plan.recorded, awaitingApproval, publication: null, ...extra },
+    changed: Boolean(extra.publication)
+  }), { json });
+  if (!json) {
+    for (const entry of plan.skipped) console.log(`${'not recorded'.padEnd(14)} ${entry.action ?? entry.key} (${entry.phaseId}, ${entry.trigger}): ${entry.reason}`);
+  }
+  if (dryRun || !pending.length) {
+    if (!json) {
+      for (const entry of pending) console.log(`${'would record'.padEnd(14)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})`);
+      if (!pending.length) {
+        if (plan.recorded) console.log(`Nothing to record: ${plan.recorded} ${plan.recorded === 1 ? 'delivery already has its receipt' : 'deliveries already have their receipts'}.`);
+        else if (plan.skipped.length) console.log('Nothing to record.');
+        else console.log(`Nothing to record: no after-step action of ${workId} has been delivered from this machine.`);
+      } else if (awaitingApproval) {
+        console.log(`${awaitingApproval} is awaiting approval, so recording would be refused now; record after it is approved or sent back.`);
+      }
+    }
+    return report(succeeded('integrations.recorded', { count: 0, pending: pending.length, recorded: plan.recorded, skipped: plan.skipped.length, dryRun }));
+  }
+  assertReceiptsMayBeRecorded(workflow);
+  const who = identity(root, { offline: true });
+  const recordedBy = { name: who?.name || null, email: who?.email || null };
+  let written = [];
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'step-action-receipts' } },
+    `[${workId}][integrations][record] after-step action receipts`,
+    [],
+    {
+      beforeStateWrite: async () => {
+        // Planned again under the Story's lock, so two recordings at once never write a receipt twice.
+        const fresh = await planStepActionReceipts(root, config, workflow);
+        written = await writeStepActionReceipts(root, config, workflow, fresh.pending, { recordedAt: new Date().toISOString(), recordedBy });
+        if (!written.length) {
+          throw new SingularityFlowError('Another command recorded these receipts first; nothing was changed.', { code: 'STEP_ACTION_RECEIPTS_ALREADY_RECORDED' });
+        }
+        return written;
+      },
+      eventFromResult: (created) => ({
+        payload: { operation: 'step-action-receipts', deliveryKeys: (created ?? []).map((entry) => entry.receipt.deliveryKey) }
+      })
+    }
+  );
+  if (!json) {
+    for (const { receipt } of written) console.log(`${'recorded'.padEnd(14)} ${receipt.action.id} → ${receipt.action.target} (${receipt.phaseId}, ${receipt.trigger})`);
+    console.log(`Committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+  }
+  return report(succeeded('integrations.recorded', { count: written.length, pending: 0, recorded: plan.recorded + written.length, skipped: plan.skipped.length, dryRun: false, commit: publication.sha }), {
+    receipts: written.map(({ path, receipt }) => ({ path, ...receipt })),
+    pending: [],
+    publication: { sha: publication.sha, pushed: Boolean(publication.pushed) }
+  });
 }
 
 function redactedHeaders(headers) {
@@ -401,7 +487,7 @@ async function confluenceTest(target, record, { operation, json, sendIt }) {
 
 export async function run(_argv, { positionals, options, operation: given = null }) {
   const subcommand = positionals[1] ?? 'status';
-  const operation = given ?? { id: `integrations.${subcommand}`, classification: subcommand === 'retry' ? 'mutation' : 'read' };
+  const operation = given ?? { id: `integrations.${subcommand}`, classification: ['retry', 'record'].includes(subcommand) ? 'mutation' : 'read' };
   const json = optionBoolean(options, 'json');
   const root = repoRoot();
   if (subcommand === 'status') return statusCommand(root, options, operation, json);
@@ -409,5 +495,6 @@ export async function run(_argv, { positionals, options, operation: given = null
   if (subcommand === 'list') return listCommand(root, config, options, operation, json);
   if (subcommand === 'retry') return retryCommand(root, config, positionals, options, operation, json);
   if (subcommand === 'test') return testCommand(root, config, positionals, options, operation, json);
-  throw new SingularityFlowError(`Unknown integrations subcommand '${subcommand}'. Available: list, status, retry, test.`, { code: 'UNKNOWN_SUBCOMMAND' });
+  if (subcommand === 'record') return recordCommand(root, config, options, operation, json);
+  throw new SingularityFlowError(`Unknown integrations subcommand '${subcommand}'. Available: list, status, retry, record, test.`, { code: 'UNKNOWN_SUBCOMMAND' });
 }

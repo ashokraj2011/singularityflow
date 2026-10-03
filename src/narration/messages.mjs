@@ -800,6 +800,13 @@ export const MESSAGES = Object.freeze({
   'integrations.retried': {
     headline: (s) => `Tried ${slot(s.count, '0')} deliver${s.count === 1 ? 'y' : 'ies'}: ${slot(s.delivered, '0')} delivered, ${slot(s.pending, '0')} still pending, ${slot(s.failed, '0')} failed.`
   },
+  'integrations.recorded': {
+    headline: (s) => s.dryRun
+      ? `Would record ${slot(s.pending, '0')} after-step receipt(s); nothing was committed.`
+      : s.count
+        ? `Recorded ${slot(s.count)} after-step receipt(s) in commit ${slot(String(s.commit ?? '').slice(0, 8))}.`
+        : `Nothing to record; ${slot(s.recorded, '0')} after-step receipt(s) already recorded.`
+  },
   'integrations.tested': {
     headline: (s) => s.sent
       ? `Sent a test delivery to ${slot(s.target)}: ${slot(s.outcome)}${s.status ? ` (HTTP ${slot(s.status)})` : ''}.`

@@ -3227,6 +3227,13 @@ const families = [
   }),
   family({ id: 'impact-evidence', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/impact\/evidence\/[^/]+\.json$/], immutable: true }),
   family({ id: 'jira-write-receipt', currentVersion: 1, immutable: true }),
+  // After-step action receipts: what one delivery delivered, committed to its Story by
+  // integrations record in an external-synchronized commit. One immutable file per delivery key;
+  // the outbox that sent it stays on the delivering machine and is never evidence.
+  family({
+    id: 'step-action-receipt', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/evidence\/step-actions\/sad_[0-9a-f]{40}\.json$/]
+  }),
   family({
     id: 'mcp-observation-receipt', currentVersion: 2, immutable: true,
     steps: [migration(1, 2, mcpObservationReceiptV1ToV2)]

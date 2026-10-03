@@ -909,10 +909,12 @@ Usage:
   singularity-flow integrations list [--work-id ID] [--json]
   singularity-flow integrations status [--work-id ID] [--all] [--json]
   singularity-flow integrations retry <DELIVERY-KEY...>|--all [--json]
+  singularity-flow integrations record [--dry-run] [--json]
   singularity-flow integrations test <TARGET> [--trigger submitted|approved|rejected] [--send event|summary]
     [--phase ID] [--send-test] [--json]
-    (after-step actions: what each step sends to webhooks, log services and Teams once it is
-     submitted, approved or rejected; test shows the exact request and sends only with --send-test)
+    (after-step actions: what each step sends to webhooks, logs, Teams, Jira, Git, Confluence or
+     OneDrive once it is submitted, approved or rejected; test shows the exact request and sends
+     only with --send-test; record commits a receipt for each delivery that went out)
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
   singularity-flow repositories providers [--json]
   singularity-flow repositories list [--scope known|provider|all] [--provider github] [--host HOST]

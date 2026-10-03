@@ -975,21 +975,28 @@ const PAGES = Object.freeze({
     seeAlso: ['workspace', 'sync', 'doctor']
   },
   integrations: {
-    summary: 'See what each step sends after it is submitted, approved or rejected, and retry deliveries.',
+    summary: 'See what each step sends after it is submitted, approved or rejected, retry deliveries, and record receipts.',
     description: [
       'A workflow step can list after-step actions: when it is submitted, approved or rejected, it',
-      'sends an event to a webhook, a log service or Microsoft Teams. Targets are declared once under',
-      'integrations.targets and name their secrets; the values come from the environment of the',
-      'machine that delivers. A Story pins its actions when it starts.',
+      'sends an event to a webhook, a log service or Microsoft Teams, comments on its Jira issue, or',
+      'writes its approved artifact to a Git repository, a Confluence page or OneDrive. Targets are',
+      'declared once under integrations.targets and name their secrets; the values come from the',
+      'environment of the machine that delivers. A Story pins its actions when it starts.',
       '',
       'Deliveries run after the governed commit is published and are kept in this repository\'s',
       'action outbox on this machine. A failure never undoes a transition: it is retried by later',
       'transitions, by sync, or by integrations retry, and each delivery is sent at most once.',
-      'The outbox is machine-local and never governance evidence.'
+      'The outbox is machine-local and never governance evidence.',
+      '',
+      'integrations record commits one receipt per delivery that went out, under the Story\'s',
+      'evidence/step-actions/, so everyone sees what was delivered. Only deliveries that match what',
+      'the Story pinned are recorded, and recording is refused while a step awaits approval, because',
+      'a commit then would require submitting that step again.'
     ],
     options: [
       ['--work-id ID', 'list: the actions a Story pinned when it started; status: only that Story\'s deliveries.'],
       ['--all', 'status: include delivered records; retry: every pending and failed delivery.'],
+      ['--dry-run', 'record: show the receipts it would commit; nothing is committed.'],
       ['--trigger submitted|approved|rejected', 'test: the trigger to show (default approved).'],
       ['--send event|summary', 'test: what to send (default event).'],
       ['--phase ID', 'test: the step name to show in the sample event.'],
@@ -1000,6 +1007,7 @@ const PAGES = Object.freeze({
       ['singularity-flow integrations list', 'Targets, whether their secrets are set here, and which steps use them.'],
       ['singularity-flow integrations status', 'Deliveries not yet delivered, with their last outcome.'],
       ['singularity-flow integrations retry --all', 'Deliver every pending and failed delivery now.'],
+      ['singularity-flow integrations record', 'Commit a receipt for each of this Story\'s deliveries that went out.'],
       ['singularity-flow integrations test team-events', 'Show the exact request the target would receive; nothing is sent.']
     ],
     seeAlso: ['sync', 'doctor', 'workflow']

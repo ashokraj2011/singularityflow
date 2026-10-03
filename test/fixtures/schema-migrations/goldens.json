@@ -442,6 +442,7 @@
   "configuration-source": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "impact-evidence": [{ "schemaVersion": 1 }],
   "jira-write-receipt": [{ "schemaVersion": 1 }],
+  "step-action-receipt": [{ "schemaVersion": 1 }],
   "mcp-observation-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "authProfile": null }],
   "phase-approval": [{ "schemaVersion": 1, "phase": "specification", "approvedAt": "2025-01-02T03:04:05.000Z", "approvedBy": "Reviewer" }, { "schemaVersion": 2 }],
   "document-manifest": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "packages": [] }, { "schemaVersion": 3, "documents": [], "packages": [] }],

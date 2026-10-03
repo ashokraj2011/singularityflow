@@ -1,8 +1,8 @@
 ---
 name: sflow-integrations
-description: Show what each workflow step sends to webhooks, log services and Teams after it is submitted, approved or rejected, and retry deliveries that did not go out.
+description: Show what each workflow step sends to webhooks, logs, Teams, Jira, Git, Confluence or OneDrive after it is submitted, approved or rejected; retry deliveries that did not go out and record receipts for those that did.
 disable-model-invocation: true
-argument-hint: "[list | status | retry <DELIVERY-KEY...>|--all | test <TARGET>]"
+argument-hint: "[list | status | retry <DELIVERY-KEY...>|--all | record | test <TARGET>]"
 ---
 
 # After-step deliveries
@@ -12,11 +12,12 @@ argument-hint: "[list | status | retry <DELIVERY-KEY...>|--all | test <TARGET>]"
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Use this skill when someone asks what a step sends after approval, why a webhook, log service or Teams channel did not hear about a step, or how to send a delivery again.
+Use this skill when someone asks what a step sends after approval, why a target did not hear about a step, how to send a delivery again, or how to show everyone that a delivery went out.
 
 1. Run `singularity-flow integrations status --json` (add `--work-id <ID>` for one Story). Explain each open delivery: the step, the trigger, the target, its last outcome and when it is retried.
 2. For configuration questions run `singularity-flow integrations list --json`. A secret shown as not set (names start with `SFLOW_SECRET_`) must be set in this machine's environment or in VS Code; never ask for a secret value in chat and never print one.
 3. To check a target, run `singularity-flow integrations test <TARGET> --json` and show the request. Send a test only when the user asks, with `--send-test`.
 4. Ask before mutation. When the user chooses to retry, run `singularity-flow integrations retry <KEY...> --json` (or `--all`) exactly once and report each outcome.
+5. To record what went out, on the checked-out Story whose deliveries they were, run `singularity-flow integrations record --dry-run --json` and show what it would commit; after the user agrees, run `singularity-flow integrations record --json` once. It is refused while a step awaits approval, because a commit then would require submitting that step again: say so and record after the decision.
 
-Deliveries never change governed state, and a failed one never undoes a transition. Changing targets or actions is a workflow change: use Workflow Studio or `/sf-configure`, not this skill.
+Deliveries never change governed state, and a failed one never undoes a transition; receipts are evidence only. Changing targets or actions is a workflow change: use Workflow Studio or `/sf-configure`, not this skill.

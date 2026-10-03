@@ -312,6 +312,7 @@ Every public operation is classified before its implementation module is importe
 | inputs.dry-run | read | never | — | — |
 | inputs.prepare | mutation | never | — | — |
 | integrations.list | read | never | — | — |
+| integrations.record | mutation | never | — | — |
 | integrations.retry | mutation | never | — | — |
 | integrations.status | read | never | — | — |
 | integrations.test | read | never | — | — |

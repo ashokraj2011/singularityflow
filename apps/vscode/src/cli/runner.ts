@@ -1673,6 +1673,20 @@ export async function validatedRepositoryGitCommonDirectory(
  * are dropped rather than shown. Anything else is passed through, because an unrecognised message is
  * still better than none.
  */
+export const REFUSAL_ENVELOPE_MARKER = '--- singularity-flow structured refusal v1 ---';
+
+/**
+ * Separate the prose a failure printed from the structured record it carried after the marker.
+ * The record is never shown as text; it becomes the error's result, exactly like a --json refusal.
+ */
+export function splitStructuredRefusal(stderr: string): { prose: string; envelope: unknown } {
+  const at = stderr.lastIndexOf(REFUSAL_ENVELOPE_MARKER);
+  if (at < 0) return { prose: stderr, envelope: null };
+  let envelope: unknown = null;
+  try { envelope = JSON.parse(stderr.slice(at + REFUSAL_ENVELOPE_MARKER.length).trim()); } catch { envelope = null; }
+  return { prose: stderr.slice(0, at).replace(/\s+$/u, '\n'), envelope };
+}
+
 export function humanError(stderr: string): string {
   try {
     const structured = JSON.parse(stderr.trim()) as {
@@ -1835,7 +1849,9 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     commandClass = 'unknown', signal, queuedMs = 0, priority, onProgress
   } = options;
   const progress = onProgress ? new ProgressLineSplitter(onProgress) : null;
-  const childEnv = progress ? { ...env, SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } : env;
+  // A refusal printed as prose also carries its structured record, so a text run's refusal card
+  // shows the engine's reasons and actions rather than generic diagnostics [E2G criterion 16].
+  const childEnv = { ...env, SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1', ...(progress ? { SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } : {}) };
 
   const startedAt = process.hrtime.bigint();
   const startedAtWall = new Date().toISOString();
@@ -1992,7 +2008,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       if (stdoutTail) stdoutChunks.push(stdoutTail);
       if (stderrTail) stderrChunks.push(stderrTail);
       const stdout = stdoutChunks.join('');
-      const stderr = stderrChunks.join('');
+      const { prose: stderr, envelope: besideProse } = splitStructuredRefusal(stderrChunks.join(''));
       // Provider and hook output is untrusted and may split a credential across arbitrary child
       // chunks (`pass` + `word=value`). Buffering already occurs for parsing, so publish only the
       // bounded, scrubbed streams once their complete lexical context is available. Raw bytes never
@@ -2002,7 +2018,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         if (stderr) onOutput?.(safeDisplayDiagnosticText(stderr), 'stderr');
       } catch { /* diagnostic observer only */ }
       if (code !== 0) {
-        let result: unknown = null;
+        let result: unknown = besideProse;
         if (json) {
           // The CLI writes successful JSON to stdout and refusal envelopes to stderr. Preserve the
           // versioned refusal object on CliError so callers can route by its closed code instead of

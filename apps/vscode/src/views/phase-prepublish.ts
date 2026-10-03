@@ -69,7 +69,11 @@ export function phasePrepublishDecision(
     .map((finding) => line(record(finding)?.message))
     .filter((message): message is string => Boolean(message));
   const guidance = line(record(projection.correction)?.guidance, 500);
-  if (guidance) details.push(guidance);
+  if (guidance) {
+    // The correction usually restates the finding that blocked: show it once, in its fuller form.
+    const repeated = details.findIndex((detail) => guidance.startsWith(detail));
+    if (repeated >= 0) details[repeated] = guidance; else details.push(guidance);
+  }
   const skill = line(record(projection.correction)?.skill, 80);
   const exactSkill = skill && /^\/sf-[a-z0-9-]+$/u.test(skill) ? skill : null;
   if (exactSkill) details.push(`Next in Copilot: ${exactSkill}`);

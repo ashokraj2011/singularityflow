@@ -114,3 +114,19 @@ test('documentation advisories ride along with a ready decision and never change
   assert.deepEqual(unavailable.advisories, ['The documentation check could not run (diff-unavailable); it never blocks publication.']);
   assert.deepEqual(phasePrepublishDecision(ready, expected).advisories, []);
 });
+
+test('a correction that restates the blocking finding is shown once, in its fuller form', () => {
+  const sentence = `Phase 'verify' requires current Code evidence: source or tests changed after their approved execution: src/value.mjs. Return them with: singularity-flow reject verify --to implement --repair --reason <REASON>. They stay in your worktree; nothing was reverted or adopted. They change QF-GUI:AC-001, owned by implement.`;
+  const decision = phasePrepublishDecision({
+    ...ready, phase: 'verify', status: 'correction-required',
+    findings: [{ message: sentence }],
+    correction: { guidance: sentence },
+    commands: { publish: null, next: 'singularity-flow reject verify --to implement --repair --reason <REASON>' }
+  }, { workId: 'STORY-1', phaseId: 'verify' });
+  assert.equal(decision.ready, false);
+  assert.deepEqual(decision.details, [
+    sentence,
+    'Next in Shell: singularity-flow reject verify --to implement --repair --reason <REASON>',
+    'Shell: singularity-flow phase prepublish verify --json'
+  ]);
+});

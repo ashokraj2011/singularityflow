@@ -126,3 +126,60 @@ test('the same refusal reaches the CLI recovery plan and the VS Code card with t
   assert.ok(why.includes('The changed files stay in the worktree: src/api.mjs, src/helper.mjs.'));
   assert.ok(why.includes('Responsible step: backend'));
 });
+
+test('a refusal printed for people still reaches the VS Code card as its structured record [E2G criterion 16]', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { CliError, invokeCli, splitStructuredRefusal, REFUSAL_ENVELOPE_MARKER } = await import('../apps/vscode/src/cli/runner.ts');
+  const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
+  const { REFUSAL_ENVELOPE_MARKER: engineMarker, reportCliFailure } = await import('../src/cli-failure.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  assert.equal(REFUSAL_ENVELOPE_MARKER, engineMarker, 'the engine and the editor agree on the marker');
+
+  // The engine side: a text-mode failure prints prose, then the record after the marker, only when asked.
+  const workflow = story();
+  const change = await crossPhaseChange('/unused', {}, workflow, workflow.phases.review, ['src/api.mjs'], { records });
+  const described = describeCrossPhaseChange(change, { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', gate: 'consumption', workflow, phase: workflow.phases.review });
+  const error = new SingularityFlowError(`Phase 'review' requires current Code evidence. ${described.text}`,
+    { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { gate: described.gate } });
+  const capture = async (env) => {
+    const written = []; const original = console.error; const before = process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE; const exitCode = process.exitCode;
+    console.error = (text) => written.push(String(text));
+    if (env) process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE = env; else delete process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE;
+    try { await reportCliFailure(error, ['phase', 'publish', 'review']); } finally {
+      console.error = original; process.exitCode = exitCode;
+      if (before === undefined) delete process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE; else process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE = before;
+    }
+    return written.join('\n');
+  };
+  assert.equal((await capture(null)).includes(REFUSAL_ENVELOPE_MARKER), false, 'people see prose only unless a reader asks');
+  const stderr = await capture('stderr-v1');
+  const { prose, envelope } = splitStructuredRefusal(stderr);
+  assert.match(prose, /Singularity Flow error: Phase 'review' requires current Code evidence\./);
+  assert.equal(prose.includes(REFUSAL_ENVELOPE_MARKER), false);
+  assert.equal(envelope.resultType, 'sflow-refusal-plan');
+  assert.equal(envelope.error.details.gate.actions[0].command, 'singularity-flow reject review --to backend --repair --reason <REASON>');
+
+  // The editor side: a text run asks for it, keeps the marker out of the Output channel, and the
+  // card is built from the record, leading with the gate's return.
+  let seenEnv = null;
+  const spawnImpl = (_executable, _args, options) => {
+    seenEnv = options.env;
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.stdin = { end() {} }; child.kill = () => true;
+    setTimeout(() => { child.stderr.emit('data', Buffer.from(stderr, 'utf8')); child.emit('close', 2); }, 5);
+    return child;
+  };
+  const outputs = [];
+  const failure = await invokeCli({
+    executable: 'node', cli: '/cli.mjs', repository: '/repo', args: ['phase', 'publish', 'review'], json: false, spawnImpl,
+    onOutput: (text) => outputs.push(text)
+  }).then(() => null, (caught) => caught);
+  assert.ok(failure instanceof CliError);
+  assert.equal(seenEnv.SINGULARITY_FLOW_REFUSAL_ENVELOPE, 'stderr-v1');
+  assert.equal(failure.result?.resultType, 'sflow-refusal-plan');
+  assert.ok(outputs.every((text) => !text.includes(REFUSAL_ENVELOPE_MARKER)), 'the record never reaches the Output channel as text');
+  const { view, fidelity } = refusalFor(failure);
+  assert.equal(fidelity, 'refusal-plan-v1');
+  assert.equal(view.actions[0].command, 'singularity-flow reject review --to backend --repair --reason <REASON>');
+  assert.ok(view.why.some((entry) => entry.label === 'Responsible step: backend'));
+});

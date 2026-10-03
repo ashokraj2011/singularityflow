@@ -29,7 +29,10 @@ const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local
 // the private state it has just removed.
 const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
   ...LOCAL_STATE_RESET_COMMANDS,
-  'fresh-install'
+  'fresh-install',
+  // A governance rebuild holds the repository reset barrier itself and refuses while any subject
+  // lock is held, so an ordinary mutation lease around it would refuse it.
+  'governance'
 ]);
 
 // These commands either operate on machine-local installation/workspace state, explain the product,

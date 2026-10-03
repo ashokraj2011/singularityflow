@@ -260,6 +260,8 @@ Every public operation is classified before its implementation module is importe
 | goal.verify | mutation | never | — | — |
 | governance.rebuild | mutation | never | — | — |
 | governance.rebuild.preview | read | never | — | — |
+| governance.restore | mutation | never | — | — |
+| governance.restore.preview | read | never | — | — |
 | guide | read | never | — | — |
 | harness | mutation | never | — | — |
 | help | read | never | — | — |

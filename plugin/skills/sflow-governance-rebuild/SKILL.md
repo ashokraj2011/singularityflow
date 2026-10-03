@@ -1,6 +1,6 @@
 ---
 name: sflow-governance-rebuild
-description: Preview rebuilding this repository's governance onto the current Singularity Flow model.
+description: Preview and deliberately rebuild this repository's governance onto the current Singularity Flow model.
 disable-model-invocation: true
 argument-hint: "[--dry-run]"
 
@@ -25,10 +25,15 @@ Story. It never touches application code, tests or documents.
    summarize away files, workflows or Stories.
 3. If `blockers` is not empty, stop: the plan cannot be confirmed. Relay each
    blocker and its repair, then preview again after the contributor repairs it.
-4. Otherwise relay the returned `next` command exactly. A failing repository
+4. Otherwise ask the contributor whether to proceed. A failing repository
    workflow listed in `inactive` stays byte-identical and unstartable until it
    is repaired; the confirmation must name it with `--accept-inactive`.
+5. Only after the contributor gives the exact plan digest, run the returned
+   `next` command with `--json` and show `commit`, `receipt`, `archived`,
+   `backup` and `invariants`. Tell them to push the branch for teammates.
+6. To undo a rebuild, run `singularity-flow governance restore --plan <PLAN>
+   --dry-run --json`, show every file, and confirm only with their consent.
 
 Never supply a confirmation yourself, infer consent from the original request,
 edit a workflow to make it pass, commit, push, or delete a branch. If the CLI
-reports that activation is unavailable in this build, say so and stop.
+refuses, relay its code and repair and stop.

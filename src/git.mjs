@@ -1043,6 +1043,52 @@ export function committedFileDigests(root, commit, paths, { env = process.env } 
   return new Map(entries.map((entry) => [entry.file, createHash('sha256').update(blobs.get(entry.oid)).digest('hex')]));
 }
 
+/** One file's text at a ref, or null when the ref or the file does not exist. */
+export function committedFileText(root, ref, relative, { env = process.env } = {}) {
+  const result = git(['cat-file', '-p', `${ref}:${relative}`], { cwd: root, env, allowFailure: true });
+  if (result.status === 0) return result.stdout;
+  // cat-file answers 128 for a missing ref or path; anything else is a failure to read.
+  return gitReadOutput(result, `${relative} at ${ref}`, { absentStatus: 128 });
+}
+
+/** One file's bytes at a ref, or null when the ref or the file does not exist. */
+export function committedFileBytes(root, ref, relative, { env = process.env } = {}) {
+  const result = git(['rev-parse', '--verify', '--quiet', `${ref}:${relative}`], { cwd: root, env, allowFailure: true });
+  const oid = gitReadOutput(result, `${relative} at ${ref}`, { absentStatus: 1, absentWhen: (observed) => observed.status === 128 })?.trim();
+  if (!oid) return null;
+  return readLocalGitBlobs(root, [oid], { env, label: `${relative} at ${ref}` }).get(oid);
+}
+
+/** The most recent commit reachable from HEAD that added `relative`, or null. */
+export function commitAddingPath(root, relative, { env = process.env } = {}) {
+  const output = git(['log', '--diff-filter=A', '--format=%H', '-1', '--', relative], { cwd: root, env }).stdout.trim();
+  return output || null;
+}
+
+/** The paths one commit changed against its first parent, sorted. */
+export function commitChangedPaths(root, commit, { env = process.env } = {}) {
+  const output = git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--root', commit], { cwd: root, env }).stdout;
+  return String(output).split('\0').filter(Boolean).sort();
+}
+
+/** Every ref and the object it names, for proving which refs an operation moved. */
+export function refSnapshot(root, { env = process.env } = {}) {
+  const output = git(['for-each-ref', '--format=%(refname) %(objectname)'], { cwd: root, env }).stdout;
+  return new Map(String(output).split('\n').filter(Boolean).map((line) => line.split(' ')));
+}
+
+/**
+ * Bundle `refs` into `file` and verify it, so every listed ref can be fetched back from the file
+ * alone. Refuses to overwrite an existing file.
+ */
+export function createRefsBundle(root, file, refs, { env = process.env } = {}) {
+  invariant(refs.length > 0, 'A bundle needs at least one ref.');
+  invariant(refs.every((ref) => /^(?:HEAD|refs\/[A-Za-z0-9._\/-]+)$/u.test(ref) && !ref.includes('..')), 'Bundle refs are invalid.');
+  if (existsSync(file)) throw new SingularityFlowError(`Backup bundle ${file} already exists.`, { code: 'GOVERNANCE_BACKUP_EXISTS' });
+  git(['bundle', 'create', file, ...refs], { cwd: root, env });
+  git(['bundle', 'verify', file], { cwd: root, env });
+}
+
 /**
  * Write the files a commit has under `paths` into `directory`, through a private index, so neither
  * the checkout, its index nor any ref changes.

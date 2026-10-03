@@ -1836,7 +1836,7 @@ const PAGES = Object.freeze({
     seeAlso: ['factory-reset', 'reset-all', 'reinstall']
   },
   governance: {
-    summary: 'Preview rebuilding the governance of this repository onto the current model.',
+    summary: 'Rebuild the governance of this repository onto the current model, or restore it.',
     description: [
       '`governance rebuild --dry-run` exports the approved configuration into a scratch directory,',
       'replaces every framework-owned workflow, template and agent with the current package while',
@@ -1846,16 +1846,28 @@ const PAGES = Object.freeze({
       'Every framework workflow must compile. A repository workflow that does not is reported with',
       'the action that repairs it; it is never edited or deleted. The plan digest binds the',
       'configuration, the replaced files, the workflows and every Story branch tip; a confirmation must',
-      'name it. This build previews only; activation is not available yet.'
+      'name it.',
+      '',
+      '`--confirm-plan` backs every relevant ref up to a Git-private bundle, writes the rebuilt framework',
+      'files, the archive registry and a receipt as one commit on the checked-out branch, and proves it',
+      'changed nothing else. Every archived Story stays readable; the engine refuses to change it.',
+      '`restore` puts back every file a rebuild changed, as one new commit, after a preview.'
     ],
     options: [
       ['--dry-run', 'Preview the exact plan without changing anything.'],
+      ['--confirm-plan grb-DIGEST', 'Activate exactly the plan the preview printed; refused if anything moved since.'],
+      ['--accept-inactive WORKFLOW,...', 'Name every failing repository workflow the rebuild leaves byte-identical and unstartable.'],
+      ['--strict', 'Refuse to leave any workflow unstartable.'],
+      ['--plan grb-DIGEST', 'With restore: the rebuild to undo.'],
+      ['--confirm grb-DIGEST', 'With restore: perform the previewed restore.'],
       ['--remote NAME', 'Read Story branches and the configuration authority from this remote (default origin).'],
       ['--json', 'Emit the CommandResult with the complete plan.']
     ],
     examples: [
       ['singularity-flow governance rebuild --dry-run', 'Review what a rebuild would replace, keep and archive.'],
-      ['singularity-flow governance rebuild --dry-run --json', 'The same plan, for a skill or a script.']
+      ['singularity-flow governance rebuild --dry-run --json', 'The same plan, for a skill or a script.'],
+      ['singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567', 'Activate the reviewed plan.'],
+      ['singularity-flow governance restore --plan grb-0123456789abcdef01234567 --dry-run', 'Preview undoing a rebuild.']
     ],
     seeAlso: ['factory-reset', 'workflow', 'configuration']
   },

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b10002fb7026145a52727b49e70e7ddcb9b0374c",
+  "sourceCommit": "4e5ef4e0d102e9fb86c2d232d6a2c2831fda77d2",
   "topicCount": 74,
-  "contentSha256": "ea4ac0e4296c17a56fe0ed2fab182f0442ab6ea7baf15ab0e620bf5023bef66f",
+  "contentSha256": "ca6d5f232e914c73cb60358670bef4807a1c004c4a48d38626d9a3bcf1ca2a75",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -232,8 +232,8 @@
     {
       "id": "governance-rebuild",
       "title": "Rebuild governance onto the current model",
-      "version": 1,
-      "sha256": "de9d4fb6cfc4b5524e65e9ea385f01b5013dd37e341db173993b1b2d80143b55",
+      "version": 2,
+      "sha256": "6079f6e74710bbf6bc42df403af2c7e6dfbe063d49157a9be4029f26472f3dec",
       "routingSha256": "5092e23da812e558115ee03e83da704e676634e8827123fce8dc3a9dbe4ca4c4",
       "file": "governance-rebuild.md"
     },

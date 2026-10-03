@@ -15,7 +15,7 @@ related:
   - resets-and-cleanup
   - workflow-authoring
   - evidence-matrix
-version: 1
+version: 2
 ---
 A governance rebuild moves a repository onto the current Singularity Flow governance model in one
 reviewed operation. Preview it first; the preview changes nothing.
@@ -29,10 +29,11 @@ from committed configuration and refuses to rebuild over uncommitted governance 
 
 ## Use it from each surface
 
-- **Shell:** `sflow governance rebuild --dry-run` prints the plan; add `--json` for the complete
-  record. This build previews only; it cannot activate a rebuild yet.
-- **Copilot:** `/sf-governance-rebuild` runs the preview and relays it in full. It never confirms a
-  plan on the contributor's behalf.
+- **Shell:** `sflow governance rebuild --dry-run` prints the plan; `--confirm-plan grb-...` activates
+  exactly that plan; `sflow governance restore --plan grb-... --dry-run` previews undoing it. Add
+  `--json` for the complete record.
+- **Copilot:** `/sf-governance-rebuild` runs the preview and relays it in full. It confirms a plan
+  only after the contributor gives the exact plan digest, never on its own.
 - **VS Code:** not available yet. Run the shell command from the integrated terminal.
 
 ## Guided workflow
@@ -43,6 +44,9 @@ from committed configuration and refuses to rebuild over uncommitted governance 
 3. Run `sflow governance rebuild --dry-run` and review every replaced file, kept setting, workflow and
    Story it lists.
 4. Repair any blocker, or any repository workflow you want to keep usable, then preview again.
+5. Confirm the exact plan: `sflow governance rebuild --confirm-plan grb-...`, adding
+   `--accept-inactive` with every failing repository workflow the preview named.
+6. Push the branch so teammates receive the rebuilt configuration and the archive registry.
 
 ## What the preview shows
 
@@ -72,8 +76,26 @@ past it only when the confirmation names it with `--accept-inactive`.
 ## State and safety
 
 The preview writes only a scratch directory it removes; the checkout, its index and every ref stay
-as they were. A rebuild never touches application code, tests, source documents, repository-owned
-workflow and agent definitions, or Git history, and archived Stories stay readable.
+as they were.
+
+Activation re-checks the plan, then:
+
+- backs up the checked-out branch, the configuration authority and every Story branch to a verified
+  Git bundle with a manifest under `.git/singularity-flow/governance-backups/<plan>/`;
+- writes the rebuilt framework files, the archive registry `singularity/governance/archive.json` and
+  the receipt `singularity/governance/rebuilds/<plan>.json` as one commit on the checked-out branch,
+  through a private index, so other staged work is untouched;
+- proves the commit changed nothing else, moved no other ref and kept every repository-owned
+  definition, and refuses (`GOVERNANCE_REBUILD_INVARIANT_BROKEN`) otherwise.
+
+A rebuild never touches application code, tests, source documents, repository-owned workflow and
+agent definitions, or Git history. Every archived Story stays readable; any command that would change
+one refuses with `STORY_ARCHIVED_BY_REBUILD`, because a Story cut before the rebuild still finds the
+registry on the branch it was cut from. `sflow governance restore` puts back every file a rebuild
+changed as one new commit, which makes its Stories changeable again.
+
+This build activates a rebuild when the configuration lives in the checkout. A repository whose
+configuration lives on a configuration authority branch can preview but not yet activate one.
 
 ## Troubleshooting
 
@@ -82,7 +104,12 @@ workflow and agent definitions, or Git history, and archived Stories stay readab
   installed package or report it, because the rebuild cannot activate past it.
 - `GOVERNANCE_REBUILD_STORY_UNREADABLE`: a Story branch holds state this build cannot read; repair or
   remove that branch before rebuilding.
-- `GOVERNANCE_REBUILD_ACTIVATION_UNAVAILABLE`: this build previews only.
+- `GOVERNANCE_REBUILD_PLAN_STALE`: something moved since the preview; preview again.
+- `GOVERNANCE_REBUILD_INACTIVE_UNCONFIRMED`: name exactly the failing repository workflows the preview
+  listed with `--accept-inactive`, or repair them.
+- `GOVERNANCE_REBUILD_AUTHORITY_UNSUPPORTED`: the configuration lives on a configuration authority
+  branch; this build cannot activate a rebuild there yet.
+- `STORY_ARCHIVED_BY_REBUILD`: the Story was archived; start a new Story.
 
 ## Related topics
 

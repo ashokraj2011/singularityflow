@@ -1,3 +1,4 @@
+import { assertStoryNotArchived } from './governance-archive.mjs';
 import {
   convergencePhaseOf, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, loopAmendmentSource, scopeStepOf
 } from './phase-roles.mjs';
@@ -8678,6 +8679,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // callers may add other already-reviewed pins to the draft before this locked transaction.
   const unacceptedWorkflowSnapshot = initialWorkflowRecord(root, config, workflow.workItem.id) == null;
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
+  // A Story a governance rebuild archived stays readable, but nothing may change it [E2G §11].
+  assertStoryNotArchived(root, workflow);
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
   const requestedPhase = requestedPhaseId ? workflow.phases?.[requestedPhaseId] : null;

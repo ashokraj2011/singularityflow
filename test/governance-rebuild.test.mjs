@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { planGovernanceRebuild } from '../src/governance-rebuild.mjs';
+import { activateGovernanceRebuild, planGovernanceRebuild, restoreGovernanceRebuild } from '../src/governance-rebuild.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'singularity-flow.mjs');
@@ -112,7 +112,60 @@ test('the plan digest moves with any Story branch tip, and uncommitted governanc
   assert.ok(dirty.blockers.some((entry) => entry.code === 'GOVERNANCE_REBUILD_CONFIGURATION_DIRTY'));
 });
 
-test('the CLI previews the plan as a CommandResult and refuses a confirmation it cannot honour', async (t) => {
+test('activation backs up, commits only governance files, archives every Story read-only, and restores', async (t) => {
+  const root = await repository(t);
+  const head = git(root, 'rev-parse', 'HEAD');
+  const plan = await planGovernanceRebuild(root);
+  const actor = { name: 'Rebuild Tester', email: 'rebuild@example.test' };
+  const refusal = (code) => (error) => error.code === code && error.exitCode === 2;
+  await assert.rejects(activateGovernanceRebuild(root, { confirmation: plan.plan, actor }), refusal('GOVERNANCE_REBUILD_INACTIVE_UNCONFIRMED'),
+    'a failing repository workflow must be named before it is left unstartable');
+  await assert.rejects(activateGovernanceRebuild(root, { confirmation: plan.plan, acceptInactive: ['team-sketch'], strict: true, actor }),
+    refusal('GOVERNANCE_REBUILD_STRICT_INACTIVE'));
+  await assert.rejects(activateGovernanceRebuild(root, { confirmation: 'grb-000000000000000000000000', acceptInactive: ['team-sketch'], actor }),
+    refusal('GOVERNANCE_REBUILD_PLAN_STALE'));
+  assert.equal(git(root, 'rev-parse', 'HEAD'), head, 'a refused activation changes nothing');
+
+  const before = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const result = await activateGovernanceRebuild(root, { confirmation: plan.plan, acceptInactive: ['team-sketch'], actor });
+  assert.equal(git(root, 'rev-parse', 'HEAD^'), head, 'one commit on the checked-out branch');
+  assert.equal(result.commit, git(root, 'rev-parse', 'HEAD'));
+  assert.deepEqual(result.invariants, { onlyGovernanceFilesChanged: true, otherRefsUnchanged: true, repositoryDefinitionsKept: true });
+  const changed = git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').split('\n').sort();
+  assert.deepEqual(changed, [...plan.replaced.map((entry) => entry.path), 'singularity/governance/archive.json', result.receiptPath].sort());
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(after.phases.convergence.artifact.kind, 'convergence-report', 'the framework step is rebuilt');
+  assert.deepEqual(after.workTypes['team-sketch'], before.workTypes['team-sketch'], 'the repository workflow keeps its bytes');
+  const archive = JSON.parse(await readFile(path.join(root, 'singularity/governance/archive.json'), 'utf8'));
+  assert.deepEqual(archive.stories.map((story) => story.id), ['POC-1']);
+  assert.match(archive.stories[0].createdAt, /^\d{4}-/);
+  const receipt = JSON.parse(await readFile(path.join(root, result.receiptPath), 'utf8'));
+  assert.deepEqual(receipt.inactive, ['team-sketch']);
+  assert.equal(receipt.archived.length, 1);
+  run('git', ['bundle', 'verify', path.join(result.backup.directory, 'refs.bundle')], root);
+  assert.equal(git(root, 'status', '--porcelain'), '');
+
+  const again = await planGovernanceRebuild(root);
+  assert.deepEqual(again.replaced, [], 'nothing is left to replace');
+  assert.deepEqual(again.storyDetails, [], 'and every Story is already archived');
+
+  // A Story cut before the rebuild finds the registry on the branch it was cut from.
+  git(root, 'checkout', '-q', 'POC-1');
+  const cancelled = run(process.execPath, [CLI, '--no-model', 'cancel', 'POC-1', '--confirm', 'POC-1', '--reason', 'No longer needed after the rebuild.'], root, { allowFailure: true });
+  assert.notEqual(cancelled.status, 0);
+  assert.match(`${cancelled.stdout}${cancelled.stderr}`, /archived by governance rebuild grb-[0-9a-f]{24}/);
+  git(root, 'checkout', '-q', 'main');
+
+  const preview = await restoreGovernanceRebuild(root, { plan: plan.plan });
+  assert.equal(preview.restored, null);
+  assert.ok(preview.preview.restores.some((entry) => entry.path === 'singularity/governance/archive.json' && entry.action === 'remove'));
+  const restored = await restoreGovernanceRebuild(root, { plan: plan.plan, confirm: plan.plan });
+  assert.equal(git(root, 'rev-parse', 'HEAD^'), result.commit, 'the restore is a new commit; history is kept');
+  assert.equal(restored.restored, git(root, 'rev-parse', 'HEAD'));
+  assert.equal(git(root, 'diff', '--name-only', head, 'HEAD'), '', 'every file is back as it was before the rebuild');
+});
+
+test('the CLI previews the plan, refuses an incomplete confirmation, and activates the exact plan', async (t) => {
   const root = await repository(t);
   const preview = JSON.parse(sflow(root, 'governance', 'rebuild', '--dry-run', '--json').stdout);
   assert.equal(preview.operation.id, 'governance.rebuild.preview');
@@ -124,5 +177,8 @@ test('the CLI previews the plan as a CommandResult and refuses a confirmation it
   assert.match(text, /Stories to archive \(1\):\n {2}POC-1 \(in_progress\)/);
   const refused = run(process.execPath, [CLI, '--no-model', 'governance', 'rebuild', '--confirm-plan', preview.data.plan.plan], root, { allowFailure: true });
   assert.equal(refused.status, 2);
-  assert.match(`${refused.stdout}${refused.stderr}`, /cannot activate it yet/);
+  assert.match(`${refused.stdout}${refused.stderr}`, /--accept-inactive: team-sketch/);
+  const activated = JSON.parse(sflow(root, 'governance', 'rebuild', '--confirm-plan', preview.data.plan.plan, '--accept-inactive', 'team-sketch', '--json').stdout);
+  assert.equal(activated.operation.id, 'governance.rebuild');
+  assert.equal(activated.data.archived, 1);
 });

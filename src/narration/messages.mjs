@@ -191,9 +191,17 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Governance rebuild is blocked by ${slot(s.blockers, '0')} issue(s); nothing changed.`,
     preserves: true
   },
-  'governance.rebuild-activation-unavailable': {
-    headline: () => 'This build previews the governance rebuild but cannot activate it yet; nothing changed.',
+  'governance.rebuild-activated': {
+    headline: (s) => `Governance rebuild ${slot(s.plan)} is committed on ${slot(s.branch)} as ${slot(s.commit)}; ${slot(s.archived, '0')} ${Number(s.archived) === 1 ? 'Story is' : 'Stories are'} archived and read-only.`,
+    preserves: false
+  },
+  'governance.restore-previewed': {
+    headline: (s) => `Restoring governance rebuild ${slot(s.plan)} would put back ${slot(s.files, '0')} file(s); nothing changed.`,
     preserves: true
+  },
+  'governance.restore-completed': {
+    headline: (s) => `Governance rebuild ${slot(s.plan)} is restored: ${slot(s.files, '0')} file(s) put back in commit ${slot(s.commit)}.`,
+    preserves: false
   },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
@@ -919,6 +927,9 @@ export const MESSAGES = Object.freeze({
 export const REASONS = Object.freeze({
   'evidence.from-committed-records': {
     render: () => "each row was evaluated from the Story's committed plan, delivery receipts, test receipts and approvals; no test or network call ran"
+  },
+  'governance.rebuild-invariants': {
+    render: (s) => `the commit changed only the rebuilt framework files, the archive registry and the receipt ${slot(s.receipt)}; every other ref and every repository-owned definition is unchanged`
   },
   'governance.from-approved-configuration': {
     render: (s) => `the plan was built from the ${slot(s.mode)} configuration at ${slot(s.commit)}, exported into a scratch directory; the checkout and its branches were not touched`

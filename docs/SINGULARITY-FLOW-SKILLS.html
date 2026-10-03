@@ -4061,7 +4061,7 @@ repository, authority, or confirmation.
     <details>
       <summary>
         <span class="skill-number">058</span>
-        <span class="skill-title"><strong>sflow-governance-rebuild</strong><span>Preview rebuilding this repository&#39;s governance onto the current Singularity Flow model.</span></span>
+        <span class="skill-title"><strong>sflow-governance-rebuild</strong><span>Preview and deliberately rebuild this repository&#39;s governance onto the current Singularity Flow model.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -4070,7 +4070,7 @@ repository, authority, or confirmation.
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~450 body tokens</span>
+          <span class="pill">~537 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-governance-rebuild</code></dd></div>
@@ -4084,7 +4084,7 @@ repository, authority, or confirmation.
         </div>
         <pre data-source="sflow-governance-rebuild"><code>---
 name: sflow-governance-rebuild
-description: Preview rebuilding this repository&#39;s governance onto the current Singularity Flow model.
+description: Preview and deliberately rebuild this repository&#39;s governance onto the current Singularity Flow model.
 disable-model-invocation: true
 argument-hint: &quot;[--dry-run]&quot;
 
@@ -4109,13 +4109,18 @@ Story. It never touches application code, tests or documents.
    summarize away files, workflows or Stories.
 3. If `blockers` is not empty, stop: the plan cannot be confirmed. Relay each
    blocker and its repair, then preview again after the contributor repairs it.
-4. Otherwise relay the returned `next` command exactly. A failing repository
+4. Otherwise ask the contributor whether to proceed. A failing repository
    workflow listed in `inactive` stays byte-identical and unstartable until it
    is repaired; the confirmation must name it with `--accept-inactive`.
+5. Only after the contributor gives the exact plan digest, run the returned
+   `next` command with `--json` and show `commit`, `receipt`, `archived`,
+   `backup` and `invariants`. Tell them to push the branch for teammates.
+6. To undo a rebuild, run `singularity-flow governance restore --plan &lt;PLAN&gt;
+   --dry-run --json`, show every file, and confirm only with their consent.
 
 Never supply a confirmation yourself, infer consent from the original request,
 edit a workflow to make it pass, commit, push, or delete a branch. If the CLI
-reports that activation is unavailable in this build, say so and stop.
+refuses, relay its code and repair and stop.
 </code></pre>
       </div>
     </details>

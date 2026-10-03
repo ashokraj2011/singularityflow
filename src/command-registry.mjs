@@ -1430,7 +1430,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     ? never('factory-reset.preview', definition, 'read') : never('factory-reset', definition, 'mutation');
   if (definition.name === 'governance') {
     const subcommand = positionals[1];
-    if (subcommand !== 'rebuild') return unknownSubcommand('governance', subcommand, ['rebuild']);
+    if (!['rebuild', 'restore'].includes(subcommand)) return unknownSubcommand('governance', subcommand, ['rebuild', 'restore']);
+    if (subcommand === 'restore') {
+      return optionString(options, 'confirm') && !optionBoolean(options, 'dry-run')
+        ? never('governance.restore', definition, 'mutation') : never('governance.restore.preview', definition, 'read');
+    }
     return optionBoolean(options, 'dry-run')
       ? never('governance.rebuild.preview', definition, 'read') : never('governance.rebuild', definition, 'mutation');
   }
@@ -1681,6 +1685,8 @@ export function operationCatalog() {
     never('factory-reset', factoryResetDefinition, 'mutation'),
     never('governance.rebuild.preview', commandDefinition('governance'), 'read'),
     never('governance.rebuild', commandDefinition('governance'), 'mutation'),
+    never('governance.restore.preview', commandDefinition('governance'), 'read'),
+    never('governance.restore', commandDefinition('governance'), 'mutation'),
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
     required('auto.plan'),

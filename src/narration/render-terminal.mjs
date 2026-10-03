@@ -548,6 +548,17 @@ function governanceRebuildPreview(result) {
 
 export function renderCommandResult(result) {
   if (result.operation.id === 'governance.rebuild.preview' && result.data?.plan) return governanceRebuildPreview(result);
+  if (result.operation.id === 'governance.restore.preview' && result.data?.restore) {
+    const restore = result.data.restore;
+    return [
+      style.heading(headline(result)),
+      `Rebuild commit: ${restore.commit.slice(0, 12)} (restores the bytes of ${restore.parent.slice(0, 12)})`,
+      ...restore.restores.map((entry) => `  ${entry.action === 'remove' ? 'remove ' : 'restore'} ${entry.path}`),
+      ...(restore.dirty.length ? [style.heading('Commit or discard these changes first:'), ...restore.dirty.map((entry) => `  ${entry}`)] : []),
+      ...(result.next.length ? [style.heading('Next:'), ...nextLines(result)] : []),
+      style.detail(preservationLine(result))
+    ].join('\n');
+  }
   if (result.operation.id === 'precheck.run.plan' && result.data?.plan) {
     const plan = result.data.plan;
     const rows = plan.commands.map((command) => ({

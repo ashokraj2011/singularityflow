@@ -70,6 +70,8 @@ Usage:
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--include-local-documents] [--json]
   singularity-flow governance rebuild --dry-run [--remote origin] [--json]
+  singularity-flow governance rebuild --confirm-plan grb-DIGEST [--accept-inactive WORKFLOW,...] [--strict] [--json]
+  singularity-flow governance restore --plan grb-DIGEST [--dry-run | --confirm grb-DIGEST] [--json]
   sflow reset-all [--yes] [--json]
   singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
   singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]

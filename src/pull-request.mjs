@@ -25,7 +25,7 @@ function bulleted(values, empty) {
 // A pull-request body assembled entirely from committed, governed state: the epic and story
 // identity, the acceptance criteria, and every approved artifact with the exact hash it was
 // approved at. Nothing here is invented.
-export function storyPullRequestBody(workflow, seed = null, { mergeSequence = null, evidenceReceipt = null } = {}) {
+export function storyPullRequestBody(workflow, seed = null, { mergeSequence = null, evidenceReceipt = null, evidence = null } = {}) {
   const story = seed?.story ?? {};
   const initiative = seed?.initiative ?? {};
   const lines = [];
@@ -76,6 +76,9 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
   warnings.push(...selfApprovals);
   if (workflow.publication?.status === 'pending') warnings.push('Publication is pending synchronization with the remote.');
   if (warnings.length) lines.push('### Governance warnings', '', bulleted(warnings, ''), '');
+
+  // What the evidence shows, from the one evaluator every surface uses; the label is its own.
+  lines.push('### Evidence', '', evidence ?? '_The evidence matrix could not be evaluated for this preview._', '');
 
   if (evidenceReceipt) {
     const value = (entry) => entry == null ? 'unavailable' : String(entry);
@@ -186,13 +189,23 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
       evidenceReceipt = null;
     }
   }
+  let evidence = null;
+  try {
+    const [{ loadEvidenceGraph }, { evaluateEvidence }, { matrixMarkdown }] = await Promise.all([
+      import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./evidence/matrix.mjs')
+    ]);
+    evidence = matrixMarkdown(evaluateEvidence(await loadEvidenceGraph(root, { workId: workflow.workItem.id })));
+  } catch {
+    // A preview never invents evidence: the body says the matrix could not be evaluated.
+    evidence = null;
+  }
   return {
     workId: workflow.workItem.id,
     base,
     head,
     policy,
     title: `${workflow.workItem.id}: ${workflow.workItem.title}`,
-    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt }),
+    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence }),
     evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],
     blockedBy: (() => {

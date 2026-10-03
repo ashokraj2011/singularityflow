@@ -910,6 +910,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
+    'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory',
     'singularityFlow.publishConfiguration',
@@ -7513,6 +7514,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reconcileActiveWorkspaceSelection();
       const { showGdpLocalRunnerReview } = lazyPanels();
       return showGdpLocalRunnerReview(client);
+    },
+    'singularityFlow.openEvidenceMatrix': async () => {
+      const { EvidenceMatrixPanel } = lazyPanels();
+      return EvidenceMatrixPanel.show(context, store, client);
     },
     'singularityFlow.openReconciliation': async () => {
       const { ReconciliationPanel } = lazyPanels();

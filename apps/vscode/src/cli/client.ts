@@ -409,6 +409,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return 'mutation';
   }
   if (args[0] === 'task') return ['list', 'show', 'evidence'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'evidence') return ['verify', 'reconstruct', 'matrix'].includes(args[1] ?? 'verify') ? 'read' : 'mutation';
   if (args[0] === 'request') return ['list', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'candidate') {
     const action = args[1] ?? 'list';

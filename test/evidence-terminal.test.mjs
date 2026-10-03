@@ -121,6 +121,7 @@ test('an omitted responsibility nobody decided blocks the final evaluation; once
   decide(workflow);
   const decided = evaluate(workflow);
   assert.equal(decided.rows.find((row) => row.id === 'story:scope').result, 'not-applicable');
+  assert.deepEqual(decided.rows.find((row) => row.id === 'story:scope').actions, [], 'a recorded decision is not offered again');
   assert.deepEqual(decided.rows.map((row) => [row.id, row.result]), [
     ['story:scope', 'not-applicable'], ['story:plan', 'satisfied'], ['story:implement', 'satisfied'],
     ['story:verify', 'satisfied'], ['story:review', 'satisfied']

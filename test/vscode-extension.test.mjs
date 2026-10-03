@@ -2195,7 +2195,7 @@ test('an open stakeholder change request is visible beside the reopened Story', 
   assert.deepEqual(rollForward.command.slice(0, 3), ['story', 'rework', 'roll-forward']);
 });
 
-test('a completed Story leaves the active rail and opens from Completed with every artifact', () => {
+test('a closed Story leaves the active rail and opens from Closed with every artifact', () => {
   const done = storySnapshot({ status: 'approved', generation: 1 });
   done.workflow.status = 'closed';
   done.workflow.currentPhase = null;
@@ -2204,7 +2204,7 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   const tree = buildTree(done);
 
   assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
-  assert.equal(tree[0].label, 'Completed');
+  assert.equal(tree[0].label, 'Closed');
   assert.equal(tree[0].description, '1 artifact');
   const story = find(tree, 'completed-story:STORY-42');
   assert.equal(story.contextValue, 'sflow.story.completed');
@@ -2212,6 +2212,8 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   assert.equal(find(tree, 'story:continue-safely'), undefined, 'terminal work has no mutation action');
   assert.equal(find(tree, 'completed-story:open').runCommand, 'singularityFlow.openInbox');
   assert.equal(find(tree, 'completed-story:reopen').runCommand, 'singularityFlow.reopenCompleted');
+  assert.equal(find(tree, 'completed-story:evidence').runCommand, 'singularityFlow.openEvidenceMatrix',
+    'a closed Story still opens the evidence behind its completion label');
   assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').path,
     'singularity/work-items/STORY-42/artifacts/design/design.md');
   assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').readOnly, true);

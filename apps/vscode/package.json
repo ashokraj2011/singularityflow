@@ -610,6 +610,11 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "singularityFlow.openEvidenceMatrix",
+        "title": "Singularity Flow: Evidence Matrix",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "singularityFlow.openArtifact",
         "title": "Singularity Flow: Open Artifact"
       },
@@ -620,7 +625,7 @@
       },
       {
         "command": "singularityFlow.reopenCompleted",
-        "title": "Singularity Flow: Request Changes to Completed Story",
+        "title": "Singularity Flow: Request Changes to a Closed Story",
         "icon": "$(git-pull-request-go-to-changes)"
       },
       {

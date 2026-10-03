@@ -19,7 +19,7 @@ related:
   - approvals
   - story-lifecycle
   - workflow-decisions
-version: 2
+version: 3
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -29,9 +29,9 @@ Use the matrix to see what a Story's evidence actually proves before you approve
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow evidence matrix [WORK-ID]` prints one page of rows. `--row AC-001` shows one row, `--result pending` or `--facet execution=failed` filters, `--page` and `--page-size` move through large specifications, and `--format json` or `--format csv` export the same rows.
-- **Copilot:** run the same shell command from the Story's checkout with `--format json`; no Copilot skill relays the matrix yet.
-- **VS Code:** run the shell command in the Story's terminal; a table view arrives in a later release, reading the same JSON.
+- **Shell:** `singularity-flow evidence matrix [WORK-ID]` prints one page of rows. `--row AC-001` shows one row, `--result pending` or `--facet execution=failed` filters, `--page` and `--page-size` move through large specifications, and `--format json` or `--format csv` export the same rows. `singularity-flow pr describe` carries the same summary in the pull request's Evidence section.
+- **Copilot:** `/sf-evidence` relays the matrix: the completion label and its reasons, the results, the assurance floor and each row's obligations. It changes nothing.
+- **VS Code:** **Singularity Flow: Evidence Matrix** (also under the active Story in the sidebar) shows the same rows as a table; selecting a row opens its obligations, what needs attention and its next commands.
 
 ## Guided workflow
 

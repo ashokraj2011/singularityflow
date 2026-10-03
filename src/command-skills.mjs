@@ -74,7 +74,7 @@ const entries = {
   policy: ['sf-sgos'],
   task: ['sf-sgos'],
   request: ['sf-sgos'],
-  evidence: ['sf-sgos'],
+  evidence: ['sf-sgos', 'sf-evidence'],
   env: ['sf-environment'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],
@@ -214,6 +214,10 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     add: 'sf-upload'
   }),
   pr: route('sf-pr'),
+  // `evidence matrix` is the evidence view; every other evidence form stays an SGOS family route.
+  evidence: route('sf-sgos', {
+    matrix: 'sf-evidence'
+  }),
   delivery: route('sf-inspect'),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'

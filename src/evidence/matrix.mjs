@@ -123,6 +123,31 @@ export function matrixText({ evaluation, page }) {
   return lines.join('\n');
 }
 
+/**
+ * The matrix as a short Markdown summary for a pull request: the completion label exactly as the
+ * evaluation states it, the results, the assurance it rests on, and the first open obligations.
+ * It never says more than the rows do.
+ */
+export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
+  const results = Object.entries(evaluation.summary.results).filter(([, count]) => count > 0)
+    .map(([result, count]) => `${count} ${result}`).join(' · ') || 'no rows';
+  const open = evaluation.rows.flatMap((row) => row.obligations
+    .filter((obligation) => ['missing', 'partial', 'pending', 'failed', 'inconclusive'].includes(obligation.status))
+    .map((obligation) => `\`${obligation.id}\` is ${obligation.status}`));
+  const lines = [
+    `- Completion: **${evaluation.completion.label}**${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
+    `- Lifecycle: ${evaluation.lifecycle.words}`,
+    `- Rows: ${evaluation.summary.rows} — ${results}`,
+    `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; no test-case result is joined to a criterion yet`
+  ];
+  if (open.length) {
+    lines.push(`- Open obligations (${open.length}):`, ...open.slice(0, limit).map((entry) => `  - ${entry}`));
+    if (open.length > limit) lines.push(`  - …and ${open.length - limit} more`);
+  }
+  lines.push(`- Full matrix: \`singularity-flow evidence matrix\``);
+  return lines.join('\n');
+}
+
 export function matrixCsv(rows) {
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   return [

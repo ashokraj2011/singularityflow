@@ -35,6 +35,7 @@ export { showSharedWorkflowDrafts } from './views/workflow-drafts.ts';
 export { showSgosMetaToolReview } from './sgos-meta-tool-review.ts';
 export { showGdpLocalRunnerReview } from './gdp-local-runner-review.ts';
 export { ReconciliationPanel } from './views/reconciliation.ts';
+export { EvidenceMatrixPanel } from './views/evidence-matrix.ts';
 export { DashboardPanel } from './views/dashboard.ts';
 export { DesignerPanel } from './views/designer.ts';
 export { WorkflowStudioPanel } from './views/workflow-studio.ts';

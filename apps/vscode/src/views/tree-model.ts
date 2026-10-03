@@ -410,7 +410,7 @@ function activeStoryArchive(snapshot: RepositorySnapshot, excludeId?: string): T
   } : null;
 }
 
-/** Count unique, openable artifact paths beneath one completed subject. */
+/** Count unique, openable artifact paths beneath one finished subject. */
 function countArtifacts(node: TreeNode): number {
   const paths = new Set<string>();
   const visit = (current: TreeNode): void => {
@@ -422,28 +422,29 @@ function countArtifacts(node: TreeNode): number {
 }
 
 /**
- * Completion changes where work is presented, not where governed state is stored.
+ * Closing changes where work is presented, not where governed state is stored.
  *
- * Git paths stay immutable for lineage and resume. `Completed` is therefore a presentation folder:
+ * Git paths stay immutable for lineage and resume. `Closed` is therefore a presentation folder:
  * it removes terminal work from the active rail while preserving direct access to its evidence.
+ * It names the lifecycle only; how complete the work is stays the engine's evidence label.
  */
 function completedFolder(subjects: TreeNode[], artifactCount: number): TreeNode {
   const workCount = subjects.length;
   return {
     kind: 'group',
     id: 'completed',
-    label: 'Completed',
+    label: 'Closed',
     description: artifactCount
       ? `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'}`
       : `${workCount} ${workCount === 1 ? 'item' : 'items'}`,
-    tooltip: 'Finished work is archived here. Expand it to browse every generated artifact.',
+    tooltip: 'Closed work is kept here. Expand it to browse every generated artifact.',
     icon: 'pack',
     contextValue: 'sflow.completed',
     children: subjects
   };
 }
 
-/** Completed sibling Stories are catalogued from Git refs even when another Story is checked out. */
+/** Closed sibling Stories are catalogued from Git refs even when another Story is checked out. */
 function completedStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
   return (snapshot.workItems ?? [])
     .filter((item) => item.id !== excludeId && String(item.status) === 'closed')
@@ -453,7 +454,7 @@ function completedStorySummaries(snapshot: RepositorySnapshot, excludeId?: strin
       id: `completed-story-summary:${item.id}`,
       label: item.id,
       description: item.title ?? 'Closed Story',
-      tooltip: `Completed on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its artifacts.`,
+      tooltip: `Closed on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its artifacts.`,
       icon: 'statusSuccess',
       command: ['session', 'attach', item.id],
       runCommand: 'singularityFlow.runAction',
@@ -545,21 +546,26 @@ function completedStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
     id: `completed-story:${workflow.workItem.id}`,
     label: workflow.workItem.id,
     description: `${workflow.workItem.title ?? workflow.workItem.workType ?? 'Story'} · ${count} ${count === 1 ? 'artifact' : 'artifacts'}`,
-    tooltip: `Completed ${workflow.workItem.workType ?? 'Story'} workflow\nBranch ${workflow.workItem.branch ?? 'unknown'}`,
+    tooltip: `Closed ${workflow.workItem.workType ?? 'Story'} workflow\nBranch ${workflow.workItem.branch ?? 'unknown'}`,
     icon: 'statusSuccess',
     contextValue: 'sflow.story.completed',
     children: [{
-      kind: 'action', id: 'completed-story:reopen', label: 'Request post-completion changes',
+      kind: 'action', id: 'completed-story:reopen', label: 'Request changes after closing',
       description: 'choose phase · record comment · reopen', icon: 'git-pull-request-go-to-changes',
       runCommand: 'singularityFlow.reopenCompleted', contextValue: 'sflow.story.reopen'
     }, {
-      kind: 'action', id: 'completed-story:open', label: 'Open complete artifact catalog',
+      kind: 'action', id: 'completed-story:open', label: 'Open full artifact catalog',
       description: 'documents · approvals · provenance', icon: 'inbox',
       runCommand: 'singularityFlow.openInbox', contextValue: 'sflow.completed.open'
     }, {
       kind: 'action', id: 'completed-story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
+      // The completion label the final evaluation recorded is read from the engine there, never here.
+      kind: 'action', id: 'completed-story:evidence', label: 'Open evidence matrix',
+      description: 'requirements · obligations · completion', icon: 'gate',
+      runCommand: 'singularityFlow.openEvidenceMatrix', contextValue: 'sflow.story.evidence'
     }, {
       kind: 'action', id: 'completed-story:flow-impact', label: 'Open Flow Impact measurement',
       description: 'receipt · evidence · study report', icon: 'impact',
@@ -660,7 +666,7 @@ function completedInitiativeNode(initiative: InitiativeSnapshot): TreeNode {
     icon: 'statusSuccess',
     contextValue: 'sflow.initiative.completed',
     children: [{
-      kind: 'action', id: 'completed-initiative:open', label: 'Open complete artifact catalog',
+      kind: 'action', id: 'completed-initiative:open', label: 'Open full artifact catalog',
       description: 'documents · approvals · provenance', icon: 'inbox',
       runCommand: 'singularityFlow.openInbox', contextValue: 'sflow.completed.open'
     }, {
@@ -1116,6 +1122,10 @@ function storyWorkflowNode(
       kind: 'action', id: 'story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
+      kind: 'action', id: 'story:evidence', label: 'Open evidence matrix',
+      description: 'requirements · obligations · completion', icon: 'gate',
+      runCommand: 'singularityFlow.openEvidenceMatrix', contextValue: 'sflow.story.evidence'
     }, {
       kind: 'action', id: 'story:flow-impact', label: 'Open Flow Impact measurement',
       description: 'classification · evidence · receipt', icon: 'impact',

@@ -58,6 +58,8 @@ test('reset modes have different argv and confirmations and no mode is preselect
 
 test('new CLI reads are classified as reads and mutations remain mutations', () => {
   assert.equal(commandClass(['goal', 'list']), 'read');
+  assert.equal(commandClass(['evidence', 'matrix', '--json']), 'read', 'the evidence matrix is a view');
+  assert.equal(commandClass(['evidence', 'export']), 'mutation');
   assert.equal(commandClass(['goal', 'create']), 'mutation');
   assert.equal(commandClass(['fix', 'FLT-1', '--plan-only']), 'read');
   assert.equal(commandClass(['repair', 'authorize']), 'mutation');

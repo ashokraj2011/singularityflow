@@ -129,6 +129,11 @@ test('the evidence matrix shows each criterion at its real assurance through a r
   assert.notEqual(unknownOption.status, 0);
   assert.match(unknownOption.stdout + unknownOption.stderr, /SGOS_UNKNOWN_OPTION|colour/);
 
+  // The pull request description carries the same evaluation, in its own words.
+  const description = JSON.parse(cli('pr', 'describe', '--format', 'json').stdout);
+  assert.match(description.body, /### Evidence\n\n- Completion: \*\*Incomplete — verification pending or insufficient\*\*/);
+  assert.match(description.body, /- Rows: 1 — 1 satisfied/);
+
   // A view runs nothing: the Story's files and history are exactly as they were.
   const head = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   matrix();

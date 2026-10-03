@@ -4,7 +4,8 @@ import test from 'node:test';
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { COMPLETION_LABELS, lifecycleWords } from '../src/evidence/labels.mjs';
-import { matrixCsv, matrixPage, matrixText } from '../src/evidence/matrix.mjs';
+import { matrixCsv, matrixMarkdown, matrixPage, matrixText } from '../src/evidence/matrix.mjs';
+import { storyPullRequestBody } from '../src/pull-request.mjs';
 import { obligationId } from '../src/evidence/vocabulary.mjs';
 
 const W = 'EV-1';
@@ -208,6 +209,20 @@ test('the matrix pages, filters by row, result and facet, and renders the same r
   const csv = matrixCsv(matrixPage(evaluation).rows).split('\n');
   assert.equal(csv.length, 4);
   assert.match(csv[2], /^"EV-1:AC-001","AC",".*","inconclusive","declared"/);
+});
+
+test('the pull request summary repeats the evaluation and claims nothing beyond it', () => {
+  const evaluation = evaluate({ workflow: story(), records: records(), deliveries: [delivery({ tests: { discovered: 3, passed: 2, failed: 0, skipped: 1 } })] });
+  const summary = matrixMarkdown(evaluation, { limit: 2 });
+  assert.match(summary, /^- Completion: \*\*Incomplete — verification pending or insufficient\*\* \(2 inconclusive\)/);
+  assert.match(summary, /- Lifecycle: In progress at Testing/);
+  assert.match(summary, /- Rows: 3 — 2 inconclusive · 1 satisfied/);
+  assert.match(summary, /- Assurance floor: .*; no test-case result is joined to a criterion yet/);
+  assert.match(summary, /- Open obligations \(2\):\n  - `OBL:EV-1:verify:AC-001` is inconclusive\n  - `OBL:EV-1:verify:AC-002` is inconclusive/);
+  assert.doesNotMatch(summary, /all tests passed|requirements satisfied/i);
+  const body = storyPullRequestBody(story(), null, { evidence: summary });
+  assert.match(body, /### Evidence\n\n- Completion: \*\*Incomplete/);
+  assert.match(storyPullRequestBody(story(), null, {}), /### Evidence\n\n_The evidence matrix could not be evaluated for this preview\._/);
 });
 
 test('lifecycle words never claim completion', () => {

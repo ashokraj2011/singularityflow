@@ -340,7 +340,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         facets: { coverage: 'not-applicable', execution: 'not-applicable', assurance: 'not-applicable', review: omission.satisfied ? 'decided' : 'pending', freshness: 'current', exception: 'not-applicable' }
       }, {
         applicability: omission,
-        actions: [{ kind: 'decide', command: `singularity-flow decision applicability --responsibility ${responsibility} --reason "<why it does not apply>"` }]
+        // A recorded decision is not offered again: deciding anew would replace it and change the inputs.
+        actions: omission.satisfied ? [] : [{ kind: 'decide', command: `singularity-flow decision applicability --responsibility ${responsibility} --reason "<why it does not apply>"` }]
       });
       if (!omission.satisfied) {
         row.findings.push(finding('APPLICABILITY_DECISION_REQUIRED',

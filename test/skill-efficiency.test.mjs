@@ -112,8 +112,10 @@ test('only low-risk read-only skills may trigger automatically', async () => {
   // sflow-docs earns a place here for the same reason the rest do: `explain` is an L0 read that
   // cannot touch governed state, and "how do approvals work?" is precisely the phrasing a newcomer
   // uses. It is also the only entry whose contract forbids answering from the model's own memory.
+  // sflow-evidence relays `evidence matrix --json`, the same kind of read: "is this Story done?" is
+  // answered by the engine's label, never by the model.
   assert.deepEqual(policy.automaticInvocationAllowlist, [
-    'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-home', 'sflow-logs',
+    'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-evidence', 'sflow-help', 'sflow-home', 'sflow-logs',
     'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-receipt', 'sflow-recommend',
     'sflow-status'
   ]);

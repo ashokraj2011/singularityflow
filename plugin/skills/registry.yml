@@ -19,6 +19,7 @@ automaticInvocationAllowlist:
   - sflow-advise
   - sflow-docs
   - sflow-doctor
+  - sflow-evidence
   - sflow-help
   - sflow-home
   - sflow-logs
@@ -133,6 +134,7 @@ skills:
   sflow-constitution: { class: mutation, executionBoundary: repository }
   sflow-design: { class: generative, maximumTokenOverride: 905, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
   sflow-docs: { class: echo, executionBoundary: machine }
+  sflow-evidence: { class: echo, executionBoundary: repository }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
   sflow-import: { class: mutation, executionBoundary: repository }

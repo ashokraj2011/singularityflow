@@ -131,11 +131,20 @@ test('first-run completion has replayable authority and verification cannot repl
     } finally { await writeFile(greeting, approved); }
   });
 
-  await t.test('tracked generated-looking paths are source and recovery commands match lifecycle status', async () => {
+  await t.test('tracked generated-looking paths are source once committed, and recovery commands match lifecycle status', async () => {
     for (const relative of ['build/runtime.mjs', 'coverage/runtime.test.mjs', 'dist/runtime.mjs', 'vendor/runtime.mjs']) {
       await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
       await writeFile(path.join(root, relative), 'export const untested = true;\n');
       git('add', '-f', relative);
+      if (/\.test\.mjs$/u.test(relative)) {
+        // Test automation always belongs to the candidate, so an untested test is stale at once.
+        await assert.rejects(guard, (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE' && error.details.changedPaths.includes(relative));
+      } else {
+        // Staged but uncommitted, a file no plan names never reached the tested candidate [D9].
+        assert.equal((await guard()).sourcePhase, 'implement');
+      }
+      // Committed out of band, it is part of what ships, so the tested evidence is stale.
+      git('commit', '-q', '-m', `Commit ${relative} out of band`);
       await assert.rejects(guard, (error) => error.code === 'PRIOR_CODE_TEST_EVIDENCE_STALE'
         && error.details.changedPaths.includes(relative)
         && error.details.repairCommand.includes('reopen TOY-001 --to implement'));
@@ -152,7 +161,7 @@ test('first-run completion has replayable authority and verification cannot repl
       active.lineage.submissions = active.lineage.submissions.filter((entry) => entry.phase !== 'implement');
       await assert.rejects(() => assertReviewCodeEvidenceFresh(root, config, active, active.phases.verify),
         (error) => error.details.repairCommand === null && /Restore the original governed Code submission/.test(error.message));
-      git('rm', '--cached', relative); await rm(path.join(root, relative));
+      git('reset', '-q', '--hard', 'HEAD~1');
     }
   });
 

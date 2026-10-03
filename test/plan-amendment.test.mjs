@@ -130,13 +130,15 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module reads the approved value from a small helper.'));
   // A scratch note is prose the plan does not name: left out and kept, never committed [E2G-027].
   await write('NOTES.md', 'Remember to tell the team about the helper.\n');
-  // The helper is code the plan does not name, and the tests would run with it: refused before
-  // anything is committed, with the governed route to account for it.
+  // The helper is code no plan names: the tests run on the candidate without it [D9], so the value
+  // module cannot load, and the refusal names the file and the governed route to account for it.
+  // Nothing is committed and the helper stays in the worktree.
   const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /GENERATION_EXCLUSIONS_UNSAFE|changed files its plan does not name/);
-  assert.match(refused.stdout + refused.stderr, /src\/helper\.mjs/);
-  assert.doesNotMatch(refused.stdout + refused.stderr, /: NOTES\.md/, 'prose is not unsafe');
+  assert.match(refused.stdout + refused.stderr, /It ran on the candidate without these files no plan names: src\/helper\.mjs\./);
+  assert.match(refused.stdout + refused.stderr, /decision plan --add-location/);
+  assert.doesNotMatch(refused.stdout + refused.stderr, /no plan names: [^\n]*NOTES\.md/, 'prose never changes what the tests execute');
+  assert.equal(await readFile(path.join(root, 'src/helper.mjs'), 'utf8'), 'export const approved = 2;\n', 'the helper stays in the worktree');
 
   cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');

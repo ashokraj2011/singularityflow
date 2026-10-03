@@ -31,13 +31,14 @@ import {
   commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
-import { codeCandidateScope } from './candidate-scope.mjs';
+import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
+import { committedChangedPaths } from './git.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry,
   isGeneratedOutputPath, verifyWorkIntervalBaseline
@@ -199,12 +200,24 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
   const subject = { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation };
   const permission = { pathContext, boundary: reviewOwnRepairBoundary(workflow, phase), phaseId: phase.id };
   let changedPaths = await unpermittedReviewPaths(root, packet.evidenceCommit, subject, permission);
+  let comparisonBase = packet.evidenceCommit;
   // A review pinned to one step's tests (testEvidenceFrom) consumes exactly that tested tree.
   if (changedPaths.length && !pinnedTestEvidenceSource(workflow, phase)) {
     const base = await governedReviewBaseline(root, config, workflow, {
       phase, source, evidenceCommit: packet.evidenceCommit, pathContext
     });
-    if (base !== packet.evidenceCommit) changedPaths = await unpermittedReviewPaths(root, base, subject, permission);
+    if (base !== packet.evidenceCommit) {
+      changedPaths = await unpermittedReviewPaths(root, base, subject, permission);
+      comparisonBase = base;
+    }
+  }
+  // An uncommitted file no plan names was never part of the tested candidate, so it cannot make it
+  // stale [D9]; once committed it is part of what ships, and it does.
+  const outsidePlan = changedPaths.length
+    ? await outsideEveryCandidate(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow) : null;
+  if (outsidePlan) {
+    const committed = new Set(committedChangedPaths(root, comparisonBase));
+    changedPaths = changedPaths.filter((candidate) => committed.has(candidate) || !outsidePlan(candidate));
   }
   if (changedPaths.length) {
     // One evaluator maps the change to its obligations and the returns the workflow permits [E2G-022].
@@ -789,16 +802,19 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const pathContext = applicationPathContext(config, workflow);
   const allApplicationEntries = changeSet.entries
     .filter((entry) => isApplicationChangeEntry(entry, pathContext));
-  // The candidate is what the plan names for this step [E2G-027, D9]. Tests run in the worktree, so
-  // an excluded file that could change what they execute is refused; prose is left out and kept.
+  // The candidate is what the plan names for this step [E2G-027, D9]. A file no step's plan names
+  // stays in the worktree and the tests run without it on a materialized candidate; prose is simply
+  // left out. A file another step's plan names belongs to that step's generation, and the tests here
+  // would run with it while this generation left it out, so it is refused.
   const scope = await codeCandidateScope(itemDirectory, workflow, phase);
   const entryPaths = (entry) => [entry.oldPath, entry.newPath].filter(Boolean);
   const excludedChanges = scope ? [...new Set(allApplicationEntries.flatMap(entryPaths))].filter((candidate) => !scope.allows(candidate)).sort() : [];
-  const unsafeExclusions = excludedChanges.filter((candidate) => scope.unsafe(candidate));
+  const outside = scope ? await outsideEveryCandidate(itemDirectory, workflow) : null;
+  const unsafeExclusions = excludedChanges.filter((candidate) => scope.unsafe(candidate) && !outside?.(candidate));
   if (unsafeExclusions.length) {
     throw new SingularityFlowError(
-      `Phase ${phase.id} has changed files its plan does not name, and tests would run with them while the generation left them out: ${unsafeExclusions.join(', ')}. `
-      + 'Account for each that belongs with singularity-flow decision plan, or move it out of the worktree, then publish again.',
+      `Phase ${phase.id} has changed files another step's plan names, and tests would run with them while this generation left them out: ${unsafeExclusions.join(', ')}. `
+      + 'Publish them with the step that owns them, account for them here with singularity-flow decision plan, or move them out of the worktree, then publish again.',
       {
         code: 'GENERATION_EXCLUSIONS_UNSAFE',
         details: {

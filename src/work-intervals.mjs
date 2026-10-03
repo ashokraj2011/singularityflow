@@ -7,6 +7,7 @@ import {
   buildRepositoryChangeSet, changeSetPaths, repositoryCaseInsensitivePaths, repositoryChangeSetDigest
 } from './repository-change-set.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
+import { outsideEveryCandidate } from './candidate-scope.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
@@ -410,10 +411,11 @@ export async function reconcileWorkInterval(root, config, workflow, {
     reasons.push(`protected paths changed: ${protectedChanged.join(', ')}`);
   }
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
-  // Prose the delivery left out on purpose stays in the worktree and is not a dirty target [E2G-027].
-  const keptOut = new Set((phase.deliveryEvidence?.excludedChanges ?? []).filter((candidate) => /\.(?:md|markdown|mdx|rst|adoc|txt)$/iu.test(candidate)));
+  // A file no plan names stays in the worktree, outside every generation, and is not a dirty
+  // target [E2G-027, D9].
+  const outside = await outsideEveryCandidate(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow) ?? (() => false);
   const uncommittedApplicationPaths = changedFiles(root)
-    .filter((candidate) => !keptOut.has(candidate) && isApplicationChangePath(candidate, {
+    .filter((candidate) => !outside(candidate) && isApplicationChangePath(candidate, {
       ...pathContext, untracked: untracked.has(candidate)
     }));
   const dirtyTargetBlocked = requireCleanTarget && uncommittedApplicationPaths.length > 0;

@@ -27,7 +27,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  branch, changedFiles, commitIsAncestor, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -161,7 +161,8 @@ import {
 } from './specifications.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
-import { codeCandidateScope, keptOutProse } from './candidate-scope.mjs';
+import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
+import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from './candidate-isolation.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -3036,12 +3037,13 @@ function rebuildUsageAggregates(workflow) {
 export async function sourceTreeHash(root, ...governanceSources) {
   assertNoHiddenWorktreeChanges(root, 'Application source hashing');
   const pathContext = applicationPathContext(...governanceSources);
-  // Prose no code step's plan names is kept out of every generation, so it is not part of the
-  // tree a generation binds either [E2G-027].
+  // The candidate is HEAD plus the uncommitted changes some step's plan names [E2G-027, D9]. A file
+  // no plan names counts as committed: its uncommitted edits stay in the worktree outside every
+  // generation and verification runs without them, while committing it changes the bound tree.
   const [governanceConfig, governanceWorkflow] = governanceSources;
-  const keptOut = governanceWorkflow?.workItem?.id && governanceConfig
-    ? await keptOutProse(workDir(root, governanceConfig, governanceWorkflow.workItem.id), governanceWorkflow)
-    : () => false;
+  const keptOut = (governanceWorkflow?.workItem?.id && governanceConfig
+    ? await outsideEveryCandidate(workDir(root, governanceConfig, governanceWorkflow.workItem.id), governanceWorkflow)
+    : null) ?? (() => false);
   // The index is a byte-framed Git record, not a UTF-8 line. Decode through the registered
   // parser so a malformed record or an unrepresentable filename cannot silently change the
   // sealed application-source digest. The object format must be observed before parsing OIDs.
@@ -3058,11 +3060,19 @@ export async function sourceTreeHash(root, ...governanceSources) {
       // host-native path normalizer would rewrite a literal POSIX backslash filename.
       return { path: entry.path.value, mode: entry.mode, object: entry.oid, stage: entry.stage };
     })
-    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext) && !keptOut(entry.path));
+    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext));
   const unstaged = new Set(run('git', [
     'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD', '--'
   ], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
   const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
+  const uncommittedOutside = indexed.filter((entry) => unstaged.has(entry.path) && keptOut(entry.path)).map((entry) => entry.path);
+  const committedOutside = headTreeEntries(root, uncommittedOutside);
+  for (const relative of uncommittedOutside) {
+    unstaged.delete(relative);
+    const atHead = committedOutside.get(relative);
+    if (atHead) byPath.set(relative, { path: relative, mode: atHead.mode, object: atHead.object, stage: 0 });
+    else byPath.delete(relative);
+  }
   for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, {
     ...pathContext, untracked: true
   }) && !keptOut(candidate))) {
@@ -4487,6 +4497,17 @@ export function effectiveEnvironmentQualityCommandCatalog(
     .map((entry, index) => normalizeExternalCommand(entry, index));
 }
 
+/**
+ * A check that ran on the isolated candidate failed: say which files no plan names it ran without,
+ * because a candidate that needs one of them is incomplete until the plan accounts for it [D9].
+ */
+function isolatedRunHint(error, check) {
+  if (!check?.excludedFromRun?.length || !/^CODE_TEST_/u.test(String(error?.code ?? ''))) return error;
+  error.message = `${error.message} It ran on the candidate without these files no plan names: ${check.excludedFromRun.join(', ')}. `
+    + 'If the candidate needs one of them, account for it with singularity-flow decision plan --add-location <clause>=<path> --reason <why>.';
+  return error;
+}
+
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
   commandProvenance = new Map()
 } = {}) {
@@ -4499,6 +4520,24 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
+  // Changed files no plan names stay in the worktree, and verification runs on exactly the
+  // candidate in a worktree materialized beside it [E2G-027, D9].
+  const isolationNeed = commands.length ? await candidateIsolationNeed(root, config, workflow) : null;
+  let isolation = null;
+  if (isolationNeed?.excluded.length) {
+    isolation = workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true
+      ? { available: false, reason: 'the test-recovery pilot captures reports from this worktree' }
+      : await materializeCandidate(root, { included: isolationNeed.included, treeHash: (directory) => sourceTreeHash(directory, config, workflow) });
+    if (!isolation.available) {
+      throw new SingularityFlowError(
+        `Phase ${phase.id} has changed files no plan names, and the checks cannot run without them because ${isolation.reason}: ${isolationNeed.excluded.join(', ')}. `
+        + 'Account for each that belongs with singularity-flow decision plan, or move it out of the worktree, then try again.',
+        { code: 'GENERATION_EXCLUSIONS_UNSAFE', details: { phase: phase.id, paths: isolationNeed.excluded, isolation: isolation.reason,
+          recoveryCommands: isolationNeed.excluded.slice(0, 3).map((candidate) =>
+            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`) } }
+      );
+    }
+  }
   try {
   for (const [index, value] of commands.entries()) {
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
@@ -4527,6 +4566,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       { label: `Quality command '${policy.id}' working directory`, mustExist: true, type: 'directory' }
     );
     const commandRoot = commandTarget.absolute;
+    // Reports are staged and read in the worktree; the command itself runs on the candidate.
+    const executionRoot = isolation
+      ? path.resolve(isolation.root, policy.workingDirectory && policy.workingDirectory !== '.' ? policy.workingDirectory : '.')
+      : commandRoot;
     let restoreTransientResult = null;
     let structuredResultTarget = null;
     if (policy.kind === 'test' && policy.result?.path) {
@@ -4582,7 +4625,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     }
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
-        cwd: commandRoot,
+        cwd: executionRoot,
         env: commandEnvironment,
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true,
@@ -4596,11 +4639,12 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
           : null
       })
       : await runQualityCommand(policy.command, [], {
-        cwd: commandRoot, env: commandEnvironment, shell: true,
+        cwd: executionRoot, env: commandEnvironment, shell: true,
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
-    const completedTreeSha256 = await sourceTreeHash(root, config, workflow);
+    if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path);
+    const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
       : null;
@@ -4608,6 +4652,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
       workingDirectory: policy.workingDirectory,
       resultIsolated: Boolean(structuredResultTarget),
+      ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...isolationNeed.excluded] } : {}),
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
@@ -4645,6 +4690,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     if (activeTransientRestore) await activeTransientRestore();
     for (const check of checks) await restoreTransientQualityResult(check);
     throw error;
+  } finally {
+    await isolation?.dispose?.();
   }
   return checks;
 }
@@ -4761,7 +4808,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         }
         passing.push(command);
       } catch (error) {
-        throw await attachRequiredTestExecution(error, root, command, check);
+        throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
       }
     }
   } finally {
@@ -5166,7 +5213,7 @@ async function submitPhaseTransition(root, config, workflow, {
             throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
           }
         } catch (error) {
-          throw await attachRequiredTestExecution(error, root, command, check);
+          throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
         }
         testExecutions.push({
           commandId: command.id, attemptId: receipt.attemptId, receiptPath: recorded.path,

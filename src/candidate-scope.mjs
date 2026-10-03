@@ -35,17 +35,23 @@ export async function codeCandidateScope(itemDirectory, workflow, phase) {
 }
 
 /**
- * Whether a file is prose that no code step's plan names [E2G-027]. Such a file is kept out of
- * every generation, so it is also kept out of the application tree a publication, submission or
- * approval binds: a person may edit or delete their note without making the tested code stale.
- * Never true when the Story scopes no code candidate.
+ * Whether a changed file is outside every code step's candidate: no step's plan names it as an
+ * expected path, test, supporting change or amendment [E2G-027]. Such a file stays in the worktree
+ * and is never part of a generation, so it is not part of the application tree a publication,
+ * submission or approval binds either, and verification runs without it (src/candidate-isolation.mjs).
+ * Null when the Story scopes no code candidate, so every change is the candidate.
  */
-export async function keptOutProse(itemDirectory, workflow) {
+export async function outsideEveryCandidate(itemDirectory, workflow) {
   const scopes = [];
   for (const id of workflow?.phaseOrder ?? []) {
     const scope = await codeCandidateScope(itemDirectory, workflow, workflow.phases?.[id]).catch(() => null);
     if (scope) scopes.push(scope);
   }
-  if (!scopes.length) return () => false;
-  return (candidate) => PROSE.test(candidate) && scopes.every((scope) => !scope.allows(candidate));
+  if (!scopes.length) return null;
+  return (candidate) => scopes.every((scope) => !scope.allows(candidate));
+}
+
+/** Prose is the one kind of excluded file that can never change what the tests execute. */
+export function isProse(candidate) {
+  return PROSE.test(candidate);
 }

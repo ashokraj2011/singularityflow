@@ -1560,6 +1560,46 @@ function nullList(value) {
   return value.split('\0').filter(Boolean);
 }
 
+/**
+ * A detached worktree of `commit` in an empty directory, where a candidate's tests run apart from
+ * the developer's worktree [E2G-027, D9]. False when Git cannot create it.
+ */
+export function addCandidateWorktree(root, target, commit = 'HEAD') {
+  return git(['worktree', 'add', '--detach', '--quiet', '--', target, commit], { cwd: root, allowFailure: true }).status === 0;
+}
+
+/** Remove a candidate worktree's registration; the caller removes the directory. */
+export function removeCandidateWorktree(root, target) {
+  git(['worktree', 'remove', '--force', '--', target], { cwd: root, allowFailure: true });
+  git(['worktree', 'prune'], { cwd: root, allowFailure: true });
+}
+
+/** The committed mode and object of each of `paths` HEAD has, keyed by path. */
+export function headTreeEntries(root, paths) {
+  const entries = new Map();
+  for (let start = 0; start < paths.length; start += 200) {
+    const listed = git(['ls-tree', '-z', '--full-tree', 'HEAD', '--', ...paths.slice(start, start + 200).map((entry) => `:(literal)${entry}`)], { cwd: root, allowFailure: true });
+    if (listed.status !== 0) continue;
+    for (const record of nullList(listed.stdout)) {
+      const tab = record.indexOf('\t');
+      const [mode, , object] = record.slice(0, tab).split(' ');
+      entries.set(record.slice(tab + 1), { mode, object });
+    }
+  }
+  return entries;
+}
+
+/** Paths the commits from `base` to HEAD changed. */
+export function committedChangedPaths(root, base) {
+  return nullList(git(['diff', '--name-only', '-z', '--no-renames', base, 'HEAD', '--'], { cwd: root, allowFailure: true }).stdout ?? '');
+}
+
+/** Directories `.gitignore` excludes, repository-relative without a trailing slash. */
+export function ignoredDirectories(root) {
+  return nullList(git(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: root, allowFailure: true }).stdout ?? '')
+    .filter((entry) => entry.endsWith('/')).map((entry) => entry.slice(0, -1));
+}
+
 /** Files Git does not track and `.gitignore` does not exclude. */
 export function untrackedFiles(root) {
   return nullList(git(['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);

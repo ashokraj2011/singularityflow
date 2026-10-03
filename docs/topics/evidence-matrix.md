@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 18
+version: 19
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -92,7 +92,7 @@ A delivered change to a path no row names is accounted for, never deleted to sat
 
 ### What a code step's candidate contains
 
-When the Story plans its claims, a code step's candidate is what the plan names for that step: the expected paths of the rows allocated to it, their planned tests, supporting changes and the paths a plan amendment accounted for. Test automation always belongs. Any other changed file is left out: it stays in your worktree untouched, is never adopted or committed, and the delivery receipt lists it under `excludedChanges`. A note or other prose is left out quietly, and you may edit or delete it later without making the generation stale. Code the plan does not name is refused with `GENERATION_EXCLUSIONS_UNSAFE` before anything is committed, because the tests run in your worktree and would execute it.
+When the Story plans its claims, a code step's candidate is what the plan names for that step: the expected paths of the rows allocated to it, their planned tests, supporting changes and the paths a plan amendment accounted for. Test automation always belongs. Any other changed file is left out: it stays in your worktree untouched, is never adopted or committed, and the delivery receipt lists it under `excludedChanges`. A note or other prose is left out quietly, and you may edit or delete it later without making the generation stale. Publication, submission and approval bind the candidate, HEAD plus the planned changes, so editing these files later makes nothing stale; committing one outside a governed step does, because then it ships. When such a file is code no step's plan names, the step's checks run in a temporary worktree materialized from the candidate (HEAD and the planned changes, with dependency folders such as `node_modules` linked in), so it cannot change what the tests execute; nothing in your worktree is cleaned, stashed or reset. If a check fails there because the candidate needs one of those files, the refusal names it; account for it with `decision plan`. A file another step's plan names is refused with `GENERATION_EXCLUSIONS_UNSAFE`: publish it with that step, account for it here, or move it out of the worktree. When the candidate cannot be materialized, for example while the test-recovery pilot captures reports from your worktree, the checks refuse with `GENERATION_EXCLUSIONS_UNSAFE` too.
 
 ### Implementation bindings
 
@@ -156,7 +156,7 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **`RISK_NOT_WAIVABLE`:** the obligation is stale, untrusted, a review or the scope; repair it instead.
 - **`RISK_DECISION_EXPIRED`, `RISK_DECISION_REVOKED`, `RISK_DECISION_OVERTAKEN`:** the decision no longer covers the obligation; renew it or meet the obligation.
 - **`PRIOR_CODE_TEST_EVIDENCE_STALE`, `PHASE_SOURCE_CHANGED_AFTER_PUBLICATION` or `PHASE_ARTIFACT_ONLY_CHANGES`:** application files changed in a step that delivers no code. The refusal keeps them in your worktree, names the obligations they touch and the code step that owns each, and lists the returns the workflow permits; see `singularity-flow explain rejection-and-rework`.
-- **`GENERATION_EXCLUSIONS_UNSAFE`:** the code step changed code its plan does not name; account for it with `decision plan --add-location` or `--add-supporting`, or move it out of the worktree, then publish again.
+- **`GENERATION_EXCLUSIONS_UNSAFE`:** a changed file belongs to another step's plan, or the checks could not run on a materialized candidate; publish it with its step, account for it with `decision plan --add-location` or `--add-supporting`, or move it out of the worktree, then try again.
 - **A changed path is not claimed by a clause:** account for it with `decision plan --add-location` or `--add-supporting`, or remove the change if it does not belong to the Story.
 - **`SCOPE_INVENTORY_INCOMPLETE`:** the completeness review waits until every statement has a disposition.
 - **`SCOPE_INVENTORY_CHANGED`:** the inventory changed after you read it; run `singularity-flow evidence scope` again, review it, and confirm the digest it shows now.

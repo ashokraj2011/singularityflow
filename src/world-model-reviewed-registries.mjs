@@ -138,6 +138,14 @@ export const REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS = Object.freeze([
     to: 'sha256:48ddfe38046673188341f2682d813a9ec5c301524f3df3ebefacac83e44c56a3',
     kernelFrom: 'sha256:3b812b54e3e741f4d38d303b59c9632fd29f7e3b7fb697bc52bb056074bee322',
     kernelTo: 'sha256:9eef2d9ef8aba21f15c993c2f1b47d6870b0cacdae9f41d2f8eefd25c755206e'
+  }),
+  Object.freeze({
+    review: 'Story grounding generation-watermark acceptance',
+    effect: 'mechanical',
+    from: 'sha256:48ddfe38046673188341f2682d813a9ec5c301524f3df3ebefacac83e44c56a3',
+    to: 'sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115',
+    kernelFrom: 'sha256:9eef2d9ef8aba21f15c993c2f1b47d6870b0cacdae9f41d2f8eefd25c755206e',
+    kernelTo: 'sha256:f4ec77a2e660afcf350e139c60969bf8571850d4b5d0609b44703955421109b0'
   })
 ]);
 

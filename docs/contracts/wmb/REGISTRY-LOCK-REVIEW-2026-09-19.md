@@ -568,6 +568,89 @@ conformance, World-Model registry, source-digest, polyglot extraction, and histo
 registry-chain suites. This records the implementation review boundary; it does not
 represent an external approval or rewrite an already-published model.
 
+## Story grounding generation-watermark acceptance
+
+**Review boundary:** working tree based on `main@5c5b4271f5b7f44020ac71e7320ecea9cd2126a0`.
+
+Since the last accepted lock at `36c376d7073b334549567365e96f6615296eee3e`, exactly one packaged
+kernel path changed. Commit `1f1c5bbb3c4859fab343e7da2f295332e03cf996` ("Fix workflow rework,
+verification, and authoring consistency") changed `history/story-grounding-activation.mjs` by two
+lines: `resolvePinnedStoryWorldModelGrounding` now takes the grounding packet's `subject.generation`
+from the shared `nextPhaseGeneration(phase)` in `src/phase-generation.mjs` instead of computing
+`Number(phase.generation ?? 0) + 1`. That helper allocates one above both the phase's generation and
+its `generationHighWatermark`. After a restored checkpoint the packet therefore names the generation
+the Story will actually draft, the same one every other lifecycle owner allocates. A malformed
+counter is refused with `GENERATION_COUNTER_INVALID` instead of becoming `NaN`. The reviewed effect:
+
+- `subject.generation` is a field of the Story-owned grounding packet record, which is written under
+  the Story's work-item directory. It does not reach extraction, the Fact Ledger, view selection,
+  rendering, composition input, validation, cache identity or state-branch publication. The rendered
+  grounding block is composed from the pinned saved views alone and does not depend on the subject.
+- No module under `src/world-model/` imports `story-grounding-activation.mjs`. Only Story
+  lifecycle owners outside the kernel load it: `src/state.mjs` for Story-start pinning, which does
+  not reach the changed line, and `src/worldmodel.mjs`, `src/grounding.mjs` and `src/inject.mjs`,
+  which ground and verify phase prompts.
+- `src/phase-generation.mjs` stays outside the source-digest boundary, beside the activation
+  module's other lifecycle imports (`schema-migrations.mjs`, `util.mjs`, `configuration-branch.mjs`,
+  `source-scope.mjs`). It decides which Story generation a packet names, never which facts a model
+  holds. It is not extraction grammar or source admission, which is why `src/traceability-ids.mjs`
+  and `src/configuration-assets.mjs` are inside the boundary and it is not.
+
+The coverage extractor, Extractor Registry, extractor-conformance, View Registry and shared clause
+parser source blobs remain `063af8c31e245f2e6280680edd7693ac135e3b86`,
+`1292f23322023d6821fa68617c2a6cb58697843a`, `da76df8c82092ea78faa29423fb75ac4b671062b`,
+`c3187362f5cca055ff6fd667079ac99acd4d7666` and `5ff379874828dfb246f406aaf4d18e241a187c55` at both
+boundaries. Executed at both boundaries, the 17 extractor manifests are byte-identical apart from
+their implementation identity, conformance receipt and manifest hash: IDs, versions, parsers,
+languages, evidence kinds, Fact types, inputs, outputs, failure policies and permissions are
+unchanged. The View Registry (`sha256:e49b7c3e97b553eace2d94f26a971a5ec9d125be7f54f7dd28fcef55e5b48b14`),
+the candidate schema and the 21 validation checks are unchanged; the validator identity moves with
+the kernel. No extractor algorithm, declared Fact type, parser declaration, permission, View Contract,
+cache policy or publication authority changed. The transition is `mechanical`:
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:9eef2d9ef8aba21f15c993c2f1b47d6870b0cacdae9f41d2f8eefd25c755206e` | `sha256:f4ec77a2e660afcf350e139c60969bf8571850d4b5d0609b44703955421109b0` |
+| Coverage implementation | `sha256:671dd4a11fbe91459f12b683f04653f79a9451c8d4e0440eb2d1a502eab87a77` | `sha256:a05ba3b488ba293c8a9799bd7c7715fa7558ee8dad28bae93bf2979308202c3b` |
+| Coverage conformance receipt | `sha256:ebf5ee6b3036e46640969d6a6097fbddfc4f5264687322f5aa87e3144ce2d745` | `sha256:e7c3c792e2f0896d58d754768505446fb767ab03ba62cef1722b9ccdfcc89441` |
+| Coverage manifest | `sha256:e7c7a9dcc0e2a5a54c2629b5b35629d6e3d51ccb88117afb62730b1d563d2c8f` | `sha256:47463e38790ee1f715e7674fd5b61b869683ff2c2f6649412d2ca8109a603be3` |
+| Built-in Extractor Registry | `sha256:48ddfe38046673188341f2682d813a9ec5c301524f3df3ebefacac83e44c56a3` | `sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115` |
+
+Neither column was copied from a failing assertion. Executing the registry and source-digest modules
+at `36c376d7` and at `24dd4203` (the parent of `1f1c5bbb`) reproduced every previously accepted
+identity from 111 kernel files. Executing them at `1f1c5bbb`, at the review boundary, and on a tree
+that is `24dd4203` plus only the `1f1c5bbb` kernel edit produced the accepted ones.
+
+Both of those trees then ran a deterministic registered-v4 build of the same 116-file repository
+(the four built-in views over this package's `src/world-model/` sources plus clause-tagged
+files). Each published the same 42 files:
+
+- The evidence catalog (3,624 items) is byte-identical.
+- The Fact Ledger is content-identical. All 3,757 Facts keep their claims, types, subjects,
+  statuses, evidence and conflicts. Only their identities moved, because each derivation binds its
+  extractor's implementation identity.
+- `biz.rules` and `dev.hotspots`, each with 5 eligible Facts under a ceiling of 50, selected the
+  same Facts.
+- `arch.contracts` and `dev.impact` have more eligible Facts than their 60- and 40-Fact ceilings.
+  They selected different representatives, including different anchors of the same required
+  types. Selection policy v2 orders candidates by content-addressed Fact ID. Any kernel move can
+  therefore change which Facts fill a view past its ceiling, and every earlier mechanical
+  transition could too.
+
+Reviewed-registry admission never compares an earlier model with a rebuild. It re-derives and
+re-validates the earlier views under that build's own validator identity, so this reshuffle does not
+make a model built before a mechanical transition stale.
+
+The owner suites passed on the review boundary (28 files, 288/288):
+
+- registry, extractor-registry limits, source-digest, implementation-manifest and kernel-stamp;
+- extractor execution, initial-extractor, extraction, view-projection, views and persisted-overview;
+- retained-owner, extraction-profile owner, candidate-snapshot, batched source-read and
+  authority-refresh;
+- runtime, materialization, cache, publication, command, store-integrity and reviewed-registry
+  admission;
+- Story-activation, phase-generation, persisted-contract, polyglot and environment-exclusion.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

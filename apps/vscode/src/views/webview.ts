@@ -6,6 +6,7 @@
  * matters — and there is no reason for two panels in the same extension to disagree about this.
  */
 import type * as vscode from 'vscode';
+import { THEME_STYLE } from './theme.ts';
 import { WORKFLOW_GRAPH_STYLES } from './workflow-graph-svg.ts';
 import { SGOS_GRAPH_STYLES } from './sgos-process-graph-svg.ts';
 export { icon, ICON_NAMES, type IconName } from './icons.ts';
@@ -62,25 +63,25 @@ export const STYLE = `
     --sf-surface-raised: var(--vscode-sideBar-background, var(--sf-surface));
     --sf-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.04);
 
-    --sf-accent: #2e7d32;
-    --sf-accent-hover: #256428;
-    --sf-accent-quiet: rgba(46,125,50,.12);
-    --sf-on-accent: #ffffff;
+    --sf-accent: #3d8e10;
+    --sf-accent-hover: #357c0e;
+    --sf-accent-quiet: rgba(61,142,16,.12);
+    --sf-on-accent: #031005;
     --sf-link: var(--vscode-textLink-foreground, #1263c4);
 
-    --sf-ok: var(--vscode-testing-iconPassed, #2e7d32);
+    --sf-ok: var(--vscode-testing-iconPassed, #3d8e10);
     --sf-wait: var(--vscode-testing-iconQueued, #b26a00);
     --sf-bad: var(--vscode-testing-iconFailed, #c62828);
     --sf-dim: var(--vscode-descriptionForeground);
   }
-  /* The accent has to clear the background it sits on, and a dark editor is a different background.
-     Same hue, lifted so it stays legible rather than turning into a hole in the page. */
+  /* One green, #3d8e10, on either background: it clears the near-black page at 4.7:1, and
+     anything set on a green fill is near-black. */
   @media (prefers-color-scheme: dark) {
     :root {
-      --sf-accent: #3d9a42;
-      --sf-accent-hover: #48ad4d;
-      --sf-accent-quiet: rgba(61,154,66,.16);
-      --sf-on-accent: #06210d;
+      --sf-accent: #3d8e10;
+      --sf-accent-hover: #357c0e;
+      --sf-accent-quiet: rgba(61,142,16,.16);
+      --sf-on-accent: #031005;
     }
   }
 
@@ -1048,7 +1049,7 @@ export function page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>${escape(title)}</title>
-<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}${SGOS_GRAPH_STYLES}</style>
+<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}${SGOS_GRAPH_STYLES}${THEME_STYLE}</style>
 </head><body>
 ${body}
 ${footer}

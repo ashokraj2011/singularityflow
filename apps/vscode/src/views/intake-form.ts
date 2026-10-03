@@ -15,6 +15,7 @@
  */
 import path from 'node:path';
 import { escape, icon } from './webview.ts';
+import { contextStrip, heroHeader, infoNote, stepHeading, tag } from './theme.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
@@ -666,12 +667,16 @@ export function referenceRepositoryEntries(
   return entries;
 }
 
+/** What each scope breaks into, shown as its tag; a Story is where most work starts. */
+const SHAPE_TAGS: Record<Shape, string> = { initiative: 'Multi-Epic', epic: 'Multi-Story', story: 'Single branch' };
+
 function shapeHtml(form: IntakeForm): string {
   return `<div class="choices">
       ${SHAPES.map((shape) => `
       <label class="choice${shape.id === form.shape ? ' chosen' : ''}">
+        ${shape.id === 'story' ? '<span class="sf-ribbon">RECOMMENDED</span>' : ''}
         <input type="radio" name="shape" value="${shape.id}" data-shape="${shape.id}"${shape.id === form.shape ? ' checked' : ''}>
-        <span class="choice-label">${icon(shape.id === 'story' ? 'story' : shape.id === 'epic' ? 'epic' : 'impact')}${escape(shape.label)}</span>
+        <span class="choice-label"><span class="sf-title">${escape(shape.label)}</span>${tag(SHAPE_TAGS[shape.id], shape.id === form.shape ? 'accent' : '')}</span>
         <span class="choice-detail">${escape(shape.leads)}</span>
       </label>`).join('')}
     </div>`;
@@ -688,24 +693,27 @@ function shapeHtml(form: IntakeForm): string {
 function trackerHtml(form: IntakeForm): string {
   return `
     <div class="choices">
-      <label class="choice${form.tracker === 'none' ? ' chosen' : ''}">
+      <label class="choice sf-tracker${form.tracker === 'none' ? ' chosen' : ''}">
         <input type="radio" name="tracker" value="none" data-tracker="none"${form.tracker === 'none' ? ' checked' : ''}>
-        <span class="choice-label">${icon('document')}No tracker</span>
+        <span class="choice-label"><span class="sf-title">No tracker</span></span>
         <span class="choice-detail">Described here and governed in Git. Nothing else is needed.</span>
+        <span class="sf-card-foot"><span>Git native governance</span><span>LOCAL</span></span>
       </label>
-      <label class="choice${form.tracker === 'jira' ? ' chosen' : ''}">
+      <label class="choice sf-tracker${form.tracker === 'jira' ? ' chosen' : ''}">
         <input type="radio" name="tracker" value="jira" data-tracker="jira"${form.tracker === 'jira' ? ' checked' : ''}>
-        <span class="choice-label">${icon('tracker')}Jira</span>
+        <span class="choice-label"><span class="sf-title">Jira</span>${tag('JIRA_PAT')}</span>
         <span class="choice-detail">${form.jiraConfigured
     ? 'Fetched by key: the title, description and acceptance criteria come from the issue.'
     : escape(form.jiraReason ?? 'Not configured on this machine.')}</span>
+        <span class="sf-card-foot"><span>jira issue by key</span><span>${form.jiraConfigured ? 'sync:ready' : 'sync:unconfigured'}</span></span>
       </label>
-      <label class="choice${form.tracker === 'github' ? ' chosen' : ''}">
+      <label class="choice sf-tracker${form.tracker === 'github' ? ' chosen' : ''}">
         <input type="radio" name="tracker" value="github" data-tracker="github"${form.tracker === 'github' ? ' checked' : ''}>
-        <span class="choice-label">${icon('repository')}GitHub Issue</span>
+        <span class="choice-label"><span class="sf-title">GitHub Issue</span>${tag(form.githubConfigured ? 'gh cli ✓' : 'gh cli', form.githubConfigured ? 'accent' : '')}</span>
         <span class="choice-detail">${form.githubConfigured
     ? 'Fetched through the authenticated gh CLI. Repeating the same Issue attaches existing work.'
     : escape(form.githubReason ?? 'GitHub CLI authentication is unavailable.')}</span>
+        <span class="sf-card-foot"><span>gh issue view</span><span>${form.githubConfigured ? 'auth:ready' : 'auth:unavailable'}</span></span>
       </label>
     </div>`;
 }
@@ -716,34 +724,34 @@ function fieldsHtml(form: IntakeForm): string {
 
   if (form.tracker === 'jira') {
     return `
-    <p>
-      <label>${escape(noun)} key <input type="text" value="${escape(form.key)}" data-field="key"
+    <div class="sf-field-row">
+      <label class="field"><span>${escape(noun)} key</span><input type="text" value="${escape(form.key)}" data-field="key"
         placeholder="${form.shape === 'story' ? 'ENG-142' : 'PAY-17'}" size="16"></label>
-    </p>
+    </div>
     <p class="muted">Everything else is read from the issue, so it stays the tracker's to change.</p>`;
   }
 
   if (form.tracker === 'github') {
     return `
-    <p><label>Governed Story ID <input type="text" value="${escape(form.id)}" data-field="id"
-      placeholder="GH-checkout-142" size="24"></label></p>
-    <p><label>GitHub Issue <input type="text" value="${escape(form.key)}" data-field="key"
-      placeholder="owner/repository#142" size="56"></label></p>
+    <div class="sf-field-row">
+      <label class="field"><span>Governed Story ID</span><input type="text" value="${escape(form.id)}" data-field="id"
+        placeholder="GH-checkout-142" size="24"></label>
+      <label class="field"><span>GitHub Issue</span><input type="text" value="${escape(form.key)}" data-field="key"
+        placeholder="owner/repository#142" size="56"></label>
+    </div>
     <p class="muted">Title, description, labels and acceptance checkboxes are read before any branch is created.</p>`;
   }
 
   return `
     ${mintsIdentifier(form) ? `
     <p class="muted">${icon('branch')}The identifier is minted when the Epic reserves its branch, so
-      there is nothing to choose here.</p>` : `
-    <p>
-      <label>Identifier <input type="text" value="${escape(form.id)}" data-field="id"
-        placeholder="${form.shape === 'story' ? 'checkout-retry' : 'faster-checkout'}" size="24"></label>
-    </p>`}
-    <p>
-      <label>Title <input type="text" value="${escape(form.title)}" data-field="title"
+      there is nothing to choose here.</p>` : ''}
+    <div class="sf-field-row">${mintsIdentifier(form) ? '' : `
+      <label class="field"><span>Identifier</span><input type="text" value="${escape(form.id)}" data-field="id"
+        placeholder="${form.shape === 'story' ? 'checkout-retry' : 'faster-checkout'}" size="24"></label>`}
+      <label class="field"><span>${escape(noun)} title</span><input type="text" value="${escape(form.title)}" data-field="title"
         placeholder="What this is called" size="42"></label>
-    </p>
+    </div>
     ${form.shape === 'story' ? `<div class="story-description-editor">
       <label class="field full"><span>What is being asked for</span>
         <textarea data-field="description" rows="8" cols="64" class="story-description">${escape(form.description)}</textarea></label>
@@ -764,20 +772,20 @@ function fieldsHtml(form: IntakeForm): string {
         </p>
       </div>` : ''}
       ${form.enhanceError ? `<div class="notice error" role="alert">${escape(form.enhanceError)}</div>` : ''}
-    </div>` : `<p>
-      <label>What is being asked for<br>
+    </div>` : `<div class="sf-field-stack">
+      <label class="field"><span>What is being asked for</span>
         <textarea data-field="description" rows="3" cols="64">${escape(form.description)}</textarea></label>
-    </p>`}
+    </div>`}
     ${form.shape === 'epic' ? `
-    <p>
-      <label>What would make this a success<br>
+    <div class="sf-field-stack">
+      <label class="field"><span>What would make this a success</span>
         <textarea data-field="goal" rows="2" cols="64">${escape(form.goal)}</textarea></label>
-    </p>` : ''}
+    </div>` : ''}
     ${form.shape === 'story' ? `
-    <p>
-      <label>How it will be judged done<br>
+    <div class="sf-field-stack">
+      <label class="field"><span>How it will be judged done <small>(acceptance criteria)</small></span>
         <textarea data-field="acceptanceCriteria" rows="3" cols="64" placeholder="One per line">${escape(form.acceptanceCriteria)}</textarea></label>
-    </p>
+    </div>
     <p class="muted">Each line becomes an acceptance criterion. In code workflows with traceability
       enabled, executable tests later use qualified tags such as <code>@ac:WORK-ID:AC-001</code>;
       planned product source uses <code>@clause:WORK-ID:REQ-001</code> followed by how the change meets it, for source-bound clauses.
@@ -1180,44 +1188,40 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
   const recoveryRoute = commandGuidance(form.recoveryRouteCommand);
   return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">
   ${startWizardProgress(journey)}
-  <header>
-    <h1>${icon('epic', { size: 20 })}Start work</h1>
-    <p class="meta">Work arrives in three shapes and with or without a tracker. Both are answered
-      here, and the rest of the form follows from the answers.</p>
-    ${form.targetRepository ? `<p class="meta">Target: ${form.targetWorkspace
-    ? `workspace <strong>${escape(form.targetWorkspace)}</strong> · ` : ''}repository
-      <strong>${escape(form.targetRepository)}</strong>${form.targetBranch
-    ? ` · branch <code>${escape(form.targetBranch)}</code>` : ''}</p>` : ''}
-    ${form.shape === 'story' ? `<p class="meta">This Story gets a dedicated Git checkout. The target
-      branch, index, and uncommitted files above stay unchanged; the editor opens the new checkout
-      only after its governed start succeeds.</p>` : ''}
-  </header>
+  ${heroHeader({
+    title: 'Start new governed work',
+    status: problems.length ? 'Needs input' : 'Gates ready',
+    subtitle: 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'
+  })}
+  ${contextStrip([
+    { key: 'Target_workspace', value: form.targetWorkspace ?? '', chip: true },
+    { key: 'Repo', value: form.targetRepository ?? '' },
+    { key: 'Current_base', value: form.targetBranch ? `git:${form.targetBranch}` : '', accent: true }
+  ])}
+  ${form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its governed start succeeds.') : ''}
 
-  <section>
-    <h2>${icon('capability')}What are you starting?</h2>
-    ${shapeHtml(form)}
-  </section>
+  <div class="sf-panels">
+    <section class="sf-panel">
+      ${stepHeading(1, 'What scope are you starting?', 'Choose by what happens afterwards: an Initiative breaks into Epics, an Epic into Stories, and a Story delivers one reviewed change.')}
+      ${shapeHtml(form)}
+    </section>
+    <section class="sf-panel">
+      ${stepHeading(2, 'Where is it tracked?', 'A tracker is optional. Without one, the work is described here and governed in Git commits.')}
+      ${trackerHtml(form)}
+    </section>
+  </div>
 
-  <section>
-    <h2>${icon('tracker')}Where is it tracked?</h2>
-    ${trackerHtml(form)}
-  </section>
-
-  <section>
-    <h2>${icon('document')}The ${escape(noun.toLowerCase())}</h2>
+  <section class="sf-panel">
+    <div class="sf-panel-head">${stepHeading(3, `${noun} specification & identification`)}${form.shape === 'story' ? '<span class="sf-format">Format: Markdown GFM</span>' : ''}</div>
     ${fieldsHtml(form)}
   </section>
 
-  ${profileHtml(form)}
-  ${storyWorkflowHtml(form)}
-  ${pocReadinessHtml(form)}
-  ${storyAttachmentsHtml(form)}
-  ${referenceRepositoriesHtml(form)}
-  ${baseBranchHtml(form)}
-  ${form.shape === 'story' ? testRecoveryHtml(form) : ''}
-  ${inFlightHtml(form)}
+  ${numberedSections([
+    profileHtml(form), storyWorkflowHtml(form), pocReadinessHtml(form), storyAttachmentsHtml(form),
+    referenceRepositoriesHtml(form), baseBranchHtml(form), form.shape === 'story' ? testRecoveryHtml(form) : '', inFlightHtml(form)
+  ].join(''), 4)}
 
-  <section>
+  <section class="sf-panel">
     ${problems.length
     ? `<h2>${icon('bad')}Before this can start</h2>${summaryProblems.length
       ? `<ul class="blockers">${summaryProblems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
@@ -1242,6 +1246,17 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
     </p>
   </section></div>`;
+}
+
+/**
+ * Continue the section numbers through the optional sections the shape and workflow add, so the
+ * whole form reads as one numbered sequence. Each optional section's leading icon gives way to its
+ * number, as in the first three.
+ */
+function numberedSections(html: string, first: number): string {
+  let step = first - 1;
+  return html.replace(/<section>(\s*)<h2>(?:<svg class="ico[^"]*"[\s\S]*?<\/svg>)?/gu,
+    (_match, space: string) => `<section class="sf-panel">${space}<h2><span class="sf-step">${String(++step).padStart(2, '0')}</span>`);
 }
 
 /** The page reports intent; every value is re-validated before it reaches the CLI. */

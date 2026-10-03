@@ -5802,9 +5802,10 @@ test('intake names the exact workspace, repository, and branch it will mutate', 
     targetRepository: '/workspaces/rule-engine/repos/ruleengine',
     targetBranch: 'WRK-2028'
   }));
-  assert.match(html, /workspace <strong>Rule-engine<\/strong>/);
-  assert.match(html, /repository\s+<strong>\/workspaces\/rule-engine\/repos\/ruleengine<\/strong>/);
-  assert.match(html, /branch <code>WRK-2028<\/code>/);
+  // One status line names all three, as the keys a terminal would print.
+  assert.match(html, /<dt>Target_workspace:<\/dt><dd class="chip">Rule-engine<\/dd>/);
+  assert.match(html, /<dt>Repo:<\/dt><dd>\/workspaces\/rule-engine\/repos\/ruleengine<\/dd>/);
+  assert.match(html, /<dt>Current_base:<\/dt><dd class="chip accent">git:WRK-2028<\/dd>/);
 });
 
 /** Sentences in the fixtures contain regex metacharacters; matching one literally has to say so. */

@@ -11,6 +11,7 @@ import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, ty
 import { isProfilePersonaId, resolveProfilePersona, type ProfilePersona } from './profile-personas.ts';
 import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 import { MicrotaskCoalescer } from '../single-flight.ts';
+import { HELP_COMMANDS, HELP_TOPICS, LINK_HELP, SECTION_HELP } from './navigator-help.ts';
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
@@ -229,6 +230,58 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'prompt-audit', label: 'Prompt audit', description: 'what was sent to models', icon: 'prompt', command: ACTION_COMMANDS['prompt-audit']! },
   { id: 'help-open', label: 'Help Center', description: 'offline guides and commands', icon: 'help', command: ACTION_COMMANDS['help-open']! }
 ]);
+
+/**
+ * Contextual help for the menus: a card under the row a person hovers or focuses, with what the
+ * menu is for, the same thing from a terminal, and the guide that explains it. `?` pins it for the
+ * focused row and Escape closes it. Built with textContent only: the catalogue is data.
+ */
+const HELP_SCRIPT = `
+        const helpCatalogue=(()=>{try{return JSON.parse(document.body.dataset.help||'{}');}catch{return {};}})();
+        const popover=document.getElementById('sf-help');
+        const HELP_TARGETS='summary.section-heading,.section-link,.next-action,.brand-home,.brand-persona,.workspace-switch,.icon-button,.empty-action,.node-row[data-selection-key^="node:favorite:"]';
+        let helpFor=null, showTimer=null, hideTimer=null;
+        const helpKey=(target)=>{
+          if(target.matches('summary.section-heading')){const section=target.closest('details.section');return section?'section:'+section.dataset.section:null;}
+          const key=target.dataset.selectionKey||'';
+          if(key.startsWith('node:favorite:')) return 'link:'+key.slice('node:favorite:'.length);
+          return target.dataset.action?'link:'+target.dataset.action:null;
+        };
+        const element=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;};
+        const hideHelp=()=>{clearTimeout(showTimer);popover.hidden=true;if(helpFor)helpFor.removeAttribute('aria-describedby');helpFor=null;};
+        const showHelp=(target)=>{
+          const entry=helpCatalogue[helpKey(target)]; if(!entry){hideHelp();return;}
+          clearTimeout(hideTimer); popover.replaceChildren();
+          popover.append(element('div','help-title',entry.title), element('p','help-summary',entry.summary));
+          if(entry.cli){const cli=element('div','help-cli');cli.append(element('code','',entry.cli));const copy=element('button','help-copy','Copy');copy.type='button';copy.dataset.helpCopy=entry.cli;cli.append(copy);popover.append(cli);}
+          const actions=element('div','help-actions');const guide=element('button','help-guide','Open guide');guide.type='button';guide.dataset.helpTopic=entry.topic;
+          actions.append(guide, element('span','help-hint','? pins · Esc closes'));popover.append(actions);
+          popover.hidden=false; helpFor=target; target.setAttribute('aria-describedby','sf-help');
+          const row=target.getBoundingClientRect(); const height=popover.offsetHeight;
+          const below=row.bottom+6; popover.style.top=(below+height<window.innerHeight-4?below:Math.max(4,row.top-height-6))+'px';
+        };
+        document.addEventListener('mouseover',(event)=>{
+          if(event.target.closest('#sf-help')){clearTimeout(hideTimer);return;}
+          const target=event.target.closest(HELP_TARGETS); if(!target||target===helpFor)return;
+          clearTimeout(showTimer); showTimer=setTimeout(()=>showHelp(target),450);
+        });
+        document.addEventListener('mouseout',(event)=>{
+          const target=event.target.closest(HELP_TARGETS+',#sf-help'); if(!target)return;
+          if(event.relatedTarget&&(target.contains(event.relatedTarget)||event.relatedTarget.closest?.('#sf-help')))return;
+          clearTimeout(showTimer); hideTimer=setTimeout(hideHelp,180);
+        });
+        document.addEventListener('focusin',(event)=>{const target=event.target.closest(HELP_TARGETS);if(target&&event.target.matches(':focus-visible'))showHelp(target);});
+        document.addEventListener('focusout',(event)=>{if(!event.relatedTarget||!event.relatedTarget.closest?.('#sf-help'))hideTimer=setTimeout(hideHelp,120);});
+        document.addEventListener('keydown',(event)=>{
+          if(event.key==='Escape'&&!popover.hidden){hideHelp();return;}
+          if(event.key==='?'){const target=document.activeElement?.closest?.(HELP_TARGETS);if(target){event.preventDefault();popover.hidden||helpFor!==target?showHelp(target):hideHelp();}}
+        });
+        document.querySelector('main')?.addEventListener('scroll',hideHelp,{passive:true});
+        popover.addEventListener('click',(event)=>{
+          const copy=event.target.closest('[data-help-copy]'); if(copy){vscode.postMessage({type:'help-copy',command:copy.dataset.helpCopy});copy.textContent='Copied';return;}
+          const guide=event.target.closest('[data-help-topic]'); if(guide){vscode.postMessage({type:'help-topic',topic:guide.dataset.helpTopic});hideHelp();}
+        });
+`;
 
 const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v2';
 const LEGACY_FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
@@ -451,7 +504,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private receive(message: unknown): void {
     if (!message || typeof message !== 'object') return;
-    const value = message as { type?: unknown; action?: unknown; key?: unknown };
+    const value = message as { type?: unknown; action?: unknown; key?: unknown; topic?: unknown; command?: unknown };
+    if (value.type === 'help-topic' && typeof value.topic === 'string' && HELP_TOPICS.has(value.topic)) {
+      void vscode.commands.executeCommand('singularityFlow.explainTopic', { id: `help:topic:${value.topic}` });
+      return;
+    }
+    if (value.type === 'help-copy' && typeof value.command === 'string' && HELP_COMMANDS.has(value.command)) {
+      void vscode.env.clipboard.writeText(value.command)
+        .then(() => vscode.window.setStatusBarMessage(`Copied: ${value.command}`, 3000));
+      return;
+    }
     if (value.type === 'favorite-remove' && typeof value.action === 'string') {
       void this.removeFavorite(value.action);
       return;
@@ -540,7 +602,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const link = (action: { id: string; label: string; icon: IconName }): string => {
       const label = section === 'inbox' && action.id === 'approvals-open' && this.pendingApprovals
         ? `${action.label} (${this.pendingApprovals})` : action.label;
-      return `<button class="section-link" type="button" data-action="${escape(action.id)}"
+      return `<button class="section-link" type="button" data-action="${escape(action.id)}"${LINK_HELP[action.id]
+        ? ` aria-describedby="sf-help-text-${escape(action.id)}"` : ''}
         data-selection-key="action:${escape(action.id)}">${icon(action.icon, { size: 14 })}<span>${escape(label)}</span></button>`;
     };
     // An idle Work tree already contains Start intake; a second shortcut would be the same action.
@@ -593,7 +656,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const initiallyOpen = section === (this.navigation.workspace ? personaSection : 'workspaces') ? ' open' : '';
     return `<details class="section" data-section="${section}"${initiallyOpen}>
       <summary class="section-heading">
-        <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span></span>
+        <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span>${SECTION_HELP[section]
+          ? `<span class="sr-only">: ${escape(SECTION_HELP[section]!.summary)}</span>` : ''}</span>
         <span class="section-actions">${actions}</span>
       </summary>
       <div class="section-body">${shortcuts}${more}${content}</div>
@@ -621,152 +685,174 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(this.view.webview, token)}">
       <style nonce="${token}">
-        /* The same accent the full-page views use. The sidebar had its own #2f9e44, which matched
-           neither the light nor the dark value in webview.ts, and had no dark or forced-colors
-           handling at all — so one product had three greens depending on where you looked. */
-        :root { color-scheme: light dark; --accent:#2e7d32; --quiet:color-mix(in srgb,var(--accent) 13%,transparent); }
-        @media (prefers-color-scheme: dark) { :root { --accent:#3d9a42; } }
+        /* The Singularity terminal look: near-black panel, hairlines, one green for structure and the
+           next step, monospace for the labels a person scans. Light and high-contrast keep the same
+           structure on the editor's own colours. */
+        :root { color-scheme: light dark;
+          --mono: var(--vscode-editor-font-family, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace);
+          --bg: var(--vscode-sideBar-background); --raised: var(--vscode-list-hoverBackground);
+          --line: var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border)); --line-strong: var(--vscode-panel-border);
+          --text: var(--vscode-sideBar-foreground, var(--vscode-foreground)); --dim: var(--vscode-descriptionForeground);
+          --accent: #3d8e10; --accent-strong: #3d8e10;
+          --quiet: color-mix(in srgb, var(--accent) 13%, transparent); --accent-line: color-mix(in srgb, var(--accent) 55%, transparent); }
+        body.vscode-dark { --bg:#0d110e; --raised:#141b16; --line:#1e2822; --line-strong:#2d3a31; --text:#dfe7e1; --dim:#87948b;
+          --accent:#3d8e10; --accent-strong:#3d8e10; --quiet:rgba(61,142,16,.12); --accent-line:rgba(61,142,16,.65); }
+        body.vscode-light { --bg:#f7faf8; --raised:#ebf2ed; --line:#dae3dd; --line-strong:#c3cfc7; --text:#15211b; --dim:#56675d;
+          --accent:#3d8e10; --accent-strong:#31720d; --quiet:rgba(61,142,16,.08); --accent-line:rgba(61,142,16,.5); }
+        body.vscode-high-contrast, body.vscode-high-contrast-light { --bg:var(--vscode-sideBar-background); --line:var(--vscode-contrastBorder);
+          --line-strong:var(--vscode-contrastBorder); --accent:var(--vscode-contrastActiveBorder, LinkText); --accent-strong:var(--vscode-contrastActiveBorder, LinkText);
+          --quiet:transparent; --accent-line:var(--vscode-contrastActiveBorder, LinkText); }
         @media (forced-colors: active) {
-          :root { --accent:LinkText; --quiet:transparent; }
-          .empty-action,button.node-open { border:1px solid ButtonText; }
+          :root { --accent:LinkText; --accent-strong:LinkText; --quiet:transparent; }
+          .empty-action,button.node-open,.next-action,.help-popover { border:1px solid ButtonText; box-shadow:none; }
         }
         * { box-sizing:border-box; }
-        body { margin:0; padding:0 0 18px; color:var(--vscode-sideBar-foreground); background:var(--vscode-sideBar-background);
-          font:var(--vscode-font-size)/1.35 var(--vscode-font-family); }
+        body { margin:0; padding:0 0 18px; color:var(--text); background:var(--bg); font:var(--vscode-font-size)/1.4 var(--vscode-font-family); }
         button { font:inherit; }
-        .brand { display:flex; align-items:center; gap:9px; padding:13px 12px 11px; border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); }
-        /* The mark sits on the sidebar itself, as it does in the brand lockup. It used to be a
-           generic workflow glyph reversed out of a green tile, which was a placeholder standing in
-           for a logo that did not exist yet. */
+        .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+        .brand { display:flex; align-items:center; gap:9px; padding:14px 12px 12px; border-bottom:1px solid var(--line); }
         .brand-symbol { flex:none; display:block; }
-        /* Pushed to the right of the lockup and before the status dot, so the header stays one row. */
-        .brand-home { margin-left:auto; display:flex; align-items:center; gap:5px; font:inherit; font-size:.86em;
-          padding:3px 9px; border-radius:11px; cursor:pointer; white-space:nowrap;
-          border:1px solid var(--vscode-panel-border); background:transparent; color:var(--vscode-foreground); }
-        .brand-home:hover { background:var(--vscode-list-hoverBackground); }
-        .brand-home:active { transform:translateY(1px); }
-        .brand-home.last-opened { border-color:var(--accent); color:var(--accent); background:var(--quiet); }
-        .brand-persona { display:flex; align-items:center; gap:4px; max-width:105px; padding:3px 7px; border:0;
-          border-radius:10px; cursor:pointer; color:var(--vscode-descriptionForeground); background:transparent; font-size:11px; }
-        .brand-persona span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .brand-persona:hover { color:var(--accent); background:var(--vscode-list-hoverBackground); }
-        .brand-persona:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
         .brand-copy { min-width:0; line-height:1.05; }
-        .brand-copy small { display:block; color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
-        .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
-        .brand-status { margin-left:4px; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet); }
-        .brand-status.connecting { background:var(--vscode-descriptionForeground); box-shadow:0 0 0 3px transparent; }
-        .workspace-context { display:flex; align-items:center; gap:8px; min-width:0; padding:7px 10px;
-          border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); }
-        .workspace-context-label { flex:none; color:var(--vscode-descriptionForeground); font-size:11px; }
-        .workspace-switch { display:flex; align-items:center; justify-content:space-between; gap:5px; min-width:0;
-          flex:1; border:1px solid var(--vscode-panel-border); border-radius:5px; padding:4px 6px;
-          color:var(--vscode-foreground); background:transparent; cursor:pointer; text-align:left; }
-        .workspace-switch:hover { background:var(--vscode-list-hoverBackground); }
+        .brand-copy small { display:block; color:var(--accent-strong); font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; }
+        .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:700; letter-spacing:.01em; }
+        .brand-home { margin-left:auto; display:flex; align-items:center; gap:5px; padding:4px 11px; border:1px solid var(--line-strong);
+          border-radius:999px; color:var(--text); background:transparent; cursor:pointer; white-space:nowrap; font-size:.88em; }
+        .brand-home:hover { border-color:var(--accent-line); background:var(--quiet); }
+        .brand-home:active { transform:translateY(1px); }
+        .brand-home.last-opened { border-color:var(--accent); color:var(--accent-strong); background:var(--quiet); }
+        .brand-persona { display:flex; align-items:center; gap:4px; max-width:110px; padding:3px 6px; border:0; border-radius:4px;
+          cursor:pointer; color:var(--dim); background:transparent; font-size:11px; }
+        .brand-persona span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .brand-persona:hover { color:var(--accent-strong); background:var(--raised); }
+        .brand-persona:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
+        .brand-status { margin-left:2px; width:7px; height:7px; flex:none; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet), 0 0 8px var(--accent); }
+        .brand-status.connecting { background:var(--dim); box-shadow:0 0 0 3px transparent; }
+        .workspace-context { display:flex; align-items:center; gap:10px; min-width:0; padding:10px 12px; border-bottom:1px solid var(--line); }
+        .workspace-context-label { flex:none; color:var(--dim); font-size:12px; }
+        .workspace-switch { display:flex; align-items:center; justify-content:space-between; gap:6px; min-width:0; flex:1; padding:6px 9px;
+          border:1px solid var(--line-strong); border-radius:3px; color:var(--text); background:var(--raised); cursor:pointer; text-align:left;
+          font-family:var(--mono); font-size:12px; }
+        .workspace-switch:hover { border-color:var(--accent-line); }
         .workspace-switch span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .workspace-switch:focus-visible,.next-action:focus-visible,.section-link:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        .next-step { display:flex; flex-direction:column; gap:4px; padding:9px 10px;
-          border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); background:var(--quiet); }
-        .next-heading { font-size:10px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; color:var(--accent); }
-        .next-action { display:flex; align-items:center; justify-content:space-between; gap:5px; width:100%; padding:5px 7px;
-          border:1px solid var(--accent); border-radius:5px; color:var(--vscode-foreground); background:transparent;
-          text-align:left; cursor:pointer; font-weight:600; }
-        .next-action:hover { background:var(--vscode-list-hoverBackground); }
-        .next-description { color:var(--vscode-descriptionForeground); font-size:11px; }
-        main { overflow-y:auto; }
+        .next-step { display:flex; flex-direction:column; gap:7px; padding:12px; border-bottom:1px solid var(--line); }
+        .next-heading { font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-strong); }
+        .next-action { display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; padding:9px 11px;
+          border:1px solid var(--accent); border-radius:3px; color:var(--text); background:linear-gradient(90deg, var(--quiet), transparent 85%);
+          text-align:left; cursor:pointer; font-weight:600; box-shadow:0 0 18px -9px var(--accent); }
+        .next-action .ico { color:var(--accent-strong); }
+        .next-action:hover { background:var(--quiet); box-shadow:0 0 0 1px var(--accent-line), 0 0 20px -6px var(--accent); }
+        .next-description { font-family:var(--mono); color:var(--dim); font-size:11.5px; letter-spacing:.02em; }
+        main { overflow-y:auto; padding-top:6px; }
         details { margin:0; }
         summary { list-style:none; }
         summary::-webkit-details-marker { display:none; }
-        .section { border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); }
-        .section-heading { display:flex; align-items:center; min-height:37px; padding:0 6px 0 9px; cursor:pointer;
-          background:var(--vscode-sideBarSectionHeader-background,var(--vscode-sideBar-background)); }
-        .section-heading:before { content:''; width:6px; height:6px; margin:0 9px 0 2px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .14s ease; opacity:.72; }
-        .section[open]>.section-heading:before { transform:rotate(45deg) translate(-1px,-1px); }
-        .section-title { display:flex; align-items:center; gap:8px; min-width:0; color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-sideBar-foreground)); font-size:12px; font-weight:500; letter-spacing:.005em; }
-        .section-title .ico { color:var(--accent); }
+        .section { border-bottom:0; }
+        .section-heading { display:flex; align-items:center; min-height:40px; padding:0 8px 0 14px; cursor:pointer; background:transparent; }
+        .section-heading:hover { background:var(--raised); }
+        .section-heading:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
+        .section-heading:before { content:''; width:6px; height:6px; margin:0 12px 0 0; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor;
+          transform:rotate(-45deg); transition:transform .14s ease; opacity:.6; }
+        .section[open]>.section-heading:before { transform:rotate(45deg) translate(-1px,-1px); color:var(--accent-strong); opacity:1; }
+        .section-title { display:flex; align-items:center; gap:11px; min-width:0; color:var(--text); font-size:13px; font-weight:500; }
+        .section-title .ico { color:var(--dim); }
+        .section[open]>.section-heading .section-title .ico { color:var(--accent-strong); }
         .section-actions { display:flex; gap:1px; margin-left:auto; }
-        .icon-button { display:grid; place-items:center; width:30px; height:30px; padding:0; border:0; border-radius:6px;
-          color:var(--vscode-icon-foreground); background:transparent; cursor:pointer; }
-        .icon-button:hover { color:var(--accent); background:var(--vscode-toolbar-hoverBackground); }
+        .icon-button { display:grid; place-items:center; width:28px; height:28px; padding:0; border:0; border-radius:4px; color:var(--dim); background:transparent; cursor:pointer; }
+        .icon-button:hover { color:var(--accent-strong); background:var(--quiet); }
         .icon-button:active { transform:translateY(1px); }
-        .icon-button.last-opened { color:var(--accent); background:var(--quiet); box-shadow:inset 0 0 0 1px var(--accent); }
+        .icon-button.last-opened { color:var(--accent-strong); background:var(--quiet); box-shadow:inset 0 0 0 1px var(--accent-line); }
         .icon-button:focus-visible,.actionable:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
-        .section-body { padding:4px 6px 7px; }
-        .section-shortcuts { display:flex; flex-direction:column; gap:2px; margin:3px 3px 6px 17px; }
-        .shortcut-heading { padding:2px 8px; color:var(--vscode-descriptionForeground); font-size:10px;
-          font-weight:650; letter-spacing:.04em; text-transform:uppercase; }
-        .section-link { display:flex; align-items:center; gap:8px; width:100%; padding:5px 8px; border:0;
-          border-radius:5px; color:var(--vscode-sideBar-foreground); background:transparent; text-align:left; cursor:pointer; }
-        .section-link .ico { color:var(--vscode-icon-foreground); flex:none; }
-        .section-link:hover { background:var(--vscode-list-hoverBackground); }
+        .section-body { padding:2px 8px 10px 14px; }
+        .section-shortcuts { display:flex; flex-direction:column; gap:1px; margin:2px 0 6px 18px; }
+        .shortcut-heading { padding:4px 8px 2px; color:var(--dim); font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+        .section-link { display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px; border:0; border-radius:3px;
+          color:var(--text); background:transparent; text-align:left; cursor:pointer; }
+        .section-link .ico { color:var(--dim); flex:none; }
+        .section-link:hover { background:var(--raised); }
+        .section-link:hover .ico { color:var(--accent-strong); }
         .section-link.last-opened { background:var(--quiet); box-shadow:inset 2px 0 0 var(--accent); }
-        .section-more { margin:2px 3px 6px 17px; }
-        .section-more>summary { padding:4px 8px; border-radius:5px; color:var(--vscode-descriptionForeground); font-size:11px; cursor:pointer; }
-        .section-more>summary:hover { background:var(--vscode-list-hoverBackground); }
+        .section-more { margin:2px 0 6px 18px; }
+        .section-more>summary { padding:5px 8px; border-radius:3px; color:var(--dim); font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
+        .section-more>summary:hover { background:var(--raised); color:var(--text); }
         .section-more>summary:focus-visible { outline:1px solid var(--vscode-focusBorder); }
         .section-more>summary::before { content:'›'; display:inline-block; width:12px; }
         .section-more[open]>summary::before { transform:rotate(90deg); }
-        .section-more-links { display:flex; flex-direction:column; gap:2px; margin-left:5px; }
+        .section-more-links { display:flex; flex-direction:column; gap:1px; margin-left:5px; }
         .workspace-row-actions { display:flex; align-items:center; gap:3px; flex:none; }
-        .workspace-row-actions button { padding:2px 4px; border:1px solid var(--vscode-panel-border); border-radius:4px;
-          color:var(--vscode-foreground); background:transparent; font-size:10px; cursor:pointer; }
-        .workspace-row-actions button:hover { border-color:var(--accent); background:var(--vscode-list-hoverBackground); }
+        .workspace-row-actions button { padding:2px 6px; border:1px solid var(--line-strong); border-radius:3px; color:var(--text); background:transparent;
+          font-family:var(--mono); font-size:10px; cursor:pointer; }
+        .workspace-row-actions button:hover { border-color:var(--accent-line); background:var(--quiet); color:var(--accent-strong); }
         .workspace-row-actions button:focus-visible { outline:1px solid var(--vscode-focusBorder); }
         .node { display:block; }
         .node>summary { cursor:pointer; }
-        .node>summary:before { content:''; float:left; width:5px; height:5px; margin:12px 3px 0 5px; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(-45deg); opacity:.6; }
+        .node>summary:before { content:''; float:left; width:5px; height:5px; margin:12px 3px 0 5px; border-right:1px solid currentColor;
+          border-bottom:1px solid currentColor; transform:rotate(-45deg); opacity:.6; }
         .node[open]>summary:before { transform:rotate(45deg); }
-        .node-row { display:flex; align-items:flex-start; min-height:31px; gap:7px; padding:6px 5px; border-radius:5px; min-width:0; }
+        .node-row { display:flex; align-items:flex-start; min-height:31px; gap:8px; padding:6px 5px; border-radius:3px; min-width:0; }
         .node>summary .node-row { margin-left:13px; }
         .leaf .node-row { margin-left:18px; }
         .depth-1 .node-row { padding-left:8px; } .depth-2 .node-row { padding-left:16px; } .depth-3 .node-row { padding-left:24px; }
         .node-row.actionable { cursor:pointer; }
-        .node-row.actionable:hover { background:var(--vscode-list-hoverBackground); color:var(--vscode-list-hoverForeground); }
+        .node-row.actionable:hover { background:var(--raised); }
         .node-row.actionable:active { transform:translateY(1px); }
-        .node-row.actionable.last-opened { color:var(--vscode-list-activeSelectionForeground,var(--vscode-foreground));
-          background:var(--vscode-list-activeSelectionBackground,var(--quiet)); box-shadow:inset 2px 0 0 var(--accent); }
-        .node-icon { display:grid; place-items:center; flex:0 0 17px; height:18px; color:var(--vscode-icon-foreground); }
+        .node-row.actionable.last-opened { color:var(--vscode-list-activeSelectionForeground,var(--text));
+          background:var(--quiet); box-shadow:inset 2px 0 0 var(--accent); }
+        .node-icon { display:grid; place-items:center; flex:0 0 17px; height:18px; color:var(--dim); }
         .current-phase-row { border-left:2px solid var(--accent); background:var(--quiet); }
-        .current-phase-row .node-icon { color:var(--accent); animation:sf-current-phase-pulse 1.65s ease-in-out infinite; }
-        .current-phase-row .node-label { color:var(--accent); }
+        .current-phase-row .node-icon { color:var(--accent-strong); animation:sf-current-phase-pulse 1.65s ease-in-out infinite; }
+        .current-phase-row .node-label { color:var(--accent-strong); }
         @keyframes sf-current-phase-pulse {
           0%,100% { opacity:.72; filter:drop-shadow(0 0 0 transparent); }
           50% { opacity:1; filter:drop-shadow(0 0 4px var(--accent)); }
         }
         .node-copy { display:flex; flex-direction:column; min-width:0; flex:1; }
         .node-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
-        .node-description { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--vscode-descriptionForeground); font-size:11px; }
-        .node-open { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:4px; opacity:0; color:var(--accent); background:transparent; }
-        .favorite-remove { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:4px;
-          color:var(--vscode-descriptionForeground); background:transparent; cursor:pointer; }
-        .favorite-remove:hover { color:var(--vscode-errorForeground); background:var(--vscode-toolbar-hoverBackground); }
+        .node-description { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim); font-family:var(--mono); font-size:10.5px; }
+        .node-open { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:3px; opacity:0; color:var(--accent-strong); background:transparent; }
+        .favorite-remove { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:3px; color:var(--dim); background:transparent; cursor:pointer; }
+        .favorite-remove:hover { color:var(--vscode-errorForeground); background:var(--raised); }
         .favorite-remove:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        button.node-open:hover { opacity:1; background:var(--vscode-toolbar-hoverBackground); }
+        button.node-open:hover { opacity:1; background:var(--raised); }
         .actionable:hover .node-open,.actionable:focus-visible .node-open { opacity:1; }
-        /* A focused control at zero opacity is an invisible focus target: keyboard users tabbed onto
-           a button they could not see. The row's own :focus-visible covered the row, not the button
-           inside it, so the button had to claim its own. */
         button.node-open:focus-visible { opacity:1; outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        .children { margin-left:1px; border-left:1px solid var(--vscode-tree-indentGuidesStroke,transparent); }
-        .empty { padding:9px 12px 12px 28px; color:var(--vscode-descriptionForeground); font-size:11px; }
-        .empty p { margin:0 0 8px; max-width:34em; line-height:1.45; }
-        .empty-action { padding:4px 10px; border:0; border-radius:3px; cursor:pointer;
-          color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-size:11px; }
-        .empty-action:hover { background:var(--vscode-button-hoverBackground); }
+        .children { margin-left:1px; border-left:1px solid var(--vscode-tree-indentGuidesStroke, var(--line)); }
+        .empty { padding:9px 12px 12px 28px; color:var(--dim); font-size:11.5px; }
+        .empty p { margin:0 0 8px; max-width:34em; line-height:1.5; }
+        .empty-action { padding:5px 11px; border:1px solid var(--accent); border-radius:3px; cursor:pointer; color:var(--accent-strong); background:var(--quiet); font-size:11px; font-weight:600; }
+        .empty-action:hover { box-shadow:0 0 0 1px var(--accent-line), 0 0 16px -6px var(--accent); }
         .empty-action:active { transform:translateY(1px); }
         .empty-action.last-opened { box-shadow:0 0 0 1px var(--vscode-focusBorder); }
         .empty-action:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
-        /* Quiet on purpose. It qualifies what is already on screen; it is not an alert, and a
-           sidebar that shouts every time it refreshes is worse than one that is briefly stale. */
-        .freshness { display:flex; align-items:center; gap:6px; padding:4px 10px; font-size:11px;
-          color:var(--vscode-descriptionForeground); background:var(--quiet); }
+        .freshness { display:flex; align-items:center; gap:6px; padding:5px 12px; font-family:var(--mono); font-size:10.5px; color:var(--dim); background:var(--quiet); }
         .freshness .ico { flex:none; opacity:.8; }
-        @media (max-width:360px) {
-          .brand-home,.brand-persona { min-width:27px; padding:4px 6px; justify-content:center; }
-          .brand-home span,.brand-persona span { display:none; }
+        /* Contextual help: one card under the hovered or focused row. */
+        .help-popover { position:fixed; z-index:20; left:8px; right:8px; padding:10px 11px 9px; border:1px solid var(--accent-line); border-radius:4px;
+          background:var(--raised); box-shadow:0 12px 32px -12px rgba(0,0,0,.65); font-size:12px; }
+        .help-popover[hidden] { display:none; }
+        .help-title { display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.1em;
+          text-transform:uppercase; color:var(--accent-strong); }
+        .help-title:before { content:'?'; display:inline-grid; place-items:center; width:15px; height:15px; border:1px solid var(--accent-line); border-radius:2px; font-size:10px; }
+        .help-summary { margin:7px 0 8px; color:var(--text); line-height:1.45; }
+        .help-cli { display:flex; align-items:center; gap:6px; margin:0 0 8px; padding:4px 5px 4px 8px; border:1px solid var(--line-strong); border-radius:3px; background:var(--bg); }
+        .help-cli code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-family:var(--mono); font-size:11px; }
+        .help-copy, .help-guide { padding:2px 8px; border:1px solid var(--line-strong); border-radius:3px; color:var(--text); background:transparent; cursor:pointer; font-size:11px; }
+        .help-copy:hover { border-color:var(--accent-line); }
+        .help-guide { color:var(--accent-strong); border-color:var(--accent-line); background:var(--quiet); font-weight:600; }
+        .help-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+        .help-hint { font-family:var(--mono); font-size:10px; color:var(--dim); }
+        .help-copy:focus-visible, .help-guide:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
+        /* The labelled My Work pill fits a default-width sidebar; the persona name goes first when space runs out. */
+        @media (max-width:340px) {
+          .brand-persona { min-width:27px; padding:4px 6px; justify-content:center; }
+          .brand-persona span { display:none; }
+        }
+        @media (max-width:280px) {
+          .brand-home { min-width:27px; padding:4px 6px; justify-content:center; }
+          .brand-home span { display:none; }
         }
         @media (prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
-      </style></head><body>
+      </style></head><body data-help="${escape(JSON.stringify(this.helpCatalogue()))}">
       <header class="brand">${brandSymbol(30)}
         <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
         <button class="brand-home" data-action="my-work" data-selection-key="action:my-work" type="button"
@@ -788,6 +874,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         <span class="next-description">${escape(next.description)}</span></div>` : ''}
       ${this.freshness ? `<div class="freshness" role="status">${icon('wait', { size: 14 })}<span>${escape(this.freshness)}</span></div>` : ''}
       <main>${sections}</main>
+      <div id="sf-help" class="help-popover" role="tooltip" hidden></div>
+      <div hidden>${Object.entries(LINK_HELP).map(([id, entry]) => `<span id="sf-help-text-${escape(id)}">${escape(entry.summary)}</span>`).join('')}</div>
       <script nonce="${token}">
         const vscode=acquireVsCodeApi(); const prior=vscode.getState()||{};
         const markLastOpened=(target)=>{
@@ -844,8 +932,26 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           else if(node&&node.closest('.leaf')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}
         });
         document.addEventListener('keydown',(event)=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-node]')){event.preventDefault();markLastOpened(event.target);vscode.postMessage({type:'node',key:event.target.dataset.node});}});
+${HELP_SCRIPT}
       </script></body></html>`;
     this.onRender();
+  }
+
+  /** Help for every menu and action, keyed as the page looks it up: `section:<id>` or `link:<id>`. */
+  private helpCatalogue(): Record<string, { title: string; summary: string; cli?: string; topic: string }> {
+    const labels = new Map<string, string>(FAVORITE_MENUS.map((menu) => [menu.id, menu.label]));
+    for (const meta of Object.values(SECTION_META)) {
+      for (const action of [...meta.actions, ...(meta.links ?? []), ...(meta.more ?? [])]) labels.set(action.id, action.label);
+      labels.set(meta.empty.action, labels.get(meta.empty.action) ?? meta.empty.actionLabel);
+    }
+    labels.set('workspace-switch', 'Working in');
+    labels.set('persona-manage', 'Menu persona');
+    const catalogue: Record<string, { title: string; summary: string; cli?: string; topic: string }> = {};
+    for (const [section, entry] of Object.entries(SECTION_HELP)) {
+      catalogue[`section:${section}`] = { title: SECTION_META[section as SidebarSection]?.label ?? section, ...entry };
+    }
+    for (const [id, entry] of Object.entries(LINK_HELP)) catalogue[`link:${id}`] = { title: labels.get(id) ?? id, ...entry };
+    return catalogue;
   }
 
   dispose(): void {

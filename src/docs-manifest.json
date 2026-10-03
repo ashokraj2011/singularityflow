@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "fdad445fb073ac9cc2e5dfa3dccdc008f3808ab1",
+  "sourceCommit": "f6991f4d97caff011334af2b9683f6091d678043",
   "topicCount": 74,
-  "contentSha256": "3396956d3910e8e25094f3356165bb0bb95511fa2bceab0d6b0fa88a76a3d3ce",
+  "contentSha256": "4741d25b8e8220b3ad6d06cd87b19c0c2560b09d96dadddb994da205ab85b814",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -120,8 +120,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 9,
-      "sha256": "3ccdd0ac427bfdc42ced320ade71ec4d4d8a466ec06ddfa18d5aa8d2cf3005e6",
+      "version": 10,
+      "sha256": "f5ef64ab7c1ee0562f736636cae49b6279a9fb3a0c6b1b85a5fbdd118dbe5678",
       "routingSha256": "548b95980ef4bb0755e04b820ccc4a041aa172419db2619bd04509ae3e7fbcf9",
       "file": "copilot-and-surfaces.md"
     },

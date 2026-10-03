@@ -22,6 +22,13 @@
     "workspaceContains:singularity/workflow.yml"
   ],
   "contributes": {
+    "themes": [
+      {
+        "label": "Singularity Flow Dark",
+        "uiTheme": "vs-dark",
+        "path": "./media/themes/singularity-flow-dark.json"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "singularity-flow.sflow",

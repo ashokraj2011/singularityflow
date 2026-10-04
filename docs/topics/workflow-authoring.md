@@ -18,6 +18,7 @@ questions:
   - How do I inspect a skill in approved configuration?
   - Where is an approved skill used in this repository's workflows?
   - How do I choose which skill drafts a workflow step?
+  - How do I design an artifact template and choose it for a step?
 commands:
   - workflow
   - configuration
@@ -26,7 +27,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 44
+version: 45
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -47,7 +48,9 @@ whole workflow.
 Selecting a step opens its properties on the right, in sections: the step (name, what it produces,
 which skill drafts it), the drafting agent (**Edit agent**, **Create an agent**), sign-off (a switch, the approval group,
 how many approvals it needs, and which earlier step rejected work goes back to), what it reads from
-earlier steps, knowledge views, clarifying questions, and what happens after it. Everything is
+earlier steps (each one required or optional: an optional input may be missing when a decision skips
+the step that writes it), artifacts (the template it drafts from, the file it writes and its artifact
+set), knowledge views, clarifying questions, and what happens after it. Everything is
 chosen from lists. The tool rail on the canvas adds a step after the selected one (from the
 repository's step catalog or new), adds a decision, jumps to the step's send-back rule, finds a step
 or agent, and opens the workflow's own settings: its name and description, and every send-back rule
@@ -72,6 +75,23 @@ groups by email address or GitHub login; a group can be renamed. An agent or app
 this session can be removed again while no step uses it. **Manage people**, **Integrations** and
 **Add a skill** remember where they were opened from and offer the way back to that workflow and
 step.
+
+**Artifacts** lists the repository's templates by folder, each with the steps that draft from it and
+the workflows that run them that way, and a filter that finds a template, step or workflow; then
+its artifact sets. **New template** builds one from sections (narrative, requirements, acceptance
+criteria, decision log, risk register, checklist, open questions, evidence), written for a Story or
+an Epic step, with a live preview of exactly what is written under the templates folder; **Write**
+edits the Markdown directly. A packaged template the repository does not carry yet is shown as
+**Packaged**; **Customize** makes the repository's own copy with your changes. An artifact set names
+the files a step's bundle holds: each member has a path, a role, whether it is required, and whether
+it is governed or advisory (a planning aid, never required). Its primary member is the file the step
+writes itself, so a step in a set writes that file, and changing the primary renames it in every
+step. A set is removed only once no step uses it. In a step's properties, **Template** picks a Story
+template (Epic and Initiative templates are not offered) or **Create a new template…**, which opens
+the designer and comes back with it chosen. On
+a step another workflow shares, or one this workflow already names a template for, the choice is
+this workflow's own (`templateOverrides`); otherwise it is the step's `defaultTemplate`. **File it
+writes** renames the step's file in its folder.
 
 Every edit stays in the Studio until it is published. Unpublished edits survive closing the panel:
 reopening Workflow Studio offers to restore them, but only against the configuration revision they

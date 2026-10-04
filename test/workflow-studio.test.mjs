@@ -618,3 +618,157 @@ test('integration targets and the actions a step sends after it are edited from 
   ], after.base), '--dry-run']);
   assert.equal(cleared.valid, true, JSON.stringify(cleared.problems));
 });
+
+test('the Studio lists templates with where they are used, and artifact sets with the steps that use them', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  assert.equal(model.templatesRoot, 'singularity/templates');
+  const intake = model.templates.find((template) => template.path === 'common/intake.md');
+  assert.ok(intake, JSON.stringify(model.templates.map((template) => template.path)));
+  assert.equal(intake.scope, 'repository');
+  assert.match(intake.content, /\S/);
+  assert.ok(intake.usedBy.includes('phase intake'));
+  const specification = model.artifactSets.find((set) => set.id === 'spec-driven-specification');
+  assert.equal(specification.primary, 'spec.md');
+  assert.deepEqual(specification.members.find((member) => member.role === 'specification-quality'),
+    { path: 'checklists/requirements.md', role: 'specification-quality', required: false, authority: 'advisory' });
+  assert.ok(specification.usedBy.length >= 1);
+  assert.equal(model.phases.find((phase) => phase.id === specification.usedBy[0]).artifactSet, 'spec-driven-specification');
+  const feature = model.workflows.find((workflow) => workflow.id === 'feature');
+  assert.ok(feature.steps.every((step) => Array.isArray(step.optionalInputs) && Object.hasOwn(step, 'template')));
+});
+
+test('templates are made and changed in the change set, and a step chooses one for its workflow', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  const before = await readFile(path.join(root, 'singularity/templates/common/intake.md'), 'utf8');
+  const file = await changeSet(root, [
+    { op: 'template.create', path: 'common/vendor-brief.md', content: '# {{work.id}} — Vendor brief\n\n## Vendors compared\n' },
+    { op: 'template.update', path: 'common/intake.md', content: `${before.trimEnd()}\n\n## Vendor notes\n` },
+    { op: 'phase.update', id: 'intake', workflow: 'feature', template: 'common/vendor-brief.md' }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((entry) => [entry.path, entry.action]).sort(), [
+    ['singularity/templates/common/intake.md', 'update'],
+    ['singularity/templates/common/vendor-brief.md', 'create'],
+    ['singularity/workflow.yml', 'update']
+  ]);
+  assert.match(plan.files.find((entry) => entry.path === 'singularity/templates/common/intake.md').diff, /\+## Vendor notes/);
+  assert.ok(plan.summary.some((line) => /New template common\/vendor-brief\.md/.test(line)));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const after = json(root, ['workflow', 'studio']);
+  assert.equal(after.workflows.find((workflow) => workflow.id === 'feature').steps.find((step) => step.id === 'intake').template,
+    'common/vendor-brief.md', 'Feature uses its own template for the shared step');
+  assert.equal(after.phases.find((phase) => phase.id === 'intake').template, 'common/intake.md', 'other workflows keep the step\'s template');
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(written.workTypes.feature.templateOverrides.intake, 'common/vendor-brief.md');
+
+  const refusals = await changeSet(root, [
+    { op: 'template.create', path: 'common/vendor-brief.md', content: 'again' },
+    { op: 'template.update', path: 'feature/never-copied.md', content: 'x' },
+    { op: 'template.create', path: '../escape.md', content: 'x' },
+    { op: 'phase.update', id: 'design', template: 'common/does-not-exist.md' }
+  ], after.base);
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', refusals, '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.deepEqual(refused.problems.map((problem) => problem.code).sort(),
+    ['STUDIO_TEMPLATE_EXISTS', 'STUDIO_TEMPLATE_INVALID', 'STUDIO_TEMPLATE_UNKNOWN', 'STUDIO_TEMPLATE_UNKNOWN'].sort());
+});
+
+test('artifact sets are made for a step, refused while used, and an input can be optional', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  const file = await changeSet(root, [
+    { op: 'artifactSet.create', id: 'vendor-pack', primary: 'vendor-analysis.md', members: [
+      { path: 'vendor-analysis.md', role: 'analysis', required: true },
+      { path: 'notes.md', role: 'notes', required: false, authority: 'advisory' }
+    ] },
+    { op: 'workflow.create', id: 'vendor-assessment', label: 'Vendor assessment', phases: ['intake', 'vendor-analysis'] },
+    { op: 'phase.create', id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', inputs: [{ phase: 'intake', optional: true }],
+      approval: { group: 'product-approvers', minimum: 1 }, agent: 'product-owner', artifactSet: 'vendor-pack' }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(written.artifactSets['vendor-pack'], { primary: 'vendor-analysis.md', members: [
+    { path: 'vendor-analysis.md', role: 'analysis', required: true },
+    { path: 'notes.md', role: 'notes', authority: 'advisory' }
+  ] });
+  assert.equal(written.phases['vendor-analysis'].artifactSet, 'vendor-pack');
+  assert.deepEqual(written.phases['vendor-analysis'].inputs, [{ phase: 'intake', optional: true }]);
+  const after = json(root, ['workflow', 'studio']);
+  assert.deepEqual(after.phases.find((phase) => phase.id === 'vendor-analysis').optionalInputs, ['intake']);
+
+  const blocked = await changeSet(root, [
+    { op: 'artifactSet.remove', id: 'vendor-pack' },
+    { op: 'artifactSet.create', id: 'bad-pack', primary: 'missing.md', members: [{ path: 'other.md', role: 'x' }] },
+    { op: 'phase.update', id: 'design', artifactSet: 'no-such-set' }
+  ], after.base);
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', blocked, '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.ok(refused.problems.some((problem) => problem.code === 'STUDIO_ARTIFACT_SET_IN_USE' && /Vendor analysis/.test(problem.message)));
+  assert.ok(refused.problems.some((problem) => /primary 'missing\.md' is not among its members/.test(problem.message)));
+  assert.ok(refused.problems.some((problem) => problem.code === 'STUDIO_ARTIFACT_SET_UNKNOWN'));
+
+  // Taking the set off the step first lets it go; making the input required again drops the flag.
+  const released = await changeSet(root, [
+    { op: 'phase.update', id: 'vendor-analysis', artifactSet: null, inputs: [{ phase: 'intake', optional: false }] },
+    { op: 'artifactSet.remove', id: 'vendor-pack' }
+  ], after.base);
+  const ok = json(root, ['workflow', 'studio', 'apply', '--change-set', released, '--dry-run']);
+  assert.equal(ok.valid, true, JSON.stringify(ok.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', released]);
+  const final = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(final.artifactSets?.['vendor-pack'], undefined);
+  assert.deepEqual(final.phases['vendor-analysis'].inputs, ['intake']);
+});
+
+test('a step in an artifact set writes the set\'s primary member, and a step\'s file can be renamed in its folder', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  const designFile = model.phases.find((phase) => phase.id === 'design').artifact;
+  const folder = path.posix.dirname(designFile);
+  const file = await changeSet(root, [
+    { op: 'artifactSet.create', id: 'brief-pack', primary: 'brief.md', members: [
+      { path: 'brief.md', role: 'brief', required: true },
+      { path: 'appendix.md', role: 'appendix' }
+    ] },
+    { op: 'phase.update', id: 'design', artifactSet: 'brief-pack' },
+    { op: 'phase.update', id: 'requirements', artifactFile: 'requirements-brief.md' }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  let written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(written.phases.design.artifact.path, `${folder}/brief.md`, 'the step keeps its folder and writes the primary member');
+  assert.equal(written.phases.requirements.artifact.path, `${path.posix.dirname(model.phases.find((phase) => phase.id === 'requirements').artifact)}/requirements-brief.md`);
+
+  // A new primary moves the steps in the set with it.
+  const after = json(root, ['workflow', 'studio']);
+  const moved = await changeSet(root, [
+    { op: 'artifactSet.update', id: 'brief-pack', primary: 'appendix.md', members: [
+      { path: 'brief.md', role: 'brief' },
+      { path: 'appendix.md', role: 'appendix', required: true }
+    ] }
+  ], after.base);
+  const movedPlan = json(root, ['workflow', 'studio', 'apply', '--change-set', moved, '--dry-run']);
+  assert.equal(movedPlan.valid, true, JSON.stringify(movedPlan.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', moved]);
+  written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(written.phases.design.artifact.path, `${folder}/appendix.md`);
+
+  const latest = json(root, ['workflow', 'studio']);
+  const refusals = await changeSet(root, [
+    { op: 'phase.update', id: 'design', artifactFile: 'other.md' },
+    { op: 'phase.update', id: 'requirements', artifactFile: 'nested/requirements.md' },
+    { op: 'artifactSet.update', id: 'brief-pack', primary: 'parts/brief.md', members: [
+      { path: 'parts/brief.md', role: 'brief' }, { path: 'appendix.md', role: 'appendix' }
+    ] }
+  ], latest.base);
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', refusals, '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.deepEqual(refused.problems.map((problem) => problem.code).sort(),
+    ['STUDIO_ARTIFACT_INVALID', 'STUDIO_ARTIFACT_INVALID', 'STUDIO_ARTIFACT_SET_INVALID']);
+});

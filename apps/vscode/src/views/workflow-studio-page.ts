@@ -216,6 +216,15 @@ const STUDIO_STYLE = `
 .member{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 4px 2px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .member button{padding:0 6px;font-size:11px}
 .change-list{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.studio .artifact-group{display:flex;flex-direction:column;gap:4px;padding:6px 0 0;border-top:1px solid var(--sf-border-color)}
+.artifact-list{list-style:none;margin:0 0 6px;padding:0;border:1px solid var(--sf-border-color);border-radius:8px}
+.artifact-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,2fr) auto;gap:var(--sf-space-2);align-items:center;padding:5px 10px;border-top:1px solid var(--sf-border-color)}
+.artifact-row:first-child{border-top:0}
+.artifact-name{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.artifact-users{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.artifact-group[hidden],.artifact-list[hidden],.artifact-row[hidden]{display:none}
+.set-members{margin:0;padding-left:18px;font-size:12.5px}
+@media (max-width:640px){.artifact-row{grid-template-columns:minmax(0,1fr) auto}.artifact-users{grid-column:1/-1;grid-row:2;white-space:normal}}
 .change-list li{border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;font-size:13px}
 .diff{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre;overflow:auto;max-height:320px;border:1px solid var(--sf-border-color);border-radius:6px;padding:8px;margin:0}
 .diff .add{color:var(--vscode-gitDecoration-addedResourceForeground,#73c991)}
@@ -273,17 +282,28 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- The draft and the change set ---------------------------------------------------------
 
   function initialDraft(model) {
-    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [] };
+    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {} };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow) };
+        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
+          template: step.template || null, optionalInputs: (step.optionalInputs || []).slice() };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []) };
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
+        template: phase.template || null, artifactSet: phase.artifactSet || null, optionalInputs: (phase.optionalInputs || []).slice(),
+        artifactFile: phase.artifact ? String(phase.artifact).split('/').pop() : null };
+    });
+    // Templates and artifact sets as the model lists them; edits change the draft copies.
+    (model.templates || []).forEach(function (template) {
+      draft.templates[template.path] = { path: template.path, scope: template.scope, catalogId: template.catalogId || null, label: template.label || null,
+        content: template.content, tooLarge: Boolean(template.tooLarge), usedBy: (template.usedBy || []).slice(), isNew: false };
+    });
+    (model.artifactSets || []).forEach(function (set) {
+      draft.artifactSets[set.id] = { id: set.id, primary: set.primary, members: clone(set.members || []), usedBy: (set.usedBy || []).slice(), isNew: false };
     });
     (model.agents || []).forEach(function (agent) {
       draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null };
@@ -326,7 +346,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var phases = draft.workflows[workflowId] ? draft.workflows[workflowId].phases : [];
     return { approval: clone(own.approval || { group: null, minimum: 1 }), inputs: (own.inputs || []).filter(function (input) { return phases.indexOf(input) >= 0; }),
       authoringSkill: own.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill),
-      afterStep: clone(own.afterStep || []) };
+      afterStep: clone(own.afterStep || []), template: null,
+      optionalInputs: (own.optionalInputs || []).filter(function (input) { return phases.indexOf(input) >= 0; }) };
   }
 
   /**
@@ -358,6 +379,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       convergence: settings.convergence !== undefined ? Boolean(settings.convergence) : Boolean(source.convergence),
       compiledSkill: settings.compiledSkill !== undefined ? Boolean(settings.compiledSkill) : Boolean(source.compiledSkill) });
     delete copy.setAsideSkill;
+    delete copy.templateChosen; delete copy.artifactSetChosen; delete copy.artifactFileChosen;
+    // The engine writes a copy's file in its own folder: the set's primary member, or a file named after it.
+    copy.artifactFile = source.artifactSet ? source.artifactFile : id + '.md';
     return copy;
   }
 
@@ -365,6 +389,19 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function changeSetFrom(model, draft) {
     var base = initialDraft(model);
     var changes = [];
+    // A changed packaged template becomes the repository's own copy; a repository template changes in place.
+    Object.keys(draft.templates || {}).sort().forEach(function (relative) {
+      var template = draft.templates[relative]; var before = base.templates[relative];
+      if (!before) changes.push({ op: 'template.create', path: relative, content: template.content || '' });
+      else if (template.content != null && template.content !== before.content) changes.push({ op: before.scope === 'packaged' ? 'template.create' : 'template.update', path: relative, content: template.content });
+    });
+    var setsNow = draft.artifactSets || {};
+    Object.keys(setsNow).sort().forEach(function (id) {
+      var set = setsNow[id]; var before = base.artifactSets[id];
+      if (!before) changes.push({ op: 'artifactSet.create', id: id, primary: set.primary, members: clone(set.members) });
+      else if (before.primary !== set.primary || !same(before.members, set.members)) changes.push({ op: 'artifactSet.update', id: id, primary: set.primary, members: clone(set.members) });
+    });
+    Object.keys(base.artifactSets).sort().forEach(function (id) { if (!setsNow[id]) changes.push({ op: 'artifactSet.remove', id: id }); });
     Object.keys(draft.groups).forEach(function (id) {
       var group = draft.groups[id]; var before = base.groups[id];
       if (!before) { changes.push({ op: 'group.create', id: id, label: group.label, members: group.members }); return; }
@@ -398,6 +435,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
         if (phase.copyOf) create.copyOf = phase.copyOf;
         if (phase.copyFromWorkflow) create.copyFromWorkflow = phase.copyFromWorkflow;
+        if (phase.templateChosen && phase.template) create.template = phase.template;
+        if (phase.artifactSetChosen && phase.artifactSet) create.artifactSet = phase.artifactSet;
+        if (phase.artifactFileChosen && phase.artifactFile) create.artifactFile = phase.artifactFile;
+        // A copy starts with its source's input entries as its workflow had them; only a changed
+        // optional flag is sent, the way phase.update sends one.
+        var copied = phase.copyOf ? ((phase.copyFromWorkflow && base.steps[phase.copyFromWorkflow] && base.steps[phase.copyFromWorkflow][phase.copyOf]) || base.phases[phase.copyOf] || {}).optionalInputs || [] : [];
+        if (!same((step.optionalInputs || []).slice().sort(), copied.slice().sort())) create.inputs = inputEntriesFor(step.inputs || [], step.optionalInputs || [], copied);
         // A new step sends what its home workflow gives it; a copy starts with its source's actions,
         // so it says only when they were edited.
         var actions = step.afterStep || [];
@@ -412,6 +456,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (baseline.output !== phase.output) patch.output = phase.output;
       if (!same(baseline.views, phase.views)) patch.views = phase.views;
       if ((baseline.clarification || 'off') !== phase.clarification) patch.clarification = phase.clarification;
+      if ((baseline.template || null) !== (phase.template || null)) patch.template = phase.template || null;
+      if ((baseline.artifactSet || null) !== (phase.artifactSet || null)) patch.artifactSet = phase.artifactSet || null;
+      if (phase.artifactFile && (baseline.artifactFile || null) !== phase.artifactFile) patch.artifactFile = phase.artifactFile;
       if (Object.keys(patch).length > 2) changes.push(patch);
       if (baseline.agent !== phase.agent && phase.agent) changes.push({ op: 'phase.agent', phase: id, agent: phase.agent });
     });
@@ -469,7 +516,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         }
         var update = { op: 'phase.update', id: phaseId, workflow: id };
         if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
-        if (!same(reference.inputs, step.inputs)) update.inputs = step.inputs;
+        if (!same(reference.inputs, step.inputs) || !same(reference.optionalInputs || [], step.optionalInputs || [])) {
+          update.inputs = same(reference.optionalInputs || [], step.optionalInputs || []) ? step.inputs
+            : inputEntriesFor(step.inputs, step.optionalInputs || [], reference.optionalInputs || []);
+        }
+        if ((reference.template || null) !== (step.template || null)) update.template = step.template || null;
         if ((step.authoringSkill || null) !== referenceSkill) update.authoringSkill = step.authoringSkill || null;
         if (!same(reference.afterStep || [], step.afterStep || [])) update.afterStep = clone(step.afterStep || []);
         if (Object.keys(update).length > 3) changes.push(update);
@@ -478,6 +529,17 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     // Imports and marketplace trust are explicit operations the person queued; the engine orders them.
     (draft.imports || []).forEach(function (change) { changes.push(clone(change)); });
     return { schema: 'sflow-studio-change-set@1', base: model.base, changes: changes };
+  }
+
+  /**
+   * Input entries as the engine reads them: a bare step ID keeps what the entry has, and
+   * { phase, optional } says whether the step can go without it where that differs from before.
+   */
+  function inputEntriesFor(inputs, optional, before) {
+    return inputs.map(function (id) {
+      var now = optional.indexOf(id) >= 0; var was = before.indexOf(id) >= 0;
+      return now === was ? id : { phase: id, optional: now };
+    });
   }
 
   /** Plain words for one change, shown before the engine checks it. */
@@ -489,7 +551,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
       case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions' }[key] || key; }).join(', ') + ' changed';
       case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent) + (change.authoringSkill ? ' with /' + change.authoringSkill : '') + (change.afterStep && change.afterStep.length ? ', sending ' + change.afterStep.length + (change.afterStep.length === 1 ? ' action' : ' actions') + ' after it' : '');
-      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill', afterStep: 'actions after it' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined || change.afterStep !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
+      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill', afterStep: 'actions after it', template: 'template', artifactSet: 'artifact set', artifactFile: 'file it writes' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined || change.afterStep !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
       case 'phase.agent': return phaseName(change.phase) + ' is now drafted by ' + agentName(change.agent);
       case 'agent.create': return 'New agent ' + change.label;
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
@@ -506,6 +568,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'integration.target.remove': return 'Remove target ' + change.id;
       case 'marketplace.add': return 'Trust marketplace ' + (change.label || change.id);
       case 'marketplace.remove': return 'Stop trusting marketplace ' + change.id;
+      case 'template.create': return ((draft.templates[change.path] || {}).scope === 'packaged' ? 'Customize the packaged template ' : 'New template ') + change.path;
+      case 'template.update': return 'Template ' + change.path + ' changed';
+      case 'artifactSet.create': return 'New artifact set ' + change.id + ' (' + change.members.length + (change.members.length === 1 ? ' member)' : ' members)');
+      case 'artifactSet.update': return 'Artifact set ' + change.id + ' changed';
+      case 'artifactSet.remove': return 'Remove artifact set ' + change.id;
       default: return change.op;
     }
   }
@@ -523,6 +590,15 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     removeNewWorkflow: function () { return removeNewWorkflow.apply(null, arguments); }, orphanedSteps: function () { return orphanedSteps.apply(null, arguments); },
     confirmAction: function () { return confirmAction.apply(null, arguments); }, discardDraft: function () { return discardDraft.apply(null, arguments); },
     restorableDraft: function () { return restorableDraft.apply(null, arguments); },
+    // Artifacts: templates, the section designer, artifact sets, and what a step chooses.
+    templateFromSections: function () { return templateFromSections.apply(null, arguments); }, newSection: function () { return newSection.apply(null, arguments); },
+    changeSectionKind: function () { return changeSectionKind.apply(null, arguments); }, storyTemplate: function () { return storyTemplate.apply(null, arguments); },
+    templateKey: function () { return templateKey.apply(null, arguments); }, templateUsers: function () { return templateUsers.apply(null, arguments); },
+    artifactsState: function () { return artifactsState(); }, openTemplateForm: function () { return openTemplateForm.apply(null, arguments); },
+    saveTemplateForm: function () { return saveTemplateForm.apply(null, arguments); }, closeTemplateForm: function () { return closeTemplateForm.apply(null, arguments); },
+    openSetForm: function () { return openSetForm.apply(null, arguments); }, setFormProblems: function () { return setFormProblems.apply(null, arguments); },
+    keepSetForm: function () { return keepSetForm.apply(null, arguments); },
+    chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
     createStep: function () { return createStep.apply(null, arguments); }, addExistingStep: function () { return addExistingStep.apply(null, arguments); },
     copyStepForWorkflow: function () { return copyStepForWorkflow.apply(null, arguments); }, stepSettings: function () { return stepSettings.apply(null, arguments); },
     stepOutput: function () { return stepOutput.apply(null, arguments); }, setStepOutput: function () { return setStepOutput.apply(null, arguments); },
@@ -561,8 +637,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
   function button(label, onClick, attrs) { return el('button', Object.assign({ type: 'button', onclick: onClick }, attrs || {}), label); }
   function select(id, options, value, onChange, attrs) {
-    return el('select', Object.assign({ id: id, 'data-key': id, onchange: function (event) { onChange(event.target.value); } }, attrs || {}),
-      options.map(function (option) { return el('option', { value: option.value, selected: option.value === value, disabled: option.disabled, title: option.title }, option.label); }));
+    var children = []; var groupName = null; var groupNode = null;
+    options.forEach(function (option) {
+      var node = el('option', { value: option.value, selected: option.value === value, disabled: option.disabled, title: option.title }, option.label);
+      if (!option.group) { groupName = null; children.push(node); return; }
+      if (option.group !== groupName) { groupName = option.group; groupNode = el('optgroup', { label: groupName }); children.push(groupNode); }
+      groupNode.appendChild(node);
+    });
+    return el('select', Object.assign({ id: id, 'data-key': id, onchange: function (event) { onChange(event.target.value); } }, attrs || {}), children);
   }
   function field(id, label, control, hint) {
     return el('div', { class: 'field' }, el('label', { for: id }, label), control, hint ? el('span', { class: 'hint' }, hint) : null);
@@ -654,7 +736,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var firstGroup = Object.keys(state.draft.groups)[0] || null;
     var phases = workflowSteps(workflowId);
     var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
-    state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [] };
+    state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
     insertStep(workflowId, id, afterId);
     state.draft.steps[workflowId][id] = { approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [] };
     state.step = id;
@@ -795,6 +877,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       compact ? null : el('div', { class: 'brand', text: 'WORKFLOW STUDIO' }),
       item('home', 'Workflows', 'flow', Object.keys(state.draft.workflows).length, false),
       item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
+      item('artifacts', 'Artifacts', 'doc', null, false),
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
       item('integrations', 'Integrations', 'plug', missingSecrets || targetIds().length || null, missingSecrets > 0),
@@ -2218,12 +2301,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       changed();
     }), group ? group.label + ', ' + (settings.approval.minimum || 1) : 'off'));
 
-    aside.appendChild(section('reads', 'Reads from earlier steps', earlier.length ? el('div', { class: 'checks' }, earlier.map(function (input) {
-      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'reads-' + input, checked: settings.inputs.indexOf(input) >= 0, onchange: function (event) {
-        settings.inputs = event.target.checked ? settings.inputs.concat([input]) : settings.inputs.filter(function (id) { return id !== input; });
-        settings.inputs.sort(function (a, b) { return workflow.phases.indexOf(a) - workflow.phases.indexOf(b); }); changed();
-      } }), stepLabel(input));
-    })) : el('span', { class: 'hint', text: 'This is the first step; it reads the Story itself.' }), null, earlier.length ? settings.inputs.length + ' of ' + earlier.length : 'the Story', true));
+    var optionalReads = settings.optionalInputs || (settings.optionalInputs = []);
+    aside.appendChild(section('reads', 'Reads from earlier steps', earlier.length ? [el('div', { class: 'checks' }, earlier.map(function (input) {
+      var reads = settings.inputs.indexOf(input) >= 0;
+      return el('div', { class: 'studio-row spread' },
+        el('label', null, el('input', { type: 'checkbox', 'data-key': 'reads-' + input, checked: reads, onchange: function (event) {
+          settings.inputs = event.target.checked ? settings.inputs.concat([input]) : settings.inputs.filter(function (id) { return id !== input; });
+          if (!event.target.checked) settings.optionalInputs = optionalReads.filter(function (id) { return id !== input; });
+          settings.inputs.sort(function (a, b) { return workflow.phases.indexOf(a) - workflow.phases.indexOf(b); }); changed();
+        } }), stepLabel(input)),
+        reads ? el('label', { class: 'muted' }, el('input', { type: 'checkbox', 'data-key': 'optional-' + input, 'aria-label': stepLabel(input) + ' is optional', checked: optionalReads.indexOf(input) >= 0, onchange: function (event) {
+          settings.optionalInputs = event.target.checked ? optionalReads.concat([input]) : optionalReads.filter(function (id) { return id !== input; }); changed();
+        } }), ' optional') : null);
+    })), optionalReads.length ? el('span', { class: 'hint', text: 'An optional input may be missing: a decision can skip the step that writes it, and this step still runs.' }) : null]
+      : el('span', { class: 'hint', text: 'This is the first step; it reads the Story itself.' }), null, earlier.length ? settings.inputs.length + ' of ' + earlier.length + (optionalReads.length ? ', ' + optionalReads.length + ' optional' : '') : 'the Story', true));
+    aside.appendChild(artifactsSection(workflowId, phaseId));
 
     var views = state.model.choices.views || [];
     if (views.length) {
@@ -3238,6 +3330,379 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     card.appendChild(el('p', { class: 'muted', text: 'Publishing adds its governed policy and grants the chosen agents its tools. Its host entry is added to your VS Code workspace afterwards, when you choose to.' }));
   }
 
+  // ---- Artifacts ------------------------------------------------------------------------------
+  //
+  // Templates are the documents a step drafts into; an artifact set names the files a step's bundle
+  // holds and which of them are required. Both are edited here and published with the other changes.
+
+  var SECTION_KINDS = [
+    { kind: 'narrative', label: 'Narrative', title: 'Context', guidance: 'State the facts, constraints, and boundaries relevant to this decision.' },
+    { kind: 'requirements', label: 'Requirements', title: 'Requirements', guidance: 'Use stable REQ-nnn identifiers and cite the governed source for every requirement.' },
+    { kind: 'acceptance-criteria', label: 'Acceptance criteria', title: 'Acceptance criteria', guidance: 'Map each AC-nnn to one or more requirements and make the outcome observable.' },
+    { kind: 'decision-log', label: 'Decision log', title: 'Decisions', guidance: 'Record decisions that constrain implementation and why the alternatives were rejected.' },
+    { kind: 'risk-register', label: 'Risk register', title: 'Risks and mitigations', guidance: 'Capture material delivery, operational, security, and compliance risks.' },
+    { kind: 'checklist', label: 'Checklist', title: 'Completion checklist', guidance: 'Keep every check independently verifiable and name the expected evidence.' },
+    { kind: 'open-questions', label: 'Open questions', title: 'Open questions', guidance: 'Do not hide assumptions here: name an owner and whether each question blocks progress.' },
+    { kind: 'evidence', label: 'Evidence', title: 'Evidence', guidance: 'The managed inputs block is injected here when the phase is prepared.' }
+  ];
+  var sectionSeq = 0;
+  function newSection(kind) {
+    var preset = SECTION_KINDS.find(function (entry) { return entry.kind === kind; }) || SECTION_KINDS[0];
+    sectionSeq += 1;
+    return { id: 'section-' + sectionSeq, kind: preset.kind, title: preset.title, guidance: preset.guidance };
+  }
+  /** A new kind brings its own heading and guidance, unless the section's were written by hand. */
+  function changeSectionKind(sectionDraft, kind) {
+    var before = SECTION_KINDS.find(function (entry) { return entry.kind === sectionDraft.kind; });
+    var after = SECTION_KINDS.find(function (entry) { return entry.kind === kind; });
+    if (!after) return;
+    if (!before || sectionDraft.title.trim() === before.title) sectionDraft.title = after.title;
+    if (!before || sectionDraft.guidance.trim() === before.guidance) sectionDraft.guidance = after.guidance;
+    sectionDraft.kind = kind;
+  }
+  function sectionMarkdown(section) {
+    var guidance = section.guidance.trim() ? '> ' + section.guidance.trim() + '\n\n' : '';
+    switch (section.kind) {
+      case 'requirements': return guidance + '### REQ-001\n\n- Statement:\n- Rationale:\n- Priority: Must / Should / Could\n- Source citations:\n- Verification method:\n';
+      case 'acceptance-criteria': return guidance + '### AC-001\n\n- Given:\n- When:\n- Then:\n- Requirements: REQ-001\n- Source citations:\n';
+      case 'decision-log': return guidance + '| ID | Decision | Rationale | Owner | Status |\n| --- | --- | --- | --- | --- |\n| DEC-001 | | | | Proposed |\n';
+      case 'risk-register': return guidance + '| ID | Risk | Impact | Likelihood | Mitigation | Owner |\n| --- | --- | --- | --- | --- | --- |\n| RISK-001 | | | | | |\n';
+      case 'checklist': return guidance + '- [ ] Check — evidence:\n';
+      case 'open-questions': return guidance + '| Question | Blocks | Owner | Resolution |\n| --- | --- | --- | --- |\n| | Yes / No | | |\n';
+      case 'evidence': return guidance + '{{inputs}}\n';
+      default: return guidance + 'TODO: Author this section from approved evidence.\n';
+    }
+  }
+  /** The template a set of sections makes, exactly as it is written under the templates folder. */
+  function templateFromSections(builder) {
+    var title = builder.title.trim() || 'Artifact';
+    var heading = builder.governs === 'initiative'
+      ? '<' + '!-- singularity-flow:initiative-metadata\n{{metadata}}\n--' + '>\n\n# {{initiative.id}} — ' + title
+      : '# {{work.id}} — ' + title;
+    var purpose = builder.purpose.trim() ? builder.purpose.trim() + '\n' : 'State what decision this artifact supports and what would make it incomplete.\n';
+    var sections = builder.sections.map(function (section) { return '## ' + (section.title.trim() || 'Untitled section') + '\n\n' + sectionMarkdown(section); }).join('\n');
+    return (heading + '\n\n' + purpose + '\n' + sections).replace(/\s+$/, '') + '\n';
+  }
+  function safeTemplatePath(value) {
+    var text = String(value || '').trim();
+    return /^[A-Za-z0-9][A-Za-z0-9._\/-]*\.md$/.test(text) && text.split('/').indexOf('..') < 0 ? text : null;
+  }
+  function artifactsState() { return state.artifacts || (state.artifacts = { templateForm: null, setForm: null }); }
+  /** The template file a step's template value names: a catalog reference resolves to its file. */
+  function templateKey(value) {
+    if (typeof value !== 'string' || value.indexOf('template:') !== 0) return value || null;
+    var id = value.slice('template:'.length);
+    return Object.keys(state.draft.templates).find(function (relative) { return state.draft.templates[relative].catalogId === id; }) || value;
+  }
+
+  /**
+   * Where a template is used, in this draft: each step that drafts from it, with the workflows that
+   * run the step that way. A workflow's own template for a step wins over the step's own.
+   */
+  function templateUsers(relative) {
+    var byStep = {}; var order = [];
+    Object.keys(state.draft.workflows).forEach(function (workflowId) {
+      workflowSteps(workflowId).forEach(function (phaseId) {
+        var phase = state.draft.phases[phaseId];
+        if (!phase) return;
+        var step = state.draft.steps[workflowId] && state.draft.steps[workflowId][phaseId];
+        if (templateKey((step && step.template) || phase.template) !== relative) return;
+        if (!byStep[phaseId]) { byStep[phaseId] = []; order.push(phaseId); }
+        byStep[phaseId].push(state.draft.workflows[workflowId].label || workflowId);
+      });
+    });
+    return order.map(function (phaseId) { return stepLabel(phaseId) + ' (' + byStep[phaseId].join(', ') + ')'; });
+  }
+  /**
+   * Whether a Story step may draft from a template: not an Initiative or Epic template, which names
+   * the initiative, the Epic's work ID or its Stories instead of the Story, and not a README kept
+   * beside the templates.
+   */
+  var EPIC_MARKERS = ['{{initiative.', 'singularity-flow:initiative-metadata', '{{workId}}', '{{storyId}}'];
+  function storyTemplate(relative) {
+    var content = state.draft.templates[relative].content || '';
+    if (/(^|\/)README\.md$/i.test(relative)) return false;
+    return !EPIC_MARKERS.some(function (marker) { return content.indexOf(marker) >= 0; });
+  }
+  function templateEdited(relative) {
+    var before = (state.model.templates || []).find(function (template) { return template.path === relative; });
+    return Boolean(before) && state.draft.templates[relative].content !== before.content;
+  }
+  function setUsers(id) { return Object.keys(state.draft.phases).filter(function (phaseId) { return state.draft.phases[phaseId].artifactSet === id; }); }
+
+  function openTemplateForm(relative, returnTo) {
+    var template = relative ? state.draft.templates[relative] : null;
+    artifactsState().templateForm = { path: relative || '', scope: template ? template.scope : 'new', content: template ? (template.content || '') : '',
+      mode: template ? 'write' : 'sections', returnTo: returnTo || null,
+      builder: { governs: 'story', title: '', purpose: '', sections: ['narrative', 'decision-log', 'open-questions', 'evidence'].map(newSection) } };
+    if (returnTo) state.returnTo = boardReturn();
+    state.view = 'artifacts'; render();
+  }
+  function closeTemplateForm() {
+    var form = artifactsState().templateForm;
+    artifactsState().templateForm = null;
+    if (form && form.returnTo) { var back = state.returnTo; state.returnTo = null; if (back) { state.view = 'board'; state.workflow = back.workflow; state.step = back.step; } }
+    render();
+  }
+  function saveTemplateForm() {
+    var form = artifactsState().templateForm;
+    var relative = form.scope === 'new' ? safeTemplatePath(form.path) : form.path;
+    if (!relative) { setStatus('A template is a .md path inside the templates folder, without "..", such as common/vendor-brief.md.'); return; }
+    if (form.scope === 'new' && state.draft.templates[relative]) { setStatus(relative + ' already exists; edit it instead.'); return; }
+    if (form.mode === 'sections') {
+      var headings = form.builder.sections.map(function (entry) { return entry.title.trim().toLowerCase(); });
+      if (!form.builder.sections.length) { setStatus('Add at least one section.'); return; }
+      if (new Set(headings).size !== headings.length) { setStatus('Each section needs its own heading.'); return; }
+    }
+    var content = form.mode === 'sections' ? templateFromSections(form.builder) : form.content;
+    if (!String(content || '').trim()) { setStatus('A template needs some content.'); return; }
+    var existing = state.draft.templates[relative];
+    state.draft.templates[relative] = existing
+      ? Object.assign({}, existing, { content: content })
+      : { path: relative, scope: 'repository', catalogId: null, label: null, content: content, tooLarge: false, usedBy: [], isNew: true };
+    setStatus(existing ? 'Template ' + relative + ' changed in your changes.' : 'Template ' + relative + ' added to your changes.');
+    if (form.returnTo) chooseTemplate(form.returnTo.workflow, form.returnTo.step, relative);
+    closeTemplateForm(); changed();
+  }
+
+  function renderTemplateForm(form) {
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Template' });
+    card.appendChild(el('h2', { text: form.scope === 'new' ? 'New template' : form.scope === 'packaged' ? 'Customize ' + form.path : 'Edit ' + form.path }));
+    if (form.scope === 'packaged') card.appendChild(el('p', { class: 'muted', text: 'Your changes become this repository\'s own copy of the template; the packaged one stays as it was.' }));
+    if (form.scope === 'new') card.appendChild(field('template-path', 'File', textInput('template-path', form.path, function (value) { form.path = value; }, { placeholder: 'common/vendor-brief.md' }), 'Inside ' + (state.model.templatesRoot || 'singularity/templates') + '.'));
+    card.appendChild(el('div', { class: 'studio-row', role: 'group', 'aria-label': 'How to write it' },
+      button('Write', function () { if (form.mode === 'sections') form.content = templateFromSections(form.builder); form.mode = 'write'; render(); }, { class: form.mode === 'write' ? 'primary' : 'secondary', 'aria-pressed': form.mode === 'write' ? 'true' : 'false' }),
+      button('Build from sections', function () { form.mode = 'sections'; render(); }, { class: form.mode === 'sections' ? 'primary' : 'secondary', 'aria-pressed': form.mode === 'sections' ? 'true' : 'false' })));
+    var text = form.mode === 'sections' ? templateFromSections(form.builder) : form.content;
+    if (form.mode === 'write') {
+      card.appendChild(field('template-content', 'Template', el('textarea', { id: 'template-content', 'data-key': 'template-content', rows: '16', style: 'width:100%;font-family:var(--vscode-editor-font-family,monospace)', onchange: function (event) { form.content = event.target.value; render(); } }, form.content), 'Markdown. {{work.id}} and {{inputs}} are filled in when the step is prepared.'));
+    } else {
+      var builder = form.builder;
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('template-governs', 'Written for', select('template-governs', [{ value: 'story', label: 'A Story step' }, { value: 'initiative', label: 'An Epic or Initiative step' }], builder.governs, function (value) { builder.governs = value; render(); })),
+        field('template-title', 'Title', textInput('template-title', builder.title, function (value) { builder.title = value; render(); }, { placeholder: 'Vendor brief' }))));
+      card.appendChild(field('template-purpose', 'What it is for', textInput('template-purpose', builder.purpose, function (value) { builder.purpose = value; render(); })));
+      builder.sections.forEach(function (sectionDraft, index) {
+        card.appendChild(el('div', { class: 'decision-box', 'aria-label': 'Section ' + (index + 1) },
+          el('div', { class: 'studio-row spread' },
+            select('section-kind-' + index, SECTION_KINDS.map(function (entry) { return { value: entry.kind, label: entry.label }; }), sectionDraft.kind, function (value) { changeSectionKind(sectionDraft, value); render(); }, { 'aria-label': 'Kind of section ' + (index + 1) }),
+            el('div', { class: 'studio-row' },
+              button('Move up', function () { builder.sections.splice(index - 1, 0, builder.sections.splice(index, 1)[0]); render(); }, { class: 'secondary', disabled: index === 0 }),
+              button('Move down', function () { builder.sections.splice(index + 1, 0, builder.sections.splice(index, 1)[0]); render(); }, { class: 'secondary', disabled: index === builder.sections.length - 1 }),
+              button('Remove', function () { builder.sections.splice(index, 1); render(); }, { class: 'secondary', disabled: builder.sections.length === 1 }))),
+          field('section-title-' + index, 'Heading', textInput('section-title-' + index, sectionDraft.title, function (value) { sectionDraft.title = value; render(); })),
+          field('section-guidance-' + index, 'Guidance for the agent', textInput('section-guidance-' + index, sectionDraft.guidance, function (value) { sectionDraft.guidance = value; render(); }))));
+      });
+      var adding = form.addKind || 'narrative';
+      card.appendChild(el('div', { class: 'studio-row' },
+        select('section-add', SECTION_KINDS.map(function (entry) { return { value: entry.kind, label: entry.label }; }), adding, function (value) { form.addKind = value; }, { 'aria-label': 'Kind of section to add' }),
+        button('Add section', function () { builder.sections.push(newSection(form.addKind || 'narrative')); render(); }, { class: 'secondary' })));
+    }
+    var preview = el('details', { open: true }, el('summary', { text: 'Preview: what is written to ' + (form.scope === 'new' ? (safeTemplatePath(form.path) || 'the new file') : form.path) }));
+    preview.appendChild(el('pre', { class: 'diff', text: text }));
+    card.appendChild(preview);
+    card.appendChild(el('div', { class: 'studio-row' },
+      button('Keep template', saveTemplateForm, { class: 'primary' }),
+      button('Cancel', closeTemplateForm, { class: 'secondary' })));
+    return card;
+  }
+
+  function openSetForm(id) {
+    var set = id ? state.draft.artifactSets[id] : null;
+    artifactsState().setForm = set ? { id: set.id, isNew: false, primary: set.primary, members: clone(set.members) }
+      : { id: '', isNew: true, primary: '', members: [{ path: '', role: '', required: true, authority: 'governed' }] };
+    render();
+  }
+  function setFormProblems(form) {
+    var problems = [];
+    if (form.isNew && (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.id) || state.draft.artifactSets[form.id])) problems.push('Give the set an unused lower-case kebab-case ID.');
+    if (!form.members.length) problems.push('A set needs at least one member.');
+    var paths = form.members.map(function (member) { return member.path.trim(); });
+    if (paths.some(function (value) { return !value || value.charAt(0) === '/' || value.split('/').indexOf('..') >= 0; })) problems.push('Every member needs a path inside the step\'s artifact folder, without "..".');
+    if (new Set(paths).size !== paths.length) problems.push('Each member path may appear once.');
+    if (form.members.some(function (member) { return !member.role.trim(); })) problems.push('Every member needs a role.');
+    if (form.members.some(function (member) { return member.authority === 'advisory' && member.required; })) problems.push('An advisory member is a planning aid, so it cannot be required.');
+    if (!form.primary || paths.indexOf(form.primary) < 0) problems.push('Choose the primary member: the file the step\'s artifact is.');
+    else if (!ARTIFACT_FILE.test(form.primary)) problems.push('The primary member is the file the step writes itself, so it is a .md file name without folders.');
+    return problems;
+  }
+  function keepSetForm() {
+    var form = artifactsState().setForm;
+    if (!form || setFormProblems(form).length) return;
+    var existing = state.draft.artifactSets[form.id];
+    state.draft.artifactSets[form.id] = { id: form.id, primary: form.primary, members: form.members.map(function (member) { return { path: member.path, role: member.role, required: Boolean(member.required), authority: member.authority }; }),
+      usedBy: existing ? existing.usedBy : [], isNew: existing ? existing.isNew : true };
+    // A step in the set writes its primary member, so a new primary renames each step's file.
+    setUsers(form.id).forEach(function (phaseId) { state.draft.phases[phaseId].artifactFile = form.primary; });
+    artifactsState().setForm = null; setStatus('Artifact set ' + form.id + ' kept in your changes.'); changed();
+  }
+  function renderSetForm(form) {
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Artifact set' });
+    card.appendChild(el('h2', { text: form.isNew ? 'New artifact set' : 'Artifact set ' + form.id }));
+    if (form.isNew) card.appendChild(field('set-id', 'ID', textInput('set-id', form.id, function (value) { form.id = value.trim(); render(); }, { placeholder: 'vendor-pack' })));
+    card.appendChild(el('div', { class: 'grid-3', 'aria-hidden': 'true' },
+      el('span', { class: 'lane-label', text: 'FILE' }), el('span', { class: 'lane-label', text: 'ROLE' }), el('span', { class: 'lane-label', text: 'AUTHORITY' })));
+    form.members.forEach(function (member, index) {
+      card.appendChild(el('div', { class: 'grid-3', style: 'align-items:center', 'aria-label': 'Member ' + (index + 1) },
+        textInput('member-path-' + index, member.path, function (value) { member.path = value.trim(); render(); }, { placeholder: 'notes.md', 'aria-label': 'Path of member ' + (index + 1) }),
+        textInput('member-role-' + index, member.role, function (value) { member.role = value.trim(); render(); }, { placeholder: 'notes', 'aria-label': 'Role of member ' + (index + 1) }),
+        el('div', { class: 'studio-row' },
+          select('member-authority-' + index, [{ value: 'governed', label: 'Governed' }, { value: 'advisory', label: 'Advisory' }], member.authority, function (value) { member.authority = value; if (value === 'advisory') member.required = false; render(); }, { 'aria-label': 'Authority of member ' + (index + 1) }),
+          el('label', null, el('input', { type: 'checkbox', 'data-key': 'member-required-' + index, checked: member.required, disabled: member.authority === 'advisory', onchange: function (event) { member.required = event.target.checked; render(); } }), ' required'),
+          button('Remove', function () { form.members.splice(index, 1); render(); }, { class: 'secondary', disabled: form.members.length === 1, 'aria-label': 'Remove member ' + (index + 1) }))));
+    });
+    card.appendChild(el('div', { class: 'studio-row' }, button('Add member', function () { form.members.push({ path: '', role: '', required: false, authority: 'governed' }); render(); }, { class: 'secondary' })));
+    var paths = form.members.map(function (member) { return member.path; }).filter(Boolean);
+    card.appendChild(field('set-primary', 'Primary member', select('set-primary', [{ value: '', label: 'Choose…' }].concat(paths.map(function (value) { return { value: value, label: value }; })), form.primary, function (value) { form.primary = value; render(); }), 'The file the step\'s artifact is; the others sit beside it.'));
+    var problems = setFormProblems(form);
+    // A blank new set says what it needs once; the list of problems starts when something is typed.
+    var started = !form.isNew || form.id || form.members.some(function (member) { return member.path || member.role; });
+    if (started) problems.forEach(function (problem) { card.appendChild(el('div', { class: 'callout wait', text: problem })); });
+    else card.appendChild(el('span', { class: 'hint', text: 'Give the set an ID, list its files with a role each, and choose the primary member.' }));
+    card.appendChild(el('div', { class: 'studio-row' },
+      button('Keep set', keepSetForm, { class: 'primary', disabled: problems.length > 0 }),
+      button('Cancel', function () { artifactsState().setForm = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function templateRow(relative) {
+    var template = state.draft.templates[relative];
+    var users = templateUsers(relative);
+    var name = relative.slice(relative.lastIndexOf('/') + 1);
+    var edited = templateEdited(relative);
+    return el('li', { class: 'artifact-row', 'data-filter': (relative + ' ' + (template.label || '') + ' ' + users.join(' ')).toLowerCase() },
+      el('div', { class: 'artifact-name' }, el('strong', { text: template.label || name, title: relative }), template.label ? el('code', { text: name }) : null,
+        template.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : edited ? el('span', { class: 'pill new', text: 'CHANGED' }) : template.scope === 'packaged' ? el('span', { class: 'pill', title: 'Shipped with Singularity Flow; Customize makes this repository\'s own copy.', text: 'Packaged' }) : null),
+      el('span', { class: 'muted artifact-users', title: users.join('; '), text: users.length ? users.join('; ') : 'Not used by a Story workflow' }),
+      template.tooLarge ? el('span', { class: 'muted', text: 'Too large to edit here' })
+        : button(template.scope === 'packaged' && !template.isNew && !edited ? 'Customize' : 'Edit', function () { openTemplateForm(relative, null); }, { class: 'secondary', 'aria-label': (template.scope === 'packaged' ? 'Customize ' : 'Edit ') + relative }));
+  }
+  /** Hides the rows that do not match, opening every folder that has a match while there is a filter. */
+  function filterTemplates(container, value, count) {
+    var needle = String(value || '').trim().toLowerCase();
+    var shownAll = 0;
+    Array.prototype.forEach.call(container.querySelectorAll('.artifact-group'), function (group) {
+      var shown = 0;
+      Array.prototype.forEach.call(group.querySelectorAll('.artifact-row'), function (row) {
+        var hit = !needle || row.getAttribute('data-filter').indexOf(needle) >= 0;
+        row.hidden = !hit; if (hit) shown += 1;
+      });
+      shownAll += shown;
+      var open = needle ? shown > 0 : group.getAttribute('data-open') === 'true';
+      group.hidden = Boolean(needle) && shown === 0;
+      var list = group.querySelector('.artifact-list'); if (list) list.hidden = !open;
+      var chevron = group.querySelector('.chevron'); if (chevron) chevron.textContent = open ? '▾' : '▸';
+    });
+    if (count) count.textContent = needle ? shownAll + (shownAll === 1 ? ' template' : ' templates') : '';
+  }
+
+  function renderArtifacts(main) {
+    var view = artifactsState();
+    if (!view.templateForm && !view.setForm) backLink(main);
+    main.appendChild(el('header', null, el('h1', { text: 'Artifacts' }),
+      el('p', { class: 'studio-lede', text: 'A step drafts its document from a template, and an artifact set says which files its bundle holds and which of them are required. Choose them for a step in its properties; edit them here.' })));
+    if (view.templateForm) { main.appendChild(renderTemplateForm(view.templateForm)); return; }
+    if (view.setForm) { main.appendChild(renderSetForm(view.setForm)); return; }
+    var templates = Object.keys(state.draft.templates).sort();
+    var templatesCard = el('section', { class: 'studio-card', 'aria-label': 'Templates' });
+    templatesCard.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Templates · ' + templates.length }), button('New template', function () { openTemplateForm(null, null); }, { class: 'primary' })));
+    if (!templates.length) templatesCard.appendChild(el('p', { class: 'muted', text: 'No templates yet.' }));
+    else {
+      var count = el('span', { class: 'muted', role: 'status' });
+      templatesCard.appendChild(el('div', { class: 'studio-row' },
+        el('input', { type: 'text', 'data-key': 'template-filter', value: view.filter || '', placeholder: 'Find a template, step or workflow', 'aria-label': 'Find a template, step or workflow', style: 'flex:1;min-width:0',
+          // Typing filters the rows in place; re-rendering would move the caret.
+          oninput: function (event) { view.filter = event.target.value; filterTemplates(templatesCard, view.filter, count); },
+          onkeydown: function (event) { if (event.key === 'Escape') { event.preventDefault(); event.target.value = ''; view.filter = ''; filterTemplates(templatesCard, '', count); } } }),
+        count));
+      var folders = {};
+      templates.forEach(function (relative) {
+        var folder = relative.indexOf('/') >= 0 ? relative.slice(0, relative.lastIndexOf('/')) : '';
+        (folders[folder] || (folders[folder] = [])).push(relative);
+      });
+      Object.keys(folders).sort().forEach(function (folder) {
+        var key = 'templates-' + (folder || '.');
+        var entries = folders[folder];
+        // A folder opens by itself while it holds a template changed in this draft.
+        var open = state.sections[key] === undefined ? entries.some(function (relative) { return state.draft.templates[relative].isNew || templateEdited(relative); }) : state.sections[key];
+        templatesCard.appendChild(el('section', { class: 'artifact-group', 'data-open': open ? 'true' : 'false' },
+          el('button', { type: 'button', class: 'section-toggle', 'aria-expanded': open ? 'true' : 'false', 'data-key': 'section-' + key, onclick: function () { state.sections[key] = !open; render(); } },
+            el('span', { class: 'chevron', 'aria-hidden': 'true', text: open ? '▾' : '▸' }), (folder || 'templates') + '/',
+            el('span', { class: 'summary', text: entries.length + (entries.length === 1 ? ' template' : ' templates') })),
+          el('ul', { class: 'artifact-list', hidden: !open }, entries.map(templateRow))));
+      });
+      filterTemplates(templatesCard, view.filter, count);
+    }
+    main.appendChild(templatesCard);
+    var sets = Object.keys(state.draft.artifactSets).sort();
+    var setsCard = el('section', { class: 'studio-card', 'aria-label': 'Artifact sets' });
+    setsCard.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Artifact sets · ' + sets.length }), button('New artifact set', function () { openSetForm(null); }, { class: 'primary' })));
+    if (!sets.length) setsCard.appendChild(el('p', { class: 'muted', text: 'No artifact sets. A step without one has a single artifact: the file its template drafts.' }));
+    main.appendChild(setsCard);
+    sets.forEach(function (id) {
+      var set = state.draft.artifactSets[id];
+      var users = setUsers(id);
+      setsCard.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Artifact set ' + id },
+        el('div', { class: 'studio-row spread' },
+          el('div', { class: 'studio-row' }, el('strong', { text: id }), set.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null),
+          el('div', { class: 'studio-row' },
+            button('Edit', function () { openSetForm(id); }, { class: 'secondary', 'aria-label': 'Edit ' + id }),
+            button('Remove', function () {
+              if (users.length) { setStatus('Take ' + id + ' off ' + users.map(stepLabel).join(', ') + ' first.'); return; }
+              confirmAction('Remove the artifact set ' + id + '?', set.isNew ? 'It has not been published, so nothing else changes.' : 'It is removed when you publish; no step uses it.', 'Remove set', function () { delete state.draft.artifactSets[id]; changed(); });
+            }, { class: 'secondary', 'aria-label': 'Remove ' + id }))),
+        el('ul', { class: 'set-members' }, set.members.map(function (member) {
+          return el('li', null, el('code', { text: member.path }), ' ' + member.role + (member.path === set.primary ? ' · primary' : '') + (member.required ? ' · required' : '') + (member.authority === 'advisory' ? ' · advisory' : ''));
+        })),
+        el('span', { class: 'muted', text: users.length ? 'Used by ' + users.map(stepLabel).join(', ') : 'Not used by any step yet' })));
+    });
+  }
+
+  /** A step's template: this workflow's own on a shared step, the step's own otherwise. */
+  function chooseTemplate(workflowId, phaseId, value) {
+    var phase = state.draft.phases[phaseId]; var settings = stepSettings(workflowId, phaseId);
+    if (otherUsers(workflowId, phaseId).length || settings.template) settings.template = value || null;
+    else { phase.template = value || null; phase.templateChosen = true; }
+    changed();
+  }
+  function chooseArtifactSet(phaseId, value) {
+    var phase = state.draft.phases[phaseId];
+    phase.artifactSet = value || null; phase.artifactSetChosen = true;
+    var set = value ? state.draft.artifactSets[value] : null;
+    if (set) { phase.artifactFile = set.primary; phase.artifactFileChosen = true; }
+    changed();
+  }
+  var ARTIFACT_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+  function artifactsSection(workflowId, phaseId) {
+    var phase = state.draft.phases[phaseId]; var settings = stepSettings(workflowId, phaseId);
+    var current = templateKey(settings.template || phase.template) || '';
+    var templates = Object.keys(state.draft.templates).sort().filter(function (relative) { return relative === current || storyTemplate(relative); });
+    var options = [{ value: '', label: 'No template' }].concat(templates.map(function (relative) {
+      var cut = relative.lastIndexOf('/');
+      var name = relative.slice(cut + 1);
+      return { value: relative, group: cut >= 0 ? relative.slice(0, cut) + '/' : 'templates/', label: state.draft.templates[relative].label ? state.draft.templates[relative].label + ' · ' + name : name };
+    }));
+    if (current && templates.indexOf(current) < 0) options.push({ value: current, label: current });
+    options.push({ value: '__new__', label: 'Create a new template…' });
+    var sets = Object.keys(state.draft.artifactSets).sort();
+    var set = phase.artifactSet ? state.draft.artifactSets[phase.artifactSet] : null;
+    var shared = otherUsers(workflowId, phaseId).length > 0;
+    return section('artifacts', 'Artifacts', [
+      field('step-template', 'Template', select('step-template', options, current, function (value) {
+        if (value === '__new__') { openTemplateForm(null, { workflow: workflowId, step: phaseId }); return; }
+        chooseTemplate(workflowId, phaseId, value);
+      }), shared ? 'This step is shared, so the template is this workflow\'s own choice.' : null),
+      current && state.draft.templates[current] ? el('div', { class: 'studio-row' }, button(state.draft.templates[current].scope === 'packaged' ? 'Customize template' : 'Edit template', function () { openTemplateForm(current, { workflow: workflowId, step: phaseId }); }, { class: 'secondary' })) : null,
+      field('step-artifact-file', 'File it writes', textInput('step-artifact-file', phase.artifactFile || '', function (value) {
+        var name = value.trim();
+        if (!ARTIFACT_FILE.test(name)) { setStatus('The file a step writes is a .md file name without folders, like vendor-brief.md.'); render(); return; }
+        phase.artifactFile = name; phase.artifactFileChosen = true; changed();
+      }, { disabled: Boolean(set), placeholder: phaseId + '.md' }), set ? 'The primary member of ' + set.id + '.' : (shared ? 'The step\'s own file, in every workflow that uses it.' : null)),
+      field('step-artifact-set', 'Artifact set', select('step-artifact-set', [{ value: '', label: 'None: one artifact' }].concat(sets.map(function (id) { return { value: id, label: id }; })), phase.artifactSet || '', function (value) { chooseArtifactSet(phaseId, value); }),
+        set ? set.members.length + ' member(s); primary ' + set.primary : 'Edit sets under Artifacts.')
+    ], null, (current ? current.split('/').pop() : 'no template') + (set ? ' · ' + set.id : ''), true);
+  }
+
   function renderLibrary(main) {
     var lib = library();
     backLink(main);
@@ -3419,6 +3884,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (state.view === 'board') renderBoard(main);
     else if (state.view === 'new') renderWizard(main);
     else if (state.view === 'agents') renderAgents(main);
+    else if (state.view === 'artifacts') renderArtifacts(main);
     else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'integrations') renderIntegrations(main);

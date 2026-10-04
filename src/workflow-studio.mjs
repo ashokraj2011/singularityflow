@@ -14,7 +14,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies } from './agents.mjs';
@@ -29,7 +29,8 @@ import { mcpDescriptorPath, parseMcpServerDescriptor } from './mcp-descriptor.mj
 import { DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES } from './remote-fetch.mjs';
 import { importsStatus } from './asset-import.mjs';
 import { importableMcpServers } from './mcp-import.mjs';
-import { templateReferences } from './template-catalog.mjs';
+import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, templateReferences } from './template-catalog.mjs';
+import { normalizeArtifactSet } from './artifact-sets.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import {
   authoringRoute, compiledSkillStep, deterministicOnlyGeneration, stepOutputKind, workflowCodeGeneration
@@ -151,6 +152,81 @@ function inputIds(inputs) {
   return (Array.isArray(inputs) ? inputs : []).map(inputPhase).filter(Boolean);
 }
 
+/** The step IDs a step may read without: its input entries marked optional. */
+function optionalInputIds(inputs) {
+  return (Array.isArray(inputs) ? inputs : []).filter((entry) => isObject(entry) && entry.optional === true).map(inputPhase).filter(Boolean);
+}
+
+const TEMPLATE_CONTENT_LIMIT = 64 * 1024;
+const TEMPLATE_WRITE_LIMIT = 256 * 1024;
+const TEMPLATE_FILE_LIMIT = 400;
+const PACKAGED_TEMPLATES = path.join(PACKAGE_ROOT, 'templates', 'artifacts');
+
+/** A template the Studio may write: a relative .md path inside the templates folder, with no '..'. */
+function safeTemplatePath(value) {
+  const text = String(value ?? '').trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(text) && !text.split('/').includes('..') ? text : null;
+}
+
+/** The file a step writes, as the Studio names it: a .md file name with no folders. */
+const ARTIFACT_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+
+async function markdownFiles(directory) {
+  const found = [];
+  async function walk(relative, depth) {
+    if (found.length >= TEMPLATE_FILE_LIMIT || depth > 6) return;
+    let entries;
+    try { entries = await readdir(path.join(directory, relative), { withFileTypes: true }); } catch { return; }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (found.length >= TEMPLATE_FILE_LIMIT) return;
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(child, depth + 1);
+      else if (entry.isFile() && entry.name.endsWith('.md')) found.push(child);
+    }
+  }
+  await walk('', 0);
+  return found;
+}
+
+/** A template's text for the page, or null with tooLarge when it is past what the page edits. */
+async function boundedTemplateText(file) {
+  try {
+    if ((await stat(file)).size > TEMPLATE_CONTENT_LIMIT) return { content: null, tooLarge: true };
+    return { content: await readFile(file, 'utf8'), tooLarge: false };
+  } catch { return { content: null, tooLarge: false }; }
+}
+
+/**
+ * The templates the Studio shows: every template file in the repository, and each packaged
+ * template a step or workflow uses that the repository does not carry, with its catalog entry and
+ * the steps and workflows that use it.
+ */
+async function studioTemplates(configRoot, raw, definition) {
+  const templatesRoot = posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates');
+  let catalog = {};
+  try { catalog = normalizeTemplateCatalog(raw.templates ?? {}); } catch { catalog = {}; }
+  const references = { phases: raw.phases ?? {}, workTypes: raw.workTypes ?? {}, templates: catalog };
+  const repository = await markdownFiles(path.join(configRoot, templatesRoot));
+  const named = [
+    ...Object.values(raw.phases ?? {}).map((phase) => phase?.defaultTemplate),
+    ...Object.values(raw.workTypes ?? {}).flatMap((type) => Object.values(type?.templateOverrides ?? {}))
+  ].filter((value) => typeof value === 'string' && !value.startsWith('agent:'))
+    .map((value) => (isTemplateReference(value) ? catalog[parseTemplateReference(value)]?.path : value)).filter(Boolean);
+  const packaged = [...new Set(named)].filter((relative) => !repository.includes(relative) && existsSync(path.join(PACKAGED_TEMPLATES, relative)));
+  const view = async (relative, scope) => {
+    const entry = Object.entries(catalog).find(([, value]) => value.path === relative);
+    const file = scope === 'repository' ? path.join(configRoot, templatesRoot, relative) : path.join(PACKAGED_TEMPLATES, relative);
+    return {
+      path: relative, scope, catalogId: entry?.[0] ?? null, label: entry?.[1]?.label ?? null,
+      ...(await boundedTemplateText(file)), usedBy: templateReferences(references, relative)
+    };
+  };
+  return [
+    ...(await Promise.all(repository.map((relative) => view(relative, 'repository')))),
+    ...(await Promise.all(packaged.map((relative) => view(relative, 'packaged'))))
+  ];
+}
+
 /** Whether people can actually sign off with this group, in the terms the Studio shows. */
 function groupStatus(group, security) {
   if ((group.members ?? []).length) return 'people';
@@ -216,6 +292,9 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase),
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
           approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
+          optionalInputs: optionalInputIds(phase.inputs),
+          // This workflow's own template for the step, when it sets one over the step's.
+          template: typeof type.templateOverrides?.[phase.id] === 'string' ? type.templateOverrides[phase.id] : null,
           views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
           overridden: Boolean(type.phaseOverrides?.[phase.id]),
           authoringSkill: route.authoringSkill,
@@ -259,10 +338,21 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       compiledSkill: compiledSkillStep(phase),
       views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
       template: phase.defaultTemplate ?? null, artifact: phase.artifact?.path ?? null,
+      artifactSet: typeof phase.artifactSet === 'string' ? phase.artifactSet : null,
+      optionalInputs: optionalInputIds(phase.inputs),
       usedBy: usedBy(id), agent: defaultAgentOf(id),
       eligibleAgents: discovered.filter((agent) => !agent.phases.length || agent.phases.includes(id)).map((agent) => agent.id)
     })),
     agents: discovered.map(agentView),
+    templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),
+    templates: await studioTemplates(configRoot, raw, definition),
+    artifactSets: Object.entries(raw.artifactSets ?? {}).map(([id, set]) => ({
+      id, primary: String(set?.primary ?? ''),
+      members: (Array.isArray(set?.members) ? set.members : []).map((member) => ({
+        path: String(member?.path ?? ''), role: String(member?.role ?? ''), required: member?.required === true, authority: member?.authority ?? 'governed'
+      })),
+      usedBy: Object.entries(phases).filter(([, phase]) => phase?.artifactSet === id).map(([phaseId]) => phaseId)
+    })),
     groups: Object.entries(raw.approvalAuthorities ?? {}).map(([id, group]) => ({
       id, label: group?.label ?? id,
       members: (group?.members ?? []).map((member) => ({ name: member?.name ?? null, email: member?.email ?? null, githubLogin: member?.githubLogin ?? null })),
@@ -440,7 +530,8 @@ export function unifiedDiff(before, after, file) {
 // (finalWorkflowPhases), not by the lists at that moment.
 const RANK = Object.freeze({
   'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
-  'import.template': 3.5, 'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7,
+  'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
+  'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
   'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11,
   'integration.target.remove': 11.5
 });
@@ -659,8 +750,135 @@ class StudioCandidate {
       case 'import.generated': return this.importGenerated(change);
       case 'import.mcpServer': return this.importMcpServer(change);
       case 'import.remove': return this.removeImport(change);
+      case 'template.create': return this.createTemplate(change);
+      case 'template.update': return this.updateTemplate(change);
+      case 'artifactSet.create': return this.createArtifactSet(change);
+      case 'artifactSet.update': return this.updateArtifactSet(change);
+      case 'artifactSet.remove': return this.removeArtifactSet(change);
       default: throw new SingularityFlowError(`Unknown Studio change '${change?.op}'.`, { code: 'STUDIO_CHANGE_UNKNOWN' });
     }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Templates and artifact sets
+
+  /** The text a template change writes: a string of at most 256 KiB that says something. */
+  templateText(content, name) {
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new SingularityFlowError(`Template ${name} needs some content.`, { code: 'STUDIO_TEMPLATE_INVALID' });
+    }
+    if (Buffer.byteLength(content, 'utf8') > TEMPLATE_WRITE_LIMIT) {
+      throw new SingularityFlowError(`Template ${name} is larger than 256 KiB.`, { code: 'STUDIO_TEMPLATE_INVALID' });
+    }
+    return content.endsWith('\n') ? content : `${content}\n`;
+  }
+
+  templateFile(relative) {
+    const name = safeTemplatePath(relative);
+    if (!name) {
+      throw new SingularityFlowError('A template is a .md path inside the templates folder, without "..".', { code: 'STUDIO_TEMPLATE_INVALID' });
+    }
+    return { name, file: posix(path.join(this.sources.templatesRoot, name)) };
+  }
+
+  /** A new template file, or a repository copy of a packaged one so it can be changed. */
+  createTemplate({ path: relative, content }) {
+    const { name, file } = this.templateFile(relative);
+    if (existsSync(path.join(this.sources.configRoot, file)) || this.templates.has(file)) {
+      throw new SingularityFlowError(`Template ${name} already exists in this repository; change it instead.`, { code: 'STUDIO_TEMPLATE_EXISTS' });
+    }
+    this.templates.set(file, this.templateText(content, name));
+    this.summary.push(existsSync(path.join(PACKAGED_TEMPLATES, name)) ? `Template ${name} copied into this repository and changed.` : `New template ${name}.`);
+  }
+
+  updateTemplate({ path: relative, content }) {
+    const { name, file } = this.templateFile(relative);
+    if (!existsSync(path.join(this.sources.configRoot, file))) {
+      throw new SingularityFlowError(`Template ${name} is not in this repository. Copy it into the repository to change it.`, { code: 'STUDIO_TEMPLATE_UNKNOWN' });
+    }
+    this.templates.set(file, { content: this.templateText(content, name), replace: true });
+    this.summary.push(`Template ${name} changed.`);
+  }
+
+  /** A template value a step or workflow may name: a catalog entry, or a template file that exists. */
+  templateValue(value, name) {
+    if (typeof value === 'string' && isTemplateReference(value)) {
+      const id = parseTemplateReference(value, `The template of ${name}`);
+      if (!Object.hasOwn(this.content.templates ?? {}, id)) {
+        throw new SingularityFlowError(`The template catalog has no entry '${id}'.`, { code: 'STUDIO_TEMPLATE_UNKNOWN' });
+      }
+      return value;
+    }
+    const { name: relative, file } = this.templateFile(value);
+    if (!existsSync(path.join(this.sources.configRoot, file)) && !this.templates.has(file) && !existsSync(path.join(PACKAGED_TEMPLATES, relative))) {
+      throw new SingularityFlowError(`There is no template ${relative} for ${name}.`, { code: 'STUDIO_TEMPLATE_UNKNOWN' });
+    }
+    return relative;
+  }
+
+  /** An artifact set as written: checked by the same rules configuration loading applies. */
+  artifactSetNode(id, primary, members) {
+    const normalized = normalizeArtifactSet({ primary, members }, id);
+    return {
+      primary: normalized.primary,
+      members: normalized.members.map((member) => ({
+        path: member.path, role: member.role,
+        ...(member.required ? { required: true } : {}),
+        ...(member.authority !== 'governed' ? { authority: member.authority } : {})
+      }))
+    };
+  }
+
+  createArtifactSet({ id, primary, members }) {
+    const setId = requireId(id, 'An artifact set ID');
+    if (this.content.artifactSets?.[setId]) {
+      throw new SingularityFlowError(`An artifact set called '${setId}' already exists.`, { code: 'STUDIO_ARTIFACT_SET_EXISTS' });
+    }
+    this.document.setIn(['artifactSets', setId], this.document.createNode(this.artifactSetNode(setId, primary, members)));
+    this.summary.push(`New artifact set ${setId}: ${(members ?? []).length} member(s).`);
+  }
+
+  updateArtifactSet({ id, primary, members }) {
+    const setId = requireId(id, 'An artifact set ID');
+    const current = this.content.artifactSets?.[setId];
+    if (!current) throw new SingularityFlowError(`There is no artifact set '${setId}'.`, { code: 'STUDIO_ARTIFACT_SET_UNKNOWN' });
+    const node = this.artifactSetNode(setId, primary ?? current.primary, members ?? current.members);
+    this.document.setIn(['artifactSets', setId], this.document.createNode(node));
+    // A step in the set writes its primary member as its own file, so a new primary moves each of them.
+    const users = Object.entries(this.content.phases ?? {}).filter(([, phase]) => phase?.artifactSet === setId).map(([phaseId]) => phaseId);
+    if (node.primary !== posix(String(current.primary ?? ''))) for (const phaseId of users) this.alignArtifactFile(phaseId, setId);
+    this.summary.push(`Artifact set ${setId} changed.`);
+  }
+
+  /**
+   * A step in an artifact set writes the set's primary member as its own file, beside the other
+   * members, as configuration loading requires; the step keeps its folder.
+   */
+  alignArtifactFile(phaseId, setId) {
+    const primary = posix(String(this.content.artifactSets?.[setId]?.primary ?? ''));
+    if (!ARTIFACT_FILE.test(primary)) {
+      throw new SingularityFlowError(`${this.phaseLabel(phaseId)} would write ${primary}, the primary member of artifact set ${setId}; a step's own file is a .md file name without folders.`, { code: 'STUDIO_ARTIFACT_SET_INVALID' });
+    }
+    this.setArtifactFile(phaseId, primary);
+  }
+
+  setArtifactFile(phaseId, fileName) {
+    const current = posix(String(this.phase(phaseId)?.artifact?.path ?? `artifacts/${phaseId}/${phaseId}.md`));
+    const directory = path.posix.dirname(current);
+    const next = directory === '.' ? fileName : `${directory}/${fileName}`;
+    if (next !== current) this.document.setIn(['phases', phaseId, 'artifact', 'path'], next);
+  }
+
+  removeArtifactSet({ id }) {
+    const setId = requireId(id, 'An artifact set ID');
+    if (!this.content.artifactSets?.[setId]) throw new SingularityFlowError(`There is no artifact set '${setId}'.`, { code: 'STUDIO_ARTIFACT_SET_UNKNOWN' });
+    const users = Object.entries(this.content.phases ?? {}).filter(([, phase]) => phase?.artifactSet === setId).map(([phaseId]) => this.phaseLabel(phaseId));
+    if (users.length) {
+      throw new SingularityFlowError(`Artifact set ${setId} is still used by ${users.join(', ')}.`, { code: 'STUDIO_ARTIFACT_SET_IN_USE' });
+    }
+    this.document.deleteIn(['artifactSets', setId]);
+    if (!Object.keys(this.content.artifactSets ?? {}).length && this.document.hasIn(['artifactSets'])) this.document.deleteIn(['artifactSets']);
+    this.summary.push(`Artifact set ${setId} removed.`);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1144,7 +1362,7 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep }) {
+  createPhase({ id, label, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
@@ -1189,7 +1407,15 @@ class StudioCandidate {
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
     // A copy's own skill that cannot draft its new output is dropped; one the change names decides.
     const dropped = !copyOf || (output !== undefined && output !== outputOf(node)) ? this.setOutput(phaseId, output ?? 'document') : null;
-    if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
+    if (template !== undefined && template !== null) this.document.setIn(['phases', phaseId, 'defaultTemplate'], this.templateValue(template, name));
+    else if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
+    if (artifactSet !== undefined && artifactSet !== null) {
+      const setId = requireId(artifactSet, 'An artifact set ID');
+      if (!this.content.artifactSets?.[setId]) throw new SingularityFlowError(`There is no artifact set '${setId}'.`, { code: 'STUDIO_ARTIFACT_SET_UNKNOWN' });
+      this.document.setIn(['phases', phaseId, 'artifactSet'], setId);
+      this.alignArtifactFile(phaseId, setId);
+    }
+    if (artifactFile !== undefined && artifactFile !== null) this.nameArtifactFile(phaseId, artifactFile, name);
     // Absent or null leaves a list as it is, as in phase.update: a new step has none, a copy keeps its source's.
     const inputList = changeList(inputs, `The inputs of ${name}`, 'STUDIO_PHASE_UNKNOWN');
     if (inputList) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputList, node.inputs ?? [])));
@@ -1239,16 +1465,21 @@ class StudioCandidate {
     const entries = Array.isArray(current) ? current : [];
     const entryFor = (id) => entries.find((entry) => inputPhase(entry) === id);
     return ids.map((input) => {
-      const id = requireId(input, 'An input step');
+      // { phase, optional } says whether the step can go without the input; a bare ID keeps what it has.
+      const optional = isObject(input) && typeof input.optional === 'boolean' ? input.optional : null;
+      const id = requireId(isObject(input) ? input.phase : input, 'An input step');
       if (!this.pendingPhases.has(id)) this.requirePhase(id);
       const own = entryFor(id);
-      if (own !== undefined) return structuredClone(own);
-      const replaced = this.copies.has(id) ? entryFor(this.copies.get(id)) : undefined;
-      return isObject(replaced) ? { ...structuredClone(replaced), phase: id } : id;
+      const replaced = own === undefined && this.copies.has(id) ? entryFor(this.copies.get(id)) : undefined;
+      const entry = own !== undefined ? structuredClone(own) : isObject(replaced) ? { ...structuredClone(replaced), phase: id } : id;
+      if (optional === null) return entry;
+      const next = isObject(entry) ? { ...entry } : { phase: id };
+      if (optional) next.optional = true; else delete next.optional;
+      return Object.keys(next).length === 1 && next.phase === id ? id : next;
     });
   }
 
-  updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill, afterStep }) {
+  updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill, afterStep, template, artifactSet, artifactFile }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -1329,9 +1560,48 @@ class StudioCandidate {
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
       changed.push('questions');
     }
-    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined || afterStep !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
+    if (template !== undefined) {
+      // A workflow's own template for a shared step lives in its templateOverrides; otherwise the
+      // step's defaultTemplate changes wherever the step is used. null takes the setting away.
+      const value = template === null ? null : this.templateValue(template, name);
+      const overridePath = workflow ? ['workTypes', workflow, 'templateOverrides', phaseId] : null;
+      const perWorkflow = overridePath && (shared || this.document.getIn(overridePath) !== undefined);
+      const target = perWorkflow ? overridePath : ['phases', phaseId, 'defaultTemplate'];
+      if (value === null) {
+        if (this.document.hasIn(target)) this.document.deleteIn(target);
+        if (perWorkflow && !Object.keys(this.content.workTypes?.[workflow]?.templateOverrides ?? {}).length
+            && this.document.hasIn(['workTypes', workflow, 'templateOverrides'])) this.document.deleteIn(['workTypes', workflow, 'templateOverrides']);
+      } else this.document.setIn(target, value);
+      changed.push('template');
+    }
+    if (artifactSet !== undefined) {
+      if (artifactSet === null) {
+        if (this.document.hasIn(['phases', phaseId, 'artifactSet'])) this.document.deleteIn(['phases', phaseId, 'artifactSet']);
+      } else {
+        const setId = requireId(artifactSet, 'An artifact set ID');
+        if (!this.content.artifactSets?.[setId]) throw new SingularityFlowError(`There is no artifact set '${setId}'.`, { code: 'STUDIO_ARTIFACT_SET_UNKNOWN' });
+        this.document.setIn(['phases', phaseId, 'artifactSet'], setId);
+        this.alignArtifactFile(phaseId, setId);
+      }
+      changed.push('artifact set');
+    }
+    if (artifactFile !== undefined && artifactFile !== null) { this.nameArtifactFile(phaseId, artifactFile, name); changed.push('file'); }
+    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined || afterStep !== undefined || template !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
     const droppedLine = this.droppedSkillLine(phaseId, label ?? name, dropped);
     if (droppedLine) this.summary.push(droppedLine);
+  }
+
+  /** The file a step writes, renamed in its folder; a step in an artifact set writes the set's primary. */
+  nameArtifactFile(phaseId, value, name) {
+    const fileName = String(value ?? '').trim();
+    if (!ARTIFACT_FILE.test(fileName)) {
+      throw new SingularityFlowError(`The file ${name} writes is a .md file name without folders, like vendor-brief.md.`, { code: 'STUDIO_ARTIFACT_INVALID' });
+    }
+    const setId = this.phase(phaseId)?.artifactSet;
+    if (setId !== undefined && posix(String(this.content.artifactSets?.[setId]?.primary ?? '')) !== fileName) {
+      throw new SingularityFlowError(`${name} is in artifact set ${setId}, so the file it writes is the set's primary member.`, { code: 'STUDIO_ARTIFACT_INVALID' });
+    }
+    this.setArtifactFile(phaseId, fileName);
   }
 
   assignAgent({ phase, agent }) {
@@ -1600,7 +1870,9 @@ class StudioCandidate {
       if (before != null) files.push({ path: relative, before, after: null });
     }
     for (const [relative, content] of this.templates) {
-      files.push({ path: relative, before: null, after: typeof content === 'string' ? content : await readFile(content.copyFrom, 'utf8') });
+      const after = typeof content === 'string' ? content : content.copyFrom ? await readFile(content.copyFrom, 'utf8') : content.content;
+      const before = content?.replace ? await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null) : null;
+      files.push({ path: relative, before, after });
     }
     for (const [relative, bytes] of this.vendored) {
       const before = await readFile(path.join(this.sources.configRoot, relative)).catch(() => null);

@@ -1190,3 +1190,166 @@ test('the host asks the questions the page cannot, and keeps a draft only agains
   assert.match(page, /button\('Close', function \(\) \{ lib\.market = null;/);
   assert.match(page, /button\('Close', function \(\) \{ lib\.mcp = null;/);
 });
+
+test('a template designed from sections is chosen for a step from its properties, as one change set the engine accepts', async () => {
+  // Feature names its own template for requirements; without that, the step's own template applies.
+  const root = await repository({ edit: (document) => document.deleteIn(['workTypes', 'feature', 'templateOverrides', 'requirements']) });
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  Object.assign(state, { view: 'board', workflow: 'feature', step: 'design' });
+
+  // The section designer writes exactly what the template file holds.
+  assert.equal(logic.templateFromSections({ governs: 'story', title: 'Vendor brief', purpose: '', sections: [logic.newSection('requirements'), logic.newSection('evidence')] }),
+    '# {{work.id}} — Vendor brief\n\nState what decision this artifact supports and what would make it incomplete.\n\n'
+    + '## Requirements\n\n> Use stable REQ-nnn identifiers and cite the governed source for every requirement.\n\n'
+    + '### REQ-001\n\n- Statement:\n- Rationale:\n- Priority: Must / Should / Could\n- Source citations:\n- Verification method:\n\n'
+    + '## Evidence\n\n> The managed inputs block is injected here when the phase is prepared.\n\n{{inputs}}\n');
+  assert.match(logic.templateFromSections({ governs: 'initiative', title: 'Plan', purpose: 'Why it exists.', sections: [logic.newSection('checklist')] }),
+    /^<!-- singularity-flow:initiative-metadata\n\{\{metadata\}\}\n-->\n\n# \{\{initiative\.id\}\} — Plan\n\nWhy it exists\.\n\n## Completion checklist\n/);
+
+  // A new kind brings its own heading and guidance, unless they were written by hand.
+  const section = logic.newSection('decision-log');
+  logic.changeSectionKind(section, 'risk-register');
+  assert.deepEqual([section.kind, section.title, section.guidance], ['risk-register', 'Risks and mitigations', 'Capture material delivery, operational, security, and compliance risks.']);
+  section.title = 'Our risks';
+  logic.changeSectionKind(section, 'checklist');
+  assert.deepEqual([section.kind, section.title], ['checklist', 'Our risks']);
+
+  // A Story step is offered Story templates: not the Epic and Initiative ones, nor a README.
+  assert.equal(logic.storyTemplate('feature/design.md'), true);
+  assert.equal(logic.storyTemplate('initiatives/prfaq.md'), false);
+  assert.equal(logic.storyTemplate('initiatives/epic/story-spec.md'), false);
+  assert.equal(logic.storyTemplate('starter-packs/skp-team-notes/README.md'), false);
+
+  // "Create a new template…" opens the designer and comes back to the step with it chosen.
+  logic.openTemplateForm(null, { workflow: 'feature', step: 'design' });
+  assert.equal(state.view, 'artifacts');
+  const form = logic.artifactsState().templateForm;
+  assert.equal(form.mode, 'sections');
+  form.path = '../escape.md';
+  logic.saveTemplateForm();
+  assert.match(state.status, /without "\.\."/);
+  assert.equal(state.draft.templates['../escape.md'], undefined);
+  form.path = 'common/vendor-brief.md';
+  form.builder.title = 'Vendor brief';
+  form.builder.sections[1].title = form.builder.sections[0].title;
+  logic.saveTemplateForm();
+  assert.equal(state.status, 'Each section needs its own heading.');
+  assert.equal(state.draft.templates['common/vendor-brief.md'], undefined);
+  form.builder.sections[1].title = 'Decisions';
+  logic.saveTemplateForm();
+  assert.equal(state.view, 'board', 'keeping the template goes back to the step it was made for');
+  assert.equal(logic.artifactsState().templateForm, null);
+  assert.match(state.draft.templates['common/vendor-brief.md'].content, /^# \{\{work\.id\}\} — Vendor brief\n/);
+  // Feature names its own template for design, which the benchmarking workflows share, so the choice is Feature's.
+  assert.equal(logic.stepSettings('feature', 'design').template, 'common/vendor-brief.md');
+  assert.equal(state.draft.phases.design.template, 'feature/design.md');
+  // Requirements runs only in Feature, so the step itself takes it.
+  logic.chooseTemplate('feature', 'requirements', 'common/vendor-brief.md');
+  assert.equal(state.draft.phases.requirements.template, 'common/vendor-brief.md');
+  assert.equal(logic.templateUsers('common/vendor-brief.md').length, 2);
+
+  const changeSet = logic.changeSetFrom(model, state.draft);
+  assert.deepEqual(changeSet.changes.map((change) => [change.op, change.id ?? change.path, change.workflow ?? null, change.template ?? null]).sort(), [
+    ['phase.update', 'design', 'feature', 'common/vendor-brief.md'],
+    ['phase.update', 'requirements', null, 'common/vendor-brief.md'],
+    ['template.create', 'common/vendor-brief.md', null, null]
+  ]);
+  const result = check(root, changeSet);
+  assert.equal(result.valid, true, JSON.stringify(result.problems));
+  assert.ok(result.files.some((entry) => entry.path === 'singularity/templates/common/vendor-brief.md' && entry.action === 'create'));
+});
+
+test('an artifact set is made in Artifacts, a step in it writes its primary member, and an input can be optional', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  assert.equal(state.draft.phases.design.artifactFile, 'design.md');
+
+  logic.openSetForm(null);
+  const form = logic.artifactsState().setForm;
+  assert.ok(logic.setFormProblems(form).length >= 3, 'an empty form says what it needs');
+  form.id = 'brief-pack';
+  form.members = [
+    { path: 'brief.md', role: 'brief', required: true, authority: 'governed' },
+    { path: 'notes/appendix.md', role: 'appendix', required: true, authority: 'advisory' }
+  ];
+  form.primary = 'brief.md';
+  assert.deepEqual(logic.setFormProblems(form), ['An advisory member is a planning aid, so it cannot be required.']);
+  form.members[1].required = false;
+  form.primary = 'notes/appendix.md';
+  assert.match(logic.setFormProblems(form).join(' '), /without folders/);
+  form.primary = 'brief.md';
+  assert.deepEqual(logic.setFormProblems(form), []);
+  logic.keepSetForm();
+  assert.equal(logic.artifactsState().setForm, null);
+
+  logic.chooseArtifactSet('design', 'brief-pack');
+  assert.equal(state.draft.phases.design.artifactFile, 'brief.md', 'the step writes the set\'s primary member');
+  const settings = logic.stepSettings('feature', 'requirements');
+  assert.ok(settings.inputs.includes('intake'));
+  settings.optionalInputs = ['intake'];
+
+  let changes = logic.changeSetFrom(model, state.draft).changes;
+  assert.deepEqual(changes.find((change) => change.op === 'artifactSet.create'), { op: 'artifactSet.create', id: 'brief-pack', primary: 'brief.md', members: [
+    { path: 'brief.md', role: 'brief', required: true, authority: 'governed' },
+    { path: 'notes/appendix.md', role: 'appendix', required: false, authority: 'advisory' }
+  ] });
+  assert.deepEqual(changes.find((change) => change.op === 'phase.update' && change.id === 'design'), { op: 'phase.update', id: 'design', artifactSet: 'brief-pack', artifactFile: 'brief.md' });
+  assert.deepEqual(changes.find((change) => change.op === 'phase.update' && change.id === 'requirements').inputs,
+    settings.inputs.map((id) => (id === 'intake' ? { phase: 'intake', optional: true } : id)));
+  let result = check(root, logic.changeSetFrom(model, state.draft));
+  assert.equal(result.valid, true, JSON.stringify(result.problems));
+  assert.match(result.files.find((entry) => entry.path === 'singularity/workflow.yml').diff, /\n\+\s+artifact: \{\s*path: artifacts\/design\/brief\.md,/);
+
+  // A new primary renames the file of every step in the set.
+  logic.openSetForm('brief-pack');
+  const again = logic.artifactsState().setForm;
+  again.members.push({ path: 'summary.md', role: 'summary', required: false, authority: 'governed' });
+  again.primary = 'summary.md';
+  logic.keepSetForm();
+  assert.equal(state.draft.phases.design.artifactFile, 'summary.md');
+  changes = logic.changeSetFrom(model, state.draft).changes;
+  assert.equal(changes.find((change) => change.op === 'artifactSet.create').primary, 'summary.md');
+  result = check(root, logic.changeSetFrom(model, state.draft));
+  assert.equal(result.valid, true, JSON.stringify(result.problems));
+});
+
+test('a packaged template is customized into the repository, and a catalog reference shows as its file', async () => {
+  const root = await repository();
+  run('git', ['rm', '-q', 'singularity/templates/feature/design.md'], root);
+  run('git', ['commit', '-q', '-m', 'use the packaged design template'], root);
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const packaged = model.templates.find((template) => template.path === 'feature/design.md');
+  assert.equal(packaged.scope, 'packaged');
+  const { logic } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+
+  logic.openTemplateForm('feature/design.md', null);
+  const form = logic.artifactsState().templateForm;
+  assert.deepEqual([form.scope, form.mode], ['packaged', 'write']);
+  assert.equal(form.content, packaged.content);
+  form.content = `${packaged.content.trimEnd()}\n\n## Vendor notes\n`;
+  logic.saveTemplateForm();
+  assert.equal(state.view, 'artifacts', 'without a step to go back to, the list stays open');
+  const changeSet = logic.changeSetFrom(model, state.draft);
+  assert.deepEqual(changeSet.changes.map((change) => [change.op, change.path]), [['template.create', 'feature/design.md']],
+    'customizing a packaged template makes the repository\'s own copy');
+  const result = check(root, changeSet);
+  assert.equal(result.valid, true, JSON.stringify(result.problems));
+  assert.ok(result.files.some((entry) => entry.path === 'singularity/templates/feature/design.md' && entry.action === 'create'));
+  assert.ok(result.summary.some((line) => /copied into this repository/.test(line)));
+
+  state.draft.templates['common/intake.md'].catalogId = 'intake-record';
+  assert.equal(logic.templateKey('template:intake-record'), 'common/intake.md');
+  assert.equal(logic.templateKey('template:unknown'), 'template:unknown');
+  assert.equal(logic.templateKey('common/intake.md'), 'common/intake.md');
+});

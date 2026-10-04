@@ -607,6 +607,75 @@ test('with approved configuration the intake list and Story start treat an orpha
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-ORPHAN-APPROVED').stdout.trim(), '');
 });
 
+test('a Story started from another Story\'s branch is built on it, takes its Epic, and its pull request follows it', async () => {
+  const { base, root } = await repository();
+  const storyFile = path.join(base, 'parent-story.yml');
+  await writeFile(storyFile, YAML.stringify({
+    title: 'Retry a failed charge', description: 'The parent Story.', epicId: 'EPIC-7',
+    acceptanceCriteria: ['A failed charge is retried once.']
+  }));
+  const startFrom = (id, from, extra = []) => flow(root, [
+    'start', id, '--json', '--from-branch', from, '--work-type', 'feature', ...extra
+  ]);
+  const lineageOf = async (id) => JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items', id, 'workflow.json'), 'utf8')).lineage;
+
+  startFrom('STORY-PARENT', 'main', ['--story-file', storyFile]);
+  assert.equal((await lineageOf('STORY-PARENT')).baseStory, undefined, 'a Story cut from main is built on no Story');
+  const parentTip = git(root, 'rev-parse', 'origin/STORY-PARENT').stdout.trim();
+  git(root, 'switch', 'main');
+
+  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--json']).stdout);
+  assert.deepEqual(listed.choices.find((choice) => choice.branch === 'STORY-PARENT')?.story,
+    { workId: 'STORY-PARENT', title: 'Retry a failed charge', epicId: 'EPIC-7' });
+  assert.equal(listed.choices.find((choice) => choice.branch === 'main')?.story, undefined);
+  assert.match(flow(root, ['workspace', 'branches']).stdout, /STORY-PARENT .* — Story STORY-PARENT: Retry a failed charge/);
+
+  startFrom('STORY-CHILD', 'STORY-PARENT', ['--title', 'Show the retry', '--description', 'Built on the parent.']);
+  const child = await lineageOf('STORY-CHILD');
+  assert.deepEqual(child.baseStory, {
+    workId: 'STORY-PARENT', title: 'Retry a failed charge', branch: 'STORY-PARENT', commit: parentTip,
+    baseBranch: 'main', epicId: 'EPIC-7', ancestors: []
+  });
+  assert.equal(child.epicId, 'EPIC-7');
+  assert.equal(child.epicInheritedFrom, 'STORY-PARENT');
+  const status = flow(root, ['status']).stdout;
+  assert.match(status, new RegExp(`Built on: STORY-PARENT — Retry a failed charge \\(branch STORY-PARENT at ${parentTip.slice(0, 8)}\\)`));
+  assert.match(status, /Epic: EPIC-7 \(inherited from STORY-PARENT\)/);
+
+  // While the parent is open the pull request targets its branch.
+  const open = JSON.parse(flow(root, ['pr', 'describe', 'STORY-CHILD', '--format', 'json']).stdout);
+  assert.equal(open.base, 'STORY-PARENT');
+  assert.equal(open.builtOn.state, 'open');
+  assert.match(open.body, /- Built on Story: `STORY-PARENT` — Retry a failed charge \(branched from `STORY-PARENT`/);
+  assert.match(open.body, /- Epic: `EPIC-7` \(inherited from `STORY-PARENT`\)/);
+
+  // A Story built on the child keeps the chain and the Epic, now inherited from the child.
+  startFrom('STORY-GRANDCHILD', 'STORY-CHILD', ['--title', 'Log the retry', '--description', 'Built on the child.']);
+  const grandchild = await lineageOf('STORY-GRANDCHILD');
+  assert.equal(grandchild.baseStory.workId, 'STORY-CHILD');
+  assert.equal(grandchild.baseStory.baseBranch, 'STORY-PARENT');
+  assert.deepEqual(grandchild.baseStory.ancestors, ['STORY-PARENT']);
+  assert.equal(grandchild.epicInheritedFrom, 'STORY-CHILD');
+
+  // Once the parent lands on main, the child's pull request targets main.
+  git(root, 'switch', 'main');
+  git(root, 'merge', '--ff-only', 'origin/STORY-PARENT');
+  git(root, 'push', 'origin', 'main');
+  git(root, 'switch', 'STORY-CHILD');
+  const landed = JSON.parse(flow(root, ['pr', 'describe', 'STORY-CHILD', '--format', 'json']).stdout);
+  assert.equal(landed.base, 'main');
+  assert.equal(landed.builtOn.state, 'landed');
+  assert.match(landed.body, /`STORY-PARENT` has landed on `main`, so this pull request targets `main`\./);
+
+  // main now carries the parent's workflow and its commits, but no Story claims main.
+  git(root, 'switch', 'main');
+  startFrom('STORY-AFTER', 'main', ['--title', 'Unrelated', '--description', 'Cut from main.']);
+  const after = await lineageOf('STORY-AFTER');
+  assert.equal(after.baseStory, undefined);
+  assert.equal(after.epicId, null);
+});
+
 test('workspace branch preflight proves the exact destination without creating it', async () => {
   const { root } = await repository();
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();

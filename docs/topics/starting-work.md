@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 17
+version: 18
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -107,6 +107,8 @@ Use this explicit preview when scripting or diagnosing Start:
 Before choosing, `singularity-flow workspace branches --json --intake --work-id PAY-1234` also reports `existingWork` from the listings the catalog already makes: `new`, `local-story`, `local-seed`, `local-conflict`, `published` (a remote branch of that name, which may be a started Story or a released Epic seed), or `unknown` when a repository could not be read. Only `new` means no further check is needed. `intake.workflowCatalogScope` says whether the listed workflows apply to every base (`approved-configuration`) or must be read from the chosen base (`selected-base`).
 
 The list offers application branches only. It leaves out the branches Singularity Flow owns (everything under `sflow/`, the ledger branch, `state` by default, and ledger pins published as `singularity/pins/` branches) and orphan branches: branches that share no history with the default branch, such as `gh-pages`. Orphans are named per repository under `orphaned`, so a branch you expected is explained rather than missing, and VS Code lists them under the choices as not offered. They are found from each clone's remote-tracking refs without contacting the remote; a shallow clone reports none. Whatever the list says, Story start refuses an orphan base with `STORY_BASE_ORPHAN` before it changes anything.
+
+A branch that is another Story's own is labelled with that Story (`choices[].story` in the JSON, "Story ID: title" in VS Code). Start a Story from it and the new Story records the Story it is built on as `lineage.baseStory`: its Work ID, title, branch, the exact commit, where that Story itself lands, its Epic and the Stories above it. A new Story with no Epic of its own takes that Story's Epic (`lineage.epicInheritedFrom` names where it came from). `sflow status` and the Journey show both. The link is found from the exact base commit: the Story whose workflow claims the branch, as its canonical, work or registered child branch. So a Story on a custom branch name is found too, and the Stories merged into `main` link nothing. The pull request then follows that Story; see `sflow explain pull-requests-and-stacks`.
 
 Schema-compatible historical records are migrated in memory when they are read. Singularity Flow does not silently rewrite the shared configuration or state branches during Story start. When a persistent upgrade is required, readiness returns a user-reviewed route instead of partially creating the Story:
 

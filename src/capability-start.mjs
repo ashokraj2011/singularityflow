@@ -52,6 +52,7 @@ import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { validatePortfolio } from './initiative-config.mjs';
+import { storyBranchLabels } from './story-base-lineage.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import {
   freezeAndVerifySgosExistingLifecycleCommit, sgosLifecycleCandidateBinding,
@@ -552,9 +553,14 @@ export async function storyBaseCatalog(root, options = {}) {
   const orphaned = orphanBranches(root, plan, published, options.defaultBranch ?? 'main');
   const offered = Object.fromEntries(Object.entries(published)
     .map(([id, branches]) => [id, branches.filter((name) => !(orphaned[id] ?? []).includes(name))]));
+  const choices = branchChoices(offered, { stateBranch });
+  // A branch that is a Story's own says so: a Story started from it is built on that Story.
+  const stories = storyBranchLabels(root, {
+    workItemRoot: options.workItemRoot ?? options.configurationSnapshot?.definition?.workItemRoot
+  }, choices.map((choice) => choice.branch), { remote: plan.remote });
   return {
     ...plan, stateBranch, published, unreachable, orphaned,
-    choices: branchChoices(offered, { stateBranch })
+    choices: choices.map((choice) => stories[choice.branch] ? { ...choice, story: stories[choice.branch] } : choice)
   };
 }
 

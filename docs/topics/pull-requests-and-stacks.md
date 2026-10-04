@@ -12,7 +12,7 @@ related:
   - epics-and-planning
   - initiative-lifecycle
   - sequence-gates
-version: 1
+version: 2
 ---
 Pull-request descriptions and merge plans are derived from governed state. Story dependencies determine stack order; previews do not merge or bypass repository protection.
 
@@ -33,6 +33,10 @@ Use this topic when the current goal matches **pull requests and stacks**. Start
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+## Stories built on another Story
+
+A Story started from another Story's branch records that Story as the one it is built on (see `sflow explain starting-work`). Its pull request targets that Story's branch while that Story is open, so a reviewer sees only the new Story's changes. Once that Story has landed on its own base, or its branch is gone from the remote, the pull request targets that base instead; `sflow pr describe <ID>` reports which as `builtOn.state` (`open`, `landed` or `gone`) and says so in the Lineage section. The answer is read from this clone's remote-tracking refs, so fetch first. A squash merge that keeps the branch reads as still open.
 
 ## State and safety
 

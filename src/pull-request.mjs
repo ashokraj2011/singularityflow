@@ -5,16 +5,24 @@ import { run, commandExists, exists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
 import { defaultBranchName } from './git.mjs';
 import { recap } from './narration/recap.mjs';
+import { baseStoryPullRequestTarget } from './story-base-lineage.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
 
 // Where the story's pull request goes. Materialization records the branch the story was cut from;
 // for a story in the epic's own repository that is the epic branch, so the pull request targets the
-// epic branch and the epic lands on the default branch once every blocking story has merged.
+// epic branch and the epic lands on the default branch once every blocking story has merged. A
+// story cut from another story's branch targets that branch while that story is open, and that
+// story's own base once it has landed or its branch is gone (`builtOn` says which).
 export function pullRequestTarget(workflow, seed = null, { root = null, config = {} } = {}) {
+  const head = workflow.workItem.branch ?? workflow.workItem.id;
+  const builtOn = !seed?.story?.parentBranch && root
+    ? baseStoryPullRequestTarget(root, workflow, { remote: config.git?.remote ?? 'origin' })
+    : null;
   const base = seed?.story?.parentBranch
+    ?? builtOn?.base
     ?? workflow.workItem.baseBranch
     ?? (root ? defaultBranchName(root, config) : config.defaultBaseBranch ?? 'main');
-  return { base, head: workflow.workItem.branch ?? workflow.workItem.id };
+  return builtOn ? { base, head, builtOn } : { base, head };
 }
 
 function bulleted(values, empty) {
@@ -25,7 +33,9 @@ function bulleted(values, empty) {
 // A pull-request body assembled entirely from committed, governed state: the epic and story
 // identity, the acceptance criteria, and every approved artifact with the exact hash it was
 // approved at. Nothing here is invented.
-export function storyPullRequestBody(workflow, seed = null, { mergeSequence = null, evidenceReceipt = null, evidence = null } = {}) {
+export function storyPullRequestBody(workflow, seed = null, {
+  mergeSequence = null, evidenceReceipt = null, evidence = null, builtOn = null
+} = {}) {
   const story = seed?.story ?? {};
   const initiative = seed?.initiative ?? {};
   const lines = [];
@@ -38,6 +48,18 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
   if (initiative.branch) lines.push(`- Epic branch: \`${initiative.branch}\``);
   if (story.jiraKey) lines.push(`- Story: Jira ${story.jiraKey}`);
   if (story.parentBranch) lines.push(`- Branched from: \`${story.parentBranch}\`${story.baseCommit ? ` at \`${story.baseCommit.slice(0, 8)}\`` : ''}`);
+  const baseStory = workflow.lineage?.baseStory;
+  if (baseStory?.workId) {
+    lines.push(`- Built on Story: \`${baseStory.workId}\` — ${baseStory.title ?? baseStory.workId} (branched from \`${baseStory.branch}\`${baseStory.commit ? ` at \`${String(baseStory.commit).slice(0, 8)}\`` : ''})`);
+    if (builtOn && builtOn.base !== baseStory.branch) {
+      lines.push(builtOn.state === 'landed'
+        ? `- \`${baseStory.workId}\` has landed on \`${builtOn.base}\`, so this pull request targets \`${builtOn.base}\`.`
+        : `- The branch of \`${baseStory.workId}\` is no longer on the remote, so this pull request targets \`${builtOn.base}\`, where \`${baseStory.workId}\` lands.`);
+    }
+  }
+  if (!initiative.id && workflow.lineage?.epicId) {
+    lines.push(`- Epic: \`${workflow.lineage.epicId}\`${workflow.lineage.epicInheritedFrom ? ` (inherited from \`${workflow.lineage.epicInheritedFrom}\`)` : ''}`);
+  }
   lines.push(`- Work type: \`${workflow.workItem.workType}\``, '');
 
   lines.push('### Lifecycle status', '');
@@ -168,7 +190,7 @@ export function storyLifecycleBlockers(workflow) {
 // Build the complete pull request without contacting GitHub. Always safe to run.
 export async function storyPullRequestPlan(root, config, workflow, { mergeSequence = null } = {}) {
   const seed = await readStorySeed(root, workflow);
-  const { base, head } = pullRequestTarget(workflow, seed, { root, config });
+  const { base, head, builtOn = null } = pullRequestTarget(workflow, seed, { root, config });
   const policy = seed?.story?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy ?? 'pr';
   if (policy === 'direct') {
     throw new SingularityFlowError(`Repository policy for ${workflow.workItem.id} is 'direct'; it does not use pull requests.`);
@@ -205,7 +227,8 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     head,
     policy,
     title: `${workflow.workItem.id}: ${workflow.workItem.title}`,
-    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence }),
+    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence, builtOn }),
+    ...(builtOn ? { builtOn } : {}),
     evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],
     blockedBy: (() => {

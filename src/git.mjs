@@ -1113,6 +1113,54 @@ export function committedFileBytes(root, ref, relative, { env = process.env } = 
   return readLocalGitBlobs(root, [oid], { env, label: `${relative} at ${ref}` }).get(oid);
 }
 
+/**
+ * Files at several revisions, read in a fixed number of Git calls however many are asked for.
+ * `requests` is `[{ key, ref, path }]`; the map holds the bytes of each file that exists and fits
+ * `maximumObjectBytes`. A missing ref or path, or one past either byte ceiling, is simply absent.
+ */
+export function committedFilesAtRevisions(root, requests, {
+  env = process.env, maximumObjectBytes = 4 * 1024 * 1024, maximumBytes = 32 * 1024 * 1024
+} = {}) {
+  const wanted = (requests ?? []).filter((request) => request?.ref && request?.path
+    && !/[\n\0]/u.test(`${request.ref}:${request.path}`));
+  if (!wanted.length) return new Map();
+  const checked = git(['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true,
+    input: `${wanted.map((request) => `${request.ref}:${request.path}`).join('\n')}\n`
+  });
+  if (checked.status !== 0) return new Map();
+  const rows = String(checked.stdout).split('\n');
+  const found = [];
+  let total = 0;
+  wanted.forEach((request, index) => {
+    // A missing name echoes the request back ("<name> missing"), so only a blob row is a file.
+    const [oid, type, rawSize] = String(rows[index] ?? '').trim().split(' ');
+    const size = Number(rawSize);
+    if (type !== 'blob' || !/^[a-f0-9]{40,64}$/u.test(oid ?? '') || !Number.isSafeInteger(size)
+      || size > maximumObjectBytes || total + size > maximumBytes) return;
+    total += size;
+    found.push({ key: request.key, oid });
+  });
+  if (!found.length) return new Map();
+  const blobs = readLocalGitBlobs(root, found.map((entry) => entry.oid), { env, label: 'Committed files' });
+  return new Map(found.map((entry) => [entry.key, blobs.get(entry.oid)]));
+}
+
+/**
+ * The subjects of the most recent commits on the first-parent line of `commit`, newest first: the
+ * line of work a branch followed, without the history its merges brought in. Empty when Git
+ * cannot walk it.
+ */
+export function recentFirstParentSubjects(root, commit, { limit = 100, env = process.env } = {}) {
+  const result = git(['log', '--first-parent', `--max-count=${limit}`, '--format=%x1f%s', commit, '--'], {
+    cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true
+  });
+  if (result.status !== 0) return [];
+  // Marked, so lines a configured log.showSignature adds are never read as subjects.
+  return String(result.stdout).split('\n').filter((line) => line.startsWith('\x1f'))
+    .map((line) => line.slice(1).trim()).filter(Boolean);
+}
+
 /** The most recent commit reachable from HEAD that added `relative`, or null. */
 export function commitAddingPath(root, relative, { env = process.env } = {}) {
   const output = git(['log', '--diff-filter=A', '--format=%H', '-1', '--', relative], { cwd: root, env }).stdout.trim();

@@ -103,6 +103,12 @@ export interface Journey {
   decisionAhead: { label: string; text: string } | null;
   /** Set when there is nothing to render, with the reason. */
   empty: string | null;
+  /** A Story's base Story and Epic, when it has either. */
+  lineage?: {
+    builtOn: { id: string; title: string; branch: string } | null;
+    epicId: string | null;
+    epicInheritedFrom: string | null;
+  } | null;
 }
 
 const EMPTY: Journey = {
@@ -175,6 +181,16 @@ function activeStoryApprovals(phaseApprovals: StoryApproval[]): JourneyApproval[
       seen.add(key);
       return true;
     });
+}
+
+function storyJourneyLineage(workflow: StoryWorkflow): Journey['lineage'] {
+  const lineage = workflow.lineage;
+  const parent = lineage?.baseStory;
+  const builtOn = parent?.workId && parent.branch
+    ? { id: parent.workId, title: parent.title ?? parent.workId, branch: parent.branch } : null;
+  const epicId = typeof lineage?.epicId === 'string' && lineage.epicId ? lineage.epicId : null;
+  if (!builtOn && !epicId) return null;
+  return { builtOn, epicId, epicInheritedFrom: epicId ? lineage?.epicInheritedFrom ?? null : null };
 }
 
 function storyArtifacts(snapshot: RepositorySnapshot, workflow: StoryWorkflow, phaseId: string): JourneyArtifact[] {
@@ -269,6 +285,7 @@ function storyJourneyOf(
     profile: workflow.workItem.workType ?? 'Story',
     branch: workflow.workItem.branch ?? null,
     status: workflow.status ?? 'in_progress',
+    lineage: storyJourneyLineage(workflow),
     stages,
     currentStage,
     selectedStage,

@@ -16468,7 +16468,8 @@ async function workspaceCommand(positionals, options) {
         : `Base branches for repository '${catalog.repositoryId}' on '${catalog.remote}':`);
       for (const choice of result.choices) {
         console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
-          + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : ''));
+          + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : '')
+          + (choice.story ? ` — Story ${choice.story.workId}: ${choice.story.title}` : ''));
       }
       const orphanNames = [...new Set(Object.values(result.orphaned).flat())].sort();
       if (orphanNames.length) console.log(`Not offered, because they share no history with the default branch: ${orphanNames.join(', ')}`);

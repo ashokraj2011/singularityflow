@@ -376,7 +376,22 @@
         "jiraIssueId": { "type": ["string", "null"] },
         "initialJiraKey": { "type": ["string", "null"] },
         "currentJiraKey": { "type": ["string", "null"] },
-        "childBranches": { "type": "array", "items": { "type": "object" } }
+        "childBranches": { "type": "array", "items": { "type": "object" } },
+        "baseStory": {
+          "type": ["object", "null"],
+          "properties": {
+            "workId": { "type": "string", "minLength": 1 },
+            "title": { "type": "string" },
+            "branch": { "type": "string", "minLength": 1 },
+            "commit": { "type": "string", "pattern": "^[0-9a-fA-F]{40,64}$" },
+            "baseBranch": { "type": ["string", "null"] },
+            "epicId": { "type": ["string", "null"] },
+            "ancestors": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["workId", "branch"],
+          "additionalProperties": true
+        },
+        "epicInheritedFrom": { "type": ["string", "null"] }
       },
       "additionalProperties": true
     },

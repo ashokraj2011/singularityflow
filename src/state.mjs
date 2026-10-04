@@ -16,6 +16,7 @@ import {
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { storyTestReadinessDocument } from './story-test-readiness-document.mjs';
+import { detectBaseStory, inheritFromBaseStory } from './story-base-lineage.mjs';
 import { initialTestRecoveryAgreement, normalizeTestRecoveryPolicy, prepareTestRecoveryIntake } from './test-recovery-intake.mjs';
 import { authorizeTrpIntake, materializeTrpIntake, qualifiedTrpIntakeDecisions } from './test-recovery-admission.mjs';
 import { appendTrpRecord, appendTrpOriginalBaseline, readTrpRecord, readTrpRepairEvidence, readTrpReadinessCheckpoint, readTrpOriginalBaseline } from './test-recovery-store.mjs';
@@ -1248,6 +1249,11 @@ export async function createWorkflow(root, config, {
     changeRequests: [],
     history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${currentBranch}` }]
   };
+  // Cut from another Story's branch: keep that Story as this one's base Story and take its Epic.
+  // The new branch still points at the base, so HEAD is the commit when none was supplied.
+  inheritFromBaseStory(workflow.lineage, detectBaseStory(root, config, {
+    baseBranch, baseCommit: baseCommit ?? head(root), workId: id
+  }));
   if (freshTrpPlan.enabled) {
     const agreement = initialTestRecoveryAgreement(freshTrpPlan, {
       workId: id, principal: String(actor.email ?? actor.login ?? actor.name), createdAt,

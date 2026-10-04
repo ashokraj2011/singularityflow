@@ -11,6 +11,7 @@
  */
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
+import { journeyLineageHtml } from './journey-lineage.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
@@ -195,6 +196,7 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
       <p class="meta">${escape(journey.id)} · ${escape(journey.profile)} ·
         branch ${escape(journey.branch ?? 'unknown')} ·
         ${escape(String(journey.status).replaceAll('_', ' '))}</p>
+      ${journeyLineageHtml(journey)}
     </header>
 
     ${journey.nextAction ? `

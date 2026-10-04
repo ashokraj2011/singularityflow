@@ -411,6 +411,14 @@ export interface StoryWorkflow {
     [key: string]: unknown;
   };
   lineage?: {
+    /** The Story whose branch this one was cut from, recorded at start. */
+    baseStory?: {
+      workId: string; title?: string; branch: string; commit?: string;
+      baseBranch?: string | null; epicId?: string | null; ancestors?: string[];
+    } | null;
+    epicId?: string | null;
+    /** Set when the Epic came from the base Story rather than from this Story's own source. */
+    epicInheritedFrom?: string | null;
     submissions?: Array<{
       packetSha256: string;
       phase: string;

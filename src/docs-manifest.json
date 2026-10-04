@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "edb972f865d799f04bb1f405e5659415c994a055",
+  "sourceCommit": "ac5b21d1fff8c41460285764e38b33283027c608",
   "topicCount": 75,
-  "contentSha256": "980c212fc71638a682edca88181bc79888d20df11920e50bb5add785bc35ede0",
+  "contentSha256": "991412973d1f6d16e8834c6d74b655a491b93f03166ab07f211ede9ec6c91755",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -384,8 +384,8 @@
     {
       "id": "pull-requests-and-stacks",
       "title": "Pull requests, Story stacks, and merge order",
-      "version": 1,
-      "sha256": "c06a2c822e823607d7e3c16b69018b62ebb0ea563078d869ef6c79abc4cec75a",
+      "version": 2,
+      "sha256": "da777fe7a5e12c93f1b7b556cffb5758b633ee29415289e6a3d12f4a4c0e4f23",
       "routingSha256": "71b5911c72960fa9a425ad5a6d0cc52177712369cdf7ad81528575964b1570fd",
       "file": "pull-requests-and-stacks.md"
     },
@@ -504,8 +504,8 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 17,
-      "sha256": "94890e7f713d5654c08a89cc486fbe50fe29867296c5143eda9f605a8d840ad1",
+      "version": 18,
+      "sha256": "e5921dea7da9e9e6a42b246b7f143bc9d2590ab5282bdc370b69a5235e6a4e4e",
       "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
       "file": "starting-work.md"
     },

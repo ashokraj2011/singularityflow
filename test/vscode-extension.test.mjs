@@ -2585,6 +2585,44 @@ test('the journey rail selects any Story phase and exposes its artifacts and app
     'inspecting a completed phase never changes which phase is active');
 });
 
+test('the journey header names the Story this one is built on and the Epic it inherited', async () => {
+  const { journeyLineageHtml } = await import(source('views/journey-lineage.ts'));
+  const story = {
+    initiative: null, initiatives: [], workItems: [{ id: 'WRK-43' }],
+    workflow: {
+      workItem: { id: 'WRK-43', title: 'Show the retry', branch: 'WRK-43', workType: 'feature' },
+      currentPhase: 'intake', phaseOrder: ['intake'], status: 'in_progress',
+      phases: { intake: { id: 'intake', label: 'Intake', status: 'in_progress', generation: 0,
+        requiredArtifact: { path: 'artifacts/intake/intake.md' }, artifacts: [], approvals: [] } },
+      lineage: {
+        baseStory: { workId: 'WRK-42', title: 'Retry <a failed> charge', branch: 'WRK-42', commit: 'a'.repeat(40),
+          baseBranch: 'main', epicId: 'EPIC-7', ancestors: [] },
+        epicId: 'EPIC-7', epicInheritedFrom: 'WRK-42'
+      }
+    },
+    documents: []
+  };
+  const journey = buildJourney(story);
+  assert.deepEqual(journey.lineage, {
+    builtOn: { id: 'WRK-42', title: 'Retry <a failed> charge', branch: 'WRK-42' },
+    epicId: 'EPIC-7', epicInheritedFrom: 'WRK-42'
+  });
+  const html = journeyLineageHtml(journey);
+  assert.match(html, /Built on <code>WRK-42<\/code> Retry &lt;a failed&gt; charge\s+\(branch WRK-42\)/);
+  assert.match(html, /Epic <code>EPIC-7<\/code> inherited from WRK-42/);
+
+  const own = structuredClone(story);
+  own.workflow.lineage = { epicId: 'EPIC-1' };
+  assert.deepEqual(buildJourney(own).lineage, { builtOn: null, epicId: 'EPIC-1', epicInheritedFrom: null });
+  assert.doesNotMatch(journeyLineageHtml(buildJourney(own)), /Built on|inherited/);
+  const none = structuredClone(story);
+  none.workflow.lineage = { childBranches: [] };
+  assert.equal(buildJourney(none).lineage, null);
+  assert.equal(journeyLineageHtml(buildJourney(none)), '');
+  const page = await readFile(source('views/journey.ts'), 'utf8');
+  assert.match(page, /\$\{journeyLineageHtml\(journey\)\}\s*<\/header>/, 'the panel header renders the line');
+});
+
 test('the Work Journey uses explicit readiness for generation and submission presentation', () => {
   const story = storySnapshot();
   story.submissionReadiness.draftModified = true;
@@ -6130,6 +6168,24 @@ test('the base list says which orphan branches it left out, and never offers the
   const several = intakeHtml({ ...form, baseBranchOrphans: ['gh-pages', 'docs-site'] });
   assert.match(several, /<code>gh-pages<\/code>, <code>docs-site<\/code>\s+— they share no history/);
   assert.doesNotMatch(intakeHtml({ ...form, baseBranchOrphans: [] }), /Not offered/);
+});
+
+test('a branch that is a Story\'s own is labelled, and choosing it says what the new Story inherits', () => {
+  const choices = [
+    { branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] },
+    { branch: 'WRK-42', present: 1, total: 1, everywhere: true, missingFrom: [],
+      story: { workId: 'WRK-42', title: 'Retry a failed charge', epicId: 'EPIC-7' } }
+  ];
+  const form = intake({
+    shape: 'story', tracker: 'none', id: 'WRK-43', title: 'Show the retry',
+    description: 'Built on the retry', baseBranch: null, basePreflightPassed: false, baseBranchChoices: choices
+  });
+  const unchosen = intakeHtml(form);
+  assert.match(unchosen, /data-base-branch="WRK-42"[\s\S]*?Story WRK-42: Retry a failed charge · published on origin/);
+  assert.doesNotMatch(unchosen, /is the branch of Story/, 'nothing is said until that base is chosen');
+  const chosen = intakeHtml({ ...form, baseBranch: 'WRK-42' });
+  assert.match(chosen, /WRK-42 is the branch of Story <code>WRK-42<\/code>\.\s+The new Story records that it is built on <code>WRK-42<\/code>, joins its Epic <code>EPIC-7<\/code> unless it names one of its own,\s+and its pull request targets <code>WRK-42<\/code> until\s+<code>WRK-42<\/code> lands\./);
+  assert.doesNotMatch(intakeHtml({ ...form, baseBranch: 'main' }), /is the branch of Story/);
 });
 
 test('Story workflow phases render as a horizontal rail beneath the workflow name', () => {

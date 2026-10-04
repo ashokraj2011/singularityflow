@@ -15,6 +15,7 @@ import { stdin as input, stdout as output } from 'node:process';
 
 import { identity } from '../git.mjs';
 import { setAgentSession } from '../session.mjs';
+import { storyLineageLines } from '../story-base-lineage.mjs';
 import { currentPhase } from '../state-stores.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
@@ -32,6 +33,7 @@ export function summary(workflow) {
   const active = currentPhase(workflow);
   console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
   console.log(`Branch: ${workflow.workItem.branch}`);
+  for (const line of storyLineageLines(workflow)) console.log(line);
   console.log(`World-model grounding: ${workflow.resolution?.worldModelGrounding ?? 'off'}`);
   console.log(`Status: ${workflow.status}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'none'}`);

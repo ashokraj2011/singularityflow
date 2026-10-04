@@ -301,6 +301,8 @@ export interface BaseBranchChoice {
   total: number;
   everywhere: boolean;
   missingFrom: string[];
+  /** Set when the branch is a Story's own: a Story started from it is built on that Story. */
+  story?: { workId: string; title: string; epicId: string | null } | null;
 }
 
 /** Display-only exact-base test evidence returned by Story preflight. Never authorizes Start. */
@@ -864,6 +866,17 @@ function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): s
   </div>`;
 }
 
+/** What starting from another Story's branch means, said before Start rather than discovered after. */
+function baseStoryNoteHtml(form: IntakeForm): string {
+  const story = form.baseBranchChoices.find((choice) => choice.branch === form.baseBranch)?.story;
+  if (!story) return '';
+  return `<p class="meta">${escape(form.baseBranch ?? '')} is the branch of Story <code>${escape(story.workId)}</code>.
+      The new Story records that it is built on <code>${escape(story.workId)}</code>${story.epicId
+    ? `, joins its Epic <code>${escape(story.epicId)}</code> unless it names one of its own,` : ''}
+      and its pull request targets <code>${escape(form.baseBranch ?? '')}</code> until
+      <code>${escape(story.workId)}</code> lands.</p>`;
+}
+
 function baseBranchHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (workflowCatalogCoversBranchFailure(form)) {
@@ -893,9 +906,10 @@ function baseBranchHtml(form: IntakeForm): string {
       <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
         <input type="radio" name="baseBranch" value="${escape(choice.branch)}" data-base-branch="${escape(choice.branch)}"${choice.branch === form.baseBranch ? ' checked' : ''}>
         <span class="choice-label">${escape(choice.branch)}</span>
-        <span class="choice-detail">${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
+        <span class="choice-detail">${choice.story ? `Story ${escape(choice.story.workId)}: ${escape(choice.story.title)} · ` : ''}${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
+    ${baseStoryNoteHtml(form)}
     ${form.baseBranchOrphans.length ? `<p class="meta">Not offered: ${form.baseBranchOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${form.baseBranchOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${form.baseBranchOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
     ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for

@@ -51,6 +51,7 @@ import {
   createLedgerIntent, LEDGER_SCHEMA_VERSION,
   canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
 } from '../src/ledger.mjs';
+import { changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 
 test('repository identifiers use the final segment for Windows, UNC, URL and POSIX remotes', () => {
   assert.equal(repositoryIdOf(String.raw`C:\work\payments-api.git`), 'payments-api');
@@ -554,6 +555,32 @@ async function recordDefaultBranchAs(remote, repositoryId, branch) {
   }
 }
 
+/**
+ * Rewrite the approved map and portfolio the way the library's default options lay them out, with
+ * a description long enough to fold, and return the texts as approved.
+ */
+async function foldApprovedConfiguration(remote, capabilityId) {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-folded-configuration-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', remote, checkout]);
+    run('git', ['config', 'user.email', 'a@b.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'A B'], { cwd: checkout });
+    const capabilities = await foldYamlFile(path.join(checkout, 'singularity/capabilities.yml'), (document) =>
+      document.setIn(['capabilities', capabilityId, 'metadata'], document.createNode({ purpose: LONG_DESCRIPTION })));
+    const portfolio = await foldYamlFile(path.join(checkout, 'singularity/portfolio.yml'));
+    run('git', ['commit', '-qam', 'written with the library defaults'], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
+    return { capabilities, portfolio };
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+}
+
+/** The lines a proposal changes in one configuration file, against the text it was based on. */
+function proposedChange(remote, ref, relative, before) {
+  return changedLines(before, run('git', ['show', `${ref}:singularity/${relative}`], { cwd: remote }).stdout);
+}
+
 /** Add a large, valid reachable suffix in one fixture commit without 500 remote round trips. */
 async function seedUnrelatedLedgerHistory(remote, count) {
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-mature-ledger-'));
@@ -757,12 +784,105 @@ test('a repository already recorded against the configuration branch is repaired
   await recordDefaultBranchAs(org.platform, 'platform', 'sflow/config');
   assert.equal(declaredDefaultBranch(org.platform, 'platform'), 'sflow/config',
     'the affected state this repairs is real before the repair runs');
+  const affected = run('git', ['show', 'sflow/config:singularity/portfolio.yml'], { cwd: org.platform }).stdout;
 
   const repair = await mapAndMerge(org.platform, {
     capabilityId: 'payments', name: 'Payments', kind: 'collection'
   });
   assert.ok(repair.branch, 'the repair travels as a reviewable proposal, not a silent write');
   assert.equal(declaredDefaultBranch(org.platform, 'platform'), 'main');
+  // The affected portfolio was written with the library's defaults; the repair is its one line.
+  assert.deepEqual(proposedChange(org.platform, 'sflow/config', 'portfolio.yml', affected), {
+    removed: ['    defaultBranch: sflow/config'], added: ['    defaultBranch: main']
+  });
+});
+
+test('map, rebase, repository and team proposals change only their own lines in configuration folded at 80 columns', async () => {
+  const org = await remotes('platform', 'service', 'web', 'worker');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service
+  });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'web-api', kind: 'delivery', repositoryUrl: org.web
+  });
+  await mergeProposal(org.platform, first);
+  const approved = await foldApprovedConfiguration(org.platform, 'platform-app');
+
+  const preview = await rebaseCapabilityProposal(org.platform, pending.branch);
+  const rebased = await rebaseCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, confirmPlan: preview.plan.planId
+  });
+  assert.deepEqual(proposedChange(org.platform, rebased.branch, 'capabilities.yml', approved.capabilities), {
+    removed: [],
+    added: ['  web-api:', '    name: web-api', '    kind: delivery', '    parent: null', '    repository: web']
+  });
+  assert.deepEqual(proposedChange(org.platform, rebased.branch, 'portfolio.yml', approved.portfolio), {
+    removed: [],
+    added: ['  web:', `    url: ${org.web}`, '    defaultBranch: main', '    required: true']
+  });
+
+  const mapped = await mapCapability(org.platform, {
+    capabilityId: 'worker-api', name: 'Worker API', kind: 'delivery', repositoryUrl: org.worker
+  });
+  assert.deepEqual(proposedChange(org.platform, mapped.branch, 'capabilities.yml', approved.capabilities), {
+    removed: [],
+    added: ['  worker-api:', '    name: Worker API', '    kind: delivery', '    parent: null', '    repository: worker']
+  });
+  assert.deepEqual(proposedChange(org.platform, mapped.branch, 'portfolio.yml', approved.portfolio), {
+    removed: [],
+    added: ['  worker:', `    url: ${org.worker}`, '    defaultBranch: main', '    required: true']
+  });
+
+  const added = await addCapabilityRepository(org.platform, 'platform-app', org.worker);
+  assert.deepEqual(proposedChange(org.platform, added.branch, 'capabilities.yml', approved.capabilities), {
+    removed: ['    repository: platform'],
+    added: ['    repositories:', '      - platform', '      - worker', '    leadRepository: platform']
+  });
+  assert.deepEqual(proposedChange(org.platform, added.branch, 'portfolio.yml', approved.portfolio).removed, []);
+
+  const team = await mapCapabilityTeam(org.platform, {
+    teamId: 'worker-team', name: 'Worker Team',
+    members: [{ capabilityId: 'worker-app', name: 'Worker App', repositoryUrl: org.worker }],
+    links: ['platform-app']
+  });
+  const teamChange = proposedChange(org.platform, team.branch, 'capabilities.yml', approved.capabilities);
+  assert.deepEqual(teamChange.removed, ['    parent: null']);
+  assert.equal(teamChange.added[0], '    parent: worker-team', 'the linked capability moves under the team');
+  assert.deepEqual(teamChange.added.slice(1, 3), ['  worker-team:', '    name: Worker Team']);
+  const teamPortfolio = proposedChange(org.platform, team.branch, 'portfolio.yml', approved.portfolio);
+  assert.deepEqual(teamPortfolio.removed, []);
+  assert.equal(teamPortfolio.added[0], '  worker:');
+});
+
+test('managed adoption and a managed policy change touch only their own lines in a map folded at 80 columns', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const approved = await foldApprovedConfiguration(org.platform, 'platform-app');
+
+  const preview = await previewManagedCapabilityAdoption(org.platform);
+  const adoption = await adoptManagedCapabilityMap(org.platform, { confirm: preview.plan.planSha256 });
+  assert.deepEqual(proposedChange(org.platform, adoption.branch, 'capabilities.yml', approved.capabilities), {
+    removed: ['version: 1'], added: ['version: 2', 'management:', '  mode: sflow-cli']
+  });
+  await mergeProposal(org.platform, adoption);
+  const managed = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
+
+  const auto = await proposeProgressiveCapabilityChange(org.platform, {
+    operation: 'auto', capabilityId: 'platform-app',
+    auto: { eligibility: 'bounded', forbiddenWhenProtectedScopePredicted: true, maximumTouchedPaths: 6 }
+  });
+  assert.deepEqual(proposedChange(org.platform, auto.commit, 'capabilities.yml', managed), {
+    removed: [],
+    added: ['    policy:', '      auto:', '        eligibility: bounded',
+      '        forbiddenWhenProtectedScopePredicted: true', '        maximumTouchedPaths: 6']
+  });
 });
 
 test('the first capability governs the repository it is mapped into', async () => {

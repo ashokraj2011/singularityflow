@@ -16,6 +16,8 @@ import {
   constitutionPolicy, expiredExceptions, generateConstitution, parseConstitution, policyValue,
   renderEnforcedArticle, requiredArticles, validateCitations
 } from '../src/constitution.mjs';
+import YAML from 'yaml';
+import { assertFolded, changedLines, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 
 const RESOLUTION = {
   phases: [
@@ -82,6 +84,20 @@ test('generation is byte-identical and leaves judged articles alone', async () =
   });
   assert.match(changed.markdown, /- Effective value: 2/);
   assert.match(changed.markdown, /State how the change is reverted/);
+});
+
+test('generation writes only article fields into front matter folded at 80 columns', () => {
+  // Front matter as the library's defaults write it, with a comment and a folded description.
+  const frontMatter = YAML.parseDocument(`# Written by people; generation adds hashes, never restyles.\ndescription: ${LONG_DESCRIPTION}\n${
+    SOURCE.split('---\n')[1]}`).toString();
+  assertFolded(frontMatter);
+  const source = `---\n${frontMatter}---\n${SOURCE.split('---\n').slice(2).join('---\n')}`;
+  const generated = generateConstitution(source, RESOLUTION).markdown;
+  const { removed, added } = changedLines(frontMatter, generated.split('---\n')[1]);
+  assert.deepEqual(removed, []);
+  assert.ok(added.length > 0);
+  for (const line of added) assert.match(line, /^ {4}(status|policyValueSha256|rendererVersion|articleSha256): /);
+  assert.deepEqual(parseConstitution(generated, { resolution: RESOLUTION }).findings, []);
 });
 
 test('a hand-edited enforced article fails validation', () => {

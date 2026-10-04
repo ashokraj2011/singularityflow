@@ -40,7 +40,8 @@ import {
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { recordSha256 } from './records.mjs';
 import { isTemplateReference, parseTemplateReference } from './template-catalog.mjs';
-import { secureRepositoryPath, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
+import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 export const WORKFLOW_BUNDLE_KIND = 'sflow-workflow-bundle';
 const WORKFLOW_BUNDLE_FAMILY = 'workflow-bundle';
@@ -1937,7 +1938,11 @@ export async function applyWorkflowImport(root, bundleOrPath, { expectedPlanSha2
   for (const governs of ['story', 'initiative']) {
     const candidate = candidateDocuments[governs];
     if (!candidate?.changed) continue;
-    outputs.push({ file: candidate.current.file, content: candidate.document.toString(YAML_OUTPUT) });
+    // People maintain these files too: only the added declarations are new lines.
+    outputs.push({
+      file: candidate.current.file,
+      content: renderPreservingFormatting(candidate.current.text, candidate.document)
+    });
   }
   const addedAgentLocks = Object.entries(bundle.agentLocks)
     .filter(([id]) => plan.operations.add.some((item) => item.kind === 'agent-lock' && item.id === id));
@@ -2047,7 +2052,9 @@ export async function copyWorkflow(root, {
   definition.label = label.trim();
   document.setIn([located.store.workflows, targetId], document.createNode(definition));
   located.store.validate(document.toJS());
-  await applyFiles([{ file: located.document.file, content: document.toString(YAML_OUTPUT) }]);
+  await applyFiles([{
+    file: located.document.file, content: renderPreservingFormatting(located.document.text, document)
+  }]);
   return {
     schemaVersion: 1, resultType: 'workflow-copy', status: 'copied',
     sourceId: located.id, sourceSelector: located.selector,

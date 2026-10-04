@@ -2,6 +2,7 @@
 import path from 'node:path';
 import YAML from 'yaml';
 import { worldModelViewCatalog } from '../../../../src/world-model-views.mjs';
+import { renderPreservingFormatting } from '../../../../src/yaml-formatting.mjs';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
 export type InstructionTab = 'agents' | 'delivery' | 'prompts' | 'skills' | 'packs';
@@ -361,11 +362,6 @@ function comparable(draft: AgentDraft, key: AgentField): string {
   }
 }
 
-// How the designer re-emits frontmatter it edited: the CLI's own YAML_OUTPUT (src/util.mjs), which
-// this model does not import. No folding, and flow lists stay unpadded, as every packaged agent
-// writes `tools: [read, search]`; the library's default pads them to `[ read, search ]`.
-const YAML_OUTPUT = Object.freeze({ flowCollectionPadding: false, lineWidth: 0 });
-
 /**
  * The frontmatter with the fields the form changed written into the authored document. A changed
  * value keeps the quoting the file wrote it with, and a changed tool list stays a flow or a block
@@ -403,7 +399,9 @@ function renderHeader(source: string, draft: AgentDraft, unchanged: (key: AgentF
   const map = document.get('metadata', true);
   if (metadata.length && YAML.isScalar(map) && map.value == null) document.set('metadata', document.createNode({}));
   for (const [, field, value] of metadata) write(['metadata', field], value, true);
-  return document.toString(YAML_OUTPUT);
+  // Written over the frontmatter the file has, as the CLI writes configuration: only the lines of the
+  // fields that changed are new, and the rest keep the layout people gave them.
+  return renderPreservingFormatting(source ? `${source}\n` : null, document);
 }
 
 export function renderAgent(draft: AgentDraft, sourceText = draft.sourceText ?? ''): string {

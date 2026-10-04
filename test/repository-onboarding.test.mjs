@@ -34,6 +34,7 @@ import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
+import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 
 // Successful onboarding remembers a lead by default. Keep every test in this file away from
 // the operator's machine-local registry, including cases without an explicit per-test override.
@@ -1322,6 +1323,58 @@ test('recreate previews exact omissions and never follows a portable-data symlin
   }
 });
 
+test('recreate writes the packaged starters as written and changes only what it carries forward', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    // An older version wrote this configuration with the library's defaults.
+    const editor = path.join(fixture.base, 'folded-configuration-editor');
+    run('git', ['clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Configuration Editor'], { cwd: editor });
+    run('git', ['config', 'user.email', 'configuration@example.test'], { cwd: editor });
+    for (const relative of ['singularity/workflow.yml', 'singularity/portfolio.yml']) {
+      await foldYamlFile(path.join(editor, relative));
+    }
+    run('git', ['commit', '-qam', 'Configuration written with the library defaults'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+    const result = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: plan.planId
+    });
+    const change = async (name) => changedLines(
+      await readFile(new URL(`../templates/${name}`, import.meta.url), 'utf8'),
+      run('git', ['show', `${result.proposal.branch}:singularity/${name}`], { cwd: fixture.remote }).stdout
+    );
+    const member = /^ {4}members:$|^ {6}- name: |^ {8}email: /;
+    // The starters' commentary and layout survive; the ledger switch and the carried-forward
+    // approval members are the only workflow lines that differ from the packaged starter.
+    const workflow = await change('workflow.yml');
+    const storyGroups = Object.keys(YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'))
+      .approvalAuthorities);
+    assert.deepEqual(workflow.removed, ['  enabled: false', ...storyGroups.map(() => '    members: []')]);
+    assert.deepEqual(workflow.added.filter((line) => !member.test(line)), ['  enabled: true']);
+    // In the portfolio: each approval group's members and the repository declaration.
+    const portfolio = await change('portfolio.yml');
+    const initiativeGroups = Object.keys(YAML.parse(await readFile(new URL('../templates/portfolio.yml', import.meta.url), 'utf8'))
+      .approvalAuthorities);
+    assert.deepEqual(portfolio.removed, [
+      ...initiativeGroups.map((group) => `  ${group}: { members: [] }`), 'repositories: {}'
+    ]);
+    for (const line of portfolio.added) {
+      assert.match(line, /^ {2}[a-z-]+: \{members: \[\{name: .+, email: .+\}\]\}$|^repositories:$|^ {2}application:$|^ {4}(url|defaultBranch|required): /);
+    }
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test('a selected alternate state branch never mutates an unrelated default state branch', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
@@ -2044,9 +2097,22 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
       '--confirm', applied.proposal.commit
     ], { cwd: process.cwd() });
     assert.match(repeatedCli.stdout, /setup: activated/);
+    // Recreating an unchanged configuration writes the same bytes and proposes nothing, so give it
+    // something to omit: the later proposal then carries the unchanged recovery receipt.
+    const editor = path.join(fixture.base, 'later-configuration-editor');
+    run('git', ['clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Configuration Editor'], { cwd: editor });
+    run('git', ['config', 'user.email', 'configuration@example.test'], { cwd: editor });
+    await writeFile(path.join(editor, 'singularity', 'custom-onboarding.yml'), 'custom: true\n');
+    run('git', ['add', '-A'], { cwd: editor });
+    run('git', ['commit', '-qm', 'Add a path recreate does not carry forward'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
     const recreatePlan = await inspectRepositoryOnboarding(fixture.remote, {
       mode: 'recreate'
     });
+    assert.deepEqual(recreatePlan.omitted, ['singularity/custom-onboarding.yml']);
     const recreated = await applyRepositoryOnboarding(fixture.remote, {
       mode: 'recreate', confirmPlan: recreatePlan.planId
     });

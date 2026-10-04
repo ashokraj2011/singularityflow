@@ -18,6 +18,7 @@ import {
   writeText
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
+import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { groundingMode } from './grounding.mjs';
@@ -1939,8 +1940,11 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
     ...missing.sort((left, right) => left.viewId.localeCompare(right.viewId))
       .map((view) => view.reference)
   ];
-  doc.setIn(['worldModel', 'views'], merged);
-  await writeFile(file.absolute, doc.toString());
+  // Appended to a list the file already has, so it keeps its own flow or block layout.
+  if (YAML.isSeq(declaredNode) && declaredNode.items.length) {
+    for (const view of merged.slice(declaredValues.length)) declaredNode.add(view);
+  } else doc.setIn(['worldModel', 'views'], merged);
+  await writeFile(file.absolute, renderPreservingFormatting(text, doc));
   return merged;
 }
 

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { assertFolded, changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -370,6 +371,25 @@ test('a Studio agent save refuses a changed agent baseline without overwriting c
   assert.match((await buildStudioModel(root)).agents.find((agent) => agent.id === 'architect').instructions, /Reviewed instruction\./);
 });
 
+test('a Studio agent edit changes only its own line of frontmatter folded at 80 columns', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const file = path.join(root, '.github/agents/architect.agent.md');
+  // The frontmatter as the library's defaults write it: a folded description, padded flow lists.
+  const [, header, body] = /^---\n([\s\S]*?\n)---\n([\s\S]*)$/.exec(await readFile(file, 'utf8'));
+  const frontmatter = YAML.parseDocument(header);
+  frontmatter.set('description', LONG_DESCRIPTION);
+  assertFolded(frontmatter.toString());
+  const before = `---\n${frontmatter.toString()}---\n${body}`;
+  await writeFile(file, before);
+  const model = await buildStudioModel(root);
+  await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', base: model.base,
+    changes: [{ op: 'agent.update', id: 'architect', label: 'Solution architect' }] }, { write: true });
+  assert.deepEqual(changedLines(before, await readFile(file, 'utf8')), {
+    removed: ['  sflow-label: "Architect"'], added: ['  sflow-label: "Solution architect"']
+  });
+});
+
 test('the agent designer saves block YAML tools without dropping model preferences or custom metadata', async () => {
   const { parseAgent, renderAgent, validateAgent, instructionCatalog } = await import('../apps/vscode/src/views/instruction-designer-model.ts');
   const { instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT } = await import('../apps/vscode/src/views/instruction-designer-page.ts');
@@ -422,6 +442,22 @@ test('the agent designer saves block YAML tools without dropping model preferenc
   assert.match(after.description, /Updated description\.$/);
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/instruction-designer.ts'), 'utf8');
   assert.match(host, /renderAgent\(draft, this\.sourceText\)/, 'save uses the host baseline rather than webview-provided source text');
+});
+
+test('the agent designer writes only the edited field over frontmatter folded at 80 columns', async () => {
+  const { parseAgent, renderAgent } = await import('../apps/vscode/src/views/instruction-designer-model.ts');
+  const packaged = await readFile(path.join(packageRoot, 'templates/agents/architect.agent.md'), 'utf8');
+  const [, header, body] = /^---\n([\s\S]*?\n)---\n([\s\S]*)$/.exec(packaged);
+  const frontmatter = YAML.parseDocument(header);
+  frontmatter.set('description', LONG_DESCRIPTION);
+  assertFolded(frontmatter.toString());
+  const original = `---\n${frontmatter.toString()}---\n${body}`;
+  const draft = parseAgent(original, 'architect');
+  assert.equal(renderAgent(draft, original), original);
+  draft.label = 'Solution architect';
+  assert.deepEqual(changedLines(original, renderAgent(draft, original)), {
+    removed: ['  sflow-label: "Architect"'], added: ['  sflow-label: "Solution architect"']
+  });
 });
 
 test('agent edits preserve instructions after remote tables and retain native display names', async () => {
@@ -908,6 +944,19 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   ], latest.base), '--dry-run']);
   assert.equal(refused.valid, false);
   assert.deepEqual(refused.problems.map((problem) => problem.code).sort(), ['STUDIO_EPIC_OUTPUT_IN_USE', 'STUDIO_EPIC_STEP_UNKNOWN', 'STUDIO_TEMPLATE_UNKNOWN'].sort());
+});
+
+test('a Studio Epic workflow edit changes only its own line of a portfolio folded at 80 columns', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const before = await foldYamlFile(file);
+  const model = await buildStudioModel(root);
+  await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', base: model.base,
+    changes: [{ op: 'epicWorkflow.update', id: 'initiative-lite', label: 'Lite initiative' }] }, { write: true });
+  assert.deepEqual(changedLines(before, await readFile(file, 'utf8')), {
+    removed: ['    label: Initiative lite'], added: ['    label: Lite initiative']
+  });
 });
 
 test('an Epic output change rewrites only that output, in the style its list is written in', async () => {

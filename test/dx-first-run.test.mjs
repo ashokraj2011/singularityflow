@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { runFirstRunGuide } from '../src/first-run-guide.mjs';
 import { loadRepositoryReadinessReceipt } from '../src/initialization/runtime-readiness.mjs';
 import { run } from '../src/util.mjs';
+import { changedLines } from './helpers/folded-yaml.mjs';
 
 test('end-to-end-under-budget', async () => {
   const result = await runFirstRunGuide({ keep: true });
@@ -43,8 +44,13 @@ test('end-to-end-under-budget', async () => {
       commit: base, scope: 'dependency-test'
     });
     assert.equal(retained.receipt.receiptSha256, receipt.receiptSha256);
-    const definition = YAML.parse(await readFile(path.join(result.repository, 'singularity/workflow.yml'), 'utf8'));
+    const configured = await readFile(path.join(result.repository, 'singularity/workflow.yml'), 'utf8');
+    const definition = YAML.parse(configured);
     assert.equal(definition.repositoryReadiness.requiredBeforeStory, true);
+    // The guide's two settings are the only lines it changes in the packaged starter.
+    assert.deepEqual(changedLines(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'), configured), {
+      removed: ['  publish: required', '  grounding: warn'], added: ['  publish: off', '  grounding: off']
+    });
     assert.equal(run('git', ['status', '--porcelain'], { cwd: result.repository }).stdout, '');
     assert.ok(result.steps.every((step) => step.output.length <= 4_050));
     const workflow = JSON.parse(await readFile(path.join(

@@ -2,12 +2,15 @@ import path from 'node:path';
 import { cp, mkdir, readFile, readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseAgentDependencies } from './agents.mjs';
-import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import {
+  applyWorkflowCompatibility, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH
+} from './config.mjs';
 import { exists, SingularityFlowError, writeText } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { simulateResolvedWorkflowLifecycle } from './workflow-lifecycle-simulation.mjs';
+import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
 const OPTIONAL_CATALOG_REASON_MAX_CHARS = 512;
@@ -140,17 +143,52 @@ export function simulationText(simulations) {
   return `${lines.join('\n')}\n`;
 }
 
+/** Read by loadDefinition from the repository's agents, never from workflow.yml. */
+const DISCOVERED_FIELDS = ['agents', 'agentCatalog', 'agentPromptsRoot'];
+
+/**
+ * workflow.yml with an installation applied, every line it does not change as it was written.
+ *
+ * The loaded definition also carries every normalized default and the discovered agent catalog.
+ * Written whole, it turned installing one workflow into a rewrite of the entire file, so only what
+ * the installation changes is written, and entries copied from the starter are written as the
+ * starter has them. The file must still load to exactly the validated definition; if it ever
+ * would not, the definition itself is written, still over the file's own formatting.
+ */
+async function installedWorkflowText(file, installed, next, packagedEntries) {
+  const original = await readFile(file, 'utf8');
+  const packaged = YAML.parse(await readFile(starterPath, 'utf8'));
+  const written = structuredClone(next);
+  for (const [section, key] of packagedEntries) written[section][key] = structuredClone(packaged[section][key]);
+  const text = renderDataPreservingFormatting(original, written, { before: installed });
+  const loaded = applyWorkflowCompatibility(YAML.parse(text));
+  for (const field of DISCOVERED_FIELDS) loaded[field] = next[field];
+  try {
+    if (stable(validateDefinition(loaded)) === stable(next)) return text;
+  } catch {
+    // Falls through to writing the validated definition.
+  }
+  const definition = structuredClone(next);
+  for (const field of DISCOVERED_FIELDS) delete definition[field];
+  return renderDataPreservingFormatting(original, definition);
+}
+
 export async function installWorkflow(root, id, { replace = false, dryRun = false } = {}) {
   const installed = await loadDefinition(root); const starter = await starterDefinition(); const profile = starter.workTypes[id];
   if (!profile) throw new Error(`Workflow '${id}' is not in the bundled catalog.`);
   if (installed.workTypes[id] && !replace) throw new Error(`Workflow '${id}' already exists. Use workflow diff ${id}, or --replace after reviewing customizations.`);
   const next = structuredClone(installed); next.workTypes[id] = structuredClone(profile);
+  // Entries taken whole from the starter. The file receives them as the starter writes them.
+  const packagedEntries = [['workTypes', id]];
   const phaseIds = new Set(profile.phases);
   for (const phaseId of phaseIds) {
     // `--replace` is an explicit decision to take the bundled workflow contract. Replacing only
     // the work-type row while retaining stale shared phase policy made the command claim success
     // while generation, approval and evidence behavior remained on the old release.
-    if (replace || !next.phases[phaseId]) next.phases[phaseId] = structuredClone(starter.phases[phaseId]);
+    if (replace || !next.phases[phaseId]) {
+      next.phases[phaseId] = structuredClone(starter.phases[phaseId]);
+      packagedEntries.push(['phases', phaseId]);
+    }
   }
   const authorityIds = new Set();
   for (const phaseId of phaseIds) {
@@ -158,7 +196,9 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   }
   next.approvalAuthorities ??= {};
   for (const authority of authorityIds) {
-    next.approvalAuthorities[authority] ??= structuredClone(starter.approvalAuthorities[authority]);
+    if (next.approvalAuthorities[authority] != null) continue;
+    next.approvalAuthorities[authority] = structuredClone(starter.approvalAuthorities[authority]);
+    packagedEntries.push(['approvalAuthorities', authority]);
   }
   // A packaged workflow is not usable when its browser/tool policy remains stranded in the
   // starter definition. Merge only servers assigned to one of the installed phases, preserving
@@ -170,6 +210,7 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
     const current = next.mcpServers[serverId];
     if (!current) {
       next.mcpServers[serverId] = structuredClone(packaged);
+      packagedEntries.push(['mcpServers', serverId]);
       continue;
     }
     next.mcpServers[serverId] = {
@@ -203,7 +244,8 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   for (const file of files) if (file.overwrite || !(await exists(file.target))) copied.push(path.relative(root, file.target).replaceAll(path.sep, '/'));
   const changedFiles = [WORKFLOW_PATH, ...copied];
   if (!dryRun) {
-    await writeText(path.join(root, WORKFLOW_PATH), YAML.stringify(next));
+    const file = path.join(root, WORKFLOW_PATH);
+    await writeText(file, await installedWorkflowText(file, installed, next, packagedEntries));
     for (const file of files) if (file.overwrite || !(await exists(file.target))) { await mkdir(path.dirname(file.target), { recursive: true }); await cp(file.source, file.target); }
   }
   return { id, dryRun, replace, files: changedFiles };

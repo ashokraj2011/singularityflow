@@ -2582,10 +2582,11 @@ test('the first capability can be onboarded outside every repository and without
   const proposedPortfolio = run('git', ['show', `${result.branch}:singularity/portfolio.yml`], { cwd: lead }).stdout;
   assert.match(proposedCapabilities, /sourceRoots:\s*\n\s*- apps\/platform/);
   assert.match(proposedCapabilities, /sharedRoots:\s*\n\s*- packages\/contracts/);
-  assert.match(proposedPortfolio, /mode: blobless-sparse/);
-  assert.match(proposedPortfolio,
-    /sparseCone: \[\.github\/agents, apps\/platform, packages\/contracts, singularity\]/);
-  assert.match(proposedPortfolio, /fallback: refuse/);
+  // Read as data: the starter portfolio's commented examples hold real-looking clone settings.
+  assert.deepEqual(YAML.parse(proposedPortfolio).repositories.platform.clone, {
+    mode: 'blobless-sparse', filter: 'blob:none',
+    sparseCone: ['.github/agents', 'apps/platform', 'packages/contracts', 'singularity'], fallback: 'refuse'
+  });
   assert.equal(run('git', ['show', 'main:README.md'], { cwd: lead }).stdout, '# platform\n',
     'first capability onboarding never changes the application base branch');
   await assert.rejects(readFile(activeWorkspace), { code: 'ENOENT' });

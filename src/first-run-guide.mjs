@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { GOVERNED_ROOTS, initializeDefinition } from './config.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
+import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 
 function boundedOutput(text, limit = 4_000) {
   const value = text.trim();
@@ -27,10 +28,12 @@ function command(cli, root, args, env) {
 
 async function configureRepository(root) {
   const file = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(file, 'utf8'));
+  const text = await readFile(file, 'utf8');
+  const definition = YAML.parse(text);
   definition.git.publish = 'off';
   definition.worldModel.grounding = 'off';
-  await writeFile(file, YAML.stringify(definition));
+  // The starter keeps its commentary, so the guide's repository reads like any initialized one.
+  await writeFile(file, renderDataPreservingFormatting(text, definition));
 }
 
 function greetingSource(greeting, { story = false } = {}) {

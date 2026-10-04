@@ -276,6 +276,12 @@ declare module '*/package-root.mjs' {
   export const PACKAGE_ROOT: string;
 }
 
+declare module '*/yaml-formatting.mjs' {
+  export function renderPreservingFormatting(
+    original: string | null, document: import('yaml').Document, options?: Record<string, unknown>
+  ): string;
+}
+
 declare module '*/worldmodel.mjs' {
   export function loadWorldModelConfig(root: string, options?: {
     agent?: string | null; workId?: string | null; capabilityId?: string | null;

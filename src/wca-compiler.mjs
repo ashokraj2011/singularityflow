@@ -36,6 +36,7 @@ import { prepareWorkflowSkillConsent, workflowSkillFinalizationReview,
   renderWorkflowSkillCandidateAgent, WCA_SKP_LOCAL_PRODUCER_PROFILE } from './wca-skp-finalization.mjs';
 import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 
 export const WCA_COMPILER_PROFILE = 'wca-complete-package/v4';
 export const WCA_PREVIEW_KIND = 'workflow-authoring-package-preview';
@@ -1039,8 +1040,10 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     }
     if (!skillContractRequest) for (const [relative, content] of replacementFiles) emit(relative, content);
     const unchangedRawDefinition = contentProfile && canonicalJson(emittedDefinition) === canonicalJson(captured.rawDefinition);
+    // A changed definition is written over the approved text, so every line it does not change keeps
+    // the layout people gave it. The bytes still parse to exactly the emitted definition.
     emit('singularity/workflow.yml', unchangedRawDefinition ? captured.exactFiles.get('singularity/workflow.yml').toString('utf8')
-      : YAML.stringify(emittedDefinition, { lineWidth: 0 }));
+      : renderDataPreservingFormatting(captured.files.get('singularity/workflow.yml').toString('utf8'), emittedDefinition));
   });
   if (findings.length) { files.clear(); operations.length = 0; }
   return output();

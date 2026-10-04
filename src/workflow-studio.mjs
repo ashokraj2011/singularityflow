@@ -39,8 +39,8 @@ import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from '
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { SingularityFlowError, YAML_OUTPUT, posix } from './util.mjs';
-import { lineOperations, preserveYamlFormatting } from './yaml-formatting.mjs';
+import { SingularityFlowError, posix } from './util.mjs';
+import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
 
 export { preserveYamlFormatting };
 import {
@@ -487,7 +487,9 @@ function splitAgentText(text, label) {
   const remainder = normalized.slice(opening[0].length);
   const closing = /\r?\n---(?:\r?\n|$)/.exec(remainder);
   if (!closing) throw new SingularityFlowError(`Agent ${label} frontmatter is not closed.`);
-  return { document: YAML.parseDocument(remainder.slice(0, closing.index)), body: remainder.slice(closing.index + closing[0].length) };
+  // The frontmatter text with its last line break, so an edit can be written back over it.
+  const header = `${remainder.slice(0, closing.index)}\n`;
+  return { document: YAML.parseDocument(header), header, body: remainder.slice(closing.index + closing[0].length) };
 }
 
 function quoted(document, value) {
@@ -498,18 +500,22 @@ function quoted(document, value) {
 
 function renderAgent(entry) {
   const base = entry.text ?? `---\nname: ${entry.id}\ndescription: ""\n---\n`;
-  const { document, body } = splitAgentText(base, entry.id);
+  const { document, header, body } = splitAgentText(base, entry.id);
   if (!entry.text) document.set('name', entry.id);
   document.set('description', entry.description);
-  document.set('tools', document.createNode([...entry.tools], { flow: true }));
+  // A field is written only when it changed, and over the file's own text, so editing one field of
+  // an agent changes one line rather than restyling its whole frontmatter.
+  if (JSON.stringify(document.get('tools')?.toJSON?.() ?? null) !== JSON.stringify(entry.tools)) {
+    document.set('tools', document.createNode([...entry.tools], { flow: true }));
+  }
   const metadata = document.get('metadata') ?? document.createNode({});
   if (!document.has('metadata')) document.set('metadata', metadata);
   for (const [key, value] of [
     ['sflow-label', entry.label], ['sflow-phases', entry.phases.join(',')],
     ['sflow-default-for', entry.defaultFor.join(',')], ['sflow-world-model-views', entry.views.join(',')]
-  ]) document.setIn(['metadata', key], quoted(document, value));
+  ]) if (document.getIn(['metadata', key]) !== value) document.setIn(['metadata', key], quoted(document, value));
   const text = entry.body != null ? `\n${entry.body.trim()}\n` : body;
-  return `---\n${document.toString(YAML_OUTPUT)}---\n${text}`;
+  return `---\n${renderPreservingFormatting(header, document)}---\n${text}`;
 }
 
 function newAgentBody(label, instructions) {
@@ -1232,9 +1238,9 @@ class StudioCandidate {
     }
     let text = staged.text;
     if (withoutDefaults) {
-      const { document, body } = splitAgentText(text, agentId);
+      const { document, header, body } = splitAgentText(text, agentId);
       document.deleteIn(['metadata', 'sflow-default-for']);
-      text = `---\n${document.toString(YAML_OUTPUT)}---\n${body}`;
+      text = `---\n${renderPreservingFormatting(header, document)}---\n${body}`;
     }
     const relative = existing?.relative ?? posix(path.join('.github', 'agents', `${agentId}.agent.md`));
     const parsed = parseAgentDependencies(text, { source: relative });
@@ -2128,13 +2134,13 @@ class StudioCandidate {
   async files() {
     const files = [];
     if (this.portfolioChanged && this.portfolioDocument) {
-      const portfolio = preserveYamlFormatting(this.sources.portfolioText, this.portfolioDocument.toString(YAML_OUTPUT));
+      const portfolio = renderPreservingFormatting(this.sources.portfolioText, this.portfolioDocument);
       if (portfolio !== this.sources.portfolioText) files.push({ path: PORTFOLIO_PATH, before: this.sources.portfolioText, after: portfolio });
     }
     // Only a change in content rewrites workflow.yml: re-serializing an untouched document can still
     // re-wrap long lines, and a change set that only imports a skill must not touch the file at all.
     if (JSON.stringify(this.document.toJS() ?? {}) !== JSON.stringify(this.sources.raw ?? {})) {
-      const workflow = preserveYamlFormatting(this.sources.definitionText, this.document.toString(YAML_OUTPUT));
+      const workflow = renderPreservingFormatting(this.sources.definitionText, this.document);
       if (workflow !== this.sources.definitionText) files.push({ path: WORKFLOW_PATH, before: this.sources.definitionText, after: workflow });
     }
     for (const agent of this.agents.values()) {

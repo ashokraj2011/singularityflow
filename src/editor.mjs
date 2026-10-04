@@ -109,6 +109,7 @@ import {
 } from './reference-repositories.mjs';
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
 import { storyDecisionView } from './workflow-decisions.mjs';
@@ -1737,16 +1738,21 @@ export async function bootstrapWorkspacePortfolio(root, {
   const definition = await loadDefinition(root);
   const targetExists = await exists(target);
   let repairedEmptyStarter = false;
+  // The text the portfolio is written over: the existing file, or the packaged starter with its
+  // commentary. Only the values this setup fills in change.
+  let starterText;
   let starter;
   if (targetExists) {
     if (!replaceEmptyStarter) {
       throw new SingularityFlowError(`${PORTFOLIO_PATH} already exists. Edit it through Portfolio designer instead of replacing it.`);
     }
-    starter = YAML.parse(await readFile(target, 'utf8'));
+    starterText = await readFile(target, 'utf8');
+    starter = YAML.parse(starterText);
     const authorities = Object.values(starter.approvalAuthorities ?? {});
     repairedEmptyStarter = authorities.some((authority) => !(authority?.members ?? []).length);
   } else {
-    starter = YAML.parse(await readFile(path.join(PACKAGE_ROOT, 'templates', 'portfolio.yml'), 'utf8'));
+    starterText = await readFile(path.join(PACKAGE_ROOT, 'templates', 'portfolio.yml'), 'utf8');
+    starter = YAML.parse(starterText);
   }
   const gitActor = identity(root);
   const email = String(approvalEmail ?? gitActor.email ?? '').trim().toLowerCase();
@@ -1804,7 +1810,9 @@ export async function bootstrapWorkspacePortfolio(root, {
       projectKey
     };
   }
-  const portfolio = validatePortfolio(starter);
+  // Validated as a copy: validation fills in every default, and those belong to readers, not to the
+  // file, which would otherwise gain a hundred lines nobody wrote on its first repair.
+  const portfolio = validatePortfolio(structuredClone(starter));
   // Self-heal: install any packaged templates the portfolio's phases reference (the initiatives/
   // subtree is absent from repositories initialized before it shipped), then declare the
   // world-model views the portfolio needs so validation cannot fail on a fresh onboarding.
@@ -1815,7 +1823,7 @@ export async function bootstrapWorkspacePortfolio(root, {
   );
   const validatedDefinition = declaredViews ? await loadDefinition(root) : definition;
   validatePortfolioWorldModelViews(portfolio, validatedDefinition);
-  await writeText(target, YAML.stringify(starter));
+  await writeText(target, renderDataPreservingFormatting(starterText, starter));
   return {
     path: PORTFOLIO_PATH,
     portfolio,

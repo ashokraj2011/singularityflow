@@ -42,6 +42,7 @@ import {
   isKnownPackagedAssetHash, isRetiredPackagedAssetHash
 } from './packaged-asset-history.mjs';
 import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
+import { patchYamlDocument, renderPreservingFormatting } from './yaml-formatting.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
 export const STATE_CONFIGURATION_ROOT = 'configuration';
@@ -298,26 +299,14 @@ function selectedSmartInitializationAsset(relative, templatesRoot) {
   });
 }
 
-/** Apply semantic changes without reserializing untouched repository-owned YAML nodes. */
+/**
+ * Apply semantic changes without reserializing untouched repository-owned YAML nodes, and write
+ * them back over the file's own text, so every line the refresh did not change reads as it was.
+ */
 function patchWorkflowDocument(currentText, before, after) {
   const document = YAML.parseDocument(currentText);
   if (document.errors.length) throw document.errors[0];
-  const visit = (pathParts, previous, next) => {
-    if (equal(previous, next)) return;
-    if (plainObject(previous) && plainObject(next)) {
-      for (const key of Object.keys(previous)) {
-        if (!Object.hasOwn(next, key)) document.deleteIn([...pathParts, key]);
-      }
-      for (const [key, value] of Object.entries(next)) {
-        if (!Object.hasOwn(previous, key)) document.setIn([...pathParts, key], clone(value));
-        else visit([...pathParts, key], previous[key], value);
-      }
-      return;
-    }
-    document.setIn(pathParts, clone(next));
-  };
-  visit([], before, after);
-  return String(document);
+  return renderPreservingFormatting(currentText, patchYamlDocument(document, before, after));
 }
 
 function displayPath(parts) {
@@ -1468,11 +1457,8 @@ export async function refreshPackagedConfiguration(root, {
 
   if (workflowMissing || !equal(current, merged.value)) {
     changedFiles.add(WORKFLOW_PATH);
-    if (!dryRun) {
-      await writeAtomic(workflowFile, workflowMissing
-        ? YAML.stringify(merged.value)
-        : patchWorkflowDocument(currentText, current, merged.value));
-    }
+    // A missing workflow starts from the packaged text, so the restored file keeps its commentary.
+    if (!dryRun) await writeAtomic(workflowFile, patchWorkflowDocument(currentText, current, merged.value));
   }
 
   for (const [relative, bundled] of assets) {

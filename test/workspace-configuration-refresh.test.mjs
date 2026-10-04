@@ -26,6 +26,7 @@ import {
   refreshWorkspaceConfigurations,
   STATE_CONFIGURATION_MANIFEST
 } from '../src/workspace-configuration-refresh.mjs';
+import { changedLines, foldYamlFile, unfoldFirst } from './helpers/folded-yaml.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
@@ -809,6 +810,23 @@ test('repository refresh restores additive policy and missing assets without ove
   const repeated = await refreshPackagedConfiguration(root);
   assert.equal(repeated.changed, false);
   assert.deepEqual(repeated.files, []);
+});
+
+test('repository refresh changes only the lines it restores in a workflow folded at 80 columns', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-folded-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  // An older workflow without the implementation task, written with the library's defaults except
+  // for one description somebody wrote on one line, which those defaults would fold again.
+  const { text: before } = unfoldFirst(await foldYamlFile(workflowFile, (document) =>
+    document.deleteIn(['phases', 'implementation', 'generation', 'task'])));
+  await writeFile(workflowFile, before);
+
+  await refreshPackagedConfiguration(root);
+  assert.deepEqual(changedLines(before, await readFile(workflowFile, 'utf8')), {
+    removed: ['    generation: {}'], added: ['    generation:', '      task: code']
+  });
 });
 
 test('configuration refresh restores the standard spec-driven workflow after a prior baseline', async (t) => {
@@ -3346,9 +3364,12 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
   });
   assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
   assert.equal(applied.results[0].configurationChanged, true);
-  assert.equal(YAML.parse(run('git', [
+  const restored = run('git', [
     '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
-  ]).stdout).version, 2);
+  ]).stdout;
+  assert.equal(YAML.parse(restored).version, 2);
+  // Restored from the packaged text, so every line of the starter, its commentary included, is there.
+  assert.deepEqual(changedLines(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'), restored).removed, []);
   assert.equal(run('git', [
     '--git-dir', remote, 'show', `sflow/config:${starterRelative}`
   ]).stdout, starterBytes);

@@ -59,6 +59,7 @@ import {
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { workspaceRegistryFile } from './workspace-context.mjs';
+import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, isGitRefName, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
@@ -2131,14 +2132,16 @@ function commitCandidate(root, message, {
 async function selectConfigurationStateBranch(root, branch, { enable = false } = {}) {
   const selected = stateBranchName(branch);
   const file = path.join(root, 'singularity', 'workflow.yml');
-  const workflow = YAML.parse(await readFile(file, 'utf8')) ?? {};
+  const text = await readFile(file, 'utf8');
+  const workflow = YAML.parse(text) ?? {};
   const configured = String(workflow?.ledger?.branch ?? STATE_BRANCH_DEFAULT);
   if (configured === selected && (!enable || workflow?.ledger?.enabled === true)) return false;
   workflow.ledger = {
     ...(workflow.ledger ?? {}), branch: selected,
     ...(enable ? { enabled: true } : {})
   };
-  await writeFile(file, YAML.stringify(workflow));
+  // Only the ledger lines change; the rest of the file keeps the formatting it was written with.
+  await writeFile(file, renderDataPreservingFormatting(text, workflow));
   return true;
 }
 
@@ -2530,17 +2533,21 @@ async function recreateConfigurationInPlace(root, {
       }
     } catch { /* Omitted and reported by the changed-path preview/result. */ }
   }
+  // The packaged starters just written keep their commentary; only the carried-forward sections
+  // are rewritten.
   if (portable.workflowAuthorities) {
     const file = path.join(root, 'singularity', 'workflow.yml');
-    const workflow = YAML.parse(await readFile(file, 'utf8'));
+    const text = await readFile(file, 'utf8');
+    const workflow = YAML.parse(text);
     workflow.approvalAuthorities = portable.workflowAuthorities;
-    await writeFile(file, YAML.stringify(workflow));
+    await writeFile(file, renderDataPreservingFormatting(text, workflow));
   }
   if (Object.keys(portable.portfolio).length) {
     const file = path.join(root, 'singularity', 'portfolio.yml');
-    const portfolio = YAML.parse(await readFile(file, 'utf8'));
+    const text = await readFile(file, 'utf8');
+    const portfolio = YAML.parse(text);
     Object.assign(portfolio, portable.portfolio);
-    await writeFile(file, YAML.stringify(portfolio));
+    await writeFile(file, renderDataPreservingFormatting(text, portfolio));
   }
   if (stateBranch) await selectConfigurationStateBranch(root, stateBranch, { enable: true });
   await loadDefinition(root);

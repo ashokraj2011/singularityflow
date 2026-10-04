@@ -16,6 +16,7 @@ import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnos
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
 const INDIVIDUAL_TARGET = /^(story|initiative):([a-z0-9]+(?:-[a-z0-9]+)*)$/;
@@ -363,12 +364,13 @@ export async function publishCurrentIdentityToConfiguration(root, {
       };
     }
 
-    const nextWorkflow = String(workflow);
+    // People maintain these files by hand: only the membership and policy lines change.
+    const nextWorkflow = renderPreservingFormatting(workflowText, workflow);
     validateDefinition(YAML.parse(nextWorkflow));
     await writeFile(path.join(scratch, WORKFLOW_PATH), nextWorkflow);
     const files = [WORKFLOW_PATH];
     if (portfolio && changedGroups.some((entry) => entry.scope === 'initiative')) {
-      const nextPortfolio = String(portfolio);
+      const nextPortfolio = renderPreservingFormatting(portfolioText, portfolio);
       validatePortfolio(YAML.parse(nextPortfolio));
       await writeFile(path.join(scratch, PORTFOLIO_PATH), nextPortfolio);
       files.push(PORTFOLIO_PATH);

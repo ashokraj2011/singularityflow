@@ -26,6 +26,7 @@ import {
   gitHeadIsUnborn, gitReadOutput, isGitRefName, mapLimit, removeTemporaryTree, secureRepositoryPath,
   SingularityFlowError, run, readJson, writeAtomic, YAML_OUTPUT
 } from './util.mjs';
+import { renderDataPreservingFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
 import {
   CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
   validateCapabilities, capabilityTree, flattenCapabilityTree, capabilityPath, foldCapabilityPolicy,
@@ -2128,12 +2129,13 @@ async function repairLeadDefaultBranch(
   const file = path.join(root, PORTFOLIO_PATH);
   if (!existsSync(file)) return;
   const id = repositoryIdFromUrl(url);
-  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  const text = await readFile(file, 'utf8');
+  const document = YAML.parseDocument(text);
   if (String(document.getIn(['repositories', id, 'defaultBranch']) ?? '') !== CONFIGURATION_BRANCH) return;
   document.setIn(['repositories', id, 'defaultBranch'], await observedDefaultBranchAsync(
     url, session, observation
   ));
-  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+  await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
 }
 
 function configurationAssetsFromRef(root, ref = 'HEAD', { env = process.env } = {}) {
@@ -3761,9 +3763,8 @@ export async function mapCapability(leadUrl, {
     }
 
     const file = path.join(root, CAPABILITIES_PATH);
-    const document = governed
-      ? YAML.parseDocument(await readFile(file, 'utf8'))
-      : YAML.parseDocument('version: 1\ncapabilities: {}\n');
+    const capabilityText = governed ? await readFile(file, 'utf8') : null;
+    const document = YAML.parseDocument(capabilityText ?? 'version: 1\ncapabilities: {}\n');
     const before = document.toJS() ?? {};
     const approvedPortfolio = existsSync(path.join(root, PORTFOLIO_PATH))
       ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8'))?.repositories ?? {}
@@ -3866,7 +3867,8 @@ export async function mapCapability(leadUrl, {
     // name them. A capability commonly has one; a product with a web app and a service has two.
     if (urls.length) {
       const file = path.join(root, PORTFOLIO_PATH);
-      const portfolio = YAML.parseDocument(await readFile(file, 'utf8'));
+      const portfolioText = await readFile(file, 'utf8');
+      const portfolio = YAML.parseDocument(portfolioText);
       for (const url of urls) {
         const id = repositoryIdOf(url);
         const branch = observedBranches.get(url);
@@ -3888,7 +3890,7 @@ export async function mapCapability(leadUrl, {
         }
         portfolio.setIn(['repositories', id], portfolio.createNode(repository));
       }
-      await writeFile(file, portfolio.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(file, renderPreservingFormatting(portfolioText, portfolio), 'utf8');
     }
     if (!governed) document.setIn(['capabilities'], document.createNode({}));
     document.setIn(['capabilities', capabilityId], document.createNode({}));
@@ -3918,7 +3920,7 @@ export async function mapCapability(leadUrl, {
       ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8'))
       : null;
     validateCapabilities(document.toJS(), portfolio);
-    await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+    await writeFile(file, renderPreservingFormatting(capabilityText, document), 'utf8');
     return {
       capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,
       parent: parent || null,
@@ -4090,10 +4092,10 @@ export async function mapCapabilityTeam(leadUrl, {
           'CAPABILITY_PORTFOLIO_REQUIRED', leadKey);
       }
 
-      const capabilities = governed
-        ? YAML.parseDocument(await readFile(capabilityFile, 'utf8'))
-        : YAML.parseDocument('version: 1\ncapabilities: {}\n');
-      const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+      const capabilityText = governed ? await readFile(capabilityFile, 'utf8') : null;
+      const capabilities = YAML.parseDocument(capabilityText ?? 'version: 1\ncapabilities: {}\n');
+      const portfolioText = await readFile(portfolioFile, 'utf8');
+      const portfolio = YAML.parseDocument(portfolioText);
       const beforeValue = capabilities.toJS() ?? {};
       const beforePortfolio = portfolio.toJS() ?? {};
       const beforeDefinition = governed
@@ -4273,9 +4275,9 @@ export async function mapCapabilityTeam(leadUrl, {
       const portfolioValue = portfolio.toJS();
       const afterDefinition = validateCapabilities(capabilities.toJS(), portfolioValue);
       if (newMembers.length) {
-        await writeFile(portfolioFile, portfolio.toString(YAML_OUTPUT), 'utf8');
+        await writeFile(portfolioFile, renderPreservingFormatting(portfolioText, portfolio), 'utf8');
       }
-      await writeFile(capabilityFile, capabilities.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(capabilityFile, renderPreservingFormatting(capabilityText, capabilities), 'utf8');
 
       let receipt = null;
       let receiptPath = null;
@@ -4371,7 +4373,8 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
       if (!existsSync(capabilityFile) || !existsSync(portfolioFile)) {
         throw new SingularityFlowError('The approved configuration has no capability map and portfolio to update.');
       }
-      const capabilities = YAML.parseDocument(await readFile(capabilityFile, 'utf8'));
+      const capabilityText = await readFile(capabilityFile, 'utf8');
+      const capabilities = YAML.parseDocument(capabilityText);
       const current = capabilities.getIn(['capabilities', capabilityId], true)?.toJSON?.();
       if (!current) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
       if (current.kind !== 'delivery') {
@@ -4379,7 +4382,8 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
           `Capability '${capabilityId}' is a collection. Change it to delivery in a reviewed proposal before adding a repository.`);
       }
       const repositoryId = repositoryIdOf(repositoryKey);
-      const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+      const portfolioText = await readFile(portfolioFile, 'utf8');
+      const portfolio = YAML.parseDocument(portfolioText);
       const existingRepository = portfolio.getIn(['repositories', repositoryId], true)?.toJSON?.() ?? {};
       if (existingRepository.url && existingRepository.url !== repositoryKey) {
         throw new SingularityFlowError(
@@ -4411,8 +4415,8 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
       }
       const portfolioValue = portfolio.toJS();
       validateCapabilities(capabilities.toJS(), portfolioValue);
-      await writeFile(portfolioFile, portfolio.toString(YAML_OUTPUT), 'utf8');
-      await writeFile(capabilityFile, capabilities.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(portfolioFile, renderPreservingFormatting(portfolioText, portfolio), 'utf8');
+      await writeFile(capabilityFile, renderPreservingFormatting(capabilityText, capabilities), 'utf8');
       return {
         capabilityId, repositoryId, repositories,
         leadRepositoryId: makeLead ? repositoryId : previousLead,
@@ -6185,7 +6189,8 @@ export async function rebaseCapabilityProposal(url, branch, {
         );
       }
       const capabilityFile = path.join(root, CAPABILITIES_PATH);
-      const capabilityDocument = YAML.parseDocument(await readFile(capabilityFile, 'utf8'));
+      const capabilityText = await readFile(capabilityFile, 'utf8');
+      const capabilityDocument = YAML.parseDocument(capabilityText);
       if (capabilityDocument.hasIn(['capabilities', plan.capabilityId])) {
         capabilityRebaseRefusal(
           `Capability '${plan.capabilityId}' was added while rebase was prepared.`,
@@ -6196,7 +6201,8 @@ export async function rebaseCapabilityProposal(url, branch, {
       capabilityDocument.setIn(['capabilities', plan.capabilityId],
         capabilityDocument.createNode(preview.capabilityRecord));
       const portfolioFile = path.join(root, PORTFOLIO_PATH);
-      const portfolioDocument = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+      const portfolioText = await readFile(portfolioFile, 'utf8');
+      const portfolioDocument = YAML.parseDocument(portfolioText);
       for (const [id, record] of Object.entries(preview.addedRepositories)) {
         const existing = portfolioDocument.getIn(['repositories', id], true)?.toJSON?.();
         if (existing && canonicalJson(existing) !== canonicalJson(record)) {
@@ -6209,8 +6215,8 @@ export async function rebaseCapabilityProposal(url, branch, {
         if (!existing) portfolioDocument.setIn(['repositories', id], portfolioDocument.createNode(record));
       }
       validateCapabilities(capabilityDocument.toJS(), portfolioDocument.toJS());
-      await writeFile(capabilityFile, capabilityDocument.toString(YAML_OUTPUT), 'utf8');
-      await writeFile(portfolioFile, portfolioDocument.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(capabilityFile, renderPreservingFormatting(capabilityText, capabilityDocument), 'utf8');
+      await writeFile(portfolioFile, renderPreservingFormatting(portfolioText, portfolioDocument), 'utf8');
       const changedPaths = proposalGitChangedPaths(root, { env: session.env });
       if (changedPaths.some((file) => ![CAPABILITIES_PATH, PORTFOLIO_PATH].includes(file))) {
         capabilityRebaseRefusal(
@@ -7529,7 +7535,7 @@ export async function adoptManagedCapabilityMap(leadUrl, { confirm = null } = {}
       const after = validateCapabilities(document.toJS());
       const afterSha256 = capabilityDigest(after);
       const receipt = managedAdoptionReceipt(plan, afterSha256);
-      await writeFile(capabilityFile, document.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(capabilityFile, renderPreservingFormatting(source, document), 'utf8');
       const receiptPath = `singularity/capability-changes/${receipt.changeId.toLowerCase()}.json`;
       await mkdir(path.dirname(path.join(root, receiptPath)), { recursive: true });
       await writeFile(path.join(root, receiptPath), canonicalJson(receipt), 'utf8');
@@ -7614,9 +7620,8 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
       const workflow = await loadDefinition(root);
       const repositoryId = repositoryIdFromUrl(leadUrl);
       const capabilityFile = path.join(root, CAPABILITIES_PATH);
-      const existing = existsSync(capabilityFile)
-        ? validateCapabilities(YAML.parse(await readFile(capabilityFile, 'utf8')))
-        : null;
+      const existingText = existsSync(capabilityFile) ? await readFile(capabilityFile, 'utf8') : null;
+      const existing = existingText == null ? null : validateCapabilities(YAML.parse(existingText));
       const implicit = existing ? null : resolveImplicitCapability({
         repositoryId,
         repositoryIdentitySha256: `sha256:${remoteFingerprint(assertCredentialFreeRemote(leadUrl))}`,
@@ -7756,8 +7761,11 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
       const receipt = capabilityChangeReceipt({
         operation, beforeSha256, afterSha256, parameters, materialization: equivalence
       });
-      const document = YAML.parseDocument(YAML.stringify(definition));
-      await writeFile(capabilityFile, document.toString(YAML_OUTPUT), 'utf8');
+      // An existing map keeps its own formatting on every line the change does not touch; a map
+      // materialized from the implicit capability is a new file.
+      await writeFile(capabilityFile, existingText == null
+        ? YAML.parseDocument(YAML.stringify(definition)).toString(YAML_OUTPUT)
+        : renderDataPreservingFormatting(existingText, definition), 'utf8');
       const receiptPath = `singularity/capability-changes/${receipt.changeId.toLowerCase()}.json`;
       await mkdir(path.dirname(path.join(root, receiptPath)), { recursive: true });
       await writeFile(path.join(root, receiptPath), canonicalJson(receipt), 'utf8');

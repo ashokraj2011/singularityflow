@@ -22,6 +22,7 @@ import { workflowDefinitionSha256, phaseDefinitionSha256, agentTextSha256, templ
 import { sharedSkillContractCatalog } from '../src/wca-skill-contract-review.mjs';
 import { parseAgentDependencies } from '../src/agents.mjs';
 import { validateWorkflowDraftSubmissionSnapshot } from '../src/wca-submission.mjs';
+import { assertFolded, changedLines, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
 import { captureVerifiedConfigurationAssetBytes } from '../src/configuration-branch.mjs';
@@ -856,6 +857,19 @@ test('actual terminal shared agent body/metadata/template review proposals retai
       assert.deepEqual(await readFile(path.join(f.root, 'singularity/workflow.yml')), before.yaml); assert.deepEqual(await readFile(path.join(f.root, replacement.path)), before.content);
     });
   });
+
+test('a compiled shared phase change rewrites only its line of an approved workflow folded at 80 columns', async (t) => {
+  // The fixture writes workflow.yml with the library's defaults, so the long description is folded.
+  const f = await fixture(t, (definition) => { definition.workTypes.baseline.description = LONG_DESCRIPTION; });
+  const before = await readFile(path.join(f.root, 'singularity/workflow.yml'), 'utf8');
+  assertFolded(before);
+  const p = await preview(f, sharedPhaseRequest(f));
+  assert.equal(p.result.readiness.authoring, 'valid', JSON.stringify(p.result.findings));
+  const emitted = p.result.assets.find((asset) => asset.path === 'singularity/workflow.yml').content;
+  assert.deepEqual(changedLines(before, emitted), {
+    removed: ['    label: intake'], added: ['    label: Exact reviewed shared phase']
+  });
+});
 
 test('explicit shared phase preview binds every captured consumer and emits only exact raw replacements', async (t) => {
   const f = await fixture(t, (definition) => {

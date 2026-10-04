@@ -20,6 +20,7 @@ import {
   WORKFLOW_BUNDLE_SCHEMA_VERSION,
   workflowTransferProposal
 } from '../src/workflow-transfer.mjs';
+import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 
 process.env.NODE_ENV = 'test';
 
@@ -1258,6 +1259,36 @@ test('workflow copy is a confirmed linked duplicate that preserves the source an
   assert.deepEqual(collision.conflicts, [{
     kind: 'story.workflow', id: 'feature-team', reason: 'target workflow already exists'
   }]);
+});
+
+test('workflow import and copy add only their own lines to a configuration folded at 80 columns', async (t) => {
+  const source = await initializedRepository(t, 'sflow-workflow-folded-source-');
+  const target = await initializedRepository(t, 'sflow-workflow-folded-target-');
+  await addPortableFeature(source);
+  const bundle = await exportWorkflowBundle(source, ['portable-feature']);
+  const file = path.join(target, 'singularity/workflow.yml');
+  const before = await foldYamlFile(file);
+
+  const plan = await planWorkflowImport(target, bundle);
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  const imported = await readFile(file, 'utf8');
+  const importChange = changedLines(before, imported);
+  assert.deepEqual(importChange.removed, []);
+  assert.equal(importChange.added[0], '  portable-feature:');
+  for (const line of importChange.added.slice(1)) assert.match(line, /^ {4}/);
+  assert.equal(YAML.parse(imported).workTypes['portable-feature'].label, 'Portable feature');
+
+  const copyPlan = await planWorkflowCopy(target, {
+    sourceId: 'feature', targetId: 'feature-team', label: 'Feature — Team'
+  });
+  await copyWorkflow(target, {
+    sourceId: 'feature', targetId: 'feature-team', label: 'Feature — Team',
+    expectedPlanSha256: copyPlan.planSha256
+  });
+  const copyChange = changedLines(imported, await readFile(file, 'utf8'));
+  assert.deepEqual(copyChange.removed, []);
+  assert.equal(copyChange.added[0], '  feature-team:');
+  for (const line of copyChange.added.slice(1)) assert.match(line, /^ {4}/);
 });
 
 test('workflow copy accepts a governed selector when Story and Initiative IDs overlap', async (t) => {

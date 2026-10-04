@@ -22,6 +22,7 @@ import {
 } from '../src/editor.mjs';
 import { exactRemoteHeadsObservationAsync } from '../src/git.mjs';
 import { readTransportIntent, retryTransportIntent } from '../src/transport-intents.mjs';
+import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -636,6 +637,37 @@ test('visual editor safely repairs an untouched starter portfolio with empty aut
     mergedPortfolio.approvalAuthorities['risk-reviewers'].members[0].email,
     'editor@example.com'
   );
+});
+
+test('repairing a starter portfolio fills only its empty groups in a portfolio folded at 80 columns', async () => {
+  const root = await repository();
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const before = await foldYamlFile(portfolioPath, (document) =>
+    document.setIn(['approvalAuthorities', 'risk-reviewers', 'members'], document.createNode([])));
+  const repaired = await bootstrapWorkspacePortfolio(root, { replaceEmptyStarter: true });
+  assert.equal(repaired.repairedEmptyStarter, true);
+  // Whoever runs the repair is enrolled; the name follows a signed-in GitHub account when there is one.
+  const { removed, added } = changedLines(before, await readFile(portfolioPath, 'utf8'));
+  assert.deepEqual(removed, ['    members: []']);
+  assert.deepEqual(added.map((line) => line.replace(/- name: .+/, '- name: <approver>')),
+    ['    members:', '      - name: <approver>', '        email: editor@example.com']);
+});
+
+test('a new workspace portfolio keeps the packaged starter as written around the values it fills', async () => {
+  const root = await repository();
+  await unlink(path.join(root, 'singularity/portfolio.yml'));
+  await bootstrapWorkspacePortfolio(root, {
+    approvalName: 'Portfolio Owner', approvalEmail: 'owner@example.com',
+    repository: { id: 'mobile', url: 'https://git.example.corp/company/mobile.git', defaultBranch: 'develop' }
+  });
+  const starter = await readFile(path.join(packageRoot, 'templates/portfolio.yml'), 'utf8');
+  const created = await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8');
+  const { removed, added } = changedLines(starter, created);
+  // Only the empty approval groups and the empty repository map are written over.
+  const groups = Object.keys(YAML.parse(starter).approvalAuthorities);
+  assert.deepEqual(removed.sort(), ['repositories: {}', ...groups.map((group) => `  ${group}: { members: [] }`)].sort());
+  assert.ok(added.includes('  mobile:'));
+  assert.equal(YAML.parse(created).repositories.mobile.defaultBranch, 'develop');
 });
 
 test('visual editor bootstraps all workspace repositories and Jira project routes together', async () => {

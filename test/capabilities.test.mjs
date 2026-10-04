@@ -8,6 +8,7 @@ import {
   CAPABILITIES_PATH, editCapability,
   activeCapabilityLeases, capabilityDeliveries, capabilityForRepository, capabilityPath, capabilityTree, flattenCapabilityTree, foldCapabilityPolicy, resolveCapabilityPolicy, resolveCapabilitySourceScope, resolveEffectiveCapabilityPolicy, validateCapabilities
 } from '../src/capabilities.mjs';
+import { changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -380,6 +381,39 @@ test('editing a capability preserves the comments and ordering of the file it ed
     assert.match(text, /- Payments squad/);
     // Untouched fields stay untouched rather than being re-emitted from a parsed object.
     assert.match(text, /kind: collection/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('editing one capability field changes only its line in a map folded at 80 columns', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-folded-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    const file = path.join(root, CAPABILITIES_PATH);
+    await writeFile(file, [
+      'version: 1',
+      'capabilities:',
+      '  commerce:',
+      '    kind: collection',
+      '    parent: null',
+      `    documentation: { overview: "${LONG_DESCRIPTION}" }`,
+      `    teams: [Commerce platform, Commerce payments, Commerce checkout, Commerce catalogue, Commerce search]`,
+      '  payments:',
+      '    kind: collection',
+      '    parent: commerce',
+      `    metadata: { purpose: "${LONG_DESCRIPTION}" }`,
+      ''
+    ].join('\n'), 'utf8');
+    const before = await foldYamlFile(file);
+
+    await editCapability(root, 'payments', { name: 'Payments' });
+    const after = await readFile(file, 'utf8');
+    assert.deepEqual(changedLines(before, after), { removed: [], added: ['    name: Payments'] });
+
+    await editCapability(root, 'commerce', { kind: 'delivery', repository: 'api' }, { portfolio: { repositories: { api: {} } } });
+    const changed = changedLines(after, await readFile(file, 'utf8'));
+    assert.deepEqual(changed, { removed: ['    kind: collection'], added: ['    kind: delivery', '    repository: api'] });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

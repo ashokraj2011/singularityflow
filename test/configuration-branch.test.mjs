@@ -35,6 +35,7 @@ import {
 } from '../src/configuration-people.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { run } from '../src/util.mjs';
+import { changedLines, foldYamlFile, unfoldFirst } from './helpers/folded-yaml.mjs';
 import {
   createWorkspaceConfiguration, rememberWorkspace, workspaceRepositoryPath
 } from '../src/workspace.mjs';
@@ -1848,6 +1849,63 @@ test('Story start can tell from the snapshot alone whether automatic enrollment 
     assert.equal(enrolled.changed, true);
     const after = await loadStoryConfigurationSnapshot(await resolveRemoteStoryConfigurationAuthority(fixture.remote));
     assert.equal(automaticEnrollmentMayPublish(checkout, after), false, 'an enrolled identity has nothing to publish');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('enrolling an identity changes only membership lines in configuration folded at 80 columns', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const approved = path.join(fixture.root, 'approved-folded-configuration');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, approved], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Tester'], { cwd: approved });
+    run('git', ['config', 'user.email', 'configuration@example.com'], { cwd: approved });
+    // Folded the way the library's defaults write it, except for one description somebody wrote on
+    // one line, which those defaults would fold again.
+    const workflowFile = path.join(approved, 'singularity/workflow.yml');
+    const workflow = unfoldFirst(await foldYamlFile(workflowFile));
+    await writeFile(workflowFile, workflow.text, 'utf8');
+    const before = {
+      'singularity/workflow.yml': workflow.text,
+      'singularity/portfolio.yml': await foldYamlFile(path.join(approved, 'singularity/portfolio.yml'))
+    };
+    run('git', ['add', ...Object.keys(before)], { cwd: approved });
+    run('git', ['commit', '-qm', 'configuration written with the library defaults'], { cwd: approved });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: approved });
+
+    const checkout = path.join(fixture.root, 'folded-enrollment-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'New Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'new-developer@example.com'], { cwd: checkout });
+    const enrolled = await publishCurrentIdentityToConfiguration(checkout, { target: '*' });
+    assert.equal(enrolled.changed, true);
+    assert.equal(enrolled.pushed, true);
+
+    // Every line outside the approval groups is as it was. Inside them only member lists change, and
+    // how a changed list is laid out depends on how long its members are (a signed-in GitHub account
+    // names the member), so the groups are checked as data: each gained the new developer.
+    const outsideGroups = (yaml) => {
+      const lines = yaml.split('\n');
+      const start = lines.indexOf('approvalAuthorities:');
+      const end = lines.findIndex((line, index) => index > start && /^\S/.test(line));
+      return [...lines.slice(0, start), ...lines.slice(end)];
+    };
+    for (const [file, text] of Object.entries(before)) {
+      const after = run('git', ['show', `${CONFIGURATION_BRANCH}:${file}`], { cwd: fixture.remote }).stdout;
+      assert.notEqual(after, text, `${file} enrolled the new developer`);
+      assert.deepEqual(changedLines(outsideGroups(text).join('\n'), outsideGroups(after).join('\n')),
+        { removed: [], added: [] }, `${file} changed outside its approval groups`);
+      const groupsBefore = YAML.parse(text).approvalAuthorities;
+      for (const [id, group] of Object.entries(YAML.parse(after).approvalAuthorities)) {
+        const added = group.members.slice(groupsBefore[id].members.length);
+        assert.deepEqual(group.members.slice(0, groupsBefore[id].members.length), groupsBefore[id].members);
+        assert.deepEqual(added.map((member) => member.email), ['new-developer@example.com'], `${file} ${id}`);
+      }
+    }
+    assert.ok(run('git', ['show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`], { cwd: fixture.remote })
+      .stdout.includes(`description: ${workflow.line}\n`), 'the one-line description is still on one line');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

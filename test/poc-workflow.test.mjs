@@ -9,6 +9,7 @@ import YAML from 'yaml';
 
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
+import { assertFolded, changedLines } from './helpers/folded-yaml.mjs';
 
 // URL.pathname leaves spaces percent-encoded, so the suite failed in otherwise valid checkouts
 // such as `Downloads/package 2`. Convert the file URL through Node's platform-safe filesystem API.
@@ -193,6 +194,30 @@ test('the repair and publication templates refuse autonomous success', async () 
   assert.match(publication, /does not create a pull request/i);
   assert.match(publication, /never\s+write or force-update the selected base/i);
   assert.doesNotMatch(`${validation}\n${publication}\n${agent}`, /failed payment|retry a payment/i);
+});
+
+test('installing a packaged workflow only adds its own entries to a workflow folded at 80 columns', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-folded-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeDefinition(root);
+  await removePocWorkflow(root);
+  const file = path.join(root, 'singularity/workflow.yml');
+  const before = await readFile(file, 'utf8');
+  assertFolded(before);
+
+  await installWorkflow(root, 'poc-workflow');
+  const after = await readFile(file, 'utf8');
+  // Nothing already in the file changes: the work type, its phases and the Playwright routing are
+  // added lines, not a rewrite of the definition with every default and the agent catalog in it.
+  const { removed, added } = changedLines(before, after);
+  assert.deepEqual(removed, []);
+  assert.ok(added.includes('  poc-workflow:'));
+  assert.ok(added.length < 400, `${added.length} lines added`);
+  const installed = YAML.parse(after);
+  assert.deepEqual(installed.workTypes['poc-workflow'], (await starter()).workTypes['poc-workflow'],
+    'the work type is written as the starter has it');
+  for (const field of ['agents', 'agentCatalog', 'agentPromptsRoot']) assert.equal(installed[field], undefined);
+  assert.deepEqual(resolveWorkType(await loadDefinition(root), 'poc-workflow').phases.map((phase) => phase.id), PHASES);
 });
 
 test('catalog installation upgrades an older repository with POC agents and MCP routing', async (t) => {

@@ -4,8 +4,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from './source-scope.mjs';
 import {
-  exists, portableIdentifier, secureRepositoryPath, SingularityFlowError, YAML_OUTPUT
+  exists, portableIdentifier, secureRepositoryPath, SingularityFlowError
 } from './util.mjs';
+import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
@@ -701,10 +702,9 @@ export async function editCapability(root, capabilityId, changes = {}, {
   // Validated before anything is written: a refused edit must leave the file as it was.
   const after = validateCapabilities(document.toJS(), portfolio);
   await mkdir(path.dirname(file), { recursive: true });
-  // Unpadded flow collections, because that is how this file is written by hand and by the starter
-  // template. Without it every `[a, b]` in the file comes back as `[ a, b ]` and one edit shows up in
-  // review as a diff against lines nobody touched.
-  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+  // Only the lines this edit touched change: every other line keeps the layout it was written with,
+  // folded values and padded or unpadded flow collections included, so the edit reviews as itself.
+  await writeFile(file, renderPreservingFormatting(existing, document), 'utf8');
   return {
     path: CAPABILITIES_PATH,
     capabilityId,

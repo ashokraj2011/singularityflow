@@ -29,6 +29,7 @@ import YAML from 'yaml';
 
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { exists, posix, SingularityFlowError } from './util.mjs';
+import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 
 import { currentSchemaVersion } from './schema-migrations.mjs';
 
@@ -415,7 +416,9 @@ export function generateConstitution(markdown, resolution) {
     });
   }
 
-  const nextFrontMatter = YAML.stringify({ ...parsed, articles: updated.map((article) => ({ ...article })) }, { lineWidth: 0 }).trimEnd();
+  // Written over the front matter people wrote, comments included: only the article lines change.
+  const nextFrontMatter = renderDataPreservingFormatting(`${frontMatter}\n`,
+    { ...parsed, articles: updated.map((article) => ({ ...article })) }).trimEnd();
   return { markdown: `---\n${nextFrontMatter}\n---\n${output}`, regenerated, articles: updated };
 }
 

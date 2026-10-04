@@ -16,8 +16,11 @@ import { performance } from 'node:perf_hooks';
 import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import {
-  bootstrapBranchPatterns, bootstrapRepository, repositoryIdFromUrl
+  bootstrapBranchPatterns, bootstrapRepository, describeRepository, repositoryIdFromUrl,
+  setDefaultBaseBranch, setGroundingMode
 } from '../src/bootstrap.mjs';
+import { initializeDefinition } from '../src/config.mjs';
+import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Bootstrap Tester';
@@ -230,6 +233,54 @@ test('the portfolio still parses, and still reads as the commented file it is', 
   assert.equal(capabilities.capabilities.commerce.repository, 'acme-platform');
   // The commentary that explains each setting survived, on the first thing anybody does to the file.
   assert.match(text, /^#/m);
+});
+
+test('describing a repository changes only the lines it writes, in files folded at 80 columns', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-folded-'));
+  try {
+    await initializeDefinition(root);
+    const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+    const workflowFile = path.join(root, 'singularity/workflow.yml');
+    const portfolio = await foldYamlFile(portfolioFile);
+    const workflow = await foldYamlFile(workflowFile);
+    await describeRepository(root, 'acme-platform', 'https://git.example.test/acme/acme-platform.git', 'main',
+      { name: 'Bootstrap Tester', email: 'tester@example.test' });
+
+    // The repository declaration and each enrolled approval group are the only lines written, and
+    // the starter's empty `repositories: {}` becomes a block map, so the next repository adds lines.
+    const portfolioAfter = await readFile(portfolioFile, 'utf8');
+    const portfolioChange = changedLines(portfolio, portfolioAfter);
+    const groups = Object.keys(YAML.parse(portfolio).approvalAuthorities);
+    assert.deepEqual(portfolioChange.removed.sort(),
+      ['repositories: {}', ...groups.map((group) => `  ${group}: { members: [] }`)].sort());
+    assert.deepEqual(portfolioChange.added.filter((line) => !line.includes('members')), [
+      'repositories:', '  acme-platform:', '    url: https://git.example.test/acme/acme-platform.git',
+      '    defaultBranch: main', '    required: true'
+    ]);
+    assert.deepEqual(portfolioChange.added.filter((line) => line.includes('members')),
+      groups.map((group) => `  ${group}: {members: [{name: Bootstrap Tester, email: tester@example.test}]}`));
+    const declared = YAML.parse(portfolioAfter);
+    assert.equal(declared.repositories['acme-platform'].url, 'https://git.example.test/acme/acme-platform.git');
+    assert.deepEqual(declared.approvalAuthorities[groups[0]].members,
+      [{ name: 'Bootstrap Tester', email: 'tester@example.test' }]);
+
+    const workflowAfter = await readFile(workflowFile, 'utf8');
+    // Each Story group's empty member list becomes a list of one; nothing else in the file moves.
+    const workflowChange = changedLines(workflow, workflowAfter);
+    const storyGroups = Object.keys(YAML.parse(workflow).approvalAuthorities);
+    assert.deepEqual(workflowChange.removed, storyGroups.map(() => '    members: []'));
+    assert.deepEqual(workflowChange.added, storyGroups.flatMap(() => [
+      '    members:', '      - name: Bootstrap Tester', '        email: tester@example.test'
+    ]));
+
+    await setDefaultBaseBranch(root, 'develop');
+    await setGroundingMode(root, 'off');
+    assert.equal(await readFile(workflowFile, 'utf8'), workflowAfter
+      .replace('\ndefaultBaseBranch: main\n', '\ndefaultBaseBranch: develop\n')
+      .replace('\n  grounding: warn\n', '\n  grounding: off\n'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('bootstrapping twice adopts the checkout rather than demanding a clean slate', async () => {

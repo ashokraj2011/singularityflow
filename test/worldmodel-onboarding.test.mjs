@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { ensureRepositoryWorldModelViews, initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { portfolioWorldModelViews, validatePortfolio } from '../src/initiative-config.mjs';
 import { bootstrapWorkspacePortfolio, repositorySnapshot } from '../src/editor.mjs';
+import { changedLines, foldYamlFile, unfoldFirst } from './helpers/folded-yaml.mjs';
 
 // URL.pathname leaves percent-encoded spaces in checkout paths (for example, "package 2").
 // Convert the module URL through the platform-aware helper so the suite is portable.
@@ -79,6 +80,23 @@ test('ensureRepositoryWorldModelViews declares missing views, preserves comments
   // Idempotent: already covered → no rewrite, returns the current declared set.
   const again = await ensureRepositoryWorldModelViews(root, ['business']);
   assert.deepEqual(again, declared);
+});
+
+test('declaring a missing view changes only the views list of a workflow folded at 80 columns', async () => {
+  const root = await repository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  // Folded by the library's defaults, except one description somebody wrote on one line.
+  const { text: before } = unfoldFirst(await foldYamlFile(file));
+  await writeFile(file, before, 'utf8');
+  const declared = await ensureRepositoryWorldModelViews(root, ['compliance']);
+  assert.ok(declared.includes('compliance'));
+  const views = before.match(/\n( {2}views:\n[\s\S]*?)\n {2}# Typed architecture/)[1].split('\n');
+  assert.ok(views.length > 1, 'the long views list is spread over several lines');
+  assert.deepEqual(changedLines(before, await readFile(file, 'utf8')), {
+    removed: views,
+    added: [`  views: [${declared.join(', ')}]`]
+  });
+  await rm(root, { recursive: true, force: true });
 });
 
 test('registered-v4 onboarding preserves exact refs and pins newly required logical views', async () => {

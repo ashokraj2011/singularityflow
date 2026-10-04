@@ -26,7 +26,8 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { gitReadOutput, portableIdentifier, SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
+import { gitReadOutput, portableIdentifier, SingularityFlowError, run } from './util.mjs';
+import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
@@ -67,9 +68,9 @@ export function bootstrapBranchPatterns({ fallback = false } = {}) {
 /**
  * Declare the repository, and name whoever is running this as an approver.
  *
- * Rewritten as text rather than parsed and re-emitted: the starter portfolio is mostly commentary
- * explaining each setting, and a YAML round trip would throw all of it away on the very first
- * thing anybody does to the file.
+ * Written back over the file's own text rather than re-emitted whole: the starter portfolio is
+ * mostly commentary explaining each setting, and a YAML round trip would rewrap and move it on the
+ * very first thing anybody does to the file. Only the lines this edit touches change.
  */
 export async function describeRepository(root, repositoryId, url, defaultBranch, actor, {
   enrollActor = true,
@@ -80,12 +81,18 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
   const exactSeedAuthorities = new Set(enrollActorAuthorityIds);
   const exactPortfolioSeedAuthorities = new Set(enrollActorPortfolioAuthorityIds);
   const file = path.join(root, 'singularity/portfolio.yml');
-  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  const portfolioText = await readFile(file, 'utf8');
+  const document = YAML.parseDocument(portfolioText);
 
   // Edited as a document rather than as text. A first attempt appended a `repositories:` block when
   // it could not find an empty one, and the starter file declares `repositories: {}` — so the file
   // ended up with the key twice and would not parse at all. setIn knows where the key already is.
   const repositoriesNode = document.getIn(['repositories'], true);
+  // The starter's `repositories: {}` only says there are none yet. Filled as a flow map, every later
+  // repository would rewrite the whole one-line map; as a block map each one is its own lines.
+  if (YAML.isMap(repositoriesNode) && repositoriesNode.flow && !repositoriesNode.items.length) {
+    repositoriesNode.flow = false;
+  }
   const repositories = repositoriesNode?.toJSON?.() ?? repositoriesNode ?? {};
   const existingRepositoryNode = document.getIn(['repositories', repositoryId], true);
   const existingRepository = existingRepositoryNode?.toJSON?.() ?? existingRepositoryNode;
@@ -162,10 +169,11 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
     }
   }
 
-  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+  await writeFile(file, renderPreservingFormatting(portfolioText, document), 'utf8');
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
-  const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+  const workflowText = await readFile(workflowFile, 'utf8');
+  const workflow = YAML.parseDocument(workflowText);
   if ((enrollActor || exactSeedAuthorities.size) && actor.email) {
     const authorities = workflow.getIn(['approvalAuthorities']);
     for (const item of authorities?.items ?? []) {
@@ -179,25 +187,27 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
       ]));
     }
   }
-  await writeFile(workflowFile, workflow.toString(YAML_OUTPUT), 'utf8');
+  await writeFile(workflowFile, renderPreservingFormatting(workflowText, workflow), 'utf8');
   return { declared: repositoryId };
 }
 
 /** Pin a freshly initialized workflow to the application's detected integration branch. */
 export async function setDefaultBaseBranch(root, defaultBranch) {
   const file = path.join(root, 'singularity/workflow.yml');
-  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  const text = await readFile(file, 'utf8');
+  const document = YAML.parseDocument(text);
   document.set('defaultBaseBranch', String(defaultBranch).trim());
-  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+  await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
 }
 
 export async function setGroundingMode(root, mode) {
   const file = path.join(root, 'singularity/workflow.yml');
-  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  const text = await readFile(file, 'utf8');
+  const document = YAML.parseDocument(text);
   const worldModel = document.get('worldModel');
   if (!worldModel) return;
   worldModel.set('grounding', String(mode).trim());
-  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+  await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
 }
 
 /**

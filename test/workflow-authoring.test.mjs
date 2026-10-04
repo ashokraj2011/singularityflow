@@ -474,3 +474,26 @@ test('a new phase says artifacts come after it exists, rather than offering a de
   assert.match(html, /Save the phase first; artifacts are attached to a phase that exists\./);
   assert.doesNotMatch(html, /data-attach-artifact/);
 });
+
+test('editing one profile leaves every other line of the file as people wrote it, folded values included', async () => {
+  const root = await repository();
+  const file = path.join(root, 'singularity', 'portfolio.yml');
+  const original = (await readFile(file, 'utf8')).replace('  lite: { label: Lite, phases: [define, build] }\n', [
+    '  lite: { label: Lite, phases: [define, build] }',
+    '  full:',
+    '    label: Full',
+    '    description: Every stage from definition to build, with sign-off at each',
+    '      stage and a written record of what was decided.',
+    '    phases: [define, build]',
+    ''
+  ].join('\n'));
+  await writeFile(file, original, 'utf8');
+  await editWorkflow(root, 'lite', { label: 'Lite lifecycle' });
+  const after = await readFile(file, 'utf8');
+  const kept = after.split('\n');
+  for (const line of original.split('\n').filter((entry) => !entry.startsWith('  lite:'))) {
+    assert.ok(kept.includes(line), `kept as written: ${JSON.stringify(line)}`);
+  }
+  assert.equal(after.split('\n').length, original.split('\n').length, 'only the edited line changed');
+  assert.equal((await portfolio(root)).initiativeProfiles.lite.label, 'Lite lifecycle');
+});

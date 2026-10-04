@@ -24,6 +24,7 @@ import YAML from 'yaml';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError, YAML_OUTPUT } from './util.mjs';
+import { preserveYamlFormatting } from './yaml-formatting.mjs';
 
 /**
  * The two places a workflow can live.
@@ -133,7 +134,10 @@ async function loadIn(root, store) {
  */
 async function saveIn(file, document, store) {
   store.validate(document.toJS());
-  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+  // The file is maintained by people too: only the edited lines change, the rest keep their formatting.
+  const rendered = document.toString(YAML_OUTPUT);
+  const original = existsSync(file) ? await readFile(file, 'utf8') : null;
+  await writeFile(file, original == null ? rendered : preserveYamlFormatting(original, rendered), 'utf8');
 }
 
 /**

@@ -40,6 +40,9 @@ import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, YAML_OUTPUT, posix } from './util.mjs';
+import { lineOperations, preserveYamlFormatting } from './yaml-formatting.mjs';
+
+export { preserveYamlFormatting };
 import {
   HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations
 } from './step-actions.mjs';
@@ -435,67 +438,6 @@ function newAgentBody(label, instructions) {
 
 // ---------------------------------------------------------------------------------------------
 // Diffs
-
-/**
- * Line operations turning `a` into `b`: `[' ', i]` keeps a[i], `['-', i]` drops a[i], `['+', j]`
- * adds b[j]. The common head and tail are matched first, so the table only covers the edited
- * region; a region too large for the table becomes one replacement.
- */
-function lineOperations(a, b) {
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
-  let endA = a.length; let endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA -= 1; endB -= 1; }
-  const operations = [];
-  for (let index = 0; index < start; index += 1) operations.push([' ', index]);
-  const lengthA = endA - start; const lengthB = endB - start;
-  const cols = lengthB + 1;
-  if ((lengthA + 1) * cols <= 4_000_000) {
-    const table = new Uint32Array((lengthA + 1) * cols);
-    for (let i = lengthA - 1; i >= 0; i -= 1) {
-      for (let j = lengthB - 1; j >= 0; j -= 1) {
-        table[i * cols + j] = a[start + i] === b[start + j] ? table[(i + 1) * cols + j + 1] + 1
-          : Math.max(table[(i + 1) * cols + j], table[i * cols + j + 1]);
-      }
-    }
-    let i = 0; let j = 0;
-    while (i < lengthA || j < lengthB) {
-      if (i < lengthA && j < lengthB && a[start + i] === b[start + j]) { operations.push([' ', start + i]); i += 1; j += 1; }
-      else if (j < lengthB && (i >= lengthA || table[i * cols + j + 1] >= table[(i + 1) * cols + j])) { operations.push(['+', start + j]); j += 1; }
-      else { operations.push(['-', start + i]); i += 1; }
-    }
-  } else {
-    for (let i = start; i < endA; i += 1) operations.push(['-', i]);
-    for (let j = start; j < endB; j += 1) operations.push(['+', j]);
-  }
-  for (let index = endA; index < a.length; index += 1) operations.push([' ', index]);
-  return operations;
-}
-
-/**
- * Keep a YAML file's own formatting on every line an edit did not touch.
- *
- * The YAML library re-renders a whole document: flow maps lose their padding and comments move to
- * the indentation of the next key, so an edit to one workflow showed up as a diff across the file.
- * Rendering the unedited document the same way gives a baseline whose lines correspond to the
- * original's; the baseline-to-edited line diff is exactly the edit, so it is replayed onto the
- * original text instead. When the line correspondence or the parsed result is not exact, the
- * library's own rendering is used unchanged.
- */
-export function preserveYamlFormatting(original, edited, options = YAML_OUTPUT) {
-  const baseline = YAML.parseDocument(original).toString(options);
-  const source = original.split('\n'); const before = baseline.split('\n'); const after = edited.split('\n');
-  if (source.length !== before.length) return edited;
-  const merged = lineOperations(before, after)
-    .filter(([kind]) => kind !== '-')
-    .map(([kind, index]) => (kind === ' ' ? source[index] : after[index]))
-    .join('\n');
-  try {
-    return JSON.stringify(YAML.parse(merged)) === JSON.stringify(YAML.parse(edited)) ? merged : edited;
-  } catch {
-    return edited;
-  }
-}
 
 /**
  * A unified diff of two texts: each changed region with three lines of context, in a hunk of its

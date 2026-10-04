@@ -772,3 +772,18 @@ test('a step in an artifact set writes the set\'s primary member, and a step\'s 
   assert.deepEqual(refused.problems.map((problem) => problem.code).sort(),
     ['STUDIO_ARTIFACT_INVALID', 'STUDIO_ARTIFACT_INVALID', 'STUDIO_ARTIFACT_SET_INVALID']);
 });
+
+test('a Studio change to one step leaves the rest of the workflow file as written, folded descriptions included', async () => {
+  // Writers that render with the library's defaults (the people editor among them) fold long values
+  // at 80 columns; the fixture's edit hook writes the file the same way.
+  const root = await repository({ edit: () => {} });
+  const file = path.join(root, 'singularity/workflow.yml');
+  const before = await readFile(file, 'utf8');
+  // Folded values span several lines, which a whole-file rendering joins onto one.
+  assert.ok(YAML.parseDocument(before).toString({ flowCollectionPadding: false, lineWidth: 0 }).split('\n').length < before.split('\n').length);
+  const model = json(root, ['workflow', 'studio']);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [{ op: 'phase.update', id: 'design', label: 'Design and architecture' }], model.base)]);
+  const numstat = run('git', ['diff', '--numstat', '--', 'singularity/workflow.yml'], root).stdout.trim();
+  assert.equal(numstat, '1\t1\tsingularity/workflow.yml', run('git', ['diff', '--', 'singularity/workflow.yml'], root).stdout.slice(0, 2000));
+  assert.match(run('git', ['diff', '--', 'singularity/workflow.yml'], root).stdout, /\n\+\s+label: Design and architecture\n/);
+});

@@ -26,6 +26,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Workflow Studio', glyph: 'workflow', action: 'workflow-studio' },
     { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
     { label: 'World model', glyph: 'worldModel', tab: 'world-model' },
+    { label: 'Rebuild capability World Model', glyph: 'worldModel', action: 'rebuild-world-model' },
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
   ] },
   { label: 'AI & automation', items: [
@@ -318,7 +319,7 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
   </section>` : '<p class="empty">No workflow-to-view assignments are declared.</p>';
 
   return `<div class="wm-explorer">
-    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><button class="secondary" data-action="build-world-model">Build / refresh effective model</button></div>
+    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><div class="button-row"><button class="secondary" data-action="build-world-model">Build / refresh effective model</button><button data-action="rebuild-world-model">Rebuild capability &amp; push to Git…</button></div></div>
     <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${facts}</strong><span>registered facts</span></div><div class="summary-card"><strong>${evidence} / ${derivations}</strong><span>evidence / derivations</span></div><div class="summary-card ${unavailable || contradictions ? 'governance-warning' : ''}"><strong>${unavailable} / ${contradictions}</strong><span>unavailable / contradicted</span></div><div class="summary-card ${stale ? 'governance-warning' : ''}"><strong>${stale}</strong><span>stale facts</span></div><div class="summary-card"><strong>${cacheHits}/${status.views.length}</strong><span>view cache reuse</span></div></div>
     <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? 'legacy')}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
     <div class="wm-filter-bar" role="group" aria-label="World model exact records">
@@ -347,6 +348,7 @@ function worldModel(view: ConfigurationCenterView): string {
     : 'approved effective configuration';
   return `<section class="plain world-model-settings">
     ${worldModelExplorer(view)}
+    <p class="muted">Rebuild chooses an approved capability in this repository, then Quick, Standard, or Deep complexity. It regenerates selected registered views even when cached and publishes the reviewed result to the configured Git state branch; it does not commit to the application or Story branch.</p>
     <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. ${proposed
     ? 'Saving creates a review proposal from the exact approved authority; it never rewrites the application checkout. Merge the proposal into <code>sflow/config</code>, then refresh workspace configuration before expecting a repository-level build to use it.'
     : 'This repository uses local configuration authority. Saving writes a validated local draft; review and publish it before expecting a repository-level build to use it.'} An existing Story retains its pin.

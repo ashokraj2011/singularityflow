@@ -557,6 +557,7 @@ export function exactWorldModelPlanDetail(
       ? projectionPolicies.map(reviewedProjectionText).join('; ')
       : 'none requested'}`,
     `Depth / composer: ${stringField(review.depth, 'unavailable')} / ${stringField(review.composer, 'unavailable')}`,
+    `Cache policy: ${stringField(review.cachePolicy, 'unavailable')}`,
     `Publish target: ${remote}/${branch} · ${stringField(publication.outputDir, 'singularity/world-model')}`
   ];
   const expected = Object.hasOwn(publication, 'expectedRemoteHead')
@@ -577,8 +578,14 @@ export function worldModelBuildCompletionMessage(outcome: ExactWorldModelBuildOu
   const data = outcome.result?.data ?? {};
   const manifest = typeof data.manifestSha256 === 'string' ? data.manifestSha256 : null;
   const views = Array.isArray(data.views) ? data.views.length : 0;
-  const headline = `World Model published${manifest ? ` as ${manifest.slice(0, 19)}` : ''} with ${views} view${views === 1 ? '' : 's'}.`;
   const review = outcome.planned?.data?.plan?.review;
+  const target = review?.publication?.remoteEndpointSha256
+    ? `${review.publication.remote}/${review.publication.branch}` : null;
+  const published = data.publication;
+  const gitReceipt = target && published?.changed === true && typeof published.commit === 'string'
+    ? ` Pushed ${published.commit.slice(0, 8)} to ${target}.`
+    : target && published?.changed === false ? ` ${target} was already current; no push was needed.` : '';
+  const headline = `World Model published${manifest ? ` as ${manifest.slice(0, 19)}` : ''} with ${views} view${views === 1 ? '' : 's'}.${gitReceipt}`;
   const policies = requestedProjectionPolicies(review);
   const policyById = new Map(policies.map((entry) => [
     stringField(entry.projectionId, projectionReference(entry).replace(/@\d+$/, '')), entry

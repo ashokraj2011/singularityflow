@@ -224,6 +224,8 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /v4 total output-token budget/);
   assert.match(html, /Save world-model settings/);
   assert.match(html, /Build \/ refresh effective model/);
+  assert.match(html, /data-action="rebuild-world-model">Rebuild capability &amp; push to Git/);
+  assert.match(html, /Quick, Standard, or Deep complexity/);
   assert.match(html, /approved repository configuration, or the accepted Story's pinned execution configuration/);
   assert.match(html, /Editor source: approved effective configuration · Editor format: <code>legacy-v3<\/code> · Approved format: <code>legacy-v3<\/code> · Current built-model format: <code>not built<\/code>/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /format: data\.get\('format'\)/);

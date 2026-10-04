@@ -922,7 +922,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
-    'singularityFlow.buildWorldModel', 'singularityFlow.configureAstIntelligence',
+    'singularityFlow.buildWorldModel', 'singularityFlow.rebuildWorldModel', 'singularityFlow.configureAstIntelligence',
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
@@ -7190,6 +7190,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand('singularityFlow.buildWorldModel');
       return null;
     }
+    else if (message.action === 'rebuild-world-model') {
+      await vscode.commands.executeCommand('singularityFlow.rebuildWorldModel');
+      return null;
+    }
     else if (message.action === 'architecture-export') {
       await vscode.commands.executeCommand('workbench.action.chat.open', {
         query: '/sf-architecture export the current CALM projection to ', isPartialQuery: true
@@ -8149,7 +8153,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configureAuto': () => openConfigurationCenter('auto'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
-    'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string }) => {
+    'singularityFlow.rebuildWorldModel': (request?: { capabilityId?: string }) => vscode.commands.executeCommand(
+      'singularityFlow.buildWorldModel', { ...request, rebuild: true }
+    ),
+    'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string; rebuild?: boolean }) => {
       const active = activeRepositoryContext();
       if (!active) {
         void vscode.window.showWarningMessage(
@@ -8169,6 +8176,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const outcome = await showGovernedWorldModelBuild(active, {
           modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled',
           capabilityId: request?.capabilityId ?? null,
+          rebuild: request?.rebuild === true,
           executeLegacyLight: async (argv, signal) => {
             if (activeRepositoryContext()?.root !== active.root || client.repository !== active.root) {
               throw Object.assign(new Error('The selected repository changed during World Model review. Reopen Build / refresh and review the current target.'), {
@@ -8200,7 +8208,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await refreshAfterSurfaceMutation();
             await vscode.commands.executeCommand(
               'singularityFlow.buildWorldModel',
-              outcome.capabilityId ? { capabilityId: outcome.capabilityId } : undefined
+              { ...(outcome.capabilityId ? { capabilityId: outcome.capabilityId } : {}),
+                ...(request?.rebuild === true ? { rebuild: true } : {}) }
             );
           }
           return;

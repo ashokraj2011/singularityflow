@@ -44,7 +44,9 @@ function firstChoice<T extends string>(configured: T, values: readonly T[]): rea
   return [configured, ...values.filter((value) => value !== configured)];
 }
 
-async function collectArguments(config: any, defaults: Readonly<Record<string, any>>): Promise<WorldModelBuildArguments | null> {
+async function collectArguments(
+  config: any, defaults: Readonly<Record<string, any>>, { rebuild = false }: { rebuild?: boolean } = {}
+): Promise<WorldModelBuildArguments | null> {
   const configuredViews = configuredWorldModelV4ViewSelections(config);
   const selectedViews = await vscode.window.showQuickPick(
     configuredViews.map((view) => ({
@@ -53,7 +55,7 @@ async function collectArguments(config: any, defaults: Readonly<Record<string, a
       picked: true
     })),
     {
-      title: 'World Model · exact governed build',
+      title: rebuild ? 'Rebuild World Model · registered views' : 'World Model · exact governed build',
       placeHolder: 'Choose the approved registered views to build and publish',
       canPickMany: true,
       ignoreFocusOut: true
@@ -63,8 +65,13 @@ async function collectArguments(config: any, defaults: Readonly<Record<string, a
 
   const depth = await vscode.window.showQuickPick(
     firstChoice(defaults.depth ?? 'standard', ['quick', 'standard', 'deep'] as const)
-      .map((value) => ({ label: value, value })),
-    { title: 'World Model depth', placeHolder: 'Choose the bounded build depth', ignoreFocusOut: true }
+      .map((value) => ({
+        label: value === 'quick' ? 'Quick' : value === 'standard' ? 'Standard' : 'Deep',
+        description: value === 'quick' ? 'Compact analysis' : value === 'standard'
+          ? 'Balanced analysis' : 'Broadest registered analysis; slower and potentially costlier',
+        value
+      })),
+    { title: 'World Model complexity for this capability', placeHolder: 'Choose Quick, Standard, or Deep', ignoreFocusOut: true }
   );
   if (!depth) return null;
   const composer = await vscode.window.showQuickPick(
@@ -83,7 +90,7 @@ async function collectArguments(config: any, defaults: Readonly<Record<string, a
     depth: depth.value,
     consumer: defaults.consumer ?? 'developer',
     composer: composer.value,
-    cachePolicy: defaults.cachePolicy ?? 'reuse-valid'
+    cachePolicy: rebuild ? 'rebuild' : defaults.cachePolicy ?? 'reuse-valid'
   };
 }
 
@@ -91,22 +98,22 @@ async function collectArguments(config: any, defaults: Readonly<Record<string, a
 export async function showGovernedWorldModelBuild(
   active: ActiveRepositoryContext,
   {
-    modelRouting = 'enabled', capabilityId: preferredCapabilityId = null, executeLegacyLight
+    modelRouting = 'enabled', capabilityId: preferredCapabilityId = null, rebuild = false, executeLegacyLight
   }: {
-    modelRouting?: 'enabled' | 'disabled'; capabilityId?: string | null;
+    modelRouting?: 'enabled' | 'disabled'; capabilityId?: string | null; rebuild?: boolean;
     executeLegacyLight?: (argv: readonly string[], signal: AbortSignal) => Promise<void>;
   } = {}
 ): Promise<ExactWorldModelBuildOutcome> {
   const selection = await observeWorldModelBuildConfigurationSelection(active.root);
   return withWorldModelBuildConfigurationBoundary(selection.boundary, {
     readStoryPinned: () => showGovernedWorldModelBuildInConfigurationScope(active, {
-      modelRouting, capabilityId: preferredCapabilityId, executeLegacyLight
+      modelRouting, capabilityId: preferredCapabilityId, rebuild, executeLegacyLight
     }, selection),
     withApprovedAuthority: (read) => withApprovedConfigurationRead(
       active.root, read, { preferAuthority: true }
     ),
     readInScope: () => showGovernedWorldModelBuildInConfigurationScope(active, {
-      modelRouting, capabilityId: preferredCapabilityId, executeLegacyLight
+      modelRouting, capabilityId: preferredCapabilityId, rebuild, executeLegacyLight
     }, selection)
   });
 }
@@ -114,9 +121,9 @@ export async function showGovernedWorldModelBuild(
 async function showGovernedWorldModelBuildInConfigurationScope(
   active: ActiveRepositoryContext,
   {
-    modelRouting, capabilityId: preferredCapabilityId, executeLegacyLight
+    modelRouting, capabilityId: preferredCapabilityId, rebuild, executeLegacyLight
   }: {
-    modelRouting: 'enabled' | 'disabled'; capabilityId: string | null;
+    modelRouting: 'enabled' | 'disabled'; capabilityId: string | null; rebuild: boolean;
     executeLegacyLight?: (argv: readonly string[], signal: AbortSignal) => Promise<void>;
   },
   configurationSelection: WorldModelBuildConfigurationSelection
@@ -149,6 +156,9 @@ async function showGovernedWorldModelBuildInConfigurationScope(
   if (!scoped) return { status: 'cancelled', planned: null, result: null };
   const { config, capabilityId } = scoped;
   if (!isWorldModelV4(config)) {
+    if (rebuild) throw Object.assign(new Error(
+      'Quick, Standard, and Deep capability rebuilds require registered-v4. Migrate the approved World Model configuration, or use Build / refresh for a deterministic legacy-v3 light build.'
+    ), { code: 'WMB_COMPLEXITY_REQUIRES_V4' });
     if (!executeLegacyLight) throw new Error('No governed legacy World Model executor is configured.');
     if (config.materialization?.publish !== 'governed') {
       throw Object.assign(new Error('Legacy Build / refresh requires governed state publication. Review and publish the World Model materialization policy first.'), {
@@ -224,7 +234,12 @@ async function showGovernedWorldModelBuildInConfigurationScope(
     return { status: 'completed', planned: null, result: null, capabilityId, format: 'legacy-v3' };
   }
   const defaults = worldModelV4GatewayDefaults(active.root, config);
-  const args = await collectArguments(config, defaults);
+  if (rebuild && !await hasConfiguredGitRemote(active.root, defaults.ledgerConfig.remote)) {
+    throw Object.assign(new Error(
+      `The governed Git remote '${defaults.ledgerConfig.remote}' is not configured. Rebuild requires publication to Git; restore the remote and retry.`
+    ), { code: 'WMB_STATE_REMOTE_REQUIRED' });
+  }
+  const args = await collectArguments(config, defaults, { rebuild });
   if (!args) return { status: 'cancelled', planned: null, result: null, capabilityId };
   await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
 
@@ -245,9 +260,11 @@ async function showGovernedWorldModelBuildInConfigurationScope(
   });
 
   const outcome = await runExactWorldModelBuild(host.kernel as ExactBuildKernel, args, async (review) => {
-    const action = 'Build & publish exact Plan';
+    const action = rebuild ? 'Rebuild & push exact Plan' : 'Build & publish exact Plan';
     const accepted = await vscode.window.showWarningMessage(
-      'Run this exact World Model build and atomically publish it to the governed state branch?',
+      rebuild
+        ? 'Rebuild this capability World Model at the selected complexity and push it to the governed Git state branch?'
+        : 'Run this exact World Model build and atomically publish it to the governed state branch?',
       { modal: true, detail: exactWorldModelPlanDetail(review, { capabilityId }) },
       action
     );

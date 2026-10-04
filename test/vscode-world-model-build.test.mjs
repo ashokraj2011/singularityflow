@@ -45,8 +45,10 @@ function planned() {
             }
           }],
           depth: 'standard', composer: 'deterministic',
+          cachePolicy: 'reuse-valid',
           publication: {
             remote: 'origin', branch: 'state', outputDir: 'singularity/world-model',
+            remoteEndpointSha256: `sha256:${'5'.repeat(64)}`,
             expectedRemoteHead: null
           }
         }
@@ -62,6 +64,7 @@ test('native World Model review renders exact digests and the state CAS target',
   assert.match(detail, /Publish target: origin\/state · singularity\/world-model/);
   assert.match(detail, /Expected target head: branch absent/);
   assert.match(detail, /Scope: payments-api · sha256:4{64}/);
+  assert.match(detail, /Cache policy: reuse-valid/);
   assert.match(detail, /Projections: arch\.calm@1 · optional · strict validation · actors\+controls\+flows · external direct-architecture-only · cache miss/);
   assert.match(detail, /No provider, Git ref, or repository file has been changed/);
 });
@@ -107,6 +110,18 @@ test('native World Model completion reports an available CALM projection without
   });
   assert.match(message, /arch\.calm@1=available \(optional\)/);
   assert.doesNotMatch(message, /refusal/);
+});
+
+test('native World Model completion distinguishes a Git push from an unchanged state branch', () => {
+  const result = (publication) => ({
+    status: 'completed', planned: planned(),
+    result: { kind: 'read', outcome: { status: 'succeeded' },
+      data: { views: [], publication } }
+  });
+  assert.match(worldModelBuildCompletionMessage(result({ changed: true, commit: 'a'.repeat(40) })),
+    /Pushed a{8} to origin\/state/);
+  assert.match(worldModelBuildCompletionMessage(result({ changed: false, commit: null })),
+    /origin\/state was already current; no push was needed/);
 });
 
 function capabilityChoiceRequired(ids = ['orders-api', 'payments-api']) {
@@ -433,6 +448,32 @@ test('accepted native review keeps the one-time receipt out of plan and tool arg
   );
   assert.equal(outcome.status, 'completed');
   assert.deepEqual(calls, ['resolve', 'review', 'confirm', 'progress', 'run']);
+});
+
+test('capability rebuild forwards forced cache policy into the exact reviewed Plan', async () => {
+  const rebuilt = { ...args, depth: 'deep', cachePolicy: 'rebuild' };
+  const plan = planned();
+  plan.data.plan.review.cachePolicy = 'rebuild';
+  plan.data.plan.review.depth = 'deep';
+  const calls = [];
+  const outcome = await runExactWorldModelBuild({
+    resolve: async ({ arguments: received }) => {
+      assert.deepEqual(received, rebuilt);
+      calls.push('plan');
+      return plan;
+    },
+    confirmPlan: () => { calls.push('confirm'); return { receiptId: 'private', value: 'private' }; },
+    run: async () => { calls.push('publish'); return {
+      kind: 'read', outcome: { status: 'succeeded' }, data: { publication: { changed: true } }
+    }; }
+  }, rebuilt, async (review) => {
+    assert.match(exactWorldModelPlanDetail(review, { capabilityId: 'payments-api' }),
+      /Depth \/ composer: deep \/ deterministic[\s\S]*Cache policy: rebuild[\s\S]*Publish target: origin\/state/);
+    calls.push('review');
+    return true;
+  });
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(calls, ['plan', 'review', 'confirm', 'publish']);
 });
 
 test('a planning refusal never reaches review or confirmation', async () => {

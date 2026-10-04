@@ -294,6 +294,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private receive(message: unknown): void {
     if (!message || typeof message !== 'object') return;
     const value = message as { type?: unknown; action?: unknown; key?: unknown; topic?: unknown; command?: unknown };
+    if (value.type === 'navigation-ready') {
+      // Tab changes can arrive while the webview is being replaced; replay the current marker.
+      void this.view?.webview.postMessage({ type: 'active-destination', id: this.activeDestination });
+      return;
+    }
     if (value.type === 'help-topic' && typeof value.topic === 'string' && HELP_TOPICS.has(value.topic)) {
       void vscode.commands.executeCommand('singularityFlow.explainTopic', { id: `help:topic:${value.topic}` });
       return;

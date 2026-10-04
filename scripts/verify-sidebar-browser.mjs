@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { sidebarBody, SIDEBAR_STYLE, SIDEBAR_SCRIPT } from '../apps/vscode/src/views/sidebar-page.ts';
-import { workspaceStoriesHtml, STORY_FILTER_SCRIPT } from '../apps/vscode/src/views/workspace-stories-page.ts';
+import { workspaceStoriesHtml, STORY_FILTER_SCRIPT, STORY_CATALOG_STYLE } from '../apps/vscode/src/views/workspace-stories-page.ts';
 import { buildInbox } from '../apps/vscode/src/views/inbox-model.ts';
 import { STYLE } from '../apps/vscode/src/views/webview.ts';
 
@@ -46,6 +46,8 @@ try {
       const nav = page.locator('nav[aria-label="Singularity Flow"] button');
       assert.equal(await nav.count(), 5);
       const target = page.locator('nav [data-action="stories"]');
+      assert.deepEqual(await page.evaluate(() => messages), [{ type: 'navigation-ready' }]);
+      await page.evaluate(() => { window.messages = []; });
       await target.hover();
       await page.waitForTimeout(550);
       assert.equal(await page.locator('[role="tooltip"],[title]').count(), 0);
@@ -85,7 +87,7 @@ try {
     status, branch: `US-${index + 1}`, currentPhase: 'custom-step'
   })));
   await page.setContent(documentHtml('light', workspaceStoriesHtml(inbox, '<button>Refresh</button>'),
-    STYLE,
+    STYLE + STORY_CATALOG_STYLE,
     `const vscode=acquireVsCodeApi();${STORY_FILTER_SCRIPT}`));
   await page.locator('#story-status').selectOption('active');
   assert.equal(await page.locator('[data-story-row]:visible').count(), 1);
@@ -95,6 +97,8 @@ try {
   await page.locator('#story-search').fill('US-2');
   assert.equal(await page.locator('[data-story-row]:visible').count(), 1);
   await page.screenshot({ path: path.join(output, 'workspace-stories.png') });
+  await page.setViewportSize({ width: 360, height: 760 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'narrow editor contains table scrolling');
   results.push({ scenario: 'Story filtering and read-only details', status: 'passed' });
   assert.deepEqual(failures, [], 'no browser runtime errors');
   await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, failures }, null, 2));

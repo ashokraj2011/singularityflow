@@ -142,4 +142,5 @@ export const SIDEBAR_SCRIPT = `
     if(button.dataset.removeFavorite) vscode.postMessage({type:'favorite-remove',action:button.dataset.removeFavorite});
     else if(button.dataset.action) vscode.postMessage({type:'action',action:button.dataset.action});
   });
+  vscode.postMessage({type:'navigation-ready'});
 `;

@@ -35,6 +35,12 @@ exports.run = async () => {
       `${command} opens its own native editor tab`);
     results.push({ command, status: 'passed' });
   }
+  await vscode.commands.executeCommand('singularityFlow.openReviews');
+  const retainedTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+  await vscode.commands.executeCommand('singularityFlow.myWork', { reveal: false });
+  assert.equal(vscode.window.tabGroups.activeTabGroup.activeTab, retainedTab,
+    'background My Work refresh must not steal editor focus');
+  results.push({ command: 'background My Work preserves selection', status: 'passed' });
   await writeFile(report, JSON.stringify({
     editorVersion: vscode.version, extensionMode: 'installed-production', results
   }, null, 2));

@@ -48,6 +48,8 @@ test('selection follows real editor destinations, including clearing a previous 
   assert.equal(sidebarDestination('another-extension'), null);
   assert.doesNotMatch(SIDEBAR_SCRIPT, /lastOpened|markLastOpened/);
   assert.match(SIDEBAR_SCRIPT, /active-destination/);
+  assert.match(SIDEBAR_SCRIPT, /postMessage\(\{type:'navigation-ready'\}\)/,
+    'a recreated webview requests the actual selected destination after its script is listening');
 });
 
 test('context refuses a previous workspace snapshot and handles Windows path casing', () => {

@@ -172,13 +172,15 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
 
 /** Show a result card, creating the panel on first use and reusing it after. */
 export function showResultCard(view: ResultCardView,
-  { note = null, origin = 'cli', historyMode = 'reset', helpTopic = null, reveal = true }: {
+  { note = null, origin = 'cli', historyMode = 'reset', helpTopic = null, reveal = true, preserveFocus = true }: {
     note?: string | null;
     origin?: ResultOrigin;
     historyMode?: 'reset' | 'push' | 'replace';
     helpTopic?: string | null;
     /** Re-render an already retained panel without taking it over from the reader's active tab. */
     reveal?: boolean;
+    /** Explicit navigation may take focus; background results retain the reader's current editor. */
+    preserveFocus?: boolean;
   } = {}): void {
   if (historyMode === 'push' && current) history.push({
     view: current, origin: currentOrigin, note: currentNote, helpTopic: currentHelpTopic,
@@ -198,7 +200,7 @@ export function showResultCard(view: ResultCardView,
     panel = vscode.window.createWebviewPanel(
       'singularityFlow.result',
       'Singularity Flow result',
-      { viewColumn: view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, preserveFocus: true },
+      { viewColumn: view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, preserveFocus },
       { enableScripts: true, retainContextWhenHidden: true }
     );
     panel.onDidDispose(() => {
@@ -292,7 +294,7 @@ export function showResultCard(view: ResultCardView,
       router.route(raw);
     });
   } else if (reveal) {
-    panel.reveal(view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, true);
+    panel.reveal(view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, preserveFocus);
   }
   render(panel, view, note, currentHelpTopic);
   panelChanged.fire();
@@ -305,8 +307,8 @@ export function showResultCard(view: ResultCardView,
  * on top of the first, which is how a reader ends up with no information at all.
  */
 export function showRefusal(error: unknown, {
-  headline, repositoryRoot = repositoryBinding?.root ?? null
-}: { headline?: string; repositoryRoot?: string | null } = {}): void {
+  headline, repositoryRoot = repositoryBinding?.root ?? null, preserveFocus = true, reveal = true
+}: { headline?: string; repositoryRoot?: string | null; preserveFocus?: boolean; reveal?: boolean } = {}): void {
   let refusal: Refusal;
   try {
     refusal = refusalFor(error, { headline, repositoryRoot });
@@ -321,7 +323,7 @@ export function showRefusal(error: unknown, {
     operation: refusal.view.details.operation ?? null,
     message: (error as { message?: string })?.message ?? null
   });
-  showResultCard(refusal.view, { note: fidelityNote(refusal.fidelity), helpTopic });
+  showResultCard(refusal.view, { note: fidelityNote(refusal.fidelity), helpTopic, preserveFocus, reveal });
 }
 
 /** Test seam: the panel is module state, and a test that ran before must not leak into the next. */

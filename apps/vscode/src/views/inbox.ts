@@ -9,7 +9,7 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { workspaceStoriesHtml, STORY_FILTER_SCRIPT } from './workspace-stories-page.ts';
+import { workspaceStoriesHtml, STORY_FILTER_SCRIPT, STORY_CATALOG_STYLE } from './workspace-stories-page.ts';
 
 export type InboxMode = 'inbox' | 'stories' | 'reviews';
 
@@ -335,7 +335,8 @@ export class InboxPanel {
         <section data-review-group="proposals"><h2>Configuration &amp; capability changes</h2><p class="muted">Open the proposal queue to check its current state. Proposals are not counted as pending until checked.</p><button class="secondary" data-review-route="proposals">Review proposals</button></section>
         <section data-review-group="visual"><h2>Visual evidence</h2><p class="muted">Inspect screenshots and comparison evidence for the current work.</p><button class="secondary" data-review-route="visual">Review visual evidence</button></section>`
       : inboxHtml(inbox, refresh);
-    this.panel.webview.html = page(title, warning + body,
+    const styles = this.mode === 'stories' ? `<style nonce="${token}">${STORY_CATALOG_STYLE}</style>` : '';
+    this.panel.webview.html = page(title, styles + warning + body,
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 

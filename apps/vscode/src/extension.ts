@@ -590,11 +590,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const acknowledgement = context.globalState.get<HomeAcknowledgement>(key) ?? null;
       lastHome = { envelope, key, route };
       showResultCard(buildResultCard(envelope, { acknowledgement }), {
-        origin: 'gateway', reveal: options.reveal !== false
+        origin: 'gateway', reveal: options.reveal !== false, preserveFocus: options.reveal === false
       });
     } catch (error) {
       if (generation !== homeRequestGeneration || activeRepositoryContext() !== active) return;
-      showRefusal(error, { headline: 'Could not read your work' });
+      showRefusal(error, { headline: 'Could not read your work',
+        reveal: options.reveal !== false, preserveFocus: options.reveal === false });
     }
   }));
 

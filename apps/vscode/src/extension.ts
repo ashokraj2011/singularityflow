@@ -6945,7 +6945,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               review, 'Later'
             );
             if (selected === review) {
-              await vscode.commands.executeCommand('singularityFlow.openDesigner');
+              await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
             }
         } else if (disposition.kind === 'unchanged') {
             void vscode.window.showInformationMessage(
@@ -7141,6 +7141,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
+    // A configuration proposal the Center created waits in Workflow Studio's Changes, with its diff and activation.
+    else if (message.action === 'workflow-proposals') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'workflow-studio') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
@@ -7297,6 +7299,252 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!focus) return undefined;
     const { ComprehensionCenterPanel } = lazyPanels();
     return ComprehensionCenterPanel.show(context, store, client, { tab: 'explorer', focus });
+  };
+
+  // What a person reviews before a configuration change (a proposal's diff, an import plan) opens
+  // read-only and memory-backed, so reviewing leaves nothing to save. The name's extension picks the
+  // language: .diff or .md.
+  const reviewDocuments = new Map<string, string>();
+  let reviewDocumentProvider: vscode.Disposable | null = null;
+  const showReviewDocument = async (name: string, content: string): Promise<void> => {
+    if (!reviewDocumentProvider) {
+      reviewDocumentProvider = vscode.workspace.registerTextDocumentContentProvider('sflow-review', {
+        provideTextDocumentContent: (uri) => reviewDocuments.get(uri.toString()) ?? 'This review is no longer open. Start it again from Workflow Studio.'
+      });
+      context.subscriptions.push(reviewDocumentProvider, vscode.workspace.onDidCloseTextDocument((document) => {
+        if (document.uri.scheme === 'sflow-review') reviewDocuments.delete(document.uri.toString());
+      }));
+    }
+    const uri = vscode.Uri.from({ scheme: 'sflow-review', path: `/${name.replace(/[^A-Za-z0-9._/ -]/g, '-')}`, query: String(Date.now()) });
+    reviewDocuments.set(uri.toString(), content);
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true });
+  };
+  // Governed workflow configuration routines: review and activate a configuration proposal, propose
+  // a change after previewing it, and export, import or copy workflows. Workflow Studio calls them;
+  // every mutation goes through the engine's validation and the repository's review proposal.
+  const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
+    try {
+      const inspected = await client.run<{
+        branch: string; proposalCommit: string; targetBranch: string; diff: string;
+        valid: boolean; workflows?: Array<{ id: string; change: string }>;
+      }>(['workflow', 'proposal', branch, '--json']);
+      await showReviewDocument(`${inspected.branch}.diff`, inspected.diff || 'No textual diff.');
+      if (!inspected.valid) {
+        const message = 'The workflow proposal contains invalid or out-of-scope configuration changes.';
+        showRefusal(message, { headline: 'Workflow proposal cannot be activated' });
+        return message;
+      }
+      const merge = 'Merge exact proposal';
+      const confirmed = await vscode.window.showWarningMessage(
+        `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
+        {
+          modal: true,
+          detail: 'The complete diff is open for review. Git dry-runs cannot prove server review enforcement, so the command stops before the exact leased update and asks for a separate acknowledgement. The application branch is never changed.'
+        },
+        merge
+      );
+      if (confirmed !== merge) return null;
+      const baseArguments = [
+        'workflow', 'activate', inspected.branch,
+        '--confirm', inspected.proposalCommit, '--json'
+      ];
+      let activation: {
+        activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
+        failure?: { message?: string }; nextAction?: string;
+      };
+      try {
+        activation = await client.run(baseArguments);
+      } catch (error) {
+        if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i
+          .test((error as Error).message)) throw error;
+        const acknowledge = 'Acknowledge and merge';
+        const accepted = await vscode.window.showWarningMessage(
+          `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
+          { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
+          acknowledge
+        );
+        if (accepted !== acknowledge) return null;
+        activation = await client.run([
+          ...baseArguments.slice(0, -1), '--acknowledge-unprotected', '--json'
+        ]);
+      }
+      if (activation.activated === false) {
+        const message = activation.failure?.message
+          ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`;
+        void vscode.window.showWarningMessage(message);
+        return message;
+      }
+      await refreshAfterKnownMutation();
+      void vscode.window.showInformationMessage(
+        `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
+        + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
+        + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
+      );
+      return null;
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not activate workflow configuration proposal' });
+      return (error as Error).message;
+    }
+  };
+  /**
+   * One proposal boundary for create, edit, import, and linked copy.
+   *
+   * Keeping these routes here means the designer never writes workflow configuration directly:
+   * every mutation receives the same validation, lead-authority proposal, exact-diff review, and
+   * local-authority draft treatment as the existing authoring controls.
+  */
+  const createWorkflowProposal = async (baseCommand: string[], title: string): Promise<string | null> =>
+    (await proposeWorkflowChange(baseCommand, title)).error;
+  const proposeWorkflowChange = async (baseCommand: string[], title: string): Promise<WorkflowChangeOutcome> => {
+    const command = [...baseCommand];
+    if (!command.includes('--propose')) command.push('--propose');
+    if (!command.includes('--json')) command.push('--json');
+    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+    try {
+      const proposal = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title,
+        cancellable: false
+      }, () => client.run<{
+        branch?: string; commit?: string; files?: string[]; reviewRequired?: boolean;
+        baseBranch?: string; nextAction?: string; authorityMode?: string;
+      }>(command));
+      await refreshAfterKnownMutation();
+      if (proposal.reviewRequired && proposal.branch) {
+        const files = proposal.files?.length ?? 0;
+        const review = 'Review and activate';
+        const selected = await vscode.window.showInformationMessage(
+          `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
+          + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `
+          + 'The active Story was not changed.',
+          review, 'Later'
+        );
+        if (selected === review) {
+          const stopped = await reviewAndActivateWorkflowProposal(proposal.branch);
+          return { outcome: 'proposed', branch: proposal.branch, error: stopped };
+        }
+        return { outcome: 'proposed', branch: proposal.branch, error: null };
+      } else if (proposal.authorityMode === 'local') {
+        const openSourceControl = 'Open Source Control';
+        const selected = await vscode.window.showInformationMessage(
+          'Workflow configuration was saved as an uncommitted local draft. Review and commit '
+          + 'it through the local configuration authority; no proposal was pushed and it is '
+          + 'not yet available to new Stories.',
+          openSourceControl, 'Later'
+        );
+        if (selected === openSourceControl) {
+          await vscode.commands.executeCommand('workbench.view.scm');
+        }
+        return { outcome: 'written', error: null };
+      }
+      void vscode.window.showInformationMessage('The approved configuration already contains this workflow change.');
+      return { outcome: 'unchanged', error: null };
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not create workflow configuration proposal' });
+      return { outcome: 'failed', error: (error as Error).message };
+    }
+  };
+  const previewWorkflowProposal = async (
+    baseCommand: string[], title: string
+  ): Promise<{ confirmation?: string; error?: string }> => {
+    const command = [...baseCommand, '--dry-run', '--json'];
+    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+    let plan: WorkflowMutationPreview;
+    try {
+      plan = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title,
+        cancellable: false
+      }, () => client.run<WorkflowMutationPreview>(command));
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not preview workflow configuration change' });
+      return { error: (error as Error).message };
+    }
+    const conflicts = workflowMutationConflictCount(plan);
+    const ready = (!plan.status || ['ready', 'planned', 'preview'].includes(plan.status))
+      && conflicts === 0 && Boolean(plan.planSha256);
+    const detail = workflowMutationPlanDetail(plan);
+    await showReviewDocument(`${title}.md`, workflowMutationPlanMarkdown(plan, title));
+    if (!ready) {
+      const error = conflicts
+        ? `The workflow change has ${conflicts} conflict${conflicts === 1 ? '' : 's'} and cannot be applied.`
+        : `The workflow change preview is ${plan.status ?? 'incomplete'} and cannot be applied.`;
+      await vscode.window.showWarningMessage(error, { modal: true, detail }, 'Close');
+      return { error };
+    }
+    const confirm = 'Apply reviewed plan';
+    const selected = await vscode.window.showWarningMessage(
+      'Review the complete workflow configuration plan. The repository authority will decide whether this creates a review proposal or a local edit.',
+      { modal: true, detail }, confirm, 'Cancel'
+    );
+    return selected === confirm ? { confirmation: plan.planSha256 } : {};
+  };
+  const exportWorkflowBundle = async (workflowIds: readonly string[]): Promise<string | null> => {
+    const target = await vscode.window.showSaveDialog({
+      title: 'Export portable workflow bundle',
+      saveLabel: 'Export bundle',
+      defaultUri: vscode.Uri.file(path.join(repository, 'singularity-flow-workflows.json')),
+      filters: { 'Workflow bundle': ['json'] }
+    });
+    if (!target) return null;
+    const command = ['workflow', 'export'];
+    for (const workflowId of workflowIds) command.push('--workflow', workflowId);
+    command.push('--out', target.fsPath, '--json');
+    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+    try {
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `Exporting ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'}`,
+        cancellable: false
+      }, () => client.run(command));
+      void vscode.window.showInformationMessage(
+        `Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} and their dependencies to ${target.fsPath}.`
+      );
+      return null;
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not export workflows' });
+      return (error as Error).message;
+    }
+  };
+  const importWorkflowBundle = async (): Promise<WorkflowChangeOutcome> => {
+    const selected = await vscode.window.showOpenDialog({
+      title: 'Import portable workflow bundle',
+      openLabel: 'Import bundle',
+      defaultUri: vscode.Uri.file(repository),
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: { 'Workflow bundle': ['json'] }
+    });
+    const source = selected?.[0];
+    if (!source) return { outcome: 'cancelled', error: null };
+    const preview = await previewWorkflowProposal(
+      ['workflow', 'import', source.fsPath],
+      `Previewing ${path.basename(source.fsPath)}`
+    );
+    if (preview.error) return { outcome: 'failed', error: preview.error };
+    if (!preview.confirmation) return { outcome: 'cancelled', error: null };
+    return proposeWorkflowChange(
+      ['workflow', 'import', source.fsPath, '--confirm', preview.confirmation],
+      `Importing workflows from ${path.basename(source.fsPath)}`
+    );
+  };
+  const copyLinkedWorkflow = async (sourceId: string, targetId: string, label: string): Promise<string | null> => {
+    const baseCommand = ['workflow', 'copy', sourceId, targetId, '--label', label];
+    const preview = await previewWorkflowProposal(
+      baseCommand,
+      `Previewing ${sourceId} as ${targetId}`
+    );
+    if (preview.error) return preview.error;
+    if (!preview.confirmation) return null;
+    return createWorkflowProposal(
+      [...baseCommand, '--confirm', preview.confirmation],
+      `Duplicating ${sourceId} as ${targetId}`
+    );
   };
 
   const registered: Record<string, (...args: never[]) => unknown> = {
@@ -7779,11 +8027,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : (target as { workId?: unknown } | undefined)?.workId;
       return chooseStoryDecision(typeof workId === 'string' ? workId : null, null);
     },
-    'singularityFlow.openWorkflowStudio': async () => {
-      const { WorkflowStudioPanel } = lazyPanels();
+    // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
+    // for review, `{ view: 'artifacts' }` the templates.
+    'singularityFlow.openWorkflowStudio': async (target?: unknown) => {
+      const { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } = lazyPanels();
+      const requested = typeof target === 'string' ? target : (target as { view?: unknown } | undefined)?.view;
+      const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
-        reviewProposal: async () => { await vscode.commands.executeCommand('singularityFlow.openDesigner'); },
+        reviewProposal: (branch) => reviewAndActivateWorkflowProposal(branch),
+        exportWorkflows: (selectors) => exportWorkflowBundle(selectors),
+        importWorkflows: () => importWorkflowBundle(),
+        openFile: async (relative) => {
+          await openArtifact(repository, { kind: 'artifact', id: relative, label: relative, path: relative });
+        },
         // Unpublished changes survive closing the panel, in this workspace's storage.
         draftStore: {
           get: () => context.workspaceState.get('singularityFlow.workflowStudioDraft'),
@@ -7801,166 +8058,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openDesigner': async () => {
       const { DesignerPanel } = lazyPanels();
-      const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
-        try {
-          const inspected = await client.run<{
-            branch: string; proposalCommit: string; targetBranch: string; diff: string;
-            valid: boolean; workflows?: Array<{ id: string; change: string }>;
-          }>(['workflow', 'proposal', branch, '--json']);
-          const document = await vscode.workspace.openTextDocument({
-            language: 'diff', content: inspected.diff || 'No textual diff.'
-          });
-          await vscode.window.showTextDocument(document, { preview: true });
-          if (!inspected.valid) {
-            const message = 'The workflow proposal contains invalid or out-of-scope configuration changes.';
-            showRefusal(message, { headline: 'Workflow proposal cannot be activated' });
-            return message;
-          }
-          const merge = 'Merge exact proposal';
-          const confirmed = await vscode.window.showWarningMessage(
-            `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
-            {
-              modal: true,
-              detail: 'The complete diff is open for review. Git dry-runs cannot prove server review enforcement, so the command stops before the exact leased update and asks for a separate acknowledgement. The application branch is never changed.'
-            },
-            merge
-          );
-          if (confirmed !== merge) return null;
-          const baseArguments = [
-            'workflow', 'activate', inspected.branch,
-            '--confirm', inspected.proposalCommit, '--json'
-          ];
-          let activation: {
-            activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
-            failure?: { message?: string }; nextAction?: string;
-          };
-          try {
-            activation = await client.run(baseArguments);
-          } catch (error) {
-            if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i
-              .test((error as Error).message)) throw error;
-            const acknowledge = 'Acknowledge and merge';
-            const accepted = await vscode.window.showWarningMessage(
-              `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
-              { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
-              acknowledge
-            );
-            if (accepted !== acknowledge) return null;
-            activation = await client.run([
-              ...baseArguments.slice(0, -1), '--acknowledge-unprotected', '--json'
-            ]);
-          }
-          if (activation.activated === false) {
-            const message = activation.failure?.message
-              ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`;
-            void vscode.window.showWarningMessage(message);
-            return message;
-          }
-          await refreshAfterKnownMutation();
-          void vscode.window.showInformationMessage(
-            `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
-            + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
-            + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
-          );
-          return null;
-        } catch (error) {
-          output.appendLine(`  refused: ${(error as Error).message}`);
-          showRefusal(error, { headline: 'Could not activate workflow configuration proposal' });
-          return (error as Error).message;
-        }
-      };
-      /**
-       * One proposal boundary for create, edit, import, and linked copy.
-       *
-       * Keeping these routes here means the designer never writes workflow configuration directly:
-       * every mutation receives the same validation, lead-authority proposal, exact-diff review, and
-       * local-authority draft treatment as the existing authoring controls.
-      */
-      const createWorkflowProposal = async (baseCommand: string[], title: string): Promise<string | null> => {
-        const command = [...baseCommand];
-        if (!command.includes('--propose')) command.push('--propose');
-        if (!command.includes('--json')) command.push('--json');
-        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
-        try {
-          const proposal = await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title,
-            cancellable: false
-          }, () => client.run<{
-            branch?: string; commit?: string; files?: string[]; reviewRequired?: boolean;
-            baseBranch?: string; nextAction?: string; authorityMode?: string;
-          }>(command));
-          await refreshAfterKnownMutation();
-          if (proposal.reviewRequired && proposal.branch) {
-            const files = proposal.files?.length ?? 0;
-            const review = 'Review and activate';
-            const selected = await vscode.window.showInformationMessage(
-              `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
-              + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `
-              + 'The active Story was not changed.',
-              review, 'Later'
-            );
-            if (selected === review) return reviewAndActivateWorkflowProposal(proposal.branch);
-          } else if (proposal.authorityMode === 'local') {
-            const openSourceControl = 'Open Source Control';
-            const selected = await vscode.window.showInformationMessage(
-              'Workflow configuration was saved as an uncommitted local draft. Review and commit '
-              + 'it through the local configuration authority; no proposal was pushed and it is '
-              + 'not yet available to new Stories.',
-              openSourceControl, 'Later'
-            );
-            if (selected === openSourceControl) {
-              await vscode.commands.executeCommand('workbench.view.scm');
-            }
-          } else {
-            void vscode.window.showInformationMessage('The approved configuration already contains this workflow change.');
-          }
-          return null;
-        } catch (error) {
-          output.appendLine(`  refused: ${(error as Error).message}`);
-          showRefusal(error, { headline: 'Could not create workflow configuration proposal' });
-          return (error as Error).message;
-        }
-      };
-      const previewWorkflowProposal = async (
-        baseCommand: string[], title: string
-      ): Promise<{ confirmation?: string; error?: string }> => {
-        const command = [...baseCommand, '--dry-run', '--json'];
-        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
-        let plan: WorkflowMutationPreview;
-        try {
-          plan = await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title,
-            cancellable: false
-          }, () => client.run<WorkflowMutationPreview>(command));
-        } catch (error) {
-          output.appendLine(`  refused: ${(error as Error).message}`);
-          showRefusal(error, { headline: 'Could not preview workflow configuration change' });
-          return { error: (error as Error).message };
-        }
-        const conflicts = workflowMutationConflictCount(plan);
-        const ready = (!plan.status || ['ready', 'planned', 'preview'].includes(plan.status))
-          && conflicts === 0 && Boolean(plan.planSha256);
-        const detail = workflowMutationPlanDetail(plan);
-        const previewDocument = await vscode.workspace.openTextDocument({
-          language: 'markdown', content: workflowMutationPlanMarkdown(plan, title)
-        });
-        await vscode.window.showTextDocument(previewDocument, { preview: true });
-        if (!ready) {
-          const error = conflicts
-            ? `The workflow change has ${conflicts} conflict${conflicts === 1 ? '' : 's'} and cannot be applied.`
-            : `The workflow change preview is ${plan.status ?? 'incomplete'} and cannot be applied.`;
-          await vscode.window.showWarningMessage(error, { modal: true, detail }, 'Close');
-          return { error };
-        }
-        const confirm = 'Apply reviewed plan';
-        const selected = await vscode.window.showWarningMessage(
-          'Review the complete workflow configuration plan. The repository authority will decide whether this creates a review proposal or a local edit.',
-          { modal: true, detail }, confirm, 'Cancel'
-        );
-        return selected === confirm ? { confirmation: plan.planSha256 } : {};
-      };
       return DesignerPanel.show(context, store, async (message) => {
       if (message.type === 'open') {
         await openArtifact(repository, { kind: 'artifact', id: message.path, label: message.path, path: message.path });
@@ -7969,70 +8066,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (message.type === 'review-proposal') {
         return reviewAndActivateWorkflowProposal(message.branch);
       }
-      if (message.type === 'export-workflows') {
-        const target = await vscode.window.showSaveDialog({
-          title: 'Export portable workflow bundle',
-          saveLabel: 'Export bundle',
-          defaultUri: vscode.Uri.file(path.join(repository, 'singularity-flow-workflows.json')),
-          filters: { 'Workflow bundle': ['json'] }
-        });
-        if (!target) return null;
-        const command = ['workflow', 'export'];
-        for (const workflowId of message.workflowIds) command.push('--workflow', workflowId);
-        command.push('--out', target.fsPath, '--json');
-        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
-        try {
-          await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: `Exporting ${message.workflowIds.length} workflow${message.workflowIds.length === 1 ? '' : 's'}`,
-            cancellable: false
-          }, () => client.run(command));
-          void vscode.window.showInformationMessage(
-            `Exported ${message.workflowIds.length} workflow${message.workflowIds.length === 1 ? '' : 's'} and their dependencies to ${target.fsPath}.`
-          );
-          return null;
-        } catch (error) {
-          output.appendLine(`  refused: ${(error as Error).message}`);
-          showRefusal(error, { headline: 'Could not export workflows' });
-          return (error as Error).message;
-        }
-      }
-      if (message.type === 'import-workflows') {
-        const selected = await vscode.window.showOpenDialog({
-          title: 'Import portable workflow bundle',
-          openLabel: 'Import bundle',
-          defaultUri: vscode.Uri.file(repository),
-          canSelectFiles: true,
-          canSelectFolders: false,
-          canSelectMany: false,
-          filters: { 'Workflow bundle': ['json'] }
-        });
-        const source = selected?.[0];
-        if (!source) return null;
-        const preview = await previewWorkflowProposal(
-          ['workflow', 'import', source.fsPath],
-          `Previewing ${path.basename(source.fsPath)}`
-        );
-        if (preview.error) return preview.error;
-        if (!preview.confirmation) return null;
-        return createWorkflowProposal(
-          ['workflow', 'import', source.fsPath, '--confirm', preview.confirmation],
-          `Importing workflows from ${path.basename(source.fsPath)}`
-        );
-      }
-      if (message.type === 'copy-workflow') {
-        const baseCommand = ['workflow', 'copy', message.sourceId, message.targetId, '--label', message.label];
-        const preview = await previewWorkflowProposal(
-          baseCommand,
-          `Previewing ${message.sourceId} as ${message.targetId}`
-        );
-        if (preview.error) return preview.error;
-        if (!preview.confirmation) return null;
-        return createWorkflowProposal(
-          [...baseCommand, '--confirm', preview.confirmation],
-          `Duplicating ${message.sourceId} as ${message.targetId}`
-        );
-      }
+      if (message.type === 'export-workflows') return exportWorkflowBundle(message.workflowIds);
+      if (message.type === 'import-workflows') return (await importWorkflowBundle()).error;
+      if (message.type === 'copy-workflow') return copyLinkedWorkflow(message.sourceId, message.targetId, message.label);
       // Authoring a lifecycle runs the same command the CLI runs, so the validation that refuses an
       // incoherent profile is one implementation rather than two that drift.
       if (message.type === 'run') {
@@ -8476,6 +8512,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
  * and then checked to be inside the repository — a `..` that escaped the workspace would be a
  * genuine path-traversal, and the check costs nothing.
  */
+/** What a governed workflow configuration change came to, for screens that report it. */
+export interface WorkflowChangeOutcome {
+  outcome: 'cancelled' | 'proposed' | 'written' | 'unchanged' | 'failed';
+  branch?: string;
+  error: string | null;
+}
+
 async function openArtifact(
   repository: string,
   node?: TreeNode,

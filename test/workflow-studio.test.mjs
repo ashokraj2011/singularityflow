@@ -468,7 +468,7 @@ test('a setting for a step the same change set adds to another workflow stays th
   let after = YAML.parse(await readFile(workflowFile(root), 'utf8'));
   assert.deepEqual(after.phases.requirements, before.phases.requirements, 'the step itself, so Feature too, is unchanged');
   let model = await buildStudioModel(root);
-  assert.deepEqual(stepIn(model, 'feature', 'requirements').approval, { mode: 'required', authorities: ['product-approvers'], minimum: 1 });
+  assert.deepEqual(stepIn(model, 'feature', 'requirements').approval, { mode: 'required', authorities: ['product-approvers'], requiredAuthorities: [], minimum: 1 });
   assert.equal(stepIn(model, 'feature', 'requirements').effectiveAuthoringSkill, '/sf-phase');
   const inChore = stepIn(model, 'chore', 'requirements');
   assert.deepEqual([inChore.approval.authorities, inChore.approval.minimum, inChore.inputs, inChore.effectiveAuthoringSkill], [['quality-reviewers'], 2, [], '/sf-design']);
@@ -786,4 +786,149 @@ test('a Studio change to one step leaves the rest of the workflow file as writte
   const numstat = run('git', ['diff', '--numstat', '--', 'singularity/workflow.yml'], root).stdout.trim();
   assert.equal(numstat, '1\t1\tsingularity/workflow.yml', run('git', ['diff', '--', 'singularity/workflow.yml'], root).stdout.slice(0, 2000));
   assert.match(run('git', ['diff', '--', 'singularity/workflow.yml'], root).stdout, /\n\+\s+label: Design and architecture\n/);
+});
+
+test('a step signed off by several groups keeps all of them, and the groups that must approve, through a Studio edit', async () => {
+  const root = await repository({ edit: (document) => {
+    document.setIn(['phases', 'design', 'approval', 'authorities'], document.createNode(['architecture-reviewers', 'engineering-reviewers']));
+    document.setIn(['phases', 'design', 'approval', 'requiredAuthorities'], document.createNode(['architecture-reviewers']));
+    document.setIn(['phases', 'design', 'approval', 'minimum'], 2);
+  } });
+  const model = json(root, ['workflow', 'studio']);
+  const design = model.phases.find((phase) => phase.id === 'design');
+  assert.deepEqual([design.approval.authorities, design.approval.requiredAuthorities, design.approval.minimum],
+    [['architecture-reviewers', 'engineering-reviewers'], ['architecture-reviewers'], 2]);
+
+  // A change to how many approve keeps every group and who must approve.
+  const more = await changeSet(root, [{ op: 'phase.update', id: 'design', approval: { group: 'architecture-reviewers', groups: ['architecture-reviewers', 'engineering-reviewers'], minimum: 12, required: ['architecture-reviewers'] } }], model.base);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', more]);
+  let approval = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).phases.design.approval;
+  assert.deepEqual([approval.authorities, approval.requiredAuthorities, approval.minimum, approval.rejectTo],
+    [['architecture-reviewers', 'engineering-reviewers'], ['architecture-reviewers'], 12, ['requirements', 'design']], 'more than five approvals, and the send-back targets stay');
+
+  // An older client that names one group keeps the required list only for groups that remain.
+  const after = json(root, ['workflow', 'studio']);
+  const single = await changeSet(root, [{ op: 'phase.update', id: 'design', approval: { group: 'engineering-reviewers', minimum: 1 } }], after.base);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', single]);
+  approval = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).phases.design.approval;
+  assert.deepEqual([approval.authorities, approval.requiredAuthorities], [['engineering-reviewers'], undefined], 'a group taken off is no longer required');
+
+  const latest = json(root, ['workflow', 'studio']);
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'phase.update', id: 'design', approval: { group: 'architecture-reviewers', groups: ['architecture-reviewers', 'engineering-reviewers'], minimum: 1, required: ['architecture-reviewers', 'engineering-reviewers'] } }
+  ], latest.base), '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.match(refused.problems[0].message, /at least 2, one for each group that must approve/);
+});
+
+test('planned claims are named in the Studio, refused for a step that defines no clauses, and worked out again on request', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  const feature = model.workflows.find((workflow) => workflow.id === 'feature');
+  assert.equal(feature.plannedClaims.mode, 'required');
+  assert.ok(feature.plannedClaims.clausePhases.length >= 1, JSON.stringify(feature.plannedClaims));
+  assert.deepEqual(feature.steps.filter((step) => step.definesClauses).map((step) => step.id).sort(), ['implementation-spec', 'requirements'].sort());
+
+  const named = await changeSet(root, [{ op: 'workflow.update', id: 'feature', plannedClaims: { clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } } }], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', named, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', named]);
+  let written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes.feature.plannedClaims;
+  assert.deepEqual(written, { mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } });
+  let after = json(root, ['workflow', 'studio']);
+  assert.deepEqual(after.workflows.find((workflow) => workflow.id === 'feature').plannedClaims.declared.clausePhases, ['requirements']);
+
+  const wrong = await changeSet(root, [{ op: 'workflow.update', id: 'feature', plannedClaims: { clausePhases: ['design'], owners: { implementation: 'implementation-spec' } } }], after.base);
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', wrong, '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.match(refused.problems.map((problem) => problem.message).join(' '), /design' is not authoritative/);
+
+  const infer = await changeSet(root, [{ op: 'workflow.update', id: 'feature', plannedClaims: 'infer' }], after.base);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', infer]);
+  written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes.feature.plannedClaims;
+  assert.equal(written.mode, 'required');
+  assert.deepEqual(written.clausePhases, feature.plannedClaims.clausePhases, 'working them out again pins what the engine infers');
+});
+
+test('Epic workflows are edited in the Studio: steps with outputs and sign-off, workflows, linked copies, in one portfolio change', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  assert.ok(model.epics, 'the model carries the Epic workflows');
+  assert.ok(model.epics.workflows.some((workflow) => workflow.id === 'initiative-lite'));
+  const define = model.epics.steps.find((step) => step.id === 'define');
+  assert.ok(define.outputs.some((output) => output.id === 'business-case'));
+  assert.match(model.base.portfolioSha256, /^[a-f0-9]{64}$/);
+
+  const file = await changeSet(root, [
+    { op: 'epicStep.create', id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['business'],
+      approval: { group: 'product-approvers', minimum: 1 } },
+    { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', template: 'initiatives/generic-output.md', consumes: ['define/business-case'] },
+    { op: 'epicWorkflow.create', id: 'vendor-epic', label: 'Vendor Epic', description: 'Choose a vendor.', phases: ['define', 'vendor-review'] },
+    { op: 'epicWorkflow.create', id: 'lite-copy', label: 'Lite copy', copyOf: 'initiative-lite' }
+  ], model.base);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((entry) => entry.path), ['singularity/portfolio.yml']);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  let portfolio = YAML.parse(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'));
+  assert.deepEqual(portfolio.initiativeProfiles['vendor-epic'], { label: 'Vendor Epic', phases: ['define', 'vendor-review'], description: 'Choose a vendor.' });
+  assert.deepEqual(portfolio.initiativeProfiles['lite-copy'].phases, portfolio.initiativeProfiles['initiative-lite'].phases, 'a linked copy shares its source\'s steps');
+  assert.deepEqual(portfolio.initiativePhases['vendor-review'].outputs, [{ id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', path: 'vendor-brief.md', template: 'initiatives/generic-output.md', consumes: ['define/business-case'] }]);
+  assert.deepEqual(portfolio.initiativePhases['vendor-review'].bundleApproval, { mode: 'bundle', authorities: ['product-approvers'], minimum: 1, allowSelfApproval: true });
+
+  const after = json(root, ['workflow', 'studio']);
+  const edit = await changeSet(root, [
+    { op: 'epicWorkflow.update', id: 'vendor-epic', label: 'Vendor selection', phases: ['vendor-review', 'define'] },
+    { op: 'epicStep.update', id: 'vendor-review', agents: ['architect', 'product-owner'], approval: 'none' },
+    { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-brief', required: false },
+    { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-scores', label: 'Vendor scores', kind: 'yaml', template: 'initiatives/generic-output.md' }
+  ], after.base);
+  const editPlan = json(root, ['workflow', 'studio', 'apply', '--change-set', edit, '--dry-run']);
+  assert.equal(editPlan.valid, false);
+  assert.match(editPlan.problems[0].message, /vendor-review\/vendor-brief' must consume an earlier phase output/,
+    'moving a step before the step whose output it reads is refused by the engine\'s own portfolio rules');
+  const fixed = await changeSet(root, [
+    { op: 'epicWorkflow.update', id: 'vendor-epic', label: 'Vendor selection', phases: ['define', 'vendor-review'] },
+    { op: 'epicStep.update', id: 'vendor-review', agents: ['architect', 'product-owner'], approval: 'none' },
+    { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-brief', required: false },
+    { op: 'epicOutput.remove', step: 'vendor-review', id: 'vendor-brief' }
+  ], after.base);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', fixed]);
+  portfolio = YAML.parse(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'));
+  assert.equal(portfolio.initiativeProfiles['vendor-epic'].label, 'Vendor selection');
+  assert.deepEqual(portfolio.initiativePhases['vendor-review'].agents, ['architect', 'product-owner']);
+  assert.equal(portfolio.initiativePhases['vendor-review'].bundleApproval.mode, 'none');
+  assert.deepEqual(portfolio.initiativePhases['vendor-review'].outputs, []);
+
+  const latest = json(root, ['workflow', 'studio']);
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'epicWorkflow.update', id: 'vendor-epic', phases: ['define', 'no-such-step'] },
+    { op: 'epicOutput.set', step: 'define', id: 'extra', template: 'initiatives/missing.md' },
+    { op: 'epicOutput.remove', step: 'epic-requirements', id: 'requirements-specification' }
+  ], latest.base), '--dry-run']);
+  assert.equal(refused.valid, false);
+  assert.deepEqual(refused.problems.map((problem) => problem.code).sort(), ['STUDIO_EPIC_OUTPUT_IN_USE', 'STUDIO_EPIC_STEP_UNKNOWN', 'STUDIO_TEMPLATE_UNKNOWN'].sort());
+});
+
+test('an Epic output change rewrites only that output, in the style its list is written in', async () => {
+  const root = await repository();
+  const before = await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8');
+  const model = json(root, ['workflow', 'studio']);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
+    { op: 'epicStep.update', id: 'define', lanes: ['business-product', 'engineering'] },
+    { op: 'epicOutput.set', step: 'define', id: 'risk-register', label: 'Risk register', kind: 'markdown', template: 'initiatives/generic-output.md' },
+    { op: 'epicOutput.set', step: 'define', id: 'scope-and-outcomes', required: false }
+  ], model.base)]);
+  const after = await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8');
+  // Lines counted, not just compared: the same line can stand on several steps.
+  const minus = (left, right) => {
+    const counts = new Map(); right.split('\n').forEach((line) => counts.set(line, (counts.get(line) ?? 0) + 1));
+    return left.split('\n').filter((line) => { const count = counts.get(line) ?? 0; if (count) { counts.set(line, count - 1); return false; } return true; });
+  };
+  const removed = minus(before, after);
+  const added = minus(after, before);
+  assert.deepEqual(removed.map((line) => line.trim().slice(0, 40)).sort(), ['- { id: scope-and-outcomes, label: Scope', 'lanes: [business-product]'].sort(), removed.join('\n'));
+  assert.equal(added.length, 3, added.join('\n'));
+  assert.ok(added.some((line) => /^ {6}- \{ ?id: risk-register,/.test(line)), 'a new output follows its siblings\' one-line style');
+  assert.ok(added.some((line) => /scope-and-outcomes.*required: false/.test(line)));
 });

@@ -17,8 +17,11 @@ import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
-  STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioPublishArgs, workflowStudioBody, type StudioAuthority
+  PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, proposalSummaries, studioPublishArgs,
+  workflowStudioBody, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
+
+export { STUDIO_FOCUS_VIEWS, proposalSummaries, type StudioFocusView };
 
 
 interface StudioModel { authority?: StudioAuthority; base?: unknown; [key: string]: unknown }
@@ -33,6 +36,8 @@ const TARGET_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const ACTION_TRIGGERS = new Set(['submitted', 'approved', 'rejected']);
 const ACTION_SENDS = new Set(['event', 'summary', 'artifact']);
 const MAX_SECRET_NAMES = 64;
+const WORKFLOW_SELECTOR = /^(?:story|initiative):[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_EXPORT_WORKFLOWS = 200;
 
 /** Where integration secrets are kept on this machine. The page only ever learns whether each is set. */
 export interface IntegrationSecretStore {
@@ -47,8 +52,17 @@ export interface IntegrationSecretStore {
 export interface WorkflowStudioActions {
   /** Re-read repository state after a publish, so the rest of the extension sees it. */
   refresh(): Promise<void>;
-  /** Review and activate a configuration proposal the way the Workflow Designer does. */
-  reviewProposal(branch: string): Promise<void>;
+  /**
+   * Review a configuration proposal's exact diff and activate it after the person confirms, with the
+   * separate acknowledgement an unprotected configuration branch needs. Returns why it stopped, if it did.
+   */
+  reviewProposal(branch: string): Promise<string | null | void>;
+  /** Export the chosen workflows (`story:<id>`, `initiative:<id>`) and their dependencies as one bundle. */
+  exportWorkflows?(selectors: readonly string[]): Promise<string | null>;
+  /** Import a workflow bundle: preview the plan, then propose it after the person confirms. */
+  importWorkflows?(): Promise<StudioChangeOutcome>;
+  /** Open a repository file in an editor: the governed workflow or portfolio file, or a template. */
+  openFile?(relative: string): Promise<void>;
   /** The operating-system keychain, through VS Code, for the secrets integration targets name. */
   integrationSecrets?: IntegrationSecretStore;
   /**
@@ -56,6 +70,13 @@ export interface WorkflowStudioActions {
    * page offers them back on reopen, but only against the configuration they were made on.
    */
   draftStore?: { get(): unknown; set(value: StudioSavedDraft | undefined): PromiseLike<void> };
+}
+
+/** What a governed change made outside the change set (an import) came to. */
+export interface StudioChangeOutcome {
+  outcome: 'cancelled' | 'proposed' | 'written' | 'unchanged' | 'failed';
+  branch?: string;
+  error: string | null;
 }
 
 /** Unpublished Studio changes kept across closing the panel. */
@@ -67,6 +88,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private model: StudioModel | null = null;
   /** MCP servers the person allowed this Studio session to start or contact for imports. */
   private readonly mcpConsent = new Set<string>();
+
+  /** The section to show once the model has loaded, when a screen opened Studio at one. */
+  private focus: StudioFocusView | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -85,9 +109,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
-  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions): WorkflowStudioPanel {
+  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null): WorkflowStudioPanel {
     if (WorkflowStudioPanel.current) {
       WorkflowStudioPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      if (focus) WorkflowStudioPanel.current.post({ type: 'studio.focus', view: focus });
       return WorkflowStudioPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -95,6 +120,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       { enableScripts: true, retainContextWhenHidden: true }
     );
     WorkflowStudioPanel.current = new WorkflowStudioPanel(panel, client, output, actions);
+    WorkflowStudioPanel.current.focus = focus;
     return WorkflowStudioPanel.current;
   }
 
@@ -120,9 +146,85 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.storeSecret': (message) => this.storeSecret(stringField(message, 'name')),
     'studio.clearSecret': (message) => this.clearSecret(stringField(message, 'name')),
     'studio.connectJira': () => this.connectJira(),
+    'studio.proposals': () => this.proposals(),
+    'studio.reviewProposal': (message) => this.reviewProposal(stringField(message, 'branch'), integerField(message, 'pending') ?? 0),
+    'studio.exportWorkflows': (message) => this.exportWorkflows((message as { workflowIds?: unknown }).workflowIds),
+    'studio.importWorkflows': (message) => this.importWorkflows(integerField(message, 'pending') ?? 0),
+    'studio.openFile': (message) => this.openFile(stringField(message, 'path')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
       stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
   });
+
+  /** The workflow configuration proposals waiting for review. A working-tree authority has none. */
+  private async proposals(): Promise<void> {
+    if (this.model?.authority?.kind === 'working-tree') { this.post({ type: 'studio.proposals', proposals: [], local: true }); return; }
+    try {
+      const listed = await this.client.run<unknown>(['workflow', 'proposals', '--json']);
+      this.post({ type: 'studio.proposals', proposals: proposalSummaries(listed) });
+    } catch (error) {
+      this.post({ type: 'studio.proposals', proposals: [], error: (error as Error).message });
+    }
+  }
+
+  /**
+   * The approved configuration changed under the page (a proposal activated, a bundle imported). With
+   * nothing unpublished the page reloads; otherwise its changes stay, and the engine's base check
+   * refuses them until the person reloads, rather than replaying them over the newer configuration.
+   */
+  private async configurationChanged(pending: number, reason: string): Promise<void> {
+    if (pending > 0) this.post({ type: 'studio.configurationChanged', reason });
+    else await this.load(true);
+    await this.actions.refresh();
+  }
+
+  private async reviewProposal(branch: string | null, pending: number): Promise<void> {
+    if (!branch || !PROPOSAL_BRANCH.test(branch)) { this.post({ type: 'studio.failed', message: 'That is not a configuration proposal.' }); return; }
+    const before = this.modelBase();
+    const stopped = await this.actions.reviewProposal(branch);
+    if (typeof stopped === 'string' && stopped) this.post({ type: 'studio.failed', message: stopped });
+    const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
+    if (fresh && JSON.stringify(fresh.base ?? null) !== before) {
+      if (pending > 0) this.post({ type: 'studio.configurationChanged', reason: `${branch} was activated` });
+      else { this.model = fresh; this.post({ type: 'studio.model', model: fresh, reset: true }); }
+    }
+    await this.proposals();
+  }
+
+  private async exportWorkflows(raw: unknown): Promise<void> {
+    const selectors = Array.isArray(raw)
+      ? [...new Set(raw.filter((value): value is string => typeof value === 'string' && WORKFLOW_SELECTOR.test(value)))].slice(0, MAX_EXPORT_WORKFLOWS)
+      : [];
+    if (!selectors.length) { this.post({ type: 'studio.failed', message: 'Choose at least one workflow to export.' }); return; }
+    if (!this.actions.exportWorkflows) { this.post({ type: 'studio.failed', message: 'Exporting workflows is not available here.' }); return; }
+    const stopped = await this.actions.exportWorkflows(selectors);
+    this.post(stopped ? { type: 'studio.failed', message: stopped } : { type: 'studio.exported' });
+  }
+
+  private async importWorkflows(pending: number): Promise<void> {
+    if (!this.actions.importWorkflows) { this.post({ type: 'studio.failed', message: 'Importing workflows is not available here.' }); return; }
+    const before = this.modelBase();
+    const result = await this.actions.importWorkflows();
+    if (result.outcome === 'failed') { this.post({ type: 'studio.failed', message: result.error ?? 'The import did not complete.' }); return; }
+    if (result.outcome !== 'cancelled') {
+      const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
+      if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, 'workflows were imported');
+    }
+    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error });
+    if (result.outcome !== 'cancelled') await this.proposals();
+  }
+
+  /** Repository files the page may open: the governed workflow and portfolio files, and templates. */
+  private openableFile(relative: string): boolean {
+    if (relative.split('/').some((part) => part === '..' || part === '' || part === '.')) return false;
+    if (relative === 'singularity/workflow.yml' || relative === 'singularity/portfolio.yml') return true;
+    const root = typeof this.model?.templatesRoot === 'string' && this.model.templatesRoot ? this.model.templatesRoot : 'singularity/templates';
+    return relative.startsWith(`${root}/`) && /^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(relative.slice(root.length + 1));
+  }
+
+  private async openFile(relative: string | null): Promise<void> {
+    if (!relative || relative.length > 512 || !this.openableFile(relative) || !this.actions.openFile) return;
+    await this.actions.openFile(relative);
+  }
 
   /** Whether each secret is stored through VS Code, inherited from the environment, or missing. Never a value. */
   private async secretStatus(rawNames: unknown): Promise<void> {
@@ -330,6 +432,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try {
       this.model = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]);
       this.post({ type: 'studio.model', model: this.model, reset });
+      if (this.focus) { this.post({ type: 'studio.focus', view: this.focus }); this.focus = null; }
       await this.offerSavedDraft();
     } catch (error) {
       this.post({ type: 'studio.failed', message: (error as Error).message });

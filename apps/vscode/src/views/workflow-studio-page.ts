@@ -268,6 +268,41 @@ body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-cur
  * HTML), keeps the draft, and exposes its pure parts on `window.__workflowStudio` so they can be
  * exercised without a browser.
  */
+/** A configuration proposal branch, as `workflow proposals --json` names one. */
+export const PROPOSAL_BRANCH = /^sflow\/config-change\/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
+const MAX_LISTED_PROPOSALS = 100;
+/** The sections the page can be opened at, for screens that send a person to one. */
+export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
+export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
+
+/** A configuration proposal as the Changes view lists it: names and counts, never file content. */
+export interface StudioProposalSummary {
+  branch: string; proposalCommit: string; valid: boolean; merged: boolean;
+  workflows: Array<{ id: string; governs: string | null; change: string; label: string | null }>;
+  files: number; invalidFiles: string[]; failure: string | null;
+}
+
+/** What `workflow proposals --json` lists, bounded to the fields the page shows. */
+export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
+  const text = (value: unknown, limit = 300): string | null => (typeof value === 'string' && value.trim() ? value.slice(0, limit) : null);
+  return (Array.isArray(listed) ? listed : []).slice(0, MAX_LISTED_PROPOSALS).flatMap((raw) => {
+    const entry = (raw ?? {}) as Record<string, unknown>;
+    const branch = text(entry.branch, 260);
+    const proposalCommit = text(entry.proposalCommit, 64);
+    if (!branch || !PROPOSAL_BRANCH.test(branch) || !proposalCommit) return [];
+    const workflows = (Array.isArray(entry.workflows) ? entry.workflows : []).slice(0, 50).map((item) => {
+      const workflow = (item ?? {}) as Record<string, unknown>;
+      return { id: text(workflow.id, 80) ?? '?', governs: text(workflow.governs, 20), change: text(workflow.change, 20) ?? 'changed', label: text(workflow.label, 120) };
+    });
+    return [{
+      branch, proposalCommit, valid: entry.valid === true, merged: entry.merged === true, workflows,
+      files: Array.isArray(entry.changedFiles) ? entry.changedFiles.length : 0,
+      invalidFiles: (Array.isArray(entry.invalidFiles) ? entry.invalidFiles : []).filter((name): name is string => typeof name === 'string').slice(0, 10),
+      failure: text((entry.failure as { message?: unknown } | undefined)?.message)
+    }];
+  });
+}
+
 export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 (function () {
   'use strict';
@@ -285,15 +320,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {} };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
-      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null };
+      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null,
+        plannedClaims: workflow.plannedClaims && workflow.plannedClaims.declared ? clone(workflow.plannedClaims.declared) : null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: step.approval && step.approval.mode !== 'none' ? { group: step.approval.authorities[0] || null, minimum: step.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
-          template: step.template || null, optionalInputs: (step.optionalInputs || []).slice() };
+        draft.steps[workflow.id][step.id] = { approval: approvalDraft(step.approval), inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
+          template: step.template || null, optionalInputs: (step.optionalInputs || []).slice(), definesClauses: Boolean(step.definesClauses) };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: phase.approval && phase.approval.mode !== 'none' ? { group: phase.approval.authorities[0] || null, minimum: phase.approval.minimum || 1 } : { group: null, minimum: 1 }, inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: approvalDraft(phase.approval), inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
         template: phase.template || null, artifactSet: phase.artifactSet || null, optionalInputs: (phase.optionalInputs || []).slice(),
         artifactFile: phase.artifact ? String(phase.artifact).split('/').pop() : null };
     });
@@ -315,11 +351,55 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     ((model.integrations && model.integrations.targets) || []).forEach(function (target) {
       var copy = clone(target); delete copy.id; draft.integrations[target.id] = copy;
     });
+    draft.epics = epicsDraftFrom(model.epics);
     return draft;
   }
 
+  /** Epic workflows and their steps as the page edits them; null when the repository has no portfolio. */
+  function epicsDraftFrom(epics) {
+    if (!epics) return null;
+    var draft = { templatesRoot: epics.templatesRoot, order: [], workflows: {}, steps: {} };
+    (epics.workflows || []).forEach(function (workflow) {
+      draft.order.push(workflow.id);
+      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), lifecycleMode: workflow.lifecycleMode, packs: workflow.packs || 0, isNew: false, copyOf: null };
+    });
+    (epics.steps || []).forEach(function (step) {
+      draft.steps[step.id] = { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(),
+        approval: { on: step.approval.mode !== 'none', groups: step.approval.authorities.slice(), minimum: step.approval.minimum || 1, chain: Boolean(step.approval.chain) },
+        outputs: step.outputs.map(function (output) { return clone(output); }), checklist: step.checklist || 0, isNew: false };
+    });
+    return draft;
+  }
+  /** A kept draft from an older Studio may lack collections added since; they start from the configuration. */
+  function withDraftDefaults(draft) {
+    var fresh = initialDraft(state.model);
+    Object.keys(fresh).forEach(function (key) { if (draft[key] === undefined) draft[key] = fresh[key]; });
+    return draft;
+  }
+
+  /** A sign-off as the page edits it: the first group, every group, how many approve, and who must. */
+  function approvalDraft(approval) {
+    if (!approval || approval.mode === 'none' || !(approval.authorities || []).length) return { group: null, groups: [], minimum: 1, required: [] };
+    return { group: approval.authorities[0], groups: approval.authorities.slice(), minimum: approval.minimum || 1, required: (approval.requiredAuthorities || []).slice() };
+  }
+  /** Every group that signs a step off, the first one first. */
+  function groupsOf(approval) {
+    if (!approval || !approval.group) return [];
+    var listed = (approval.groups || []).filter(function (id) { return id && id !== approval.group; });
+    return [approval.group].concat(listed);
+  }
+  /** Two sign-offs are the same when they mean the same: groups, how many approve, who must. */
+  function sameApproval(left, right) {
+    return JSON.stringify(approvalChange({ approval: left || { group: null } })) === JSON.stringify(approvalChange({ approval: right || { group: null } }));
+  }
   function approvalChange(step) {
-    return step.approval.group ? { group: step.approval.group, minimum: step.approval.minimum || 1 } : 'none';
+    if (!step.approval.group) return 'none';
+    var groups = groupsOf(step.approval);
+    var change = { group: groups[0], minimum: step.approval.minimum || 1 };
+    if (groups.length > 1) change.groups = groups;
+    var required = (step.approval.required || []).filter(function (id) { return groups.indexOf(id) >= 0; });
+    if (required.length) change.required = required;
+    return change;
   }
 
   /**
@@ -474,6 +554,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (!same(before.phases, workflow.phases)) patch.phases = workflow.phases;
         if (!same(before.reworkLoops, workflow.reworkLoops)) patch.reworkLoops = workflow.reworkLoops;
         if (!same(before.decisions, workflow.decisions || [])) patch.decisions = workflow.decisions || [];
+        if (!same(before.plannedClaims || null, workflow.plannedClaims || null)) patch.plannedClaims = workflow.plannedClaims ? clone(workflow.plannedClaims) : 'infer';
         if (Object.keys(patch).length > 2) changes.push(patch);
       } else if (workflow.installFrom) {
         var installed = { op: 'workflow.update', id: id };
@@ -515,7 +596,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           referenceSkill = reference.authoringSkillSetByWorkflow ? reference.authoringSkill || null : phase.authoringSkill || null;
         }
         var update = { op: 'phase.update', id: phaseId, workflow: id };
-        if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
+        if (!sameApproval(reference.approval, step.approval)) update.approval = approvalChange(step);
         if (!same(reference.inputs, step.inputs) || !same(reference.optionalInputs || [], step.optionalInputs || [])) {
           update.inputs = same(reference.optionalInputs || [], step.optionalInputs || []) ? step.inputs
             : inputEntriesFor(step.inputs, step.optionalInputs || [], reference.optionalInputs || []);
@@ -526,9 +607,57 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (Object.keys(update).length > 3) changes.push(update);
       });
     });
+    var epicsNow = draft.epics; var epicsBefore = base.epics;
+    if (epicsNow && epicsBefore) {
+      Object.keys(epicsNow.steps).forEach(function (id) {
+        var step = epicsNow.steps[id]; var before = epicsBefore.steps[id];
+        if (!before) {
+          changes.push({ op: 'epicStep.create', id: id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(), approval: epicApprovalChange(step.approval) });
+          step.outputs.forEach(function (output) { changes.push(epicOutputChange(id, output)); });
+          return;
+        }
+        var patch = { op: 'epicStep.update', id: id };
+        if (before.label !== step.label) patch.label = step.label;
+        ['agents', 'lanes', 'views'].forEach(function (key) { if (!same(before[key], step[key])) patch[key] = step[key].slice(); });
+        if (!step.approval.chain && !same(before.approval, step.approval)) patch.approval = epicApprovalChange(step.approval);
+        if (Object.keys(patch).length > 2) changes.push(patch);
+        step.outputs.forEach(function (output) {
+          var was = before.outputs.find(function (entry) { return entry.id === output.id; });
+          if (!was || !same(epicOutputFields(was), epicOutputFields(output))) changes.push(epicOutputChange(id, output));
+        });
+        before.outputs.forEach(function (was) { if (!step.outputs.some(function (entry) { return entry.id === was.id; })) changes.push({ op: 'epicOutput.remove', step: id, id: was.id }); });
+      });
+      Object.keys(epicsNow.workflows).forEach(function (id) {
+        var workflow = epicsNow.workflows[id]; var before = epicsBefore.workflows[id];
+        if (!before) {
+          var create = { op: 'epicWorkflow.create', id: id, label: workflow.label, description: workflow.description, phases: workflow.phases.slice() };
+          if (workflow.copyOf && epicsBefore.workflows[workflow.copyOf]) create.copyOf = workflow.copyOf;
+          changes.push(create); return;
+        }
+        var patch = { op: 'epicWorkflow.update', id: id };
+        if (before.label !== workflow.label) patch.label = workflow.label;
+        if (before.description !== workflow.description) patch.description = workflow.description;
+        if (!same(before.phases, workflow.phases)) patch.phases = workflow.phases.slice();
+        if (Object.keys(patch).length > 2) changes.push(patch);
+      });
+    }
     // Imports and marketplace trust are explicit operations the person queued; the engine orders them.
     (draft.imports || []).forEach(function (change) { changes.push(clone(change)); });
     return { schema: 'sflow-studio-change-set@1', base: model.base, changes: changes };
+  }
+
+  function epicApprovalChange(approval) {
+    if (!approval.on || !approval.groups.length) return 'none';
+    var change = { group: approval.groups[0], minimum: approval.minimum || 1 };
+    if (approval.groups.length > 1) change.groups = approval.groups.slice();
+    return change;
+  }
+  function epicOutputFields(output) {
+    return { label: output.label, kind: output.kind, path: output.path, template: output.template || null, required: output.required !== false, consumes: (output.consumes || []).slice() };
+  }
+  function epicOutputChange(stepId, output) {
+    var fields = epicOutputFields(output);
+    return { op: 'epicOutput.set', step: stepId, id: output.id, label: fields.label, kind: fields.kind, path: fields.path, template: fields.template || '', required: fields.required, consumes: fields.consumes };
   }
 
   /**
@@ -545,14 +674,22 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   /** Plain words for one change, shown before the engine checks it. */
   function describe(change, draft) {
     function phaseName(id) { return (draft.phases[id] || {}).label || id; }
+    function epicWorkflowName(id) { return draft.epics && draft.epics.workflows[id] ? draft.epics.workflows[id].label : id; }
+    function epicStepName(id) { return draft.epics && draft.epics.steps[id] ? draft.epics.steps[id].label : id; }
     function agentName(id) { return (draft.agents[id] || {}).label || id; }
     switch (change.op) {
       case 'workflow.create': return 'New workflow ' + change.label + (change.copyOf ? ', a copy of ' + ((draft.workflows[change.copyOf] || {}).label || change.copyOf) : '') + ': ' + change.phases.map(phaseName).join(' → ');
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
-      case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions' }[key] || key; }).join(', ') + ' changed';
+      case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions', plannedClaims: 'planned claims' }[key] || key; }).join(', ') + ' changed';
       case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent) + (change.authoringSkill ? ' with /' + change.authoringSkill : '') + (change.afterStep && change.afterStep.length ? ', sending ' + change.afterStep.length + (change.afterStep.length === 1 ? ' action' : ' actions') + ' after it' : '');
       case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill', afterStep: 'actions after it', template: 'template', artifactSet: 'artifact set', artifactFile: 'file it writes' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined || change.afterStep !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
       case 'phase.agent': return phaseName(change.phase) + ' is now drafted by ' + agentName(change.agent);
+      case 'epicWorkflow.create': return 'New Epic workflow ' + change.label + (change.copyOf ? ', a linked copy of ' + epicWorkflowName(change.copyOf) : '');
+      case 'epicWorkflow.update': return 'Epic workflow ' + (change.label || epicWorkflowName(change.id)) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps' }[key] || key; }).join(', ') + ' changed';
+      case 'epicStep.create': return 'New Epic step ' + change.label;
+      case 'epicStep.update': return 'Epic step ' + (change.label || epicStepName(change.id)) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', agents: 'agents', lanes: 'lanes', views: 'knowledge', approval: 'sign-off' }[key] || key; }).join(', ') + ' changed';
+      case 'epicOutput.set': return epicStepName(change.step) + ': output ' + (change.label || change.id) + ' set';
+      case 'epicOutput.remove': return epicStepName(change.step) + ': output ' + change.id + ' removed';
       case 'agent.create': return 'New agent ' + change.label;
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
       case 'group.create': return 'New approval group ' + change.label;
@@ -599,6 +736,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     openSetForm: function () { return openSetForm.apply(null, arguments); }, setFormProblems: function () { return setFormProblems.apply(null, arguments); },
     keepSetForm: function () { return keepSetForm.apply(null, arguments); },
     chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
+    // Proposals waiting for review, workflow bundles, governed files.
+    requestProposals: function () { return requestProposals.apply(null, arguments); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
+    importWorkflows: function () { return importWorkflows.apply(null, arguments); }, openFile: function () { return openFile.apply(null, arguments); },
+    // Epic workflows.
+    epicsDraftFrom: function () { return epicsDraftFrom.apply(null, arguments); }, withDraftDefaults: function () { return withDraftDefaults.apply(null, arguments); },
+    // Sign-off groups.
+    approvalDraft: function () { return approvalDraft.apply(null, arguments); }, approvalChange: function () { return approvalChange.apply(null, arguments); },
+    groupsOf: function () { return groupsOf.apply(null, arguments); }, setApprovalGroups: function () { return setApprovalGroups.apply(null, arguments); },
     // Send-back rules.
     addSendBack: function () { return addSendBack.apply(null, arguments); }, retargetSendBack: function () { return retargetSendBack.apply(null, arguments); },
     setLoopBudget: function () { return setLoopBudget.apply(null, arguments); }, loopBudget: function () { return loopBudget.apply(null, arguments); },
@@ -741,7 +886,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
     state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
     insertStep(workflowId, id, afterId);
-    state.draft.steps[workflowId][id] = { approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [] };
+    state.draft.steps[workflowId][id] = { approval: { group: firstGroup, groups: firstGroup ? [firstGroup] : [], minimum: 1, required: [] }, inputs: previous, afterStep: [] };
     state.step = id;
     changed();
     return id;
@@ -834,9 +979,6 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     options.push({ value: '__new__', label: 'Create a new agent…' });
     return options;
   }
-  function groupOptions() {
-    return Object.keys(state.draft.groups).map(function (id) { var group = state.draft.groups[id]; return { value: id, label: group.label + ' · ' + groupHint(group) }; }).concat([{ value: '', label: 'No sign-off' }]);
-  }
 
   /** Where a sub-view opened from the board goes back to: the same workflow, step and decision. */
   function boardReturn() { return { view: 'board', workflow: state.workflow, step: state.step, decision: state.decision }; }
@@ -867,7 +1009,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     // On the canvas the navigation folds to icons, so the workflow gets the width.
     var compact = state.view === 'board';
     function item(view, label, iconName, count, attention) {
-      var current = state.view === view || (view === 'home' && (state.view === 'board' || state.view === 'new'));
+      var current = state.view === view || (view === 'home' && (state.view === 'board' || state.view === 'new' || state.view === 'epic'));
       var go = function () { state.returnTo = null; state.view = view; render(); };
       if (compact) {
         return el('button', { type: 'button', class: 'nav-icon', title: label + (attention ? ' (' + count + ')' : ''), 'aria-label': label + (attention ? ', ' + count : ''), 'aria-current': current ? 'page' : null, onclick: go },
@@ -914,7 +1056,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       blocked.length ? check('bad', blocked.length + (blocked.length === 1 ? ' approval group can never approve' : ' approval groups can never approve'), 'Add people to ' + blocked.map(function (id) { return state.draft.groups[id].label; }).join(', ') + ', or steps they sign off can never finish.', button('Add people', function () { state.view = 'people'; render(); })) : check('ok', 'Every approval group can sign off', 'Empty groups enrol whoever starts a Story, unless your repository requires named people.'),
       noAgent.length ? check('bad', noAgent.length + ' step(s) have no agent', noAgent.map(function (id) { return state.draft.phases[id].label; }).join(', '), null) : check('ok', 'Every step has an agent', 'Each step has exactly one agent that drafts it.'),
       pending ? check('wait', pending + (pending === 1 ? ' change' : ' changes') + ' not published yet', 'Check and publish them together from Changes.', button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : check('dim', 'No unpublished changes', 'Edits you make collect here until you publish them.')));
-    main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' })));
+    main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
+      button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
+      button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
+      button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
+    if (state.exporting) main.appendChild(renderExport());
     workflows.forEach(function (id) {
       var workflow = state.draft.workflows[id];
       var code = workflow.phases.some(function (phaseId) { return stepOutput(id, phaseId) === 'code'; });
@@ -927,6 +1073,216 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') }),
         rail(workflow.phases)));
     });
+    renderEpicList(main);
+  }
+
+  // ---- Epic workflows ----------------------------------------------------------------------------
+  //
+  // An Epic workflow (portfolio.yml) is the list of steps an Epic goes through before its Stories
+  // start. Each step drafts a set of outputs that people sign off together. Review packs, chains and
+  // checklists stay in the file; everything else is edited here and published with the other changes.
+
+  function epicStepLabel(id) { var step = state.draft.epics && state.draft.epics.steps[id]; return step ? step.label : id; }
+  function renderEpicList(main) {
+    var epics = state.draft.epics;
+    if (!epics) return;
+    main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Epic workflows' }),
+      button('New Epic workflow', function () { state.epicForm = { label: '', description: '', from: epics.order[0] || null, copy: false }; render(); }, { class: 'primary' })));
+    if (state.epicForm) main.appendChild(renderEpicForm(state.epicForm));
+    epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; })).forEach(function (id) {
+      var workflow = epics.workflows[id];
+      main.appendChild(el('article', { class: 'studio-card', 'aria-label': 'Epic workflow ' + workflow.label },
+        el('div', { class: 'studio-row spread' },
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+            el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
+          el('div', { class: 'studio-row' },
+            button('Open', function () { state.view = 'epic'; state.epic = id; state.epicStep = workflow.phases[0] || null; state.epicOutput = null; render(); }, { class: 'secondary', 'aria-label': 'Open ' + workflow.label }),
+            button('Duplicate', function () { state.epicForm = { label: workflow.label + ' copy', description: workflow.description, from: id, copy: true }; render(); }, { class: 'secondary', 'aria-label': 'Duplicate ' + workflow.label }))),
+        el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') }),
+        el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); }))));
+    });
+  }
+  function renderEpicForm(form) {
+    var epics = state.draft.epics;
+    var id = kebab(form.label);
+    var card = el('section', { class: 'studio-card', 'aria-label': form.copy ? 'Duplicate an Epic workflow' : 'New Epic workflow' });
+    card.appendChild(el('h2', { text: form.copy ? 'Duplicate ' + epics.workflows[form.from].label : 'New Epic workflow' }));
+    card.appendChild(el('div', { class: 'grid-2' },
+      field('epic-form-name', 'Name', textInput('epic-form-name', form.label, function (value) { form.label = value; render(); }, { placeholder: 'Vendor selection' }),
+        id ? 'ID ' + id + (epics.workflows[id] ? ' is already used: choose another name' : '') : 'The ID is made from the name.'),
+      field('epic-form-description', 'What is it for? (optional)', textInput('epic-form-description', form.description, function (value) { form.description = value; }))));
+    if (!form.copy) {
+      card.appendChild(field('epic-form-from', 'Start with the steps of', select('epic-form-from', [{ value: '', label: 'No steps: add them next' }].concat(epics.order.map(function (entry) { return { value: entry, label: epics.workflows[entry].label }; })), form.from || '', function (value) { form.from = value || null; render(); })));
+    } else {
+      card.appendChild(el('p', { class: 'muted', text: 'A linked copy shares its source\'s steps and review packs: changing a shared step changes both workflows.' }));
+    }
+    card.appendChild(el('div', { class: 'studio-row' },
+      button(form.copy ? 'Create the copy' : 'Create Epic workflow', function () {
+        if (!id || epics.workflows[id]) return;
+        var source = form.from ? epics.workflows[form.from] : null;
+        var phases = source ? source.phases.slice() : [];
+        if (!phases.length) { var first = Object.keys(epics.steps)[0]; if (first) phases = [first]; }
+        epics.workflows[id] = { id: id, label: form.label.trim(), description: (form.description || '').trim(), phases: phases, lifecycleMode: source ? source.lifecycleMode : 'full-delivery', packs: form.copy && source ? source.packs : 0, isNew: true, copyOf: form.copy ? form.from : null };
+        epics.order.push(id);
+        state.epicForm = null; state.view = 'epic'; state.epic = id; state.epicStep = phases[0] || null; changed();
+      }, { class: 'primary', disabled: !id || Boolean(epics.workflows[id]) }),
+      button('Cancel', function () { state.epicForm = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function renderEpic(main) {
+    var epics = state.draft.epics;
+    var workflow = epics && epics.workflows[state.epic];
+    if (!workflow) { state.view = 'home'; renderHome(main); return; }
+    main.appendChild(el('div', { class: 'studio-row' }, button('← Workflows', function () { state.view = 'home'; state.epic = null; state.epicStep = null; state.epicOutput = null; render(); }, { class: 'secondary', 'data-key': 'epic-back' })));
+    main.appendChild(el('header', null, el('h1', { text: workflow.label }),
+      el('p', { class: 'studio-lede', text: 'An Epic goes through these steps before its Stories start. In each step an agent drafts its outputs and people sign them off together.' })));
+    var details = el('section', { class: 'studio-card', 'aria-label': 'Epic workflow' });
+    details.appendChild(el('div', { class: 'grid-2' },
+      field('epic-name', 'Name', textInput('epic-name', workflow.label, function (value) { if (value.trim()) { workflow.label = value.trim(); changed(); } })),
+      field('epic-description', 'What it is for', textInput('epic-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); }))));
+    details.appendChild(el('span', { class: 'hint', text: (workflow.lifecycleMode === 'planning-only' ? 'It plans Stories; delivery happens in them.' : 'It runs delivery to the end.') + (workflow.packs ? ' Its ' + workflow.packs + ' review packs stay in portfolio.yml.' : '') }));
+    main.appendChild(details);
+
+    var steps = el('section', { class: 'studio-card', 'aria-label': 'Steps' });
+    steps.appendChild(el('h2', { text: 'Steps' }));
+    workflow.phases.forEach(function (phaseId, index) {
+      var step = epics.steps[phaseId] || { label: phaseId, outputs: [], approval: { on: false, groups: [] } };
+      var selected = state.epicStep === phaseId;
+      steps.appendChild(el('div', { class: 'decision-box', 'aria-current': selected ? 'true' : null },
+        el('div', { class: 'studio-row spread' },
+          button((index + 1) + '. ' + step.label, function () { state.epicStep = phaseId; state.epicOutput = null; render(); }, { class: selected ? 'primary' : 'secondary', 'aria-label': 'Edit the step ' + step.label }),
+          el('div', { class: 'studio-row' },
+            button('Move up', function () { workflow.phases.splice(index - 1, 0, workflow.phases.splice(index, 1)[0]); changed(); }, { class: 'secondary', disabled: index === 0 }),
+            button('Move down', function () { workflow.phases.splice(index + 1, 0, workflow.phases.splice(index, 1)[0]); changed(); }, { class: 'secondary', disabled: index === workflow.phases.length - 1 }),
+            button('Remove', function () { workflow.phases.splice(index, 1); if (state.epicStep === phaseId) state.epicStep = workflow.phases[0] || null; changed(); }, { class: 'secondary', disabled: workflow.phases.length === 1, 'aria-label': 'Remove ' + step.label + ' from this workflow' }))),
+        el('span', { class: 'muted', text: step.outputs.length + (step.outputs.length === 1 ? ' output' : ' outputs') + ' · ' + (step.approval.on ? 'signed off by ' + step.approval.groups.map(epicGroupLabel).join(', ') : 'no sign-off') })));
+    });
+    var others = Object.keys(epics.steps).filter(function (id) { return workflow.phases.indexOf(id) < 0; });
+    var adding = state.epicAdding || (state.epicAdding = { existing: others[0] || '', label: '' });
+    if (others.indexOf(adding.existing) < 0) adding.existing = others[0] || '';
+    steps.appendChild(el('div', { class: 'grid-2' },
+      el('div', { class: 'studio-row' },
+        select('epic-add-existing', others.map(function (id) { return { value: id, label: epics.steps[id].label }; }), adding.existing, function (value) { adding.existing = value; }, { 'aria-label': 'A step from another Epic workflow', disabled: !others.length }),
+        button('Add step', function () { if (!adding.existing) return; workflow.phases.push(adding.existing); state.epicStep = adding.existing; changed(); }, { class: 'secondary', disabled: !others.length })),
+      el('div', { class: 'studio-row' },
+        textInput('epic-add-new', adding.label, function (value) { adding.label = value; }, { placeholder: 'A new step', 'aria-label': 'Name of a new step' }),
+        button('Create step', function () {
+          var stepId = kebab(adding.label);
+          if (!stepId || epics.steps[stepId]) { setStatus(stepId ? 'An Epic step called ' + stepId + ' already exists; add it instead.' : 'Name the new step.'); return; }
+          epics.steps[stepId] = { id: stepId, label: adding.label.trim(), agents: [], lanes: [], views: [], approval: { on: false, groups: [], minimum: 1, chain: false }, outputs: [], checklist: 0, isNew: true };
+          workflow.phases.push(stepId); adding.label = ''; state.epicStep = stepId; changed();
+        }, { class: 'secondary' }))));
+    main.appendChild(steps);
+    if (state.epicStep && epics.steps[state.epicStep] && workflow.phases.indexOf(state.epicStep) >= 0) main.appendChild(renderEpicStep(workflow, epics.steps[state.epicStep]));
+  }
+  function epicGroupLabel(id) {
+    var group = ((state.model.epics && state.model.epics.groups) || []).find(function (entry) { return entry.id === id; });
+    return group ? group.label : id;
+  }
+  function toggled(list, value, on) { return on ? (list.indexOf(value) >= 0 ? list : list.concat([value])) : list.filter(function (entry) { return entry !== value; }); }
+  function renderEpicStep(workflow, step) {
+    var epics = state.draft.epics;
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Epic step ' + step.label });
+    card.appendChild(el('h2', { text: step.label }));
+    var sharedWith = Object.keys(epics.workflows).filter(function (id) { return id !== workflow.id && epics.workflows[id].phases.indexOf(step.id) >= 0; });
+    if (sharedWith.length) card.appendChild(el('div', { class: 'callout wait', text: 'Also used by ' + sharedWith.map(function (id) { return epics.workflows[id].label; }).join(', ') + ': changes to this step apply there too.' }));
+    card.appendChild(field('epic-step-name', 'Name', textInput('epic-step-name', step.label, function (value) { if (value.trim()) { step.label = value.trim(); changed(); } })));
+    card.appendChild(el('span', { class: 'lane-label', text: 'AGENTS' }));
+    card.appendChild(el('div', { class: 'checks' }, Object.keys(state.draft.agents).map(function (id) {
+      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'epic-agent-' + id, checked: step.agents.indexOf(id) >= 0, onchange: function (event) { step.agents = toggled(step.agents, id, event.target.checked); changed(); } }), ' ' + state.draft.agents[id].label);
+    })));
+    var lanes = ((state.model.epics && state.model.epics.lanes) || []).concat(step.lanes).filter(function (lane, index, all) { return all.indexOf(lane) === index; });
+    card.appendChild(el('span', { class: 'lane-label', text: 'LANES' }));
+    card.appendChild(el('div', { class: 'checks' }, lanes.map(function (lane) {
+      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'epic-lane-' + lane, checked: step.lanes.indexOf(lane) >= 0, onchange: function (event) { step.lanes = toggled(step.lanes, lane, event.target.checked); changed(); } }), ' ' + lane);
+    })));
+    card.appendChild(el('div', { class: 'studio-row' }, textInput('epic-new-lane', '', function (value) {
+      var lane = kebab(value); if (!lane) return; step.lanes = toggled(step.lanes, lane, true); changed();
+    }, { placeholder: 'Add a lane, like engineering', 'aria-label': 'Add a lane' })));
+    var views = state.model.choices.views || [];
+    if (views.length) {
+      card.appendChild(el('span', { class: 'lane-label', text: 'KNOWLEDGE VIEWS' }));
+      card.appendChild(el('div', { class: 'checks' }, views.map(function (view) {
+        return el('label', null, el('input', { type: 'checkbox', 'data-key': 'epic-view-' + view, checked: step.views.indexOf(view) >= 0, onchange: function (event) { step.views = toggled(step.views, view, event.target.checked); changed(); } }), ' ' + view);
+      })));
+    }
+    card.appendChild(renderEpicSignoff(step));
+    card.appendChild(renderEpicOutputs(workflow, step));
+    if (step.checklist) card.appendChild(el('span', { class: 'hint', text: 'Its ' + step.checklist + ' checklist items stay in portfolio.yml.' }));
+    return card;
+  }
+  function renderEpicSignoff(step) {
+    var approval = step.approval;
+    var groups = (state.model.epics && state.model.epics.groups) || [];
+    var box = el('div', { class: 'decision-box', 'aria-label': 'Sign-off' }, el('div', { class: 'studio-row spread' }, el('strong', { text: 'Sign-off' }),
+      approval.chain ? null : switchControl('epic-signoff', 'People sign off this step', approval.on, function (on) {
+        approval.on = on; if (on && !approval.groups.length && groups[0]) approval.groups = [groups[0].id]; changed();
+      })));
+    if (approval.chain) { box.appendChild(el('div', { class: 'callout', text: 'Signed off through a review chain; change it in portfolio.yml.' })); return box; }
+    if (!approval.on) { box.appendChild(el('span', { class: 'hint', text: 'No sign-off: the step completes when its outputs and checks are in place.' })); return box; }
+    box.appendChild(el('div', { class: 'checks' }, groups.map(function (group) {
+      var chosen = approval.groups.indexOf(group.id) >= 0;
+      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'epic-group-' + group.id, checked: chosen, disabled: chosen && approval.groups.length === 1, onchange: function (event) { approval.groups = toggled(approval.groups, group.id, event.target.checked); changed(); } }), ' ' + group.label);
+    })));
+    box.appendChild(field('epic-minimum', 'Approvals needed', el('input', { type: 'text', inputmode: 'numeric', id: 'epic-minimum', 'data-key': 'epic-minimum', value: String(approval.minimum || 1),
+      onchange: function (event) {
+        var count = /^\s*\d+\s*$/.test(event.target.value) ? Number(event.target.value) : NaN;
+        if (!Number.isInteger(count) || count < 1 || count > 20) { setStatus('Approvals needed is a whole number from 1 to 20.'); render(); return; }
+        approval.minimum = count; changed();
+      } }), '1 to 20, from all the groups together'));
+    return box;
+  }
+  function renderEpicOutputs(workflow, step) {
+    var epics = state.draft.epics;
+    var box = el('div', { class: 'decision-box', 'aria-label': 'Outputs' }, el('strong', { text: 'Outputs' }));
+    if (!step.outputs.length) box.appendChild(el('span', { class: 'hint', text: 'No outputs yet. An output is a document the step drafts, from a template, into the Epic\'s folder.' }));
+    step.outputs.forEach(function (output) {
+      box.appendChild(el('div', { class: 'studio-row spread' },
+        el('div', null, el('strong', { text: output.label }), el('span', { class: 'muted', text: '  ' + output.path + ' · ' + output.kind + (output.required === false ? ' · optional' : '') + (output.template ? ' · ' + output.template : output.generator ? ' · generated' : '') + ((output.consumes || []).length ? ' · reads ' + output.consumes.join(', ') : '') })),
+        el('div', { class: 'studio-row' },
+          button('Edit', function () { state.epicOutput = { step: step.id, id: output.id, label: output.label, kind: output.kind, path: output.path, template: output.template || '', required: output.required !== false, consumes: (output.consumes || []).slice(), isNew: false }; render(); }, { class: 'secondary', 'aria-label': 'Edit ' + output.label }),
+          button('Remove', function () {
+            var reference = step.id + '/' + output.id;
+            var readers = Object.keys(epics.steps).filter(function (id) { return epics.steps[id].outputs.some(function (entry) { return (entry.consumes || []).indexOf(reference) >= 0; }); });
+            if (readers.length) { setStatus(reference + ' is read by ' + readers.map(epicStepLabel).join(', ') + '; take it off them first.'); return; }
+            step.outputs = step.outputs.filter(function (entry) { return entry.id !== output.id; }); changed();
+          }, { class: 'secondary', 'aria-label': 'Remove ' + output.label }))));
+    });
+    var form = state.epicOutput && state.epicOutput.step === step.id ? state.epicOutput : null;
+    if (!form) {
+      box.appendChild(el('div', { class: 'studio-row' }, button('Add output', function () { state.epicOutput = { step: step.id, id: '', label: '', kind: 'markdown', path: '', template: '', required: true, consumes: [], isNew: true }; render(); }, { class: 'secondary' })));
+      return box;
+    }
+    var earlier = workflow.phases.slice(0, workflow.phases.indexOf(step.id)).reduce(function (all, phaseId) {
+      return all.concat(((epics.steps[phaseId] || { outputs: [] }).outputs).map(function (entry) { return { value: phaseId + '/' + entry.id, label: epicStepLabel(phaseId) + ' / ' + entry.label }; }));
+    }, []);
+    var templates = Object.keys(state.draft.templates).sort();
+    var outputId = form.isNew ? kebab(form.label) : form.id;
+    box.appendChild(el('div', { class: 'grid-2' },
+      field('epic-output-label', 'Name', textInput('epic-output-label', form.label, function (value) { form.label = value; render(); }, { placeholder: 'Vendor brief' }), form.isNew ? (outputId ? 'ID ' + outputId : 'The ID is made from the name.') : 'ID ' + form.id),
+      field('epic-output-kind', 'Kind', select('epic-output-kind', ((state.model.epics && state.model.epics.outputKinds) || ['markdown', 'yaml']).map(function (kind) { return { value: kind, label: kind }; }), form.kind, function (value) { form.kind = value; render(); }))));
+    box.appendChild(el('div', { class: 'grid-2' },
+      field('epic-output-path', 'File', textInput('epic-output-path', form.path, function (value) { form.path = value.trim(); }, { placeholder: (outputId || 'output') + (form.kind === 'yaml' ? '.yml' : '.md') }), 'Inside the Epic\'s folder.'),
+      field('epic-output-template', 'Template', select('epic-output-template', [{ value: '', label: 'None' }].concat(templates.map(function (relative) { return { value: relative, label: relative }; })), form.template, function (value) { form.template = value; }))));
+    box.appendChild(el('label', null, el('input', { type: 'checkbox', 'data-key': 'epic-output-required', checked: form.required, onchange: function (event) { form.required = event.target.checked; } }), ' required: the step is not complete without it'));
+    if (earlier.length) {
+      box.appendChild(el('span', { class: 'lane-label', text: 'READS' }));
+      box.appendChild(el('div', { class: 'checks' }, earlier.map(function (entry) {
+        return el('label', null, el('input', { type: 'checkbox', 'data-key': 'epic-output-reads-' + entry.value, checked: form.consumes.indexOf(entry.value) >= 0, onchange: function (event) { form.consumes = toggled(form.consumes, entry.value, event.target.checked); } }), ' ' + entry.label);
+      })));
+    }
+    box.appendChild(el('div', { class: 'studio-row' },
+      button('Keep output', function () {
+        if (!outputId) { setStatus('Name the output.'); return; }
+        if (form.isNew && step.outputs.some(function (entry) { return entry.id === outputId; })) { setStatus(step.label + ' already has an output ' + outputId + '.'); return; }
+        var kept = { id: outputId, label: form.label.trim() || outputId, kind: form.kind, path: form.path || (outputId + (form.kind === 'yaml' ? '.yml' : '.md')), template: form.template || null, required: form.required, consumes: form.consumes.slice() };
+        var index = step.outputs.findIndex(function (entry) { return entry.id === outputId; });
+        if (index >= 0) step.outputs[index] = Object.assign({}, step.outputs[index], kept); else step.outputs.push(Object.assign({ generator: null, ownApproval: false }, kept));
+        state.epicOutput = null; changed();
+      }, { class: 'primary' }),
+      button('Cancel', function () { state.epicOutput = null; render(); }, { class: 'secondary' })));
+    return box;
   }
 
   function renderWizard(main) {
@@ -1705,8 +2061,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var blocked = Boolean(group && groupBlocked(settings.approval.group));
     var selected = state.step === phaseId && !state.decision && !state.panel;
     var minimum = settings.approval.minimum || 1;
+    var others = groupsOf(settings.approval).length - 1;
     var signText = !group ? 'No sign-off' : blocked ? 'Nobody can approve it yet'
-      : minimum + (minimum === 1 ? ' approval' : ' approvals') + ' from ' + group.label;
+      : minimum + (minimum === 1 ? ' approval' : ' approvals') + ' from ' + group.label + (others > 0 ? ' and ' + others + (others === 1 ? ' other group' : ' other groups') : '');
     var asks = Boolean(phase.clarification && phase.clarification !== 'off');
     var chips = afterChips(workflow, phaseId, node.index);
     var then = chips.map(function (entry) { return entry.title; }).join('; ');
@@ -2114,8 +2471,64 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     aside.appendChild(section('decisions', 'Decisions', decisions.length ? decisions.map(function (decision) {
       return el('button', { type: 'button', class: 'prop-link', onclick: function () { openDecision(decision); } }, 'After ' + stepLabel(decision.after) + ': ' + decision.label);
     }) : el('span', { class: 'hint', text: 'None yet. Select a step and use the diamond tool to decide what happens after it.' }), null, String(decisions.length)));
+    var claimsSection = plannedClaimsSection(workflowId, workflow);
+    if (claimsSection) aside.appendChild(claimsSection);
+    aside.appendChild(section('advanced', 'Advanced', [
+      el('span', { class: 'hint', text: 'Settings Studio does not show (input selectors and summaries, write scope, tool evidence) are in the governed workflow file.' }),
+      el('div', { class: 'studio-row' }, button('Open workflow.yml', function () { openFile('singularity/workflow.yml'); }, { class: 'secondary' }))
+    ], null, null, true));
     aside.appendChild(el('div', { class: 'prop-actions' }, button('Back to the step', function () { state.panel = null; render(); }, { class: 'secondary' })));
     return aside;
+  }
+
+  // ---- Planned claims ------------------------------------------------------------------------
+  //
+  // A code step implements claims an earlier step planned, against clauses a requirements or
+  // implementation-spec step defined. Left alone, the engine works the topology out from the steps
+  // and pins it; here a person can name the clause steps and each code step's owner instead.
+
+  function claimsOf(workflowId) {
+    var published = (state.model.workflows || []).find(function (entry) { return entry.id === workflowId; });
+    return published && published.plannedClaims ? published.plannedClaims : null;
+  }
+  function editableClaims(workflowId, workflow) {
+    if (workflow.plannedClaims && workflow.plannedClaims.clausePhases && workflow.plannedClaims.owners) return workflow.plannedClaims;
+    var resolved = claimsOf(workflowId) || { clausePhases: [], owners: {} };
+    workflow.plannedClaims = { mode: 'required', clausePhases: resolved.clausePhases.filter(function (id) { return workflow.phases.indexOf(id) >= 0; }), owners: clone(resolved.owners || {}) };
+    return workflow.plannedClaims;
+  }
+  function plannedClaimsSection(workflowId, workflow) {
+    var codeSteps = workflow.phases.filter(function (id) { return stepOutput(workflowId, id) === 'code'; });
+    if (!codeSteps.length) return null;
+    var resolved = claimsOf(workflowId);
+    var clauseSteps = workflow.phases.filter(function (id) { var step = state.draft.steps[workflowId] && state.draft.steps[workflowId][id]; return Boolean(step && step.definesClauses); });
+    var declared = workflow.plannedClaims;
+    var current = declared && declared.clausePhases && declared.owners ? declared : resolved ? { clausePhases: resolved.clausePhases, owners: resolved.owners } : { clausePhases: [], owners: {} };
+    var body = [];
+    body.push(el('span', { class: 'hint', text: declared ? 'This workflow names its clause steps and claim owners.' : 'Worked out from the steps; edit them to name them yourself.' }));
+    if (resolved && resolved.problem) body.push(el('div', { class: 'callout bad', text: resolved.problem }));
+    body.push(el('span', { class: 'lane-label', text: 'STEPS THAT DEFINE CLAUSES' }));
+    body.push(clauseSteps.length ? el('div', { class: 'checks' }, clauseSteps.map(function (id) {
+      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'claims-clause-' + id, checked: current.clausePhases.indexOf(id) >= 0, onchange: function (event) {
+        var claims = editableClaims(workflowId, workflow);
+        claims.clausePhases = event.target.checked ? claims.clausePhases.concat([id]) : claims.clausePhases.filter(function (entry) { return entry !== id; });
+        claims.clausePhases.sort(function (a, b) { return workflow.phases.indexOf(a) - workflow.phases.indexOf(b); });
+        changed();
+      } }), ' ' + stepLabel(id));
+    })) : el('div', { class: 'callout wait', text: 'No step in this workflow writes a requirements or implementation-spec document, so code steps have no clauses to plan against.' }));
+    body.push(el('span', { class: 'lane-label', text: 'WHO PLANS THE CLAIMS OF EACH CODE STEP' }));
+    codeSteps.forEach(function (codeId) {
+      var before = workflow.phases.slice(0, workflow.phases.indexOf(codeId)).filter(function (id) { return stepOutput(workflowId, id) !== 'code'; });
+      var owner = current.owners[codeId] || '';
+      body.push(field('claims-owner-' + codeId, stepLabel(codeId), select('claims-owner-' + codeId, [{ value: '', label: 'Choose…' }].concat(before.map(function (id) { return { value: id, label: stepLabel(id) }; })), owner, function (value) {
+        var claims = editableClaims(workflowId, workflow);
+        if (value) claims.owners[codeId] = value; else delete claims.owners[codeId];
+        changed();
+      }), 'An earlier step, at or after a step that defines clauses.'));
+    });
+    body.push(el('div', { class: 'studio-row' }, button('Work them out from the steps', function () { workflow.plannedClaims = null; changed(); }, { class: 'secondary', disabled: !declared })));
+    var summary = (current.clausePhases.length ? current.clausePhases.map(stepLabel).join(', ') : 'no clause steps') + (declared ? '' : ' · worked out');
+    return section('claims', 'Planned claims', body, null, summary, true);
   }
 
   /** The other workflows in the draft that use a step. */
@@ -2217,6 +2630,37 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     changed();
   }
 
+  // ---- Sign-off groups -------------------------------------------------------------------------
+  //
+  // A step can be signed off by several approval groups: approvals from any of them count towards
+  // the number needed, and a group marked "must approve" has to give at least one of them.
+
+  function setApprovalGroups(approval, groups) {
+    approval.groups = groups.slice(); approval.group = groups[0] || null;
+    approval.required = (approval.required || []).filter(function (id) { return groups.indexOf(id) >= 0; });
+    if ((approval.minimum || 1) < approval.required.length) approval.minimum = approval.required.length;
+  }
+  function approvalGroupsEditor(settings) {
+    var approval = settings.approval;
+    var signers = groupsOf(approval);
+    var required = approval.required || (approval.required = []);
+    var box = el('div', { class: 'field', role: 'group', 'aria-label': 'Approval groups' }, el('span', { class: 'lane-label', text: 'APPROVAL GROUPS' }));
+    box.appendChild(el('div', { class: 'checks' }, Object.keys(state.draft.groups).map(function (id) {
+      var group = state.draft.groups[id]; var chosen = signers.indexOf(id) >= 0;
+      return el('div', { class: 'studio-row spread' },
+        el('label', null, el('input', { type: 'checkbox', 'data-key': 'step-group-' + id, checked: chosen, disabled: chosen && signers.length === 1, onchange: function (event) {
+          setApprovalGroups(approval, event.target.checked ? signers.concat([id]) : signers.filter(function (entry) { return entry !== id; })); changed();
+        } }), ' ' + group.label, el('span', { class: 'muted', text: ' · ' + groupHint(group) })),
+        chosen && signers.length > 1 ? el('label', { class: 'muted' }, el('input', { type: 'checkbox', 'data-key': 'step-group-required-' + id, 'aria-label': group.label + ' must approve', checked: required.indexOf(id) >= 0, onchange: function (event) {
+          approval.required = event.target.checked ? required.concat([id]) : required.filter(function (entry) { return entry !== id; });
+          if ((approval.minimum || 1) < approval.required.length) approval.minimum = approval.required.length;
+          changed();
+        } }), ' must approve') : null);
+    })));
+    box.appendChild(el('span', { class: 'hint', text: signers.length > 1 ? 'Approvals from any of these groups count; a group that must approve has to give at least one.' : 'Add another group to let its people approve too.' }));
+    return box;
+  }
+
   // ---- Send-back rules ------------------------------------------------------------------------
   //
   // A step's rules each name an earlier step rejected work goes back to, how many times at most, and
@@ -2306,7 +2750,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     aside.appendChild(section('step', 'Step', [
       field('step-name', 'Name', textInput('step-name', phase.label, function (value) { if (value.trim()) { phase.label = value.trim(); changed(); } }), users.length ? 'Renames it in ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' too.' : null),
       field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { setStepOutput(phaseId, value); }, { disabled: ownOutput }),
-        ownOutput ? 'This workflow sets what this step produces itself; change it in the Workflow Designer.'
+        ownOutput ? 'This workflow sets what this step produces itself, in its own settings in workflow.yml (Advanced, in the workflow settings).'
           : stepOutput(workflowId, phaseId) === 'code' ? 'A code step needs a requirements or implementation-spec step before it; the check says so if one is missing.' : null),
       authoringSkillControl(workflowId, phaseId, settings, users),
       users.length && !phase.isNew ? el('div', { class: 'callout wait' },
@@ -2332,19 +2776,31 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var signoff = [];
     if (group) {
       var minimum = settings.approval.minimum || 1;
-      var seats = Math.max(group.members.length, minimum);
+      signoff.push(approvalGroupsEditor(settings));
+      var signers = groupsOf(settings.approval);
+      var members = signers.reduce(function (all, id) { ((state.draft.groups[id] || { members: [] }).members).forEach(function (member) { var key = member.email || member.githubLogin || member.name; if (all.keys.indexOf(key) < 0) { all.keys.push(key); all.list.push(member); } }); return all; }, { keys: [], list: [] }).list;
+      var seats = Math.max(members.length, minimum);
       signoff.push(el('div', { class: 'grid-2' },
-        field('step-group', 'Approval group', select('step-group', groupOptions().filter(function (option) { return option.value; }), settings.approval.group, function (value) { settings.approval.group = value; changed(); })),
-        field('step-minimum', 'Approvals needed', select('step-minimum', [1, 2, 3, 4, 5].map(function (count) { return { value: String(count), label: String(count) }; }), String(minimum), function (value) { settings.approval.minimum = Number(value); changed(); }))));
+        field('step-minimum', 'Approvals needed', el('input', { type: 'text', inputmode: 'numeric', id: 'step-minimum', 'data-key': 'step-minimum', value: String(minimum),
+          onchange: function (event) {
+            var count = /^\s*\d+\s*$/.test(event.target.value) ? Number(event.target.value) : NaN;
+            var floor = Math.max(1, (settings.approval.required || []).filter(function (id) { return signers.indexOf(id) >= 0; }).length);
+            if (!Number.isInteger(count) || count < floor || count > 20) { setStatus('Approvals needed is a whole number from ' + floor + ' to 20' + (floor > 1 ? ': one for each group that must approve, at least.' : '.')); render(); return; }
+            settings.approval.minimum = count; changed();
+          } }), '1 to 20, from all the groups together'),
+        el('span')));
       signoff.push(el('div', { class: 'meter', 'aria-hidden': 'true' }, Array.from({ length: Math.min(seats, 8) }, function (unused, at) { return el('span', { class: at < minimum ? 'on' : '' }); })));
-      signoff.push(el('span', { class: 'hint', text: group.members.length ? minimum + ' of ' + group.members.length + ' must approve' : 'Needs ' + minimum + ' · ' + groupHint(group) }));
-      if (group.members.length) {
-        signoff.push(el('div', { class: 'rail' }, group.members.slice(0, 8).map(function (member) {
+      signoff.push(el('span', { class: 'hint', text: members.length ? minimum + ' of ' + members.length + ' must approve' : 'Needs ' + minimum + ' · ' + groupHint(group) }));
+      if (members.length) {
+        signoff.push(el('div', { class: 'rail' }, members.slice(0, 8).map(function (member) {
           var name = member.name || member.email || member.githubLogin;
           return el('span', { class: 'member' }, el('span', { class: 'avatar', 'aria-hidden': 'true', text: initials(name) }), name);
-        }), group.members.length > 8 ? el('span', { class: 'muted', text: '+' + (group.members.length - 8) }) : null));
+        }), members.length > 8 ? el('span', { class: 'muted', text: '+' + (members.length - 8) }) : null));
       }
-      if (groupBlocked(settings.approval.group)) signoff.push(el('div', { class: 'callout bad' }, 'Nobody is in this group, so this step could never be approved.'));
+      if (signers.every(function (id) { return groupBlocked(id); })) signoff.push(el('div', { class: 'callout bad' }, signers.length > 1 ? 'Nobody is in these groups, so this step could never be approved.' : 'Nobody is in this group, so this step could never be approved.'));
+      else signers.filter(function (id) { return groupBlocked(id) && (settings.approval.required || []).indexOf(id) >= 0; }).forEach(function (id) {
+        signoff.push(el('div', { class: 'callout bad' }, (state.draft.groups[id] || { label: id }).label + ' must approve, but nobody is in it.'));
+      });
       signoff.push(el('div', { class: 'studio-row' }, button('Manage people', function () { state.returnTo = boardReturn(); state.view = 'people'; render(); }, { class: 'secondary' })));
       signoff.push(sendBackEditor(workflow, phaseId, earlier));
     } else {
@@ -2354,13 +2810,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       if (on) {
         var first = Object.keys(state.draft.groups)[0];
         if (!first) { setStatus('Create an approval group in People & approvals first.'); render(); return; }
-        settings.approval.group = first;
+        settings.approval.group = first; settings.approval.groups = [first]; settings.approval.required = [];
       } else {
-        settings.approval.group = null;
+        settings.approval.group = null; settings.approval.groups = []; settings.approval.required = [];
         workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry.from !== phaseId; });
       }
       changed();
-    }), group ? group.label + ', ' + (settings.approval.minimum || 1) : 'off'));
+    }), group ? group.label + (groupsOf(settings.approval).length > 1 ? ' +' + (groupsOf(settings.approval).length - 1) : '') + ', ' + (settings.approval.minimum || 1) : 'off'));
 
     var optionalReads = settings.optionalInputs || (settings.optionalInputs = []);
     aside.appendChild(section('reads', 'Reads from earlier steps', earlier.length ? [el('div', { class: 'checks' }, earlier.map(function (input) {
@@ -3635,6 +4091,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       el('div', { class: 'artifact-name' }, el('strong', { text: template.label || name, title: relative }), template.label ? el('code', { text: name }) : null,
         template.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : edited ? el('span', { class: 'pill new', text: 'CHANGED' }) : template.scope === 'packaged' ? el('span', { class: 'pill', title: 'Shipped with Singularity Flow; Customize makes this repository\'s own copy.', text: 'Packaged' }) : null),
       el('span', { class: 'muted artifact-users', title: users.join('; '), text: users.length ? users.join('; ') : 'Not used by a Story workflow' }),
+      template.scope === 'repository' && !template.isNew ? button('Open', function () { openFile(templateFilePath(relative)); }, { class: 'secondary', 'aria-label': 'Open ' + relative + ' in an editor' }) : null,
       template.tooLarge ? el('span', { class: 'muted', text: 'Too large to edit here' })
         : button(template.scope === 'packaged' && !template.isNew && !edited ? 'Customize' : 'Edit', function () { openTemplateForm(relative, null); }, { class: 'secondary', 'aria-label': (template.scope === 'packaged' ? 'Customize ' : 'Edit ') + relative }));
   }
@@ -3805,7 +4262,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var grid = el('div', { class: 'groups-grid' });
     Object.keys(state.draft.groups).forEach(function (id) {
       var group = state.draft.groups[id];
-      var approves = Object.keys(state.draft.workflows).reduce(function (list, workflowId) { workflowSteps(workflowId).forEach(function (phaseId) { var settings = state.draft.steps[workflowId][phaseId]; if (settings && settings.approval.group === id && list.indexOf(phaseId) < 0) list.push(phaseId); }); return list; }, []);
+      var approves = Object.keys(state.draft.workflows).reduce(function (list, workflowId) { workflowSteps(workflowId).forEach(function (phaseId) { var settings = state.draft.steps[workflowId][phaseId]; if (settings && groupsOf(settings.approval).indexOf(id) >= 0 && list.indexOf(phaseId) < 0) list.push(phaseId); }); return list; }, []);
       var draftPerson = group.adding || (group.adding = { name: '', email: '' });
       var heading = group.renaming != null
         ? el('div', { class: 'studio-row' },
@@ -3863,7 +4320,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var key = JSON.stringify(changeSet);
     main.appendChild(el('header', null, el('h1', { text: changeSet.changes.length ? changeSet.changes.length + (changeSet.changes.length === 1 ? ' change ready' : ' changes ready') : 'No changes yet' }),
       el('p', { class: 'studio-lede', text: 'Changes are published together as one change, so nothing is ever half-applied. Check them first; Singularity Flow validates the whole configuration.' })));
-    if (!changeSet.changes.length) { main.appendChild(el('p', { class: 'muted', text: 'Edit a workflow, an agent or an approval group and your changes collect here.' })); return; }
+    if (!changeSet.changes.length) { main.appendChild(el('p', { class: 'muted', text: 'Edit a workflow, an agent or an approval group and your changes collect here.' })); renderProposals(main); return; }
     main.appendChild(el('ol', { class: 'change-list' }, changeSet.changes.map(function (change) { return el('li', { text: describe(change, state.draft) }); })));
     var fresh = state.plan && state.planKey === key;
     main.appendChild(el('div', { class: 'studio-row' },
@@ -3878,13 +4335,92 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }, { class: 'secondary', disabled: Boolean(state.busy) })));
     if (state.plan && !fresh) main.appendChild(el('p', { class: 'muted', text: 'You changed something since the last check. Check again before publishing.' }));
     if (fresh) main.appendChild(renderPlan(state.plan));
+    renderProposals(main);
   }
+
+  // ---- Configuration proposals waiting for review ---------------------------------------------
+  //
+  // Every governed configuration change waits as a proposal until someone activates it: what Studio
+  // publishes, an imported bundle, a Configuration Center or agent save. Reviewing opens the exact
+  // diff; activating merges it into the approved configuration after the person confirms.
+
+  function proposalsState() { return state.proposals || (state.proposals = { list: null, error: null, loading: false, local: false }); }
+  function requestProposals() {
+    var view = proposalsState();
+    if (view.loading) return;
+    view.loading = true; view.error = null;
+    post({ type: 'studio.proposals' });
+  }
+  function reviewProposal(branch) {
+    state.reviewing = branch; state.busy = 'review'; setStatus('Opening ' + branch + ' for review…'); render();
+    post({ type: 'studio.reviewProposal', branch: branch, pending: changesNow().length });
+  }
+  function renderProposals(main) {
+    var view = proposalsState();
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Waiting for review' });
+    card.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Waiting for review' }),
+      view.local ? null : button(view.loading ? 'Looking…' : 'Refresh', requestProposals, { class: 'secondary', disabled: view.loading })));
+    if (view.local) {
+      card.appendChild(el('p', { class: 'muted', text: 'This repository keeps its configuration in its working tree, so changes are reviewed as commits rather than proposals.' }));
+      main.appendChild(card); return;
+    }
+    if (view.error) card.appendChild(el('div', { class: 'callout bad', text: view.error }));
+    if (view.list === null) { if (!view.error) card.appendChild(el('p', { class: 'muted', text: 'Looking for configuration proposals…' })); }
+    else if (!view.list.length) card.appendChild(el('p', { class: 'muted', text: 'No configuration proposals are waiting.' }));
+    (view.list || []).forEach(function (proposal) {
+      var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; });
+      card.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + proposal.branch },
+        el('div', { class: 'studio-row spread' },
+          el('div', null, el('code', { text: proposal.branch }), el('span', { class: 'muted', text: '  ' + proposal.proposalCommit.slice(0, 12) })),
+          proposal.valid && !proposal.merged
+            ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+            : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' })),
+        el('span', { class: 'muted', text: (subjects.length ? subjects.join(', ') : 'Configuration-only change') + ' · ' + proposal.files + (proposal.files === 1 ? ' file' : ' files') }),
+        proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
+        proposal.invalidFiles.length ? el('div', { class: 'callout bad', text: 'Not configuration: ' + proposal.invalidFiles.join(', ') }) : null));
+    });
+    card.appendChild(el('p', { class: 'muted', text: 'Reviewing opens the exact diff; activating merges it into the approved configuration after you confirm. Running Stories keep the configuration they started with.' }));
+    main.appendChild(card);
+  }
+
+  // ---- Workflow bundles ---------------------------------------------------------------------------
+
+  function renderExport() {
+    var chosen = state.exporting;
+    var published = state.draft.order.filter(function (id) { var workflow = state.draft.workflows[id]; return workflow && !workflow.isNew && !workflow.installFrom; });
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Export workflows' });
+    card.appendChild(el('h2', { text: 'Export workflows' }));
+    card.appendChild(el('p', { class: 'muted', text: 'A bundle carries the workflows and everything they need (steps, templates, artifact sets and agents), so another repository can import them as one reviewed proposal. Only published workflows are exported.' }));
+    card.appendChild(el('div', { class: 'checks' }, published.map(function (id) {
+      var workflow = state.draft.workflows[id];
+      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'export-' + id, checked: Boolean(chosen[id]), onchange: function (event) { if (event.target.checked) chosen[id] = true; else delete chosen[id]; render(); } }),
+        ' ' + workflow.label + ' ', el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') }));
+    })));
+    var selected = published.filter(function (id) { return chosen[id]; });
+    card.appendChild(el('div', { class: 'studio-row' },
+      button('Select all', function () { published.forEach(function (id) { chosen[id] = true; }); render(); }, { class: 'secondary' }),
+      button('Clear', function () { published.forEach(function (id) { delete chosen[id]; }); render(); }, { class: 'secondary' }),
+      button(state.busy === 'export' ? 'Exporting…' : 'Save bundle…', function () {
+        state.busy = 'export'; render();
+        post({ type: 'studio.exportWorkflows', workflowIds: selected.map(function (id) { return 'story:' + id; }) });
+      }, { class: 'primary', disabled: !selected.length || Boolean(state.busy) }),
+      button('Cancel', function () { state.exporting = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+  function importWorkflows() {
+    state.busy = 'import'; setStatus('Choose a workflow bundle to import…'); render();
+    post({ type: 'studio.importWorkflows', pending: changesNow().length });
+  }
+  /** Open a governed file in an editor: the workflow file, or a template under the templates folder. */
+  function openFile(relative) { post({ type: 'studio.openFile', path: relative }); }
+  function templateFilePath(relative) { return (state.model.templatesRoot || 'singularity/templates') + '/' + relative; }
 
   /** Back to the published configuration: the draft, and every form still holding typed input. */
   function discardDraft() {
     state.draft = initialDraft(state.model); state.plan = null; state.planKey = null;
     state.adding = null; state.wizard = null; state.agentForm = null; state.newGroup = null; state.returnTo = null;
     state.panel = null; state.decision = null; state.workflow = null; state.step = null;
+    state.epicForm = null; state.epicOutput = null; state.epicAdding = null; state.epic = null; state.epicStep = null;
     if (state.integrations) state.integrations.form = null;
     if (state.library) { state.library.preview = null; state.library.target = null; state.library.replace = false; state.library.error = null; }
     post({ type: 'studio.draftClear' });
@@ -3939,13 +4475,20 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       main.appendChild(el('div', { class: 'callout wait', role: 'status' },
         el('div', { text: 'Unpublished changes were kept when Workflow Studio closed' + (when && !isNaN(when.getTime()) ? ' (' + when.toLocaleString() + ')' : '') + '.' }),
         el('div', { class: 'studio-row', style: 'margin-top:6px' },
-          button('Restore them', function () { state.draft = state.restorable.draft; state.restorable = null; state.view = 'changes'; changed(); }, { class: 'primary', 'data-key': 'draft-restore' }),
+          button('Restore them', function () { state.draft = withDraftDefaults(state.restorable.draft); state.restorable = null; state.view = 'changes'; changed(); }, { class: 'primary', 'data-key': 'draft-restore' }),
           button('Discard them', function () { state.restorable = null; post({ type: 'studio.draftClear' }); render(); }, { class: 'secondary', 'data-key': 'draft-discard' }))));
     }
+    if (state.configurationChanged) {
+      main.appendChild(el('div', { class: 'callout wait', role: 'status' },
+        el('div', { text: 'The approved configuration changed (' + state.configurationChanged + '). Your unpublished changes were made on the earlier version, so Check refuses them until you reload; reloading discards them.' }),
+        el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Reload and discard my changes', function () { post({ type: 'studio.draftClear' }); post({ type: 'studio.reload' }); }, { class: 'secondary', 'data-key': 'configuration-reload' }))));
+    }
+    if (state.view === 'changes' && proposalsState().list === null && !proposalsState().loading && !proposalsState().error) requestProposals();
     if (state.view === 'board') renderBoard(main);
     else if (state.view === 'new') renderWizard(main);
     else if (state.view === 'agents') renderAgents(main);
     else if (state.view === 'artifacts') renderArtifacts(main);
+    else if (state.view === 'epic') renderEpic(main);
     else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'integrations') renderIntegrations(main);
@@ -3963,7 +4506,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (message.type === 'studio.model') {
       var keep = state.draft && state.model && changeSetFrom(state.model, state.draft).changes.length && !message.reset;
       state.model = message.model; state.error = null;
-      if (!keep) state.draft = initialDraft(message.model);
+      if (!keep) { state.draft = initialDraft(message.model); state.configurationChanged = null; }
       if (state.workflow && !state.draft.workflows[state.workflow]) state.workflow = null;
       // Whether this machine has the secrets the targets name decides the Integrations badge.
       askSecretStatus(targetIds().reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
@@ -3973,10 +4516,36 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       setStatus(message.plan.valid ? 'Checked: ready to publish.' : 'Checked: some changes need fixing.');
       render();
     } else if (message.type === 'studio.published') {
+      // What was just published is a proposal the list has not seen yet.
+      if (state.proposals) { state.proposals.list = null; state.proposals.error = null; }
       state.busy = null; state.plan = null; state.planKey = null; state.view = 'home';
       setStatus(message.summary || 'Published.');
+    } else if (message.type === 'studio.proposals') {
+      var listed = proposalsState();
+      listed.loading = false; listed.list = message.proposals || []; listed.error = message.error || null; listed.local = Boolean(message.local);
+      // The list after a review says what became of the proposal: activated (or closed), or still waiting.
+      if (state.reviewing) {
+        var waiting = listed.list.some(function (proposal) { return proposal.branch === state.reviewing; });
+        setStatus(waiting ? state.reviewing + ' is still waiting for review.' : state.reviewing + ' is no longer waiting: it was activated.');
+        state.reviewing = null;
+      }
+      if (state.busy === 'review') state.busy = null;
+      render();
+    } else if (message.type === 'studio.configurationChanged') {
+      state.busy = null; state.configurationChanged = message.reason || 'the approved configuration changed'; render();
+    } else if (message.type === 'studio.exported') {
+      state.busy = null; state.exporting = null; setStatus('Exported the bundle.'); render();
+    } else if (message.type === 'studio.importDone') {
+      state.busy = null;
+      setStatus(message.outcome === 'cancelled' ? 'Import cancelled; nothing changed.'
+        : message.outcome === 'proposed' ? 'The import ' + (message.error ? 'was proposed as ' + message.branch + ', but its review stopped: ' + message.error : 'is waiting for review as ' + message.branch + ', under Changes.')
+          : message.outcome === 'written' ? 'The import was written to this repository; review the diff and commit it.'
+            : 'The configuration already has everything in that bundle; nothing changed.');
+      render();
+    } else if (message.type === 'studio.focus') {
+      if (['home', 'agents', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
-      state.busy = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
+      state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {
       state.busy = null; render();
     } else if (message.type === 'studio.savedDraft') {

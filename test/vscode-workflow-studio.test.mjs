@@ -266,7 +266,11 @@ test('the host publishes through a proposal bound to the authority it read, and 
   assert.match(source, /showWarningMessage\(\s*`Publish \$\{count\}/, 'a person confirms before anything is published');
   assert.doesNotMatch(source, /writeFile|fs\.promises/, 'the extension never writes configuration files');
   const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
-  assert.match(extension, /'singularityFlow\.openWorkflowStudio': async \(\) => \{\s*const \{ WorkflowStudioPanel \} = lazyPanels\(\);/);
+  const studioCommand = extension.slice(extension.indexOf("'singularityFlow.openWorkflowStudio': async (target?: unknown) => {"));
+  assert.match(studioCommand, /^'singularityFlow\.openWorkflowStudio': async \(target\?: unknown\) => \{\s*const \{ WorkflowStudioPanel, STUDIO_FOCUS_VIEWS \} = lazyPanels\(\);/);
+  const studioActions = studioCommand.slice(0, studioCommand.indexOf('draftStore:'));
+  assert.match(studioActions, /reviewProposal: \(branch\) => reviewAndActivateWorkflowProposal\(branch\)/, 'Studio reviews and activates proposals itself');
+  assert.doesNotMatch(studioActions, /openDesigner/, 'nothing in Studio sends a person to the Workflow Designer');
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openWorkflowStudio' && /Workflow Studio/.test(entry.title)));
 });
@@ -661,7 +665,7 @@ test('a new step two workflows use in one draft keeps each workflow\'s sign-off,
     page.addExistingStep(added, id, 'intake');
     // The second workflow starts from what the step is created with, which is what the engine gives it.
     const second = state.draft.steps[added][id];
-    assert.deepEqual([second.authoringSkill, second.approval, second.inputs], ['sf-design', { group: 'product-approvers', minimum: 1 }, ['intake']], `${made} then ${added}`);
+    assert.deepEqual([second.authoringSkill, second.approval, second.inputs], ['sf-design', { group: 'product-approvers', groups: ['product-approvers'], minimum: 1, required: [] }, ['intake']], `${made} then ${added}`);
     const picker = page.skillPicker(added, id, second, [made]);
     assert.equal(picker.value, 'sf-design');
     assert.ok(picker.hint.endsWith(`Only this workflow changes; ${state.draft.workflows[made].label} keeps its own.`), picker.hint);
@@ -1388,4 +1392,122 @@ test('a step can send rejected work back to several earlier steps, and rules int
   assert.deepEqual(update.reworkLoops, feature.reworkLoops);
   const result = check(root, changeSet);
   assert.equal(result.valid, true, JSON.stringify(result.problems));
+});
+
+test('proposals waiting for review are listed in Changes, and reviewing one reloads only when nothing is unpublished', async () => {
+  const { proposalSummaries, STUDIO_FOCUS_VIEWS } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const listed = proposalSummaries([
+    { branch: 'sflow/config-change/workflow/studio-feature-abc', proposalCommit: 'a'.repeat(40), valid: true, merged: false,
+      workflows: [{ id: 'feature', governs: 'story', change: 'changed', label: 'Feature' }], changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }], invalidFiles: [], diff: 'secret diff' },
+    { branch: 'refs/heads/main', proposalCommit: 'b'.repeat(40), valid: true },
+    { branch: 'sflow/config-change/onboarding/create-123', proposalCommit: 'c'.repeat(40), valid: false, invalidFiles: ['README.md'], failure: { message: 'Not configuration.' } }
+  ]);
+  assert.deepEqual(listed.map((entry) => entry.branch), ['sflow/config-change/workflow/studio-feature-abc', 'sflow/config-change/onboarding/create-123'], 'only configuration proposal branches are listed');
+  assert.equal(listed[0].files, 1);
+  assert.equal(Object.hasOwn(listed[0], 'diff'), false, 'the page never receives file content');
+  assert.deepEqual([listed[1].valid, listed[1].invalidFiles, listed[1].failure], [false, ['README.md'], 'Not configuration.']);
+  assert.ok(STUDIO_FOCUS_VIEWS.includes('changes') && STUDIO_FOCUS_VIEWS.includes('artifacts'));
+
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic, posted, reply } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  logic.requestProposals();
+  logic.requestProposals();
+  assert.equal(posted.filter((message) => message.type === 'studio.proposals').length, 1, 'one request at a time');
+  reply({ type: 'studio.proposals', proposals: listed });
+  assert.equal(state.proposals.list.length, 2);
+  state.draft.groups['architecture-reviewers'].members.push({ name: 'Ada', email: 'ada@example.com', githubLogin: null });
+  logic.reviewProposal(listed[0].branch);
+  assert.deepEqual(posted.at(-1), { type: 'studio.reviewProposal', branch: listed[0].branch, pending: 1 }, 'the host learns there are unpublished changes');
+  reply({ type: 'studio.configurationChanged', reason: listed[0].branch + ' was activated' });
+  assert.match(state.configurationChanged, /was activated/);
+  reply({ type: 'studio.model', model, reset: true });
+  assert.equal(state.configurationChanged, null, 'reloading clears the notice');
+
+  logic.importWorkflows();
+  assert.deepEqual(posted.at(-1), { type: 'studio.importWorkflows', pending: 0 });
+  reply({ type: 'studio.importDone', outcome: 'cancelled', branch: null, error: null });
+  assert.equal(state.status, 'Import cancelled; nothing changed.', 'cancelling an import is never reported as a proposal');
+  reply({ type: 'studio.importDone', outcome: 'proposed', branch: 'sflow/config-change/workflow/import-x', error: null });
+  assert.match(state.status, /waiting for review as sflow\/config-change\/workflow\/import-x/);
+  reply({ type: 'studio.importDone', outcome: 'unchanged', branch: null, error: null });
+  assert.match(state.status, /already has everything/);
+  logic.openFile('singularity/workflow.yml');
+  assert.deepEqual(posted.at(-1), { type: 'studio.openFile', path: 'singularity/workflow.yml' });
+  reply({ type: 'studio.focus', view: 'changes' });
+  assert.equal(state.view, 'changes');
+  reply({ type: 'studio.focus', view: 'not-a-view' });
+  assert.equal(state.view, 'changes', 'an unknown section is ignored');
+
+  const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
+  assert.match(host, /if \(pending > 0\) this\.post\(\{ type: 'studio\.configurationChanged'/, 'unpublished changes are never replayed over a newer configuration');
+  assert.match(host, /'studio\.openFile': \(message\) => this\.openFile/);
+  assert.match(host, /private openableFile\(relative: string\): boolean \{\s*if \(relative\.split\('\/'\)\.some/);
+});
+
+test('several approval groups survive editing a step, and taking a group off drops it from the groups that must approve', () => {
+  const { logic } = studioLogic();
+  const approval = logic.approvalDraft({ mode: 'required', authorities: ['architecture-reviewers', 'engineering-reviewers'], requiredAuthorities: ['engineering-reviewers'], minimum: 2 });
+  assert.deepEqual(approval, { group: 'architecture-reviewers', groups: ['architecture-reviewers', 'engineering-reviewers'], minimum: 2, required: ['engineering-reviewers'] });
+  assert.deepEqual(logic.approvalChange({ approval }), { group: 'architecture-reviewers', groups: ['architecture-reviewers', 'engineering-reviewers'], minimum: 2, required: ['engineering-reviewers'] },
+    'the change names every group, not only the first');
+  logic.setApprovalGroups(approval, ['architecture-reviewers']);
+  assert.deepEqual([approval.group, approval.groups, approval.required], ['architecture-reviewers', ['architecture-reviewers'], []]);
+  assert.deepEqual(logic.approvalChange({ approval }), { group: 'architecture-reviewers', minimum: 2 });
+  assert.equal(logic.approvalChange({ approval: logic.approvalDraft('none') }), 'none');
+  assert.deepEqual(logic.groupsOf({ group: 'b', groups: ['a', 'b'] }), ['b', 'a'], 'the first group leads');
+});
+
+test('planned claims edited in workflow settings become one workflow change, and working them out again sends infer', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  const feature = draft.workflows.feature;
+  feature.plannedClaims = { mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } };
+  let update = logic.changeSetFrom(model, draft).changes.find((change) => change.op === 'workflow.update' && change.id === 'feature');
+  assert.deepEqual(update.plannedClaims, { mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } });
+  assert.equal(check(root, logic.changeSetFrom(model, draft)).valid, true);
+  const declared = model.workflows.find((workflow) => workflow.id === 'feature').plannedClaims.declared;
+  feature.plannedClaims = null;
+  update = logic.changeSetFrom(model, draft).changes.find((change) => change.op === 'workflow.update' && change.id === 'feature');
+  if (declared) assert.equal(update.plannedClaims, 'infer', 'a declared workflow can go back to worked-out claims');
+  else assert.equal(update, undefined, 'nothing to change when the claims were worked out already');
+});
+
+test('Epic workflows edited in the Studio become portfolio changes the engine accepts', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  const epics = state.draft.epics;
+  assert.ok(epics.workflows['initiative-lite'] && epics.steps.define, 'the draft carries the Epic workflows and their steps');
+  assert.deepEqual(logic.changeSetFrom(model, state.draft).changes, [], 'loading changes nothing');
+
+  epics.steps['vendor-review'] = { id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['business'],
+    approval: { on: true, groups: ['product-approvers'], minimum: 1, chain: false }, outputs: [
+      { id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', path: 'vendor-brief.md', template: 'initiatives/generic-output.md', required: true, consumes: ['define/business-case'], generator: null, ownApproval: false }
+    ], checklist: 0, isNew: true };
+  epics.workflows['vendor-epic'] = { id: 'vendor-epic', label: 'Vendor Epic', description: '', phases: ['define', 'vendor-review'], lifecycleMode: 'full-delivery', packs: 0, isNew: true, copyOf: null };
+  epics.order.push('vendor-epic');
+  epics.steps.define.label = 'Define the case';
+  epics.steps.define.outputs = epics.steps.define.outputs.map((output) => (output.id === 'acceptance-criteria' ? { ...output, required: false } : output));
+
+  const changeSet = logic.changeSetFrom(model, state.draft);
+  assert.deepEqual(changeSet.changes.map((change) => change.op).sort(), ['epicOutput.set', 'epicOutput.set', 'epicStep.create', 'epicStep.update', 'epicWorkflow.create'].sort());
+  assert.deepEqual(changeSet.changes.find((change) => change.op === 'epicStep.create').approval, { group: 'product-approvers', minimum: 1 });
+  assert.ok(changeSet.changes.some((change) => change.op === 'epicOutput.set' && change.step === 'define' && change.id === 'acceptance-criteria' && change.required === false));
+  const result = check(root, changeSet);
+  assert.equal(result.valid, true, JSON.stringify(result.problems));
+  assert.deepEqual(result.files.map((entry) => entry.path), ['singularity/portfolio.yml']);
+
+  // A draft kept by an older Studio has no Epic part; restoring it fills that from the configuration.
+  const old = JSON.parse(JSON.stringify(state.draft)); delete old.epics; delete old.templates;
+  const restored = logic.withDraftDefaults(old);
+  assert.ok(restored.epics && restored.templates, 'missing collections come back from the configuration');
 });

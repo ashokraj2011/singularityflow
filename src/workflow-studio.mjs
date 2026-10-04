@@ -37,7 +37,7 @@ import {
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { loadPortfolio } from './initiative-config.mjs';
+import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, YAML_OUTPUT, posix } from './util.mjs';
 import { lineOperations, preserveYamlFormatting } from './yaml-formatting.mjs';
@@ -47,6 +47,7 @@ import {
   HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations
 } from './step-actions.mjs';
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
+import { isSpecificationDefinitionPhase } from './specifications.mjs';
 
 export const STUDIO_CHANGE_SET_SCHEMA = 'sflow-studio-change-set@1';
 
@@ -140,12 +141,85 @@ function requireAuthoringSkill(value) {
 }
 
 function approvalSummary(approval) {
-  if (approval === 'none' || approval?.mode === 'none') return { mode: 'none', authorities: [], minimum: 0 };
+  if (approval === 'none' || approval?.mode === 'none') return { mode: 'none', authorities: [], requiredAuthorities: [], minimum: 0 };
   return {
     mode: approval?.mode ?? 'required',
     authorities: Array.isArray(approval?.authorities) ? [...approval.authorities] : [],
+    requiredAuthorities: Array.isArray(approval?.requiredAuthorities) ? [...approval.requiredAuthorities] : [],
     minimum: Number.isSafeInteger(approval?.minimum) ? approval.minimum : 1
   };
+}
+
+/**
+ * Whether a step, as a workflow runs it, defines requirement clauses: an explicit requirements or
+ * implementation-spec artifact, the same test configuration loading applies to planned claims.
+ */
+function definesClauses(phase) {
+  return (phase?.requiredArtifact?.kind ?? phase?.artifact?.kind) != null && isSpecificationDefinitionPhase(phase);
+}
+
+/** A workflow's planned claims: what it declares, what the engine resolved, and why not if it could not. */
+function plannedClaimsView(type, resolved, failure) {
+  const declared = type?.plannedClaims && typeof type.plannedClaims === 'object' ? type.plannedClaims : null;
+  const claims = resolved?.plannedClaims ?? null;
+  return {
+    declared: declared ? {
+      mode: declared.mode ?? 'required',
+      clausePhases: Array.isArray(declared.clausePhases) ? [...declared.clausePhases] : null,
+      owners: declared.owners && typeof declared.owners === 'object' ? { ...declared.owners } : null
+    } : null,
+    mode: claims?.mode ?? null,
+    clausePhases: [...(claims?.clausePhases ?? [])],
+    owners: { ...(claims?.owners ?? {}) },
+    problem: claims ? null : (failure ?? null)
+  };
+}
+
+/**
+ * Epic (Initiative) workflows as the Studio edits them, from portfolio.yml: each workflow's steps,
+ * and each step's agents, lanes, knowledge views, sign-off and outputs. Review chains, packs and
+ * checklists are shown as counts; they stay in the file.
+ */
+function epicModel(portfolio, templatesRoot) {
+  if (!portfolio) return null;
+  const phases = portfolio.initiativePhases ?? {};
+  const profiles = portfolio.initiativeProfiles ?? {};
+  const lanes = new Set();
+  return {
+    templatesRoot: posix(portfolio.templatesRoot ?? templatesRoot),
+    workflows: Object.entries(profiles).map(([id, profile]) => ({
+      id, label: profile?.label ?? id, description: profile?.description ?? '',
+      lifecycleMode: profile?.lifecycleMode ?? (id === 'epic-planning' ? 'planning-only' : 'full-delivery'),
+      phases: [...(profile?.phases ?? [])], packs: (profile?.packs ?? []).length
+    })),
+    steps: Object.entries(phases).map(([id, phase]) => {
+      (phase?.lanes ?? []).forEach((lane) => lanes.add(lane));
+      const approval = phase?.bundleApproval ?? {};
+      return {
+        id, label: phase?.label ?? id, agents: [...(phase?.agents ?? [])], lanes: [...(phase?.lanes ?? [])],
+        views: [...(phase?.worldModelViews ?? [])],
+        approval: {
+          mode: approval.mode ?? 'bundle', authorities: [...(approval.authorities ?? [])],
+          minimum: Number.isSafeInteger(approval.minimum) ? approval.minimum : (approval.mode === 'none' ? 0 : 1), chain: Array.isArray(approval.chain)
+        },
+        outputs: (phase?.outputs ?? []).map((output) => ({
+          id: output.id, label: output.label ?? output.id, kind: output.kind ?? 'markdown', path: output.path ?? null,
+          template: output.template ?? null, generator: output.generator ?? null, required: output.required !== false,
+          consumes: [...(output.consumes ?? [])], ownApproval: Boolean(output.approval)
+        })),
+        checklist: (phase?.checklist ?? []).length,
+        usedBy: Object.entries(profiles).filter(([, profile]) => (profile?.phases ?? []).includes(id)).map(([profileId]) => profileId)
+      };
+    }),
+    groups: Object.entries(portfolio.approvalAuthorities ?? {}).map(([id, group]) => ({ id, label: group?.label ?? id })),
+    lanes: [...lanes].sort(),
+    outputKinds: [...INITIATIVE_OUTPUT_KINDS]
+  };
+}
+
+/** The groups a sign-off change names: `groups` when it lists several, else its one `group`. */
+function approvalGroups(approval) {
+  return Array.isArray(approval?.groups) && approval.groups.length ? approval.groups : [approval?.group];
 }
 
 const inputPhase = (input) => (typeof input === 'string' ? input : input?.phase);
@@ -261,6 +335,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const configRoot = configurationReadRoot(root);
   const definitionText = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8');
   const raw = YAML.parse(definitionText) ?? {};
+  const portfolioText = await readFile(path.join(configRoot, PORTFOLIO_PATH), 'utf8').catch(() => null);
   const problems = [];
   let definition = null;
   try { definition = await loadDefinition(root); }
@@ -276,7 +351,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
 
   const workflows = Object.entries(workTypes).map(([id, type]) => {
     let resolved = null;
-    try { resolved = definition ? resolveWorkType(definition, id) : null; } catch { resolved = null; }
+    let failure = null;
+    try { resolved = definition ? resolveWorkType(definition, id) : null; } catch (error) { resolved = null; failure = error?.message ?? null; }
     const packaged = starter.workTypes[id];
     return {
       id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])],
@@ -289,6 +365,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
         ...(loop.resetOnPhase ? { resetOnPhase: loop.resetOnPhase } : {})
       })),
       decisions: structuredClone(type.decisions ?? []),
+      plannedClaims: plannedClaimsView(type, resolved, failure),
       steps: (resolved?.phases ?? (type.phases ?? []).map((phaseId) => ({ id: phaseId, ...phases[phaseId] }))).map((phase) => {
         const route = authoringRoute(phase);
         return {
@@ -300,6 +377,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           template: typeof type.templateOverrides?.[phase.id] === 'string' ? type.templateOverrides[phase.id] : null,
           views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
           overridden: Boolean(type.phaseOverrides?.[phase.id]),
+          definesClauses: definesClauses(phase),
           authoringSkill: route.authoringSkill,
           authoringSkillSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'authoringSkill')),
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
@@ -324,10 +402,12 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     } : { kind: 'working-tree', ref: null, commit: null, remoteFingerprint: null, sourceCommit: null },
     base: {
       workflowSha256: sha256(definitionText),
-      agentsSha256: agentsSha256(discovered)
+      agentsSha256: agentsSha256(discovered),
+      ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {})
     },
     problems,
     workflows,
+    epics: epicModel(portfolioText == null ? null : YAML.parse(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates')),
     integrations: {
       targets: Object.entries(raw.integrations?.targets ?? {}).map(([id, target]) => ({ id, ...structuredClone(target) }))
     },
@@ -474,6 +554,7 @@ const RANK = Object.freeze({
   'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
   'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
+  'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
   'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11,
   'integration.target.remove': 11.5
 });
@@ -520,6 +601,10 @@ class StudioCandidate {
     // The steps each workflow lists once the whole change set is applied (finalWorkflowPhases).
     this.finalPhases = finalPhases;
     this.document = YAML.parseDocument(sources.definitionText);
+    // Epic workflows live in portfolio.yml; changed only by the epic* operations.
+    this.portfolioDocument = sources.portfolioText != null ? YAML.parseDocument(sources.portfolioText) : null;
+    this.portfolioChanged = false;
+    this.pendingEpicSteps = new Set();
     this.agents = new Map(sources.agents.map((agent) => [agent.id, {
       id: agent.id, scope: agent.scope, text: agent.text, relative: agent.scope === 'repository' ? agent.source : null,
       fileName: path.basename(agent.file ?? `${agent.id}.agent.md`),
@@ -555,6 +640,7 @@ class StudioCandidate {
    */
   expect(changes) {
     for (const change of changes) {
+      if (change?.op === 'epicStep.create' && typeof change.id === 'string') this.pendingEpicSteps.add(change.id);
       if (change?.op !== 'phase.create' || typeof change.id !== 'string') continue;
       this.pendingPhases.add(change.id);
       if (typeof change.copyOf === 'string') this.copies.set(change.id, change.copyOf);
@@ -613,16 +699,32 @@ class StudioCandidate {
     return previous.find((agent) => agent.id !== agentId)?.id ?? null;
   }
 
+  /**
+   * A sign-off as written: every group the change names, how many approvals it needs, and the groups
+   * that must each approve. A group taken off the step is taken off the groups that must approve too;
+   * every other setting the step's approval has (send-back targets, self-approval) stays.
+   */
   approvalNode(approval, existing = null) {
     if (approval == null) return undefined;
     if (approval === 'none') return 'none';
-    const group = this.requireGroup(requireId(approval.group, 'An approval group'));
+    const listed = approvalGroups(approval);
+    if (!Array.isArray(listed) || !listed.length || listed.length > 10) {
+      throw new SingularityFlowError('A step is signed off by 1 to 10 approval groups.', { code: 'STUDIO_APPROVAL_INVALID' });
+    }
+    const groups = [...new Set(listed.map((id) => this.requireGroup(requireId(id, 'An approval group'))))];
     const minimum = approval.minimum == null ? 1 : Number(approval.minimum);
     if (!Number.isSafeInteger(minimum) || minimum < 1 || minimum > 20) {
       throw new SingularityFlowError('Approvals needed must be a whole number from 1 to 20.', { code: 'STUDIO_APPROVAL_INVALID' });
     }
     const base = existing && typeof existing === 'object' ? { ...existing } : {};
-    return { ...base, authorities: [group], minimum };
+    const wanted = Array.isArray(approval.required) ? approval.required : (Array.isArray(base.requiredAuthorities) ? base.requiredAuthorities : []);
+    const required = [...new Set(wanted)].filter((id) => groups.includes(id));
+    if (minimum < required.length) {
+      throw new SingularityFlowError(`Approvals needed must be at least ${required.length}, one for each group that must approve.`, { code: 'STUDIO_APPROVAL_INVALID' });
+    }
+    const node = { ...base, authorities: groups, minimum };
+    if (required.length) node.requiredAuthorities = required; else delete node.requiredAuthorities;
+    return node;
   }
 
   setOutput(id, output) {
@@ -697,6 +799,12 @@ class StudioCandidate {
       case 'artifactSet.create': return this.createArtifactSet(change);
       case 'artifactSet.update': return this.updateArtifactSet(change);
       case 'artifactSet.remove': return this.removeArtifactSet(change);
+      case 'epicWorkflow.create': return this.createEpicWorkflow(change);
+      case 'epicWorkflow.update': return this.updateEpicWorkflow(change);
+      case 'epicStep.create': return this.createEpicStep(change);
+      case 'epicStep.update': return this.updateEpicStep(change);
+      case 'epicOutput.set': return this.setEpicOutput(change);
+      case 'epicOutput.remove': return this.removeEpicOutput(change);
       default: throw new SingularityFlowError(`Unknown Studio change '${change?.op}'.`, { code: 'STUDIO_CHANGE_UNKNOWN' });
     }
   }
@@ -821,6 +929,211 @@ class StudioCandidate {
     this.document.deleteIn(['artifactSets', setId]);
     if (!Object.keys(this.content.artifactSets ?? {}).length && this.document.hasIn(['artifactSets'])) this.document.deleteIn(['artifactSets']);
     this.summary.push(`Artifact set ${setId} removed.`);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Epic (Initiative) workflows, in portfolio.yml
+
+  get portfolioContent() { return this.portfolioDocument?.toJS() ?? {}; }
+  requirePortfolio() {
+    if (!this.portfolioDocument) throw new SingularityFlowError('This repository has no portfolio.yml, so it has no Epic workflows to change.', { code: 'STUDIO_PORTFOLIO_MISSING' });
+    return this.portfolioDocument;
+  }
+  epicStep(id) { return this.portfolioContent.initiativePhases?.[id] ?? null; }
+  epicStepLabel(id) { return this.epicStep(id)?.label ?? id; }
+  requireEpicStep(id) {
+    if (!this.epicStep(id) && !this.pendingEpicSteps.has(id)) throw new SingularityFlowError(`There is no Epic step '${id}'.`, { code: 'STUDIO_EPIC_STEP_UNKNOWN' });
+    return id;
+  }
+  epicStepList(phases, name) {
+    if (!Array.isArray(phases)) throw new SingularityFlowError(`The steps of ${name} must be a list.`, { code: 'STUDIO_EPIC_WORKFLOW_INVALID' });
+    const ids = phases.map((phase) => this.requireEpicStep(requireId(phase, 'An Epic step')));
+    if (!ids.length) throw new SingularityFlowError(`${name} needs at least one step.`, { code: 'STUDIO_EPIC_WORKFLOW_EMPTY' });
+    if (new Set(ids).size !== ids.length) throw new SingularityFlowError(`${name} lists a step more than once.`, { code: 'STUDIO_EPIC_WORKFLOW_INVALID' });
+    return ids;
+  }
+  epicAgents(agents, name) {
+    if (!Array.isArray(agents)) throw new SingularityFlowError(`The agents of ${name} must be a list.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
+    return [...new Set(agents.map((agent) => { const agentId = requireId(agent, 'An agent ID'); this.requireAgent(agentId); return agentId; }))];
+  }
+  epicList(values, name, what) {
+    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value))) {
+      throw new SingularityFlowError(`The ${what} of ${name} are a list of lower-case kebab-case names.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
+    }
+    return [...new Set(values)];
+  }
+  /** A bundle sign-off: groups from portfolio.yml, how many approve; a review chain stays as written. */
+  epicApprovalNode(approval, existing, name) {
+    if (existing && Array.isArray(existing.chain)) {
+      throw new SingularityFlowError(`${name} is signed off through a review chain; change it in portfolio.yml.`, { code: 'STUDIO_EPIC_APPROVAL_CHAIN' });
+    }
+    const base = existing && typeof existing === 'object' ? { ...existing } : {};
+    if (approval === 'none') return { ...base, mode: 'none', authorities: [], minimum: 0, allowSelfApproval: base.allowSelfApproval ?? true };
+    const listed = approvalGroups(approval);
+    if (!Array.isArray(listed) || !listed.length || listed.length > 10) throw new SingularityFlowError(`${name} is signed off by 1 to 10 approval groups.`, { code: 'STUDIO_APPROVAL_INVALID' });
+    const groups = [...new Set(listed.map((id) => requireId(id, 'An approval group')))];
+    const unknown = groups.filter((id) => !this.portfolioContent.approvalAuthorities?.[id]);
+    if (unknown.length) throw new SingularityFlowError(`portfolio.yml has no approval group '${unknown[0]}'.`, { code: 'STUDIO_GROUP_UNKNOWN' });
+    const minimum = approval.minimum == null ? 1 : Number(approval.minimum);
+    if (!Number.isSafeInteger(minimum) || minimum < 1 || minimum > 20) throw new SingularityFlowError('Approvals needed must be a whole number from 1 to 20.', { code: 'STUDIO_APPROVAL_INVALID' });
+    return { ...base, mode: base.mode && base.mode !== 'none' ? base.mode : 'bundle', authorities: groups, minimum, allowSelfApproval: base.allowSelfApproval ?? true };
+  }
+  /** An Epic output's template: under the portfolio templates folder, this change set's new files, or packaged. */
+  epicTemplate(value, name) {
+    const relative = String(value ?? '').trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*\.(?:md|ya?ml|json)$/.test(relative) || relative.split('/').includes('..')) {
+      throw new SingularityFlowError(`The template of ${name} is a .md, .yml or .json path inside the templates folder, without "..".`, { code: 'STUDIO_TEMPLATE_INVALID' });
+    }
+    const file = posix(path.join(posix(this.portfolioContent.templatesRoot ?? this.sources.templatesRoot), relative));
+    if (!existsSync(path.join(this.sources.configRoot, file)) && !this.templates.has(file) && !existsSync(path.join(PACKAGED_TEMPLATES, relative))) {
+      throw new SingularityFlowError(`There is no template ${relative} for ${name}.`, { code: 'STUDIO_TEMPLATE_UNKNOWN' });
+    }
+    return relative;
+  }
+
+  createEpicWorkflow({ id, label, description, phases, copyOf }) {
+    const document = this.requirePortfolio();
+    const workflowId = requireId(id, 'An Epic workflow ID');
+    if (this.portfolioContent.initiativeProfiles?.[workflowId]) throw new SingularityFlowError(`An Epic workflow called '${workflowId}' already exists.`, { code: 'STUDIO_EPIC_WORKFLOW_EXISTS' });
+    const name = requireLabel(label, 'The Epic workflow');
+    let node = { label: name, phases: [] };
+    if (copyOf != null) {
+      const sourceId = requireId(copyOf, 'The Epic workflow to copy');
+      const source = this.portfolioContent.initiativeProfiles?.[sourceId];
+      if (!source) throw new SingularityFlowError(`There is no Epic workflow '${sourceId}' to copy.`, { code: 'STUDIO_EPIC_WORKFLOW_UNKNOWN' });
+      // A linked copy shares its source's steps and packs; changing a shared step changes both.
+      node = { ...structuredClone(source), label: name };
+    }
+    if (description != null) { if (String(description).trim()) node.description = String(description).trim(); else delete node.description; }
+    node.phases = phases != null ? this.epicStepList(phases, name) : this.epicStepList(node.phases ?? [], name);
+    if (!document.hasIn(['initiativeProfiles'])) document.setIn(['initiativeProfiles'], document.createNode({}));
+    document.setIn(['initiativeProfiles', workflowId], document.createNode(node));
+    this.portfolioChanged = true;
+    this.summary.push(copyOf != null ? `New Epic workflow ${name}, a linked copy of ${this.portfolioContent.initiativeProfiles?.[copyOf]?.label ?? copyOf}.` : `New Epic workflow ${name}: ${node.phases.map((phase) => this.epicStepLabel(phase)).join(' → ')}.`);
+  }
+
+  updateEpicWorkflow({ id, label, description, phases }) {
+    const document = this.requirePortfolio();
+    const workflowId = requireId(id, 'An Epic workflow ID');
+    const current = this.portfolioContent.initiativeProfiles?.[workflowId];
+    if (!current) throw new SingularityFlowError(`There is no Epic workflow '${workflowId}'.`, { code: 'STUDIO_EPIC_WORKFLOW_UNKNOWN' });
+    const name = label != null ? requireLabel(label, 'The Epic workflow') : current.label ?? workflowId;
+    const changed = [];
+    if (label != null) { document.setIn(['initiativeProfiles', workflowId, 'label'], name); changed.push('name'); }
+    if (description != null) {
+      if (String(description).trim()) document.setIn(['initiativeProfiles', workflowId, 'description'], String(description).trim());
+      else if (document.hasIn(['initiativeProfiles', workflowId, 'description'])) document.deleteIn(['initiativeProfiles', workflowId, 'description']);
+      changed.push('description');
+    }
+    if (phases != null) {
+      const ids = this.epicStepList(phases, name);
+      this.setPortfolioKeepingStyle(['initiativeProfiles', workflowId, 'phases'], ids);
+      changed.push(`steps (${ids.map((phase) => this.epicStepLabel(phase)).join(' → ')})`);
+    }
+    if (changed.length) { this.portfolioChanged = true; this.summary.push(`${name}: ${changed.join(', ')} changed.`); }
+  }
+
+  setPortfolioKeepingStyle(keys, value) {
+    const document = this.portfolioDocument;
+    document.setIn(keys, document.createNode(value, { flow: Boolean(document.getIn(keys, true)?.flow) }));
+  }
+
+  createEpicStep({ id, label, agents = [], lanes = [], views = [], approval = 'none' }) {
+    const document = this.requirePortfolio();
+    const stepId = requireId(id, 'An Epic step ID');
+    if (this.epicStep(stepId)) throw new SingularityFlowError(`An Epic step called '${stepId}' already exists.`, { code: 'STUDIO_EPIC_STEP_EXISTS' });
+    const name = requireLabel(label, 'The Epic step');
+    const node = {
+      label: name,
+      ...(lanes.length ? { lanes: this.epicList(lanes, name, 'lanes') } : {}),
+      ...(agents.length ? { agents: this.epicAgents(agents, name) } : {}),
+      worldModelViews: this.epicList(views, name, 'knowledge views'),
+      outputs: [], checklist: [],
+      bundleApproval: this.epicApprovalNode(approval, null, name)
+    };
+    if (!document.hasIn(['initiativePhases'])) document.setIn(['initiativePhases'], document.createNode({}));
+    document.setIn(['initiativePhases', stepId], document.createNode(node));
+    this.portfolioChanged = true;
+    this.summary.push(`New Epic step ${name}.`);
+  }
+
+  updateEpicStep({ id, label, agents, lanes, views, approval }) {
+    const document = this.requirePortfolio();
+    const stepId = requireId(id, 'An Epic step ID');
+    const current = this.epicStep(stepId);
+    if (!current) throw new SingularityFlowError(`There is no Epic step '${stepId}'.`, { code: 'STUDIO_EPIC_STEP_UNKNOWN' });
+    const name = label != null ? requireLabel(label, 'The Epic step') : current.label ?? stepId;
+    const changed = [];
+    const keys = (field) => ['initiativePhases', stepId, field];
+    if (label != null) { document.setIn(keys('label'), name); changed.push('name'); }
+    if (agents != null) {
+      const list = this.epicAgents(agents, name);
+      if (list.length) this.setPortfolioKeepingStyle(keys('agents'), list); else if (document.hasIn(keys('agents'))) document.deleteIn(keys('agents'));
+      changed.push('agents');
+    }
+    if (lanes != null) {
+      const list = this.epicList(lanes, name, 'lanes');
+      if (list.length) this.setPortfolioKeepingStyle(keys('lanes'), list); else if (document.hasIn(keys('lanes'))) document.deleteIn(keys('lanes'));
+      changed.push('lanes');
+    }
+    if (views != null) { this.setPortfolioKeepingStyle(keys('worldModelViews'), this.epicList(views, name, 'knowledge views')); changed.push('knowledge views'); }
+    if (approval != null) { document.setIn(keys('bundleApproval'), document.createNode(this.epicApprovalNode(approval, current.bundleApproval, name), { flow: Boolean(document.getIn(keys('bundleApproval'), true)?.flow) })); changed.push('sign-off'); }
+    if (changed.length) { this.portfolioChanged = true; this.summary.push(`${name}: ${changed.join(', ')} changed.`); }
+  }
+
+  /** Add an output to an Epic step, or change one: what it is, where it is written, its template, and what it reads. */
+  setEpicOutput({ step, id, label, kind, path: outputPath, template, required, consumes }) {
+    const document = this.requirePortfolio();
+    const stepId = this.requireEpicStep(requireId(step, 'An Epic step ID'));
+    const outputId = requireId(id, 'An output ID');
+    const name = `${this.epicStepLabel(stepId)}/${outputId}`;
+    const outputs = Array.isArray(this.epicStep(stepId)?.outputs) ? this.epicStep(stepId).outputs : [];
+    const index = outputs.findIndex((entry) => entry?.id === outputId);
+    const previous = index >= 0 ? outputs[index] : {};
+    const outputKind = kind ?? previous.kind ?? 'markdown';
+    if (!INITIATIVE_OUTPUT_KINDS.has(outputKind)) throw new SingularityFlowError(`An Epic output is one of: ${[...INITIATIVE_OUTPUT_KINDS].join(', ')}.`, { code: 'STUDIO_EPIC_OUTPUT_INVALID' });
+    const file = String(outputPath ?? previous.path ?? `${outputId}.${outputKind === 'yaml' ? 'yml' : 'md'}`).trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(file) || file.split('/').includes('..')) {
+      throw new SingularityFlowError(`The file ${name} writes is a path inside the Epic's folder, without "..".`, { code: 'STUDIO_EPIC_OUTPUT_INVALID' });
+    }
+    if (consumes != null && (!Array.isArray(consumes) || consumes.some((entry) => typeof entry !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry)))) {
+      throw new SingularityFlowError(`What ${name} reads is a list of step/output names.`, { code: 'STUDIO_EPIC_OUTPUT_INVALID' });
+    }
+    const next = {
+      ...previous, id: outputId, label: label != null ? requireLabel(label, 'The output') : previous.label ?? outputId,
+      kind: outputKind, path: file
+    };
+    if (template !== undefined) { if (template) next.template = this.epicTemplate(template, name); else delete next.template; }
+    if (required !== undefined) { if (required === false) next.required = false; else delete next.required; }
+    if (consumes != null) { if (consumes.length) next.consumes = [...new Set(consumes)]; else delete next.consumes; }
+    // Only the edited output is rewritten, in the style the list already uses ({ ... } or block).
+    const list = document.getIn(['initiativePhases', stepId, 'outputs'], true);
+    if (YAML.isSeq(list)) {
+      const flow = index >= 0 ? Boolean(list.items[index]?.flow) : list.items.length ? list.items.every((item) => item?.flow) : false;
+      const node = document.createNode(next, { flow });
+      if (index < 0) list.items.push(node); else list.items[index] = node;
+    } else {
+      document.setIn(['initiativePhases', stepId, 'outputs'], document.createNode([...outputs.filter((entry, at) => at !== index), next]));
+    }
+    this.portfolioChanged = true;
+    this.summary.push(index < 0 ? `New output ${name}.` : `Output ${name} changed.`);
+  }
+
+  removeEpicOutput({ step, id }) {
+    const document = this.requirePortfolio();
+    const stepId = this.requireEpicStep(requireId(step, 'An Epic step ID'));
+    const outputId = requireId(id, 'An output ID');
+    const outputs = Array.isArray(this.epicStep(stepId)?.outputs) ? this.epicStep(stepId).outputs : [];
+    if (!outputs.some((entry) => entry?.id === outputId)) throw new SingularityFlowError(`${this.epicStepLabel(stepId)} has no output '${outputId}'.`, { code: 'STUDIO_EPIC_OUTPUT_UNKNOWN' });
+    const reference = `${stepId}/${outputId}`;
+    const readers = Object.entries(this.portfolioContent.initiativePhases ?? {}).flatMap(([phaseId, phase]) => (phase?.outputs ?? [])
+      .filter((output) => (output?.consumes ?? []).includes(reference)).map((output) => `${phase.label ?? phaseId}/${output.id}`));
+    if (readers.length) throw new SingularityFlowError(`${reference} is read by ${readers.join(', ')}; take it off them first.`, { code: 'STUDIO_EPIC_OUTPUT_IN_USE' });
+    const list = document.getIn(['initiativePhases', stepId, 'outputs'], true);
+    if (YAML.isSeq(list)) list.items.splice(outputs.findIndex((entry) => entry?.id === outputId), 1);
+    else document.setIn(['initiativePhases', stepId, 'outputs'], document.createNode(outputs.filter((entry) => entry?.id !== outputId)));
+    this.portfolioChanged = true;
+    this.summary.push(`Output ${reference} removed.`);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1366,7 +1679,9 @@ class StudioCandidate {
     if (copyOf && approval != null) {
       const current = approvalSummary(node.approval);
       const unchanged = approval === 'none' ? current.mode === 'none'
-        : current.mode !== 'none' && approval.group === current.authorities[0] && Number(approval.minimum ?? 1) === current.minimum;
+        : current.mode !== 'none' && JSON.stringify(approvalGroups(approval)) === JSON.stringify(current.authorities)
+          && Number(approval.minimum ?? 1) === current.minimum
+          && (!Array.isArray(approval.required) || JSON.stringify(approval.required) === JSON.stringify(current.requiredAuthorities));
       if (!unchanged) this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(this.approvalNode(approval, node.approval)));
     }
     if (authoringSkill !== undefined) {
@@ -1585,7 +1900,7 @@ class StudioCandidate {
     this.summary.push(`New workflow ${name}${copied ? `, a copy of ${copied}` : ''}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  updateWorkflow({ id, label, description, phases, reworkLoops, decisions }) {
+  updateWorkflow({ id, label, description, phases, reworkLoops, decisions, plannedClaims }) {
     const workflowId = requireId(id, 'A workflow ID');
     const current = this.content.workTypes?.[workflowId];
     if (!current) throw new SingularityFlowError(`There is no workflow '${workflowId}'.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
@@ -1631,6 +1946,23 @@ class StudioCandidate {
       if (decisions.length) this.document.setIn(['workTypes', workflowId, 'decisions'], this.document.createNode(structuredClone(decisions)));
       else this.document.deleteIn(['workTypes', workflowId, 'decisions']);
       changed.push('decisions');
+    }
+    if (plannedClaims !== undefined && plannedClaims !== null) {
+      // 'infer' takes the declaration away, so the engine works the claims out from the steps again
+      // and pins what it found; an object names the clause steps and each code step's owner.
+      if (plannedClaims === 'infer') {
+        if (this.document.hasIn(['workTypes', workflowId, 'plannedClaims'])) this.document.deleteIn(['workTypes', workflowId, 'plannedClaims']);
+      } else {
+        if (!isObject(plannedClaims) || !Array.isArray(plannedClaims.clausePhases) || !plannedClaims.clausePhases.length
+            || !isObject(plannedClaims.owners)) {
+          throw new SingularityFlowError(`${name}'s planned claims name at least one step that defines clauses, and an owner for each code step.`, { code: 'STUDIO_PLANNED_CLAIMS_INVALID' });
+        }
+        const clausePhases = plannedClaims.clausePhases.map((phase) => this.requirePhase(requireId(phase, 'A clause step')));
+        const owners = Object.fromEntries(Object.entries(plannedClaims.owners)
+          .map(([code, owner]) => [this.requirePhase(requireId(code, 'A code step')), this.requirePhase(requireId(owner, 'A claim owner'))]));
+        this.document.setIn(['workTypes', workflowId, 'plannedClaims'], this.document.createNode({ mode: 'required', clausePhases, owners }));
+      }
+      changed.push('planned claims');
     }
     this.workflows.set(workflowId, { newlyCreated: this.workflows.get(workflowId)?.newlyCreated ?? false });
     if (changed.length) this.summary.push(`${name}: ${changed.join(', ')} changed.`);
@@ -1795,6 +2127,10 @@ class StudioCandidate {
 
   async files() {
     const files = [];
+    if (this.portfolioChanged && this.portfolioDocument) {
+      const portfolio = preserveYamlFormatting(this.sources.portfolioText, this.portfolioDocument.toString(YAML_OUTPUT));
+      if (portfolio !== this.sources.portfolioText) files.push({ path: PORTFOLIO_PATH, before: this.sources.portfolioText, after: portfolio });
+    }
     // Only a change in content rewrites workflow.yml: re-serializing an untouched document can still
     // re-wrap long lines, and a change set that only imports a skill must not touch the file at all.
     if (JSON.stringify(this.document.toJS() ?? {}) !== JSON.stringify(this.sources.raw ?? {})) {
@@ -1963,7 +2299,8 @@ async function loadSources(root, options = {}) {
     imports: options.imports ?? new Map(),
     templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),
     starter: await packagedDefinition(),
-    portfolio: await loadPortfolio(root, { required: false }).catch(() => null)
+    portfolio: await loadPortfolio(root, { required: false }).catch(() => null),
+    portfolioText: await readFile(path.join(configRoot, PORTFOLIO_PATH), 'utf8').catch(() => null)
   };
 }
 
@@ -1994,6 +2331,12 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (expected && expected !== sha256(sources.definitionText)) {
     throw new SingularityFlowError('The workflow configuration changed since Workflow Studio loaded it. Reload the Studio, review the newer configuration, and apply your changes again.', {
       code: 'STUDIO_BASE_CHANGED', details: { expected, actual: sha256(sources.definitionText) }
+    });
+  }
+  const expectedPortfolio = changeSet.base?.portfolioSha256;
+  if (expectedPortfolio && sources.portfolioText != null && expectedPortfolio !== sha256(sources.portfolioText)) {
+    throw new SingularityFlowError('The Epic workflow configuration changed since Workflow Studio loaded it. Reload the Studio, review the newer configuration, and apply your changes again.', {
+      code: 'STUDIO_BASE_CHANGED', details: { expected: expectedPortfolio, actual: sha256(sources.portfolioText) }
     });
   }
   const expectedAgents = changeSet.base?.agentsSha256;

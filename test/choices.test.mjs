@@ -61,8 +61,8 @@ async function repository() {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
-  // These fixtures exercise selection receipts, not pre-Story test-readiness admission.
-  config.repositoryReadiness.requiredBeforeStory = false;
+  // Keep readiness enforced: this documentation-only base needs an inline no-command receipt.
+  assert.equal(config.repositoryReadiness.requiredBeforeStory, true);
   // This fixture intentionally exercises the self-approval warning. The shipped normal profile is
   // team-safe; make the test's POC authority explicit instead of weakening production defaults.
   config.approvalSecurity = { profile: 'poc' };
@@ -129,7 +129,7 @@ test('selection receipts reject incomplete, mismatched, invalid, and stale choic
   let receipt = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-201', '--json']).stdout);
   const invalid = flow(root, ['choices', 'answer', receipt.token, 'agent', 'not-configured', '--json'], { allowFailure: true });
   assert.equal(invalid.status, 1);
-  assert.match(invalid.stderr, /has no choice 'agent'/);
+  assert.match(JSON.parse(invalid.stdout).error.message, /has no choice 'agent'/);
   flow(root, ['choices', 'answer', receipt.token, 'base-branch', 'main']);
   const incomplete = flow(root, ['start', 'CHOICE-201', '--title', 'Incomplete', '--selection-receipt', receipt.token], { allowFailure: true });
   assert.equal(incomplete.status, 1);

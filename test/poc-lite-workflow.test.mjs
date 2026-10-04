@@ -224,7 +224,7 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   // An identical retry is answered from memory, in the one refusal shape every surface renders.
   const unchanged = run(process.execPath, [CLI, '--no-model', 'approve', 'poc-lite-finalize', '--yes', '--json'], root, { allowFailure: true });
   assert.notEqual(unchanged.status, 0);
-  const envelope = JSON.parse(unchanged.stderr.slice(unchanged.stderr.indexOf('{')));
+  const envelope = JSON.parse(unchanged.stdout);
   assert.equal(envelope.error.code, 'REFUSAL_UNCHANGED');
   const gate = envelope.error.details.gate;
   assert.equal(gate.schema, 'gate-refusal/v1');

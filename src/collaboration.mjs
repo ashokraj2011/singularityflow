@@ -154,7 +154,7 @@ export function watchText(item) {
   return `${item.workId} — ${item.title}\nPhase: ${phase}\nAssignment: ${item.assignment?.assignee ?? 'unassigned'}${item.reminder ? `\n! Approval reminder: waiting ${item.reminder.waitingHours}h (threshold ${item.reminder.thresholdHours}h)` : ''}\nLast event: ${item.lastEvent?.event ?? 'none'}${item.lastEvent?.detail ? ` — ${item.lastEvent.detail}` : ''}\nUpdated: ${item.updatedAt}\n`;
 }
 
-export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null } = {}) {
+export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, modelEnabled = true } = {}) {
   const actions = [];
   const blockers = [];
   const pending = await inspectPendingPublication(root, {
@@ -206,6 +206,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   });
   const phaseRecovery = phase
     ? await inspectPhaseRecovery(root, config, workflow, phase, {
+      modelEnabled,
       generationDigest: async (repositoryRoot, selectedPhase) => await generationResultMatches(
         repositoryRoot, config, workflow, selectedPhase
       )
@@ -346,7 +347,8 @@ export function recoveryText(plan) {
   for (const blocker of plan.blockers ?? []) {
     const location = blocker.path ? `${blocker.path}${blocker.line ? `:${blocker.line}` : ''}` : null;
     lines.push(`BLOCKED ${blocker.code}${location ? ` — ${location}` : ''}`);
-    if (blocker.details?.message) lines.push(`  ${blocker.details.message.replaceAll('\n', '\n  ')}`);
+    const message = blocker.message ?? blocker.details?.message;
+    if (message) lines.push(`  ${message.replaceAll('\n', '\n  ')}`);
   }
   if (plan.blockers?.length) lines.push('');
   for (const action of plan.actions) {

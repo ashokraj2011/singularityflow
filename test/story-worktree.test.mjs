@@ -614,9 +614,9 @@ test('required repository readiness refuses before an isolated Story worktree is
   ], root, { allowFailure: true });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /Repository readiness must pass.*before a Story worktree is created/su);
-  assert.match(failed.stderr, /singularity-flow precheck --run --scope dependency-test --json/u);
-  assert.match(failed.stderr, /\/sf-ready/u);
+  assert.match(failed.stdout, /Repository readiness must pass.*before a Story worktree is created/su);
+  assert.match(failed.stdout, /singularity-flow precheck --run --scope dependency-test --json/u);
+  assert.match(failed.stdout, /\/sf-ready/u);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
   assert.equal(run('git', [
     'show-ref', '--verify', '--quiet', 'refs/heads/ISO-NOT-READY-1'
@@ -1399,7 +1399,7 @@ test('session open-local refuses a checkout outside the active workspace reposit
   ], root, { allowFailure: true, env });
 
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /SESSION_LOCAL_WORKSPACE_MISMATCH/);
+  assert.match(refused.stdout, /SESSION_LOCAL_WORKSPACE_MISMATCH/);
   assert.equal(await readFile(selectionFile, 'utf8'), priorSelection);
   assert.equal(git(checkout, ['rev-parse', 'HEAD']), before.head);
   assert.equal(git(checkout, ['status', '--porcelain=v1']), before.status);
@@ -1469,7 +1469,7 @@ test('session open-local refuses a Story branch without a managed checkout', asy
   ], root, { allowFailure: true, env });
 
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /managed.*(?:Story|checkout|worktree)/i);
+  assert.match(refused.stdout, /managed.*(?:Story|checkout|worktree)/i);
   assert.equal(git(root, ['rev-parse', 'HEAD']), before.head);
   assert.equal(git(root, ['show-ref']), before.refs);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before.worktrees);
@@ -1516,8 +1516,8 @@ test('a failed isolated start removes its disposable checkout and branch', async
     '--title', 'Fail safely', '--description', 'Exercise rollback.'
   ], root, { allowFailure: true });
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /Workflow template 'does-not-exist' is not installed in the approved configuration/);
-  assert.match(failed.stderr, /Upgrade Capabilities & Workspaces/);
+  assert.match(failed.stdout, /Workflow template 'does-not-exist' is not installed in the approved configuration/);
+  assert.match(failed.stdout, /Upgrade Capabilities & Workspaces/);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/ISO-FAIL-1'], root, {
     allowFailure: true
@@ -1566,7 +1566,7 @@ test('a malformed approved capability map refuses Story start without leaving li
   });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr,
+  assert.match(failed.stdout,
     /Capability 'broken-delivery' is a delivery and must name at least one repository/);
   assert.doesNotMatch(failed.stderr, /No singularity\/capabilities\.yml is available/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), beforeHead);
@@ -1615,7 +1615,7 @@ test('an unknown approved capability refuses Story start before automatic enroll
   });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /Unknown capability 'missing-capability'/);
+  assert.match(failed.stdout, /Unknown capability 'missing-capability'/);
   assert.equal(run('git', [
     'ls-remote', 'origin', 'refs/heads/sflow/config'
   ], root).stdout.trim(), beforeAuthority);
@@ -1651,7 +1651,7 @@ test('invalid Story evidence refuses before automatic identity enrollment is pub
   });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /Document path is not a regular file or directory/);
+  assert.match(failed.stdout, /Document path is not a regular file or directory/);
   assert.equal(run('git', [
     'ls-remote', 'origin', 'refs/heads/sflow/config'
   ], root).stdout.trim(), beforeAuthority, 'invalid evidence must not advance shared approval membership');
@@ -1692,7 +1692,7 @@ test('an invalid explicit work type cannot publish automatic identity enrollment
   });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr,
+  assert.match(failed.stdout,
     /Workflow template 'not-an-installed-workflow' is not installed in the approved configuration/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), beforeHead);
   assert.equal(git(root, ['rev-parse', 'refs/heads/sflow/config']), beforeLocalAuthority);
@@ -1759,7 +1759,7 @@ test('a capability-disallowed Story document cannot publish automatic identity e
   });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /does not allow MIME type 'image\/png'/);
+  assert.match(failed.stdout, /does not allow MIME type 'image\/png'/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), beforeHead);
   assert.equal(git(root, ['rev-parse', 'refs/heads/sflow/config']), beforeLocalAuthority);
   assert.equal(run('git', [

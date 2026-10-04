@@ -2,9 +2,38 @@
 
 **Status:** authoritative cross-product tracker; the code-local feature inventory is reconciled through the current clean baseline, while platform release evidence and explicitly deferred authority work remain active
 
-**Baseline:** `main@fbdc7aea`
+**Baseline:** reviewed `main@7377e3d8`; governance repairs below are a local implementation increment, not release evidence
 
-**Last reviewed:** 2026-09-21
+**Last reviewed:** 2026-10-04
+
+## Current reconciliation
+
+This table supersedes older pending-feature statements below where subsequent code has landed.
+Code-local implementation is not installed-host qualification or independent release approval.
+
+| Area | Current code boundary | Still outstanding / owning detail |
+| --- | --- | --- |
+| SKP | Shared Git-backed drafts, verified skill phases, authoring surfaces and safe built-in execution paths exist. | Authenticated mediated-host confirmation, qualified native adapters, two-client pilots and retained platform evidence: [SKP status](SKP-IMPLEMENTATION-STATUS.md). |
+| XPL2 | Explanation graph and human-facing VS Code surfaces exist. | Installed-host/accessibility qualification and independently reviewed release evidence: [XPL2](XPL2-EXPLAIN-FOR-HUMANS.md). |
+| WCA | Workflow Studio supports workflows, agents, artifacts, validation and atomic configuration proposals. | Real cross-client/repository pilot evidence; see [workflow authoring](topics/workflow-authoring.md). |
+| E2G | Clause/plan/code/test links, exact witnesses, approvals, risk dispositions and the evidence matrix exist. | This increment closes the Node identity gap, orphan-tag refusal, preview scope and matrix revision disclosure. Local observations are not semantic proof or independent attestation: [evidence matrix](topics/evidence-matrix.md). |
+| GOR / Git | Central Git execution, authority reads and bounded remote supervision exist. | This increment adds default finite local timeouts and central prompt suppression. Native Windows credential-helper/descendant-cleanup qualification remains external: [Git status](GIT-ACCESS-LAYER-STATUS.md). |
+| FLW | Fast onboarding, deferred repository materialization and Story-start reuse are implemented. | This increment records eligible no-command readiness inline, previews it without writing a receipt, and binds configuration-only branch checks to the exact selected application base. Office-network latency measurements remain separate: [onboarding](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [Story start](STORY-START-PERFORMANCE-IMPLEMENTATION.md). |
+| PE / PC review labels | Prompt/phase reliability work is tracked in [phase reliability](SPEC-DRIVEN-PHASE-RELIABILITY.md) and generated skill checks. | No distinct PE/PC acceptance contract was found under these labels. Do not claim either complete or attach estimated token savings without a defined contract and measurements. |
+| CLI boundaries | Structured JSON refusals now use stdout; human diagnostics remain stderr. A no-growth ceiling protects `src/cli.mjs` at the reviewed 18,838-line baseline. | Further command extraction is incremental engineering, not an implemented architectural rewrite. |
+
+Already-present behavior was retained: a repository agent can override the packaged agent of the
+same ID, approval uses exact reviewed evidence without a free-standing bypass, and deferred
+workspaces can be inspected and repaired from the CLI. Conflicting defaults from different agent
+IDs remain an explicit ambiguity, not an automatic choice.
+
+`init --work-id` now uses a distinct `setup/<ID>` branch so it cannot occupy the future Story
+branch. Missing non-interactive Story choices are reported together once the selected base is
+known; the no-base refusal stays local and includes a complete start example. The supplied
+YAML-parse and prompt-percentage counts were not reproduced as measurements of this baseline;
+they are not claimed as implemented performance savings.
+
+The historical entries below retain their original dates and evidence limitations.
 
 The Git Access Layer code-local caller-migration increment is complete at `main@fbdc7aea`; it is
 not yet release-qualified. Approved read-path cutovers, closed remote/ref authority hardening,

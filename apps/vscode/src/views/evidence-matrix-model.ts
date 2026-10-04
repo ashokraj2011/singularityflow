@@ -51,6 +51,9 @@ export type EvidenceScope = {
 };
 
 export type EvidenceView = {
+  readonly revision: string;
+  readonly candidateRevisions: readonly string[];
+  readonly driftWarnings: readonly string[];
   readonly workId: string;
   readonly title: string | null;
   readonly lifecycle: string;
@@ -135,6 +138,10 @@ export function evidenceView(result: unknown): EvidenceView | null {
     .map(([result, count]) => ({ result, count: count as number }));
   return {
     workId: text(evaluation.workId),
+    revision: text(evaluation.provenance?.evaluatedCommit, 'unavailable'),
+    candidateRevisions: list<string>(evaluation.provenance?.candidates, (entry) => typeof entry?.commit === 'string'
+      ? `${text(entry.phaseId)} generation ${entry.generation}: ${entry.commit}` : null),
+    driftWarnings: list<string>(evaluation.provenance?.warnings, (entry) => typeof entry === 'string' ? entry : null),
     title: typeof evaluation.title === 'string' ? evaluation.title : null,
     lifecycle: text(evaluation.lifecycle?.words),
     completion: text(evaluation.completion?.label),

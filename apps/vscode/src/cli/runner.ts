@@ -2020,11 +2020,10 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       if (code !== 0) {
         let result: unknown = besideProse;
         if (json) {
-          // The CLI writes successful JSON to stdout and refusal envelopes to stderr. Preserve the
+          // The CLI writes JSON results, including refusals, to stdout. Preserve the
           // versioned refusal object on CliError so callers can route by its closed code instead of
-          // guessing from prose or repository operands. A legacy stdout-only non-zero result stays
-          // supported as the fallback.
-          for (const candidate of [stderr.trim(), stdout.trim()]) {
+          // guessing from prose or repository operands. Legacy stderr JSON stays supported.
+          for (const candidate of [stdout.trim(), stderr.trim()]) {
             if (!candidate) continue;
             try {
               result = JSON.parse(candidate);
@@ -2035,7 +2034,9 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         const structuredStatus = result && typeof result === 'object' && 'status' in result
           ? String((result as { status?: unknown }).status ?? '').trim()
           : '';
-        const message = humanError(stderr)
+        const structuredHeadline = result && typeof result === 'object'
+          && ('error' in result || 'rendered' in result) ? humanError(JSON.stringify(result)) : '';
+        const message = structuredHeadline || humanError(stderr)
           || (structuredStatus
             ? `The Singularity Flow command reported ${structuredStatus}.`
             : safeDisplayDiagnosticText(stdout.trim()))

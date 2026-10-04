@@ -284,7 +284,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(withoutLead.status, 1);
-  assert.match(withoutLead.stderr, /SESSION_REMOTE_CONFIGURATION_REQUIRED/);
+  assert.match(withoutLead.stdout, /SESSION_REMOTE_CONFIGURATION_REQUIRED/);
   const separateLead = spawnSync(process.execPath, [
     bin, 'session', 'candidates', '--repository-url', pathToFileURL(delivery).href,
     '--configuration-url', pathToFileURL(remote).href, '--json', '--diagnostics'
@@ -301,7 +301,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     '--configuration-url', pathToFileURL(remote).href, '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(unsupportedDelivery.status, 1);
-  assert.match(unsupportedDelivery.stderr, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
+  assert.match(unsupportedDelivery.stdout, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
   run('git', ['config', 'uploadpack.allowFilter', 'true'], delivery);
   run('git', ['config', 'uploadpack.allowFilter', 'false'], remote);
   const unsupportedFilter = spawnSync(process.execPath, [
@@ -309,8 +309,8 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(unsupportedFilter.status, 1);
-  assert.match(unsupportedFilter.stderr, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
-  assert.equal(unsupportedFilter.stdout.trim(), '');
+  assert.match(unsupportedFilter.stdout, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
+  assert.equal(JSON.parse(unsupportedFilter.stdout).status, 'failed');
   run('git', ['config', 'uploadpack.allowFilter', 'true'], remote);
 
   // A Windows-style blobless workspace has branch trees but may not yet hold the Story state
@@ -393,7 +393,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     'session', 'candidates', '--workspace', deferred.workspace.path, '--json'
   ], { cwd: base, encoding: 'utf8', env: deferredEnv });
   assert.notEqual(ambiguousSelector.status, 0);
-  assert.match(ambiguousSelector.stderr, /--repository <ID>/);
+  assert.match(ambiguousSelector.stdout, /--repository <ID>/);
   const deferredCandidates = JSON.parse(run(process.execPath, [bin,
     'session', 'candidates', ...selector, '--json', '--diagnostics'
   ], base, deferredEnv).stdout);
@@ -413,7 +413,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     'session', 'candidates', '--table', '--json'
   ], { cwd: base, encoding: 'utf8', env: deferredEnv });
   assert.notEqual(conflictingTable.status, 0);
-  assert.equal(JSON.parse(conflictingTable.stderr).error.code, 'SESSION_TABLE_FORMAT_INVALID');
+  assert.equal(JSON.parse(conflictingTable.stdout).error.code, 'SESSION_TABLE_FORMAT_INVALID');
   const unknownDeferred = spawnSync(process.execPath, [bin,
     'session', 'attach', 'NOT-A-STORY', ...selector, '--json'
   ], { cwd: base, encoding: 'utf8', env: deferredEnv });
@@ -468,8 +468,8 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     [bin, 'session', 'candidates', '--json', '--diagnostics'],
     { cwd: second, encoding: 'utf8', env: isolated });
   assert.equal(unavailable.status, 1);
-  assert.match(unavailable.stderr, /REMOTE_REMOTE_NOT_FOUND/);
-  assert.equal(unavailable.stdout.trim(), '');
+  assert.match(unavailable.stdout, /REMOTE_REMOTE_NOT_FOUND/);
+  assert.equal(JSON.parse(unavailable.stdout).status, 'failed');
   assert.match(run(process.execPath, [bin, 'start', 'BOOT-101'], second, isolated).stdout, /BOOT-101/);
   run('git', ['remote', 'set-url', 'origin', remote], second);
   run('git', ['switch', 'main'], second);
@@ -544,6 +544,6 @@ test('session attach fails non-zero when no governed repository can be resolved'
       }
     });
   assert.equal(discovery.status, 1);
-  assert.match(discovery.stderr, /SESSION_REPOSITORY_REQUIRED/);
-  assert.equal(discovery.stdout.trim(), '');
+  assert.match(discovery.stdout, /SESSION_REPOSITORY_REQUIRED/);
+  assert.equal(JSON.parse(discovery.stdout).status, 'failed');
 });

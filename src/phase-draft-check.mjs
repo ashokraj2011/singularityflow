@@ -2,7 +2,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
-  effectivePhasePublicationProducer, phasePublicationCommand
+  effectivePhasePublicationProducer, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
@@ -180,10 +180,12 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
   const commands = Object.freeze({
-    recheck: `singularity-flow phase draft-check ${phase.id} --json`,
-    recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+    recheck: `singularity-flow phase draft-check ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
+    recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
     // A red check must never offer an executable publication action.
-    publish: clean ? phasePublicationCommand(phase) : null,
+    publish: clean ? phasePublicationCommandForProducer(phase, configuredProducer, {
+      noModel: modelEnabled === false
+    }) : null,
     next: route?.command ?? null
   });
   return Object.freeze({

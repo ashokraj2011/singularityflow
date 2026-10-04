@@ -344,7 +344,7 @@ test('env CLI accepts binding values only on bounded stdin and emits secret-free
   });
   assert.notEqual(unsafe.status, 0);
   assert.doesNotMatch(`${unsafe.stdout}${unsafe.stderr}`, new RegExp(rejectedSecret));
-  const refusal = JSON.parse(unsafe.stderr);
+  const refusal = JSON.parse(unsafe.stdout);
   assert.equal(refusal.resultType, 'sflow-refusal-plan');
   assert.doesNotMatch(JSON.stringify(refusal), new RegExp(rejectedSecret));
   for (const file of await filesBelow(path.join(root, '.git', 'singularity-flow'))) {

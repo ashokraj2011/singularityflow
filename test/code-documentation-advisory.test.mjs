@@ -108,6 +108,22 @@ class Worker:
 
   const closed = await inspectCodeDocumentation(root, config, workflow, { ...phase, generationIntent: { ...phase.generationIntent, status: 'consumed' } });
   assert.equal(closed.documentation.status, 'not-applicable');
+  assert.equal(closed.documentation.reason, 'no-open-code-generation');
+  assert.match(closed.documentation.guidance, /not inspected/);
+  assert.match(closed.documentation.guidance, /does not mean existing code is documented or implementation is complete/);
+});
+
+test('documentation distinguishes a non-code phase from a code phase that has not begun', async (t) => {
+  const { root, workflow, config, phase } = await repository(t);
+  const beforeBegin = await inspectCodeDocumentation(root, config, workflow, { ...phase, generationIntent: null });
+  assert.equal(beforeBegin.documentation.reason, 'no-open-code-generation');
+  assert.equal(beforeBegin.documentation.inspectedFiles, 0);
+  assert.match(beforeBegin.documentation.guidance, /prepublish/);
+  const nonCode = await inspectCodeDocumentation(root, config, workflow, {
+    ...phase, generationPolicy: { ...phase.generationPolicy, task: 'document' }
+  });
+  assert.equal(nonCode.documentation.reason, 'phase-does-not-deliver-code');
+  assert.equal(nonCode.documentation.blocking, false);
 });
 
 test('documentation advisories never change draft-check readiness', async (t) => {

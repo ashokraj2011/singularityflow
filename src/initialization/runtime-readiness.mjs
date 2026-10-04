@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
 import { nodeTapCounts, parseTestResult } from '../code-delivery-tests.mjs';
-import { gitCommonDir, head } from '../git.mjs';
+import { exactChangedPathsBetweenObjects, gitCommonDir, head } from '../git.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
@@ -172,9 +172,11 @@ async function untrackedFingerprint(root, excludedPaths = []) {
   return { count: entries.length, bytes, digest: digest(entries) };
 }
 
-async function captureWorkingTreeBaseline(root, { generatedReportPaths = [] } = {}) {
+async function captureWorkingTreeBaseline(root, { generatedReportPaths = [], emptyOnly = false } = {}) {
   assertCleanTrackedTree(root);
-  await assertTrackedSourceInputs(root, generatedReportPaths);
+  // Automatic no-command recording qualifies only the tracked base, never loose files that an
+  // isolated Story will not copy. Real execution still requires fully tracked source inputs.
+  if (!emptyOnly) await assertTrackedSourceInputs(root, generatedReportPaths);
   return {
     commit: head(root),
     generatedReportPaths,
@@ -457,7 +459,7 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   const generatedReportPaths = [...new Set([
     ...generatedReadinessReportPaths(commands), ...otherScopeReports
   ])].sort();
-  await assertTrackedSourceInputs(root, generatedReportPaths);
+  if (!options.emptyOnly || commands.length) await assertTrackedSourceInputs(root, generatedReportPaths);
   if (commands.length > MAX_COMMANDS) throw new SingularityFlowError(
     `Repository readiness selected ${commands.length} commands; the bound is ${MAX_COMMANDS}.`,
     { code: 'REPOSITORY_READINESS_COMMAND_BOUND', details: { observed: commands.length, bound: MAX_COMMANDS } }
@@ -467,7 +469,7 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   const structuredTestContract = {
     status: inferredTests.length ? 'available' : testInferenceError ? 'unavailable' : 'missing',
     requiredForCode: Boolean(requireStructuredTest),
-    satisfied: !requireStructuredTest || inferredTests.length > 0,
+    satisfied: !testInferenceError && (!requireStructuredTest || inferredTests.length > 0),
     commands: inferredTests.map(publicStructuredTest),
     error: testInferenceError
   };
@@ -999,6 +1001,69 @@ async function writeReceipt(root, receipt) {
   return target;
 }
 
+/** A genuine no-op is not permission to execute an inferred or unknown test command. */
+export function isEmptyRepositoryReadinessPlan(plan) {
+  return plan?.status === 'ready' && plan.commands.length === 0 && plan.blockers.length === 0
+    && plan.structuredTestContract?.satisfied === true
+    && !plan.structuredTestContract?.requiredForCode && !plan.structuredTestContract?.error;
+}
+
+/**
+ * A configuration-only checkout may describe an older Story while intake selects application
+ * main. Only the two directories excluded by smart-init detection may differ. Never transfer a
+ * readiness observation across changed application files, manifests, tests or root configuration.
+ */
+export async function buildEmptyRepositoryReadinessPlan(root, { commit = head(root), ...options } = {}) {
+  if (!/^[a-f0-9]{40,64}$/u.test(commit ?? '')) return null;
+  const current = head(root);
+  if (current !== commit) {
+    const changed = exactChangedPathsBetweenObjects(root, commit, current);
+    if (changed.some((file) => !file.startsWith('singularity/')
+      && !file.startsWith('.github/agents/'))) return null;
+  }
+  const plan = await buildRepositoryReadinessPlan(root, { ...options, emptyOnly: true });
+  if (plan.sourceCommit !== current || !isEmptyRepositoryReadinessPlan(plan)) return null;
+  if (current === commit) return plan;
+  const { planId: _currentPlan, ...core } = plan;
+  core.sourceCommit = commit;
+  return Object.freeze({ ...core, planId: digest(core) });
+}
+
+/** Record a verified no-op only. This function cannot invoke any repository command. */
+export async function recordEmptyRepositoryReadiness(root, options = {}) {
+  const baseline = await captureWorkingTreeBaseline(root, { emptyOnly: true });
+  const plan = await buildEmptyRepositoryReadinessPlan(root, options);
+  if (!plan || await loadSupersedingTestBaseline(root, {
+    commit: plan.sourceCommit, scope: plan.scope, platform: plan.platform, arch: plan.arch
+  })) return null;
+  await assertWorkingTreeUnchanged(root, baseline);
+  const receipt = repositoryReadinessReceipt(plan, [], [], Date.now());
+  const file = await writeReceipt(root, receipt);
+  return { plan, receipt, file };
+}
+
+function repositoryReadinessReceipt(plan, results, testObservations, completedAt) {
+  const core = {
+    schemaVersion: RECEIPT_SCHEMA_VERSION,
+    kind: 'repository-readiness-receipt',
+    scope: plan.scope,
+    sourceTrackedOnly: true,
+    status: 'pass',
+    sourceCommit: plan.sourceCommit,
+    sourceManifestSha256: plan.sourceManifestSha256,
+    repositoryFingerprint: plan.repositoryFingerprint,
+    platform: plan.platform,
+    arch: plan.arch,
+    planId: plan.planId,
+    executionPolicy: plan.executionPolicy,
+    structuredTestContract: plan.structuredTestContract,
+    testObservations,
+    commandResults: results,
+    completedAt: new Date(completedAt).toISOString()
+  };
+  return { ...core, receiptSha256: digest(core) };
+}
+
 /** Execute only the exact, freshly recomputed and confirmed plan. */
 export async function executeRepositoryReadinessPlan(root, {
   confirmation,
@@ -1008,9 +1073,14 @@ export async function executeRepositoryReadinessPlan(root, {
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   now = Date.now,
+  emptyOnly = false,
   ...planOptions
 } = {}) {
-  const plan = await buildRepositoryReadinessPlan(root, planOptions);
+  const plan = await buildRepositoryReadinessPlan(root, { ...planOptions, emptyOnly });
+  if (emptyOnly && !isEmptyRepositoryReadinessPlan(plan)) throw new SingularityFlowError(
+    'Repository readiness now requires a reviewed execution plan; no command was run.',
+    { code: 'REPOSITORY_READINESS_STALE_PLAN' }
+  );
   if (confirmation !== plan.planId) {
     throw new SingularityFlowError(
       `Repository readiness confirmation must equal the current plan digest ${plan.planId}.`,
@@ -1024,7 +1094,7 @@ export async function executeRepositoryReadinessPlan(root, {
     );
   }
   const baseline = await captureWorkingTreeBaseline(root, {
-    generatedReportPaths: plan.generatedReportPaths
+    generatedReportPaths: plan.generatedReportPaths, emptyOnly
   });
   if (baseline.commit !== plan.sourceCommit) throw new SingularityFlowError(
     'Repository HEAD changed after the readiness plan was created.',
@@ -1135,26 +1205,7 @@ export async function executeRepositoryReadinessPlan(root, {
   }
   if (firstFailedTest) await failWithBaseline(firstFailedTest.command, firstFailedTest.record);
   await assertWorkingTreeUnchanged(root, baseline);
-  const completedAt = new Date(now()).toISOString();
-  const core = {
-    schemaVersion: RECEIPT_SCHEMA_VERSION,
-    kind: 'repository-readiness-receipt',
-    scope: plan.scope,
-    sourceTrackedOnly: true,
-    status: 'pass',
-    sourceCommit: plan.sourceCommit,
-    sourceManifestSha256: plan.sourceManifestSha256,
-    repositoryFingerprint: plan.repositoryFingerprint,
-    platform: plan.platform,
-    arch: plan.arch,
-    planId: plan.planId,
-    executionPolicy: plan.executionPolicy,
-    structuredTestContract: plan.structuredTestContract,
-    testObservations,
-    commandResults: results,
-    completedAt
-  };
-  const receipt = { ...core, receiptSha256: digest(core) };
+  const receipt = repositoryReadinessReceipt(plan, results, testObservations, now());
   const file = await writeReceipt(root, receipt);
   // A later successful run supersedes a failed baseline for the same immutable base. Keep the
   // passing receipt durable before clearing the older failure, so an interrupted write cannot

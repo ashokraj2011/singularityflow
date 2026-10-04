@@ -1,7 +1,7 @@
 /**
  * Turning a CLI failure into a card. `[UXH:CON-007]` `[UXH:REQ-062]` `[DHR:REQ-061]`
  *
- * The extension runs the CLI as a subprocess, so a refusal arrives as an exit code and some stderr.
+ * The extension runs the CLI as a subprocess; refusals arrive as a nonzero exit and a parsed result.
  * Every call site did the same thing with it — `showErrorMessage(error.message)` — which is the dead
  * end the shell exists to remove: a red toast, no reason a reader can act on, no statement about
  * what survived, and nothing to do next but dismiss it.
@@ -9,7 +9,7 @@
  * Four tiers, and which one applies is *reported*, never guessed at silently:
  *
  *   1. **`sflow-result` v2** — the gateway contract. Rendered whole.
- *   2. **`command-result` v1** — what most CLI refusals already carry on stderr when `--json` was
+ *   2. **`command-result` v1** — what CLI refusals carry on stdout (legacy stderr) when `--json` was
  *      passed. Adapted here. It has `effects`, so its preservation statement is *derived* from a
  *      declared record rather than written next to a throw.
  *   3. **`sflow-refusal-plan` v1** — a plain CLI error plus deterministic recovery actions. It

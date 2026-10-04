@@ -142,13 +142,13 @@ test('skill approved CLI resolves approved authority, returns source commit, and
     cwd: checkout, encoding: 'utf8', timeout: 30000
   });
   assert.notEqual(mismatch.status, 0);
-  assert.match(mismatch.stderr, /SKP_SKILL_DRIFT|confirmed package/u);
+  assert.match(mismatch.stdout, /SKP_SKILL_DRIFT|confirmed package/u);
 
   const missing = spawnSync(process.execPath, [CLI, 'skill', 'approved', 'local-only', '--json'], {
     cwd: checkout, encoding: 'utf8', timeout: 30000
   });
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /SKP_SKILL_MISSING|exact SKILL\.md/u);
+  assert.match(missing.stdout, /SKP_SKILL_MISSING|exact SKILL\.md/u);
 
   const workspace = path.join(root, 'workspace');
   const selection = path.join(root, 'active-workspace.json');
@@ -208,5 +208,5 @@ test('skill approved refuses a repository with no approved configuration authori
     encoding: 'utf8', timeout: 30000
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /SKP_APPROVED_AUTHORITY_UNAVAILABLE|No approved configuration authority/u);
+  assert.match(result.stdout, /SKP_APPROVED_AUTHORITY_UNAVAILABLE|No approved configuration authority/u);
 });

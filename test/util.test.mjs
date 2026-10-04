@@ -51,11 +51,14 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
   assert.equal(defaultTimeoutFor('gh'), NETWORK_TIMEOUT_MS);
   assert.ok(NETWORK_TIMEOUT_MS > 0);
   // A fetch against a large repository legitimately takes minutes; a shorter deadline is not the fix.
-  assert.equal(defaultTimeoutFor('git'), undefined);
+  assert.equal(defaultTimeoutFor('git'), 30_000);
   assert.equal(defaultTimeoutFor('git', {
     timeoutClass: 'local-read', env: { SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS: '4321' }
   }), 4321);
-  assert.equal(defaultTimeoutFor('git', { timeoutClass: 'remote-read' }), undefined);
+  assert.equal(defaultTimeoutFor('git', { timeoutClass: 'remote-read' }), 180_000);
+  assert.equal(defaultTimeoutFor('git', { args: ['-C', '/repo', '-c', 'x.y=z', 'status'] }), 30_000);
+  assert.equal(defaultTimeoutFor('git', { args: ['commit', '-m', 'status'] }), 180_000);
+  assert.equal(defaultTimeoutFor('git', { args: ['fetch'] }), 180_000);
   assert.equal(defaultTimeoutFor('node'), undefined);
 
   const started = Date.now();
@@ -66,6 +69,24 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
 
   // Without allowFailure the caller hears that it did not answer, not that it said no.
   assert.throws(() => run('sleep', ['30'], { timeoutMs: 250 }), (error) => error.code === 'SUBPROCESS_TIMEOUT');
+});
+
+test('every untyped Git launch is bounded and noninteractive without losing transport settings', () => {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '1', GCM_INTERACTIVE: 'Always', HTTPS_PROXY: 'proxy',
+    GIT_SSL_CAINFO: '/approved/ca.pem' };
+  for (const timeoutMs of [undefined, null, 0, 1234]) {
+    run('git', ['status'], { env, timeoutMs, spawnSyncCommand(_command, _args, options) {
+      assert.equal(options.timeout, timeoutMs || 30_000);
+      assert.equal(options.killSignal, 'SIGKILL');
+      assert.equal(options.env.GIT_TERMINAL_PROMPT, '0');
+      assert.equal(options.env.GCM_INTERACTIVE, 'Never');
+      assert.equal(options.env.HTTPS_PROXY, 'proxy');
+      assert.equal(options.env.GIT_SSL_CAINFO, '/approved/ca.pem');
+      return { status: 0, stdout: '', stderr: '' };
+    } });
+  }
+  assert.equal(env.GIT_TERMINAL_PROMPT, '1', 'caller environment stays unchanged');
+  assert.throws(() => run('git', ['status'], { timeoutMs: Infinity }), /positive finite/);
 });
 
 test('a zero exit carrying a timeout or signal is normalized to failure', () => {

@@ -573,7 +573,7 @@ test('workflow proposals publish from approved configuration without changing th
       cli, 'workflow', 'activate', result.branch, '--confirm', result.commit, '--json'
     ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
     assert.notEqual(unacknowledged.status, 0);
-    assert.match(unacknowledged.stderr, /cannot prove whether.*protected/is);
+    assert.match(unacknowledged.stdout, /cannot prove whether.*protected/is);
     assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved,
       'an unprotected authority does not move without its separate acknowledgement');
 

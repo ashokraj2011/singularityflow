@@ -494,6 +494,16 @@ function gitEnvironmentValue(env, name, platform) {
   return values.length === 1 ? values[0] : values.length ? null : undefined;
 }
 
+/** Preserve transport configuration, but never ask for interactive credentials in a CLI child. */
+export function withoutInteractiveGitPrompts(env = process.env, { platform = process.platform } = {}) {
+  const result = { ...env };
+  for (const [name, value] of [['GIT_TERMINAL_PROMPT', '0'], ['GCM_INTERACTIVE', 'Never']]) {
+    for (const spelling of gitEnvironmentSpellings(result, name, platform)) delete result[spelling];
+    result[name] = value;
+  }
+  return result;
+}
+
 /** A copy of `env` whose Git child cannot start automatic maintenance. */
 export function withoutAutomaticGitMaintenance(env = process.env, { platform = process.platform } = {}) {
   const source = env ?? {};

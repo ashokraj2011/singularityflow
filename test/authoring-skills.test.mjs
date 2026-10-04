@@ -320,7 +320,7 @@ test('a Story pins the step setting, routes from it, verifies it, and keeps its 
   await writeFile(workflowFile, `${JSON.stringify(stored, null, 2)}\n`);
   const refused = flow(root, ['phase', 'show', 'intake', '--json'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /WFA_SNAPSHOT_INVALID/);
+  assert.match(refused.stdout, /WFA_SNAPSHOT_INVALID/);
   const anchor = await pinnedResolutionVerification(root, await loadDefinition(root), stored);
   assert.deepEqual(anchor, { verified: false, reason: 'Resolved Story policy differs from the immutable creation commit. Run singularity-flow validate to see the difference.' });
   assert.notEqual(flow(root, ['validate'], { allowFailure: true }).status, 0, 'publication-time validation refuses it too');

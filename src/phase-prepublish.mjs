@@ -11,6 +11,7 @@ import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
+import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
@@ -344,7 +345,13 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
  */
 export async function phasePrepublish(root, config, workflow, phase, options = {}) {
   const draft = await phaseDraftCheck(root, config, workflow, phase, options);
-  const recovery = await inspectPhaseRecovery(root, config, workflow, phase);
+  const dependencies = await inspectPhasePublicationReadiness(root, config, workflow, phase, {
+    producer: draft.configuredProducer, generation: draft.generation,
+    agent: draft.ownership.proven ? draft.ownership.agent : null
+  });
+  const recovery = await inspectPhaseRecovery(root, config, workflow, phase, {
+    publicationReadiness: dependencies, modelEnabled: options.modelEnabled
+  });
   // Recovery resolves the prospective structured command without running it. Keep that exact
   // argv/report contract visible while publication and its required test execution are pending.
   const testExecution = recovery.testExecution;
@@ -381,18 +388,19 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         skill: '/sf-recover',
         detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
       }
+    : dependencies.blockers.length ? dependencies.actions[0]
     : draft.status !== 'ready'
       ? draftRoute ?? recovery.actions[0] ?? actions[0] ?? null
       : actions[0] ?? recovery.actions[0] ?? null;
   const briefOnly = recovery.actions.length > 0
     && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);
-  const hardBlocker = blockers.some((entry) =>
+  const hardBlocker = [...blockers, ...recovery.blockers].some((entry) =>
     ['lifecycle', 'host'].includes(entry.category));
   const authoringRepairOnly = blockers.length > 0
     && blockers.every((entry) => ['artifact-set', 'specification-quality',
       'specification-index', 'planning-table'].includes(entry.category))
     && recovery.blockers.length === 0;
-  const needsHumanClarification = blockers.some((entry) => entry.category === 'clarification');
+  const needsHumanClarification = [...blockers, ...recovery.blockers].some((entry) => entry.category === 'clarification');
   const agentOwnsRepair = draft.ownership.proven && draft.producer === 'governed-agent';
   // A supporting evidence collection is not a prose draft, but its exact bundle hash must still
   // move the bounded same-turn repair fingerprint when an agent adds a file beneath it.
@@ -401,7 +409,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     : `sha256:${createHash('sha256').update(`${draft.draftFingerprint}\0${staticChecks.artifactSetFingerprint}`)
       .digest('hex')}`;
   const commands = Object.freeze({
-    recheck: `singularity-flow phase prepublish ${phase.id} --json`,
+    recheck: `singularity-flow phase prepublish ${phase.id} --json${options.modelEnabled === false ? ' --no-model' : ''}`,
     draftCheck: draft.commands.recheck,
     recover: draft.commands.recover,
     next: ready ? null : action?.command ?? null,
@@ -425,6 +433,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     advisories: draft.advisories,
     documentation: draft.documentation,
     coverage: draft.coverage,
+    grounding: Object.freeze(dependencies.grounding),
+    warnings: Object.freeze(dependencies.warnings),
     readiness: Object.freeze({
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',
@@ -439,17 +449,19 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     correction: Object.freeze({
       ...draft.correction,
       class: !lifecycleReady ? 'phase-recovery'
+        : dependencies.blockers.length
+          ? dependencies.blockers[0].category === 'clarification' ? 'human-input' : 'phase-recovery'
         : draft.status === 'ready' && (blockers.length || recovery.blockers.length)
         ? needsHumanClarification ? 'human-input'
           : authoringRepairOnly && agentOwnsRepair ? 'agent-authoring' : 'phase-recovery'
         : draft.correction.class,
-      sameTurn: lifecycleReady && !ready && !hardBlocker && (draft.status !== 'ready'
+      sameTurn: lifecycleReady && !ready && !hardBlocker && !dependencies.blockers.length && (draft.status !== 'ready'
         ? draft.correction.sameTurn
         : (briefOnly || authoringRepairOnly) && agentOwnsRepair),
-      guidance: ready ? null : !lifecycleReady ? action.detail : draft.status !== 'ready'
+      guidance: ready ? null : !lifecycleReady || dependencies.blockers.length ? action.detail : draft.status !== 'ready'
         ? draft.correction.guidance
         : action?.detail ?? 'Resolve the reported phase-scoped blocker, then recheck before publication.',
-      skill: ready ? null : !lifecycleReady ? action.skill
+      skill: ready ? null : !lifecycleReady || dependencies.blockers.length ? action.skill
         : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null
     }),
     commands,

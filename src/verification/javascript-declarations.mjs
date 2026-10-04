@@ -365,6 +365,26 @@ export function scanJavaScriptDeclarations(source, { sourcePath, framework }) {
     return { ...empty, unattachedTags, fileGaps: [gap(error.code, error.message)] };
   }
   const declarations = [];
+  const nativeImports = new Set();
+  if (framework === 'node:test') {
+    const significant = tokens.filter((token) => token.type !== 'comment');
+    for (let i = 0; i < significant.length; i += 1) {
+      if (significant[i].value !== 'import') continue;
+      if (significant[i + 1]?.value === '(') continue;
+      let from = i + 1;
+      while (from < significant.length && !['from', ';'].includes(significant[from].value)) from += 1;
+      if (significant[from]?.value !== 'from' || significant[from + 1]?.value !== 'node:test') continue;
+      const imported = significant.slice(i + 1, from).map((token) => token.value);
+      if (imported[0] === 'test') nativeImports.add('test');
+      const open = imported.indexOf('{');
+      if (open >= 0) {
+        for (const group of imported.slice(open + 1, imported.indexOf('}')).join(' ').split(',')) {
+          const names = group.trim().split(/\s+/u);
+          if (names.length === 1 || (names.length === 3 && names[1] === 'as' && names[0] === names[2])) nativeImports.add(names[0]);
+        }
+      }
+    }
+  }
   const attachedCommentIndexes = new Set();
   // Open bracket frames. A `{` frame records whether it is the body of a literal describe, which
   // is the only block (besides the file) where a declaration has a static identity.
@@ -499,6 +519,7 @@ export function scanJavaScriptDeclarations(source, { sourcePath, framework }) {
       if (title && !pattern) gaps.push(gap('PARAMETER_TITLE_NOT_DISTINCT', 'the title template has no literal text to tell its instances apart'));
     }
     const suitePath = enclosingSuites.map((suite) => suite.title);
+    if (framework === 'node:test' && !nativeImports.has(token.value)) gaps.push(gap('NODE_TEST_IMPORT_UNSUPPORTED', 'use a direct named node:test import (or default test import) for an exact native declaration'));
     const identity = { schema: JAVASCRIPT_DECLARATION_SCHEMA, framework, sourcePath, suitePath, name: title };
     declarations.push({
       ...identity,

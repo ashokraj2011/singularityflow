@@ -303,7 +303,7 @@ test('phase add defaults to Story and incorrect clause phase lists eligible phas
   const before = await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8');
   const added = run('phase', 'add', 'writing', '--json');
   assert.notEqual(added.status, 0);
-  assert.match(added.stderr, /Phase 'writing' has no default governed agent/);
+  assert.match(added.stdout, /Phase 'writing' has no default governed agent/);
   assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'), before,
     'a missing default Story agent must be caught before writing a broken workflow');
 
@@ -332,7 +332,7 @@ test('explicit local FOS authority authors --propose as an uncommitted local cha
     }
   });
   assert.notEqual(onApplicationBranch.status, 0);
-  assert.equal(JSON.parse(onApplicationBranch.stderr).error.code, 'WORKFLOW_LOCAL_AUTHORITY_BRANCH_REQUIRED');
+  assert.equal(JSON.parse(onApplicationBranch.stdout).error.code, 'WORKFLOW_LOCAL_AUTHORITY_BRANCH_REQUIRED');
   assert.equal((await loadDefinition(root)).workTypes['wrong-branch'], undefined);
   assert.equal(spawnSync('git', ['switch', '-q', 'sflow/config'], { cwd: root }).status, 0);
   const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();

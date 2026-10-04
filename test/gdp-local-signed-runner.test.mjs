@@ -141,7 +141,7 @@ test('local runner plans, executes in a child, signs, and verifies without gate 
     '--signer', 'developer-local', '--confirm-plan', planned.data.plan.planSha256, '--json'
   );
   assert.equal(conflicting.status, 1);
-  assert.match(conflicting.stderr, /GDP_LOCAL_RUNNER_INPUT_CONFLICT/);
+  assert.match(conflicting.stdout, /GDP_LOCAL_RUNNER_INPUT_CONFLICT/);
 
   const attestationFile = path.join(root, 'runner-attestation.json');
   await writeFile(attestationFile, `${JSON.stringify(executed, null, 2)}\n`);
@@ -180,12 +180,12 @@ test('local runner confirmation and stale-plan checks fail before executing', as
   const refused = sflowFailure(root, 'delivery', 'local-runner-run', '--plan',
     'runner-plan.json', '--confirm-plan', digest('f'), '--json');
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /GDP_LOCAL_RUNNER_CONFIRMATION_INVALID/);
+  assert.match(refused.stdout, /GDP_LOCAL_RUNNER_CONFIRMATION_INVALID/);
   await writeFile(path.join(root, 'changed.txt'), 'changed\n');
   git(root, 'add', 'changed.txt'); git(root, 'commit', '-m', 'change candidate');
   const stale = sflowFailure(root, 'delivery', 'local-runner-run', '--plan',
     'runner-plan.json', '--confirm-plan', planned.data.plan.planSha256,
     '--json');
   assert.equal(stale.status, 1);
-  assert.match(stale.stderr, /GDP_LOCAL_RUNNER_PLAN_STALE/);
+  assert.match(stale.stdout, /GDP_LOCAL_RUNNER_PLAN_STALE/);
 });

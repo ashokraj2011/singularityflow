@@ -135,7 +135,7 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
     'documents', 'view', tamperedBrief.documentId, '--work-id', 'BRIEF-1', '--json'
   ], { allowFailure: true });
   assert.notEqual(refusedView.status, 0);
-  assert.match(refusedView.stderr, /no longer matches its committed catalog hash/);
+  assert.match(refusedView.stdout, /no longer matches its committed catalog hash/);
   const tamperedReview = JSON.parse(flow(root, ['phase', 'show', 'specification', '--json']).stdout);
   const refusedDocument = tamperedReview.documents.find((entry) => entry.id === tamperedBrief.documentId);
   assert.match(refusedDocument.error, /no longer matches its committed catalog hash/);
@@ -146,7 +146,7 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
     'choices', 'begin', 'approve', 'BRIEF-1', '--json'
   ], { allowFailure: true });
   assert.notEqual(refusedApproval.status, 0);
-  assert.match(refusedApproval.stderr, /Approval review documents are unavailable or invalid/);
+  assert.match(refusedApproval.stdout, /Approval review documents are unavailable or invalid/);
 });
 
 function git(root, args, options = {}) {

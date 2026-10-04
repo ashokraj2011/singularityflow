@@ -6,7 +6,8 @@
  * Story readiness evaluator; machine paths and command argv never cross that boundary.
  */
 import {
-  buildRepositoryReadinessPlan, inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline
+  buildRepositoryReadinessPlan, inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline,
+  recordEmptyRepositoryReadiness, buildEmptyRepositoryReadinessPlan
 } from './initialization/runtime-readiness.mjs';
 import { head } from './git.mjs';
 import {
@@ -106,11 +107,11 @@ function publicFailedBaseline(baseline, assessment, acceptance = null, planCurre
 }
 
 export async function collectRepositoryReadinessEvidence(repositories = [], {
-  scope = 'dependency-test'
+  scope = 'dependency-test', recordEmpty = false, previewEmpty = false
 } = {}) {
   const pairs = await Promise.all(repositories.map(async (entry) => {
     const selectedScope = entry.scope ?? scope;
-    const inspection = await inspectRepositoryReadinessReceipt(entry.root, {
+    let inspection = await inspectRepositoryReadinessReceipt(entry.root, {
       commit: entry.baseCommit,
       scope: selectedScope,
       // A selected remote base need not be the current checkout. The immutable receipt already
@@ -127,8 +128,33 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
         commit: entry.baseCommit, scope: candidateScope
       })));
     const loaded = candidates.find(Boolean);
+    // Only Story start opts in. Preview/status remain read-only, failed baselines are preserved,
+    // and no command can run implicitly. Cross-branch no-ops require proven detector equivalence.
+    if (recordEmpty && !loaded && inspection.status !== 'pass') {
+      try {
+        const recorded = await recordEmptyRepositoryReadiness(entry.root, {
+          scope: selectedScope, commit: entry.baseCommit
+        });
+        if (recorded) inspection = await inspectRepositoryReadinessReceipt(entry.root, {
+          commit: entry.baseCommit, scope: selectedScope, recompute: false
+        });
+      } catch { /* Dirty, ambiguous or changed inputs retain the explicit readiness repair route. */ }
+    }
     if (!loaded && inspection.status === 'pass') {
       return [entry.id ?? entry.repository, publicReceipt(inspection)];
+    }
+    if (previewEmpty && !loaded) {
+      try {
+        const plan = await buildEmptyRepositoryReadinessPlan(entry.root, {
+          scope: selectedScope, commit: entry.baseCommit
+        });
+        if (plan) return [entry.id ?? entry.repository, Object.freeze({
+          status: 'no-commands-applicable', sourceCommit: plan.sourceCommit,
+          scope: plan.scope, planId: plan.planId, receiptSha256: null,
+          detectedStacks: plan.detectedStacks ?? [], structuredTestContract: plan.structuredTestContract,
+          commandResults: [], testObservations: []
+        })];
+      } catch { /* Read-only preview never grants an exception for incomplete or changed inputs. */ }
     }
     // The failing run and the explicit human decision are Git-private. Read only the selected
     // immutable base; a different branch, host, expired decision, or incomplete observation cannot
@@ -179,7 +205,7 @@ export function preflightTestReadiness(repositories = [], evidence = null) {
     repositories: Object.freeze(repositories.map((entry) => {
       const id = entry.id ?? entry.repository;
       const receipt = receipts[id] ?? null;
-      const current = ['pass', 'failing-tests', 'accepted-known-failures'].includes(receipt?.status)
+      const current = ['pass', 'failing-tests', 'accepted-known-failures', 'no-commands-applicable'].includes(receipt?.status)
         && receipt.sourceCommit === entry.baseCommit;
       // An old or stale receipt may describe a different test runner. Do not label its commands
       // as tools checked for this selected base merely because the receipt file was discoverable.

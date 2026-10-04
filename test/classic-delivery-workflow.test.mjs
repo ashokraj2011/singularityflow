@@ -174,10 +174,10 @@ test('Classic delivery commits passing test results before Testing and Code chec
   cli('prepare', 'implementation');
   await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
-    `// @ac:${workId}:AC-001`,
     "import test from 'node:test';",
     "import assert from 'node:assert/strict';",
     "import { value } from '../src/value.mjs';",
+    `// @ac:${workId}:AC-001`,
     "test('value', () => assert.equal(value, 2));", ''
   ].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');

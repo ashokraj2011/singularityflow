@@ -176,7 +176,7 @@ test('FOS:DEFERRED-AC-007 bootstrap without an approved policy is refused before
     cwd: os.tmpdir(), encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: 'FOS Test' }
   });
   assert.notEqual(result.status, 0);
-  const refusal = JSON.parse(result.stderr);
+  const refusal = JSON.parse(result.stdout);
   assert.equal(refusal.error.code, 'FOS_BOOTSTRAP_OPTIONS_INVALID');
   assert.equal(await readFosAttachment(root), null);
 });

@@ -381,10 +381,10 @@ test('actual recipe CLI refuses mutable checkout authority and confirmation/exec
   const missing = cli(root, 'workflow', 'skills-recipe', 'team-analysis',
     '--label', 'Team analysis', '--phases', 'team-criteria', '--json');
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /SKP_APPROVED_AUTHORITY_UNAVAILABLE/);
+  assert.match(missing.stdout, /SKP_APPROVED_AUTHORITY_UNAVAILABLE/);
   const confirmed = cli(root, 'workflow', 'skills-recipe', 'team-analysis',
     '--label', 'Team analysis', '--phases', 'team-criteria', '--confirm', H('b'), '--json');
   assert.notEqual(confirmed.status, 0);
-  assert.match(confirmed.stderr, /SKP_OPTION_UNSUPPORTED/);
+  assert.match(confirmed.stdout, /SKP_OPTION_UNSUPPORTED/);
   assert.equal(await readFile(workflowFile, 'utf8'), before);
 });

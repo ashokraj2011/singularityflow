@@ -883,11 +883,23 @@ function assertDocumentInputContainsNoSecret(input, captured) {
 
 async function governedDocumentPath(root, config, workflow, record) {
   if (!record.path) throw new SingularityFlowError(`Document '${record.id}' has no repository path.`);
-  const itemRoot = path.resolve(workDir(root, config, workflow.workItem.id));
+  // Published code/test artifacts belong to the repository, not the Story's document folder.
+  // Only a catalog entry backed by this phase's exact registered path/hash gets that scope.
+  const repositoryArtifact = record.type === 'artifact' && record.id.startsWith('ART-')
+    && /^[a-f0-9]{64}$/u.test(record.sha256 ?? '')
+    && workflow.phases?.[record.phase]?.artifacts?.some((entry) =>
+      entry.path === record.path && entry.sha256 === record.sha256 && entry.size === record.size);
+  const itemRoot = repositoryArtifact ? path.resolve(root)
+    : path.resolve(workDir(root, config, workflow.workItem.id));
   const absolute = path.resolve(root, record.path);
   const relative = path.relative(itemRoot, absolute);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new SingularityFlowError(`Document '${record.id}' is outside work item ${workflow.workItem.id}.`);
+  }
+  if (repositoryArtifact) {
+    const declaration = loadEnvironmentDeclarationSync(root, { optional: true });
+    const match = matchEnvironmentLocalPath(declaration, posix(record.path));
+    if (match) throw environmentLocalRefusal(record.path, match);
   }
   const fileInfo = await lstat(absolute).catch(() => null);
   if (!fileInfo?.isFile() || fileInfo.isSymbolicLink()) {

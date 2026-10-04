@@ -221,7 +221,7 @@ test('policy CLI exposes read-only status/plan/fsck and revision-plus-digest-bou
   const missingRevision = flowResult(root, 'policy', 'apply',
     '--confirm', planned.confirmationSha256, '--json');
   assert.equal(missingRevision.status, 1);
-  assert.match(missingRevision.stderr, /exact non-negative revision/);
+  assert.match(missingRevision.stdout, /exact non-negative revision/);
   assert.equal(flowJson(root, 'policy', 'status').initialized, false);
 
   const applied = flowJson(root, 'policy', 'apply',

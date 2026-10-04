@@ -1458,7 +1458,7 @@ test('Story publication refusal occurs before automatic approval enrollment', as
     ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
 
     assert.notEqual(started.status, 0);
-    assert.match(started.stderr, /Cannot publish the new Story branch|publication/i);
+    assert.match(started.stdout, /Cannot publish the new Story branch|publication/i);
     assert.equal(run('git', ['rev-parse', CONFIGURATION_BRANCH], {
       cwd: fixture.remote
     }).stdout.trim(), authorityBefore, 'configuration authority remains unchanged');
@@ -1494,7 +1494,7 @@ test('Story intake refusal occurs before automatic approval enrollment', async (
     ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
 
     assert.notEqual(started.status, 0);
-    assert.match(started.stderr, /intake source|--jira|--title/i);
+    assert.match(started.stdout, /intake source|--jira|--title/i);
     assert.equal(run('git', ['rev-parse', CONFIGURATION_BRANCH], {
       cwd: fixture.remote
     }).stdout.trim(), authorityBefore, 'configuration authority remains unchanged');
@@ -1699,7 +1699,7 @@ test('Story start changes nothing when neither configuration authority is availa
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(fixture.root, 'no-active-workspace.json')
     } });
     assert.notEqual(started.status, 0, `${started.stderr}\n${started.stdout}`);
-    assert.match(started.stderr, /Neither an approved sflow\/config branch nor a verified state configuration mirror/);
+    assert.match(started.stdout, /Neither an approved sflow\/config branch nor a verified state configuration mirror/);
     assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), before);
     assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: checkout }).stdout, '');
@@ -1752,7 +1752,7 @@ test('CLI Story start never substitutes a base workflow for an unreadable author
       '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
     ], { cwd: checkout, encoding: 'utf8', env: isolated });
     assert.notEqual(started.status, 0, `${started.stderr}\n${started.stdout}`);
-    assert.match(started.stderr, /Cannot reach Story configuration authority/);
+    assert.match(started.stdout, /Cannot reach Story configuration authority/);
     assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), before);
     assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: checkout }).stdout, '');

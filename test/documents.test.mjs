@@ -229,13 +229,13 @@ test('inline previews reject tampering and document paths outside the governed w
 
   await writeFile(path.join(root, record.path), Buffer.from('tampered'));
   const tampered = flow(root, ['documents', 'preview', 'DOC-001', '--json'], { allowFailure: true });
-  assert.notEqual(tampered.status, 0); assert.match(tampered.stderr, /no longer matches its committed catalog hash/);
+  assert.notEqual(tampered.status, 0); assert.match(JSON.parse(tampered.stdout).error.message, /no longer matches its committed catalog hash/);
 
   const manifestPath = path.join(root, 'singularity/work-items/PREVIEW-1/documents.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')); manifest.documents[0].path = 'README.md';
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const escaped = flow(root, ['documents', 'preview', 'DOC-001', '--json'], { allowFailure: true });
-  assert.notEqual(escaped.status, 0); assert.match(escaped.stderr, /outside work item PREVIEW-1/);
+  assert.notEqual(escaped.status, 0); assert.match(JSON.parse(escaped.stdout).error.message, /outside work item PREVIEW-1/);
 });
 
 test('source-code documents are rendered as reviewable text instead of binary metadata', async () => {

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -145,7 +146,7 @@ async function workspaceEnvironment(base, root, capabilityAuthority, {
   };
 }
 
-test('init can bootstrap configuration on a Work-ID branch without changing main', async () => {
+test('init bootstraps a separate setup branch and start can use it with inline empty readiness', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-init-work-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Branch Bootstrap Tester');
@@ -159,13 +160,31 @@ test('init can bootstrap configuration on a Work-ID branch without changing main
     cli, 'init', '--work-id', 'WORK-123', '--base', 'main'
   ], root);
 
+  assert.equal(git(root, 'branch', '--show-current'), 'setup/WORK-123');
+  assert.equal(git(root, 'rev-parse', 'main'), mainBefore);
+  assert.equal(git(root, 'rev-parse', 'setup/WORK-123'), mainBefore);
+  assert.equal(git(root, 'branch', '--list', 'WORK-123'), '');
+  assert.match(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /defaultBaseBranch: main/);
+  assert.match(initialized.stdout, /Initialized Singularity Flow on setup\/WORK-123/);
+  assert.match(initialized.stdout, /base branch was not modified/);
+  assert.match(initialized.stdout, /singularity-flow start WORK-123 --from-branch setup\/WORK-123/);
+  const configurationFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(configurationFile, 'utf8'));
+  definition.git.publish = 'off'; definition.worldModel.grounding = 'off';
+  assert.equal(definition.repositoryReadiness.requiredBeforeStory, true);
+  await writeFile(configurationFile, YAML.stringify(definition));
+  git(root, 'add', '.'); git(root, 'commit', '-m', 'reviewed setup');
+  const setupCommit = git(root, 'rev-parse', 'HEAD');
+  const remote = `${root}.git`;
+  git(root, 'init', '--bare', remote); git(root, 'remote', 'add', 'origin', remote);
+  git(root, 'push', 'origin', 'main', 'setup/WORK-123');
+  run(process.execPath, [cli, '--no-model', 'start', 'WORK-123', '--from-branch', 'setup/WORK-123',
+    '--work-type', 'feature', '--title', 'First Story'], root, { env: isolatedMachine(root) });
   assert.equal(git(root, 'branch', '--show-current'), 'WORK-123');
   assert.equal(git(root, 'rev-parse', 'main'), mainBefore);
-  assert.equal(git(root, 'rev-parse', 'WORK-123'), mainBefore);
-  assert.match(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /defaultBaseBranch: main/);
-  assert.match(initialized.stdout, /Initialized Singularity Flow on Work-ID branch WORK-123/);
-  assert.match(initialized.stdout, /base branch was not modified/);
-  assert.match(initialized.stdout, /singularity-flow start WORK-123/);
+  assert.equal(git(root, 'rev-parse', 'setup/WORK-123'), setupCommit);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/WORK-123/workflow.json'), 'utf8'));
+  assert.equal(workflow.workItem.id, 'WORK-123');
 });
 
 test('branch-local init refuses to carry uncommitted changes to the Work-ID branch', async () => {
@@ -437,8 +456,8 @@ test('init permits first bootstrap only after a configured authority positively 
   const initialized = run(process.execPath, [
     cli, 'init', '--work-id', 'FIRST-INIT', '--base', 'main'
   ], root, { env });
-  assert.match(initialized.stdout, /Initialized Singularity Flow on Work-ID branch FIRST-INIT/);
-  assert.equal(git(root, 'branch', '--show-current'), 'FIRST-INIT');
+  assert.match(initialized.stdout, /Initialized Singularity Flow on setup\/FIRST-INIT/);
+  assert.equal(git(root, 'branch', '--show-current'), 'setup/FIRST-INIT');
   assert.match(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /version: 2/);
 });
 

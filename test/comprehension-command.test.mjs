@@ -182,7 +182,7 @@ test('explain code refuses invalid narrative length and distinguishes an empty d
     '--no-model', 'explain', 'code', '--since', 'HEAD', '--narrate', '--length', 'unbounded', '--json'
   ]);
   assert.notEqual(invalidLength.status, 0);
-  assert.match(invalidLength.stderr, /Narrative length 'unbounded' is invalid/u);
+  assert.match(invalidLength.stdout, /Narrative length 'unbounded' is invalid/u);
 
   const noMatch = command(root, [
     '--no-model', 'explain', 'code', '--since', 'HEAD', '--hunk', 'H-999'
@@ -226,7 +226,7 @@ test('comprehension source expands only current Candidate-bound references in bo
     '--no-model', 'comprehension', 'source', service.ref, '--base', 'HEAD', '--json'
   ]);
   assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /not present in the exact current change-region manifest/i);
+  assert.match(stale.stdout, /not present in the exact current change-region manifest/i);
 });
 
 test('comprehension check reports incomplete coverage without turning observation into a gate', async (t) => {
@@ -259,7 +259,7 @@ test('experimental record preview is source-free, read-only, and never a lifecyc
     '--no-model', 'comprehension', 'record-preview', '--base', 'HEAD', '--json'
   ]);
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /--experimental/);
+  assert.match(refused.stdout, /--experimental/);
 
   const result = command(root, [
     '--no-model', 'comprehension', 'record-preview', '--experimental', '--base', 'HEAD', '--json'
@@ -346,7 +346,7 @@ test('experimental record preview migration preserves diagnostic meaning and can
     'review/legacy-preview.json', '--experimental', '--json'
   ]);
   assert.notEqual(tampered.status, 0);
-  assert.match(tampered.stderr, /integrity check/);
+  assert.match(tampered.stdout, /integrity check/);
 
   const futureCore = { ...legacyCore, schemaVersion: 3 };
   await writeFile(previewFile, JSON.stringify({
@@ -357,7 +357,7 @@ test('experimental record preview migration preserves diagnostic meaning and can
     'review/legacy-preview.json', '--experimental', '--json'
   ]);
   assert.notEqual(future.status, 0);
-  assert.match(future.stderr, /newer sflow|above this build's readable range/);
+  assert.match(future.stdout, /newer sflow|above this build's readable range/);
 });
 
 test('comprehension brownfield limits adoption to touched areas and validates partial history without authority', async (t) => {
@@ -534,8 +534,8 @@ test('comprehension walkthrough validates typed claims without model, AST, write
     '--base', 'HEAD', '--json'
   ]);
   assert.notEqual(circular.status, 0);
-  assert.match(circular.stderr, /part of the Candidate it describes/);
-  assert.match(circular.stderr, /ignored repository-local evidence path/);
+  assert.match(circular.stdout, /part of the Candidate it describes/);
+  assert.match(circular.stdout, /ignored repository-local evidence path/);
 });
 
 test('comprehension replay projects existing Story history without reading the working diff', async (t) => {
@@ -577,14 +577,14 @@ test('comprehension replay refuses missing Story context and options it would ot
     '--no-model', 'comprehension', 'replay', '--work-id', 'MISSING-STORY', '--json'
   ]);
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /No governed Story matches 'MISSING-STORY'/);
+  assert.match(missing.stdout, /No governed Story matches 'MISSING-STORY'/);
   const ignored = command(root, [
     '--no-model', 'comprehension', 'replay', '--work-id', 'CMP-STORY',
     '--phase', 'implementation', '--json'
   ]);
   assert.notEqual(ignored.status, 0);
-  assert.match(ignored.stderr, /does not accept --phase/);
-  assert.match(ignored.stderr, /replay phase <PHASE>/);
+  assert.match(ignored.stdout, /does not accept --phase/);
+  assert.match(ignored.stdout, /replay phase <PHASE>/);
 });
 
 test('an explicit base never bypasses a requested Story context', async (t) => {
@@ -593,7 +593,7 @@ test('an explicit base never bypasses a requested Story context', async (t) => {
     '--no-model', 'comprehension', 'regions', '--base', 'HEAD', '--work-id', 'DOES-NOT-EXIST', '--json'
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /DOES-NOT-EXIST/);
+  assert.match(result.stdout, /DOES-NOT-EXIST/);
 });
 
 test('phase-scoped observation requires a Story and gives a repository-only recovery path', async (t) => {
@@ -602,8 +602,8 @@ test('phase-scoped observation requires a Story and gives a repository-only reco
     '--no-model', 'comprehension', 'regions', '--phase', 'implementation', '--base', 'HEAD', '--json'
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /--phase requires --work-id or an attached Story/);
-  assert.match(result.stderr, /use --base without --phase/);
+  assert.match(result.stdout, /--phase requires --work-id or an attached Story/);
+  assert.match(result.stdout, /use --base without --phase/);
 });
 
 test('comprehension evidence files are bounded before JSON parsing', async (t) => {
@@ -613,7 +613,7 @@ test('comprehension evidence files are bounded before JSON parsing', async (t) =
     '--no-model', 'comprehension', 'check', '--base', 'HEAD', '--bindings', 'too-large.json', '--json'
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /1048576-byte diagnostic input ceiling/);
+  assert.match(result.stdout, /1048576-byte diagnostic input ceiling/);
 });
 
 test('comprehension evidence cannot escape the resolved repository', async (t) => {
@@ -626,7 +626,7 @@ test('comprehension evidence cannot escape the resolved repository', async (t) =
     '--no-model', 'comprehension', 'check', '--base', 'HEAD', '--bindings', file, '--json'
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /(?:in|out)side the repository|must be repository-relative|escap/i);
+  assert.match(result.stdout, /(?:in|out)side the repository|must be repository-relative|escap/i);
 });
 
 test('comprehension evidence record collections are bounded', async (t) => {
@@ -636,7 +636,7 @@ test('comprehension evidence record collections are bounded', async (t) => {
     '--no-model', 'comprehension', 'check', '--base', 'HEAD', '--bindings', 'too-many.json', '--json'
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /2000-record diagnostic input ceiling/);
+  assert.match(result.stdout, /2000-record diagnostic input ceiling/);
 });
 
 test('human output labels the compatibility subject and resolved repository honestly', async (t) => {

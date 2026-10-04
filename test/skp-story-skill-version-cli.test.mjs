@@ -52,15 +52,15 @@ test('Story skill-version status reads the accepted pin and invalid decisions ne
 
   const missingReason = refused('story', 'skill-version', 'preview', 'threat-model', '--json');
   assert.notEqual(missingReason.status, 0);
-  assert.match(missingReason.stderr, /reviewed skill-version proposal needs --reason/);
+  assert.match(missingReason.stdout, /reviewed skill-version proposal needs --reason/);
   const oversizedReason = refused('story', 'skill-version', 'preview', 'threat-model',
     '--reason', 'x'.repeat(4097), '--json');
   assert.notEqual(oversizedReason.status, 0);
-  assert.match(oversizedReason.stderr, /at most 4096 characters/);
+  assert.match(oversizedReason.stdout, /at most 4096 characters/);
   const invalidDecision = refused('story', 'skill-version', 'decide', 'SAM-001',
     '--decision', 'maybe', '--reason', 'Invalid decision.', '--json');
   assert.notEqual(invalidDecision.status, 0);
-  assert.match(invalidDecision.stderr, /--decision approve\|reject/);
+  assert.match(invalidDecision.stdout, /--decision approve\|reject/);
   assert.equal(git('rev-parse', 'HEAD'), head);
   assert.deepEqual(await readFile(recordPath), before);
 });

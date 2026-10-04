@@ -74,13 +74,13 @@ cd your-repository
 singularity-flow init --work-id WORK-123 --base main --fetch
 git add singularity
 git commit -m "[WORK-123][bootstrap] Initialize Singularity Flow"
-git push -u origin WORK-123
+git push -u origin setup/WORK-123
 singularity-flow workspace branches --json
-singularity-flow start WORK-123 --from-branch main
+singularity-flow start WORK-123 --from-branch setup/WORK-123
 ```
 
-For a protected base branch, `--work-id` creates or reuses that exact Work-ID
-branch before writing any files. Initialization therefore does not modify or push
+For a protected base branch, `--work-id` creates or reuses `setup/<WORK-ID>`
+before writing files, leaving the Story's own branch available for `start`. Initialization does not modify or push
 `main`. Merge the configuration through an approved pull request only when the
 team wants later Work IDs to inherit it as their shared baseline.
 
@@ -995,9 +995,9 @@ then repeat the intended create command with that confirmation. Without `--clone
 the workspace is registered but its application checkouts are deferred. Use
 `workspace status <DIRECTORY>` to inspect it and `workspace repair <DIRECTORY>`
 to materialize missing checkouts explicitly; Story start also materializes the
-selected capability repositories on demand. When using `--json`, failures are a
-single structured refusal on stderr, with `error.code`; successful results are on
-stdout.
+selected capability repositories on demand. When using `--json`, failures and
+successful results are machine-readable on stdout; failures retain their nonzero
+exit code and structured refusal details. Human diagnostics remain on stderr.
 
 Start repository onboarding with its exact credential-free Git URL. In VS Code, paste it into the
 repository field; **Browse repositories…** can optionally find a repository, fill that field, and

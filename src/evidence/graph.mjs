@@ -6,6 +6,8 @@
  * rows it would have supported read inconclusive.
  */
 import { createHash } from 'node:crypto';
+import { head } from '../git.mjs';
+import { evidenceProvenance } from './provenance.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -284,8 +286,11 @@ async function loadScopeInventory(root, definition, workflow, directory, records
 
 /** Read one Story's records from its checkout. Never throws for a record problem; reports it. */
 export async function loadEvidenceGraph(root, { workId = null } = {}) {
+  const evaluatedCommit = head(root);
   const accepted = await loadAcceptedStoryExecution(root, workId);
-  return evidenceGraphFromAggregate(root, accepted.definition, accepted.workflow);
+  const graph = await evidenceGraphFromAggregate(root, accepted.definition, accepted.workflow);
+  graph.provenance = evidenceProvenance(root, accepted.workflow, evaluatedCommit);
+  return graph;
 }
 
 /**

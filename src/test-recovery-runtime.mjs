@@ -15,6 +15,7 @@ import { readTrpCaseInventory, matchTrpReports, snapshotTrpDeclaredRuntime, trpC
   trpExecutionEnvironment, trpNativeReportCapture, verifyTrpCaseInventorySources } from './test-recovery-adapters.mjs';
 import { assertTestReportTargetEmpty, parseTestResult } from './code-delivery-tests.mjs';
 import { applicationPathContext } from './application-paths.mjs';
+import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const unsupported = (message, details = {}) => new SingularityFlowError(message, { code: 'TRP_RISK_ADAPTER_UNAVAILABLE', details });
@@ -312,7 +313,8 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   const candidate = await candidateContext(root, config, workflow, selection);
   const witness = Object.freeze({});
   const cwd = await realpath(path.resolve(root, tests[0].workingDirectory ?? '.'));
-  const environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, process.env, { cwd }) : { ...process.env };
+  let environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, process.env, { cwd }) : { ...process.env };
+  if (tests[0].result?.adapter === 'node-tap') environment = nodeTestReporterEnvironment(environment, root, { argv: tests[0].argv, cwd });
   delete environment.NODE_TEST_CONTEXT;
   if (tests[0].result?.adapter === 'playwright-json') {
     for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PLAYWRIGHT_JSON_OUTPUT_FILE') delete environment[key];

@@ -12,7 +12,8 @@ import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
 import { allCommands, documentedCommands, overviewCommands, synopsisFor } from '../src/help-pages.mjs';
 import { canonicalCommand, COMMAND_REGISTRY } from '../src/command-registry.mjs';
 import { COMMAND_SKILLS } from '../src/command-skills.mjs';
-import { BOOLEAN_OPTIONS } from '../src/util.mjs';
+import { BOOLEAN_OPTIONS, defaultTimeoutFor, run } from '../src/util.mjs';
+import { SOURCE_LINE_BUDGETS, sourceSizeFailures } from './source-size-policy.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
 import { auditReviewedImplementationSourceManifest } from './world-model-implementation-manifest-lint.mjs';
@@ -39,6 +40,25 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
 const checked = [];
 const execFileAsync = promisify(execFile);
+
+for (const relative of Object.keys(SOURCE_LINE_BUDGETS)) {
+  failures.push(...sourceSizeFailures(relative, await readFile(path.join(root, relative), 'utf8')));
+}
+for (const args of [[], ['status'], ['-c', 'core.quotepath=false', 'ls-tree'], ['commit'], ['fetch']]) {
+  const bound = defaultTimeoutFor('git', { args, env: {} });
+  if (!Number.isFinite(bound) || bound <= 0) failures.push(`Git runner has an unbounded default for ${args[0] ?? 'untyped calls'}.`);
+  // Exercise the central boundary with an inert spawn, never a real repository/credential helper.
+  run('git', args, { timeoutMs: 0,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '1', GCM_INTERACTIVE: 'Always' },
+    spawnSyncCommand: (_command, _argv, options) => {
+      if (!Number.isFinite(options.timeout) || options.timeout <= 0
+          || options.env.GIT_TERMINAL_PROMPT !== '0' || options.env.GCM_INTERACTIVE !== 'Never') {
+        failures.push('Central Git execution must enforce a finite timeout and suppress interactive prompts.');
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    }
+  });
+}
 
 try {
   validateNarrationMigrationStatus();

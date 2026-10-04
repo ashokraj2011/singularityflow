@@ -620,6 +620,20 @@ test('a JSON refusal written to stderr retains its exact error code', async () =
   );
 });
 
+test('a stdout JSON refusal preserves its actionable headline and wins over incidental stderr', async () => {
+  const refusal = { resultType: 'sflow-refusal-plan', status: 'failed', error: {
+    code: 'STORY_BASE_REQUIRED', message: 'Choose the Story base before continuing.'
+  }, remediationPlan: { steps: [{ command: 'singularity-flow start --help', skill: '/sf-start' }] } };
+  await assert.rejects(invoke({ spawnImpl: fakeSpawn({ stdout: JSON.stringify(refusal),
+    stderr: 'incidental Git diagnostics', code: 1 }) }), error => {
+    assert.ok(error instanceof CliError);
+    assert.match(error.message, /Choose the Story base/);
+    assert.match(error.message, /Copilot: \/sf-start/);
+    assert.equal(error.result.error.code, 'STORY_BASE_REQUIRED');
+    return true;
+  });
+});
+
 test('output that is not JSON rejects rather than resolving undefined', async () => {
   // Resolving a bad parse would render an empty governance view as though it were the truth.
   await assert.rejects(

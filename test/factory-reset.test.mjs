@@ -438,7 +438,7 @@ test('factory reset removes former .sdlc state only after explicit dirty-data co
     cli, 'factory-reset', '--confirm', preview.confirmation,
     '--expect-scope-sha256', firstScope, '--allow-dirty', '--json'
   ], root, { ok: false });
-  assert.match(stale.stderr, /scope changed after preview/);
+  assert.match(stale.stdout, /scope changed after preview/);
   assert.equal(await readFile(path.join(root, '.sdlc', 'config.json'), 'utf8'),
     '{"version":1,"private":"changed again"}\n', 'a stale reviewed scope moves nothing');
   git(root, 'checkout', '-b', 'same-head-other-branch');
@@ -446,7 +446,7 @@ test('factory reset removes former .sdlc state only after explicit dirty-data co
     cli, 'factory-reset', '--confirm', preview.confirmation,
     '--expect-scope-sha256', preview.resetScopeSha256, '--allow-dirty', '--json'
   ], root, { ok: false });
-  assert.match(switched.stderr, /scope changed after preview/,
+  assert.match(switched.stdout, /scope changed after preview/,
     'a same-commit branch switch invalidates the reviewed operation');
   assert.equal(await missing(path.join(root, '.sdlc')), false);
   git(root, 'checkout', 'main');
@@ -455,7 +455,7 @@ test('factory reset removes former .sdlc state only after explicit dirty-data co
     cli, 'factory-reset', '--confirm', preview.confirmation,
     '--expect-scope-sha256', preview.resetScopeSha256, '--json'
   ], root, { ok: false });
-  assert.match(refused.stderr, /would discard uncommitted changes/);
+  assert.match(refused.stdout, /would discard uncommitted changes/);
   assert.equal(await readFile(path.join(root, '.sdlc', 'config.json'), 'utf8'),
     '{"version":1,"private":"changed again"}\n');
 
@@ -522,7 +522,7 @@ test('case-insensitive repository path rules cannot hide a legacy control root',
     cli, 'factory-reset', '--confirm', preview.confirmation,
     '--expect-scope-sha256', preview.resetScopeSha256, '--json'
   ], root, { ok: false });
-  assert.match(refused.stderr, /would discard uncommitted changes/);
+  assert.match(refused.stdout, /would discard uncommitted changes/);
   assert.equal(await readFile(path.join(root, '.SDLC', 'config.json'), 'utf8'), 'private legacy bytes\n');
 });
 
@@ -551,7 +551,7 @@ test('assume-unchanged and skip-worktree flags cannot hide reset-scope bytes', a
       cli, 'factory-reset', '--confirm', preview.confirmation,
       '--expect-scope-sha256', preview.resetScopeSha256, '--json'
     ], root, { ok: false });
-    assert.match(refused.stderr, /would discard uncommitted changes/);
+    assert.match(refused.stdout, /would discard uncommitted changes/);
     assert.equal(await readFile(hidden, 'utf8'), `private bytes hidden by ${indexFlag}\n`);
   }
 });
@@ -743,7 +743,7 @@ test('ignored packaged-agent customizations require explicit discard consent', a
     cli, 'factory-reset', '--confirm', preview.confirmation,
     '--expect-scope-sha256', preview.resetScopeSha256, '--json'
   ], root, { ok: false });
-  assert.match(refused.stderr, /would discard uncommitted changes/);
+  assert.match(refused.stdout, /would discard uncommitted changes/);
   assert.equal(await readFile(target, 'utf8'), 'private ignored customization\n');
 
   command(process.execPath, [
@@ -2449,11 +2449,11 @@ test('local-reset CLI keeps non-interactive preview and confirmation mode-bound'
 
   const unconfirmed = invoke('--forget-only', '--json');
   assert.notEqual(unconfirmed.status, 0);
-  assert.match(unconfirmed.stderr, /Non-interactive local-reset requires an explicit preview/);
+  assert.match(unconfirmed.stdout, /Non-interactive local-reset requires an explicit preview/);
 
   const crossed = invoke('--forget-only', '--confirm', 'RESET LOCAL', '--json');
   assert.notEqual(crossed.status, 0);
-  assert.match(crossed.stderr, /requires exact confirmation 'FORGET LOCAL'/);
+  assert.match(crossed.stdout, /requires exact confirmation 'FORGET LOCAL'/);
 
   const completed = invoke('--forget-only', '--confirm', 'FORGET LOCAL', '--json');
   assert.equal(completed.status, 0, completed.stderr);

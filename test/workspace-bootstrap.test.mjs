@@ -197,7 +197,7 @@ test('the public CLI prepares and reads the same durable bootstrap receipt', asy
     '--no-clone', '--initialize', '--json'
   ], { cwd: fixture.root, env, allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /--no-clone cannot be combined with --initialize/);
+  assert.match(refused.stdout, /--no-clone cannot be combined with --initialize/);
   const explicitInitialization = JSON.parse(run(process.execPath, [
     cli, 'workspace', 'prepare', fixture.remote,
     '--id', 'explicit-initialize', '--base', path.join(fixture.root, 'workspaces'),

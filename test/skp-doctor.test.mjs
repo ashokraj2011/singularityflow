@@ -116,7 +116,7 @@ test('skill doctor refuses an ambiguous Story/phase before repository or source 
         SINGULARITY_FLOW_LEAD_REGISTRY: path.join(isolated, '.test-leads.json')
       } });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /SKP_OPTION_UNSUPPORTED|requires an explicit|does not support/);
+    assert.match(result.stdout, /SKP_OPTION_UNSUPPORTED|requires an explicit|does not support/);
   }
 });
 
@@ -240,7 +240,7 @@ test('actual doctor CLI verifies a retained Story and does not substitute delete
   const mismatched = value.refused('skill', 'doctor', 'different-report', '--story', 'SKP-DIAG-1',
     '--phase', 'analysis', '--source', path.join(value.root, 'missing-source'), '--json');
   assert.notEqual(mismatched.status, 0);
-  assert.match(mismatched.stderr, /SKP_SKILL_MISSING/);
+  assert.match(mismatched.stdout, /SKP_SKILL_MISSING/);
   assert.doesNotMatch(mismatched.stderr, /SKP_SKILL_DRIFT|SKP_PACKAGE_CORRUPT|ENOENT/);
   assert.deepEqual(await readFile(value.recordPath), before);
   assert.equal(value.git('rev-parse', 'HEAD'), head);

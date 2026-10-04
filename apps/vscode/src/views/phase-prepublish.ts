@@ -42,6 +42,10 @@ export function phasePrepublishDecision(
   const advisories = (Array.isArray(projection.advisories) ? projection.advisories : []).slice(0, 10)
     .map((advisory) => line(record(advisory)?.message))
     .filter((message): message is string => Boolean(message));
+  const warnings = Array.isArray(projection.warnings) ? projection.warnings
+    : record(projection.grounding)?.warnings;
+  if (Array.isArray(warnings)) advisories.push(...warnings.slice(0, 10)
+    .map((warning) => line(warning)).filter((message): message is string => Boolean(message)));
   const documentation = record(projection.documentation);
   if (documentation?.status === 'unavailable') {
     advisories.push(`The documentation check could not run (${line(documentation.reason, 80) ?? 'unknown reason'}); it never blocks publication.`);

@@ -29,7 +29,9 @@ function runCli(args, { env = {} } = {}) {
     execFileSync('git', ['init', '-q', '.'], { cwd });
     try {
       const stdout = execFileSync(process.execPath, [cli, ...args], {
-        cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env }
+        cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
+          SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(cwd, 'absent-active.json'),
+          SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(cwd, 'absent-workspaces.json'), ...env }
       });
       return { stdout, stderr: '', status: 0 };
     } catch (error) {

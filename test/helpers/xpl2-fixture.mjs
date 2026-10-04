@@ -256,7 +256,7 @@ export function cliJson(root, home, args) {
       SINGULARITY_FLOW_LEAD_REGISTRY: path.join(home, 'leads.json')
     }
   });
-  // Results print on stdout; a refusal plan prints on stderr. Either is parsed as data.
+  // JSON results and refusals use stdout; retain compatibility with older stderr refusals.
   const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
   const json = parse(result.stdout) ?? parse(result.stderr);
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, json };

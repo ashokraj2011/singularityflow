@@ -375,7 +375,7 @@ test('isolated baseline CLI previews without creating a worktree and captures on
     workId, workType: 'feature', phaseId: 'implementation', repositoryId: 'lifecycle',
     baseCommit: value.options.baseCommit, definition: value.config }));
   assert.throws(() => runCli(['--run', '--confirm', preview.confirmation]), error => {
-    const failure = JSON.parse(error.stderr.toString());
+    const failure = JSON.parse(error.stdout.toString());
     assert.equal(failure.error.code, 'CODE_TEST_RESULT_REQUIRED');
     assert.ok(failure.error.message.includes('managed baseline checkout was retained at'));
     return true;

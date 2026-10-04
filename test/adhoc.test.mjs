@@ -66,8 +66,8 @@ test('dirty explicit start refuses silent adoption with a legal next action', as
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 2;\n');
   const result = execute(process.execPath, [cli, 'adhoc', 'start', 'change value', '--json'], root, { allowFailure: true });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /ADH_DIRTY_START_CHOICE_REQUIRED|Existing tracked or untracked work/);
-  assert.match(result.stderr, /--include-existing/);
+  assert.match(result.stdout, /ADH_DIRTY_START_CHOICE_REQUIRED|Existing tracked or untracked work/);
+  assert.match(result.stdout, /--include-existing/);
   assert.equal(git(root, 'diff', '--', 'app.mjs').stdout.includes('value = 2'), true);
 });
 
@@ -144,7 +144,7 @@ test('a changed effect set invalidates the exact landing packet without publishi
     cli, 'adhoc', 'publish', landing.sessionId, '--confirm', preview.packet.packetSha256, '--json'
   ], root, { allowFailure: true });
   assert.equal(refusal.status, 1);
-  assert.match(refusal.stderr, /Repository effects changed|ADH_PACKET_STALE/);
+  assert.match(refusal.stdout, /Repository effects changed|ADH_PACKET_STALE/);
   assert.equal(git(root, 'log', '-1', '--format=%s').stdout.trim(), 'initialize ad hoc fixture');
   assert.equal(await readFile(path.join(root, 'extra.mjs'), 'utf8'), 'export const extra = true;\n');
 });

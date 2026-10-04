@@ -14,11 +14,13 @@ import { inspectPhaseAuthoredReviewContent } from './publication-preflight.mjs';
 import { applicationChangeSetProjection, applicationPathContext, verifyWorkIntervalBaseline } from './work-intervals.mjs';
 import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
-import { phasePublicationCommand } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
+import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
+import { phaseNeedsGeneration } from './sequence.mjs';
 
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
@@ -33,7 +35,7 @@ function action({ id, mode = 'guided', detail, command = null, skill = null, evi
   };
 }
 
-function artifactActions(workflow, phase, findings) {
+function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}) {
   const first = findings[0];
   if (!first) return [];
   if (first.code === 'artifact.required.missing') return [action({
@@ -52,8 +54,9 @@ function artifactActions(workflow, phase, findings) {
     retry: {
       maximumAttempts: 1,
       requiresFingerprintChange: true,
-      beforeRetry: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      command: phasePublicationCommand(phase)
+      beforeRetry: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
+      command: phasePublicationCommandForProducer(phase,
+        effectivePhasePublicationProducer(phase, { modelEnabled }), { noModel: modelEnabled === false })
     }
   })];
 }
@@ -216,7 +219,9 @@ function projectionFinding(error, phase) {
  * state. Models and AST are deliberately absent: recovery classification is deterministic and AST
  * availability cannot block ordinary file-based work.
  */
-export async function inspectPhaseRecovery(root, config, workflow, phase, { generationDigest } = {}) {
+export async function inspectPhaseRecovery(root, config, workflow, phase, {
+  generationDigest, modelEnabled = true, publicationReadiness = null
+} = {}) {
   if (!phase || !['in_progress', 'awaiting_approval'].includes(phase.status)) {
     return { phaseId: phase?.id ?? null, blockers: [], actions: [], requiresLifecycleRecovery: false,
       testExecution: { status: phase && phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: [] } };
@@ -226,6 +231,17 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
   const testExecution = {
     status: phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: []
   };
+
+  // An already published generation needs submission/rollover, not a new prompt at the same identity.
+  // Check prospective publication dependencies only while authoring an unpublished generation.
+  const dependencies = publicationReadiness ?? (phase.status === 'in_progress'
+      && phase.generationIntent?.status !== 'consumed'
+      && (phaseNeedsGeneration(workflow, phase) || phase.generationIntent?.status === 'open')
+    ? await inspectPhasePublicationReadiness(root, config, workflow, phase, { modelEnabled }) : null);
+  if (dependencies) {
+    blockers.push(...dependencies.blockers);
+    actions.push(...dependencies.actions);
+  }
 
   const generation = generationDigest
     ? await generationRecovery(root, workflow, phase, generationDigest)
@@ -265,7 +281,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
         bytes: finding.bytes ?? null, minimumBytes: finding.minimumBytes ?? null
       }
     })));
-    actions.push(...artifactActions(workflow, phase, artifactFindings));
+    actions.push(...artifactActions(workflow, phase, artifactFindings, { modelEnabled }));
   }
 
   if (!artifactFindings.length && !blockers.some((finding) => finding.category === 'convergence')) {
@@ -425,6 +441,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
     phaseId: phase.id,
     blockers,
     actions: uniqueActions,
+    warnings: dependencies?.warnings ?? [],
     requiresLifecycleRecovery: blockers.some((finding) => finding.category === 'lifecycle'),
     testExecution
   };

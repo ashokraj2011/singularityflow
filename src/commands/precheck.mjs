@@ -1,7 +1,8 @@
 import { repoRoot, resolveGitCommitIdentity } from '../git.mjs';
 import { smartInitPrecheck } from '../initialization/precheck.mjs';
 import {
-  buildRepositoryReadinessPlan, executeRepositoryReadinessPlan, loadRepositoryTestBaseline
+  buildRepositoryReadinessPlan, executeRepositoryReadinessPlan, loadRepositoryTestBaseline,
+  isEmptyRepositoryReadinessPlan
 } from '../initialization/runtime-readiness.mjs';
 import {
   action, commandResult, effects, noEffects, succeeded
@@ -90,6 +91,12 @@ export async function run(argv, { options } = {}) {
     const confirmation = optionString(options, 'confirm-plan');
     if (!confirmation) {
       const plan = await buildRepositoryReadinessPlan(root, { scope });
+      if (isEmptyRepositoryReadinessPlan(plan)) {
+        const result = await executeRepositoryReadinessPlan(root, {
+          scope, confirmation: plan.planId, emptyOnly: true
+        });
+        return emitExecution(result, options);
+      }
       const command = `singularity-flow precheck --run --scope ${plan.scope} --confirm-plan ${plan.planId} --json`;
       const blockedNext = plan.blockers.length ? [action({
         id: 'precheck-repair-test-setup',
@@ -120,16 +127,7 @@ export async function run(argv, { options } = {}) {
       }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
     }
     const result = await executeRepositoryReadinessPlan(root, { confirmation, scope });
-    return emitCommandResult(commandResult({
-      operation: { id: 'precheck.run.execute', classification: 'mutation' },
-      outcome: succeeded('precheck.run-completed', {
-        commands: result.receipt.commandResults.length,
-        commit: result.receipt.sourceCommit.slice(0, 12)
-      }),
-      effects: effects({ stateChanged: true }),
-      restState: 'complete',
-      data: result
-    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
+    return emitExecution(result, options);
   }
   const precheck = await smartInitPrecheck(root);
   const [unitBaseline, fullBaseline] = await Promise.all([
@@ -148,5 +146,17 @@ export async function run(argv, { options } = {}) {
         full: fullBaseline ?? null
       }
     }
+  }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
+}
+
+function emitExecution(result, options) {
+  return emitCommandResult(commandResult({
+    operation: { id: 'precheck.run.execute', classification: 'mutation' },
+    outcome: succeeded('precheck.run-completed', {
+      commands: result.receipt.commandResults.length,
+      commit: result.receipt.sourceCommit.slice(0, 12)
+    }),
+    effects: effects({ stateChanged: true }), restState: 'complete',
+    data: { ...result, execution: result.receipt.commandResults.length ? 'commands-executed' : 'no-commands-applicable' }
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
 }

@@ -88,6 +88,23 @@ function acceptedFailedTests(baseCommit = BASE_COMMIT) {
   };
 }
 
+test('empty-plan preflight is not an execution receipt and cannot satisfy required test/build policy', async () => {
+  const definition = await shippedDefinition();
+  const preview = { status: 'no-commands-applicable', sourceCommit: BASE_COMMIT,
+    scope: 'dependency-test', planId: `sha256:${'a'.repeat(64)}`, commandResults: [],
+    structuredTestContract: { status: 'missing', satisfied: true, requiredForCode: false } };
+  const input = facts(definition, { surface: 'vscode-preflight', repositoryReadiness: preview });
+  assert.equal(inspectStoryStartReadiness(input).ready, true);
+  assert.equal(inspectStoryStartReadiness({ ...input, surface: 'shell' }).ready, false);
+  for (const key of ['dependencyHydration', 'build', 'applicationStart', 'structuredTests']) {
+    const strict = structuredClone(definition);
+    strict.repositoryReadiness = { ...strict.repositoryReadiness, [key]: 'required' };
+    assert.equal(inspectStoryStartReadiness({ ...input, definition: strict }).ready, false, key);
+  }
+  assert.equal(inspectStoryStartReadiness({ ...input,
+    repositoryReadiness: { ...preview, sourceCommit: 'c'.repeat(40) } }).ready, false);
+});
+
 test('Story-start readiness has a deterministic receipt for equivalent facts', async () => {
   const definition = await shippedDefinition();
   const firstFacts = facts(definition);

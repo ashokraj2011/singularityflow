@@ -50,6 +50,11 @@ function candidateOccurrences(declaration, occurrences, language) {
     })()
     : inSuite.filter((occurrence) => occurrence.name === declaration.name);
   // A report that names each occurrence's file narrows the match to this declaration's file.
+  if (declaration.framework === 'node:test') {
+    // Names alone can credit another file; line identity also excludes helper-created tests.
+    return named.filter((occurrence) => occurrence.file === declaration.sourcePath
+      && occurrence.line === declaration.line);
+  }
   if (named.some((occurrence) => fileMatches(occurrence.file, declaration.sourcePath) != null)) {
     return named.filter((occurrence) => fileMatches(occurrence.file, declaration.sourcePath) !== false);
   }

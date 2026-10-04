@@ -261,9 +261,11 @@ import {
 } from './story-start-documents.mjs';
 import {
   acceptedPreStoryFailureForRepository, assertStoryStartReady, inspectStoryStartReadiness,
-  requiredRepositoryReadinessScope
+  requiredRepositoryReadinessScope, repositoryReadinessRequired
 } from './story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
+import { storyBaseRequired, assertStoryStartChoices } from './story-start-inputs.mjs';
+import { markCliFailureLogged } from './cli-failure.mjs';
 import { hydrateRepositoryDependencies } from './initialization/runtime-readiness.mjs';
 import {
   loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext,
@@ -690,7 +692,7 @@ async function initCommand(options) {
   if (workId) {
     validateId({ idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }, workId);
     assertClean(root);
-    await checkout(root, workId, {
+    await checkout(root, `setup/${workId}`, {
       base: optionString(options, 'base', 'main'),
       fetch: optionBoolean(options, 'fetch')
     });
@@ -706,8 +708,8 @@ async function initCommand(options) {
     console.log('Capability: this repository. No capability setup is required.');
   }
   if (workId) {
-    console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
-    printCommandRoutes(`singularity-flow start ${workId}`, {
+    console.log(`Initialized Singularity Flow on setup/${workId}; the Story branch is still available and the base branch was not modified.`);
+    printCommandRoutes(`singularity-flow start ${workId} --from-branch setup/${workId}`, {
       label: 'After reviewing, committing and pushing singularity/'
     });
   }
@@ -1644,7 +1646,7 @@ async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourc
   const scope = requiredRepositoryReadinessScope(definition);
   const evidence = await collectRepositoryReadinessEvidence([{
     id: 'lifecycle', root: sourceRoot, baseCommit: sourceCommit
-  }], { scope });
+  }], { scope, recordEmpty: true });
   const receipt = evidence.repositories.lifecycle;
   if (receipt?.status === 'pass' && receipt.sourceCommit === sourceCommit) return evidence;
   const dependencyRequired = definition?.repositoryReadiness?.dependencyHydration === 'required'
@@ -2131,23 +2133,7 @@ export async function startCommand(positionals, options) {
   if (nonInteractive && !receiptToken && !explicitBase && fromBranch.length === 0
       && !jira && !githubReference
       && !cachedRemoteStory) {
-    const inspectCommand = `singularity-flow workspace branches --preflight-story ${id} --json`;
-    throw new SingularityFlowError(
-      `Choose the remote base branch explicitly with --from-branch <BRANCH>. No locally known `
-      + `governed Story '${id}' can be resumed, so Singularity Flow did not start remote or `
-      + `configuration discovery. Inspect available bases with: ${inspectCommand}. For an existing `
-      + `remote Story, run singularity-flow resume ${id} --fetch. Nothing was changed.`,
-      {
-        code: 'STORY_BASE_REQUIRED',
-        details: {
-          nextAction: inspectCommand,
-          recoveryCommands: [
-            `singularity-flow start ${id} --from-branch <BRANCH>`,
-            `singularity-flow resume ${id} --fetch`
-          ]
-        }
-      }
-    );
+    throw storyBaseRequired(id);
   }
 
   // Only after a local durable Story has had its network-free pinned resume path do we select policy
@@ -2789,8 +2775,14 @@ export async function startCommand(positionals, options) {
       `Story seed ${storySeedRelative} does not belong to Work ID '${id}'.`
     );
   }
+  const seedChoiceAllowed = !storyFile && !title && !description && !acceptanceCriteria;
+  assertStoryStartChoices({
+    nonInteractive,
+    workType: deterministicWorkType ?? (seedChoiceAllowed ? baseSeed?.suggestedWorkType : null),
+    source: declaredSource ?? receipt?.answers['intake-source'] ?? ((materializedSeed ?? baseSeed) ? 'manual' : null),
+    manualInput: !seedChoiceAllowed || Boolean(materializedSeed ?? baseSeed)
+  });
   if (!deterministicWorkType) {
-    const seedChoiceAllowed = !storyFile && !title && !description && !acceptanceCriteria;
     deterministicWorkType = (seedChoiceAllowed ? baseSeed?.suggestedWorkType : null)
       ?? await selectWorkType(config, {
         selection: null,
@@ -2855,7 +2847,9 @@ export async function startCommand(positionals, options) {
     capabilityPreflight?.map((entry) => ({
       id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
     })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }],
-    { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config) }
+    { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config),
+      recordEmpty: !optionStrings(options, 'test-baseline-record').length
+        && repositoryReadinessRequired(approvedConfigurationSnapshot?.definition ?? config) }
   ));
   const testRecoveryPreview = await prepareTestRecoveryIntake(root, {
     definition: approvedConfigurationSnapshot?.definition ?? config, workId: id,
@@ -6651,7 +6645,7 @@ async function phaseReview(root, config, workflow, phase) {
           ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; submission runs the tests again.'}`
           : 'No acceptance criterion is tagged on a test in this delivery.'
       },
-      notice: 'A criterion is judged by its own tagged test where the runner reports test cases (Jest, Vitest, JUnit 5) and by its module test command elsewhere; a local observation is not independent attestation.'
+      notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.'
     } : null,
     witnessReview,
     documents,
@@ -6914,6 +6908,7 @@ async function phaseCommand(positionals, options) {
     if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
     if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
+    for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
     const coverageAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category === 'coverage');
     if (coverageAdvisories.length) {
       console.log(`Coverage warnings: approval would refuse ${result.coverage?.unclaimed ?? coverageAdvisories.length} changed path(s). Name each in a clause's Expected paths, or under ## Supporting files in the plan if it cannot carry a @clause tag.`);
@@ -11220,7 +11215,7 @@ async function watchCommand(positionals, options) {
 async function recoverCommand(positionals, options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]);
   const plan = await recoveryPlan(root, config, workflow, {
-    fetch: optionBoolean(options, 'fetch'), phaseId: optionString(options, 'phase')
+    fetch: optionBoolean(options, 'fetch'), phaseId: optionString(options, 'phase'), modelEnabled: operationContext()?.modelMode.enabled !== false
   });
   const result = optionBoolean(options, 'apply')
     ? await applyRecovery(root, config, workflow, plan, { confirm: optionString(options, 'confirm') })
@@ -16399,7 +16394,7 @@ async function workspaceCommand(positionals, options) {
           repositories.map((entry) => ({
             id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
           })),
-          { scope: requiredRepositoryReadinessScope(definition) }
+          { scope: requiredRepositoryReadinessScope(definition), previewEmpty: true }
         );
         let readiness = inspectStoryStartReadiness({
           workId: storyId,
@@ -18658,6 +18653,7 @@ export async function main(argv) {
       return result;
     } catch (error) {
       log.error('command.failed', error?.message, { durationMs: Date.now() - started, exitCode: error?.exitCode ?? 1, error });
+      markCliFailureLogged(error);
       if (harness) await completeHarnessInvocation(harness.root, harness.started, { exitCode: error?.exitCode ?? 1 }).catch(() => {});
       throw error;
     }

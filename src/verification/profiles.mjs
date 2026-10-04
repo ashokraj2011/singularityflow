@@ -12,6 +12,7 @@ const MAVEN = new Set(['mvn', 'mvnw', 'mvn.cmd', 'mvnw.cmd']);
 const GRADLE = new Set(['gradle', 'gradlew', 'gradle.bat', 'gradlew.bat']);
 
 export const TEST_ADAPTER_PROFILES = Object.freeze({
+  'node-test-v1': Object.freeze({ language: 'javascript', framework: 'node:test', resultAdapter: 'node-tap', ceiling: 'exact-local-observed' }),
   'jest-static-v2': Object.freeze({ language: 'javascript', framework: 'jest', resultAdapter: 'jest-json', ceiling: 'exact-local-observed' }),
   'vitest-static-v2': Object.freeze({ language: 'javascript', framework: 'vitest', resultAdapter: 'vitest-json', ceiling: 'exact-local-observed' }),
   'junit5-surefire-v2': Object.freeze({ language: 'java', framework: 'junit5', runner: 'surefire', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
@@ -26,6 +27,7 @@ function executableName(value) {
 /** The profile that reads one normalized test command. Unknown shapes only count tests. */
 export function profileForCommand(command) {
   const adapter = command?.result?.adapter;
+  if (adapter === 'node-tap') return 'node-test-v1';
   if (adapter === 'jest-json') return 'jest-static-v2';
   if (adapter === 'vitest-json') return 'vitest-static-v2';
   if (adapter === 'junit-xml') {

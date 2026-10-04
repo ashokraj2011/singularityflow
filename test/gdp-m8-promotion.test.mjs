@@ -114,7 +114,7 @@ test('M8 CLI records only a recoverable local handoff and does not commit or sta
     '--confirm-plan', digest('0'), '--json'
   ], root, { allowFailure: true });
   assert.equal(wrong.status, 1);
-  assert.match(wrong.stderr, /Promotion requires --confirm-plan/);
+  assert.match(wrong.stdout, /Promotion requires --confirm-plan/);
   const applied = JSON.parse(sflow(
     root, 'delivery', 'promotion-apply', '--plan', '.gdp-promotion.json',
     '--confirm-plan', preview.data.plan.transitionSha256, '--json'

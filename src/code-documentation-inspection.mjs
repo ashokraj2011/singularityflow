@@ -68,8 +68,16 @@ function changedLinesByPath(preview) {
  */
 export async function inspectCodeDocumentation(root, config, workflow, phase) {
   try {
-    if (!phaseRequiresCodeDelivery(phase) || phase.generationIntent?.status !== 'open') {
-      return { documentation: summary('not-applicable', { reason: 'no-open-code-generation' }), advisories: [] };
+    if (!phaseRequiresCodeDelivery(phase)) {
+      return { documentation: summary('not-applicable', { reason: 'phase-does-not-deliver-code' }), advisories: [] };
+    }
+    if (phase.generationIntent?.status !== 'open') {
+      return { documentation: summary('not-applicable', {
+        reason: 'no-open-code-generation',
+        guidance: 'Documentation was not inspected because this phase has no open generation intent. '
+          + 'This does not mean existing code is documented or implementation is complete. '
+          + 'Run phase prepublish for the governed begin/recovery route, then rerun draft-check.'
+      }), advisories: [] };
     }
     const baseCommit = phase.generationIntent?.baseline?.commit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
     if (!baseCommit) return { documentation: summary('unavailable', { reason: 'generation-baseline-unknown' }), advisories: [] };

@@ -18,6 +18,7 @@ import { runRemoteGitAsync } from './git-execution.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
+import { withCliJsonOutput } from './cli-json-output.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -545,7 +546,7 @@ async function operationResolutionContext(root, definition, subcommand) {
 
 export async function main(argv) {
   const uninstall = installFileLeaseSignalHandlers();
-  try { return await runMain(argv); }
+  try { return await withCliJsonOutput(optionBoolean(parseArgs(argv).options, 'json'), () => runMain(argv)); }
   finally { uninstall(); }
 }
 

@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { pathToFileURL } from 'node:url';
 import {
   SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitHeadIsUnborn, gitReadOutput, invariant,
@@ -46,8 +47,8 @@ import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents
 import {
   assertPhaseSequence, enforceSequenceGate, phaseNeedsGeneration
 } from './sequence.mjs';
-import { verifyGroundingRecord } from './grounding.mjs';
-import { answeredMarkerHashes, verifyClarificationRecord } from './clarifications.mjs';
+import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
+import { answeredMarkerHashes } from './clarifications.mjs';
 import {
   artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet,
   unpublishableRequiredArtifactSetMembers
@@ -3392,7 +3393,6 @@ export async function publishGeneration(root, config, workflow, {
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
-  await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be published`);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
@@ -3416,7 +3416,6 @@ export async function publishGeneration(root, config, workflow, {
   assertRequiredAssignment(workflow, phase);
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
-  await assertMcpPhaseReadiness(root, workflow, phase);
   // Resolve and validate authorship before any content, test, brief, input, telemetry, or lifecycle
   // write. A wrong producer is a preflight refusal and must not leave partial recovery state.
   let effectiveAuthorship = authorship ?? {
@@ -3490,6 +3489,9 @@ export async function publishGeneration(root, config, workflow, {
     await assertPlannedSpecificationClaims(root, config, workflow, phase);
   }
   let deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  const dependencyOptions = { producer: effectiveAuthorship.producer,
+    generation: nextPhaseGeneration(phase), agent: session.agent };
+  let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
   // Execute the exact structured test command before consuming the generation intent. Submission
   // still reruns it against the committed generation, but command inference, test discovery, and
   // result-adapter incompatibility must be found while the current generation is still editable.
@@ -3544,27 +3546,15 @@ export async function publishGeneration(root, config, workflow, {
     itemRelative: workDirRelative(config, workflow.workItem.id),
     generation: nextPhaseGeneration(phase)
   });
+  // Repository-owned tests may change dependency bytes too. Recheck before input/Story writes.
+  if (deliveryPreflight) dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
+  dependencies.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  const { clarification } = dependencies;
   await preparePhaseInputs(root, config, workflow, phase.id);
   // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
   // only explicit governed-agent authorship proves that an interactive model path ran and must
   // therefore carry a generation-bound human response. Never guess that from legacy provenance.
   const modelAssisted = ['governed-agent', 'legacy-unspecified'].includes(effectiveAuthorship.producer);
-  const clarificationRequired = effectiveAuthorship.producer === 'governed-agent';
-  const grounding = modelAssisted
-    ? await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent })
-    : { warnings: [], errors: [] };
-  grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (grounding.errors.length) throw new SingularityFlowError(`Phase ${phase.id} grounding is not ready:\n- ${grounding.errors.join('\n- ')}`);
-  const clarification = clarificationRequired
-    ? await verifyClarificationRecord(root, config, workflow, phase, { groundingRecord: grounding.record })
-    : { warnings: [], errors: [], record: null, path: null, sha256: null };
-  clarification.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (clarification.errors.length) throw new SingularityFlowError(`Phase ${phase.id} clarification is not ready:\n- ${clarification.errors.join('\n- ')}`);
-  const mcpEvidence = await verifyPhaseMcpRequirements(root, workflow, phase, {
-    itemDirectory: workDir(root, config, workflow.workItem.id),
-    targetGeneration: nextPhaseGeneration(phase)
-  });
-  if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED' });
   // Code delivery has already evaluated protected paths and source boundaries against its one
   // baseline-aware, rename-aware RepositoryChangeSet. Reconstructing those facts from a name-only
   // dirty-tree list here would both disagree on committed changes and reintroduce rename bypasses.
@@ -4632,7 +4622,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))
       && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
     const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
-    const commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
+    let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
+    if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
+      commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
+    }
     delete commandEnvironment.NODE_TEST_CONTEXT;
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {

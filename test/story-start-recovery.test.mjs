@@ -117,7 +117,7 @@ test('Story start refuses a pre-existing local branch with no governed state or 
     cwd: root, encoding: 'utf8'
   });
   assert.notEqual(started.status, 0);
-  assert.match(started.stderr, /neither governed Story state nor a materialized Story seed/);
+  assert.match(started.stdout, /neither governed Story state nor a materialized Story seed/);
   assert.equal(git(['branch', '--show-current'], root), 'main');
 });
 

@@ -7,6 +7,7 @@
  */
 import { table } from '../util.mjs';
 import { FACETS } from './vocabulary.mjs';
+import { evidenceProvenanceLines } from './provenance.mjs';
 
 export const DEFAULT_PAGE_SIZE = 50;
 export const MAXIMUM_PAGE_SIZE = 500;
@@ -109,6 +110,7 @@ export function matrixText({ evaluation, page }) {
   const lines = [
     '',
     `Evidence matrix — ${evaluation.workId}${evaluation.title ? `: ${evaluation.title}` : ''}`,
+    ...evidenceProvenanceLines(evaluation.provenance),
     `Lifecycle: ${evaluation.lifecycle.words}`,
     `Completion: ${evaluation.completion.label}${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
     `Required assurance: ${evaluation.requiredAssurance.level} (${evaluation.requiredAssurance.source})`,
@@ -149,6 +151,7 @@ export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
     .map((obligation) => `\`${obligation.id}\` is ${obligation.status}`));
   const lines = [
     `- Completion: **${evaluation.completion.label}**${evaluation.completion.reasons.length ? ` (${evaluation.completion.reasons.join('; ')})` : ''}`,
+    ...evidenceProvenanceLines(evaluation.provenance).map((line) => `- ${line}`),
     `- Lifecycle: ${evaluation.lifecycle.words}`,
     `- Rows: ${evaluation.summary.rows} — ${results}`,
     `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; ${evaluation.summary.testCaseResults}`,
@@ -163,14 +166,17 @@ export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
   return lines.join('\n');
 }
 
-export function matrixCsv(rows) {
+export function matrixCsv(rows, provenance = null) {
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   return [
-    ['row', 'type', 'plan', 'implementation', 'verification', 'result', 'assurance', ...FACETS].map(quote).join(','),
+    ['row', 'type', 'plan', 'implementation', 'verification', 'result', 'assurance', ...FACETS,
+      'evaluatedCommit', 'currentCommit', 'worktree', 'candidateCommits', 'warnings'].map(quote).join(','),
     ...rows.map((row) => {
       const cells = matrixCells(row);
       const facets = FACETS.map((name) => rowFacetValues(row, name).join(';'));
-      return [cells.row, cells.type, cells.plan, cells.implementation, cells.verification, row.result, row.assurance, ...facets].map(quote).join(',');
+      return [cells.row, cells.type, cells.plan, cells.implementation, cells.verification, row.result, row.assurance, ...facets,
+        provenance?.evaluatedCommit, provenance?.currentCommit, provenance?.worktree,
+        provenance?.candidates?.map((entry) => `${entry.phaseId}:${entry.commit}`).join(';'), provenance?.warnings?.join(';')].map(quote).join(',');
     })
   ].join('\n');
 }

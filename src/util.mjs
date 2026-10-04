@@ -10,7 +10,7 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
   isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
-  resolveWindowsSystemTool, withoutAutomaticGitMaintenance
+  resolveWindowsSystemTool, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -427,16 +427,32 @@ export const SUBPROCESS_MAX_BUFFER_BYTES = Number(
 );
 
 /** The bound a command gets when the caller does not name one. Exported so it can be asserted. */
-export function defaultTimeoutFor(command, { timeoutClass = null, env = process.env } = {}) {
+export function defaultTimeoutFor(command, { timeoutClass = null, env = process.env, args = [] } = {}) {
   if (NETWORK_COMMANDS.has(command)) return NETWORK_TIMEOUT_MS;
-  // Only typed local reads receive this default. Clone/fetch/push and build/hook execution retain
-  // their operation-specific remote bounds (or an explicit caller bound), so a slow repository
-  // cannot turn an unbounded UI refresh into a hang without truncating legitimate long mutations.
-  if (command === 'git' && timeoutClass === 'local-read') {
-    const configured = Number(env.SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS ?? 30_000);
-    return Number.isFinite(configured) && configured > 0 ? Math.trunc(configured) : 30_000;
+  if (command === 'git') {
+    // Known reads get a short bound. Unknown verbs, aliases, hooks and writes get the longer
+    // mutation budget; remote adapters still supply their explicit operation-specific deadline.
+    const verb = gitSubcommand(args);
+    const localRead = timeoutClass === 'local-read' || (!timeoutClass && (
+      !verb || ['--version', '--help', 'rev-parse', 'ls-files', 'ls-tree', 'cat-file', 'status',
+        'show', 'log', 'diff', 'diff-tree', 'for-each-ref', 'show-ref', 'merge-base',
+        'check-ignore', 'check-attr'].includes(verb)));
+    const fallback = localRead ? 30_000 : 180_000;
+    const configured = Number(env[localRead
+      ? 'SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS' : 'SINGULARITY_FLOW_GIT_MUTATION_TIMEOUT_MS'] ?? fallback);
+    return Number.isFinite(configured) && configured > 0 ? Math.max(1, Math.trunc(configured)) : fallback;
   }
   return undefined;
+}
+
+function gitSubcommand(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const value = String(args[index]);
+    if (['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env'].includes(value)) {
+      index += 1;
+    } else if (value === '--version' || value === '--help' || !value.startsWith('-')) return value;
+  }
+  return null;
 }
 
 const TRUE = new Set(['1', 'true', 'yes', 'on']);
@@ -566,7 +582,7 @@ export function run(command, args = [], {
   shell = false,
   stdio = 'pipe',
   timeoutClass = null,
-  timeoutMs = defaultTimeoutFor(command, { timeoutClass, env }),
+  timeoutMs = defaultTimeoutFor(command, { timeoutClass, env, args }),
   killSignal = 'SIGTERM',
   windowsHide = undefined,
   platform = process.platform,
@@ -603,6 +619,15 @@ export function run(command, args = [], {
    */
   recordGitTiming = true
 } = {}) {
+  if (command === 'git') {
+    // null/zero previously disabled the default. No Git child may wait forever, including
+    // untyped legacy callers. A hard signal also bounds a synchronous child ignoring SIGTERM.
+    if (timeoutMs == null || timeoutMs === 0) timeoutMs = defaultTimeoutFor(command, { timeoutClass, env, args });
+    if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new SingularityFlowError('Git timeout must be a positive finite number.', { code: 'LOCAL_READ_TIMEOUT_INVALID' });
+    }
+    killSignal = 'SIGKILL';
+  }
   // Retained Story readers have legacy synchronous Git calls. A surrounding read-only budget
   // must reach those calls too; it never changes ordinary callers or expands a process ceiling.
   const scopedGitRead = command === 'git' && localReadDeadlineRemainingMs() !== null;
@@ -660,7 +685,7 @@ export function run(command, args = [], {
   try {
     result = spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, encoding, stdio, timeout: timeoutMs, killSignal,
-      env: command === 'git' ? withoutAutomaticGitMaintenance(env, { platform }) : env,
+      env: command === 'git' ? withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }) : env,
       ...launch.spawnOptions,
       ...(windowsHide === undefined ? {} : { windowsHide }),
       ...(maxBuffer === undefined ? {} : { maxBuffer }),

@@ -23,6 +23,14 @@ const ready = {
   mutates: false, modelInvocations: 0
 };
 
+test('dependency warnings remain visible advisories and never become publication blockers', () => {
+  const decision = phasePrepublishDecision({ ...ready,
+    warnings: ['Approved input is advisory.', 'The recorded grounding is stale under warn policy.']
+  }, expected);
+  assert.equal(decision.ready, true);
+  assert.deepEqual(decision.advisories, ['Approved input is advisory.', 'The recorded grounding is stale under warn policy.']);
+});
+
 test('VS Code Publish accepts only an exact fresh read-only ready projection', () => {
   assert.equal(phasePrepublishDecision(ready, expected).ready, true);
   const withPendingTests = phasePrepublishDecision({

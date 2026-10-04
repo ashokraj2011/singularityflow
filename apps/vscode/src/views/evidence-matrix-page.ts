@@ -101,6 +101,9 @@ export function evidenceMatrixHtml(view: EvidenceView | null, selected: string |
     ? `<section><h3>Evidence that could not be read</h3><ul>${view.unreadable.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul></section>` : '';
   return `${style(token)}${header}
     <p class="meta">${escape(view.workId)}${view.title ? ` · ${escape(view.title)}` : ''}</p>
+    <p class="meta">Evaluated Story revision: <code>${escape(view.revision)}</code></p>
+    ${view.candidateRevisions.map((revision) => `<p class="meta">Published candidate: <code>${escape(revision)}</code></p>`).join('')}
+    ${view.driftWarnings.map((warning) => `<p class="callout warning">${escape(warning)}</p>`).join('')}
     <div class="summary-grid">
       <div class="summary-card important"><span class="eyebrow">Completion</span><strong>${escape(view.completion)}</strong>
         <small>${escape(view.reasons.join('; '))}</small></div>

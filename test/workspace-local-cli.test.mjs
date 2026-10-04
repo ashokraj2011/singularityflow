@@ -98,8 +98,8 @@ test('a workspace can be created with no tracker at all', async () => {
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`, '--json'],
   env, { allowFailure: true });
   assert.notEqual(unconfirmed.status, 0);
-  assert.equal(unconfirmed.stdout, '');
-  const refusal = JSON.parse(unconfirmed.stderr);
+  assert.equal(unconfirmed.stderr, '');
+  const refusal = JSON.parse(unconfirmed.stdout);
   assert.equal(refusal.resultType, 'sflow-refusal-plan');
   assert.match(refusal.error.message, /exact workspace-ID confirmation 'demo-team'/);
   assert.equal(await stat(path.join(workspaces, 'demo-team')).catch(() => null), null);
@@ -128,7 +128,7 @@ test('a workspace can be created with no tracker at all', async () => {
   assert.equal(current.repositoryState, 'missing');
   const conflicting = cli(['workspace', 'list', '--table', '--json'], env, { allowFailure: true });
   assert.notEqual(conflicting.status, 0);
-  assert.equal(JSON.parse(conflicting.stderr).error.code, 'WORKSPACE_TABLE_FORMAT_INVALID');
+  assert.equal(JSON.parse(conflicting.stdout).error.code, 'WORKSPACE_TABLE_FORMAT_INVALID');
   // The anchor records the local provider rather than pretending to be a tracker key.
   const status = JSON.parse(cli(['workspace', 'status', path.join(workspaces, 'demo-team'), '--json'], env).stdout);
   assert.equal(status.repositories.length, 1);
@@ -179,13 +179,13 @@ test('workspace status and targeted repair resolve the saved workspace from its 
   assert.ok(selected.stdout.includes(workspacePath), 'the repair route should name this exact workspace');
   const outside = cli(['workspace', 'status', '--json'], env, { cwd: base, allowFailure: true });
   assert.notEqual(outside.status, 0);
-  const refusal = JSON.parse(outside.stderr);
+  const refusal = JSON.parse(outside.stdout);
   assert.equal(refusal.error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
   assert.ok(refusal.error.message.includes(workspacePath), 'a different cwd must not silently use the selection');
   assert.match(refusal.error.message, /'workspace' 'repair'/);
   const outsideRepair = cli(['workspace', 'repair', '--json'], env, { cwd: base, allowFailure: true });
   assert.notEqual(outsideRepair.status, 0);
-  assert.equal(JSON.parse(outsideRepair.stderr).error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
+  assert.equal(JSON.parse(outsideRepair.stdout).error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
   assert.equal(await stat(path.join(workspacePath, 'repos', 'app')).catch(() => null), null,
     'the selected workspace must not be repaired implicitly from a different cwd');
 
@@ -221,7 +221,7 @@ test('workspace cwd inference follows physical directories and refuses a symlink
   await symlink(outside, escape, 'dir');
   const refusal = cli(['workspace', 'repair', '--json'], env, { cwd: escape, allowFailure: true });
   assert.notEqual(refusal.status, 0);
-  assert.equal(JSON.parse(refusal.stderr).error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
+  assert.equal(JSON.parse(refusal.stdout).error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
   assert.equal(await stat(path.join(created.workspace.path, 'repos', 'app')).catch(() => null), null,
     'an escaped cwd must not materialize a repository');
 });
@@ -450,12 +450,12 @@ test('a URL that cannot be reached is refused while it is being typed', async ()
   const missing = cli(['workspace', 'inspect', `file://${path.join(base, 'no-such-repo.git')}`, '--json'],
     env, { allowFailure: true });
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /Cannot reach/);
+  assert.match(JSON.parse(missing.stdout).error.message, /Cannot reach/);
 
   // A bare word is not a URL, so it is read as a path — and refused as one.
   const nonsense = cli(['workspace', 'inspect', 'not-a-url', '--json'], env, { allowFailure: true });
   assert.notEqual(nonsense.status, 0);
-  assert.match(nonsense.stderr, /is not available|not a safe Git repository|is not a clone URL/);
+  assert.match(JSON.parse(nonsense.stdout).error.message, /is not available|not a safe Git repository|is not a clone URL/);
 });
 
 test('a bare repository path is somewhere to clone from, not a checkout to read', async () => {
@@ -473,7 +473,7 @@ test('a bare repository path is somewhere to clone from, not a checkout to read'
   const missing = cli(['workspace', 'inspect', path.join(path.dirname(source), 'absent.git'), '--json'],
     env, { allowFailure: true });
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /Cannot reach/);
+  assert.match(JSON.parse(missing.stdout).error.message, /Cannot reach/);
 });
 
 /** Push a capability map and a portfolio into the source repository. */
@@ -563,7 +563,7 @@ test('a workspace records the capabilities it is for, not only the repositories 
     '--confirm', 'bad-capability', '--no-clone'
   ], env, { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /must be lower-case kebab-case/);
+  assert.match(JSON.parse(refused.stdout).error.message, /must be lower-case kebab-case/);
 });
 
 test('a workspace can be copied into a different working directory', async () => {
@@ -688,7 +688,7 @@ test('a workspace can be renamed without restating everything about it', async (
     '--confirm', 'commerce', '--json'
   ], env, { allowFailure: true });
   assert.notEqual(legacyCapabilityEdit.status, 0);
-  assert.match(legacyCapabilityEdit.stderr, /attach-capability or workspace detach-capability/);
+  assert.match(JSON.parse(legacyCapabilityEdit.stdout).error.message, /attach-capability or workspace detach-capability/);
   manifest = JSON.parse(await readFile(path.join(workspace, 'workspace.json'), 'utf8'));
   assert.deepEqual(manifest.capabilities, ['payments'], 'the legacy path cannot desynchronize bindings');
   assert.equal(manifest.name, 'Commerce platform', 'untouched');

@@ -178,7 +178,7 @@ test('M5 uses exact plan confirmation and the existing Ad Hoc publication transa
     '--confirm-plan', digest('0'), '--json'
   ], root, { allowFailure: true });
   assert.equal(wrong.status, 1);
-  assert.match(wrong.stderr, /requires --confirm-plan/);
+  assert.match(wrong.stdout, /requires --confirm-plan/);
 
   const planSha = recommendationResult.data.plan.recommendationSha256;
   const selected = JSON.parse(sflow(

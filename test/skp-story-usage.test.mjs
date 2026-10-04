@@ -631,7 +631,7 @@ test('installed CLI explicit local inventory works offline and preserves branch/
   // Published genesis has a pre-Story parent, so the exact requested window must refuse rather
   // than claim a partial match. A first-page narrower request succeeds through the same route.
   assert.notEqual(result.status, 0);
-  assert.equal(JSON.parse(result.stderr).error.code, 'SKP_STORY_USAGE_UNAVAILABLE');
+  assert.equal(JSON.parse(result.stdout).error.code, 'SKP_STORY_USAGE_UNAVAILABLE');
   assert.deepEqual(await sourceState(f.root), before);
   const value = run(process.execPath, [CLI, 'workflow', 'author', 'where-used', 'threat-model',
     '--story-refs', 'SKP-1=refs/heads/main', '--history-depth', '2', '--limit', '1', '--json'],

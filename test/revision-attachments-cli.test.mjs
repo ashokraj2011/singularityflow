@@ -195,7 +195,7 @@ test('changed local bytes invalidate an attachment preview before registration',
     '--confirm', planId, '--json'
   ], { allowFailure: true });
   assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /REV_ATTACHMENT_SET_STALE|stale|changed|mismatch/i);
+  assert.match(stale.stdout, /REV_ATTACHMENT_SET_STALE|stale|changed|mismatch/i);
   const listed = JSON.parse(flow(root, ['revision', 'attachments', 'list', '--json']).stdout).data.receipts;
   assert.doesNotMatch(JSON.stringify(listed), /revision-feedback-attachment-set/);
   assert.equal(await readFile(workflowPath, 'utf8'), workflowBefore);
@@ -239,13 +239,13 @@ test('bounded feedback stdin stays out of argv and durable command logs', async 
     '--feedback-stdin', '--feedback', 'different', '--json'
   ], { input: feedbackText, allowFailure: true });
   assert.notEqual(conflicting.status, 0);
-  assert.match(conflicting.stderr, /REV_ATTACHMENT_FEEDBACK_CONFLICT/);
+  assert.match(conflicting.stdout, /REV_ATTACHMENT_FEEDBACK_CONFLICT/);
   const empty = flow(root, previewArgv, { input: '', allowFailure: true });
   assert.notEqual(empty.status, 0);
-  assert.match(empty.stderr, /REV_ATTACHMENT_FEEDBACK/);
+  assert.match(empty.stdout, /REV_ATTACHMENT_FEEDBACK/);
   const oversized = flow(root, previewArgv, { input: 'x'.repeat(8193), allowFailure: true });
   assert.notEqual(oversized.status, 0);
-  assert.match(oversized.stderr, /REV_FEEDBACK_TOO_LARGE/);
+  assert.match(oversized.stdout, /REV_FEEDBACK_TOO_LARGE/);
   const logText = await readFile(logFilePath(gitDir(root)), 'utf8');
   assert.doesNotMatch(logText, /REV-STDIN-NOT-IN-ARGV-7419/);
 });
@@ -281,13 +281,13 @@ test('explicit multi-file and line selection excludes unselected bytes from the 
     '--select', '1', '--feedback-stdin', '--confirm', preview.planId, '--json'
   ], { input: feedbackText, allowFailure: true });
   assert.notEqual(changedSelection.status, 0);
-  assert.match(changedSelection.stderr, /REV_ATTACHMENT_SET_STALE|selection|changed|stale/i);
+  assert.match(changedSelection.stdout, /REV_ATTACHMENT_SET_STALE|selection|changed|stale/i);
   const duplicate = flow(root, [
     'revision', 'attachments', 'preview', '--file', selected,
     '--select', '1', '--select', '1', '--feedback-stdin', '--json'
   ], { input: feedbackText, allowFailure: true });
   assert.notEqual(duplicate.status, 0);
-  assert.match(duplicate.stderr, /REV_ATTACHMENT_SELECTION/);
+  assert.match(duplicate.stdout, /REV_ATTACHMENT_SELECTION/);
 });
 
 test('CLI refuses a symlink whose selected name resolves to different bytes', async () => {
@@ -302,7 +302,7 @@ test('CLI refuses a symlink whose selected name resolves to different bytes', as
     '--feedback', 'Review this file.', '--json'
   ], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /REV_ATTACHMENT_UNAUTHORIZED/);
+  assert.match(refused.stdout, /REV_ATTACHMENT_UNAUTHORIZED/);
   const listed = JSON.parse(flow(root, ['revision', 'attachments', 'list', '--json']).stdout);
   assert.equal(listed.data.receipts.length, 0);
 });
@@ -355,11 +355,11 @@ test('CLI removal is confirmed, append-only, and makes the set unavailable to ro
     '--feedback', feedback, '--confirm', preview.planId, '--json'
   ], { allowFailure: true });
   assert.notEqual(repeatedRegister.status, 0);
-  assert.match(repeatedRegister.stderr, /REV_ATTACHMENT_SET_REVOKED/);
+  assert.match(repeatedRegister.stdout, /REV_ATTACHMENT_SET_REVOKED/);
   const repeatedPreview = flow(root, [
     'revision', 'attachments', 'remove-preview',
     '--attachment-set', receipt.attachmentSetSha256, '--json'
   ], { allowFailure: true });
   assert.notEqual(repeatedPreview.status, 0);
-  assert.match(repeatedPreview.stderr, /REV_ATTACHMENT_SET_REVOKED/);
+  assert.match(repeatedPreview.stdout, /REV_ATTACHMENT_SET_REVOKED/);
 });

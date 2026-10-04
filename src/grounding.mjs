@@ -1645,7 +1645,19 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     } else if (sourceComparisonStatus === 'stale' || record.fresh !== true) {
       stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
     }
-    if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
+    // Composition is allowed to consume verified historical context under warn/ignore. A source
+    // change honestly recorded as stale is not a corrupt model or prompt; the independent pinned
+    // staleness policy below owns that decision. Still reject a contradictory freshness claim,
+    // and verify the manifest, model files and prompt against their immutable bytes as usual.
+    const declaredStale = sourceComparisonStatus === 'stale' && record.fresh === false;
+    if ((sourceComparisonStatus === 'fresh' && record.fresh !== true)
+        || (sourceComparisonStatus === 'stale' && record.fresh !== false)) {
+      problems.push(`grounding composition has inconsistent source freshness: ${relative}`);
+    }
+    if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256
+        && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256 && !declaredStale) {
+      problems.push(`grounding composition source hash does not match its world model: ${relative}`);
+    }
     if (record.stale === true && !superseded) stalenessProblems.push(`grounding composition is stale: ${relative}`);
     if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
   } else if (!groundingUnavailable && !Array.isArray(record.files)) {

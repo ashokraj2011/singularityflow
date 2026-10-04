@@ -141,8 +141,8 @@ test('the public CLI turns an otherwise plain refusal into one parseable recover
     encoding: 'utf8'
   });
   assert.notEqual(result.status, 0);
-  assert.equal(result.stdout, '');
-  const envelope = JSON.parse(result.stderr);
+  assert.equal(result.stderr, '');
+  const envelope = JSON.parse(result.stdout);
   assert.equal(envelope.resultType, 'sflow-refusal-plan');
   assert.equal(envelope.error.code, 'UNKNOWN_COMMAND');
   assert.equal(envelope.remediationPlan.retry.automatic, false);
@@ -163,8 +163,8 @@ test('capability and workspace entry-point refusals remain structured with --jso
       encoding: 'utf8'
     });
     assert.notEqual(result.status, 0, `${args.join(' ')} must refuse without required inputs`);
-    assert.equal(result.stdout, '', `${args.join(' ')} must not emit partial JSON on stdout`);
-    const refusal = JSON.parse(result.stderr);
+    assert.equal(result.stderr, '', `${args.join(' ')} must keep the JSON refusal on stdout`);
+    const refusal = JSON.parse(result.stdout);
     assert.equal(refusal.resultType, 'sflow-refusal-plan', args.join(' '));
     assert.equal(refusal.status, 'failed', args.join(' '));
     assert.ok(refusal.error.code, `${args.join(' ')} must identify its refusal`);

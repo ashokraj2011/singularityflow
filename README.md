@@ -221,11 +221,12 @@ cd your-repository
 singularity-flow init --work-id WORK-123 --base main --fetch
 git add singularity
 git commit -m "[WORK-123][bootstrap] Initialize Singularity Flow"
-git push -u origin WORK-123
-singularity-flow start WORK-123
+git push -u origin setup/WORK-123
+singularity-flow start WORK-123 --from-branch setup/WORK-123
 ```
 
 This branch-local bootstrap is the recommended path when `main` is protected:
+`init --work-id` uses `setup/<WORK-ID>`, leaving the actual Story branch available for `start`.
 Singularity Flow creates or reuses `WORK-123`, writes configuration only on that
 branch, and never pushes or modifies `main`. If the process configuration should
 become the shared default for later Work IDs, raise a normal reviewed pull request

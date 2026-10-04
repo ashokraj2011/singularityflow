@@ -128,7 +128,7 @@ test('problems name the step to fix, and a stale base is refused', async () => {
   const stale = await changeSet(root, [{ op: 'workflow.update', id: 'feature', label: 'Feature work' }], { workflowSha256: '0'.repeat(64) });
   const stalePlan = flow(root, ['workflow', 'studio', 'apply', '--change-set', stale, '--dry-run', '--json'], { allowFailure: true });
   assert.notEqual(stalePlan.status, 0);
-  assert.match(stalePlan.stderr, /changed since Workflow Studio loaded it/);
+  assert.match(stalePlan.stdout, /changed since Workflow Studio loaded it/);
 });
 
 test('people, sign-off and send-back rules are edited from the Studio', async () => {

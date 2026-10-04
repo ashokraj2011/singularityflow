@@ -618,7 +618,7 @@ test('the CLI accepts only coherent capability Auto controls before writing the 
       '--auto-eligibility', 'inherit', '--auto-maximum-touched-paths', '99', '--json'
     ], { cwd: root, encoding: 'utf8', env: environment });
     assert.notEqual(refused.status, 0);
-    assert.equal(JSON.parse(refused.stderr).resultType, 'sflow-refusal-plan');
+    assert.equal(JSON.parse(refused.stdout).resultType, 'sflow-refusal-plan');
     assert.equal(await readFile(file, 'utf8'), after, 'a refused combination leaves the map untouched');
   } finally {
     await rm(root, { recursive: true, force: true });

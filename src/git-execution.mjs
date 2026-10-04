@@ -18,7 +18,7 @@ import { mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
-import { resolvePlatformProcess, withoutAutomaticGitMaintenance } from './platform-process.mjs';
+import { resolvePlatformProcess, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
@@ -68,11 +68,7 @@ export function gitRemoteProbeTimeout(remote, env = process.env) {
  * actionable result. The caller's proxy and CA environment is otherwise preserved byte-for-byte.
  */
 export function nonInteractiveGitEnvironment(env = process.env) {
-  const nonInteractive = {
-    ...env,
-    GIT_TERMINAL_PROMPT: '0',
-    GCM_INTERACTIVE: 'Never'
-  };
+  const nonInteractive = withoutInteractiveGitPrompts(env);
   // This helper is routinely applied before the final executor. Preserve the private attestation
   // carried by a frozen transport; otherwise that executor correctly treats the cloned object as
   // ambient input, removes its counted configuration, and loses SFlow's exact URL alias.

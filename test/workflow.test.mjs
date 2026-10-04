@@ -155,7 +155,7 @@ test('off-mode clarification record emits recovery before reading response input
   ], { allowFailure: true, selection: selection('quick-fix', 'developer') });
   assert.notEqual(refused.status, 0);
   assert.equal(refused.stdout, '');
-  const envelope = JSON.parse(refused.stderr);
+  const envelope = JSON.parse(refused.stdout);
   assert.equal(envelope.error.code, 'CLARIFICATION_MODE_OFF');
   assert.deepEqual(envelope.remediationPlan.steps.slice(0, 2).map((entry) => entry.command), [
     'singularity-flow clarification status implement --json',
@@ -1277,7 +1277,7 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
     selection: selection('bugfix', 'qa'), allowFailure: true
   });
   assert.notEqual(forgedAlias.status, 0);
-  assert.match(forgedAlias.stderr, /retained local baseline ref.*missing or changed/);
+  assert.match(forgedAlias.stdout, /retained local baseline ref.*missing or changed/);
   assert.equal(execute('git', ['rev-parse', baselineRef], root).stdout.trim(), baselineTree,
     'a symbolic alias to the correct tree still cannot prove the direct checkpoint ref');
   execute('git', ['symbolic-ref', '--delete', baselineRef], root);
@@ -1310,7 +1310,7 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
     '--change-request', 'CR-001', '--confirm', stagedPlan.confirmation, '--json'
   ], { selection: selection('bugfix', 'qa'), allowFailure: true });
   assert.notEqual(stagedApply.status, 0);
-  assert.match(stagedApply.stderr, /will not alter the existing Git index/);
+  assert.match(stagedApply.stdout, /will not alter the existing Git index/);
   assert.equal(existsSync(path.join(root, 'src/rework-only.mjs')), true);
   execute('git', ['reset', '--quiet', 'HEAD', '--', 'src/rework-only.mjs'], root);
 

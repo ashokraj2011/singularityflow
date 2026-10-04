@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 20
+version: 21
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -60,7 +60,11 @@ A code step is judged by the rows allocated to it. Only new or modified rows nee
 
 ### Exact tests and attempts
 
-A criterion is tied to a test by an `@ac:<clause>` comment on the line directly above the test's declaration. A tag anywhere else in the file binds nothing, and publishing refuses a criterion the step owes whose tags sit on no test. For Jest and Vitest (JSON reporters) and JUnit 5 (Maven Surefire or Gradle reports) the tagged test is read exactly: its file, its literal `describe` path or class, its title or method, and a digest of its whole body, so weakening its assertion is a new revision. A table-driven test (`.each`, `@ParameterizedTest`, `@RepeatedTest`) passes only when every instance it declares passed. Other runners only count tests, so their criteria rest on the module's test command.
+A criterion is tied to a test by an `@ac:<clause>` comment on the line directly above the test's declaration. A tag anywhere else in the file binds nothing, and publishing refuses a criterion the step owes whose tags sit on no test. For Node's `node:test`, Jest and Vitest (JSON reporters), and JUnit 5 (Maven Surefire or Gradle reports) the tagged test is read exactly: its file, its literal `describe` path or class, its title or method, and a digest of its whole body, so weakening its assertion is a new revision. A table-driven test (`.each`, `@ParameterizedTest`, `@RepeatedTest`) passes only when every instance it declares passed. Other runners only count tests, so their criteria rest on the module's test command.
+
+Node's `node-test-v1` profile captures native reporter events alongside TAP, including each test's file and declaration line. Ordinary TAP totals cannot distinguish unrelated passing tests: old counts-only Node receipts remain readable but cannot verify a criterion. The bounded reader supports direct ESM `test`/`it` imports from `node:test`, literal suites and test titles. Aliases, helper-generated declarations and ambiguous identities require a supported declaration or an explicit assurance-shortfall disposition; they are never silently credited. Skipped/todo tests, duplicated declarations, and misplaced tags cannot satisfy a clause. Direct Node and npm/pnpm/yarn scripts with one explicit TAP reporter keep that reporter and add an identity-only observer, without running tests twice. Multiple or ambient reporters are refused with a repair message; wrappers which hide their reporter must expose one supported test command.
+
+The CLI, Markdown/CSV export and VS Code matrix disclose the evaluated Story revision and each published candidate's revision. Uncommitted changes or HEAD movement produce a separate drift warning; a historical pass never certifies the current dirty checkout. This disclosure does not change the historical evidence decision's hash.
 
 Every run of a test command is kept as an immutable attempt with its raw report, failed runs and retries included, and the criterion is judged against the attempt bound to the published candidate. An exact test reads, in this order: failed; no result (the run failed or ended without one); flaky (it passed only after failing in the same run); ambiguous (more than one result carries its identity); not exact (its declaration cannot be pinned down, for example a dynamic title or a duplicate); skipped; not in the run (filtered out, or in a file the runner did not run); passed. Only passed verifies, and only inside a run that completed and succeeded; an unrelated passing test in the same file never stands in for it.
 
@@ -103,6 +107,8 @@ Approved inspection evidence must cite an exact qualified criterion identity. `O
 ### Implementation bindings
 
 Each row delivered by new or modified source is bound to what the delivery changed for it: the exact changed hunks of its planned paths, the public declarations those hunks touch (best effort, labelled heuristic, never proof) and its author's explanation, written after the clause's tag on the same comment line, for example `// @clause:ORDER:REQ-001 rejects an expired card`. The explanation must be 10 to 300 characters, and publishing refuses a row without one. The tag associates the row with the code; the explanation says how the change meets it; a person decides.
+
+A current-Story `@clause` tag naming a clause absent from the approved specification is refused with `EVIDENCE_CLAUSE_UNAPPROVED`, including the file and line. Foreign-Story historical tags do not satisfy this Story's clauses.
 
 Approving the step accepts every binding it submitted, as a batch over their exact digest. To accept one with a stated exception, approve with `--binding <clause>=exception --binding-reason TEXT`; that row then reads satisfied with an exception. To send a binding back for correction, reject the step. The matrix shows each row's explanation, regions and decision.
 

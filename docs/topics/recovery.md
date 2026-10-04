@@ -20,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 12
+version: 13
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. When the push was refused because another clone published to the same Story first, sync says so; if the retained commit is a document upload, `sflow sync --replay` (preview with `--dry-run`) adds the same documents again on top of the published Story, where they take the next free IDs, and keeps the retained commit under `refs/sflow-replayed/<WORK-ID>/`. An upload refused before it committed, because this checkout was behind, names `sflow refresh-branch`. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -105,6 +105,21 @@ the explicit path for it. Set `SINGULARITY_FLOW_TRANSITION_REPAIR=off` to switch
 `/sf-code` authors and publishes a generation; `/sf-submit` revalidates the published generation.
 These are separate gates. `draft-check: ready` and `prepublish: ready` only mean the currently
 inspectable conditions passed; neither claims that required tests have run successfully.
+
+For an unpublished generation, recovery and prepublish share the publication dependency checks:
+approved input bytes and hashes, required integration receipts, grounding, generation-bound human
+clarification, MCP host readiness, and required MCP evidence. A missing dependency suppresses the
+publication command and automatic draft correction and names its own diagnostic or guided repair.
+Warning-only policies remain warnings in both CLI and VS Code. These checks do not send a delivery,
+start a host, answer a question, or rewrite a saved prompt. Publication rechecks the dependencies;
+a prior `ready` result is not reusable authorization. Code publication checks again after tests,
+because test commands can change files.
+
+Use `--no-model` consistently for a permitted manual route. Its publication command retains the
+resolved producer and flag; recovery does not demand model grounding or human-clarification records
+for non-model authorship. Recovery also does not request a new prompt for an already-published
+generation merely because submission is still pending. Integrity failures still require their
+reported repair; they cannot be accepted away as warning-only freshness.
 
 Start with the selected Story checkout, not another workspace's terminal:
 

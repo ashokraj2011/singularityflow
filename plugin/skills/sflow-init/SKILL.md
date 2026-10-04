@@ -34,10 +34,12 @@ For ordinary `init`, `--check`, or `--repair`, continue with the compatible work
 
 1. Run `singularity-flow init --check --json` first. Show branch, completeness, missing files, and
    validation errors.
-2. Validate a supplied Work ID as letters, numbers, `.`, `_`, or `-`. If its branch is current, use
+2. Validate a supplied Work ID as letters, numbers, `.`, `_`, or `-`. If `setup/<WORK-ID>` is current, use
    `singularity-flow init --repair`. Otherwise require a clean tree and run
    `singularity-flow init --repair --work-id <WORK-ID> --base <BASE> --fetch`
-   to create, reuse, or fast-forward it. Default to `main` only for a new branch; never modify base.
+   to create, reuse, or fast-forward the setup branch. Never initialize the Story branch itself;
+   leave it available for `singularity-flow start <WORK-ID> --from-branch setup/<WORK-ID>` after setup is committed
+   and published. Default to `main` only for a new setup branch; never modify base.
 3. When no Work ID was supplied and the check reports missing assets, run
    `singularity-flow init --repair` on the current branch.
 4. Restore only missing packaged files; never replace customization. Restore invalid files from Git.

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, lstat, open, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { nodeTestObservation } from './verification/node-test-observation.mjs';
 
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { canonicalJson } from './records.mjs';
@@ -1395,7 +1396,11 @@ function testReportFromContents(adapter, contents) {
     const replay = replayLocalJunitObservation(contents.map((content) => ({ contents: content })));
     return { tests: replay.tests, testcaseObservation: replay.testcaseObservation };
   }
-  if (adapter === 'node-tap') return { tests: nodeTapCounts(bytes.toString('utf8')), testcaseObservation: null };
+  if (adapter === 'node-tap') {
+    const text = bytes.toString('utf8');
+    const tests = nodeTapCounts(text);
+    return { tests, testcaseObservation: nodeTestObservation(text, tests) };
+  }
   if (adapter === 'karma-text') return { tests: karmaTextCounts(bytes.toString('utf8')), testcaseObservation: null };
   if (adapter === 'go-test-json') {
     const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
@@ -1442,6 +1447,8 @@ export function persistedOccurrences(parsed) {
       ? { suitePath: [...occurrence.ancestorTitles] }
       : { className: occurrence.className ?? null }),
     name: occurrence.name ?? null,
+    ...(occurrence.file ? { file: occurrence.file } : {}),
+    ...(Number.isInteger(occurrence.line) ? { line: occurrence.line } : {}),
     outcome: occurrence.outcome,
     ...(occurrence.flaky === true ? { flaky: true } : {}),
     durationMs: occurrence.durationMs ?? null

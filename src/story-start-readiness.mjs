@@ -18,6 +18,11 @@ import { VERSION } from './version.mjs';
 export const STORY_START_READINESS_FORMAT_VERSION = 1;
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
 
+export function repositoryReadinessRequired(definition = {}) {
+  return definition.repositoryReadiness?.requiredBeforeStory === true
+    || definition.initialization?.proof?.preStory?.requiredBeforeStory === true;
+}
+
 export function requiredRepositoryReadinessScope(definition = {}) {
   const policies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory]
     .filter(Boolean);
@@ -222,13 +227,19 @@ export function inspectStoryStartReadiness({
       ?? (normalizedRepositories.length === 1 && repositoryReadiness
         ? { [normalizedRepositories[0].id]: repositoryReadiness } : {});
     const acceptedKnownFailures = [];
+    const emptyPlans = [];
     const invalid = normalizedRepositories.find((entry) => {
       const receipt = receipts[entry.id];
+      const emptyPreview = surface === 'vscode-preflight' && receipt?.status === 'no-commands-applicable'
+        && receipt.scope === readinessScope && /^sha256:[a-f0-9]{64}$/u.test(receipt.planId ?? '')
+        && receipt.structuredTestContract?.satisfied === true
+        && !receipt.structuredTestContract.requiredForCode && !receipt.structuredTestContract.error
+        && receipt.commandResults?.length === 0;
       const acceptedFailure = acceptedPreStoryFailureForRepository(receipt, entry.baseCommit, {
         scope: readinessScope,
         dependencyRequired: repositoryReadinessPolicy.dependencyHydration === 'required'
       });
-      if ((receipt?.status !== 'pass' && !acceptedFailure)
+      if ((receipt?.status !== 'pass' && !acceptedFailure && !emptyPreview)
           || (receipt?.sourceCommit ?? receipt?.sourceHead) !== entry.baseCommit) return true;
       const passedPurposes = new Set((receipt.commandResults ?? [])
         .filter((result) => result.status === 'pass').map((result) => result.purpose));
@@ -245,6 +256,7 @@ export function inspectStoryStartReadiness({
       if (structuredTests === 'required-for-code' && codeDetected
           && receipt.structuredTestContract?.status !== 'available') return true;
       if (acceptedFailure) acceptedKnownFailures.push(entry.id);
+      if (emptyPreview) emptyPlans.push(entry.id);
       return false;
     });
     const complete = normalizedRepositories.length > 0 && !invalid;
@@ -252,6 +264,10 @@ export function inspectStoryStartReadiness({
       ? check(
           'repository-execution', 'warning', 'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED',
           `Known failing tests were accepted for Story creation in ${acceptedKnownFailures.length} exact-base repository/repositories; later test and publication gates remain required.`
+        )
+      : complete && emptyPlans.length ? check(
+          'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_NO_COMMANDS',
+          'No readiness commands apply to the selected base. Story start will record the no-command receipt; no tests have run.'
         )
       : complete ? check(
           'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_VALID',
@@ -280,7 +296,7 @@ export function inspectStoryStartReadiness({
         .map(([id, receipt]) => [id, receipt?.baselineSha256 ? {
           baselineSha256: receipt.baselineSha256,
           acceptanceSha256: receipt?.riskAcceptance?.acceptanceSha256 ?? null
-        } : receipt?.receiptSha256 ?? null]))
+        } : receipt?.receiptSha256 ?? receipt?.planId ?? null]))
       : repositoryReadiness?.baselineSha256 ? {
           baselineSha256: repositoryReadiness.baselineSha256,
           acceptanceSha256: repositoryReadiness?.riskAcceptance?.acceptanceSha256 ?? null

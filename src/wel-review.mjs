@@ -18,7 +18,7 @@ const DECISIONS = new Set(['satisfied', 'exception', 'not-applicable']);
 const MAX_MAPPINGS = 1000;
 const MAX_REASON_BYTES = 4096;
 const REVIEWED_EXECUTION_PROFILES = new Set([
-  'jest-static-v2', 'vitest-static-v2', 'junit5-surefire-v2', 'junit5-gradle-v2'
+  'jest-static-v2', 'vitest-static-v2', 'junit5-surefire-v2', 'junit5-gradle-v2', 'node-test-v1'
 ]);
 /** The adequacy facets a reviewer judges for each witness [E2G-014]. */
 export const ADEQUACY_FACETS = Object.freeze(['setup', 'action', 'assertions', 'boundaries', 'implementation']);

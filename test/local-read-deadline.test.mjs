@@ -68,7 +68,7 @@ test('legacy sync reads use the remaining ceiling and hard kill; ordinary calls 
   assert.ok(seen[2].timeout > 0 && seen[2].timeout <= 500, 'legacy undefined timeout is tightened, not converted to NaN');
   assert.ok(seen[3].timeout > 0 && seen[3].timeout <= 500, 'null must not become a zero, unbounded timeout');
   assert.ok(seen[4].timeout > 0 && seen[4].timeout <= 500, 'zero must not disable the enclosing deadline');
-  assert.deepEqual(seen[5], { timeout: 20_000, killSignal: 'SIGTERM' });
+  assert.deepEqual(seen[5], { timeout: 20_000, killSignal: 'SIGKILL' });
 });
 
 test('scoped sync timeout values refuse coercion and invalid ceilings before child launch', async () => {

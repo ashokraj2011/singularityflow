@@ -44,7 +44,7 @@ test('failed required push blocks transitions until sync publishes the retained 
   assert.ok(plan.actions.some((entry) => entry.id === 'publish' && entry.automatic));
   const unconfirmed = flow(root, ['recover', 'PUSH-1', '--apply', '--json'], { fail: true });
   assert.equal(unconfirmed.status, 1);
-  assert.match(unconfirmed.stderr, /exact reviewed plan hash/);
+  assert.match(unconfirmed.stdout, /exact reviewed plan hash/);
   const applied = JSON.parse(flow(root, [
     'recover', 'PUSH-1', '--apply', '--confirm', plan.planId, '--json'
   ]).stdout);

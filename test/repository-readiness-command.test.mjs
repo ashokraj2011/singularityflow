@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,47 @@ import test from 'node:test';
 import { run } from '../src/util.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
+
+test('an empty repository records no-command readiness in one invocation, without pretending tests ran', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-empty-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q'], { cwd: root });
+  run('git', ['-c', 'user.name=Readiness', '-c', 'user.email=ready@example.test',
+    'commit', '--allow-empty', '-qm', 'empty base'], { cwd: root });
+  const result = spawnSync(process.execPath, [cli, 'precheck', '--run', '--json'], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.operation.id, 'precheck.run.execute');
+  assert.equal(payload.data.execution, 'no-commands-applicable');
+  assert.equal(payload.data.receipt.status, 'pass');
+  assert.deepEqual(payload.data.receipt.commandResults, []);
+  assert.deepEqual(payload.data.receipt.testObservations, []);
+  const { collectRepositoryReadinessEvidence } = await import('../src/repository-readiness-evidence.mjs');
+  run('git', ['-c', 'user.name=Readiness', '-c', 'user.email=ready@example.test',
+    'commit', '--allow-empty', '-qm', 'new base'], { cwd: root });
+  const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const entries = [{ id: 'lifecycle', root, baseCommit }];
+  assert.equal((await collectRepositoryReadinessEvidence(entries)).repositories.lifecycle.status, 'missing');
+  const preview = (await collectRepositoryReadinessEvidence(entries, { previewEmpty: true })).repositories.lifecycle;
+  assert.equal(preview.status, 'no-commands-applicable');
+  assert.equal(preview.receiptSha256, null, 'a preview is not execution evidence');
+  assert.equal((await collectRepositoryReadinessEvidence(entries)).repositories.lifecycle.status, 'missing');
+  assert.equal((await collectRepositoryReadinessEvidence(entries, { recordEmpty: true })).repositories.lifecycle.status, 'pass');
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout, '');
+  run('git', ['-c', 'user.name=Readiness', '-c', 'user.email=ready@example.test',
+    'commit', '--allow-empty', '-qm', 'isolated Story base'], { cwd: root });
+  await writeFile(path.join(root, 'unrelated.txt'), 'preserve outside the new Story');
+  const dirtyBase = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const isolated = await collectRepositoryReadinessEvidence([{ id: 'lifecycle', root, baseCommit: dirtyBase }], { recordEmpty: true });
+  assert.equal(isolated.repositories.lifecycle.status, 'pass', 'no-command evidence covers only the clean tracked base');
+  assert.equal(await readFile(path.join(root, 'unrelated.txt'), 'utf8'), 'preserve outside the new Story');
+  await writeFile(path.join(root, 'package.json'), '{"scripts":{"test":"node --test"}}');
+  run('git', ['-c', 'user.name=Readiness', '-c', 'user.email=ready@example.test',
+    'commit', '--allow-empty', '-qm', 'untracked executable input'], { cwd: root });
+  const unsafe = await collectRepositoryReadinessEvidence([{ id: 'lifecycle', root,
+    baseCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim() }], { recordEmpty: true });
+  assert.notEqual(unsafe.repositories.lifecycle.status, 'pass', 'a newly discovered command cannot run implicitly');
+});
 
 async function repository(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-command-'));
@@ -29,6 +70,48 @@ async function repository(t) {
   run('git', ['commit', '-qm', 'fixture'], { cwd: root });
   return root;
 }
+
+test('no-command readiness binds the selected base across governance-only changes, never changed code', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-selected-base-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => run('git', args, { cwd: root }).stdout.trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Readiness');
+  git('config', 'user.email', 'readiness@example.test');
+  git('commit', '--allow-empty', '-qm', 'empty application');
+  const base = git('rev-parse', 'HEAD');
+  git('switch', '-q', '-c', 'configuration-review');
+  await mkdir(path.join(root, 'singularity'));
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 1\n');
+  git('add', '.');
+  git('commit', '-qm', 'governance only');
+  const original = git('rev-parse', 'HEAD');
+  const { collectRepositoryReadinessEvidence } = await import('../src/repository-readiness-evidence.mjs');
+  const entries = [{ id: 'repo', root, baseCommit: base }];
+  const preview = (await collectRepositoryReadinessEvidence(entries, { previewEmpty: true })).repositories.repo;
+  assert.equal(preview.status, 'no-commands-applicable');
+  assert.equal(preview.sourceCommit, base);
+  assert.equal((await collectRepositoryReadinessEvidence(entries)).repositories.repo.status, 'missing');
+  const recorded = (await collectRepositoryReadinessEvidence(entries, { recordEmpty: true })).repositories.repo;
+  assert.equal(recorded.status, 'pass');
+  assert.equal(recorded.sourceCommit, base);
+  assert.deepEqual(recorded.commandResults, []);
+  assert.equal(git('rev-parse', 'HEAD'), original);
+  assert.equal(git('branch', '--show-current'), 'configuration-review');
+  assert.equal(git('status', '--porcelain'), '');
+  const { inspectRepositoryReadinessReceipt } = await import('../src/initialization/runtime-readiness.mjs');
+  git('switch', '-q', 'main');
+  assert.equal((await inspectRepositoryReadinessReceipt(root, { scope: 'dependency-test' })).status, 'pass',
+    'the same plan recomputes when the exact base is later checked out');
+  await writeFile(path.join(root, 'package.json'), '{"scripts":{"test":"node --test"}}');
+  git('add', '.');
+  git('commit', '-qm', 'application with tests');
+  const codeBase = git('rev-parse', 'HEAD');
+  git('switch', '-q', 'configuration-review');
+  const unsafe = (await collectRepositoryReadinessEvidence([{ id: 'repo', root, baseCommit: codeBase }],
+    { recordEmpty: true, previewEmpty: true })).repositories.repo;
+  assert.equal(unsafe.status, 'missing', 'a manifest absent from this checkout must not be treated as absent from the selected base');
+});
 
 test('precheck dependency-test scope previews only locked dependencies and existing tests', async (t) => {
   const root = await repository(t);

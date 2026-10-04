@@ -269,20 +269,20 @@ test('actual CLI refuses unknown authority flags before discovery and blocks sec
   for (const args of [['delete', ID, '--yes'], ['list', '--actor', 'human'], ['list', '--json=false']]) {
     const result = flow(base, 'workflow', 'author', ...args, '--json');
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /WCA_AUTHOR_REQUEST_INVALID/u);
+    assert.match(result.stdout, /WCA_AUTHOR_REQUEST_INVALID/u);
   }
   const input = path.join(base, 'unsafe.json');
   await writeFile(input, JSON.stringify({ payload: { note: `api_key=sk-${'a'.repeat(48)}` } }));
   const blocked = flow(first, 'workflow', 'author', 'create', ID, '--input', input,
     '--operation-id', 'secret-create', '--expected-head', 'empty', '--json');
   assert.notEqual(blocked.status, 0);
-  assert.match(blocked.stderr, /WCA_DRAFT_CONTENT_BLOCKED/u);
+  assert.match(blocked.stdout, /WCA_DRAFT_CONTENT_BLOCKED/u);
   assert.ok(!blocked.stderr.includes(`sk-${'a'.repeat(48)}`));
   const blockedName = flow(first, 'workflow', 'author', 'create', ID,
     '--name', `api_key=sk-${'a'.repeat(48)}`, '--operation-id', 'secret-name-create',
     '--expected-head', 'empty', '--json');
   assert.notEqual(blockedName.status, 0);
-  assert.match(blockedName.stderr, /WCA_DRAFT_CONTENT_BLOCKED/u);
+  assert.match(blockedName.stdout, /WCA_DRAFT_CONTENT_BLOCKED/u);
   assert.ok(!blockedName.stderr.includes(`sk-${'a'.repeat(48)}`));
   assert.equal(git(remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/drafts'), '');
 });
@@ -299,7 +299,7 @@ test('actual CLI takes environment-local storage exclusions from refreshed appro
   const refused = flow(first, 'workflow', 'author', 'create', ID, '--input', input,
     '--expected-head', 'empty', '--operation-id', 'approved-environment-block', '--json');
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /WCA_DRAFT_CONTENT_BLOCKED/u);
+  assert.match(refused.stdout, /WCA_DRAFT_CONTENT_BLOCKED/u);
   assert.ok(!refused.stderr.includes('Harmless literal'));
   assert.equal(git(remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/drafts'), '');
 });
@@ -326,7 +326,7 @@ test('actual CLI refuses stale observed authority even when the replacement is a
     const refused = flow(first, 'workflow', 'author', ...args, '--expected-head', created.data.head,
       '--expected-authority', observed.capability.repository, '--json');
     assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr, /WCA_DRAFT_AUTHORITY_CHANGED/u);
+    assert.match(refused.stdout, /WCA_DRAFT_AUTHORITY_CHANGED/u);
   }
   assert.equal(git(remote, 'for-each-ref', '--format=%(refname) %(objectname)'), originalHeads);
   assert.equal(git(alternate, 'for-each-ref', '--format=%(refname) %(objectname)'), alternateHeads);
@@ -395,7 +395,7 @@ test('actual terminal deletion captures one named action and current shell reads
     for (const action of ['read', 'show']) {
       const refused = flow(second, 'workflow', 'author', action, ID, '--json');
       assert.notEqual(refused.status, 0);
-      assert.match(refused.stderr, /WCA_DRAFT_DELETED/u);
+      assert.match(refused.stdout, /WCA_DRAFT_DELETED/u);
     }
     const historic = author(second, 'show', ID, '--revision', '1');
     assert.equal(historic.data.view.subject.lifecycle, 'deleted');

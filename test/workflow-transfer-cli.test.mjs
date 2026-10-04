@@ -99,7 +99,7 @@ test('workflow import confirmation refuses byte-identical destination authority 
   const staleRemote = flow(item.root, 'workflow', 'import', item.bundleFile,
     '--confirm', planA.planSha256, '--propose', '--json');
   assert.notEqual(staleRemote.status, 0);
-  assert.match(staleRemote.stderr, /plan changed or was not confirmed/);
+  assert.match(staleRemote.stdout, /plan changed or was not confirmed/);
   assert.equal(git(item.base, '--git-dir', item.remoteA, 'show-ref'), refsA);
   assert.equal(git(item.base, '--git-dir', item.remoteB, 'show-ref'), refsB);
   const planB = importPreview(item);
@@ -115,7 +115,7 @@ test('workflow import confirmation refuses byte-identical destination authority 
   const staleCommit = flow(item.root, 'workflow', 'import', item.bundleFile,
     '--confirm', planB.planSha256, '--propose', '--json');
   assert.notEqual(staleCommit.status, 0);
-  assert.match(staleCommit.stderr, /plan changed or was not confirmed/);
+  assert.match(staleCommit.stdout, /plan changed or was not confirmed/);
   assert.equal(git(item.base, '--git-dir', item.remoteB, 'show-ref'), changedRefsB);
   const fresh = importPreview(item);
   assert.equal(fresh.targetStateSha256, planA.targetStateSha256);
@@ -196,7 +196,7 @@ test('workflow copy and duplicate confirmations use the same exact destination f
     const rejected = flow(item.root, 'workflow', command, 'feature', 'feature-copy',
       '--label', 'Feature copy', '--confirm', planA.planSha256, '--propose', '--json');
     assert.notEqual(rejected.status, 0);
-    assert.match(rejected.stderr, /plan changed or was not confirmed/);
+    assert.match(rejected.stdout, /plan changed or was not confirmed/);
   }
   const planB = preview('duplicate');
   assert.equal(planB.targetStateSha256, planA.targetStateSha256);
@@ -226,7 +226,7 @@ test('local approved configuration authoring stays available without a remote id
   const remoteRefused = flow(root, 'workflow', 'copy', 'feature', 'feature-copy',
     '--label', 'Local feature copy', '--confirm', plan.planSha256, '--propose', '--json');
   assert.notEqual(remoteRefused.status, 0);
-  assert.match(remoteRefused.stderr, /No exact approved remote workflow transfer destination/);
+  assert.match(remoteRefused.stdout, /No exact approved remote workflow transfer destination/);
   assert.equal(git(root, 'status', '--porcelain=v1'), '');
   const applied = flow(root, 'workflow', 'copy', 'feature', 'feature-copy',
     '--label', 'Local feature copy', '--confirm', plan.planSha256, '--json');
@@ -249,7 +249,7 @@ test('a working-tree-only confirmation cannot authorize a remote proposal when a
   const applied = flow(root, 'workflow', 'copy', 'feature', 'feature-copy',
     '--label', 'Feature copy', '--confirm', plan.planSha256, '--propose', '--json');
   assert.notEqual(applied.status, 0);
-  assert.match(applied.stderr, /No exact approved workflow transfer destination/);
+  assert.match(applied.stdout, /No exact approved workflow transfer destination/);
   assert.equal(git(root, 'show-ref'), before);
   assert.equal(git(root, 'status', '--porcelain=v1'), '');
 });

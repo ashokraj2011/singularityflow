@@ -40,7 +40,7 @@ const WORK = 'E2E-1';
 function shell(command, args, cwd, { allowFailure = false } = {}) {
   if (command === 'git') args = ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args];
   const result = spawnSync(command, args, {
-    cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_LOG_CONSOLE: 'error' }
+    cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'E2E Tester', SINGULARITY_FLOW_LOG_CONSOLE: 'error' }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')}\nexit ${result.status}\n${result.stdout}\n${result.stderr}`);
@@ -140,7 +140,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   git(seed, 'add', '-A');
   git(seed, 'commit', '-m', 'governance');
   git(seed, 'checkout', '-q', 'main');
-  git(seed, 'checkout', '-q', 'SEED', '--', 'singularity', '.github');
+  git(seed, 'checkout', '-q', 'setup/SEED', '--', 'singularity', '.github');
   git(seed, 'add', '-A');
   git(seed, 'commit', '-m', 'governance');
   git(seed, 'push', '-q', 'origin', 'main');
@@ -664,6 +664,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal((await workflowOf(root)).currentPhase, 'release');
 
   // Release carries the conformance report `[SPK:AC-008]`.
+  const verified = await workflowOf(root);
+  const selfApprovals = Object.entries(verified.phases).flatMap(([id, phase]) =>
+    phase.approvals.filter((approval) => !approval.invalidatedAt && approval.selfApproval)
+      .map((approval) => `- ${id}: self-approved by ${approval.actor.login ?? approval.actor.email ?? approval.actor.name}; this is not independent review.`));
   await write(root, `singularity/work-items/${WORK}/artifacts/release/conformance.md`, [
     '# Conformance — Retry a failed payment', '',
     'Approved intent traces to executed evidence for both requirements, through two convergence',
@@ -673,9 +677,9 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '|---|---|---|',
     '| `E2E:REQ-001` | `src/payments/retry.ts` and approved Verification | matched |',
     '| `E2E:REQ-002` | `src/payments/attempts.ts` and approved Verification | matched |', '',
-    '## Deviations', '', 'None outstanding.', ''
+    '## Deviations', '', 'None outstanding.', '',
+    '## Self-approval disclosures', '', ...selfApprovals, ''
   ].join('\n'));
-  const verified = await workflowOf(root);
   const evidencePath = `singularity/work-items/${WORK}/artifacts/verification/test-evidence.md`;
   const evidenceBytes = await readFile(path.join(root, evidencePath));
   const evidenceHash = createHash('sha256').update(evidenceBytes).digest('hex');

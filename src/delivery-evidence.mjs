@@ -580,8 +580,8 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
       return { clauseId, expectedPaths: [...claim.expectedPaths].sort() };
     })
     .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
-  const candidates = [...new Set(required.flatMap((entry) => entry.expectedPaths))]
-    .filter((candidate) => available.has(candidate) && !isAllowedTestAutomationPath(candidate))
+  const candidates = [...new Set(sourcePaths)]
+    .filter((candidate) => !isAllowedTestAutomationPath(candidate))
     .sort();
   const tagsByPath = new Map();
   for (const relative of candidates) {
@@ -605,6 +605,15 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
     tagsByPath.set(relative, scanSourceClauseTags(sourceBytes.toString('utf8'))
       .filter((tag) => tag.tag === 'clause' && normalizeQualifiedClauseId(tag.clauseId)));
   }
+  const approved = new Set(clauseIds.map(normalizeQualifiedClauseId));
+  const storyPrefix = `${workflow.workItem.id.toUpperCase()}:`;
+  const unapproved = [...tagsByPath].flatMap(([sourcePath, tags]) => tags
+    .filter((tag) => tag.clauseId.startsWith(storyPrefix) && !approved.has(tag.clauseId))
+    .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath, line: tag.line })));
+  if (unapproved.length) throw new SingularityFlowError(
+    `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the governed specification before publishing.`,
+    { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
+  );
   const bindings = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
     (tagsByPath.get(sourcePath) ?? [])
       .filter((tag) => tag.clauseId === clauseId)
@@ -1140,9 +1149,9 @@ export async function resolveDeliveryQualityCommands(root, phase) {
     if (tests.length && tests.every((candidate) => /\.(?:c|m)?js$/i.test(candidate))) {
       inferred.push({
         id: 'node-tests', kind: 'test',
-        argv: ['node', '--test', '--test-reporter=junit', ...tests],
+        argv: ['node', '--test', ...tests],
         workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
-        result: { adapter: 'junit-xml', path: '.sflow/results/node-tests.xml', minimumDiscovered: 1 }
+        result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 }
       });
     }
   }
@@ -1323,14 +1332,15 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   // Each exact JavaScript witness is read again from the committed generation: the test, its
   // revision and its tag must still be what publication recorded [E2G-015].
   for (const witness of traceability.witnesses ?? []) {
-    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2'].includes(witness.profile)) continue;
+    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1'].includes(witness.profile)) continue;
     const bytes = generationCommit && safeEvidencePath(witness.testSource) ? exactFileAtObject(root, generationCommit, witness.testSource) : null;
     let declaration = null;
     try {
       declaration = bytes ? scanJavaScriptDeclarations(bytes.toString('utf8'), { sourcePath: witness.testSource, framework: witness.identity.framework })
         .declarations.find((entry) => entry.logicalTestId === witness.logicalTestId) ?? null : null;
     } catch { declaration = null; }
-    if (!declaration || declaration.declarationSha256 !== witness.declarationSha256 || !declaration.clauseIds.includes(witness.clauseId)) {
+    if (!declaration || declaration.declarationSha256 !== witness.declarationSha256 || !declaration.clauseIds.includes(witness.clauseId)
+        || (witness.profile === 'node-test-v1' && (declaration.line !== witness.line || declaration.gaps.length))) {
       fail(`the acceptance witness for ${witness.clauseId} in ${witness.testSource} does not match the committed test`);
     }
   }

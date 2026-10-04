@@ -644,6 +644,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     boundary,
     mode,
     inputSha256: graph.inputSha256 ?? null,
+    provenance: graph.provenance ?? null,
     lifecycle: { status: workflow.status, words: lifecycleWords(workflow) },
     requiredAssurance: {
       level: requiredAssurance,

@@ -326,7 +326,7 @@ test('workspace checkout mutations lease their explicit repositories rather than
       '--confirm-plan', 'wscp-reviewed', '--json'
     ], { cwd: unrelated, encoding: 'utf8' });
     assert.notEqual(routed.status, 0);
-    assert.match(routed.stderr, /repository reinitialization is in progress/i,
+    assert.match(routed.stdout, /repository reinitialization is in progress/i,
       'the public CLI observes the explicit target barrier before entering workspace code');
     assert.doesNotMatch(routed.stderr, /has no capability authority/i,
       'the unrelated cwd never becomes the mutation lease target');
@@ -2556,7 +2556,7 @@ test('the first capability can be onboarded outside every repository and without
     'capability', 'map', 'platform-api', '--kind', 'delivery', '--json'
   ], { cwd: outside, env, encoding: 'utf8' });
   assert.notEqual(missingLead.status, 0);
-  assert.match(missingLead.stderr, /no workspace or prior bootstrap is required/i,
+  assert.match(missingLead.stdout, /no workspace or prior bootstrap is required/i,
     'first-run guidance must not send the user into the workspace/bootstrap deadlock');
 
   const mapped = spawnSync(process.execPath, [cli,

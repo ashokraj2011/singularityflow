@@ -103,8 +103,9 @@ test('test commands map to one closed adapter profile with an honest ceiling', (
   assert.equal(profileForCommand(command('vitest-json', ['pnpm', 'test'])), 'vitest-static-v2');
   assert.equal(profileForCommand(command('junit-xml', ['./mvnw', 'test'])), 'junit5-surefire-v2');
   assert.equal(profileForCommand(command('junit-xml', ['./gradlew', 'test'])), 'junit5-gradle-v2');
-  // node --test, pytest, Go, Karma, TRX and Playwright only count tests today.
-  for (const [adapter, argv] of [['junit-xml', ['node', '--test']], ['junit-xml', ['python3', '-m', 'pytest']], ['node-tap', ['npm', 'test']], ['go-test-json', ['go', 'test']], ['playwright-json', ['npx', 'playwright', 'test']]]) {
+  assert.equal(profileForCommand(command('node-tap', ['npm', 'test'])), 'node-test-v1');
+  // Other adapters without native declaration/result pairing still only count tests.
+  for (const [adapter, argv] of [['junit-xml', ['node', '--test']], ['junit-xml', ['python3', '-m', 'pytest']], ['go-test-json', ['go', 'test']], ['playwright-json', ['npx', 'playwright', 'test']]]) {
     assert.equal(profileForCommand(command(adapter, argv)), 'module-counts-v1', adapter);
   }
   assert.equal(profileIsExact('jest-static-v2'), true);
@@ -195,7 +196,7 @@ test('publication finds the test each tag sits on, refuses a tag on nothing in a
     '// @ac:PAY-1:AC-001', "test('pays the balance', () => { expect(1).toBe(1); });", '',
     '// @ac:PAY-1:AC-002', '', "test('unrelated', () => {});", ''
   ].join('\n'));
-  await writeFile(path.join(root, 'tools', 'test', 'tool.test.mjs'), "// @ac:PAY-1:AC-003\nimport test from 'node:test';\ntest('t', () => {});\n");
+  await writeFile(path.join(root, 'tools', 'test', 'tool.test.mjs'), "import test from 'node:test';\n// @ac:PAY-1:AC-003\ntest('t', () => {});\n");
   const phase = { id: 'implementation', generationPolicy: { task: 'code' }, writeScope: 'source-and-artifact', qualityCommands: [] };
   const bindings = [
     { clauseId: 'PAY-1:AC-001', testSource: 'web/test/pay.test.js' },
@@ -211,12 +212,12 @@ test('publication finds the test each tag sits on, refuses a tag on nothing in a
   assert.deepEqual(exact.identity, { framework: 'jest', suitePath: [], name: 'pays the balance' });
   assert.equal(exact.exact, true);
   const counted = result.witnesses.find((entry) => entry.clauseId === 'PAY-1:AC-003');
-  assert.equal(counted.profile, 'module-counts-v1');
-  assert.deepEqual(counted.gaps, ['ADAPTER_COUNTS_ONLY']);
+  assert.equal(counted.profile, 'node-test-v1');
+  assert.deepEqual(counted.gaps, []);
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0], /@ac:PAY-1:AC-002 is not on a test: web\/test\/pay\.test\.js:4/);
   assert.deepEqual(result.profiles.map((entry) => [entry.testSource, entry.profile, entry.ceiling]).sort(), [
-    ['tools/test/tool.test.mjs', 'module-counts-v1', 'module-observed'],
+    ['tools/test/tool.test.mjs', 'node-test-v1', 'exact-local-observed'],
     ['web/test/pay.test.js', 'jest-static-v2', 'exact-local-observed']
   ]);
 });

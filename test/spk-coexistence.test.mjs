@@ -127,7 +127,7 @@ test('a legacy Story runs through the shared phases untouched by the pack', asyn
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'governance');
   git(root, 'checkout', '-q', 'main');
-  git(root, 'checkout', '-q', 'SEED', '--', 'singularity', '.github');
+  git(root, 'checkout', '-q', 'setup/SEED', '--', 'singularity', '.github');
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'governance');
   git(root, 'push', '-q', 'origin', 'main');

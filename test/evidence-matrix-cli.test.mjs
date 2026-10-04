@@ -93,36 +93,47 @@ test('the evidence matrix shows each criterion at its real assurance through a r
   cli('prepare', 'implementation');
   await writeFile(path.join(root, 'src/value.mjs'), `// @clause:${workId}:AC-001 returns the approved value 2\nexport const value = 2;\n`);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
-    `// @ac:${workId}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));", ''
+    "import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", `// @ac:${workId}:AC-001`, "test('value', () => assert.equal(value, 2));", ''
   ].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu,
     'The clause-tagged value module and acceptance-tagged unit test now prove the approved value 2.'));
+  const sourceFile = path.join(root, 'src/value.mjs');
+  const approvedSource = await readFile(sourceFile, 'utf8');
+  await writeFile(sourceFile, `${approvedSource}// @clause:${workId}:AC-009 unapproved requirement\n`);
+  const orphan = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation',
+    '--authored', 'human', '--channel', 'manual-in-place', '--json'], root, { allowFailure: true });
+  assert.notEqual(orphan.status, 0);
+  assert.match(orphan.stdout, /EVIDENCE_CLAUSE_UNAPPROVED/);
+  await writeFile(sourceFile, approvedSource);
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  cli('submit', 'implementation');
-  cli('approve', 'implementation', '--yes');
+  const submitted = cli('submit', 'implementation');
+  assert.doesNotMatch(submitted.stdout + submitted.stderr, /document preview unavailable|outside work item/);
+  const review = JSON.parse(cli('phase', 'show', 'implementation', '--json').stdout);
+  assert.ok(review.reviewBinding, 'source artifact previews must not disable the approval binding');
+  const approved = cli('approve', 'implementation', '--yes');
+  assert.doesNotMatch(approved.stdout + approved.stderr, /document preview unavailable|outside work item/);
 
-  // Delivered, tested and approved: satisfied at module-observed assurance and no higher.
+  // Native Node identities now bind the criterion to the actual passing declaration.
   const delivered = matrix();
   const [row] = delivered.page.rows;
   assert.equal(row.result, 'satisfied');
-  assert.equal(row.assurance, 'module-observed');
+  assert.equal(row.assurance, 'exact-local-observed');
   assert.deepEqual(row.verification.tests, ['test/value.test.mjs']);
   // The same identity delivered and approved the code, and the matrix says so rather than 'reviewed'.
   assert.deepEqual(row.obligations.find((entry) => entry.responsibility === 'verify').facets, {
-    coverage: 'linked', execution: 'passed', assurance: 'module-observed', review: 'self-approved', freshness: 'current', exception: 'none'
+    coverage: 'linked', execution: 'passed', assurance: 'exact-local-observed', review: 'self-approved', freshness: 'current', exception: 'none'
   });
   assert.equal(delivered.evaluation.decision.gate, 'allow');
-  // node:test reports only counts, so the criterion rests on its module command, and says so.
-  assert.equal(delivered.evaluation.summary.testCaseResults, '0 criterion row(s) joined to an exact test result; 1 rest on a module test command');
-  assert.deepEqual(row.obligations.find((entry) => entry.responsibility === 'verify').assuranceFacets, { identity: 'declared', execution: 'module-observed' });
+  assert.equal(delivered.evaluation.summary.testCaseResults, '1 criterion row(s) joined to an exact test result; 0 rest on a module test command');
+  assert.deepEqual(row.obligations.find((entry) => entry.responsibility === 'verify').assuranceFacets, { identity: 'source-bound', execution: 'exact-local-observed' });
 
   const human = cli('evidence', 'matrix').stdout;
   assert.match(human, /Evidence matrix — MATRIX-1: Change the value/);
-  assert.match(human, /satisfied \(module-observed\)/);
+  assert.match(human, /satisfied \(exact-local-observed\)/);
   assert.match(human, /"module-observed" means the test command covering a criterion's tagged test file passed/);
-  assert.match(human, /tag · module passed/);
+  assert.match(human, /exact test · passed/);
   const csv = cli('evidence', 'matrix', '--format', 'csv').stdout.trim().split('\n');
   assert.equal(csv.length, 2);
   assert.match(csv[1], /^"MATRIX-1:AC-001","AC",/);
@@ -142,6 +153,15 @@ test('the evidence matrix shows each criterion at its real assurance through a r
 
   // A view runs nothing: the Story's files and history are exactly as they were.
   const head = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  assert.equal(delivered.evaluation.provenance.evaluatedCommit, head);
+  assert.equal(delivered.evaluation.provenance.worktree, 'clean');
+  assert.ok(delivered.evaluation.provenance.candidates.some((entry) => entry.phaseId === 'implementation'));
+  await writeFile(sourceFile, `${approvedSource}\n// unpublished change\n`);
+  const dirty = matrix();
+  assert.equal(dirty.evaluation.provenance.worktree, 'dirty');
+  assert.match(dirty.evaluation.provenance.warnings.join(' '), /Uncommitted changes are not covered/);
+  assert.equal(dirty.page.rows[0].result, row.result, 'historical evidence remains separate from live drift');
+  await writeFile(sourceFile, approvedSource);
   matrix();
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), head);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');

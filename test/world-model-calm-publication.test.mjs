@@ -433,7 +433,7 @@ async function retainStoryPublication(root, workId) {
 
 function assertPendingIntentRefusal(result, action) {
   assert.notEqual(result.status, 0);
-  const refusal = JSON.parse(result.stderr);
+  const refusal = JSON.parse(result.stdout);
   assert.equal(refusal.resultType, 'command-result');
   assert.equal(refusal.outcome.status, 'refused');
   assert.equal(refusal.outcome.messageId, 'sequence.refused');
@@ -619,7 +619,7 @@ test('architecture intent creation is idempotent and conflicting init or stale r
     'architecture', 'intent', 'init', '--work-id', workId, '--from', conflicting, '--json'
   ], { allowFailure: true });
   assert.notEqual(initConflict.status, 0);
-  assert.match(initConflict.stderr, /WMC_INTENT_ALREADY_EXISTS/);
+  assert.match(initConflict.stdout, /WMC_INTENT_ALREADY_EXISTS/);
   assert.equal(await readFile(intentPath, 'utf8'), acceptedBytes);
 
   const staleRevision = flow(root, [
@@ -627,7 +627,7 @@ test('architecture intent creation is idempotent and conflicting init or stale r
     '--expect-intent', `sha256:${'0'.repeat(64)}`, '--json'
   ], { allowFailure: true });
   assert.notEqual(staleRevision.status, 0);
-  assert.match(staleRevision.stderr, /WMC_INTENT_REVISION_CONFLICT/);
+  assert.match(staleRevision.stdout, /WMC_INTENT_REVISION_CONFLICT/);
   assert.equal(await readFile(intentPath, 'utf8'), acceptedBytes);
   assert.equal(JSON.parse(await readFile(workflowPath, 'utf8')).phases.planning.generation, 0);
 });
@@ -1088,7 +1088,7 @@ test('editing an approved current intent cannot borrow its published approval', 
     'architecture', 'intent', 'render', '--work-id', workId, '--json'
   ], { allowFailure: true });
   assert.notEqual(render.status, 0);
-  assert.match(render.stderr, /WMC_INTENT_NOT_APPROVED/);
+  assert.match(render.stdout, /WMC_INTENT_NOT_APPROVED/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), acceptedHead);
   const accepted = await loadAcceptedStoryExecution(root, workId);
   assert.equal(
@@ -1143,7 +1143,7 @@ test('publication and intent revision serialize on one Story lock without mixed 
   await writeFile(hook, '#!/bin/sh\nexit 0\n');
   await chmod(hook, 0o755);
   assert.notEqual(revision.status, 0);
-  const refusal = JSON.parse(revision.stderr);
+  const refusal = JSON.parse(revision.stdout);
   assert.equal(refusal.outcome.status, 'refused');
   assert.equal(refusal.outcome.slots.gate, 'publicationPending');
   assert.equal(refusal.why[0].code, 'publication.pending');

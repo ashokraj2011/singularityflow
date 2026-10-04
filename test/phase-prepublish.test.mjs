@@ -89,6 +89,53 @@ test('prepublish never presents a publish command for a non-current or non-in-pr
   assert.ok(red.findings.some((finding) => finding.code === 'phase.lifecycle.not-publishable'));
 });
 
+test('prepublish catches missing governed grounding before offering publication, without composing it', async (t) => {
+  const item = await fixture(t);
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  item.workflow.resolution.worldModelGrounding = 'enforce';
+  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(result.status, 'correction-required');
+  assert.equal(result.commands.publish, null);
+  assert.equal(result.commands.next, 'singularity-flow wm compose --phase planning');
+  assert.equal(result.correction.skill, '/sf-worldmodel');
+  assert.equal(result.grounding.status, 'blocked');
+  assert.ok(result.findings.some((entry) => entry.code === 'phase.grounding.required'));
+  await assert.rejects(readFile(path.join(item.root, result.grounding.path)), { code: 'ENOENT' });
+  assert.equal(result.mutates, false);
+
+  const unowned = await phasePrepublish(item.root, item.config, item.workflow, item.phase);
+  assert.equal(unowned.status, 'correction-required', 'an absent agent session does not waive model grounding');
+  assert.equal(unowned.commands.publish, null);
+  assert.equal(unowned.grounding.status, 'blocked');
+
+  item.workflow.resolution.worldModelGrounding = 'warn';
+  const advisory = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(advisory.status, 'ready');
+  assert.equal(advisory.grounding.status, 'warning');
+  assert.match(advisory.grounding.warnings.join('\n'), /grounding composition is missing/);
+
+  item.workflow.resolution.worldModelGrounding = 'enforce';
+  item.phase.generationPolicy = { defaultProducer: 'human', allowedProducers: ['human'] };
+  const human = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(human.status, 'ready', 'human authorship has no model-grounding requirement');
+  assert.equal(human.grounding.status, 'not-applicable');
+});
+
+test('prepublish surfaces an invalid retained grounding receipt and does not offer a recompose loop', async (t) => {
+  const item = await fixture(t);
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  item.workflow.resolution.worldModelGrounding = 'enforce';
+  const receipt = path.join(item.root, 'singularity/work-items/PRE-1/context/planning-gen1.json');
+  await mkdir(path.dirname(receipt), { recursive: true });
+  await writeFile(receipt, '{invalid receipt');
+  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(result.status, 'correction-required');
+  assert.equal(result.commands.publish, null);
+  assert.equal(result.commands.next, 'singularity-flow wm doctor --json');
+  assert.ok(result.findings.some((entry) => entry.code === 'phase.grounding.not-ready'));
+  assert.equal(await readFile(receipt, 'utf8'), '{invalid receipt');
+});
+
 test('prepublish refuses a code phase before its governed generation begins', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');

@@ -48,7 +48,7 @@ async function fixture(t, { initialize = false } = {}) {
 
 function assertLocalOnlyRefusal(result, git, expected, before) {
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, expected);
+  assert.match(JSON.parse(result.stdout).error.message, expected);
   assert.doesNotMatch(result.stderr, /\bgit (?:ls-remote|fetch|clone|worktree add)\b/u,
     'deterministic launch inputs must refuse before authority or transport work');
   assert.equal(git('rev-parse', 'HEAD'), before.head);

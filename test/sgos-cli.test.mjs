@@ -372,7 +372,7 @@ test('SGOS CLI compiles no authority from chat and runs a finite model-free Prog
   const unproven = flowResult(root, 'process', 'start', executable.programFile,
     '--subject', 'SGOS-CLI', '--subject-kind', 'story', '--json');
   assert.notEqual(unproven.status, 0);
-  assert.match(unproven.stderr, /Program (?:authority|approval).*(?:approved configuration|sflow\/config)/i);
+  assert.match(unproven.stdout, /Program (?:authority|approval).*(?:approved configuration|sflow\/config)/i);
 
   await configureApprovedAuthority(root);
   await approveProgram(root, executable.program);
@@ -382,7 +382,7 @@ test('SGOS CLI compiles no authority from chat and runs a finite model-free Prog
   const invalidSubject = flowResult(root, 'process', 'start', executable.programFile,
     '--subject', 'SGOS-CLI', '--subject-kind', 'stor', '--json');
   assert.notEqual(invalidSubject.status, 0);
-  assert.match(invalidSubject.stderr, /Allowed: story, repository/);
+  assert.match(invalidSubject.stdout, /Allowed: story, repository/);
 
   const repositoryStarted = narrated(root, 'process', 'start', executable.programFile,
     '--compiler-request', executable.requestFile,
@@ -394,7 +394,7 @@ test('SGOS CLI compiles no authority from chat and runs a finite model-free Prog
   const currentArchive = flowResult(root, 'process', 'archive',
     repositoryStarted.process.processId, '--json');
   assert.notEqual(currentArchive.status, 0);
-  assert.match(currentArchive.stderr, /readable current state.*must not be quarantined/i);
+  assert.match(currentArchive.stdout, /readable current state.*must not be quarantined/i);
 
   const started = narrated(root, 'process', 'start', executable.programFile,
     '--compiler-request', executable.requestFile,
@@ -420,20 +420,20 @@ test('SGOS CLI compiles no authority from chat and runs a finite model-free Prog
   const invalidStopRevision = flowResult(root, 'process', 'stop', processId,
     '--expected-revision', '0', '--json');
   assert.notEqual(invalidStopRevision.status, 0);
-  assert.match(invalidStopRevision.stderr, /expected-revision must be a positive safe integer/i);
+  assert.match(invalidStopRevision.stdout, /expected-revision must be a positive safe integer/i);
   const staleStop = flowResult(root, 'process', 'stop', processId,
     '--expected-revision', String(started.process.processRevision + 1), '--json');
   assert.notEqual(staleStop.status, 0);
-  assert.match(staleStop.stderr, /revision|changed|compare|expected/i);
+  assert.match(staleStop.stdout, /revision|changed|compare|expected/i);
 
   const fractionalParallel = flowResult(root, 'process', 'run', processId,
     '--maximum-parallel', '1.5', '--json');
   assert.notEqual(fractionalParallel.status, 0);
-  assert.match(fractionalParallel.stderr, /positive whole number.*installed execution bound/i);
+  assert.match(fractionalParallel.stdout, /positive whole number.*installed execution bound/i);
   const excessiveParallel = flowResult(root, 'process', 'run', processId,
     '--maximum-parallel', String(SGOS_INSTALLED_LIMITS.maximumParallelExecutions + 1), '--json');
   assert.notEqual(excessiveParallel.status, 0);
-  assert.match(excessiveParallel.stderr, /outside the installed execution bound/i);
+  assert.match(excessiveParallel.stdout, /outside the installed execution bound/i);
 
   const firstEnvelope = narrated(root, 'process', 'run', processId);
   const first = firstEnvelope.data.result;
@@ -519,7 +519,7 @@ test('SGOS CLI refuses final and intermediate symlink escapes for reads and writ
   for (const input of ['linked-program.json', 'linked-directory/program.json']) {
     const result = flowResult(root, 'program', 'validate', input, '--json');
     assert.notEqual(result.status, 0, input);
-    assert.match(result.stderr, /symbolic link|resolves outside the repository/i);
+    assert.match(result.stdout, /symbolic link|resolves outside the repository/i);
   }
 
   const externalOutput = path.join(outside, 'captured.json');
@@ -527,7 +527,7 @@ test('SGOS CLI refuses final and intermediate symlink escapes for reads and writ
   await symlink(externalOutput, path.join(root, 'linked-output.json'));
   const write = flowResult(root, 'intent', 'capture', 'Do not escape', '--out', 'linked-output.json', '--json');
   assert.notEqual(write.status, 0);
-  assert.match(write.stderr, /symbolic link|resolves outside the repository/i);
+  assert.match(write.stdout, /symbolic link|resolves outside the repository/i);
   assert.equal(await readFile(externalOutput, 'utf8'), 'outside-bytes\n');
 });
 
@@ -543,7 +543,7 @@ test('SGOS read operations cannot hide a repository write behind --out', async (
   await writeFile(path.join(root, 'program.json'), `${JSON.stringify(program)}\n`);
   const result = flowResult(root, 'program', 'validate', 'program.json', '--out', 'validation.json', '--json');
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /--out is not supported/);
+  assert.match(result.stdout, /--out is not supported/);
   await assert.rejects(() => readFile(path.join(root, 'validation.json'), 'utf8'), { code: 'ENOENT' });
 });
 
@@ -551,7 +551,7 @@ test('SGOS subcommands reject unknown options instead of silently ignoring them'
   const root = await repository();
   const result = flowResult(root, 'process', 'list', '--definitely-not-a-real-option', '--json');
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unknown option '--definitely-not-a-real-option' for 'process list'/);
+  assert.match(result.stdout, /Unknown option '--definitely-not-a-real-option' for 'process list'/);
 });
 
 test('process model permission is explicit and global --no-model still refuses it before dispatch', async () => {
@@ -566,7 +566,7 @@ test('process model permission is explicit and global --no-model still refuses i
     root, 'process', 'step', 'PROC-NOT-INSTALLED', '--allow-model', '--no-model', '--json'
   );
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /process\.step\.model.*requires a model.*--no-model/i);
+  assert.match(refused.stdout, /process\.step\.model.*requires a model.*--no-model/i);
   assert.doesNotMatch(refused.stderr, /PROC-NOT-INSTALLED.*unavailable/i,
     'required-model refusal happens before the Process or provider is opened');
 });
@@ -589,7 +589,7 @@ test('SGOS CLI refuses an authority supplied by the responder', async () => {
     '--authority', 'reviewer',
     '--json');
   assert.notEqual(response.status, 0);
-  assert.match(response.stderr, /--authority cannot grant response authority/);
+  assert.match(response.stdout, /--authority cannot grant response authority/);
 
   const status = narrated(root, 'process', 'status', started.process.processId).data.result;
   assert.equal(status.process.status, 'waiting-human');
@@ -615,7 +615,7 @@ test('SGOS CLI cannot authorize a local self-add before or after the protected c
   const dirtyStart = flowResult(root, 'process', 'start', executable.programFile,
     '--compiler-request', executable.requestFile, '--subject', 'SGOS-CLI', '--json');
   assert.notEqual(dirtyStart.status, 0);
-  assert.match(dirtyStart.stderr, /refuses dirty protected configuration/i);
+  assert.match(dirtyStart.stdout, /refuses dirty protected configuration/i);
 
   git(root, 'add', 'singularity/workflow.yml');
   git(root, 'commit', '-m', 'attempt local authority escalation');
@@ -623,7 +623,7 @@ test('SGOS CLI cannot authorize a local self-add before or after the protected c
   const escalatedStart = flowResult(root, 'process', 'start', executable.programFile,
     '--compiler-request', executable.requestFile, '--subject', 'SGOS-CLI', '--json');
   assert.notEqual(escalatedStart.status, 0);
-  assert.match(escalatedStart.stderr, /not present byte-for-byte in the approved configuration authority/i);
+  assert.match(escalatedStart.stdout, /not present byte-for-byte in the approved configuration authority/i);
 
   await writeFile(workflowPath, approvedBytes);
   git(root, 'add', 'singularity/workflow.yml');
@@ -639,7 +639,7 @@ test('SGOS CLI cannot authorize a local self-add before or after the protected c
     '--process', started.process.processId, '--decision', 'approved',
     '--confirm', waiting.request.requestSha256, ...humanCas(waiting), '--json');
   assert.notEqual(response.status, 0);
-  assert.match(response.stderr, /no trusted binding/i);
+  assert.match(response.stdout, /no trusted binding/i);
 });
 
 test('SGOS CLI pins configured Git authority, records approval, and exposes exact receipt lineage', async () => {
@@ -663,20 +663,20 @@ test('SGOS CLI pins configured Git authority, records approval, and exposes exac
     '--process', started.process.processId, '--decision', 'approved',
     '--confirm', waiting.request.requestSha256, '--json');
   assert.notEqual(missingCas.status, 0);
-  assert.match(missingCas.stderr, /requires --expected-revision/i);
+  assert.match(missingCas.stdout, /requires --expected-revision/i);
   const missingDigest = flowResult(root, 'request', 'respond', waiting.request.requestId,
     '--process', started.process.processId, '--decision', 'approved',
     '--confirm', waiting.request.requestSha256,
     '--expected-revision', String(waiting.process.processRevision), '--json');
   assert.notEqual(missingDigest.status, 0);
-  assert.match(missingDigest.stderr, /requires --expected-process-sha256/i);
+  assert.match(missingDigest.stdout, /requires --expected-process-sha256/i);
   const wrongDigest = flowResult(root, 'request', 'respond', waiting.request.requestId,
     '--process', started.process.processId, '--decision', 'approved',
     '--confirm', waiting.request.requestSha256,
     '--expected-revision', String(waiting.process.processRevision),
     '--expected-process-sha256', h('9'), '--json');
   assert.notEqual(wrongDigest.status, 0);
-  assert.match(wrongDigest.stderr, /reviewed Process revision or digest changed/i);
+  assert.match(wrongDigest.stdout, /reviewed Process revision or digest changed/i);
   const unchanged = narrated(root, 'process', 'status', started.process.processId).data.result;
   assert.equal(unchanged.process.processSha256, waiting.process.processSha256);
   assert.deepEqual(unchanged.process.openHumanRequests, [waiting.request.requestSha256]);
@@ -719,7 +719,7 @@ test('SGOS CLI validates typed JSON and accepts only non-secret handles for sens
         '--process', started.process.processId, '--decision', 'provided', '--input-json', '{bad',
         '--confirm', waiting.request.requestSha256, ...humanCas(waiting), '--json');
       assert.notEqual(malformed.status, 0);
-      assert.match(malformed.stderr, /must be valid safe JSON/);
+      assert.match(malformed.stdout, /must be valid safe JSON/);
       const answered = narrated(root, 'request', 'respond', waiting.request.requestId,
         '--process', started.process.processId, '--decision', 'provided',
         '--input-json', JSON.stringify({ answer: 'Use the approved boundary.' }),
@@ -732,7 +732,7 @@ test('SGOS CLI validates typed JSON and accepts only non-secret handles for sens
       '--input-json', JSON.stringify({ token: 'raw-secret' }),
       '--confirm', waiting.request.requestSha256, ...humanCas(waiting), '--json');
     assert.notEqual(raw.status, 0);
-    assert.match(raw.stderr, /refuse --input-json|non-secret typed reference/);
+    assert.match(raw.stdout, /refuse --input-json|non-secret typed reference/);
     const handle = {
       kind: 'secret-broker', broker: 'vault:test', handle: 'secret/ref/42', referenceSha256: h('a')
     };
@@ -755,7 +755,7 @@ test('SGOS intent compile requires and consumes the exact pinned registry snapsh
     '--workflow', 'workflow.json', '--ratification', 'ratification.json',
     '--policy', 'policy.json', '--json');
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /--registry is required/);
+  assert.match(missing.stdout, /--registry is required/);
 
   const compiled = narrated(root, 'intent', 'compile', 'intent.json',
     '--workflow', 'workflow.json', '--ratification', 'ratification.json',
@@ -810,7 +810,7 @@ test('SGOS CLI previews and confirms byte-preserving quarantine of an unreadable
 
   const stale = flowResult(root, 'process', 'quarantine', processId, '--confirm', h('f'), '--json');
   assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /confirmation must equal/);
+  assert.match(stale.stdout, /confirmation must equal/);
   assert.equal(await readFile(stateFile, 'utf8'), stateBytes);
 
   const confirmed = narrated(root, 'process', 'quarantine', processId,

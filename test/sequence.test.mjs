@@ -134,8 +134,8 @@ test('--json emits one parseable structured refusal without terminal logs', asyn
   const root = await repository();
   const result = flow(root, ['submit', '--json'], { allowFailure: true });
   assert.equal(result.status, 2);
-  assert.equal(result.stdout, '');
-  const refusal = JSON.parse(result.stderr);
+  assert.equal(result.stderr, '');
+  const refusal = JSON.parse(result.stdout);
   assert.equal(refusal.resultType, 'command-result');
   assert.equal(refusal.outcome.status, 'refused');
   assert.equal(refusal.effects.stateChanged, false);

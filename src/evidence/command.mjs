@@ -31,7 +31,7 @@ export async function run(_argv, { positionals, options }) {
   } catch (error) {
     throw new SingularityFlowError(error.message, { code: 'EVIDENCE_MATRIX_FILTER_INVALID' });
   }
-  if (format === 'csv') return console.log(matrixCsv(page.rows));
+  if (format === 'csv') return console.log(matrixCsv(page.rows, evaluation.provenance));
   const { rows: _rows, ...overview } = evaluation;
   return emitCommandResult(commandResult({
     operation: { id: 'evidence.matrix', classification: 'read' },

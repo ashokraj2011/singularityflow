@@ -404,7 +404,7 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
     '--out', 'exports/process-evidence.json', '--json', '--no-model'
   );
   assert.equal(repeated.status, 1);
-  assert.match(repeated.stderr, /already exists/);
+  assert.match(repeated.stdout, /already exists/);
   assert.deepEqual(await readFile(exportedFile), originalBytes, 'overwrite refusal preserves exact bytes');
 
   const traversal = flowResult(
@@ -412,7 +412,7 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
     '--out', '../outside-process-evidence.json', '--json', '--no-model'
   );
   assert.equal(traversal.status, 1);
-  assert.match(traversal.stderr, /outside the repository/);
+  assert.match(traversal.stdout, /outside the repository/);
 
   if (process.platform !== 'win32') {
     await symlink(outside, path.join(fixture.root, 'outside-link'));
@@ -421,7 +421,7 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
       '--out', 'outside-link/process-evidence.json', '--json', '--no-model'
     );
     assert.equal(escaped.status, 1);
-    assert.match(escaped.stderr, /resolves outside the repository|symbolic link/);
+    assert.match(escaped.stdout, /resolves outside the repository|symbolic link/);
     assert.deepEqual(await readdir(outside), []);
   }
 
@@ -430,7 +430,7 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
     '--out', 'exports/other.json', '--overwrite', '--json', '--no-model'
   );
   assert.equal(unknown.status, 1);
-  assert.match(unknown.stderr, /Unknown option '--overwrite'/);
+  assert.match(unknown.stdout, /Unknown option '--overwrite'/);
 
   const portable = path.join(fresh, 'process-evidence.json');
   await writeFile(portable, originalBytes);
@@ -447,13 +447,13 @@ test('Process Evidence CLI exports atomically and verifies model-free from a fre
   await writeFile(path.join(fresh, 'tampered.json'), JSON.stringify(tampered));
   const invalid = flowResult(fresh, 'evidence', 'verify', 'tampered.json', '--json', '--no-model');
   assert.equal(invalid.status, 1);
-  assert.match(invalid.stderr, /verification failed/i);
+  assert.match(invalid.stdout, /verification failed/i);
 
   const verifyUnknown = flowResult(
     fresh, 'evidence', 'verify', 'process-evidence.json', '--trust-me', '--json', '--no-model'
   );
   assert.equal(verifyUnknown.status, 1);
-  assert.match(verifyUnknown.stderr, /Unknown option '--trust-me'/);
+  assert.match(verifyUnknown.stdout, /Unknown option '--trust-me'/);
 
   const reconstructed = flowResult(
     fixture.root, 'evidence', 'reconstruct', fixture.process.processId, '--json', '--no-model'

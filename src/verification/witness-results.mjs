@@ -30,7 +30,8 @@ function declarationOf(witness) {
   const identity = witness.identity ?? {};
   return identity.className
     ? { className: identity.className, methodName: identity.methodName, parameters: witness.parameters ?? null, gaps: [] }
-    : { sourcePath: witness.testSource, suitePath: identity.suitePath ?? [], name: identity.name, parameters: witness.parameters ?? null, gaps: [] };
+    : { sourcePath: witness.testSource, framework: identity.framework, line: witness.line,
+      suitePath: identity.suitePath ?? [], name: identity.name, parameters: witness.parameters ?? null, gaps: [] };
 }
 
 function attemptRun(attempt) {
@@ -67,6 +68,10 @@ export function witnessResult(witness, attempt, { submitted = true } = {}) {
   }
   const run = attemptRun(attempt);
   if (!witness.identity) {
+    if (witness.resultAdapter === 'node-tap' || attempt.adapter === 'node-tap' || profile === 'node-test-v1') return finish({
+      outcome: 'inconclusive', status: 'inconclusive', identity: 'declared', execution: 'none',
+      reasons: ['NODE_TEST_EXACT_IDENTITY_REQUIRED']
+    });
     const skipped = Number(attempt.tests?.skipped ?? 0);
     const outcome = !run.completed ? 'unavailable' : !run.succeeded ? 'failed' : skipped > 0 ? 'passed-with-skips' : 'passed';
     return finish({ outcome, status: OUTCOME_STATUS[outcome], identity: 'declared', execution: run.succeeded ? 'module-observed' : 'none', skipped, reasons: [] });

@@ -373,7 +373,7 @@ test('approved configuration refuses a materialized Epic seed that moves before 
   });
 
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /"code": "STORY_SEED_CHANGED"/);
+  assert.match(refused.stdout, /"code": "STORY_SEED_CHANGED"/);
   assert.equal(await readFile(race.raceApplied, 'utf8'), 'yes');
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), mainBefore);
@@ -490,7 +490,7 @@ test('legacy configuration refuses a materialized Epic seed that moves before ch
   });
 
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /"code": "STORY_SEED_CHANGED"/);
+  assert.match(refused.stdout, /"code": "STORY_SEED_CHANGED"/);
   assert.equal(await readFile(race.raceApplied, 'utf8'), 'yes');
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), mainBefore);
@@ -519,10 +519,10 @@ test('non-interactive Story start requires an explicit base before mutation', as
     env: { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }
   });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /--from-branch/);
-  assert.match(refused.stderr,
+  assert.match(refused.stdout, /--from-branch/);
+  assert.match(refused.stdout,
     /singularity-flow workspace branches --preflight-story STORY-NO-BASE --json/);
-  assert.match(refused.stderr, /singularity-flow resume STORY-NO-BASE --fetch/);
+  assert.match(refused.stdout, /singularity-flow resume STORY-NO-BASE --fetch/);
   assert.doesNotMatch(refused.stderr, /git ls-remote|git fetch/,
     'a missing required base must refuse before remote or configuration discovery');
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
@@ -548,7 +548,7 @@ test('Story start refuses the configured state branch as an explicit base before
     '--work-type', 'feature', '--title', 'Invalid base', '--description', 'Must refuse.'
   ], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /Branch 'audit-state'.*cannot be a Story base/);
+  assert.match(refused.stdout, /Branch 'audit-state'.*cannot be a Story base/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-STATE-BASE').stdout.trim(), '');
@@ -575,7 +575,7 @@ test('the branch list never offers an orphan branch, and Story start refuses one
     '--work-type', 'feature', '--title', 'Orphan base', '--description', 'Must refuse.'
   ], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /Branch 'pages' shares no history with 'main'.*orphan branch/s);
+  assert.match(refused.stdout, /Branch 'pages' shares no history with 'main'.*orphan branch/s);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-ORPHAN-BASE').stdout.trim(), '');
@@ -602,7 +602,7 @@ test('with approved configuration the intake list and Story start treat an orpha
     '--work-type', 'feature', '--title', 'Orphan base', '--description', 'Must refuse.'
   ], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /Branch 'gh-pages' shares no history with 'main'/);
+  assert.match(refused.stdout, /Branch 'gh-pages' shares no history with 'main'/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-ORPHAN-APPROVED').stdout.trim(), '');
 });
@@ -1043,8 +1043,8 @@ test('workspace preflight refuses a legacy base that does not carry the local wo
   ], { allowFailure: true });
 
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /"code": "STORY_CONFIGURATION_AUTHORITY_MISSING"/);
-  assert.match(refused.stderr,
+  assert.match(refused.stdout, /"code": "STORY_CONFIGURATION_AUTHORITY_MISSING"/);
+  assert.match(refused.stdout,
     /Selected base branch 'release\/24\.3' does not contain singularity\/workflow\.yml/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'ls-remote', 'origin',
@@ -1064,7 +1064,7 @@ test('remote publication preflight failure creates no branch, Story state, or se
     '--description', 'Preflight must refuse before checkout.'
   ], { allowFailure: true });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Cannot publish the new Story branch/);
+  assert.match(result.stdout, /Cannot publish the new Story branch/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/STORY-READ-ONLY'], root,
@@ -1084,7 +1084,7 @@ test('a post-preflight push rejection retains the commit and sync publishes it l
     '--description', 'Retain an exact pending publication.'
   ], { allowFailure: true });
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /retained locally but push failed/);
+  assert.match(failed.stdout, /retained locally but push failed/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'STORY-RACE');
   const pending = path.join(root, '.git/singularity-flow/pending-publication/story--STORY-RACE.json');
   const pendingRecord = JSON.parse(await readFile(pending, 'utf8'));

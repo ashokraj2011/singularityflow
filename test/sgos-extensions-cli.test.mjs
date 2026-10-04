@@ -333,26 +333,26 @@ test('Git-trusted Authority Store mode refuses signed transport and mixed CLI op
   const wrongStore = run(fixture.root, 'authority-store', 'publish',
     '--store', 'another-authority', '--json');
   assert.notEqual(wrongStore.status, 0);
-  assert.match(wrongStore.stderr, /does not equal approved git-trusted policy/u);
+  assert.match(wrongStore.stdout, /does not equal approved git-trusted policy/u);
   assert.equal(git(fixture.root, 'ls-remote', 'origin', 'refs/heads/state'),
     stateBeforeWrongStore, 'a mismatched --store is refused before publication');
 
   const exportResult = run(fixture.root, 'authority-store', 'export', '--store', storeId,
     '--signer', 'legacy-signer', '--out', '.sflow/authority/export.json', '--json');
   assert.notEqual(exportResult.status, 0);
-  assert.match(exportResult.stderr, /requires signed v2 transport|does not use an export signer/u);
-  assert.match(exportResult.stderr, /authority-store publish/u);
+  assert.match(exportResult.stdout, /requires signed v2 transport|does not use an export signer/u);
+  assert.match(exportResult.stdout, /authority-store publish/u);
 
   const importResult = run(fixture.root, 'authority-store', 'import',
     '.sflow/authority/signed.json', '--store', storeId, '--json');
   assert.notEqual(importResult.status, 0);
-  assert.match(importResult.stderr, /requires signed v2 transport/u);
-  assert.match(importResult.stderr, /authority-store sync/u);
+  assert.match(importResult.stdout, /requires signed v2 transport/u);
+  assert.match(importResult.stdout, /authority-store sync/u);
 
   const invalidMode = run(fixture.root, 'authority-store', 'trust-scaffold',
     '--mode', 'signed', '--store', storeId, '--json');
   assert.notEqual(invalidMode.status, 0);
-  assert.match(invalidMode.stderr, /--mode must be 'git-trusted'/u);
+  assert.match(invalidMode.stdout, /--mode must be 'git-trusted'/u);
 
   for (const args of [
     ['authority-store', 'trust-scaffold', '--mode', 'git-trusted', '--signer', 'mixed'],
@@ -361,7 +361,7 @@ test('Git-trusted Authority Store mode refuses signed transport and mixed CLI op
   ]) {
     const result = run(fixture.root, ...args, '--json');
     assert.notEqual(result.status, 0, args.join(' '));
-    assert.match(result.stderr, /Unknown option|--out is not supported/u, args.join(' '));
+    assert.match(result.stdout, /Unknown option|--out is not supported/u, args.join(' '));
   }
 });
 
@@ -370,7 +370,7 @@ test('Authority Store CLI refuses non-portable directory identifiers before crea
   for (const id of ['team:store', 'store.', 'con', 'nul.json']) {
     const result = run(root, 'authority-store', 'init', '--store', id, '--json');
     assert.notEqual(result.status, 0, id);
-    assert.match(result.stderr, /portable canonical lower-case identifier/, id);
+    assert.match(result.stdout, /portable canonical lower-case identifier/, id);
   }
   const commonDirectory = path.resolve(root, git(root, 'rev-parse', '--git-common-dir'));
   await assert.rejects(readFile(path.join(commonDirectory, 'singularity-flow', 'sgos',
@@ -409,7 +409,7 @@ test('approved legacy-v1 nonportable Store IDs remain available to public local 
   const unapproved = 'different:legacy-store';
   const refused = run(root, 'authority-store', 'status', '--store', unapproved, '--json');
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /approved legacy-v1 Pack trust names that exact local Store/);
+  assert.match(refused.stdout, /approved legacy-v1 Pack trust names that exact local Store/);
 });
 
 test('Authority signer and Store refuse a Git-common ancestor symlink', {
@@ -422,10 +422,10 @@ test('Authority signer and Store refuse a Git-common ancestor symlink', {
   await symlink(outside, path.join(commonDirectory, 'singularity-flow'), 'dir');
   const signer = run(root, 'authority-store', 'signer-create', '--signer', 'escaped', '--json');
   assert.notEqual(signer.status, 0);
-  assert.match(signer.stderr, /ordinary Git-common directories/);
+  assert.match(signer.stdout, /ordinary Git-common directories/);
   const store = run(root, 'authority-store', 'init', '--store', 'escaped-store', '--json');
   assert.notEqual(store.status, 0);
-  assert.match(store.stderr, /ordinary Git-common directories/);
+  assert.match(store.stdout, /ordinary Git-common directories/);
   await assert.rejects(readFile(path.join(outside, 'sgos', 'authority-signers', 'escaped.json')));
   await assert.rejects(readFile(path.join(
     outside, 'sgos', 'platform-authority', 'escaped-store', 'state.json'
@@ -723,7 +723,7 @@ test('Authority Store CLI inspects and imports an externally signed bundle witho
   const wrongConfirmation = run(root, 'authority-store', 'import', bundlePath, '--store', storeId,
     '--confirm', digest('wrong-absent-import-plan'), '--json');
   assert.notEqual(wrongConfirmation.status, 0);
-  assert.match(wrongConfirmation.stderr, /confirmation does not match the exact current plan/);
+  assert.match(wrongConfirmation.stdout, /confirmation does not match the exact current plan/);
   await assert.rejects(
     lstat(path.join(authorityRoot, 'state.json')),
     (error) => error?.code === 'ENOENT'
@@ -738,7 +738,7 @@ test('extension CLI exposes model-free manifests, typed Devices, and an explicit
   const root = await repository(t);
   const absent = run(root, 'authority-store', 'status', '--store', 'cli-store', '--json');
   assert.notEqual(absent.status, 0);
-  assert.match(absent.stderr, /not initialized/);
+  assert.match(absent.stdout, /not initialized/);
   assert.equal(await readFile(path.join(root, 'README.md'), 'utf8'), 'governed extension fixture\n');
 
   const initialized = flow(root, 'authority-store', 'init', '--store', 'cli-store');
@@ -826,7 +826,7 @@ test('extension CLI exposes model-free manifests, typed Devices, and an explicit
   const secretArg = run(root, 'authority-store', 'status', '--store', 'cli-store',
     '--private-key', 'forbidden', '--json');
   assert.notEqual(secretArg.status, 0);
-  assert.match(secretArg.stderr, /never accepted/);
+  assert.match(secretArg.stdout, /never accepted/);
 });
 
 test('Candidate CLI retains, verifies, previews, and publishes one exact Git tree', async (t) => {
@@ -856,7 +856,7 @@ test('Candidate CLI retains, verifies, previews, and publishes one exact Git tre
   const callerSelected = run(root, 'candidate', 'verify', candidateId,
     '--commands', 'unauthorized-verify-commands.json', '--json');
   assert.notEqual(callerSelected.status, 0);
-  assert.match(callerSelected.stderr, /do not equal approved/i);
+  assert.match(callerSelected.stdout, /do not equal approved/i);
   const verified = state(flow(root, 'candidate', 'verify', candidateId,
     '--commands', 'approved-verify-commands.json', '--timeout-ms', '30000'));
   assert.equal(verified.status, 'passed');
@@ -903,7 +903,7 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
     '--actor', 'attacker', '--expected-revision', String(current.revision),
     '--expected-state-sha256', current.stateSha256, '--json');
   assert.notEqual(spoofedActor.status, 0);
-  assert.match(spoofedActor.stderr, /caller-supplied identity options are refused/i);
+  assert.match(spoofedActor.stdout, /caller-supplied identity options are refused/i);
   flow(root, 'pack', 'propose', '--store', storeId, '--trust', 'publisher-trust.json',
     '--signed-pack', 'signed-pack.json',
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
@@ -1180,7 +1180,7 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   ];
   const misspelled = run(root, ...activationArguments, '--accepted-outcome', 'degraded', '--json');
   assert.notEqual(misspelled.status, 0);
-  assert.match(misspelled.stderr, /Unknown option '--accepted-outcome'/);
+  assert.match(misspelled.stdout, /Unknown option '--accepted-outcome'/);
 
   const activationPreviewEnvelope = flowAs(root, 'Extension CLI Reviewer', ...activationArguments);
   const activationPreview = state(activationPreviewEnvelope);
@@ -1192,7 +1192,7 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   const staleActivation = runAs(root, 'Extension CLI Reviewer', ...activationArguments,
     '--confirm', digest('wrong-meta-tool-plan'), '--json');
   assert.notEqual(staleActivation.status, 0);
-  assert.match(staleActivation.stderr, /Confirmation must equal the current mutation plan/);
+  assert.match(staleActivation.stdout, /Confirmation must equal the current mutation plan/);
   const firstActivationEnvelope = flowAs(root, 'Extension CLI Reviewer', ...activationArguments,
     '--confirm', activationPreview.confirmationSha256);
   const firstActivation = state(firstActivationEnvelope);
@@ -1317,5 +1317,5 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
     root, 'Extension CLI Reviewer', ...unapprovedDeviceArguments, '--json'
   );
   assert.notEqual(unapprovedDevice.status, 0);
-  assert.match(unapprovedDevice.stderr, /No active approved Capability Pack supplies operation/);
+  assert.match(unapprovedDevice.stdout, /No active approved Capability Pack supplies operation/);
 });

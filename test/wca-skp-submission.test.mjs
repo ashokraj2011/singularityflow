@@ -263,7 +263,7 @@ test('SKP pre-consent/headless route is review-needed with no files, grants or a
   const latest = spawnSync(process.execPath, [CLI, 'workflow', 'author', 'submit', DRAFT_ID, '--json'],
     { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: 30_000 });
   assert.equal(latest.status, 1, latest.stdout);
-  assert.equal(JSON.parse(latest.stderr).error.code, 'WCA_AUTHOR_REQUEST_INVALID');
+  assert.equal(JSON.parse(latest.stdout).error.code, 'WCA_AUTHOR_REQUEST_INVALID');
   assert.deepEqual(response.data.handoff.argv,
     ['workflow', 'author', 'submit', DRAFT_ID, '--revision', '1']);
   const show = spawnSync(process.execPath, [CLI, 'workflow', 'author', 'show', DRAFT_ID, '--revision', '1', '--json'],

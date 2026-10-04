@@ -2905,7 +2905,7 @@ test('capability proposal transport failures emit structured JSON diagnostics', 
     encoding: 'utf8'
   });
   assert.notEqual(result.status, 0);
-  const failure = JSON.parse(result.stderr);
+  const failure = JSON.parse(result.stdout);
   assert.equal(failure.status, 'failed');
   assert.equal(failure.error.code, 'REMOTE_REMOTE_NOT_FOUND');
   assert.match(failure.error.diagnosticAction.command,
@@ -2928,7 +2928,7 @@ test('capability proposal transport failures emit structured JSON diagnostics', 
     env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(root), NO_COLOR: '1' },
     encoding: 'utf8'
   });
-  assert.equal(JSON.parse(lastFlagWins.stderr).error.code, 'REMOTE_REMOTE_NOT_FOUND');
+  assert.equal(JSON.parse(lastFlagWins.stdout).error.code, 'REMOTE_REMOTE_NOT_FOUND');
 });
 
 test('managed capability adoption with an explicit authority is rootless', async () => {
@@ -2942,7 +2942,7 @@ test('managed capability adoption with an explicit authority is rootless', async
     encoding: 'utf8'
   });
   assert.notEqual(result.status, 0);
-  const failure = JSON.parse(result.stderr);
+  const failure = JSON.parse(result.stdout);
   assert.equal(failure.error.code, 'PCD_MANAGED_ADOPTION_UNAVAILABLE');
   assert.doesNotMatch(result.stderr, /REPOSITORY_CONTEXT_REQUIRED|inside a Git repository/);
 });

@@ -19,6 +19,7 @@ import {
   loadWorldModelConfig, phasePromptExecutionContract, specializeBuiltinWorldModelPrompt
 } from '../src/worldmodel.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
+import { phaseGroundingPreflight } from '../src/phase-grounding-preflight.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -488,6 +489,51 @@ test('wm inject renders matched agent context and records the generation audit',
   const verified = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
   assert.deepEqual(verified.errors, []);
 
+  // A prompt may honestly consume an older, verified model under warn/ignore. Source freshness
+  // must not be reclassified as corrupt evidence at publication (add-factorila regression).
+  const freshAudit = structuredClone(audit);
+  audit.sourceComparison = { status: 'stale', reasonCode: 'WORLD_MODEL_SOURCE_CHANGED' };
+  audit.composedSourceTreeSha256 = `sha256:${'a'.repeat(64)}`;
+  audit.fresh = false;
+  for (const policy of ['warn', 'ignore', 'fail']) {
+    verificationWorkflow.resolution.worldModelStaleness = policy;
+    await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
+    const stale = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
+    assert.equal(stale.errors.length > 0, policy === 'fail', `pinned ${policy} controls honest staleness`);
+    assert.equal(stale.warnings.length > 0, policy === 'warn');
+    assert.equal(stale.staleness.blocks, policy === 'fail');
+    assert.equal(stale.record.fresh, false, 'verification never relabels stale context as fresh');
+    assert.doesNotMatch(stale.errors.join('\n'), /source hash does not match its world model/);
+    const preflight = await phaseGroundingPreflight(root, loadedDefinition, verificationWorkflow, phase, {
+      producer: 'governed-agent', ownership: { agent: 'developer', proven: true }, generation: 1
+    });
+    assert.equal(preflight.blockers.length > 0, policy === 'fail');
+    assert.equal(preflight.projection.status, { warn: 'warning', ignore: 'ready', fail: 'blocked' }[policy]);
+    if (policy === 'fail') {
+      assert.match(preflight.actions[0].detail, /never edit receipt hashes/);
+      assert.equal(preflight.actions[0].command, 'singularity-flow wm doctor --json');
+    }
+
+    const required = audit.files.find((file) => file.category === 'required');
+    const digest = required.sha256;
+    required.sha256 = '0'.repeat(64);
+    await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
+    const corrupt = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
+    assert.match(corrupt.errors.join('\n'), /world-model commit hash differs/, `${policy} cannot waive integrity`);
+    required.sha256 = digest;
+  }
+  verificationWorkflow.resolution.worldModelStaleness = 'warn';
+  for (const freshness of [
+    { fresh: true, sourceComparison: { status: 'fresh', reasonCode: null } },
+    { fresh: true, sourceComparison: { status: 'stale', reasonCode: 'WORLD_MODEL_SOURCE_CHANGED' } },
+    { fresh: false, sourceComparison: { status: 'fresh', reasonCode: null } }
+  ]) {
+    await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify({ ...audit, ...freshness }));
+    const contradictory = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
+    assert.match(contradictory.errors.join('\n'), /source hash does not match|inconsistent source freshness/);
+  }
+  Object.assign(audit, freshAudit);
+
   // A verified model may still be consumed when the current source cannot be compared. That is a
   // staleness-policy signal, not permission to skip verification of the model bytes themselves.
   audit.sourceComparison = { status: 'unavailable', reasonCode: 'SOURCE_REVISION_UNAVAILABLE' };
@@ -867,7 +913,7 @@ test('wm light --state-only refreshes a governed state model without changing an
     'wm', 'recovery', 'publish', retained.id, '--confirm', retained.id, '--json'
   ], root, { allowFailure: true });
   assert.notEqual(mismatchedIntent.status, 0);
-  assert.match(mismatchedIntent.stderr, /inconsistent state-only publication intent/);
+  assert.match(mismatchedIntent.stdout, /inconsistent state-only publication intent/);
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), secondHead);
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/state'], root).trim(), stateHead);
   await writeFile(recordPath, recordBytes);

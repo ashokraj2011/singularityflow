@@ -62,7 +62,7 @@ test('a mistyped Auto control never reaches model-backed requirement planning', 
   const root = await repository(t);
   const result = run(process.execPath, [cli, 'auto', 'lits', '--json'], root, { allowFailure: true });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /UNKNOWN_SUBCOMMAND|Did you mean 'list'/);
+  assert.match(result.stdout, /UNKNOWN_SUBCOMMAND|Did you mean 'list'/);
 });
 
 test('Auto list is read-only and stop retains halt semantics at the governed checkpoint boundary', async (t) => {
@@ -94,7 +94,7 @@ test('Auto list is read-only and stop retains halt semantics at the governed che
     allowFailure: true
   });
   assert.notEqual(stopped.status, 0);
-  assert.match(stopped.stderr, /governed halt checkpoint could not be published/);
+  assert.match(stopped.stdout, /governed halt checkpoint could not be published/);
   const recovery = await readAutoFlightState(root, flightId);
   assert.equal(recovery.status, 'recovery-required');
   assert.equal(recovery.stopReason, 'halt-checkpoint-publication-failed');
@@ -113,15 +113,15 @@ test('Auto start accepts --plan without removing the positional compatibility fo
   ]) {
     const result = run(process.execPath, [cli, ...args, '--json'], root, { allowFailure: true });
     assert.notEqual(result.status, 0);
-    assert.doesNotMatch(result.stderr, /requires a Plan ID|AUTO_ARGUMENT_REQUIRED/);
-    assert.match(result.stderr, /not available|AUTO_PLAN_NOT_FOUND/);
+    assert.doesNotMatch(result.stdout, /requires a Plan ID|AUTO_ARGUMENT_REQUIRED/);
+    assert.match(result.stdout, /not available|AUTO_PLAN_NOT_FOUND/);
   }
 
   const conflict = run(process.execPath, [
     cli, 'auto', 'start', planId, '--plan', `APL-${'F'.repeat(26)}`, '--confirm', confirm, '--json'
   ], root, { allowFailure: true });
   assert.notEqual(conflict.status, 0);
-  assert.match(conflict.stderr, /different Plan IDs|AUTO_ARGUMENT_CONFLICT/);
+  assert.match(conflict.stdout, /different Plan IDs|AUTO_ARGUMENT_CONFLICT/);
 });
 
 test('Auto requirement shorthand reaches planning and never the removed pilot refusal', async (t) => {

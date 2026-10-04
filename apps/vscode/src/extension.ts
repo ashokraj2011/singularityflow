@@ -7757,6 +7757,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
         reviewProposal: async () => { await vscode.commands.executeCommand('singularityFlow.openDesigner'); },
+        // Unpublished changes survive closing the panel, in this workspace's storage.
+        draftStore: {
+          get: () => context.workspaceState.get('singularityFlow.workflowStudioDraft'),
+          set: (value) => context.workspaceState.update('singularityFlow.workflowStudioDraft', value)
+        },
         // Integration secrets go to the keychain; the next command (a delivery, a test) reads them.
         integrationSecrets: {
           status: (names) => secureCredentials.integrationSecretStatus(names),

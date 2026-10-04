@@ -51,7 +51,15 @@ export interface WorkflowStudioActions {
   reviewProposal(branch: string): Promise<void>;
   /** The operating-system keychain, through VS Code, for the secrets integration targets name. */
   integrationSecrets?: IntegrationSecretStore;
+  /**
+   * Where unpublished changes wait while Workflow Studio is closed (VS Code workspace storage). The
+   * page offers them back on reopen, but only against the configuration they were made on.
+   */
+  draftStore?: { get(): unknown; set(value: StudioSavedDraft | undefined): PromiseLike<void> };
 }
+
+/** Unpublished Studio changes kept across closing the panel. */
+export interface StudioSavedDraft { schema: 1; base: string; savedAt: string; draft: string }
 
 export class WorkflowStudioPanel implements vscode.Disposable {
   private static current: WorkflowStudioPanel | null = null;
@@ -96,6 +104,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
    */
   private router = registerMessageRouter('singularityFlow.workflowStudio', {
     'studio.ready': () => this.load(false),
+    'studio.draftSave': (message) => this.saveDraft(stringField(message, 'draft')),
+    'studio.draftClear': () => this.clearDraft(),
+    'studio.confirm': (message) => this.confirm(stringField(message, 'id'), stringField(message, 'text'),
+      stringField(message, 'detail'), stringField(message, 'ok')),
     'studio.reload': () => this.load(true),
     'studio.preview': (message) => this.preview(stringField(message, 'changeSet')),
     'studio.publish': (message) => this.publish(stringField(message, 'changeSet'), integerField(message, 'count') ?? 0),
@@ -121,6 +133,18 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     const status = store ? await store.status(names) : {};
     const jira = store ? await store.jiraStatus() : null;
     this.post({ type: 'studio.secretStatus', status, jira, canStore: Boolean(store) });
+  }
+
+  /**
+   * A yes/no question the page needs answered as a modal (a webview cannot open one): removing,
+   * replacing or discarding work. The page runs its action only on an explicit yes.
+   */
+  private async confirm(id: string | null, text: string | null, detail: string | null, ok: string | null): Promise<void> {
+    if (!id || !/^confirm-\d{1,9}$/.test(id) || !text || !ok) return;
+    const bounded = (value: string, limit: number) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+    const choice = await vscode.window.showWarningMessage(bounded(text, 300),
+      { modal: true, detail: detail ? bounded(detail, 2000) : undefined }, bounded(ok, 60));
+    this.post({ type: 'studio.confirmed', id, ok: choice === bounded(ok, 60) });
   }
 
   /** Jira targets use the Jira connection VS Code keeps; connecting is VS Code's own flow. */
@@ -306,9 +330,37 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try {
       this.model = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]);
       this.post({ type: 'studio.model', model: this.model, reset });
+      await this.offerSavedDraft();
     } catch (error) {
       this.post({ type: 'studio.failed', message: (error as Error).message });
     }
+  }
+
+  /** The configuration revision a draft is made on, as text, or null when the model names none. */
+  private modelBase(): string | null {
+    const base = this.model?.base;
+    return base == null ? null : JSON.stringify(base);
+  }
+
+  /** Offer kept changes back, but only against the configuration they were made on; others are dropped. */
+  private async offerSavedDraft(): Promise<void> {
+    const store = this.actions.draftStore;
+    if (!store) return;
+    const saved = store.get() as Partial<StudioSavedDraft> | undefined;
+    if (!saved || saved.schema !== 1 || typeof saved.draft !== 'string') return;
+    if (saved.base !== this.modelBase()) { await store.set(undefined); return; }
+    this.post({ type: 'studio.savedDraft', draft: saved.draft, savedAt: saved.savedAt ?? null });
+  }
+
+  private async saveDraft(text: string | null): Promise<void> {
+    const store = this.actions.draftStore;
+    const base = this.modelBase();
+    if (!store || !text || !base || Buffer.byteLength(text, 'utf8') > MAX_CHANGE_SET_BYTES) return;
+    await store.set({ schema: 1, base, savedAt: new Date().toISOString(), draft: text });
+  }
+
+  private async clearDraft(): Promise<void> {
+    await this.actions.draftStore?.set(undefined);
   }
 
   private changeSet(text: string | null): string | null {
@@ -359,6 +411,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         ? `Published for review as ${result.branch}.`
         : `Wrote ${(result.written ?? []).length} file(s) to this repository.`;
       this.post({ type: 'studio.published', summary });
+      await this.clearDraft();
       await this.load(true);
       await this.actions.refresh();
       if (result.reviewRequired && result.branch) {

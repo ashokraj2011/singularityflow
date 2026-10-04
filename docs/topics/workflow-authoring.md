@@ -26,7 +26,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 43
+version: 44
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -54,7 +54,9 @@ or agent, and opens the workflow's own settings: its name and description, and e
 and decision it has. Clicking the empty canvas opens them too. Steps are reordered by dropping one on
 another, with the arrows above a step, or with **Move earlier** and **Move later**. A new workflow
 starts from one of the repository's workflows, from a packaged blueprint that is not installed yet,
-or blank.
+or blank. Until it is published, its board offers **Back to details** (rename it, or start again from
+another point, which asks before replacing its steps) and **Cancel this workflow**, which asks and
+then removes it with the steps only it used.
 
 The diamond tool adds a decision after the selected step, drawn as a diamond on the arrow after it:
 an if / else whose rules read values the step records and choose the next step, a loop that goes
@@ -66,9 +68,14 @@ step a later one reads. See `sflow explain workflow-decisions`.
 Agents are created from a role (analyst, product owner, architect, developer, tester, designer,
 reviewer, or blank): name, one-sentence description, tools, knowledge views and instructions. The
 shared operating rules every agent follows are added automatically. People are added to approval
-groups by email address or GitHub login.
+groups by email address or GitHub login; a group can be renamed. An agent or approval group added in
+this session can be removed again while no step uses it. **Manage people**, **Integrations** and
+**Add a skill** remember where they were opened from and offer the way back to that workflow and
+step.
 
-Every edit stays in the Studio until it is published. **Check changes** runs
+Every edit stays in the Studio until it is published. Unpublished edits survive closing the panel:
+reopening Workflow Studio offers to restore them, but only against the configuration revision they
+were made on. **Discard all changes** asks first, then also clears any form still holding typed input. **Check changes** runs
 `singularity-flow workflow studio apply --change-set - --dry-run --json`: the engine applies the
 whole change set to a candidate copy of the configuration and validates it as a Configuration
 Center save would — workflow definition, agent catalog (exactly one default agent per step),

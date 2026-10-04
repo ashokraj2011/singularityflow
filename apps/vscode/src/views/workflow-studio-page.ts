@@ -263,7 +263,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 (function () {
   'use strict';
   var vscodeApi = window.__sfVscode;
-  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false };
+  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false, confirms: {}, confirmSeq: 0, returnTo: null };
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -519,6 +519,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     canvasLayout: function () { return canvasLayout.apply(null, arguments); }, copyStep: function () { return copyStep.apply(null, arguments); },
     // The draft operations the inspector runs, against the model the host sent, and that state.
     state: function () { return state; },
+    createWorkflowFromWizard: function () { return createWorkflowFromWizard.apply(null, arguments); },
+    removeNewWorkflow: function () { return removeNewWorkflow.apply(null, arguments); }, orphanedSteps: function () { return orphanedSteps.apply(null, arguments); },
+    confirmAction: function () { return confirmAction.apply(null, arguments); }, discardDraft: function () { return discardDraft.apply(null, arguments); },
+    restorableDraft: function () { return restorableDraft.apply(null, arguments); },
     createStep: function () { return createStep.apply(null, arguments); }, addExistingStep: function () { return addExistingStep.apply(null, arguments); },
     copyStepForWorkflow: function () { return copyStepForWorkflow.apply(null, arguments); }, stepSettings: function () { return stepSettings.apply(null, arguments); },
     stepOutput: function () { return stepOutput.apply(null, arguments); }, setStepOutput: function () { return setStepOutput.apply(null, arguments); },
@@ -568,6 +572,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function post(message) { vscodeApi.postMessage(message); }
+  /** A yes/no question the host asks as a modal, because a webview cannot. onConfirm runs only on yes. */
+  function confirmAction(text, detail, ok, onConfirm) {
+    state.confirmSeq += 1;
+    var id = 'confirm-' + state.confirmSeq;
+    state.confirms[id] = onConfirm;
+    post({ type: 'studio.confirm', id: id, text: text, detail: detail || '', ok: ok });
+  }
   function setStatus(text) { state.status = text; var node = document.getElementById('studio-status'); if (node) node.textContent = text; }
 
   // ---- Draft operations ----------------------------------------------------------------------
@@ -589,7 +600,27 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return outputSetByWorkflow(settings, phase) ? settings.output : phase.output;
   }
   function changesNow() { return state.draft && state.model ? changeSetFrom(state.model, state.draft).changes : []; }
-  function changed() { state.plan = null; state.planKey = null; if (/^Checked:/.test(state.status)) setStatus(''); requestRender(); }
+  function changed() { state.plan = null; state.planKey = null; if (/^Checked:/.test(state.status)) setStatus(''); scheduleDraftSave(); requestRender(); }
+  // Unpublished changes are kept by the host while the panel is closed; typed-but-unsaved form
+  // fields (a person being added, a group being renamed) are not changes and are not kept.
+  var draftSaving = null;
+  var UI_ONLY_KEYS = { adding: true, renaming: true };
+  function scheduleDraftSave() {
+    clearTimeout(draftSaving);
+    draftSaving = setTimeout(function () {
+      if (!state.draft || !state.model) return;
+      if (!changesNow().length) { post({ type: 'studio.draftClear' }); return; }
+      post({ type: 'studio.draftSave', draft: JSON.stringify(state.draft, function (key, value) { return UI_ONLY_KEYS[key] ? undefined : value; }) });
+    }, 500);
+  }
+  /** A kept draft is offered back only if it has the shape this page reads. */
+  function restorableDraft(text) {
+    var draft;
+    try { draft = JSON.parse(text); } catch (error) { return null; }
+    var objects = ['workflows', 'steps', 'phases', 'agents', 'groups', 'integrations'];
+    if (!draft || typeof draft !== 'object' || !Array.isArray(draft.order) || !Array.isArray(draft.imports || [])) return null;
+    return objects.every(function (key) { return draft[key] && typeof draft[key] === 'object' && !Array.isArray(draft[key]); }) ? draft : null;
+  }
 
   // A text field commits on blur, which happens on the mousedown of whatever is clicked next. Re-
   // rendering right then would replace the very button being clicked and swallow the click, so a
@@ -722,6 +753,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return Object.keys(state.draft.groups).map(function (id) { var group = state.draft.groups[id]; return { value: id, label: group.label + ' · ' + groupHint(group) }; }).concat([{ value: '', label: 'No sign-off' }]);
   }
 
+  /** Where a sub-view opened from the board goes back to: the same workflow, step and decision. */
+  function boardReturn() { return { view: 'board', workflow: state.workflow, step: state.step, decision: state.decision }; }
+  function backLink(main) {
+    var back = state.returnTo;
+    if (!back) return;
+    var label = back.view === 'board' && state.draft.workflows[back.workflow]
+      ? 'Back to ' + state.draft.workflows[back.workflow].label + ' · ' + stepLabel(back.step)
+      : back.view === 'agents' ? 'Back to Agents' : 'Back';
+    main.appendChild(el('div', { class: 'studio-row' }, button('← ' + label, function () {
+      state.returnTo = null; state.view = back.view;
+      if (back.view === 'board') { state.workflow = back.workflow; state.step = back.step; state.decision = back.decision || null; state.panel = null; }
+      render();
+    }, { class: 'secondary', 'data-key': 'back-link' })));
+  }
+
   function renderNav(root) {
     var pending = changesNow().length;
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
@@ -737,7 +783,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var compact = state.view === 'board';
     function item(view, label, iconName, count, attention) {
       var current = state.view === view || (view === 'home' && (state.view === 'board' || state.view === 'new'));
-      var go = function () { state.view = view; render(); };
+      var go = function () { state.returnTo = null; state.view = view; render(); };
       if (compact) {
         return el('button', { type: 'button', class: 'nav-icon', title: label + (attention ? ' (' + count + ')' : ''), 'aria-label': label + (attention ? ', ' + count : ''), 'aria-current': current ? 'page' : null, onclick: go },
           icon(iconName, 20), attention ? el('span', { class: 'count attention', text: String(count) }) : null);
@@ -799,30 +845,92 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function renderWizard(main) {
     var wizard = state.wizard;
-    var choices = Object.keys(state.draft.workflows).map(function (id) { var workflow = state.draft.workflows[id]; return { key: 'workflow:' + id, label: workflow.label, description: 'Copy the steps of your ' + workflow.label + ' workflow.', phases: workflow.phases }; })
+    var editing = wizard.editing && state.draft.workflows[wizard.editing] ? wizard.editing : null;
+    var choices = Object.keys(state.draft.workflows).filter(function (id) { return id !== editing; }).map(function (id) { var workflow = state.draft.workflows[id]; return { key: 'workflow:' + id, label: workflow.label, description: 'Copy the steps of your ' + workflow.label + ' workflow.', phases: workflow.phases }; })
       .concat((state.model.blueprints || []).filter(function (bp) { return !bp.installed && !state.draft.workflows[bp.id]; }).map(function (bp) { return { key: 'blueprint:' + bp.id, label: bp.label, description: (bp.description || 'A packaged workflow.') + ' Adds its steps and agents.', phases: bp.phases, blueprint: bp }; }))
       .concat([{ key: 'blank', label: 'Blank', description: 'Start with one step and add what you need. Good for analysis or review work with no code.', phases: [Object.keys(state.draft.phases).indexOf('intake') >= 0 ? 'intake' : Object.keys(state.draft.phases)[0]] }]);
     if (!wizard.from) wizard.from = 'blank';
-    var id = kebab(wizard.label);
-    main.appendChild(el('header', null, el('h1', { text: 'New workflow' }), el('p', { class: 'studio-lede', text: 'Name it and pick the closest starting point. You can add, remove and reorder steps next.' })));
+    if (editing && !choices.some(function (choice) { return choice.key === wizard.from; })) wizard.from = 'blank';
+    var id = editing || kebab(wizard.label);
+    main.appendChild(el('header', null, el('h1', { text: editing ? 'Workflow details' : 'New workflow' }), el('p', { class: 'studio-lede', text: editing
+      ? 'It is not published yet, so you can still rename it, or start again from another point. Its ID stays ' + editing + '.'
+      : 'Name it and pick the closest starting point. You can add, remove and reorder steps next.' })));
     main.appendChild(el('div', { class: 'grid-2', style: 'max-width:820px' },
       field('wizard-name', 'Workflow name', textInput('wizard-name', wizard.label, function (value) { wizard.label = value; requestRender(); }, { placeholder: 'Vendor assessment' }),
-        id ? 'ID ' + id + (state.draft.workflows[id] ? ' is already used: choose another name' : '') : 'The ID is made from the name.'),
+        editing ? 'ID ' + editing + ' (kept)' : id ? 'ID ' + id + (state.draft.workflows[id] ? ' is already used: choose another name' : '') : 'The ID is made from the name.'),
       field('wizard-description', 'What is it for? (optional)', textInput('wizard-description', wizard.description, function (value) { wizard.description = value; }))));
     main.appendChild(el('div', { class: 'blueprints', role: 'group', 'aria-label': 'Start from' }, choices.map(function (choice) {
       return el('button', { type: 'button', class: 'blueprint', 'aria-pressed': wizard.from === choice.key ? 'true' : 'false', onclick: function () { wizard.from = choice.key; if (!wizard.label && choice.blueprint) wizard.label = choice.label; render(); } },
         el('strong', { text: choice.label }), el('span', { class: 'muted', text: choice.description }),
         el('span', { class: 'rail' }, choice.phases.slice(0, 7).map(function (phaseId) { return el('span', { class: 'pill', text: ((state.draft.phases[phaseId] || (state.model.blueprintPhases || {})[phaseId] || { label: phaseId }).label) }); })));
     })));
+    if (editing) {
+      var restart = wizard.from !== wizard.startedFrom;
+      var picked = choices.find(function (choice) { return choice.key === wizard.from; });
+      main.appendChild(el('div', { class: 'studio-row' },
+        button(restart ? 'Start again from ' + picked.label : 'Save details', function () {
+          var workflow = state.draft.workflows[editing];
+          var label = wizard.label.trim();
+          if (!restart) {
+            workflow.label = label; workflow.description = (wizard.description || '').trim();
+            state.view = 'board'; changed(); return;
+          }
+          confirmAction('Replace the steps of ' + workflow.label + '?',
+            'The steps you arranged are replaced by those of ' + picked.label + '. Nothing is published yet, so nothing else changes.',
+            'Replace steps', function () { removeNewWorkflow(editing, { keepView: true }); createWorkflowFromWizard(picked, editing); });
+        }, { class: 'primary', disabled: !wizard.label.trim() }),
+        button('Back to the board', function () { state.view = 'board'; render(); }, { class: 'secondary' })));
+      return;
+    }
     var blocked = !id || Boolean(state.draft.workflows[id]);
     main.appendChild(el('div', { class: 'studio-row' },
       button('Shape the steps', function () { createWorkflowFromWizard(choices.find(function (choice) { return choice.key === wizard.from; }), id); }, { class: 'primary', disabled: blocked }),
-      button('Cancel', function () { state.view = 'home'; render(); })));
+      button('Cancel', function () { state.wizard = null; state.view = 'home'; render(); }, { class: 'secondary' })));
+  }
+
+  /** The details of a new, unpublished workflow, in the screen that made it. */
+  function openWorkflowDetails(workflowId) {
+    var workflow = state.draft.workflows[workflowId];
+    var startedFrom = workflow.startedFrom || (workflow.installFrom ? 'blueprint:' + workflow.installFrom : workflow.copyOf ? 'workflow:' + workflow.copyOf : 'blank');
+    state.wizard = { label: workflow.label, description: workflow.description || '', from: startedFrom, startedFrom: startedFrom, editing: workflowId };
+    state.view = 'new'; render();
+  }
+
+  /** Steps the draft made for a new workflow that no other workflow uses: they leave with it. */
+  function orphanedSteps(workflow) {
+    return workflow.phases.filter(function (phaseId) {
+      var phase = state.draft.phases[phaseId];
+      if (!phase || !(phase.isNew || phase.fromBlueprint)) return false;
+      return !Object.keys(state.draft.workflows).some(function (other) { return other !== workflow.id && state.draft.workflows[other].phases.indexOf(phaseId) >= 0; });
+    });
+  }
+
+  function askRemoveNewWorkflow(workflowId) {
+    var workflow = state.draft.workflows[workflowId];
+    var steps = orphanedSteps(workflow).map(stepLabel);
+    confirmAction('Remove the new workflow ' + workflow.label + '?',
+      'It has not been published, so nothing else changes.' + (steps.length ? ' These steps go with it, because no other workflow uses them: ' + steps.join(', ') + '.' : ''),
+      'Remove workflow', function () { removeNewWorkflow(workflowId); setStatus('Removed the new workflow ' + workflow.label + '.'); });
+  }
+
+  /** Take a new workflow out of the draft, with the steps only it used. Published workflows never come here. */
+  function removeNewWorkflow(workflowId, options) {
+    var workflow = state.draft.workflows[workflowId];
+    if (!workflow || !(workflow.isNew || workflow.installFrom)) return;
+    var orphans = orphanedSteps(workflow);
+    delete state.draft.workflows[workflowId];
+    delete state.draft.steps[workflowId];
+    state.draft.order = state.draft.order.filter(function (entry) { return entry !== workflowId; });
+    orphans.forEach(function (phaseId) { delete state.draft.phases[phaseId]; });
+    if (state.collapsed) delete state.collapsed[workflowId];
+    if (state.canvas) delete state.canvas[workflowId];
+    if (!options || !options.keepView) { state.workflow = null; state.step = null; state.decision = null; state.panel = null; state.wizard = null; state.view = 'home'; }
+    changed();
   }
 
   function createWorkflowFromWizard(choice, id) {
     var label = state.wizard.label.trim();
-    var workflow = { id: id, label: label, description: (state.wizard.description || '').trim(), phases: choice.phases.slice(), reworkLoops: [], decisions: [], isNew: true, installFrom: null };
+    var workflow = { id: id, label: label, description: (state.wizard.description || '').trim(), phases: choice.phases.slice(), reworkLoops: [], decisions: [], isNew: true, installFrom: null, startedFrom: choice.key };
     if (choice.blueprint) {
       workflow.installFrom = choice.blueprint.id;
       choice.blueprint.phases.forEach(function (phaseId) {
@@ -1825,7 +1933,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           state.workflow = value; state.step = state.draft.workflows[value].phases[0]; state.decision = null; state.panel = null; render();
         }, { 'aria-label': 'Workflow' }),
         workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'New · not published' }) : null,
-        el('span', { class: 'muted', text: phases.length + (phases.length === 1 ? ' step' : ' steps') + (workflow.description ? ' · ' + workflow.description : '') })),
+        el('span', { class: 'muted', text: phases.length + (phases.length === 1 ? ' step' : ' steps') + (workflow.description ? ' · ' + workflow.description : '') }),
+        workflow.isNew || workflow.installFrom ? button('Back to details', function () { openWorkflowDetails(workflowId); }, { class: 'secondary', 'data-key': 'workflow-details' }) : null,
+        workflow.isNew || workflow.installFrom ? button('Cancel this workflow', function () { askRemoveNewWorkflow(workflowId); }, { class: 'secondary', 'data-key': 'workflow-cancel' }) : null),
       el('div', { id: 'studio-status', class: 'studio-status muted', role: 'status', 'aria-live': 'polite', text: state.status }),
       button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
     var selectedDecision = state.decision ? decisionById(workflow, state.decision) : null;
@@ -1898,7 +2008,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (createStep(workflowId, adding.label.trim(), adding.output, adding.agent, adding.after)) { adding.label = ''; state.panel = null; }
       }, { class: 'primary' }))
     ]));
-    aside.appendChild(el('div', { class: 'prop-actions' }, button('Cancel', function () { state.panel = null; render(); }, { class: 'secondary' })));
+    aside.appendChild(el('div', { class: 'prop-actions' }, button('Cancel', function () { state.adding = null; state.panel = null; render(); }, { class: 'secondary' })));
     return aside;
   }
 
@@ -2079,7 +2189,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         }), group.members.length > 8 ? el('span', { class: 'muted', text: '+' + (group.members.length - 8) }) : null));
       }
       if (groupBlocked(settings.approval.group)) signoff.push(el('div', { class: 'callout bad' }, 'Nobody is in this group, so this step could never be approved.'));
-      signoff.push(el('div', { class: 'studio-row' }, button('Manage people', function () { state.view = 'people'; render(); }, { class: 'secondary' })));
+      signoff.push(el('div', { class: 'studio-row' }, button('Manage people', function () { state.returnTo = boardReturn(); state.view = 'people'; render(); }, { class: 'secondary' })));
       var loop = workflow.reworkLoops.find(function (entry) { return entry.from === phaseId; });
       var loopCount = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; }).length;
       signoff.push(field('step-back', 'If rejected, send back to', select('step-back', [{ value: '', label: 'This step (redo it)' }].concat(earlier.map(function (id) { return { value: id, label: stepLabel(id) }; })), loop ? loop.to : '', function (value) {
@@ -2296,11 +2406,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     });
     if (!targets.length) {
       body.push(el('div', { class: 'callout' }, el('div', { text: 'Add a target first: your own service, a log service, Teams, Jira, a Git repository, Confluence or OneDrive. Then choose here what this step sends to it, and when.' }),
-        button('Open Integrations', function () { state.view = 'integrations'; render(); }, { class: 'secondary', style: 'margin-top:6px' })));
+        button('Open Integrations', function () { state.returnTo = boardReturn(); state.view = 'integrations'; render(); }, { class: 'secondary', style: 'margin-top:6px' })));
     } else {
       body.push(el('div', { class: 'studio-row' },
         button('Add an action', function () { addStepAction(workflowId, phaseId); }, { class: 'secondary', 'data-key': 'action-add' }),
-        button('Integrations', function () { state.view = 'integrations'; render(); }, { class: 'secondary' })));
+        button('Integrations', function () { state.returnTo = boardReturn(); state.view = 'integrations'; render(); }, { class: 'secondary' })));
     }
     body.push(el('span', { class: 'hint', text: 'Only a required action holds the Story: the next step waits until its approved delivery is recorded. Any other delivery that fails is retried, and Integrations shows it.' }));
     return body;
@@ -2651,6 +2761,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function renderIntegrations(main) {
     var view = integrationsState();
     var ids = targetIds();
+    backLink(main);
     main.appendChild(el('header', null, el('h1', { text: 'Integrations' }),
       el('p', { class: 'studio-lede', text: 'Targets are the places a step can tell about its decisions: your own service, a log service, a Teams channel, the Jira issue of the Story, a branch of another repository, a Confluence page or a OneDrive or SharePoint folder. Each step chooses what it sends and when, under Actions after this step. Configuration names secrets but never holds them: every machine that moves a Story keeps its own, and VS Code stores yours in the keychain.' })));
     askSecretStatus(ids.reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
@@ -2700,6 +2811,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function renderAgents(main) {
+    backLink(main);
     main.appendChild(el('div', { class: 'studio-row spread' }, el('div', null, el('h1', { text: 'Agents' }), el('p', { class: 'studio-lede', text: 'An agent drafts the work in the steps it is the default for. Start a new one from a role; no files to edit.' })),
       button('New agent', function () { openAgentForm(null); }, { class: 'primary' })));
     if (state.agentForm) main.appendChild(renderAgentForm());
@@ -2714,10 +2826,22 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('span', { style: 'font-size:12px', text: drafts.length ? 'Drafts: ' + drafts.join(', ') : 'Not the default for any step yet' }),
         el('div', { class: 'rail' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })),
         agentResources(id).length ? el('span', { style: 'font-size:12px', text: 'Skills and sources: ' + agentResources(id).map(function (resource) { return resource.id; }).join(', ') }) : null,
-        button('Add a skill', function () { var lib = library(); lib.as = 'skill'; lib.pendingAgent = id; lib.preview = null; lib.target = null; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill to ' + agent.label }),
-        button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label })));
+        button('Add a skill', function () { var lib = library(); lib.as = 'skill'; lib.pendingAgent = id; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'agents' }; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill to ' + agent.label }),
+        button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label }),
+        agent.isNew ? button('Remove', function () { askRemoveNewAgent(id); }, { class: 'secondary', 'aria-label': 'Remove ' + agent.label }) : null));
     });
     main.appendChild(grid);
+  }
+
+  /** A new, unpublished agent leaves the draft again, once no step uses it. */
+  function askRemoveNewAgent(id) {
+    var agent = state.draft.agents[id];
+    var drafts = Object.keys(state.draft.phases).filter(function (phaseId) { return state.draft.phases[phaseId].agent === id; });
+    if (drafts.length) { setStatus('Choose another agent for ' + drafts.map(stepLabel).join(', ') + ' first; ' + agent.label + ' drafts them.'); return; }
+    confirmAction('Remove the new agent ' + agent.label + '?', 'It has not been published, so nothing else changes.', 'Remove agent', function () {
+      delete state.draft.agents[id]; if (state.agentForm && state.agentForm.id === id) state.agentForm = null;
+      setStatus('Removed the new agent ' + agent.label + '.'); changed();
+    });
   }
 
   function agentResources(id) { var agent = (state.model.agents || []).find(function (entry) { return entry.id === id; }); return (agent && agent.resources) || []; }
@@ -2758,7 +2882,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       form.mode === 'create' ? 'The shared operating rules every agent follows are added for you.' : null));
     card.appendChild(el('div', { class: 'studio-row' },
       button(form.mode === 'create' ? 'Add agent to changes' : 'Keep changes', function () { saveAgentForm(); }, { class: 'primary' }),
-      button('Cancel', function () { var context = form.context; state.agentForm = null; if (context) { state.view = 'board'; } render(); })));
+      button('Cancel', function () { var context = form.context; state.agentForm = null; if (context) { state.view = 'board'; } render(); }, { class: 'secondary' })));
     return card;
   }
 
@@ -2895,7 +3019,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (lib.replace) card.appendChild(el('div', { class: 'callout wait', text: 'This replaces what was imported before; the change shows the difference.' }));
     card.appendChild(el('div', { class: 'studio-row' },
       button('Add to changes', function () { addPreviewedImport(); }, { class: 'primary' }),
-      button('Cancel', function () { lib.preview = null; lib.target = null; render(); }, { class: 'secondary' })));
+      button('Cancel', function () { lib.preview = null; lib.target = null; lib.replace = false; render(); }, { class: 'secondary' })));
     return card;
   }
 
@@ -2987,7 +3111,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var market = lib.market; var result = lib.entries;
     var box = el('div', { class: 'decision-box', 'aria-label': 'Entries in ' + market.label });
     box.appendChild(el('div', { class: 'studio-row spread' }, el('strong', { text: (result.marketplace.name || market.label) + (result.marketplace.publisher ? ' by ' + result.marketplace.publisher : '') }),
-      textInput('market-search', lib.search || '', function (value) { lib.search = value; render(); }, { placeholder: 'Search entries', 'aria-label': 'Search entries' })));
+      el('div', { class: 'studio-row' },
+        textInput('market-search', lib.search || '', function (value) { lib.search = value; render(); }, { placeholder: 'Search entries', 'aria-label': 'Search entries' }),
+        button('Close', function () { lib.market = null; lib.entries = null; lib.search = ''; render(); }, { class: 'secondary', 'aria-label': 'Close the entries of ' + market.label }))));
     var query = String(lib.search || '').toLowerCase();
     var entries = result.entries.filter(function (entry) { return !query || [entry.id, entry.label, entry.description || ''].concat(entry.tags || []).some(function (value) { return String(value).toLowerCase().indexOf(query) >= 0; }); });
     if (!entries.length) box.appendChild(el('p', { class: 'muted', text: 'No entries match.' }));
@@ -3060,7 +3186,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function renderMcpOffer(lib) {
     var offer = lib.mcp;
     var box = el('div', { class: 'decision-box', 'aria-label': 'Offered by ' + offer.server.label });
-    box.appendChild(el('strong', { text: offer.server.label + (offer.serverInfo && offer.serverInfo.name ? ' (' + offer.serverInfo.name + (offer.serverInfo.version ? ' ' + offer.serverInfo.version : '') + ')' : '') }));
+    box.appendChild(el('div', { class: 'studio-row spread' },
+      el('strong', { text: offer.server.label + (offer.serverInfo && offer.serverInfo.name ? ' (' + offer.serverInfo.name + (offer.serverInfo.version ? ' ' + offer.serverInfo.version : '') + ')' : '') }),
+      button('Close', function () { lib.mcp = null; lib.mcpForms = {}; render(); }, { class: 'secondary', 'aria-label': 'Close what ' + offer.server.label + ' offers' })));
     var items = [];
     offer.prompts.forEach(function (prompt) { items.push({ kind: 'Prompt', name: prompt.name, description: prompt.description, arguments: prompt.arguments, reference: prompt.reference, as: 'skill' }); });
     offer.resources.forEach(function (resource) { items.push({ kind: 'Resource', name: resource.name, description: resource.description || resource.uri, arguments: [], reference: resource.reference, as: 'template' }); });
@@ -3112,6 +3240,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function renderLibrary(main) {
     var lib = library();
+    backLink(main);
     main.appendChild(el('header', null, el('h1', { text: 'Library' }),
       el('p', { class: 'studio-lede', text: 'Add skills, document templates, agents and MCP servers from a link, a marketplace your repository trusts, or an approved MCP server. You see the exact content before it is added; it is copied into your configuration and published with your other changes.' })));
     var form = el('section', { class: 'studio-card', 'aria-label': 'Add from a link' });
@@ -3145,14 +3274,28 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function renderPeople(main) {
+    backLink(main);
     main.appendChild(el('header', null, el('h1', { text: 'People & approvals' }), el('p', { class: 'studio-lede', text: 'An approval group is the list of people who may sign off a step. A step can only be approved by someone in its group.' })));
     var grid = el('div', { class: 'groups-grid' });
     Object.keys(state.draft.groups).forEach(function (id) {
       var group = state.draft.groups[id];
       var approves = Object.keys(state.draft.workflows).reduce(function (list, workflowId) { workflowSteps(workflowId).forEach(function (phaseId) { var settings = state.draft.steps[workflowId][phaseId]; if (settings && settings.approval.group === id && list.indexOf(phaseId) < 0) list.push(phaseId); }); return list; }, []);
       var draftPerson = group.adding || (group.adding = { name: '', email: '' });
+      var heading = group.renaming != null
+        ? el('div', { class: 'studio-row' },
+          textInput('group-name-' + id, group.renaming, function (value) { group.renaming = value; }, { 'aria-label': 'New name for ' + group.label }),
+          button('Save name', function () {
+            var label = String(group.renaming || '').trim();
+            if (!label) { setStatus('An approval group needs a name.'); return; }
+            group.label = label; group.renaming = null; changed();
+          }, { class: 'primary' }),
+          button('Cancel', function () { group.renaming = null; render(); }, { class: 'secondary' }))
+        : el('div', { class: 'studio-row spread' }, el('strong', { text: group.label }),
+          el('div', { class: 'studio-row' }, el('span', { class: 'muted', text: groupHint(group) }),
+            button('Rename', function () { group.renaming = group.label; render(); }, { class: 'secondary', 'aria-label': 'Rename ' + group.label }),
+            group.isNew ? button('Remove', function () { askRemoveNewGroup(id, approves); }, { class: 'secondary', 'aria-label': 'Remove ' + group.label }) : null));
       grid.appendChild(el('article', { class: 'studio-card', 'aria-label': group.label },
-        el('div', { class: 'studio-row spread' }, el('strong', { text: group.label }), el('span', { class: 'muted', text: groupHint(group) })),
+        heading,
         el('span', { class: 'muted', text: approves.length ? 'Signs off: ' + approves.map(function (phaseId) { return (state.draft.phases[phaseId] || { label: phaseId }).label; }).join(', ') : 'Signs off no step yet' }),
         groupBlocked(id) && approves.length ? el('div', { class: 'callout bad', text: 'Nobody can approve these steps until someone is added.' }) : null,
         !group.members.length && group.status === 'auto' ? el('div', { class: 'callout', text: 'Empty: whoever starts a Story is added automatically. Add people here for independent review.' }) : null,
@@ -3173,6 +3316,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     });
     main.appendChild(grid);
     var adding = state.newGroup || (state.newGroup = { label: '' });
+    function askRemoveNewGroup(groupId, approves) {
+      var group = state.draft.groups[groupId];
+      if (approves.length) { setStatus('Choose another sign-off group for ' + approves.map(stepLabel).join(', ') + ' first.'); return; }
+      confirmAction('Remove the new approval group ' + group.label + '?', 'It has not been published, so nothing else changes.', 'Remove group', function () {
+        delete state.draft.groups[groupId]; setStatus('Removed the new approval group ' + group.label + '.'); changed();
+      });
+    }
     main.appendChild(el('div', { class: 'studio-row' }, textInput('new-group', adding.label, function (value) { adding.label = value; }, { placeholder: 'New approval group name', 'aria-label': 'New approval group name' }),
       button('New approval group', function () {
         var id = kebab(adding.label);
@@ -3193,9 +3343,26 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     main.appendChild(el('div', { class: 'studio-row' },
       button(state.busy === 'check' ? 'Checking…' : 'Check changes', function () { state.busy = 'check'; render(); post({ type: 'studio.preview', changeSet: key }); }, { class: fresh && state.plan.valid ? 'secondary' : 'primary', disabled: Boolean(state.busy) }),
       button(state.busy === 'publish' ? 'Publishing…' : publishLabel(), function () { state.busy = 'publish'; render(); post({ type: 'studio.publish', changeSet: key, count: changeSet.changes.length }); }, { class: fresh && state.plan.valid ? 'primary' : 'secondary', disabled: !fresh || !state.plan.valid || Boolean(state.busy) }),
-      button('Discard all changes', function () { state.draft = initialDraft(state.model); state.plan = null; state.planKey = null; state.view = 'home'; render(); }, { class: 'secondary', disabled: Boolean(state.busy) })));
+      button('Discard all changes', function () {
+        var count = changeSet.changes.length;
+        var listed = changeSet.changes.slice(0, 6).map(function (change) { return describe(change, state.draft); });
+        confirmAction('Discard ' + count + (count === 1 ? ' unpublished change?' : ' unpublished changes?'),
+          'Everything changed in Workflow Studio since the last publish is lost: ' + listed.join('; ') + (count > listed.length ? '; and ' + (count - listed.length) + ' more' : '') + '.',
+          'Discard changes', discardDraft);
+      }, { class: 'secondary', disabled: Boolean(state.busy) })));
     if (state.plan && !fresh) main.appendChild(el('p', { class: 'muted', text: 'You changed something since the last check. Check again before publishing.' }));
     if (fresh) main.appendChild(renderPlan(state.plan));
+  }
+
+  /** Back to the published configuration: the draft, and every form still holding typed input. */
+  function discardDraft() {
+    state.draft = initialDraft(state.model); state.plan = null; state.planKey = null;
+    state.adding = null; state.wizard = null; state.agentForm = null; state.newGroup = null; state.returnTo = null;
+    state.panel = null; state.decision = null; state.workflow = null; state.step = null;
+    if (state.integrations) state.integrations.form = null;
+    if (state.library) { state.library.preview = null; state.library.target = null; state.library.replace = false; state.library.error = null; }
+    post({ type: 'studio.draftClear' });
+    state.view = 'home'; setStatus('Discarded every unpublished change.'); render();
   }
 
   function publishLabel() {
@@ -3241,6 +3408,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     renderNav(frame);
     var main = el('main', { class: 'studio-main' + (state.view === 'board' ? ' board-main' : '') });
     (state.model.problems || []).forEach(function (problem) { main.appendChild(el('div', { class: 'callout bad', text: 'The current configuration has a problem: ' + problem.message })); });
+    if (state.restorable) {
+      var when = state.restorable.savedAt ? new Date(state.restorable.savedAt) : null;
+      main.appendChild(el('div', { class: 'callout wait', role: 'status' },
+        el('div', { text: 'Unpublished changes were kept when Workflow Studio closed' + (when && !isNaN(when.getTime()) ? ' (' + when.toLocaleString() + ')' : '') + '.' }),
+        el('div', { class: 'studio-row', style: 'margin-top:6px' },
+          button('Restore them', function () { state.draft = state.restorable.draft; state.restorable = null; state.view = 'changes'; changed(); }, { class: 'primary', 'data-key': 'draft-restore' }),
+          button('Discard them', function () { state.restorable = null; post({ type: 'studio.draftClear' }); render(); }, { class: 'secondary', 'data-key': 'draft-discard' }))));
+    }
     if (state.view === 'board') renderBoard(main);
     else if (state.view === 'new') renderWizard(main);
     else if (state.view === 'agents') renderAgents(main);
@@ -3277,6 +3452,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       state.busy = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {
       state.busy = null; render();
+    } else if (message.type === 'studio.savedDraft') {
+      var kept = restorableDraft(message.draft);
+      if (kept && !changesNow().length) { state.restorable = { draft: kept, savedAt: message.savedAt || null }; render(); }
+    } else if (message.type === 'studio.confirmed') {
+      var confirmed = state.confirms[message.id];
+      delete state.confirms[message.id];
+      if (confirmed && message.ok === true) confirmed();
     } else if (message.type === 'studio.importPreviewed') {
       var lib = library(); lib.busy = null; lib.error = null; lib.preview = message.preview;
       if (!lib.target && lib.pendingAgent) lib.target = { agent: lib.pendingAgent, id: suggestedId(message.preview), phases: (message.preview.marketplace && message.preview.marketplace.phases) || [], optional: false, label: '', withoutDefaults: false };

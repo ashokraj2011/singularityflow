@@ -1104,3 +1104,89 @@ test('a target delivered by a pipeline is chosen in the form, written as deliver
   reload.saveTargetForm();
   assert.equal(Object.hasOwn(reload.state().draft.integrations['audit-log'], 'deliverFrom'), false, 'the default is never written');
 });
+
+/** The page with its message listener captured, so a host reply can be delivered to it. */
+function studioWithHost() {
+  const posted = [];
+  const listeners = {};
+  const window = { __sfVscode: { postMessage: (message) => posted.push(message) }, addEventListener: (type, listener) => { listeners[type] = listener; } };
+  const document = { getElementById: () => null };
+  new Function('window', 'document', WORKFLOW_STUDIO_SCRIPT)(window, document);
+  return { logic: window.__workflowStudio, posted, reply: (data) => listeners.message({ data }) };
+}
+
+test('a new workflow can go back to its details or be cancelled, and only the steps it made go with it', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  state.wizard = { label: 'Vendor assessment', description: 'Pick a vendor', from: 'blank' };
+  logic.createWorkflowFromWizard({ key: 'blank', label: 'Blank', phases: ['intake'] }, 'vendor-assessment');
+  assert.equal(state.view, 'board');
+  assert.equal(state.draft.workflows['vendor-assessment'].startedFrom, 'blank', 'its details remember where it started');
+  logic.createStep('vendor-assessment', 'Vendor analysis', 'analysis', 'product-owner', 'intake');
+  assert.deepEqual(logic.changeSetFrom(model, state.draft).changes.map((change) => change.op).sort(), ['phase.create', 'workflow.create']);
+  assert.deepEqual(logic.orphanedSteps(state.draft.workflows['vendor-assessment']), ['vendor-analysis'],
+    'the packaged intake step stays; the step made only for this workflow goes with it');
+
+  logic.removeNewWorkflow('vendor-assessment');
+  assert.equal(state.view, 'home');
+  assert.equal(state.draft.workflows['vendor-assessment'], undefined);
+  assert.equal(state.draft.phases['vendor-analysis'], undefined);
+  assert.ok(state.draft.phases.intake);
+  assert.deepEqual(logic.changeSetFrom(model, state.draft).changes, [], 'cancelling it leaves nothing to publish');
+
+  logic.removeNewWorkflow('feature');
+  assert.ok(state.draft.workflows.feature, 'a published workflow is never removed this way');
+});
+
+test('discarding asks the host first, and a kept draft comes back only in the shape the page reads', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic, posted, reply } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  state.draft.groups['architecture-reviewers'].members.push({ name: 'Ada', email: 'ada@example.com', githubLogin: null });
+  state.adding = { label: 'Half typed', output: 'document', agent: '', after: null };
+
+  let discarded = false;
+  logic.confirmAction('Discard 1 unpublished change?', 'detail', 'Discard changes', () => { discarded = true; logic.discardDraft(); });
+  const asked = posted.find((message) => message.type === 'studio.confirm');
+  assert.deepEqual({ text: asked.text, ok: asked.ok }, { text: 'Discard 1 unpublished change?', ok: 'Discard changes' });
+  reply({ type: 'studio.confirmed', id: asked.id, ok: false });
+  assert.equal(discarded, false, 'No keeps the changes');
+  assert.equal(logic.changeSetFrom(model, state.draft).changes.length, 1);
+  reply({ type: 'studio.confirmed', id: asked.id, ok: true });
+  assert.equal(discarded, false, 'an answer counts once');
+
+  logic.confirmAction('Discard 1 unpublished change?', 'detail', 'Discard changes', () => logic.discardDraft());
+  reply({ type: 'studio.confirmed', id: posted.filter((message) => message.type === 'studio.confirm').at(-1).id, ok: true });
+  assert.deepEqual(logic.changeSetFrom(model, state.draft).changes, []);
+  assert.equal(state.adding, null, 'discarding also forgets typed form input');
+  assert.ok(posted.some((message) => message.type === 'studio.draftClear'), 'the kept copy is dropped too');
+
+  const kept = JSON.stringify(state.draft);
+  assert.ok(logic.restorableDraft(kept));
+  assert.equal(logic.restorableDraft('{"workflows":[]}'), null);
+  assert.equal(logic.restorableDraft('not json'), null);
+});
+
+test('the host asks the questions the page cannot, and keeps a draft only against the configuration it was made on', async () => {
+  const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
+  assert.match(host, /'studio\.confirm': \(message\) =>/);
+  assert.match(host, /showWarningMessage\(bounded\(text, 300\),\s*\{ modal: true/);
+  assert.match(host, /if \(saved\.base !== this\.modelBase\(\)\) \{ await store\.set\(undefined\); return; \}/,
+    'a draft made on another configuration revision is dropped, not offered');
+  assert.match(host, /this\.post\(\{ type: 'studio\.published', summary \}\);\s*await this\.clearDraft\(\);/);
+  const page = WORKFLOW_STUDIO_SCRIPT;
+  assert.match(page, /button\('Discard all changes', function \(\) \{[\s\S]{0,400}confirmAction\(/, 'Discard all asks first');
+  assert.match(page, /button\('Back to details'/);
+  assert.match(page, /button\('Cancel this workflow'/);
+  assert.match(page, /'Back to ' \+ state\.draft\.workflows\[back\.workflow\]\.label \+ ' · ' \+ stepLabel\(back\.step\)/,
+    'a sub-view opened from a step goes back to that step');
+  assert.match(page, /button\('Close', function \(\) \{ lib\.market = null;/);
+  assert.match(page, /button\('Close', function \(\) \{ lib\.mcp = null;/);
+});

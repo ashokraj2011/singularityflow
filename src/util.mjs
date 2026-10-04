@@ -1208,11 +1208,12 @@ export function table(rows, columns, { width = terminalWidth(), min = 8 } = {}) 
  * back re-wrapped, and adding one phase to one profile showed up in review as twelve hundred
  * changed lines.
  *
- * `flowCollectionPadding: false` is the lesser of two evils rather than a clean answer. These files
- * mix the two conventions — the portfolio template has 184 unpadded flow sequences `[a, b]` and 165
- * padded flow maps `{ a: b }` — and YAML controls both with one setting, so whichever way it goes
- * about a hundred and sixty lines are rewritten by any edit. Off preserves the larger group. The
- * clean fix is for the templates to pick one convention, which is a change to make deliberately
- * rather than as a side effect of an unrelated edit.
+ * `flowCollectionPadding: false` matches most of what people write: the portfolio template has 184
+ * unpadded flow sequences `[a, b]` and 165 padded flow maps `{ a: b }`, and YAML sets both with one
+ * option.
+ *
+ * Both choices now reach only the lines an edit writes. Writers of configuration people maintain
+ * go through renderPreservingFormatting (yaml-formatting.mjs), which replays an edit onto the file's
+ * own text, so every other line keeps its folding, padding and comments.
  */
 export const YAML_OUTPUT = Object.freeze({ flowCollectionPadding: false, lineWidth: 0 });

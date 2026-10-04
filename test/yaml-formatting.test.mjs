@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import YAML from 'yaml';
-import { preserveYamlFormatting } from '../src/yaml-formatting.mjs';
+import {
+  preserveYamlFormatting, renderDataPreservingFormatting, renderPreservingFormatting
+} from '../src/yaml-formatting.mjs';
+import { changedLines } from './helpers/folded-yaml.mjs';
 import { YAML_OUTPUT } from '../src/util.mjs';
 
 const ORIGINAL = [
@@ -66,4 +69,83 @@ test('a file the library folded at 80 columns, with values on the line after the
   assert.match(folded, /phases:\n {6}\[\n {8}intake,\n/, 'and writes the long flow list under its key, an item a line');
   const merged = edit(folded, (document) => document.setIn(['workTypes', 'feature', 'label'], 'Feature work'));
   assert.equal(merged, folded.replace('    label: Feature\n', '    label: Feature work\n'));
+});
+
+test('a document is rendered and replayed with one set of options, so only the edit changes', () => {
+  const long = 'Intake, code, testing, and code checking with committed test receipts and explicit reviewer feedback.';
+  // One value folded by the library's defaults and one written on a single long line by a person.
+  const folded = YAML.parseDocument(`workTypes:\n  classic:\n    label: Classic\n    description: ${long}\n`).toString();
+  const original = `${folded}  feature:\n    label: Feature\n    description: ${long}\n`;
+  const document = YAML.parseDocument(original);
+  document.setIn(['workTypes', 'feature', 'label'], 'Feature work');
+  const expected = original.replace('    label: Feature\n', '    label: Feature work\n');
+  assert.equal(renderPreservingFormatting(original, document), expected);
+  assert.equal(renderPreservingFormatting(original, document, {}), expected, 'the library defaults on both sides');
+  // Rendered with the defaults but compared with YAML_OUTPUT, the long line is folded too.
+  assert.notEqual(preserveYamlFormatting(original, document.toString()), expected);
+  assert.equal(renderPreservingFormatting(null, document), document.toString(YAML_OUTPUT), 'a new file is the rendering');
+});
+
+const MAINTAINED = [
+  '# Configuration people maintain by hand.',
+  'version: 1',
+  'name: "Payments"  # quoted on purpose',
+  'phases: [intake, design, build]',
+  'reviewers:',
+  '  # The lead reviews first.',
+  '  - name: Ada',
+  '    email: ada@example.test',
+  '  - name: Grace',
+  '    email: grace@example.test',
+  'repositories: {}',
+  'retired: true',
+  ''
+].join('\n');
+
+function patched(original, change, options) {
+  const data = YAML.parse(original);
+  change(data);
+  const merged = renderDataPreservingFormatting(original, data, options);
+  assert.deepEqual(YAML.parse(merged), data, 'the text holds exactly the data');
+  return changedLines(original, merged);
+}
+
+test('plain data written back changes only what changed, keeping quoting, comments and list layout', () => {
+  assert.deepEqual(patched(MAINTAINED, (data) => { data.name = 'Payments platform'; }), {
+    removed: ['name: "Payments"  # quoted on purpose'], added: ['name: "Payments platform" # quoted on purpose']
+  });
+  assert.deepEqual(patched(MAINTAINED, (data) => { data.phases[1] = 'architecture'; }), {
+    removed: ['phases: [intake, design, build]'], added: ['phases: [intake, architecture, build]']
+  });
+  assert.deepEqual(patched(MAINTAINED, (data) => { data.reviewers.push({ name: 'Linus', email: 'linus@example.test' }); }), {
+    removed: [], added: ['  - name: Linus', '    email: linus@example.test']
+  });
+  assert.deepEqual(patched(MAINTAINED, (data) => { data.reviewers.splice(1, 1); }), {
+    removed: ['  - name: Grace', '    email: grace@example.test'], added: []
+  });
+  assert.deepEqual(patched(MAINTAINED, (data) => { delete data.retired; data.owner = 'platform'; }), {
+    removed: ['retired: true'], added: ['owner: platform']
+  });
+});
+
+test('an empty flow collection filled with data becomes a block collection', () => {
+  assert.deepEqual(patched(MAINTAINED, (data) => { data.repositories.api = { url: 'https://git.example.test/api.git' }; }), {
+    removed: ['repositories: {}'], added: ['repositories:', '  api:', '    url: https://git.example.test/api.git']
+  });
+});
+
+test('a change made to a normalized reading writes only the change, not the normalization', () => {
+  // A reader filled in a default the file never wrote; the change is to another field.
+  const normalized = { ...YAML.parse(MAINTAINED), timeoutMinutes: 30 };
+  const changed = { ...structuredClone(normalized), retired: false };
+  const merged = renderDataPreservingFormatting(MAINTAINED, changed, { before: normalized });
+  assert.deepEqual(changedLines(MAINTAINED, merged), { removed: ['retired: true'], added: ['retired: false'] });
+  assert.equal(YAML.parse(merged).timeoutMinutes, undefined);
+  assert.equal(renderDataPreservingFormatting(null, { a: [1, 2] }), 'a:\n  - 1\n  - 2\n', 'a new file is the rendering');
+});
+
+test('a folded file written back from plain data keeps every folded value', () => {
+  const folded = YAML.parseDocument(ORIGINAL).toString();
+  const merged = renderDataPreservingFormatting(folded, { ...YAML.parse(folded), version: 2 });
+  assert.deepEqual(changedLines(folded, merged), { removed: ['version: 1'], added: ['version: 2'] });
 });

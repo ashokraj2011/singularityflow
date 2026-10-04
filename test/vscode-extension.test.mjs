@@ -6380,7 +6380,13 @@ test('a workspace list shows the working directory, which is what it is really a
   assert.match(html, /platform/);
   assert.match(html, /no two may share a directory/);
   assert.match(html, /data-repository-refresh="1"/,
-    'old or moved repositories have a visible Git-URL recovery entry point');
+    'a capability can be refreshed to the new version from the page');
+  assert.match(html, /Refresh a capability…/);
+  assert.match(html, /data-repository-refresh-url="1"/,
+    'old or moved repositories keep a visible Git-URL recovery entry point');
+  const selected = workspacesHtml(rows, rows[0].path, EMPTY_COPY, null);
+  assert.match(selected, /Refresh to new version…/);
+  assert.match(selected, /No Git URL\s+is needed/, 'refreshing the selected workspace never asks for its URL');
 });
 
 test('two workspaces on one directory are marked, because the engine forbids it', () => {

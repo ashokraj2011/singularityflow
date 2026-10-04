@@ -64,6 +64,7 @@ const SECTION_META: Record<SidebarSection, {
     label: 'Workspaces', icon: 'workspace', actions: [],
     linkHeading: 'Set up', links: [
       { id: 'capability-map', label: 'Map a capability', icon: 'capability' },
+      { id: 'capability-refresh', label: 'Refresh capability to new version', icon: 'refresh' },
       { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' }
     ],
     more: [
@@ -166,6 +167,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'inbox-open': 'singularityFlow.openInbox',
   'fault-repairs': 'singularityFlow.openFaultRepairs',
   'capability-map': 'singularityFlow.mapCapability',
+  'capability-refresh': 'singularityFlow.refreshCapability',
   'workflow-design': 'singularityFlow.openDesigner',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',

@@ -196,6 +196,12 @@
         "icon": "$(list-unordered)"
       },
       {
+        "command": "singularityFlow.refreshCapability",
+        "category": "Singularity Flow",
+        "title": "Refresh Capability to New Version",
+        "icon": "$(sync)"
+      },
+      {
         "command": "singularityFlow.upgradeWorkspaces",
         "title": "Singularity Flow: Upgrade Capabilities & Workspaces (Safe Preview)",
         "icon": "$(sync)"
@@ -882,6 +888,11 @@
           "command": "singularityFlow.openComprehensionCenter",
           "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
           "group": "1_explain@2"
+        },
+        {
+          "command": "singularityFlow.refreshCapability",
+          "when": "view == singularityFlow.navigation",
+          "group": "2_maintain@1"
         }
       ],
       "commandPalette": [

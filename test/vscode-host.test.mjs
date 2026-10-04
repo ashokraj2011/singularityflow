@@ -8791,6 +8791,63 @@ test('Git URL maintenance routes one exact repository into a selected-workspace 
   assert.deepEqual(registered.errors, []);
 });
 
+test('Refresh Capability to New Version reaches the reviewed upgrade preview without asking for a Git URL', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'capability-refresh-registry.json');
+  const workspaces = path.join(org.base, 'capability-refresh-workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args],
+    { encoding: 'utf8', env: process.env });
+  const created = cli(['workspace', 'create', '--local', '--json', '--id', 'refresh-me', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments-api', '--capability', 'storefront-web',
+    '--lead-capability', 'payments-api', '--confirm', 'refresh-me', '--no-clone']);
+  assert.equal(created.status, 0, created.stderr);
+  const [registeredWorkspace] = JSON.parse(cli(['workspace', 'list', '--json']).stdout);
+  const status = JSON.parse(cli(['workspace', 'status', registeredWorkspace.path, '--no-fetch', '--json']).stdout);
+  const api = status.repositories.find((repository) => repository.id === 'api');
+  const unregistered = await mkdtemp(path.join(os.tmpdir(), 'sflow-unregistered-refresh-'));
+  spawnSync('git', ['init', '-q'], { cwd: unregistered });
+
+  const { api: vscodeApi, registered } = stubVscode();
+  vscodeApi.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(vscodeApi);
+  await extension.activate(context());
+  assert.ok(registered.commands.has('singularityFlow.refreshCapability'));
+  const dispatch = vscodeApi.commands.executeCommand;
+  const routed = [];
+  vscodeApi.commands.executeCommand = async (command, ...args) => {
+    if (command === 'singularityFlow.openWorkspaces' || command === 'singularityFlow.repairRepositorySetup') {
+      routed.push({ command, args });
+      return;
+    }
+    return dispatch(command, ...args);
+  };
+  const refresh = registered.commands.get('singularityFlow.refreshCapability');
+
+  await refresh();
+  assert.deepEqual(routed.at(-1), { command: 'singularityFlow.openWorkspaces',
+    args: [{ upgradeScope: 'selected', workspacePath: registeredWorkspace.path }] },
+  'with no repository open, the one registered workspace is refreshed');
+  await refresh({ workspacePath: registeredWorkspace.path });
+  assert.deepEqual(routed.at(-1), { command: 'singularityFlow.openWorkspaces',
+    args: [{ upgradeScope: 'selected', workspacePath: registeredWorkspace.path }] }, 'a page that selected a workspace passes it on');
+  await refresh({ repositoryPath: api.absolutePath ?? api.path });
+  assert.deepEqual(routed.at(-1)?.command, 'singularityFlow.openWorkspaces');
+  assert.equal(routed.at(-1)?.args[0]?.repositoryId, 'api', 'a registered repository is refreshed in its own workspace');
+  assert.equal(routed.at(-1)?.args[0]?.upgradeScope, 'selected');
+  await refresh({ repositoryPath: unregistered });
+  assert.deepEqual(routed.at(-1), { command: 'singularityFlow.repairRepositorySetup', args: [{ repositoryPath: unregistered }] },
+    'a repository no workspace registers gets the repair and upgrade preview for its own setup');
+  assert.equal(registered.inputBoxes.length, 0, 'no Git URL is asked for');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('Git URL maintenance can reach an open repository when its old workspace manifest is unreadable', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();

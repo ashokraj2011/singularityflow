@@ -2900,6 +2900,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   /**
+   * Refresh the capability this window works on to the installed SFlow version, from a menu and
+   * without asking for its Git URL: the workspace a page selected, else the repository open here,
+   * else a registered workspace someone picks. Everything after that is the existing plan-first
+   * reinitialize preview and apply; a repository no workspace registers gets the repair and
+   * upgrade preview for its own setup instead.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.refreshCapability',
+    async (request?: { workspacePath?: string; repositoryPath?: string }) => {
+      const workspacePath = typeof request?.workspacePath === 'string' ? request.workspacePath.trim() : '';
+      if (workspacePath) {
+        return vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgradeScope: 'selected', workspacePath });
+      }
+      const repositoryPath = (typeof request?.repositoryPath === 'string' ? request.repositoryPath.trim() : '')
+        || activeRepositoryContext()?.root || '';
+      if (repositoryPath) {
+        return vscode.commands.executeCommand('singularityFlow.refreshRepositorySetup', {
+          repositoryPath, action: 'reinitialize', whenUnregistered: 'repair'
+        });
+      }
+      let entries: WorkspaceEntry[];
+      try {
+        const location = resolveCli({ extensionPath: context.extensionPath });
+        entries = (await new SingularityFlowClient({
+          location, repository: process.cwd(), environment: cliEnvironment, onOutput: (text) => output.append(text)
+        }).run<WorkspaceEntry[]>(['workspace', 'list', '--json'])).filter((entry) => !entry.archivedAt);
+      } catch (error) {
+        return showRefusal(error, { headline: 'Registered workspaces could not be read' });
+      }
+      if (!entries.length) {
+        const next = await vscode.window.showInformationMessage(
+          'No workspace is registered on this machine yet, so there is no capability to refresh. Map a capability first.',
+          'Map a capability'
+        );
+        if (next === 'Map a capability') return vscode.commands.executeCommand('singularityFlow.mapCapability');
+        return;
+      }
+      const chosen = entries.length === 1 ? entries[0] : (await vscode.window.showQuickPick(
+        entries.map((entry) => ({ label: entry.name || entry.id, description: entry.id, detail: entry.path, entry })),
+        {
+          title: 'Refresh which capability to the new version?',
+          placeHolder: 'Choose a registered workspace; nothing changes until you confirm the reviewed preview.',
+          ignoreFocusOut: true
+        }
+      ))?.entry;
+      if (!chosen) return;
+      return vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgradeScope: 'selected', workspacePath: chosen.path });
+    }
+  ));
+
+  /**
    * Repository-centric maintenance that works on a new laptop before any workspace is registered.
    * The Map panel owns the shared setup card and the CLI owns every observation and mutation plan.
    */
@@ -2910,6 +2961,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? request.trim()
         : request?.repositoryUrl?.trim() || request?.repositoryPath?.trim() || '';
       let repositoryUrl = supplied;
+      const openRepository = activeRepositoryContext()?.root ?? '';
+      if (!repositoryUrl && openRepository) {
+        // The repository open in this window is almost always the one meant; another one stays one
+        // choice away instead of a URL being the first thing asked for.
+        const choice = await vscode.window.showQuickPick([
+          { label: '$(repo) This repository', detail: openRepository, value: openRepository },
+          { label: '$(link) Another repository…', detail: 'Enter its Git URL or the path to a local clone.', value: '' }
+        ], { title: 'Repair or upgrade repository setup', ignoreFocusOut: true });
+        if (!choice) return;
+        repositoryUrl = choice.value;
+      }
       if (!repositoryUrl) {
         repositoryUrl = (await vscode.window.showInputBox({
           title: 'Repair or upgrade repository setup',
@@ -2946,6 +3008,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspacePath?: string;
       /** Internal compatibility route: resolve the exact target, then open only safe reinitialize. */
       action?: 'reinitialize';
+      /** With repositoryPath: a repository no workspace registers opens its repair and upgrade preview. */
+      whenUnregistered?: 'repair';
     }) => {
       let location: CliLocation;
       try {
@@ -3231,6 +3295,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         targets.push(...fallbackTargets);
       }
       if (fallbackCancelled) return;
+      if (!targets.length && suppliedRepositoryPath && request?.whenUnregistered === 'repair') {
+        output.appendLine(`${suppliedRepositoryPath} belongs to no registered workspace; opening the repair and upgrade preview for its own setup.`);
+        return vscode.commands.executeCommand('singularityFlow.repairRepositorySetup', { repositoryPath: suppliedRepositoryPath });
+      }
       if (!targets.length) {
         const doctorArgs = requestedUrl
           ? ['workspace', 'doctor', '--network', '--repository', requestedUrl, '--json']
@@ -7039,6 +7107,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     if (message.action === 'repository-setup') await vscode.commands.executeCommand(
       'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
+    );
+    else if (message.action === 'capability-refresh') await vscode.commands.executeCommand(
+      'singularityFlow.refreshCapability', { repositoryPath: client.repository }
     );
     else if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');

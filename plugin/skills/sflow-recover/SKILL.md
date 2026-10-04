@@ -7,7 +7,7 @@ argument-hint: "[WORK-ID]"
 # Recover governed work safely
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions.
+**Output contract:** CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

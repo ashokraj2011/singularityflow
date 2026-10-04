@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 19
+version: 20
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -92,7 +92,13 @@ A delivered change to a path no row names is accounted for, never deleted to sat
 
 ### What a code step's candidate contains
 
-When the Story plans its claims, a code step's candidate is what the plan names for that step: the expected paths of the rows allocated to it, their planned tests, supporting changes and the paths a plan amendment accounted for. Test automation always belongs. Any other changed file is left out: it stays in your worktree untouched, is never adopted or committed, and the delivery receipt lists it under `excludedChanges`. A note or other prose is left out quietly, and you may edit or delete it later without making the generation stale. Publication, submission and approval bind the candidate, HEAD plus the planned changes, so editing these files later makes nothing stale; committing one outside a governed step does, because then it ships. When such a file is code no step's plan names, the step's checks run in a temporary worktree materialized from the candidate (HEAD and the planned changes, with dependency folders such as `node_modules` linked in), so it cannot change what the tests execute; nothing in your worktree is cleaned, stashed or reset. If a check fails there because the candidate needs one of those files, the refusal names it; account for it with `decision plan`. A file another step's plan names is refused with `GENERATION_EXCLUSIONS_UNSAFE`: publish it with that step, account for it here, or move it out of the worktree. When the candidate cannot be materialized, for example while the test-recovery pilot captures reports from your worktree, the checks refuse with `GENERATION_EXCLUSIONS_UNSAFE` too.
+When the Story plans its claims, a code step's candidate contains its allocated expected paths, planned tests, supporting changes and plan amendments. Test automation always belongs. Other changed files remain untouched in your worktree and appear in `excludedChanges`; they are neither adopted nor committed. Publication, submission and approval bind HEAD plus the planned changes. Committing excluded work changes that baseline and makes it stale.
+
+Any excluded change can affect execution, including `.txt` fixtures, Markdown and executable MDX. Checks therefore run in a temporary candidate worktree when any changed application file is outside every step's plan. Node dependencies are copied (copy-on-write where supported), with repository-owned workspace links rebound to candidate paths, never linked wholesale to the dirty checkout. External dependency links and Python virtual environments with potentially absolute/editable installs are refused: prepare candidate-local dependencies or review and account for the needed files. This is source isolation, not a security sandbox for untrusted tests.
+
+Before execution, parser-visible old reports are cleared in both checkouts; stdout reporters write inside the candidate. Only fresh output is imported, after path checks. Original tracked reports are restored and cannot count as evidence of a no-op run. User source is never cleaned, stashed or reset. If a check needs an excluded file, account for it with `decision plan`. A changed file allocated to another step, unavailable dependencies, or the test-recovery pilot's worktree-bound report capture produces `GENERATION_EXCLUSIONS_UNSAFE`; publish the change in its owning step, amend the plan, or move it out of the worktree.
+
+Approved inspection evidence must cite an exact qualified criterion identity. `OTHER-EV-1:AC-001` and `EV-1:AC-0010` cannot satisfy `EV-1:AC-001`.
 
 ### Implementation bindings
 

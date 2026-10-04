@@ -6,15 +6,13 @@
  * accounted for. Test automation always belongs, because tests verify rather than ship. Every other
  * changed application file is excluded: it stays in the worktree, untouched, and is neither adopted
  * nor committed. Tests still run in the worktree, so an excluded file that could change what they
- * execute makes the delivery unsafe and is refused; one that cannot (a note or other prose) is
- * preserved and reported. Null when the Story plans no claims, so every change is the candidate.
+ * execute requires isolation. File extensions do not prove irrelevance: text may be a test fixture
+ * or executable MDX/doctest input. Null when the Story plans no claims, so every change is the candidate.
  */
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
-
-const PROSE = /\.(?:md|markdown|mdx|rst|adoc|txt)$/iu;
 
 export async function codeCandidateScope(itemDirectory, workflow, phase) {
   if (!phaseRequiresCodeDelivery(phase) || workflow?.resolution?.plannedClaims?.mode !== 'required') return null;
@@ -30,7 +28,7 @@ export async function codeCandidateScope(itemDirectory, workflow, phase) {
   return Object.freeze({
     allows: (candidate) => allowed.has(candidate) || isAllowedTestAutomationPath(candidate),
     /** Whether an excluded file could change what the tests execute in the worktree. */
-    unsafe: (candidate) => !PROSE.test(candidate)
+    unsafe: () => true
   });
 }
 
@@ -49,9 +47,4 @@ export async function outsideEveryCandidate(itemDirectory, workflow) {
   }
   if (!scopes.length) return null;
   return (candidate) => scopes.every((scope) => !scope.allows(candidate));
-}
-
-/** Prose is the one kind of excluded file that can never change what the tests execute. */
-export function isProse(candidate) {
-  return PROSE.test(candidate);
 }

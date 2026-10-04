@@ -128,16 +128,26 @@ function secretValue(name, env) {
  */
 export { pinnedHttpRequest };
 
-export async function postDelivery({ url, headers, body, timeoutMs, network = 'public', lookupImpl = dnsLookup }) {
+export async function postDelivery({ url, headers, body, timeoutMs, network = 'public', lookupImpl = dnsLookup, acknowledgement = null }) {
   const answer = await pinnedHttpRequest({ url, method: 'POST', headers, body, timeoutMs, network, lookupImpl });
-  return answer.transport ?? classifyResponse(answer.status, answer.text);
+  return answer.transport ?? classifyResponse(answer.status, answer.text, acknowledgement);
 }
 
 /** What an answer means for the delivery: done, try again later, or needs a person. */
-export function classifyResponse(status, text = '') {
+export function classifyResponse(status, text = '', acknowledgement = null) {
   if (status >= 200 && status < 300) return { outcome: 'delivered', status };
-  // A receiver that recognises the idempotency key answers 409: it already has this delivery.
-  if (status === 409) return { outcome: 'delivered', status, detail: 'The receiver already had this delivery.' };
+  if (status === 409) {
+    let response;
+    try { response = JSON.parse(text); } catch { /* Not an acknowledgement. */ }
+    if (acknowledgement?.kind === 'webhook' && acknowledgement.deliveryKey && acknowledgement.bodySha256
+        && response?.schema === 'sflow-step-action-ack@1' && response.status === 'already-delivered'
+        && Object.keys(response).length === 4
+        && response.deliveryKey === acknowledgement.deliveryKey && response.bodySha256 === acknowledgement.bodySha256) {
+      return { outcome: 'delivered', status, detail: 'The receiver acknowledged this exact delivery key and request body.' };
+    }
+    return { outcome: 'failed', status, code: 'STEP_ACTION_CONFLICT_UNVERIFIED',
+      detail: 'The receiver reported a conflict without acknowledging this exact delivery. Inspect the target before retrying.' };
+  }
   if (status >= 300 && status < 400) return { outcome: 'failed', status, code: 'STEP_ACTION_REDIRECT_REFUSED', detail: 'The target answered with a redirect, which is never followed. Update its address.' };
   if (status === 408 || status === 425 || status === 429 || status >= 500) {
     return { outcome: 'retry', status, code: 'STEP_ACTION_TARGET_UNAVAILABLE', detail: boundedDetail(text) || `HTTP ${status}` };
@@ -170,7 +180,8 @@ export function deliveryRequest(record, env, clock = Date.now) {
       headers['x-sflow-timestamp'] = timestamp;
       headers['x-sflow-signature'] = `v1=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
     }
-    return { url: target.url, headers, body };
+    return { url: target.url, headers, body, acknowledgement: { kind: 'webhook', deliveryKey: record.key,
+      bodySha256: createHash('sha256').update(body).digest('hex') } };
   }
   if (target.kind === 'http-log') {
     const token = target.tokenSecret ? secretValue(target.tokenSecret, env) : null;
@@ -331,7 +342,8 @@ async function readArtifactSummary(root, workflow, phaseId, { commit = null } = 
  * the artifact from the commit (`fromCommit`). `include` can leave further actions out.
  */
 export async function enqueueStepActions(root, workflow, {
-  event, commit, remote = null, published = true, clock = Date.now, deliverer = 'transition', fromCommit = false, include = null
+  event, commit, remote = null, published = true, clock = Date.now, deliverer = 'transition', fromCommit = false, include = null,
+  recovered = false
 } = {}) {
   const phaseId = event?.phaseId;
   if (!phaseId || !workflow?.workItem?.id) return [];
@@ -356,7 +368,8 @@ export async function enqueueStepActions(root, workflow, {
       if (include && !include(action, trigger)) continue;
       const key = stepActionDeliveryKey({ workId: workflow.workItem.id, phaseId, generation, trigger, actionId: action.id });
       if (await readRecord(directory, key)) continue;
-      const payload = buildStepActionEvent({ workflow, phaseId, trigger, action, deliveryKey: key, event, commit, remote, decision });
+      const deliveryRemote = Object.hasOwn(event?.payload ?? {}, 'stepActionRemote') ? event.payload.stepActionRemote : remote;
+      const payload = buildStepActionEvent({ workflow, phaseId, trigger, action, deliveryKey: key, event, commit, remote: deliveryRemote, decision });
       payload.step.generation = generation;
       if (action.send === 'summary') {
         summary ??= await readArtifactSummary(root, workflow, phaseId, source);
@@ -364,16 +377,20 @@ export async function enqueueStepActions(root, workflow, {
       }
       if (action.send === 'artifact') artifact ??= await readArtifactForDelivery(root, workflow, phaseId, source);
       const at = nowIso(clock);
-      const status = deliverer === 'transition' && viaPipeline ? 'pipeline' : published ? 'pending' : 'waiting';
+      const status = deliverer === 'transition' && viaPipeline ? 'pipeline' : !published ? 'waiting' : recovered ? 'failed' : 'pending';
       const record = {
         schema: STEP_ACTION_RECORD_SCHEMA, key, workId: workflow.workItem.id, phaseId, generation, trigger,
         action: structuredClone(action), event: payload, commit: commit ?? null,
         status, createdAt: at, updatedAt: at, nextAttemptAt: status === 'pending' ? at : null,
         deliveredAt: null, attempts: [],
+        ...(recovered ? { recovery: { priorOutcome: 'unknown', explicitRetryRequired: true } } : {}),
         ...(action.send === 'artifact' ? { artifact } : {})
       };
-      await writeRecord(directory, record);
-      written.push(record);
+      await withRecordLock(directory, key, clock, async () => {
+        if (await readRecord(directory, key)) return;
+        await writeRecord(directory, record);
+        written.push(record);
+      });
     }
   }
   return written;
@@ -388,7 +405,7 @@ export async function releaseWaitingStepActions(root, { workId, clock = Date.now
   for (const key of await recordKeys(directory)) {
     const record = await readRecord(directory, key);
     if (!record || record.tampered || record.status !== 'waiting' || (workId && record.workId !== workId)) continue;
-    await writeRecord(directory, { ...record, status: 'pending', nextAttemptAt: nowIso(clock), updatedAt: nowIso(clock) });
+    await writeRecord(directory, { ...record, status: record.recovery?.explicitRetryRequired ? 'failed' : 'pending', nextAttemptAt: nowIso(clock), updatedAt: nowIso(clock) });
     released += 1;
   }
   return released;
@@ -424,7 +441,13 @@ export async function deliverStepActions(root, {
     while (index < due.length) {
       if (clock() - started > budgetMs) return;
       const record = due[index++];
-      const outcome = await withRecordLock(directory, record.key, clock, () => attemptRecord(directory, record, { env, clock, post, logger, writers, root }));
+      const outcome = await withRecordLock(directory, record.key, clock, async () => {
+        const current = await readRecord(directory, record.key);
+        if (!current || current.tampered || current.status === 'delivered' || current.status === 'waiting') return { skipped: current?.status ?? 'unavailable' };
+        if (current.updatedAt !== record.updatedAt || current.attempts.length !== record.attempts.length) return { skipped: 'changed-by-another-delivery' };
+        return attemptRecord(directory, { ...current, attempts: current.attempts.map(attempt =>
+          current.status === 'failed' && attempt.outcome === 'retry' ? { ...attempt, outcome: 'retried' } : attempt) }, { env, clock, post, logger, writers, root });
+      });
       if (outcome?.skipped) { report.skipped.push({ key: record.key, reason: outcome.skipped }); continue; }
       const last = outcome.attempts.at(-1);
       const entry = { key: record.key, action: record.action.id, target: record.action.target, trigger: record.trigger,
@@ -515,7 +538,7 @@ export async function runStepActionsAfterTransition(root, workflow, {
     return { queued: [], waiting: [], delivered: [], retrying: [], failed: [], unavailable: [], skipped: [], tampered: [], notReached: [] };
   }
   try {
-    const queued = await enqueueStepActions(root, workflow, { event, commit, remote, published, clock });
+    const queued = await enqueueStepActions(root, workflow, { event, commit, remote, published, clock, fromCommit: true });
     const report = await deliverStepActions(root, { env, clock, post, logger, budgetMs });
     const waiting = queued.filter((record) => record.status === 'waiting').map((record) => record.key);
     return { queued: queued.map((record) => record.key), waiting, ...report };

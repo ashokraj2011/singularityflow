@@ -8,7 +8,7 @@ argument-hint: "[list | status | retry <DELIVERY-KEY...>|--all | record | test <
 # After-step deliveries
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -17,7 +17,7 @@ Use this skill when someone asks what a step sends after approval, why a target 
 1. Run `singularity-flow integrations status --json` (add `--work-id <ID>` for one Story). Explain each open delivery: the step, the trigger, the target, its last outcome and when it is retried.
 2. For configuration questions run `singularity-flow integrations list --json`. A secret shown as not set (names start with `SFLOW_SECRET_`) must be set in this machine's environment or in VS Code; never ask for a secret value in chat and never print one.
 3. To check a target, run `singularity-flow integrations test <TARGET> --json` and show the request. Send a test only when the user asks, with `--send-test`.
-4. Ask before mutation. When the user chooses to retry, run `singularity-flow integrations retry <KEY...> --json` (or `--all`) exactly once and report each outcome.
+4. Ask before mutation. When the user chooses to retry, run `singularity-flow integrations retry <KEY...> --json` (or `--all`) exactly once and report each outcome. If `reconstruction.restored` is nonempty, nothing was sent for those keys: show the unknown prior outcome and ask the user to check the receiver before authorizing another retry. Never auto-retry reconstruction.
 5. To record what went out, on the checked-out Story whose deliveries they were, run `singularity-flow integrations record --dry-run --json` and show what it would commit; after the user agrees, run `singularity-flow integrations record --json` once. It is refused while a step awaits approval, because a commit then would require submitting that step again: say so and record after the decision.
 
 6. When `prepare` or `finalize` is refused with `STEP_ACTION_REQUIRED_UNRECORDED`, a required action's approved delivery has no receipt: run only the command the refusal names (retry, record or sync), after asking.

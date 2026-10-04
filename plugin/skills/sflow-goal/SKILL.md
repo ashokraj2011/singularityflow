@@ -8,7 +8,7 @@ argument-hint: "[personal|propose|govern|inspect|impact|plan|approve-plan|run-ne
 # Goals — outcomes above governed work
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 

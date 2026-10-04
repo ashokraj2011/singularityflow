@@ -57,6 +57,10 @@ test('prepublish routes authored findings to same-phase correction, then enables
   assert.equal(red.readiness.authoring, false);
   assert.equal(red.correction.sameTurn, true);
   assert.equal(red.commands.publish, null);
+  assert.equal(red.commandGuidance.publish, null);
+  assert.equal(red.commandGuidance.recheck.copilotCommand, null);
+  assert.match(red.commandGuidance.recheck.copilotReason, /No dedicated Copilot equivalent/);
+  assert.equal(red.commandGuidance.recover.copilotCommand, '/sf-recover');
   assert.equal(red.commands.recheck, 'singularity-flow phase prepublish planning --json');
   assert.equal(red.mutates, false);
   assert.equal(await readFile(item.absolute, 'utf8'), original);
@@ -69,6 +73,7 @@ test('prepublish routes authored findings to same-phase correction, then enables
   assert.equal(ready.readiness.lifecycle, true);
   assert.equal(ready.readiness.knownRecoveryBlockers, true);
   assert.match(ready.commands.publish, /phase publish planning --authored governed-agent/u);
+  assert.equal(ready.commandGuidance.publish.copilotStatus, 'unavailable');
   assert.notEqual(ready.draftFingerprint, red.draftFingerprint);
 });
 

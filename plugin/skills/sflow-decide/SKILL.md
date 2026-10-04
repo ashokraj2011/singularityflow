@@ -8,7 +8,7 @@ argument-hint: "[WORK-ID]"
 # Choose what happens next at a workflow decision
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

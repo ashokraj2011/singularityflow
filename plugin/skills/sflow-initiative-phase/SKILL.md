@@ -8,7 +8,7 @@ argument-hint: "[PHASE] [--initiative INIT-ID]"
 # Generate an initiative phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

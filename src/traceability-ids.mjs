@@ -12,6 +12,18 @@ export function normalizeQualifiedClauseId(value) {
   return QUALIFIED_ID.test(text) ? text.toUpperCase() : null;
 }
 
+/** Exact prose identities; never match a suffix of another namespace or a longer ID. */
+export function qualifiedClauseMatches(text) {
+  const pattern = new RegExp(
+    `(?<![A-Za-z0-9._:-])${NAMESPACE}:(?:${GOVERNED_CLAUSE_TYPE_PATTERN})-\\d{3}(?![A-Za-z0-9_:-]|\\.[A-Za-z0-9._:-])`, 'gi'
+  );
+  return [...String(text ?? '').matchAll(pattern)];
+}
+
+export function qualifiedClauseIds(text) {
+  return new Set(qualifiedClauseMatches(text).map(match => match[0].toUpperCase()));
+}
+
 /**
  * Read explicit source-comment witnesses, never identifiers from executable text or strings.
  * Legacy bare and NFR annotations remain observable to older World Models, but only the

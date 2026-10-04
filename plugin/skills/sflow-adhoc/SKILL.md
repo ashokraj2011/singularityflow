@@ -7,7 +7,7 @@ argument-hint: "[start|status|land|intent|claim|preview|publish|promote]"
 # Land ad hoc work safely
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

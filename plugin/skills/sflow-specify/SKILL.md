@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Specify — route toward an approved specification
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts.
+**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

@@ -195,13 +195,13 @@ const HELD_BECAUSE = Object.freeze({
   waiting: 'It waits for the step\'s commit to be published; publish it',
   pipeline: 'A pipeline delivers it and records its receipt; once it has, bring that receipt here',
   tampered: 'This machine\'s record of it no longer matches its seal and is never sent; deliver and record it from the machine that approved the step',
-  absent: 'This machine has no record of it: the machine that approved the step delivers it; record its receipt there'
+  absent: 'This machine has no delivery record; reconstruct it from the committed approval, review the unknown prior outcome, then explicitly retry'
 });
 
 /** What to run for one missing receipt, from what this machine's outbox knows about the delivery. */
 function nextForMissing(entry) {
   if (entry.here === 'delivered') return 'singularity-flow integrations record';
-  if (entry.here === 'pending' || entry.here === 'failed') return `singularity-flow integrations retry ${entry.key}`;
+  if (entry.here === 'pending' || entry.here === 'failed' || entry.here === 'absent') return `singularity-flow integrations retry ${entry.key}`;
   if (entry.here === 'waiting') return 'singularity-flow sync';
   if (entry.here === 'pipeline') return 'singularity-flow refresh-branch';
   return null;
@@ -219,7 +219,8 @@ export async function requiredStepActionHold(root, config, workflow) {
   const described = [];
   for (const entry of missing) {
     const record = await readStepActionDelivery(root, entry.key).catch(() => null);
-    described.push({ ...entry, here: record?.tampered ? 'tampered' : record?.status ?? 'absent' });
+    described.push({ ...entry, here: record?.tampered ? 'tampered' : record?.status ?? 'absent',
+      ...(record?.recovery?.priorOutcome === 'unknown' && record.status === 'failed' ? { reconstructed: true } : {}) });
   }
   const first = described[0];
   const nextAction = nextForMissing(first);
@@ -228,7 +229,9 @@ export async function requiredStepActionHold(root, config, workflow) {
     missing: described,
     nextAction,
     what: `${described.length === 1 ? 'the required after-step action' : `${described.length} required after-step actions`} ${list} ${described.length === 1 ? 'has' : 'have'} no receipt in the Story`,
-    because: HELD_BECAUSE[first.here] ?? HELD_BECAUSE.absent
+    because: first.reconstructed
+      ? 'The delivery record was reconstructed, but its prior outcome is unknown; check the receiver before explicitly retrying'
+      : HELD_BECAUSE[first.here] ?? HELD_BECAUSE.absent
   };
 }
 

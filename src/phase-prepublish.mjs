@@ -7,6 +7,7 @@ import {
 } from './artifact-sets.mjs';
 import { generationSkillForPhase, legacyAuthoringSkill, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
+import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
@@ -399,6 +400,13 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     ? draft.draftFingerprint
     : `sha256:${createHash('sha256').update(`${draft.draftFingerprint}\0${staticChecks.artifactSetFingerprint}`)
       .digest('hex')}`;
+  const commands = Object.freeze({
+    recheck: `singularity-flow phase prepublish ${phase.id} --json`,
+    draftCheck: draft.commands.recheck,
+    recover: draft.commands.recover,
+    next: ready ? null : action?.command ?? null,
+    publish: ready ? draft.commands.publish : null
+  });
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'sflow-phase-prepublish',
@@ -444,13 +452,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       skill: ready ? null : !lifecycleReady ? action.skill
         : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null
     }),
-    commands: Object.freeze({
-      recheck: `singularity-flow phase prepublish ${phase.id} --json`,
-      draftCheck: draft.commands.recheck,
-      recover: draft.commands.recover,
-      next: ready ? null : action?.command ?? null,
-      publish: ready ? draft.commands.publish : null
-    }),
+    commands,
+    commandGuidance: commandGuidanceForCommands(commands),
     mutates: false,
     modelInvocations: 0
   });

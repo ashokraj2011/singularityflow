@@ -1,17 +1,34 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { importIsolatedReport, materializeCandidate } from '../src/candidate-isolation.mjs';
+import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from '../src/candidate-isolation.mjs';
+import { sourceTreeHash } from '../src/state.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
 const W = 'ISO-1';
+
+test('text and MDX alone require isolation even though the candidate tree hash excludes them', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-text-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => run('git', args, root);
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Isolation Tester'); git('config', 'user.email', 'iso@example.test');
+  for (const name of ['data.txt', 'view.mdx']) await writeFile(path.join(root, name), 'committed');
+  git('add', '.'); git('commit', '-q', '-m', 'base');
+  const workflow = { workItem: { id: W }, phaseOrder: ['implementation'],
+    phases: { implementation: { id: 'implementation', generationPolicy: { task: 'code' } } },
+    resolution: { plannedClaims: { mode: 'required' } } };
+  const before = await sourceTreeHash(root, {}, workflow);
+  for (const name of ['data.txt', 'view.mdx']) await writeFile(path.join(root, name), 'dirty');
+  assert.equal(await sourceTreeHash(root, {}, workflow), before);
+  assert.deepEqual((await candidateIsolationNeed(root, {}, workflow)).excluded, ['data.txt', 'view.mdx']);
+});
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -22,7 +39,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-test('a candidate worktree holds HEAD and the planned changes, links dependency folders, and reproduces the bound tree', async (t) => {
+test('a candidate worktree holds HEAD and the planned changes, copies dependency folders, and reproduces the bound tree', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-unit-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const git = (...args) => run('git', args, root);
@@ -44,13 +61,16 @@ test('a candidate worktree holds HEAD and the planned changes, links dependency 
   assert.equal(candidate.available, true, candidate.reason);
   assert.equal(await readFile(path.join(candidate.root, 'src/value.mjs'), 'utf8'), 'export const value = 2;\n');
   assert.equal(await readFile(path.join(candidate.root, 'src/config.mjs'), 'utf8'), 'export const factor = 1;\n', 'the unrelated edit is not in the candidate');
-  assert.equal((await lstat(path.join(candidate.root, 'node_modules'))).isSymbolicLink(), true, 'dependencies are linked, not copied');
+  assert.equal((await lstat(path.join(candidate.root, 'node_modules'))).isSymbolicLink(), false, 'dependencies do not link back into the dirty checkout');
   assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), 'export const factor = 10;\n', 'and it stays in the worktree');
 
   // A report written in the candidate comes back to where the parser reads it.
   await mkdir(path.join(candidate.root, 'reports'), { recursive: true });
   await writeFile(path.join(candidate.root, 'reports/result.json'), '{"ok":true}\n');
   await importIsolatedReport(candidate.root, root, 'reports/result.json');
+  assert.equal(await readFile(path.join(root, 'reports/result.json'), 'utf8'), '{"ok":true}\n');
+  await symlink(path.join(root, 'reports'), path.join(candidate.root, 'linked-reports'), 'junction');
+  await assert.rejects(importIsolatedReport(candidate.root, root, 'linked-reports/result.json'), error => error.code === 'REPOSITORY_PATH_UNSAFE');
   assert.equal(await readFile(path.join(root, 'reports/result.json'), 'utf8'), '{"ok":true}\n');
 
   await candidate.dispose();
@@ -61,6 +81,28 @@ test('a candidate worktree holds HEAD and the planned changes, links dependency 
   assert.equal(mismatch.available, false);
   assert.match(mismatch.reason, /does not reproduce/);
   assert.equal(run('git', ['worktree', 'list', '--porcelain'], root).stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1);
+});
+
+test('workspace dependencies resolve to candidate source, not excluded working-tree edits', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-links-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => run('git', args, root);
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Isolation Tester'); git('config', 'user.email', 'iso@example.test');
+  await mkdir(path.join(root, 'packages/lib'), { recursive: true });
+  await mkdir(path.join(root, 'node_modules'), { recursive: true });
+  await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
+  await writeFile(path.join(root, 'packages/lib/index.js'), 'module.exports = "committed";\n');
+  await writeFile(path.join(root, 'probe.cjs'), 'console.log(require("local-lib"));\n');
+  git('add', '.'); git('commit', '-q', '-m', 'base');
+  await symlink(path.join(root, 'packages/lib'), path.join(root, 'node_modules/local-lib'), 'junction');
+  await writeFile(path.join(root, 'packages/lib/index.js'), 'module.exports = "excluded";\n');
+  const candidate = await materializeCandidate(root, { included: [], treeHash: async () => 'bound' });
+  assert.equal(candidate.available, true, candidate.reason);
+  t.after(() => candidate.dispose());
+  assert.equal(run(process.execPath, ['probe.cjs'], candidate.root).stdout.trim(), 'committed');
+  assert.equal(run(process.execPath, ['probe.cjs'], root).stdout.trim(), 'excluded');
+  await writeFile(path.join(candidate.root, 'node_modules/local-lib/index.js'), 'module.exports = "candidate";\n');
+  assert.match(await readFile(path.join(root, 'packages/lib/index.js'), 'utf8'), /excluded/);
 });
 
 test('an unrelated local edit that would break the tests stays in the worktree while the candidate is verified, published and approved [D9]', async (t) => {
@@ -77,12 +119,23 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   run('git', ['config', 'user.email', 'iso@example.test'], root);
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/config.mjs', 'export const factor = 1;\n');
+  await write('data.txt', 'committed text');
+  await write('component.mdx', 'committed MDX');
+  const oldReport = '<testsuite tests="1" failures="0" errors="0"><testcase classname="old" name="old pass"/></testsuite>\n';
+  await write('.sflow/results/unit.xml', oldReport);
+  const runner = "const {spawnSync}=require('node:child_process'); const r=spawnSync(process.execPath,['--test','--test-reporter=junit','test/value.test.mjs'],{encoding:'utf8'}); process.stdout.write(r.stdout); process.exit(r.status ?? 1);\n";
+  await write('test/runner.cjs', runner);
   await write('src/value.mjs', "import { factor } from './config.mjs';\nexport const value = 1 * factor;\n");
   await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
     "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 1));", ''].join('\n'));
   cli('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.phases.implementation.qualityCommands = [{
+    id: 'isolated-tests', kind: 'test', argv: [process.execPath, 'test/runner.cjs', '--test-reporter=junit'],
+    workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+    result: { adapter: 'junit-xml', path: '.sflow/results/unit.xml', minimumDiscovered: 1 }
+  }];
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
@@ -115,13 +168,26 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   cli('prepare', 'implementation');
   await write('src/value.mjs', `// @clause:${W}:AC-001 doubles the configured factor\nimport { factor } from './config.mjs';\nexport const value = 2 * factor;\n`);
   await write('test/value.test.mjs', [`// @ac:${W}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));", ''].join('\n'));
+    "import { readFileSync } from 'node:fs';",
+    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));",
+    "test('text input', () => assert.equal(readFileSync('data.txt', 'utf8'), 'committed text'));",
+    "test('MDX input', () => assert.equal(readFileSync('component.mdx', 'utf8'), 'committed MDX'));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module doubles the configured factor.'));
   // Unrelated local work no plan names: run in place, the edited factor would make the test fail.
   const unrelated = 'export const factor = 10; // trying something unrelated\n';
   await write('src/config.mjs', unrelated);
   await write('src/scratch.mjs', "throw new Error('never part of this Story');\n");
+  await write('data.txt', 'excluded text');
+  await write('component.mdx', 'excluded MDX');
+
+  // A committed passing report in the candidate must not turn a no-op into fresh evidence.
+  await write('test/runner.cjs', '// intentionally emit no report\n');
+  const stale = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
+  assert.notEqual(stale.status, 0, 'old committed JUnit is not evidence of this no-op');
+  assert.match(stale.stdout + stale.stderr, /CODE_TEST_RESULT|Structured test|JUnit|test result/i);
+  assert.equal(await readFile(path.join(root, '.sflow/results/unit.xml'), 'utf8'), oldReport, 'the original report is restored');
+  await write('test/runner.cjs', runner);
 
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
@@ -129,11 +195,13 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.implementation.status, 'approved');
   const receipt = JSON.parse(await readFile(path.join(root, workflow.phases.implementation.deliveryEvidence.receiptPath), 'utf8'));
-  assert.deepEqual(receipt.excludedChanges, ['src/config.mjs', 'src/scratch.mjs']);
+  assert.deepEqual(receipt.excludedChanges, ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs']);
   assert.ok(workflow.phases.implementation.checks.some((check) => check.executionIsolation === 'candidate-worktree'
     && check.excludedFromRun.includes('src/config.mjs')), 'submission ran its checks on the candidate');
   // Nothing was cleaned, stashed, reset or committed: the unrelated work is exactly as it was.
   assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), unrelated);
+  assert.equal(await readFile(path.join(root, 'data.txt'), 'utf8'), 'excluded text');
+  assert.equal(await readFile(path.join(root, 'component.mdx'), 'utf8'), 'excluded MDX');
   assert.equal(run('git', ['show', 'HEAD:src/config.mjs'], root).stdout, 'export const factor = 1;\n');
   assert.equal(run('git', ['ls-files', '--', 'src/scratch.mjs'], root).stdout.trim(), '');
   assert.equal(run('git', ['worktree', 'list', '--porcelain'], root).stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1,

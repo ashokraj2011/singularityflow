@@ -809,6 +809,46 @@ test('artifact preflight recognizes conventional unfinished markers without flag
   );
 });
 
+test('qualified clause identities are never placeholders, regardless of the Story namespace', () => {
+  assert.deepEqual(artifactPlaceholderFindings('`TODO:REQ-001` references PLACEHOLDER:AC-002.'), []);
+  for (const namespace of ['ADD-FACTORILA', 'add-factorila', 'INSERT-ITEM', 'PROVIDE', 'RECORD',
+    'DESCRIBE', 'TODO', 'TBD', 'FIXME', 'TBC', 'XXX', 'PLACEHOLDER']) {
+    for (const type of ['REQ', 'AC', 'BEH', 'IFC', 'CON']) {
+      const tag = `[${namespace}:${type}-001]`;
+      assert.deepEqual(artifactPlaceholderFindings(`Requirement ${tag}\r\nTODO finish evidence`),
+        [{ value: 'TODO', line: 2 }], tag);
+    }
+  }
+  assert.deepEqual(artifactPlaceholderFindings('[add description]\n[ADD-ITEM:REQ-01]\n{{owner}}'), [
+    { value: '[add description]', line: 1 }, { value: '[ADD-ITEM:REQ-01]', line: 2 },
+    { value: '{{owner}}', line: 3 }
+  ]);
+  assert.deepEqual(artifactPlaceholderFindings('[add [ADD-ITEM:REQ-001] evidence]'), [
+    { value: '[add [ADD-ITEM:REQ-001] evidence]', line: 1 }
+  ]);
+});
+
+test('qualified ADD clause tags survive prepublish, recovery and actual publication', async (t) => {
+  const item = await fixture('qualified-tags');
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await writeFile(item.target, [
+    '# Intake', '', '## Requested outcome', '',
+    'Deliver the requested factorial operation. [ADD-FACTORILA:REQ-001]', '',
+    '## Scope and constraints', '', 'Keep existing arithmetic intact. [ADD-FACTORILA:REQ-002]', '',
+    '## Evidence', '', 'Zero factorial equals one. [ADD-FACTORILA:AC-001]', ''
+  ].join('\n'));
+  await inContext(item.root, async () => {
+    const prepublish = await phasePrepublish(item.root, item.config, item.workflow, item.phase);
+    assert.equal(prepublish.findings.some(f => f.code === 'artifact.placeholder.unresolved'), false);
+    const recovery = await recoveryPlan(item.root, item.config, item.workflow, { phaseId: 'intake' });
+    assert.equal(recovery.blockers.some(f => f.code === 'artifact.placeholder.unresolved'), false);
+    const published = await publishGeneration(item.root, item.config, item.workflow, {
+      phaseId: 'intake', authorship: AUTHORSHIP
+    });
+    assert.equal(published.generation, 1);
+  });
+});
+
 test('only governed supporting Markdown is placeholder-checked without scanning advisory or arbitrary evidence', async () => {
   const context = await fixture('supporting-review-artifact');
   context.phase.artifactSet = 'review-bundle';

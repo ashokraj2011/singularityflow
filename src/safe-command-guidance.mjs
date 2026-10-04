@@ -312,3 +312,30 @@ export function safeCommandGuidance(value) {
     copilotCommand: canonicalCopilotCommand
   });
 }
+
+/** Add presentation metadata without changing the legacy command strings or authorizing work. */
+export function commandGuidanceForCommands(commands) {
+  return Object.freeze(Object.fromEntries(Object.entries(commands).map(([id, command]) => {
+    if (!command) return [id, null];
+    const safe = safeCommandGuidance(command);
+    if (!safe) return [id, Object.freeze({ command: null, copilotCommand: null,
+      copilotStatus: 'unavailable',
+      copilotReason: 'No verified Copilot equivalent; the command could not be safely resolved.' })];
+    // /sf-phase is an authoring journey, not a relay for a read-only check or a standalone
+    // publication. Do not turn a request to inspect a draft into generation/publication.
+    const phaseOperation = safe.argv[0] === 'phase'
+      && ['draft-check', 'prepublish', 'show', 'begin', 'publish'].includes(safe.argv[1]);
+    return [id, Object.freeze({ command: safe.command,
+      copilotCommand: phaseOperation ? null : safe.copilotCommand,
+      copilotStatus: phaseOperation ? 'unavailable' : 'available',
+      copilotReason: phaseOperation
+        ? `No dedicated Copilot equivalent exists for phase ${safe.argv[1]}; use the Shell command. /sf-phase is an authoring journey, not this exact operation.`
+        : null })];
+  })));
+}
+
+export function commandGuidanceLines(guidance, label) {
+  if (!guidance) return [];
+  return [`${label}:`, `Shell: ${guidance.command ?? 'unavailable — unsafe command'}`,
+    `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`];
+}

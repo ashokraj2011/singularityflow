@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Singularity Flow capability doctor
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.
+**Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.
 

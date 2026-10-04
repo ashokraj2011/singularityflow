@@ -8,7 +8,7 @@ argument-hint: "[file or declaration focus]"
 # Document the code this generation changed
 
 <!-- sflow-output-contract: scoped-repair -->
-**Output contract:** Repair only the named local scope; report changes and remaining findings. Never publish, submit, or approve.
+**Output contract:** Repair only the named local scope; report changes and remaining findings. Never publish, submit, or approve. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

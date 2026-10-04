@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Analyze workspace impact
 
 <!-- sflow-output-contract: advisory-analysis -->
-**Output contract:** Run only the confirmed advisory analysis; report its evidence and limitations. Do not promote or publish governed artifacts.
+**Output contract:** Run only the confirmed advisory analysis; report its evidence and limitations. Do not promote or publish governed artifacts. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

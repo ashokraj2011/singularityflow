@@ -180,7 +180,22 @@ async function retryCommand(root, config, positionals, options, operation, json)
     });
   }
   const { repositoryLogger } = await import('../logging.mjs');
-  const report = await deliverStepActions(root, { keys: keys.length ? keys : null, includeFailed: all, logger: repositoryLogger(root, config) });
+  const knownBefore = new Set((await listStepActionDeliveries(root)).map(entry => entry.key));
+  const { loadStoryAggregate } = await import('../state-stores.mjs');
+  const { reconstructRequiredStepActions } = await import('../step-action-recovery.mjs');
+  let reconstruction = { restored: [], unavailable: [] };
+  try {
+    const workflow = await loadStoryAggregate(root, config);
+    reconstruction = await reconstructRequiredStepActions(root, config, workflow, { keys: keys.length ? keys : null });
+  } catch (error) {
+    // Existing outbox deliveries still work outside an active Story. Never infer a missing one.
+    reconstruction.unavailable.push({ reason: `Could not reconstruct missing deliveries: ${error.message}` });
+  }
+  const restoredKeys = new Set(reconstruction.restored.map(entry => entry.key));
+  const selected = keys.length ? keys : (await listStepActionDeliveries(root)).filter(entry =>
+    entry.status === 'pending' || entry.status === 'failed').map(entry => entry.key);
+  const report = await deliverStepActions(root, { keys: selected.filter(key => knownBefore.has(key) && !restoredKeys.has(key)), includeFailed: all, logger: repositoryLogger(root, config) });
+  for (const key of keys.filter(key => !knownBefore.has(key) && !restoredKeys.has(key))) report.skipped.push({ key, reason: 'unknown; see reconstruction diagnostics' });
   let recorded = null;
   if (report.delivered.length) {
     const { recordRequiredReceiptsAfterDelivery } = await import('../step-action-recording.mjs');
@@ -189,6 +204,8 @@ async function retryCommand(root, config, positionals, options, operation, json)
     }
   }
   if (!json) {
+    for (const entry of reconstruction.restored) console.log(`${entry.key}: ${entry.message} Next: ${entry.command}`);
+    for (const entry of reconstruction.unavailable) console.warn(entry.reason);
     for (const entry of [...report.delivered, ...report.retrying, ...report.unavailable, ...report.failed]) {
       const state = report.delivered.includes(entry) ? 'delivered' : report.failed.includes(entry) ? 'failed' : report.unavailable.includes(entry) ? 'unavailable here' : 'will retry';
       console.log(`${state.padEnd(16)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})${entry.detail ? `: ${entry.detail}` : ''}`);
@@ -199,7 +216,9 @@ async function retryCommand(root, config, positionals, options, operation, json)
   return emitCommandResult(result(operation, succeeded('integrations.retried', {
     count: report.delivered.length + report.retrying.length + report.unavailable.length + report.failed.length,
     delivered: report.delivered.length, pending: report.retrying.length + report.unavailable.length, failed: report.failed.length
-  }), { data: { report, receipts: recorded?.written?.length ? { count: recorded.written.length, commit: recorded.publication.sha, pushed: Boolean(recorded.publication.pushed) } : null }, changed: true }), { json });
+  }), { data: { report, reconstruction, receipts: recorded?.written?.length ? { count: recorded.written.length, commit: recorded.publication.sha, pushed: Boolean(recorded.publication.pushed) } : null }, changed: true,
+    next: reconstruction.restored.map(entry => action({ id: `review-${entry.key}`, label: 'Review receiver outcome before retrying', command: entry.command, kind: 'remediation' }))
+  }), { json });
 }
 
 /** One delivery as \`integrations record\` reports it. */

@@ -4,6 +4,8 @@ import YAML from 'yaml';
 import { operationCatalog } from '../src/command-registry.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 
+export const COMMAND_PRESENTATION_CONTRACT = 'For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.';
+
 const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',
   'concise-relay': 'Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.',
@@ -314,7 +316,7 @@ function withAutomaticPolicy(text, automatic, description, file) {
 function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind) {
   const skill = splitSkill(text, file);
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${COMMAND_PRESENTATION_CONTRACT}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -448,7 +450,10 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     for (const message of skillDelegationErrors(name, skill.body, policy.skills)) errors.push(`${name}: ${message}`);
     const bodyTokens = estimatedTokens(skill.body);
     const descriptionTokens = estimatedTokens(skill.frontmatter.description);
-    const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;
+    // The shared command-presentation requirement is fixed engine-owned overhead, not an
+    // allowance to grow per-skill prose. Report both budgets and keep the existing domain cap.
+    const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -469,6 +474,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       errors.push(`${name}: explicit-only skill must set disable-model-invocation: true`);
     }
     if (!skill.body.includes(marker)) errors.push(`${name}: missing '${classPolicy.outputContract}' output contract`);
+    if (!skill.body.includes(COMMAND_PRESENTATION_CONTRACT)) errors.push(`${name}: missing Shell/Copilot presentation contract`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
     if (skill.body.includes('singularity/work-items/<WORK-ID>')) {
       errors.push(`${name}: hard-codes the default Story root instead of using immutable workflow.resolution.workItemRoot or a CLI-returned path`);
@@ -502,6 +508,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       modelOperations,
       descriptionTokens,
       bodyTokens,
+      commandPresentationTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,
       previewBytes: classPolicy.previewBytes,

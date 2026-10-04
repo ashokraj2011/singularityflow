@@ -7,6 +7,7 @@ import {
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
+import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
 import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import {
@@ -178,6 +179,13 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
+  const commands = Object.freeze({
+    recheck: `singularity-flow phase draft-check ${phase.id} --json`,
+    recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+    // A red check must never offer an executable publication action.
+    publish: clean ? phasePublicationCommand(phase) : null,
+    next: route?.command ?? null
+  });
   return Object.freeze({
     schemaVersion: 1, // schema-transient: read-only process projection, never persisted
     resultType: 'sflow-phase-draft-check',
@@ -210,14 +218,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       guidance: clean ? null : route?.guidance ?? correctionGuidance(repairClass, phase),
       skill: route ? route.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
-    commands: Object.freeze({
-      recheck: `singularity-flow phase draft-check ${phase.id} --json`,
-      recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      // A correction-required projection is not publishable. Returning an executable publish
-      // command beside the blocker made hosts offer the illegal action even when `status` was red.
-      publish: clean ? phasePublicationCommand(phase) : null,
-      next: route?.command ?? null
-    }),
+    commands,
+    commandGuidance: commandGuidanceForCommands(commands),
     mutates: false,
     modelInvocations: 0
   });

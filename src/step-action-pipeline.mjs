@@ -5,7 +5,7 @@
  * that machine writes the delivery as the pipeline's. A pipeline holding the organisation's
  * credentials runs on each pushed lifecycle commit, rebuilds the deliveries that commit calls for
  * from the commit itself (its event, its Story state and its artifact bytes), and delivers them
- * under the same delivery keys, so a receiver sees each delivery once.
+ * under the same delivery keys, so a receiver can deduplicate retries.
  *
  * The pipeline trusts nothing a Story branch can change. It delivers an action only when the target
  * the Story pinned is exactly the target the approved workflow configuration declares on a trusted
@@ -56,7 +56,7 @@ function trustedTargets(root, commit) {
  * projection holds the event the commit binds by hash. Null when the commit is not a lifecycle
  * commit of any Story.
  */
-function lifecycleOf(root, identity) {
+export function lifecycleOf(root, identity) {
   const candidates = commitChangedPaths(root, identity.commit).filter((file) => /\/workflow\.json$/u.test(file));
   for (const file of candidates) {
     const bytes = committedFileBytes(root, identity.commit, file);

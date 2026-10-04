@@ -16,6 +16,7 @@ import YAML from 'yaml';
 import { recordSha256 } from '../src/records.mjs';
 import { familyForStoredPath, readRecord } from '../src/schema-migrations.mjs';
 import { deliverStepActions, enqueueStepActions } from '../src/step-action-delivery.mjs';
+import { sharedPublicationStorageDirectory } from '../src/publication-storage.mjs';
 import {
   assertReceiptsMayBeRecorded, assertRequiredStepActionsRecorded, planStepActionReceipts, stepActionReceipt, stepActionReceiptDirectory,
   stepActionReceiptProblem, stepAwaitingApproval, writeStepActionReceipts
@@ -275,8 +276,8 @@ test('a required delivery holds the next step until its receipt is committed, an
   let error = await held();
   assert.equal(error.code, 'STEP_ACTION_REQUIRED_UNRECORDED');
   assert.equal(error.message, 'implement cannot be prepared yet: the required after-step action audit → team-events (intake generation 1, approved) has no receipt in the Story. '
-    + 'This machine has no record of it: the machine that approved the step delivers it; record its receipt there.');
-  assert.deepEqual([error.details.missing[0].key, error.details.missing[0].here, error.details.nextAction], [key, 'absent', null]);
+    + `This machine has no delivery record; reconstruct it from the committed approval, review the unknown prior outcome, then explicitly retry: singularity-flow integrations retry ${key}.`);
+  assert.deepEqual([error.details.missing[0].key, error.details.missing[0].here, error.details.nextAction], [key, 'absent', `singularity-flow integrations retry ${key}`]);
 
   await enqueueStepActions(root, workflow, { event: { type: 'phase-approved', phaseId: 'intake', generation: 1 }, commit: git('rev-parse', 'HEAD') });
   await deliverStepActions(root, { env: {}, post: async () => ({ outcome: 'failed', status: 401, code: 'STEP_ACTION_TARGET_REFUSED' }) });
@@ -381,4 +382,26 @@ test('a required delivery that failed holds the next step until a retry delivers
   assert.equal(run('git', ['rev-list', '--count', `${headBefore}..HEAD`], root).stdout.trim(), '1');
   await cli('prepare', 'implement');
   assert.equal(local.requests.length, 2);
+});
+
+test('a lost outbox is reconstructed from approval without sending, then an explicit retry releases the required gate', async (t) => {
+  const local = await receiver(t, [401]);
+  const { root, cli } = await requiredStory(t, local);
+  await cli('approve', 'intake', '--yes');
+  const status = JSON.parse((await cli('integrations', 'status', '--all', '--json')).stdout);
+  const key = status.data.deliveries[0].key;
+  const previousBody = local.requests[0].body;
+  await rm(path.join(sharedPublicationStorageDirectory(root, 'action-outbox'), `${key}.json`));
+  const held = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], root, {}, { allowFailure: true });
+  assert.match(held.stdout + held.stderr, new RegExp(`integrations retry ${key}`));
+  const restored = JSON.parse((await cli('integrations', 'retry', key, '--json')).stdout);
+  assert.equal(restored.data.reconstruction.restored.length, 1);
+  assert.equal(restored.data.reconstruction.restored[0].priorOutcome, 'unknown');
+  assert.equal(local.requests.length, 1, 'reconstruction never guesses that the receiver saw nothing');
+  assert.equal(restored.data.report.delivered.length, 0);
+  const retried = JSON.parse((await cli('integrations', 'retry', key, '--json')).stdout);
+  assert.equal(retried.data.report.delivered.length, 1);
+  assert.equal(retried.data.receipts.count, 1);
+  assert.equal(local.requests[1].body, previousBody, 'reconstruction uses identical committed event bytes');
+  await cli('prepare', 'implement');
 });

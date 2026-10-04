@@ -96,6 +96,25 @@ function delivery({
 const evaluate = (parts, options) => evaluateEvidence(evidenceGraph(parts), options);
 const row = (evaluation, id) => evaluation.rows.find((entry) => entry.id === id);
 
+test('approved inspection must cite the exact criterion, not another Story or a longer identifier', () => {
+  const phase = id => ({ id, status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('alice')] });
+  const workflow = { workItem: { id: W }, status: 'closed', currentPhase: null,
+    phaseOrder: ['spec', 'build', 'review'], phases: { spec: phase('spec'), build: phase('build'), review: phase('review') },
+    resolution: { obligationGraph: { nodes: [
+      { id: 'spec', responsibilities: ['scope', 'plan'] }, { id: 'build', responsibilities: ['implement'] },
+      { id: 'review', responsibilities: ['verify', 'review'] }
+    ] } } };
+  const records = { indexes: [{ phase: 'spec', generation: 1,
+    clauses: [{ id: AC1, type: 'AC', bodySha256: 'a'.repeat(64) }] }], planned: [], observed: [] };
+  for (const [text, expected] of [[`Reviewed OTHER-${AC1} only.`, 'missing'],
+    [`Reviewed ${AC1}0.`, 'missing'], [`Reviewed ${AC1}-OTHER.`, 'missing'],
+    [`Reviewed [${AC1}].`, 'satisfied'], [`Reviewed ${AC1.toLowerCase()}.`, 'satisfied']]) {
+    const result = evaluate({ workflow, records, inspections: [{ phaseId: 'review', text }] });
+    assert.equal(row(result, AC1).result, expected, text);
+    assert.equal(result.decision.gate, expected === 'satisfied' ? 'allow' : 'block');
+  }
+});
+
 test('a delivered, tested and approved criterion is satisfied at module-observed assurance, never at more', () => {
   const evaluation = evaluate({ workflow: story(), records: records(), deliveries: [delivery()] });
   assert.equal(row(evaluation, AC1).result, 'satisfied');

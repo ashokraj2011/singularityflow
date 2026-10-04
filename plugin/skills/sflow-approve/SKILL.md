@@ -8,7 +8,7 @@ argument-hint: "[PHASE-ID] [--work-id WORK-ID] [--fetch]"
 # Approve the submitted phase
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Reuse exact same-chat document displays; refresh packet review and explicit consent.
+**Output contract:** Reuse exact same-chat document displays; refresh packet review and explicit consent. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

@@ -49,7 +49,7 @@ import {
 } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandGuidanceLines, renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
@@ -6930,14 +6930,11 @@ async function phaseCommand(positionals, options) {
     }
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);
-      if (result.commands.next) printCommandRoutes(result.commands.next, {
-        skill: result.correction.skill,
-        label: 'Next'
-      });
-      console.log(`Recover: ${result.commands.recover}`);
-      console.log(`Recheck: ${result.commands.recheck}`);
+      for (const [id, label] of [['next', 'Next'], ['recover', 'Recover'], ['recheck', 'Recheck']]) {
+        for (const line of commandGuidanceLines(result.commandGuidance[id], label)) console.log(line);
+      }
     } else {
-      console.log(`Publish: ${result.commands.publish}`);
+      for (const line of commandGuidanceLines(result.commandGuidance.publish, 'Publish')) console.log(line);
     }
     return;
   }

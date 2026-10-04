@@ -8,7 +8,7 @@ argument-hint: "<WORK-ID> [--jira | manual story details] [documents and URLs]"
 # Start work
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Explicit choices; no preselection; preserve errors/artifacts/actions.
+**Output contract:** Explicit choices; no preselection; preserve errors/artifacts/actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 

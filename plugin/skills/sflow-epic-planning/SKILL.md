@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Plan governed Stories
 
 <!-- sflow-output-contract: canonical-delegation -->
-**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication.
+**Output contract:** Run the canonical skill once and preserve its result and handoff; do not repeat its preflight, authoring, or publication. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 

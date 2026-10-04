@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -118,11 +118,49 @@ test('each target kind builds its request, and a missing secret makes the delive
 test('an answer decides the delivery: done, try later, or needs a person', () => {
   assert.equal(classifyResponse(200).outcome, 'delivered');
   assert.equal(classifyResponse(204).outcome, 'delivered');
-  assert.equal(classifyResponse(409).outcome, 'delivered', 'a receiver that already has the key has the delivery');
+  assert.equal(classifyResponse(409).outcome, 'failed', 'a conflict alone proves no delivery');
+  const acknowledgement = { kind: 'webhook', deliveryKey: 'sad_123', bodySha256: 'a'.repeat(64) };
+  const ack = { schema: 'sflow-step-action-ack@1', status: 'already-delivered',
+    deliveryKey: acknowledgement.deliveryKey, bodySha256: acknowledgement.bodySha256 };
+  assert.equal(classifyResponse(409, JSON.stringify(ack), acknowledgement).outcome, 'delivered');
+  assert.equal(classifyResponse(409, JSON.stringify({ ...ack, accepted: false }), acknowledgement).outcome, 'failed');
+  for (const text of ['{}', '{"accepted":false,"error":"document_version_conflict"}',
+    JSON.stringify({ ...ack, deliveryKey: 'another' }), JSON.stringify({ ...ack, bodySha256: 'b'.repeat(64) })]) {
+    assert.equal(classifyResponse(409, text, acknowledgement).outcome, 'failed');
+  }
+  assert.equal(classifyResponse(409, JSON.stringify(ack), { ...acknowledgement, kind: 'teams' }).outcome, 'failed');
   for (const status of [408, 425, 429, 500, 502, 503]) assert.equal(classifyResponse(status).outcome, 'retry', String(status));
   for (const status of [400, 401, 403, 404, 410, 413, 422]) assert.equal(classifyResponse(status).outcome, 'failed', String(status));
   assert.equal(classifyResponse(302).code, 'STEP_ACTION_REDIRECT_REFUSED');
   assert.doesNotMatch(classifyResponse(500, '{"token":"abc123"}').detail, /abc123/, 'answers are redacted before they are kept');
+});
+
+test('a real HTTP conflict cannot create delivered evidence; only a bound duplicate acknowledgement can', async t => {
+  const root = await gitRepository(t);
+  let acknowledge = false;
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      const body = Buffer.concat(chunks);
+      response.writeHead(409, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(acknowledge ? {
+        schema: 'sflow-step-action-ack@1', status: 'already-delivered',
+        deliveryKey: request.headers['idempotency-key'], bodySha256: createHash('sha256').update(body).digest('hex')
+      } : { accepted: false, error: 'version-conflict' }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const integrations = normalizeIntegrations({ targets: { hook: { kind: 'webhook', url: `http://127.0.0.1:${server.address().port}/hook` } } });
+  const workflow = storyWorkflow([{ id: 'audit', required: true, on: ['approved'], target: 'hook' }], integrations, { status: 'approved' });
+  const [queued] = await enqueueStepActions(root, workflow, { event: { type: 'phase-approved', phaseId: 'intake', generation: 1 }, commit: 'a'.repeat(40) });
+  const failed = await deliverStepActions(root, { keys: [queued.key] });
+  assert.equal(failed.failed.length, 1);
+  assert.equal(failed.delivered.length, 0);
+  acknowledge = true;
+  const success = await deliverStepActions(root, { keys: [queued.key] });
+  assert.equal(success.delivered.length, 1);
 });
 
 test('requests go only where the target allows, and never follow a redirect', async (t) => {

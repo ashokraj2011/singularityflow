@@ -12,6 +12,7 @@
  * adapter only counts tests passes through its module command and stops at module-observed.
  */
 import { approvalRequirementsMet } from '../approval-authority.mjs';
+import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords } from '../specifications.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
@@ -271,7 +272,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   const claimsPlanned = workflow.resolution?.plannedClaims?.mode === 'required';
   const planSteps = holders(workflow, 'plan');
   const verifySteps = holders(workflow, 'verify');
-  const inspections = graph.inspections ?? [];
+  const inspections = (graph.inspections ?? []).map(entry => ({ ...entry, clauseIds: qualifiedClauseIds(entry.text) }));
   // How each criterion must be verified [E2G-013], and what reviewers decided about each exact test
   // that witnesses one [E2G-014]: a decision binds the test's exact revision and the criterion's text.
   const contracts = mergedVerificationContracts(records.planned ?? []);
@@ -376,7 +377,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       const contract = noCode ? null : effectiveContract(id, contracts, planned);
       if (noCode) {
         // A reviewer approved verification evidence that cites the criterion; no test proves it.
-        inspectedBy = inspections.filter((entry) => entry.text.includes(id) && phaseFinished(phases[entry.phaseId])
+        inspectedBy = inspections.filter((entry) => entry.clauseIds.has(id) && phaseFinished(phases[entry.phaseId])
           && !['pending', 'not-required'].includes(reviewFacet(phases[entry.phaseId]))).map((entry) => entry.phaseId);
         execution = 'not-applicable';
         assurance = inspectedBy.length ? 'declared' : 'none';

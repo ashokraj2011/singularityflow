@@ -7,6 +7,7 @@ import path from 'node:path';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
+import { qualifiedClauseMatches } from './traceability-ids.mjs';
 
 const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
 // These words are useful in ordinary prose when lower-cased. Treat only the conventional uppercase
@@ -219,10 +220,22 @@ function anglePlaceholderFindings(text) {
 export function artifactPlaceholderFindings(text, { structure = null } = {}) {
   const authored = authoredArtifactText(text, { preserveLines: true });
   const visible = (structure ?? parseMarkdownStructure(authored)).visibleText;
-  const regular = [...visible.matchAll(PLACEHOLDER)].map((match) => ({
-    value: match[0], index: match.index
+  // Clause namespaces are user-chosen: ADD-FACTORIAL and even TODO are legal. Mask only
+  // complete, valid identities (bracketed, inline code, or prose), not their surrounding
+  // instructions or unfinished markers.
+  // Keep offsets/newlines intact so every remaining finding still points at the source line.
+  let placeholderText = visible;
+  for (const match of qualifiedClauseMatches(visible)) {
+    const bracketed = visible[match.index - 1] === '[' && visible[match.index + match[0].length] === ']';
+    const start = match.index - (bracketed ? 1 : 0);
+    const length = match[0].length + (bracketed ? 2 : 0);
+    placeholderText = placeholderText.slice(0, start) + ' '.repeat(length)
+      + placeholderText.slice(start + length);
+  }
+  const regular = [...placeholderText.matchAll(PLACEHOLDER)].map((match) => ({
+    value: visible.slice(match.index, match.index + match[0].length), index: match.index
   }));
-  const explicitUppercase = [...visible.matchAll(EXPLICIT_UPPERCASE_PLACEHOLDER)]
+  const explicitUppercase = [...placeholderText.matchAll(EXPLICIT_UPPERCASE_PLACEHOLDER)]
     .map((match) => ({ value: match[0], index: match.index }))
     .filter((finding) => !regular.some((candidate) => finding.index >= candidate.index
       && finding.index + finding.value.length <= candidate.index + candidate.value.length));

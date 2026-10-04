@@ -47,11 +47,11 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class
-    && row.bodyTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
+    && row.bodyTokens - row.commandPresentationTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
   // Code generation, the specialised skills a step may choose (they follow that step's contract),
   // and the two skills that relay a step routed elsewhere.
   const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements', 'sflow-verify'];
-  assert.deepEqual(result.rows.filter((row) => row.bodyTokens > 800).map((row) => row.name), overridden);
+  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
   assert.deepEqual(result.rows.filter((row) => row.kernelModelPolicy === 'conditional').map((row) => row.name), [

@@ -147,7 +147,7 @@ import { assertNoInteractiveRevisionPublication } from './revision/publication-a
 import {
   deliverStepActions, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning, storyUsesStepActions
 } from './step-action-delivery.mjs';
-import { assertRequiredStepActionsRecorded } from './step-action-receipts.mjs';
+import { assertRequiredStepActionsRecorded, storyRequiresStepActions } from './step-action-receipts.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import {
@@ -4527,6 +4527,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
+  let isolatedResultRestore = null;
   // Changed files no plan names stay in the worktree, and verification runs on exactly the
   // candidate in a worktree materialized beside it [E2G-027, D9].
   const isolationNeed = commands.length ? await candidateIsolationNeed(root, config, workflow) : null;
@@ -4575,7 +4576,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const commandRoot = commandTarget.absolute;
     // Reports are staged and read in the worktree; the command itself runs on the candidate.
     const executionRoot = isolation
-      ? path.resolve(isolation.root, policy.workingDirectory && policy.workingDirectory !== '.' ? policy.workingDirectory : '.')
+      ? (await secureRepositoryPath(isolation.root, policy.workingDirectory || '.', {
+        label: 'Isolated command working directory', mustExist: true, type: 'directory'
+      })).absolute
       : commandRoot;
     let restoreTransientResult = null;
     let structuredResultTarget = null;
@@ -4608,6 +4611,18 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       // may contain unrelated files, so the staging helper clears only parser-visible reports.
       await stagedResult.clear();
       structuredResultTarget = resultTarget;
+      if (isolation) {
+        const isolatedTarget = await secureRepositoryPath(isolation.root,
+          path.relative(isolation.root, path.resolve(executionRoot, policy.result.path)),
+          { label: 'Isolated test result', mustExist: false });
+        await mkdir(path.dirname(isolatedTarget.absolute), { recursive: true });
+        const stagedCandidateResult = await stageTransientQualityResult(
+          isolation.root, executionRoot, policy.result.path, policy.result.adapter
+        );
+        isolatedResultRestore = stagedCandidateResult.restore;
+        await stagedCandidateResult.clear();
+        structuredResultTarget = isolatedTarget.absolute;
+      }
     }
     // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
     // harness marker to a nested `node --test` process makes Node treat the required repository
@@ -4642,7 +4657,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
           || policy.result?.adapter === 'karma-text'
           || (policy.result?.adapter === 'junit-xml'
             && policy.argv.some((argument) => argument === '--test-reporter=junit')))
-          ? path.resolve(commandRoot, policy.result.path)
+          ? structuredResultTarget
           : null
       })
       : await runQualityCommand(policy.command, [], {
@@ -4650,7 +4665,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
-    if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path);
+    if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
+      isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
+    });
+    if (isolatedResultRestore) {
+      await isolatedResultRestore();
+      isolatedResultRestore = null;
+    }
     const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
@@ -4698,7 +4719,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     for (const check of checks) await restoreTransientQualityResult(check);
     throw error;
   } finally {
-    await isolation?.dispose?.();
+    try { if (isolatedResultRestore) await isolatedResultRestore(); }
+    finally { await isolation?.dispose?.(); }
   }
   return checks;
 }
@@ -9000,6 +9022,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     authorityGroup: event?.authorityGroup ?? decision?.authorityGroup ?? null,
     payload: {
       ...(event?.payload ?? {}),
+      ...(storyRequiresStepActions(workflow) ? {
+        stepActionRemote: workflowPublicationMode(config, workflow) === 'off' ? null
+          : (publicationAuthority ?? configuredRemoteAuthority(root, config.git?.remote ?? 'origin'))?.url ?? null
+      } : {}),
       ...(authenticatedPublicationTail?.capabilityPublicationPlanSha256 ? {
         capabilityPublicationPlanSha256: authenticatedPublicationTail.capabilityPublicationPlanSha256
       } : {}),

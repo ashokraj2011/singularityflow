@@ -8,7 +8,7 @@ argument-hint: "[--skip-checks only when explicitly authorized]"
 # Submit
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Show artifacts, hashes, warnings, and confirmation before a decision.
+**Output contract:** Show artifacts, hashes, warnings, and confirmation before a decision. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 

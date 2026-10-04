@@ -1,6 +1,6 @@
 .DS_Store
 .idea/
-node_modules/
+node_modules
 *.tgz
 coverage/
 /.singularity-flow/ast-evidence-store/

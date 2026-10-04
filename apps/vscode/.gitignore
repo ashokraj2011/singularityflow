@@ -1,5 +1,5 @@
 dist/
-node_modules/
+node_modules
 # Build outputs: the packaged extension, and the engine staged into it during packaging.
 *.vsix
 # Anchored. Unanchored, `cli/` matches a directory of that name at any depth — including

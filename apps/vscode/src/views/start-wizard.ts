@@ -22,6 +22,8 @@ const STEPS: ReadonlyArray<{
 export function startWizardProgress(progress: StartWizardProgress | null = null): string {
   if (!progress) return '';
   const active = STEPS.findIndex((step) => step.id === progress.step);
+  // Back goes one step: what that step already made (a mapped capability, a workspace) is kept.
+  const previous = active > 0 ? STEPS[active - 1] : null;
   const context = [
     progress.capabilityId ? `Capability: ${progress.capabilityId}` : null,
     progress.workspaceName ? `Workspace: ${progress.workspaceName}` : null
@@ -47,5 +49,9 @@ export function startWizardProgress(progress: StartWizardProgress | null = null)
       </ol>
       ${context ? `<p class="start-wizard-context">${escape(context)}</p>` : ''}
       <p class="muted">Each step uses the normal governed checks and confirmations. You can close the screen and resume without creating partial lifecycle state.</p>
+      <div class="start-wizard-actions">
+        ${previous ? `<button type="button" class="secondary" data-guided="back">← Back to ${escape(previous.label)}</button>` : ''}
+        <button type="button" class="secondary" data-guided="exit">Exit guided start</button>
+      </div>
     </aside>`;
 }

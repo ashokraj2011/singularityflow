@@ -16,7 +16,7 @@ import { booleanField, registerMessageRouter, stringField } from './messages.ts'
 import {
   capabilityChoices, effectiveLead, EMPTY_WORKSPACE_FORM, formPrepareCommand,
   formProblems, shippingCapabilities, WORKSPACE_PROFILE_ROLES,
-  workspaceFormHtml, WORKSPACE_FORM_SCRIPT,
+  workspaceFormHasInput, workspaceFormHtml, WORKSPACE_FORM_SCRIPT,
   type CapabilityChoice, type RemoteCapability, type WorkspaceForm
 } from './workspace-form.ts';
 import { SingularityFlowClient, type CliLocation } from '../cli/client.ts';
@@ -348,6 +348,16 @@ export class WorkspacePanel {
    * `field` once committed.
    */
   private router = registerMessageRouter('singularityFlow.workspaceForm', {
+    // Cancel closes Create workspace; what was typed is thrown away only after a yes.
+    cancel: async () => {
+      if (this.form.busy || this.disposed) return;
+      if (workspaceFormHasInput(this.form)) {
+        const choice = await vscode.window.showWarningMessage('Discard this workspace draft?',
+          { modal: true, detail: 'Nothing has been created, so nothing else changes.' }, 'Discard');
+        if (choice !== 'Discard') return;
+      }
+      this.dispose();
+    },
     choose: (message) => {
       if (stringField(message, 'what') === 'base') void this.chooseBase();
     },

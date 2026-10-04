@@ -155,6 +155,8 @@ export class TeamOnboardingPanel {
     'repository-selection': (message: InboundMessage) => this.repositorySelection(message),
     'repository-field': (message: InboundMessage) => this.repositoryField(message),
     'inspect-selected': () => void this.inspectSelected(),
+    // Cancel on the first step closes onboarding; nothing is proposed before the last step.
+    close: () => { if (!this.disposed) this.dispose(); },
     'inspection-cancel': () => this.cancelInspection(),
     'repository-decision': (message: InboundMessage) => this.repositoryDecision(message),
     'repository-retry': (message: InboundMessage) => void this.retryRepository(message),

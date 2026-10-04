@@ -161,7 +161,7 @@ function autoMode(view: ConfigurationCenterView): string {
           <small><code>${escape(workType.id)}</code></small>
         </label>`).join('')}</div>` : '<p class="empty">No Story work types are declared in this workflow.</p>'}
       <div class="notice warning">Changes are saved as protected repository configuration. Use <strong>Review &amp; publish configuration</strong> after saving before they apply to new Auto plans.</div>
-      <p class="card-foot"><button type="submit">Save Auto policy</button><button type="button" class="secondary" data-action="capabilities">Review capability limits</button></p>
+      <p class="card-foot"><button type="submit">Save Auto policy</button><button type="button" class="secondary" data-action="discard-edits">Discard changes</button><button type="button" class="secondary" data-action="capabilities">Review capability limits</button></p>
     </form>
   </section>`;
 }
@@ -479,7 +479,7 @@ function worldModel(view: ConfigurationCenterView): string {
         </div>
         <p class="muted">${model.injection.rulesCount} advanced routing rule${model.injection.rulesCount === 1 ? '' : 's'} configured. Guided saving preserves these rules unchanged; edit them in workflow YAML when conditional agent, phase, or path routing is required.</p>
       </div>
-      <div class="card-foot"><button type="submit">Save world-model settings</button><button class="secondary" type="button" data-action="open-workflow">Open YAML</button></div>
+      <div class="card-foot"><button type="submit">Save world-model settings</button><button type="button" class="secondary" data-action="discard-edits">Discard changes</button><button class="secondary" type="button" data-action="open-workflow">Open YAML</button></div>
     </form>
     </details>
   </section>`;
@@ -516,7 +516,7 @@ function currentIdentityCard(view: ConfigurationCenterView): string {
 function people(view: ConfigurationCenterView, selected: AuthorityView | null): string {
   return `<section class="plain"><h2>${icon('agent')}My local profile</h2>
     <p class="muted">This profile changes guidance only. Governed decisions use the Git and GitHub identities shown in approval records.</p>
-    <form id="profile-form" class="editor-card"><div class="form-grid"><label><span>Name</span><input name="name" type="text" value="${escape(view.profile.name)}"></label><label><span>Menu persona</span><select name="role">${PROFILE_PERSONAS.map((persona) => `<option value="${persona.id}"${persona.id === view.profile.role ? ' selected' : ''}>${escape(persona.label)}</option>`).join('')}</select><small>Changes menu order and suggestions only.</small></label></div><div class="card-foot"><button type="submit">Save local profile</button></div></form>
+    <form id="profile-form" class="editor-card"><div class="form-grid"><label><span>Name</span><input name="name" type="text" value="${escape(view.profile.name)}"></label><label><span>Menu persona</span><select name="role">${PROFILE_PERSONAS.map((persona) => `<option value="${persona.id}"${persona.id === view.profile.role ? ' selected' : ''}>${escape(persona.label)}</option>`).join('')}</select><small>Changes menu order and suggestions only.</small></label></div><div class="card-foot"><button type="submit">Save local profile</button><button type="button" class="secondary" data-action="discard-edits">Discard changes</button></div></form>
     ${currentIdentityCard(view)}
     <div class="section-heading"><h2>${icon('team')}Human approval authorities</h2><button class="secondary" data-action="new-authority">Add authority</button></div>
     <p class="muted">People are not agents. These groups match real Git email or authenticated GitHub login when somebody approves or rejects.</p>

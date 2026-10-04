@@ -436,6 +436,12 @@ export class WorkspacesPanel {
       if (field === 'copy-id') this.draft.id = value;
       else if (field === 'copy-base') this.draft.base = value;
     },
+    // Clear forgets a half-typed copy; it never touches the workspace.
+    'copy-clear': () => {
+      if (this.draft.busy) return;
+      this.draft = { ...EMPTY_DRAFT };
+      void this.render();
+    },
     'edit-draft': (message) => {
       const value = stringField(message, 'value');
       if (value !== null && stringField(message, 'field') === 'edit-name' && this.edit.open) {

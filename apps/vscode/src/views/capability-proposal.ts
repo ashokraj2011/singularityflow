@@ -158,7 +158,9 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
           ? `<button class="secondary" data-action="repair" ${busy ? 'disabled' : ''}>${icon('refresh')} Prepare compatibility repair</button>` : ''}
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
         <button class="secondary" data-action="copy">${icon('branch')} Copy branch</button>
+        <button class="secondary" data-action="close" ${busy ? 'disabled' : ''}>Close</button>
       </div>
+      <p class="muted">Closing leaves the review branch as it is; reopen it from Review proposals.</p>
     </section>`;
 }
 
@@ -247,6 +249,8 @@ export class CapabilityProposalPanel {
 
   private async receive(message: { type?: string }): Promise<void> {
     if (message.type === 'refresh') return this.load();
+    // Close only closes the review screen: the proposal branch stays for later review.
+    if (message.type === 'close') { if (!this.busy) this.panel.dispose(); return; }
     if (message.type === 'create-workspace') {
       if (!capabilityActivationSucceeded(this.activated) || this.busy
         || !offersWorkspaceHandoff(this.branch, this.capabilityId)) return;

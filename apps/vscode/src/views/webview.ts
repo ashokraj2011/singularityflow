@@ -605,6 +605,7 @@ export const STYLE = `
   .start-wizard-step.current strong { color: var(--vscode-foreground); }
   .start-wizard-step.upcoming { opacity: .72; }
   .start-wizard-context { margin: .25rem 0; color: var(--sf-accent); font-size: .78rem; font-weight: 600; }
+  .start-wizard-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
   /* The exact command behind a button, for anyone who wants to run or script it. Supporting
      detail — the button says what it does. */
   .command-hint { margin: .4rem 0 0; color: var(--sf-dim); font-size: .78rem; }
@@ -952,11 +953,21 @@ export const NAV_COMMANDS: Readonly<Record<NavDestination, string>> = Object.fre
   help: 'singularityFlow.openHelp'
 });
 
+/**
+ * Moves within the guided start (map a capability, create a workspace, start work). Its progress
+ * rail offers them on each of those screens, so every step has a way back and a way out.
+ */
+export const GUIDED_COMMANDS: Readonly<Record<string, string>> = Object.freeze({
+  'guided-back': 'singularityFlow.guidedStartBack',
+  'guided-exit': 'singularityFlow.guidedStartExit'
+});
+
 /** The command a `navigate` message asks for, or null when the message is not one. */
 export function navigationTarget(raw: unknown): string | null {
   const message = raw as { type?: unknown; to?: unknown };
   if (message?.type !== 'navigate' || typeof message.to !== 'string') return null;
-  return Object.hasOwn(NAV_COMMANDS, message.to) ? NAV_COMMANDS[message.to as NavDestination] : null;
+  if (Object.hasOwn(NAV_COMMANDS, message.to)) return NAV_COMMANDS[message.to as NavDestination];
+  return Object.hasOwn(GUIDED_COMMANDS, message.to) ? GUIDED_COMMANDS[message.to] ?? null : null;
 }
 
 /** Choosing a workspace is what makes the late-registered destinations exist. */
@@ -1008,6 +1019,8 @@ export const NAV_SCRIPT = `
   document.addEventListener('click', (event) => {
     const target = event.target.closest('.page-nav [data-nav]');
     if (target) window.__sfVscode.postMessage({ type: 'navigate', to: target.dataset.nav });
+    const guided = event.target.closest('[data-guided]');
+    if (guided) window.__sfVscode.postMessage({ type: 'navigate', to: 'guided-' + guided.dataset.guided });
   });
 `;
 

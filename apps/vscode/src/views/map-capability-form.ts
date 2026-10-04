@@ -209,6 +209,13 @@ export interface MapCapabilityForm {
   error: string | null;
 }
 
+/** Whether Cancel would throw away anything the person typed. */
+export function mapFormHasInput(form: MapCapabilityForm): boolean {
+  return [form.capabilityId, form.name, form.parent, form.repositoryUrl, form.sourceRoots, form.sharedRoots]
+    .some((value) => String(value ?? '').trim().length > 0)
+    || form.metadata.some((entry) => String(entry.key ?? '').trim() || String(entry.value ?? '').trim());
+}
+
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
@@ -993,6 +1000,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       <button data-map-submit="1" data-map-busy="${form.busy ? 'true' : 'false'}" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy && form.loaded ? 'Creating proposal…' : 'Create review proposal'}
       </button>
+      <button type="button" class="secondary" data-map-close ${form.busy ? 'disabled' : ''}>Cancel</button>
     </p>
   </section>`;
 }
@@ -1058,6 +1066,7 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (addMetadata) return vscode.postMessage({ type: 'metadataAdd' });
     const removeMetadata = event.target.closest('[data-map-metadata-remove]');
     if (removeMetadata) return vscode.postMessage({ type: 'metadataRemove', index: Number(removeMetadata.dataset.mapMetadataRemove) });
+    if (event.target.closest('[data-map-close]')) return vscode.postMessage({ type: 'closeForm' });
     const target = event.target.closest('[data-map-submit]');
     if (target) return vscode.postMessage({ type: 'map' });
     const cancelOperation = event.target.closest('[data-map-operation-cancel]');

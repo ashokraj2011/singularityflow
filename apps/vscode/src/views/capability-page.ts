@@ -315,6 +315,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
 
   <p class="card-foot">
     <button data-save="${escape(detail.id)}">Save changes</button>
+    <button class="secondary" data-discard="${escape(detail.id)}">Discard changes</button>
     <button class="secondary" data-add="${escape(detail.id)}">Add one inside</button>
   </p>
 
@@ -447,12 +448,21 @@ export const SCRIPT = `
   };
   synchronizeKind();
   synchronizeAuto();
+  // Unsaved edits: the host asks before another capability replaces them, and holds back a
+  // background refresh that would redraw the form over them.
+  let dirty = false;
+  function markDirty(event) {
+    if (dirty || !event.target.closest || !event.target.closest('[data-field],[data-metadata-row]')) return;
+    dirty = true; vscode.postMessage({ type: 'dirty', value: true });
+  }
+  document.addEventListener('input', markDirty);
   document.addEventListener('change', (event) => {
+    markDirty(event);
     if (event.target.dataset?.field === 'kind') synchronizeKind();
     if (event.target.dataset?.field === 'autoEligibility') synchronizeAuto();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-discard],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -470,7 +480,8 @@ export const SCRIPT = `
       if (!row) return;
       if (row.dataset.originalKey) { row.dataset.removed = 'true'; row.hidden = true; }
       else row.remove();
-    } else if (data.select !== undefined) vscode.postMessage({ type: 'select', id: data.select });
+    } else if (data.select !== undefined) vscode.postMessage({ type: 'select', id: data.select, dirty });
+    else if (data.discard !== undefined) vscode.postMessage({ type: 'discard' });
     else if (data.add !== undefined) vscode.postMessage({ type: 'add', parent: data.add });
     else if (data.remove !== undefined) {
       const replacement = document.querySelector('[data-remove-target]');

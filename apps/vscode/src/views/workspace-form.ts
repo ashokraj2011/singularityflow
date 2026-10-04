@@ -82,6 +82,12 @@ export interface WorkspaceForm {
   error: string | null;
 }
 
+/** Whether Cancel would throw away anything the person typed or chose. */
+export function workspaceFormHasInput(form: WorkspaceForm): boolean {
+  return [form.id, form.name, form.profileName, form.profileRole].some((value) => String(value ?? '').trim().length > 0)
+    || Boolean(form.base) || form.selected.length > 0;
+}
+
 export const EMPTY_WORKSPACE_FORM: WorkspaceForm = {
   base: null, id: '', name: '', profileName: '', profileRole: '',
   organisations: [], organisation: null,
@@ -512,6 +518,7 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
       <button data-submit="create" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy ? 'Creating…' : 'Create workspace'}
       </button>
+      <button type="button" class="secondary" data-workspace-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
     </p>
   </section>`;
 }
@@ -520,6 +527,7 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
 export const WORKSPACE_FORM_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-workspace-cancel]')) return vscode.postMessage({ type: 'cancel' });
     const target = event.target.closest('[data-choose],[data-submit],[data-open],[data-capability-add],[data-capability-remove],[data-refresh-capabilities]');
     if (!target) return;
     if (target.dataset.choose) vscode.postMessage({ type: 'choose', what: target.dataset.choose });

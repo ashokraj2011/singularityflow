@@ -149,7 +149,8 @@ export function sgosWorkflowCreateHtml(state: SgosWorkflowPageState): string {
         <li>Verifier: <code>${escape(choice.verificationOperation || 'not selected')}</code></li>
         <li>Files: <code>${escape(declarationOut || 'not set')}</code> and <code>${escape(workflowOut || 'not set')}</code></li></ul>
       <p class="muted" role="status" aria-live="polite">${ready ? 'Ready for engine validation and creation.' : 'Complete the reviewed inputs and compatible operation pair to enable creation.'}</p>
-      <div class="form-actions"><button type="button" data-sgos-create="1"${ready ? '' : ' disabled'}>Create review files</button></div>
+      <div class="form-actions"><button type="button" data-sgos-create="1"${ready ? '' : ' disabled'}>Create review files</button>
+        <button type="button" class="secondary" data-sgos-close="1"${state.busy ? ' disabled' : ''}>Close</button></div>
     </section>
   </main>`;
 }
@@ -166,6 +167,7 @@ export const SGOS_WORKFLOW_CREATE_SCRIPT = `
   document.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target.closest('button') : null;
     if (!(target instanceof HTMLButtonElement) || target.disabled) return;
+    if (target.dataset.sgosClose) return sgosVsCode.postMessage({ type: 'close' });
     const browse = target.dataset.sgosBrowse;
     if (browse === 'intentPath' || browse === 'policyPath' || browse === 'registryPath') {
       sgosVsCode.postMessage({ type: 'browse', field: browse });

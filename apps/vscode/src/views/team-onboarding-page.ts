@@ -18,6 +18,7 @@ import {
 
 /** Closed webview contract. Every identity value is an opaque ID resolved against host-owned state. */
 export const TEAM_ONBOARDING_MESSAGE_TYPES = Object.freeze([
+  'close',
   'team-field',
   'authority',
   'authority-from-selection',
@@ -205,6 +206,7 @@ function teamAndRepositories(view: TeamOnboardingView): string {
       ${catalog(view)}
       ${blockerHtml(problems, 'team-step-problems')}
       <div class="form-actions">
+        <button type="button" class="secondary" data-team-action="close"${view.catalog.loading ? ' disabled' : ''}>Cancel</button>
         <span class="grow"></span>
         <button type="button" data-team-action="inspect-selected"${problems.length || view.catalog.loading ? ' disabled' : ''}
           aria-describedby="${problems.length ? 'team-step-problems' : ''}">Check selected repositories ${icon('next')}</button>
@@ -375,6 +377,7 @@ export const TEAM_ONBOARDING_SCRIPT = `
     else if (action === 'catalog-more') post('catalog-more');
     else if (action === 'repository-paste') post('repository-paste');
     else if (action === 'inspect-selected') post('inspect-selected');
+    else if (action === 'close') post('close');
     else if (action === 'inspection-cancel') post('inspection-cancel');
     else if (action === 'proposal-submit') post('proposal-submit');
     else if (action === 'proposal-review') post('proposal-review');

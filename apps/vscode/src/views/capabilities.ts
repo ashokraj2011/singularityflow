@@ -38,6 +38,9 @@ export class CapabilitiesPanel {
   private disposed = false;
   private selected: string | null = null;
   private error: string | null = null;
+  /** The form holds edits not saved yet: a background refresh waits, and switching asks first. */
+  private dirty = false;
+  private renderHeld = false;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -49,7 +52,7 @@ export class CapabilitiesPanel {
     this.store = store;
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
-      () => this.render(),
+      () => { if (this.dirty) this.renderHeld = true; else this.render(); },
       ['repository', 'lifecycle', 'capabilities', 'configuration', 'diagnostics']
     );
     this.subscription = store.onDidChange((_state, change) =>
@@ -62,12 +65,23 @@ export class CapabilitiesPanel {
       if (navigation) return void navigateTo(navigation);
 
       const message = raw as {
-        type?: unknown; id?: unknown; parent?: unknown; edits?: unknown;
+        type?: unknown; id?: unknown; parent?: unknown; edits?: unknown; dirty?: unknown;
         reparentChildrenTo?: unknown; childCount?: unknown
       };
       // Selecting and cancelling are the panel's own state; only the three that touch the map leave.
+      if (message?.type === 'dirty') { this.dirty = true; return; }
+      if (message?.type === 'discard') { this.dirty = false; this.renderHeld = false; this.error = null; return this.render(); }
       if (message?.type === 'select' && typeof message.id === 'string') {
-        this.selected = message.id;
+        const id = message.id;
+        if (message.dirty === true && id !== this.selected) {
+          return void vscode.window.showWarningMessage('Discard the changes you have not saved?',
+            { modal: true, detail: 'They have not been proposed, so nothing else changes.' }, 'Discard').then((choice) => {
+            if (choice !== 'Discard') return;
+            this.dirty = false; this.renderHeld = false; this.selected = id; this.error = null; this.render();
+          });
+        }
+        this.dirty = false; this.renderHeld = false;
+        this.selected = id;
         this.error = null;
         return this.render();
       }
@@ -169,6 +183,7 @@ export class CapabilitiesPanel {
   settled(capabilityId: string): void {
     this.selected = capabilityId;
     this.error = null;
+    this.dirty = false; this.renderHeld = false;
     this.render();
   }
 

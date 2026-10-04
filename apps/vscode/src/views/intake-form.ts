@@ -348,6 +348,14 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   recoveryCommand: null, recoveryRouteCommand: null
 };
 
+/** Whether the person typed or attached anything that Cancel would throw away. */
+export function intakeHasInput(form: IntakeForm): boolean {
+  return [form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria, form.targetUrl]
+    .some((value) => String(value ?? '').trim().length > 0)
+    || form.storyAttachments.some(Boolean)
+    || form.referenceRepositories.length > 0;
+}
+
 /** Why a Story has no workflow to offer: not read yet, or the repository's own reason. */
 function storyWorkflowProblem(form: IntakeForm): string {
   return form.catalogStatus === 'loading' ? 'Reading the approved Story workflows…'
@@ -1261,6 +1269,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
         ${form.busy ? 'Starting…' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
           ? 'Prepare exact human review in terminal' : `Start this ${escape(noun.toLowerCase())}`}
       </button>
+      <button type="button" class="secondary" data-intake-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
       ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
     </p>
   </section></div>`;
@@ -1305,6 +1314,7 @@ export const INTAKE_SCRIPT = `
     if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
     const testRecoveryRefresh = event.target.closest('[data-test-recovery-refresh]');
     if (testRecoveryRefresh) return vscode.postMessage({ type: 'testRecoveryRefresh' });
+    if (event.target.closest('[data-intake-cancel]')) return vscode.postMessage({ type: 'cancel' });
     const target = event.target.closest('[data-submit]');
     if (target) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
   });

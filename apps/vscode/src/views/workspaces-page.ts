@@ -294,6 +294,7 @@ function detailHtml(
     <button data-duplicate="${escape(row.path)}" ${problems.length || draft.busy ? 'disabled' : ''}>
       ${draft.busy ? 'Copying…' : 'Copy workspace'}
     </button>
+    ${draft.id.trim() || draft.base.trim() ? `<button class="secondary" data-copy-clear="1" ${draft.busy ? 'disabled' : ''}>Clear</button>` : ''}
     <button class="link" data-forget="${escape(row.path)}">Forget</button>
   </p>
   <p class="muted">Forgetting removes it from this list and leaves the directory alone.</p>`;
@@ -670,7 +671,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-fos-action],[data-repository-refresh],[data-repository-refresh-url],[data-help-topic],[data-copy-command]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-fos-action],[data-repository-refresh],[data-repository-refresh-url],[data-help-topic],[data-copy-command],[data-copy-clear]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -682,6 +683,7 @@ export const WORKSPACES_SCRIPT = `
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });
     else if (data.adopt !== undefined) vscode.postMessage({ type: 'adopt' });
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
+    else if (data.copyClear !== undefined) vscode.postMessage({ type: 'copy-clear' });
     else if (data.archive !== undefined) vscode.postMessage({ type: 'archive', path: data.archive });
     else if (data.restore !== undefined) vscode.postMessage({ type: 'restore', path: data.restore });
     else if (data.repair !== undefined) vscode.postMessage({ type: 'repair', path: data.repair });

@@ -33,7 +33,7 @@ export function localResetBody(plan: ResetPlan | null, error: string | null): st
     ${list<string>(plan.missingRegistrations).length ? `<h3>Missing registrations</h3><ul>${list<string>(plan.missingRegistrations).map((workspace) => `<li><code>${escape(workspace)}</code></li>`).join('')}</ul>` : ''}
     <div class="split-layout"><div><h3>Capability state</h3><p>Registry: <code>${escape(plan.capabilityState?.registryFile ?? 'none')}</code></p><p>Cache: <code>${escape(plan.capabilityState?.cacheRoot ?? 'none')}</code></p><h3>Journal</h3><p><code>${escape(plan.journalState?.root ?? 'none')}</code> · remote sync ${escape(plan.journalState?.remoteSync ?? 'never')}</p></div>
     <div><h3>VS Code reset marker</h3><p><code>${escape(plan.vscodeReset?.marker ?? 'none')}</code></p><ul>${list<string>(plan.vscodeReset?.reset).map((scope) => `<li>${escape(scope)}</li>`).join('') || '<li>No VS Code state</li>'}</ul></div></div>
-    <h2>3. Confirm</h2><form data-message="execute"><input type="hidden" name="mode" value="${escape(mode ?? '')}"><label>Type <code>${escape(expected)}</code> exactly<input name="confirm" autocomplete="off" required></label><button class="${mode === 'delete-workspaces' ? 'secondary' : ''}" type="submit">${mode === 'forget-only' ? 'Forget local state' : 'Delete workspace directories'}</button></form></section>` : ''}`;
+    <h2>3. Confirm</h2><form data-message="execute"><input type="hidden" name="mode" value="${escape(mode ?? '')}"><label>Type <code>${escape(expected)}</code> exactly<input name="confirm" autocomplete="off" required></label><button class="${mode === 'delete-workspaces' ? 'secondary' : ''}" type="submit">${mode === 'forget-only' ? 'Forget local state' : 'Delete workspace directories'}</button><button type="button" class="secondary" data-message="cancel-preview">Cancel</button></form></section>` : ''}`;
 }
 
 export class LocalResetPanel {
@@ -58,6 +58,8 @@ export class LocalResetPanel {
   }
   private router = registerMessageRouter('singularityFlow.localReset', {
     preview: (m) => { const mode = enumField(m, 'mode', ['forget-only', 'delete-workspaces'] as const); if (mode) void this.preview(mode); },
+    // Cancel drops the preview; nothing has been reset.
+    'cancel-preview': () => { this.plan = null; this.fingerprint = null; this.error = null; this.render(); },
     execute: (m) => { const mode = enumField(m, 'mode', ['forget-only', 'delete-workspaces'] as const); const confirm = stringField(m, 'confirm'); if (mode && confirm) void this.execute(mode, confirm); }
   });
   private async readPlan(mode: ResetMode): Promise<ResetPlan> { return commandData<ResetPlan>(await this.client.run(resetPreviewArgs(mode))); }

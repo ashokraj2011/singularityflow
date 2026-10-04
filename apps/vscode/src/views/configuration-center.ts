@@ -213,6 +213,15 @@ export class ConfigurationCenterPanel {
     this.worldModelLease = null;
   }
 
+  /** Whether the person agrees to throw away edits they have not saved; clears the flag on yes. */
+  private async discardEdits(): Promise<boolean> {
+    const choice = await vscode.window.showWarningMessage('Discard the changes you have not saved?',
+      { modal: true, detail: 'Nothing has been saved or proposed, so nothing else changes.' }, 'Discard');
+    if (choice !== 'Discard') return false;
+    this.dirty = false;
+    return true;
+  }
+
   /** World-model bytes exist only while the Explorer tab itself owns this bounded lease. */
   private async selectTab(tab: ConfigurationTab): Promise<void> {
     if (tab === 'world-model') {
@@ -431,6 +440,10 @@ export class ConfigurationCenterPanel {
       }
     }
     if (message.type === 'keep-dirty') return;
+    // Moving to another tab, authority or MCP server redraws the form: unsaved edits are thrown away
+    // only after a yes.
+    const leaving = message.type === 'tab' || message.type === 'select-authority' || message.type === 'select-mcp';
+    if (leaving && this.dirty && !await this.discardEdits()) return;
     if (message.type === 'tab' && (CONFIGURATION_TABS as readonly string[]).includes(String(message.tab))) { this.newAuthority = false; this.newMcp = false; return this.selectTab(message.tab as ConfigurationTab); }
     if (message.type === 'select-authority' && typeof message.key === 'string') { this.authorityKey = message.key; this.newAuthority = false; return this.render(); }
     if (message.type === 'select-mcp' && typeof message.id === 'string') { this.mcpId = message.id; this.newMcp = false; return this.render(); }
@@ -534,7 +547,8 @@ export class ConfigurationCenterPanel {
       if (action === 'world-model') return this.selectTab('world-model');
       if (action === 'new-authority') { this.newAuthority = true; this.authorityKey = null; return this.selectTab('people'); }
       if (action === 'new-mcp') { this.newMcp = true; this.mcpId = null; return this.selectTab('mcp'); }
-      if (action === 'cancel-edit') { this.newAuthority = false; this.newMcp = false; this.authorityKey = null; this.mcpId = null; return this.render(); }
+      if (action === 'cancel-edit') { this.dirty = false; this.newAuthority = false; this.newMcp = false; this.authorityKey = null; this.mcpId = null; return this.render(); }
+      if (action === 'discard-edits') { if (!this.dirty || await this.discardEdits()) { this.dirty = false; return this.render(); } return; }
       if (action === 'delete-authority') return this.deleteAuthority();
       if (action === 'delete-mcp') return this.deleteMcp();
       const error = ConfigurationCenterPanel.replyError(await this.onMessage({ type: 'action', action }));

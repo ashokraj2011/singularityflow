@@ -44,6 +44,27 @@ Closing a panel creates no partial lifecycle state; running Guided Start again i
 state and resumes at the first incomplete step. An existing capability map skips mapping, and an
 active ready workspace goes directly to work intake.
 
+The rail offers **← Back** from its later steps and **Exit guided start** from every step. Back
+reopens the previous form with what the earlier steps already made: a mapped capability or a
+created workspace is never undone by going back. Exit forgets the continuation marker and closes
+the form; nothing durable changes.
+
+### Leaving a form
+
+Every form that collects input has a way back out of it:
+
+- **Start work**, **Create workspace** and **Map capability** have **Cancel**. When something was
+  entered, Cancel asks before discarding it; an untouched form just closes.
+- Editors with **Save** also offer **Discard changes**: capability details, and the Configuration
+  Center's Auto policy, world model and profile editors. Switching to another capability, tab,
+  authority or MCP server with unsaved edits asks first, and a background refresh does not redraw
+  the form over them.
+- Proposal review, team onboarding and the SGOS workflow creator have **Close** or **Cancel**;
+  the copy-workspace form, goal, fault-repair and visual-assurance forms have **Clear**; the local
+  reset preview has **Cancel**; schema-driven forms have **Discard** and **Cancel**.
+- Workflow Studio keeps unpublished changes when its tab closes and offers them back on reopen;
+  see `sflow explain workflow-authoring`.
+
 ### Favorites
 
 Favorites answers **where are the menus I use every day?**

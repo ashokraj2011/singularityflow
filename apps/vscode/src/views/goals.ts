@@ -75,7 +75,7 @@ export function goalsBody(
   </div>
   <section><h2>Create Goal</h2><form data-message="create" class="form-grid"><label>Outcome statement<input name="statement" required></label>
     <label>Observable success criteria <span class="muted">one per line</span><textarea name="success" required rows="4"></textarea></label>
-    <label>Initial governed work<select name="work" required>${workOptions(work)}</select></label><button type="submit">Create personal Goal</button></form></section>
+    <label>Initial governed work<select name="work" required>${workOptions(work)}</select></label><button type="submit">Create personal Goal</button><button type="reset" class="secondary">Clear</button></form></section>
   <section><div class="section-title"><div><p class="eyebrow">Repository-owned</p><h2>Governed executions</h2></div><button class="secondary" data-message="refresh">Refresh</button></div>
     ${governed.length ? `<div class="audit-list">${governed.map((goal) => `<button class="audit-record${selectedGoverned?.id === goal.id ? ' selected' : ''}" data-message="showGoverned" data-id="${escape(goal.id)}">
       <strong>${escape(goal.statement ?? goal.id)}</strong><span>${escape(goal.id)} · ${escape(goal.status ?? 'unknown')} · ${escape(goal.assurance ?? 'unassessed')} · plan ${goal.planGeneration ?? 0}${goal.planApproved ? ' approved' : ''}</span></button>`).join('')}</div>`

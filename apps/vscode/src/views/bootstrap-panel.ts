@@ -12,7 +12,7 @@ import { navigateTo } from './navigate.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import { rememberSetupReviewRepository } from './setup-review-repositories.ts';
 import {
-  CAPABILITY_KINDS, EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems,
+  CAPABILITY_KINDS, EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapFormHasInput, mapProblems,
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type MapCapabilityOperation,
   type PendingMapReplacement, type ParentChoice
 } from './map-capability-form.ts';
@@ -1744,6 +1744,18 @@ export class BootstrapPanel {
       type?: unknown; field?: unknown; value?: unknown; checked?: unknown; index?: unknown
     };
 
+    // Cancel closes the form; what was typed is thrown away only after a yes. A running Git
+    // operation has its own cancel and must finish or be cancelled first.
+    if (message?.type === 'closeForm') {
+      if (this.form.busy || this.disposed) return;
+      if (mapFormHasInput(this.form)) {
+        const choice = await vscode.window.showWarningMessage('Discard what you entered?',
+          { modal: true, detail: 'No proposal has been created, so nothing else changes.' }, 'Discard');
+        if (choice !== 'Discard') return;
+      }
+      this.dispose();
+      return;
+    }
     if (message?.type === 'metadataAdd') {
       this.update({ metadata: [...this.form.metadata, { key: '', value: '' }] });
       return;

@@ -15,7 +15,8 @@ import {
   SGOS_WORKFLOW_CREATE_SCRIPT, sgosWorkflowCreateHtml,
   type SgosWorkflowPageState
 } from './views/sgos-workflow-create-page.ts';
-import { contentSecurityPolicy, nonce, page } from './views/webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './views/webview.ts';
+import { navigateTo } from './views/navigate.ts';
 import { registerMessageRouter } from './views/messages.ts';
 
 type InputField = 'intentPath' | 'policyPath' | 'registryPath';
@@ -98,9 +99,14 @@ class SgosWorkflowCreatePanel {
       change: (message) => this.receive(message),
       browse: (message) => this.receive(message),
       guide: (message) => this.receive(message),
-      create: (message) => this.receive(message)
+      create: (message) => this.receive(message),
+      // Close leaves without creating anything; the review files exist only after Create.
+      close: () => { if (!this.state.busy) panel.dispose(); }
     });
     this.disposables.push(panel.webview.onDidReceiveMessage((message: unknown) => {
+      // The shared footer is the way out of a full-page view, as on every other screen.
+      const navigation = navigationTarget(message);
+      if (navigation) return void navigateTo(navigation);
       void Promise.resolve(router.route(message)).catch((error) => {
         this.state = { ...this.state, busy: false, guideLoading: false, error: (error as Error).message };
         this.render();
@@ -144,8 +150,7 @@ class SgosWorkflowCreatePanel {
     const token = nonce();
     this.panel.webview.html = page(
       'Create execution workflow', sgosWorkflowCreateHtml(this.state),
-      contentSecurityPolicy(this.panel.webview, token), token, SGOS_WORKFLOW_CREATE_SCRIPT,
-      { nav: false }
+      contentSecurityPolicy(this.panel.webview, token), token, SGOS_WORKFLOW_CREATE_SCRIPT
     );
   }
 

@@ -12,7 +12,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
+  EMPTY_INTAKE_FORM, intakeCommand, intakeHasInput, intakeHtml, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
@@ -665,6 +665,16 @@ export class IntakePanel {
    * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
    */
   private router = registerMessageRouter('singularityFlow.intake', {
+    // Cancel closes Start Work; typed or attached input is thrown away only after a yes.
+    cancel: async () => {
+      if (this.form.busy || this.disposed) return;
+      if (intakeHasInput(this.form)) {
+        const choice = await vscode.window.showWarningMessage('Discard what you entered in Start Work?',
+          { modal: true, detail: 'Nothing has been started, so nothing else changes.' }, 'Discard');
+        if (choice !== 'Discard') return;
+      }
+      this.dispose();
+    },
     testRecoveryChoice: (message) => {
       if (this.form.busy) return;
       const field = stringField(message, 'field');

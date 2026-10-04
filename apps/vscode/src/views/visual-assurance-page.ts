@@ -121,7 +121,7 @@ function mcpSection(view: VisualAssuranceView): string {
       <label class="field"><span>File key / version</span><input name="fileKey" type="text" placeholder="file-key"><input name="fileVersion" type="text" placeholder="immutable version"></label>
       <label class="field"><span>Profile / screen / state</span><input name="profileId" type="text" placeholder="mobile-portrait"><input name="screenId" type="text" placeholder="login"><input name="stateId" type="text" placeholder="signed-out"></label>
       <label class="field"><span>Nodes</span><input name="nodes" type="text" placeholder="node-1, node-2"></label>
-    </div><div class="card-foot"><button type="submit">Record governed provenance</button></div></form></details>
+    </div><div class="card-foot"><button type="submit">Record governed provenance</button><button type="reset" class="secondary">Clear</button></div></form></details>
     <div class="section-heading subheading"><h3>${icon('commit')}Other MCP evidence</h3></div>
     <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.otherEvidence)}</tbody></table></div>
   </section>`;

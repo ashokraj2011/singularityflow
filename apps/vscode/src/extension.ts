@@ -1327,6 +1327,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * continuation marker for the window reload required after the first workspace selection; all
    * capability, workspace, repository and lifecycle authority remains in the CLI's durable records.
    */
+  /**
+   * Back and Exit in the guided start's progress rail. Back goes one step and keeps what the step
+   * already made (a mapped capability, a created workspace); Exit forgets the journey. Either closes
+   * the screen the person was on.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.guidedStartBack', async () => {
+    const prior = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
+    if (!prior || prior.step === 'capability') return;
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    if (prior.step === 'work') {
+      const back = startWizardState('workspace', { capabilityId: prior.capabilityId ?? null, organisation: prior.organisation ?? null });
+      await context.globalState.update(START_WIZARD_KEY, back);
+      await vscode.commands.executeCommand('singularityFlow.createWorkspace', {
+        guidedStart: true, capabilityId: back.capabilityId, organisation: back.organisation
+      });
+      return;
+    }
+    // From the workspace step: the guided start opens Map capability when the journey says so.
+    await context.globalState.update(START_WIZARD_KEY, startWizardState('capability'));
+    await vscode.commands.executeCommand('singularityFlow.startWizard');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.guidedStartExit', async () => {
+    await context.globalState.update(START_WIZARD_KEY, undefined);
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    void vscode.window.showInformationMessage('Guided start closed. Nothing it had not finished was created; start it again from the Navigator.');
+  }));
+
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.startWizard', async () => {
     let location;
     try {

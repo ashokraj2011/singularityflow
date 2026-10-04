@@ -122,6 +122,8 @@ const FORM_SCRIPT = `
   form.addEventListener('input', changed);
   form.addEventListener('change', changed);
   form.addEventListener('click', function (event) {
+    if (event.target.closest('[data-form-discard]')) return window.__sfVscode.postMessage({ type: 'sflow.form.discard' });
+    if (event.target.closest('[data-form-cancel]')) return window.__sfVscode.postMessage({ type: 'sflow.form.cancel' });
     const copy = event.target.closest('[data-copy-terminal]');
     if (!copy) return;
     const selector = copy.dataset.copyTerminal === 'copilot' ? '[data-copilot-terminal]' : '[data-terminal]';
@@ -161,11 +163,15 @@ function render(target: vscode.WebviewPanel, view: FormView, {
    */
   const body = `<style nonce="${token}">${FORM_STYLE}
 .sf-submit { margin-top: 8px; align-self: flex-start; }
+.sf-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.sf-actions .sf-submit { margin-top: 0; }
 </style>
 <main style="padding:16px;max-width:720px">
 <h2 style="margin-top:0">${escape(request?.title ?? '')}</h2>
 ${formHtml(view, { problems, terminal })
-    .replace('</form>', '<button class="sf-primary sf-submit" type="submit">Submit</button></form>')}
+    .replace('</form>', '<div class="sf-actions"><button class="sf-primary sf-submit" type="submit">Submit</button>'
+      + '<button type="button" class="secondary" data-form-discard>Discard draft</button>'
+      + '<button type="button" class="secondary" data-form-cancel>Cancel</button></div></form>')}
 </main>`;
   target.webview.html = page(request?.title ?? 'Singularity Flow', body, csp, token, FORM_SCRIPT);
 }
@@ -218,6 +224,16 @@ export function showForm(next: FormRequest): boolean {
           copyable: equivalent?.copyable === true
         });
       },
+      // Discard draft starts the form again from its defaults and forgets the kept draft; Cancel
+      // closes it and keeps the draft for next time. Neither submits anything.
+      'sflow.form.discard': () => {
+        if (!request || !panel) return;
+        // Through the one filtered write path: an empty draft is what is kept.
+        saveDraft(request.schemaId, {});
+        const defaults = { ...(request.defaults ?? {}) };
+        render(panel, formModel(request.schemaId, { defaults }) as FormView, { values: defaults });
+      },
+      'sflow.form.cancel': () => { panel?.dispose(); },
       'sflow.form.submit': (message) => {
         const parsed = parseValues(message);
         if (!parsed || !request || !panel) return;

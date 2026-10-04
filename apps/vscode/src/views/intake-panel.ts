@@ -115,6 +115,8 @@ interface CatalogListing {
   choices?: BaseBranchChoice[];
   remote?: string;
   unreachable?: { repository: string }[];
+  /** Orphan branches per repository, never offered as a base. */
+  orphaned?: Record<string, string[]>;
   intake?: EngineStoryWorkflowCatalog & {
     profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
     profileReason?: string | null;
@@ -492,7 +494,7 @@ export class IntakePanel {
         profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
         workflowCatalogReason: null,
         workflowReason: `Could not load Story workflows: ${reason}`,
-        baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
+        baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason, baseBranchOrphans: [],
         catalogStatus: 'fresh',
         ...emptyStoryPreflight(),
         inFlight: this.inFlight
@@ -563,6 +565,8 @@ export class IntakePanel {
             ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null
         }),
         baseBranchChoices,
+        baseBranchOrphans: [...new Set(Object.values(listed.orphaned ?? {}).flat())]
+          .filter((name): name is string => typeof name === 'string' && name.length > 0).sort(),
         // A Story base is an explicit, permanent choice. Even one available branch must be selected.
         baseBranch,
         baseRemote: listed.remote ?? null,

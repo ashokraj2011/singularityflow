@@ -554,6 +554,59 @@ test('Story start refuses the configured state branch as an explicit base before
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-STATE-BASE').stdout.trim(), '');
 });
 
+test('the branch list never offers an orphan branch, and Story start refuses one before mutation', async () => {
+  const { root } = await repository();
+  git(root, 'switch', '--orphan', 'pages');
+  await writeFile(path.join(root, 'index.html'), '<h1>Pages</h1>\n');
+  git(root, 'add', 'index.html');
+  git(root, 'commit', '-m', 'Pages');
+  git(root, 'push', 'origin', 'pages');
+  git(root, 'switch', 'main');
+  const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
+
+  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--json']).stdout);
+  assert.deepEqual(listed.choices.map((choice) => choice.branch), ['main', 'release/24.3']);
+  assert.deepEqual(Object.values(listed.orphaned).flat(), ['pages']);
+  const text = flow(root, ['workspace', 'branches']).stdout;
+  assert.match(text, /Not offered, because they share no history with the default branch: pages/);
+
+  const refused = flow(root, [
+    'start', 'STORY-ORPHAN-BASE', '--json', '--from-branch', 'pages',
+    '--work-type', 'feature', '--title', 'Orphan base', '--description', 'Must refuse.'
+  ], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Branch 'pages' shares no history with 'main'.*orphan branch/s);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-ORPHAN-BASE').stdout.trim(), '');
+});
+
+test('with approved configuration the intake list and Story start treat an orphan branch the same way', async () => {
+  const { root } = await repository();
+  git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
+  git(root, 'switch', '--orphan', 'gh-pages');
+  await writeFile(path.join(root, 'index.html'), '<h1>Docs</h1>\n');
+  git(root, 'add', 'index.html');
+  git(root, 'commit', '-m', 'Docs site');
+  git(root, 'push', 'origin', 'gh-pages');
+  git(root, 'switch', 'main');
+
+  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--json', '--intake']).stdout);
+  assert.equal(listed.intake.workflowCatalogScope, 'approved-configuration');
+  assert.deepEqual(listed.choices.map((choice) => choice.branch), ['main', 'release/24.3'],
+    'neither the configuration branch nor the orphan is offered');
+  assert.deepEqual(Object.values(listed.orphaned).flat(), ['gh-pages']);
+
+  const refused = flow(root, [
+    'start', 'STORY-ORPHAN-APPROVED', '--json', '--from-branch', 'gh-pages',
+    '--work-type', 'feature', '--title', 'Orphan base', '--description', 'Must refuse.'
+  ], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Branch 'gh-pages' shares no history with 'main'/);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-ORPHAN-APPROVED').stdout.trim(), '');
+});
+
 test('workspace branch preflight proves the exact destination without creating it', async () => {
   const { root } = await repository();
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();

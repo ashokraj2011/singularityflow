@@ -6,13 +6,13 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import {
-  capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
+  assertStoryBaseSharesHistory, capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
   preflightWorldModelAuthorityRefreshes, publishedBranchesAsync, prepareCapabilityRepositories,
   storyBaseCatalog, storyBaseForRepository
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
-import { branch as currentBranch } from '../src/git.mjs';
+import { branch as currentBranch, orphanRemoteBranches, refsShareHistory } from '../src/git.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import {
   ensureConfigurationBranch, loadStoryConfigurationSnapshot,
@@ -85,6 +85,40 @@ test('Story base catalog offers only application branches but retains every publ
   assert.deepEqual(catalog.choices.map((choice) => choice.branch), ['main', 'release/24.3']);
   assert.ok(catalog.published.application.includes('sflow/config-history/0123456789abcdef'));
   assert.ok(catalog.published.application.includes('audit-state'));
+});
+
+test('Story base catalog leaves out orphan branches, says which, and keeps them published', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-story-orphans-'));
+  const repositoryEntry = await repository(base, 'application', ['main', 'release/24.3']);
+  const work = path.join(base, repositoryEntry.path);
+  // A pages branch made with --orphan shares no history with main.
+  git(work, 'switch', '--quiet', '--orphan', 'pages');
+  await writeFile(path.join(work, 'index.html'), '<h1>Pages</h1>\n');
+  git(work, 'add', 'index.html');
+  git(work, 'commit', '--quiet', '-m', 'Pages');
+  git(work, 'push', '--quiet', 'origin', 'pages');
+  git(work, 'switch', '--quiet', 'main');
+
+  assert.deepEqual(orphanRemoteBranches(work, { remote: 'origin', defaultBranch: 'main' }), { checked: true, orphans: ['pages'] });
+  assert.equal(refsShareHistory(work, 'refs/remotes/origin/main', 'refs/remotes/origin/release/24.3'), true);
+  assert.equal(refsShareHistory(work, 'refs/remotes/origin/main', 'refs/remotes/origin/pages'), false);
+  assert.equal(refsShareHistory(work, 'refs/remotes/origin/main', 'refs/remotes/origin/no-such-branch'), null);
+
+  // Start refuses one by the same test, whichever path it takes; a missing ref is left to the existence check.
+  assert.throws(() => assertStoryBaseSharesHistory(work, { remote: 'origin', baseBranch: 'pages', defaultBranch: 'main', repositoryId: 'application' }),
+    (error) => error.code === 'STORY_BASE_ORPHAN' && /'pages' shares no history with 'main' in repository 'application'/.test(error.message));
+  assert.equal(assertStoryBaseSharesHistory(work, { remote: 'origin', baseBranch: 'release/24.3', defaultBranch: 'main' }), undefined);
+  assert.equal(assertStoryBaseSharesHistory(work, { remote: 'origin', baseBranch: 'no-such-branch', defaultBranch: 'main' }), undefined);
+
+  const catalog = await storyBaseCatalog(work, {});
+  assert.deepEqual(catalog.choices.map((choice) => choice.branch), ['main', 'release/24.3'], 'an orphan branch is never offered');
+  assert.deepEqual(catalog.orphaned, { application: ['pages'] });
+  assert.ok(catalog.published.application.includes('pages'), 'it stays published, so a typed base is refused as an orphan, not as missing');
+
+  // A shallow clone cannot tell an orphan from history it does not have, so it offers every branch.
+  const shallow = path.join(base, 'shallow');
+  git(base, 'clone', '--quiet', '--depth', '1', '--no-single-branch', `file://${path.join(base, 'application.git')}`, shallow);
+  assert.deepEqual(orphanRemoteBranches(shallow, { remote: 'origin', defaultBranch: 'main' }), { checked: false, orphans: [] });
 });
 
 test('explicit framework bases are refused before repository inspection', async () => {

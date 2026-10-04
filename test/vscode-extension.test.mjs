@@ -6117,6 +6117,21 @@ test('a Story requires an explicit base even when only one remote branch is avai
   assert.match(html, /<button type="button" data-submit="start" disabled>/);
 });
 
+test('the base list says which orphan branches it left out, and never offers them', () => {
+  const form = intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry a failed charge',
+    description: 'One retry with backoff', baseBranch: null, basePreflightPassed: false,
+    baseBranchOrphans: ['gh-pages']
+  });
+  const html = intakeHtml(form);
+  assert.match(html, /data-base-branch="main"/);
+  assert.doesNotMatch(html, /data-base-branch="gh-pages"/);
+  assert.match(html, /Not offered: <code>gh-pages<\/code>\s+— it shares no history with the default branch, so no Story can start from it\./);
+  const several = intakeHtml({ ...form, baseBranchOrphans: ['gh-pages', 'docs-site'] });
+  assert.match(several, /<code>gh-pages<\/code>, <code>docs-site<\/code>\s+— they share no history/);
+  assert.doesNotMatch(intakeHtml({ ...form, baseBranchOrphans: [] }), /Not offered/);
+});
+
 test('Story workflow phases render as a horizontal rail beneath the workflow name', () => {
   const html = intakeHtml(intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry a failed charge',

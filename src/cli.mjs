@@ -2456,7 +2456,7 @@ export async function startCommand(positionals, options) {
         ? [explicitBase]
         : [];
   const {
-    assertApprovedCapabilityRepositoryPlan, storyBaseForRepository, preflightStoryRepositories,
+    assertApprovedCapabilityRepositoryPlan, assertStoryBaseSharesHistory, storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
     preflightIncludesRepository, preflightPublicationAuthority,
     preflightWorldModelAuthorityRefreshes
@@ -2531,6 +2531,8 @@ export async function startCommand(positionals, options) {
         { code: 'STORY_BASE_INVALID' }
       );
     }
+    // Before reading the base's own configuration: an orphan base has none to read.
+    assertStoryBaseSharesHistory(root, { remote, baseBranch: baseAtStart });
     legacyBaseConfigurationCommit = refHead(root, selectedBaseRef);
     const selectedBaseConfiguration = await loadLegacyStoryBaseContext(root, {
       remote, baseBranch: baseAtStart, baseCommit: legacyBaseConfigurationCommit,
@@ -2743,6 +2745,8 @@ export async function startCommand(positionals, options) {
       { code: 'STORY_BASE_INVALID' }
     );
   }
+  // Every path reaches this check, approved configuration or not: an orphan branch is no line of work.
+  if (!materializedSeed) assertStoryBaseSharesHistory(root, { remote, baseBranch: baseAtStart });
   if (!materializedSeed && refExists(root, remoteStoryRef)) {
     throw new SingularityFlowError(
       `Story branch '${canonicalBranch}' already exists on '${remote}'. Resume it instead of starting it again. Nothing was changed.`,
@@ -16445,6 +16449,9 @@ async function workspaceCommand(positionals, options) {
         // say which repositories it could not reach, not show an empty list or an error dialog.
         unreachable: catalog.unreachable,
         choices: catalog.choices,
+        // Orphan branches (no history shared with the default branch) are never offered; named per
+        // repository so a reader who expected one learns why it is missing.
+        orphaned: catalog.orphaned ?? {},
         preflight,
         ...(existingWorkId ? { existingWork: await intakeExistingWork(root, existingWorkId, catalog) } : {}),
         ...(intake ? { intake: {
@@ -16463,6 +16470,8 @@ async function workspaceCommand(positionals, options) {
         console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
           + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : ''));
       }
+      const orphanNames = [...new Set(Object.values(result.orphaned).flat())].sort();
+      if (orphanNames.length) console.log(`Not offered, because they share no history with the default branch: ${orphanNames.join(', ')}`);
       for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
       return result;
       // The catalog and its readiness preview are advisory: Story start observes authority again and

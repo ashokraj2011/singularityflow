@@ -260,6 +260,8 @@ export interface IntakeForm extends TestRecoveryDraft {
   baseRemote: string | null;
   /** Why the branches could not be listed, when they could not be. */
   baseBranchReason: string | null;
+  /** Branches left out because they share no history with the default branch (orphan branches). */
+  baseBranchOrphans: string[];
   /** True only after the engine has re-fetched every required repository and dry-run the push. */
   basePreflightPassed: boolean;
   basePreflightChecking: boolean;
@@ -333,7 +335,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   availableStoryWorkflows: [],
   referenceRepositories: [],
   storyAttachments: emptyStoryAttachmentSlots(),
-  baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
+  baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null, baseBranchOrphans: [],
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
   workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
@@ -894,6 +896,8 @@ function baseBranchHtml(form: IntakeForm): string {
         <span class="choice-detail">${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
+    ${form.baseBranchOrphans.length ? `<p class="meta">Not offered: ${form.baseBranchOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
+      — ${form.baseBranchOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${form.baseBranchOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
     ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only

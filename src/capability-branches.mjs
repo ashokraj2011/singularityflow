@@ -60,10 +60,14 @@ export function parseRemoteHeads(output) {
     .filter(Boolean))].sort();
 }
 
-/** Framework-owned branches carry configuration or state, never application Story bases. */
+/**
+ * Framework-owned branches carry configuration or state, never application Story bases: the ledger
+ * branch, everything under sflow/, and ledger pins published as branches (singularity/pins/).
+ */
 export function isStoryBaseBranch(branch, { stateBranch = 'state' } = {}) {
   return typeof branch === 'string' && branch.length > 0
-    && branch !== 'state' && branch !== stateBranch && !branch.startsWith('sflow/');
+    && branch !== 'state' && branch !== stateBranch && !branch.startsWith('sflow/')
+    && !branch.startsWith('singularity/pins/');
 }
 
 /** Refuse an explicit framework base before fetching or changing any repository. */

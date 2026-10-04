@@ -27,7 +27,8 @@ import {
 } from './capability-branches.mjs';
 import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservationAsync, publicationPushOutcome,
-  gitCommonDir, refExists, refHead, repoRoot, safePruneRefspecs, validBranch
+  gitCommonDir, orphanRemoteBranches, refExists, refHead, refsShareHistory, remoteDefaultBranchName, repoRoot,
+  safePruneRefspecs, validBranch
 } from './git.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
@@ -487,6 +488,52 @@ async function storyRepositoryPlan(root, {
   };
 }
 
+/**
+ * Refuse an orphan base: a branch that shares no history with the repository's default branch
+ * (one that holds pages or state, say). A Story cut from it would start without the code it is
+ * meant to change. Checked on remote-tracking refs a fetch has just updated; when Git cannot tell,
+ * the start goes on.
+ */
+export function assertStoryBaseSharesHistory(root, { remote = 'origin', baseBranch, defaultBranch = null, repositoryId = null } = {}) {
+  const main = defaultBranch ?? remoteDefaultBranchName(root, {}, remote) ?? 'main';
+  if (!baseBranch || baseBranch === main) return;
+  if (refsShareHistory(root, `refs/remotes/${remote}/${main}`, `refs/remotes/${remote}/${baseBranch}`) !== false) return;
+  throw new SingularityFlowError(
+    `Branch '${baseBranch}' shares no history with '${main}'${repositoryId ? ` in repository '${repositoryId}'` : ''}: `
+    + `it is an orphan branch, such as one that holds pages or state, not a line of application work. `
+    + `Choose a branch cut from '${main}'. Nothing was changed.`,
+    { code: 'STORY_BASE_ORPHAN', details: { repository: repositoryId, base: baseBranch, defaultBranch: main } }
+  );
+}
+
+/** The local clone of one planned repository, or null when it is not cloned here. */
+function localRepositoryClone(root, plan, repository) {
+  const target = repository.id === plan.repositoryId ? root
+    : plan.scope === 'capability' ? workspaceRepositoryPath({ path: plan.workspaceRoot }, repository) : repository.path;
+  return target && existsSync(path.join(target, '.git')) ? target : null;
+}
+
+/**
+ * The orphan branches each repository publishes: branches that share no history with its default
+ * branch (one that holds pages or state, say), which are never offered as a Story base. Read from
+ * each local clone's remote-tracking refs, so it costs no network round trip; a repository this
+ * machine has not cloned, or a shallow clone, reports none. The published lists stay complete, so
+ * a branch someone types is refused as an orphan by start rather than reported missing.
+ */
+function orphanBranches(root, plan, published, defaultBranch) {
+  const orphaned = {};
+  for (const repository of plan.repositories) {
+    const clone = localRepositoryClone(root, plan, repository);
+    if (!clone) continue;
+    const repositoryDefault = repository.defaultBranch ?? defaultBranch;
+    const { checked, orphans } = orphanRemoteBranches(clone, { remote: plan.remote, defaultBranch: repositoryDefault });
+    const listed = published[repository.id] ?? [];
+    const found = checked ? orphans.filter((name) => name !== repositoryDefault && listed.includes(name)) : [];
+    if (found.length) orphaned[repository.id] = found;
+  }
+  return orphaned;
+}
+
 export async function storyBaseCatalog(root, options = {}) {
   const stateBranch = options.stateBranch ?? options.configurationSnapshot?.definition?.ledger?.branch ?? 'state';
   const plan = await storyRepositoryPlan(root, options);
@@ -502,9 +549,12 @@ export async function storyBaseCatalog(root, options = {}) {
   const { published, unreachable } = await publishedBranchesAsync(plan.repositories, {
     observed: options.observedHeads ?? null
   });
+  const orphaned = orphanBranches(root, plan, published, options.defaultBranch ?? 'main');
+  const offered = Object.fromEntries(Object.entries(published)
+    .map(([id, branches]) => [id, branches.filter((name) => !(orphaned[id] ?? []).includes(name))]));
   return {
-    ...plan, stateBranch, published, unreachable,
-    choices: branchChoices(published, { stateBranch })
+    ...plan, stateBranch, published, unreachable, orphaned,
+    choices: branchChoices(offered, { stateBranch })
   };
 }
 
@@ -879,6 +929,9 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
         { code: 'STORY_BASE_INVALID' }
       );
     }
+    assertStoryBaseSharesHistory(root, {
+      remote, baseBranch: base.branch, defaultBranch: repository.defaultBranch ?? null, repositoryId: repository.id
+    });
     const destinationRef = `refs/remotes/${remote}/${storyBranch}`;
     if (refExists(root, destinationRef)) {
       throw new SingularityFlowError(

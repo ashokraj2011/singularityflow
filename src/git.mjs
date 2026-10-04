@@ -1010,6 +1010,48 @@ export function refCommit(root, ref, { env = process.env } = {}) {
   return gitReadOutput(result, `The commit of ${ref}`, { absentStatus: 1 })?.trim() || null;
 }
 
+/**
+ * Remote-tracking branches that share no history with the default branch: orphan branches, such as
+ * one that holds pages or state, which can never be a line of application work. Read from this
+ * clone's remote-tracking refs without contacting the remote, in two Git calls however many
+ * branches there are. `checked` is false when this clone cannot tell: it is shallow, so its root
+ * commits are only a boundary, or it has no copy of the default branch.
+ */
+export function orphanRemoteBranches(root, { remote = 'origin', defaultBranch = 'main', env = process.env } = {}) {
+  const unknown = { checked: false, orphans: [] };
+  const shallow = git(['rev-parse', '--is-shallow-repository'], { cwd: root, env, allowFailure: true });
+  if (shallow.status !== 0 || String(shallow.stdout).trim() !== 'false') return unknown;
+  const roots = git(['rev-list', '--max-parents=0', `refs/remotes/${remote}/${defaultBranch}`, '--'], {
+    cwd: root, env, allowFailure: true
+  });
+  if (roots.status !== 0) return unknown;
+  const rootCommits = String(roots.stdout).split('\n').map((line) => line.trim()).filter(Boolean);
+  if (!rootCommits.length) return unknown;
+  // A branch that contains none of the default branch's root commits shares none of its history.
+  const listed = git([
+    'for-each-ref', '--format=%(refname)', ...rootCommits.flatMap((commit) => ['--no-contains', commit]),
+    `refs/remotes/${remote}/`
+  ], { cwd: root, env, allowFailure: true });
+  if (listed.status !== 0) return unknown;
+  const prefix = `refs/remotes/${remote}/`;
+  const orphans = String(listed.stdout).split('\n').map((line) => line.trim())
+    .filter((ref) => ref.startsWith(prefix)).map((ref) => ref.slice(prefix.length))
+    .filter((name) => name && name !== 'HEAD');
+  return { checked: true, orphans: [...new Set(orphans)].sort() };
+}
+
+/**
+ * Whether two refs share any history: false for an orphan branch against the default branch, null
+ * when Git cannot answer (a missing ref or object). `merge-base` exits 1 with no output exactly
+ * when the two have no common ancestor.
+ */
+export function refsShareHistory(root, left, right, { env = process.env } = {}) {
+  const result = git(['merge-base', left, right, '--'], { cwd: root, env, allowFailure: true });
+  if (result.status === 0 && String(result.stdout).trim()) return true;
+  if (result.status === 1 && !String(result.stdout).trim()) return false;
+  return null;
+}
+
 /** The checked-out branch, or null when HEAD is detached. */
 export function checkedOutBranch(root, { env = process.env } = {}) {
   const result = git(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: root, env, allowFailure: true });

@@ -69,6 +69,9 @@ test('Story base choices exclude framework configuration and state refs', () => 
   assert.ok(published.application.includes('sflow/config'), 'the raw remote inventory remains complete');
   assert.equal(isStoryBaseBranch('feature/customer-search'), true);
   assert.equal(isStoryBaseBranch('sflow/config-history/0123456789abcdef'), false);
+  // Ledger pins published as branches (pinTransport: branches) are state, not application work.
+  assert.equal(isStoryBaseBranch('singularity/pins/payments/evt-0001'), false);
+  assert.equal(isStoryBaseBranch('singularity/feature-x'), true);
 });
 
 test('explicit framework Story bases are refused, including repository overrides', () => {

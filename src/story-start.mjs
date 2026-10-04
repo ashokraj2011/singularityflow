@@ -17,7 +17,7 @@ import {
   head
 } from './git.mjs';
 import {
-  assertApprovedCapabilityRepositoryPlan, capabilityPublicationPlan,
+  assertApprovedCapabilityRepositoryPlan, assertStoryBaseSharesHistory, capabilityPublicationPlan,
   preflightStoryRepositories, prepareCapabilityRepositories,
   preflightIncludesRepository, preflightPublicationAuthority,
   preflightWorldModelAuthorityRefreshes, storyBaseForRepository
@@ -390,6 +390,8 @@ export async function startStory(root, {
           { code: 'STORY_BASE_INVALID' }
         );
       }
+      // An orphan branch carries no workflow of its own; say what it is before reading one from it.
+      assertStoryBaseSharesHistory(root, { remote, baseBranch: storyBase.localBase });
       legacyBaseConfigurationCommit = refHead(root, selectedBaseRef);
       const selectedBaseConfiguration = await loadLegacyStoryBaseContext(root, {
         remote, baseBranch: storyBase.localBase, baseCommit: legacyBaseConfigurationCommit,
@@ -475,6 +477,8 @@ export async function startStory(root, {
         { code: 'STORY_BASE_INVALID' }
       );
     }
+    // A branch with no history in common with the default branch (pages, state) is no line of work.
+    assertStoryBaseSharesHistory(root, { remote, baseBranch: storyBase.localBase });
     baseCommit = refHead(root, remoteBaseRef);
     if (legacyBaseConfigurationCommit && baseCommit !== legacyBaseConfigurationCommit) {
       throw new SingularityFlowError(

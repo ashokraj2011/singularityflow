@@ -135,7 +135,7 @@ test('sidebar and configuration validation route their hot paths through the coa
 test('leased heavyweight panels gate snapshot-driven rendering while hidden', async () => {
   const gated = [
     'views/approvals.ts', 'views/capabilities.ts', 'views/configuration-center.ts',
-    'views/dashboard.ts', 'views/designer.ts', 'views/instruction-designer.ts'
+    'views/dashboard.ts', 'views/instruction-designer.ts'
   ];
   for (const file of gated) {
     const content = await readFile(source(file), 'utf8');
@@ -162,7 +162,7 @@ test('leased heavyweight panels gate snapshot-driven rendering while hidden', as
 test('panels that close their own host surface make disposal idempotent before re-entry', async () => {
   const selfClosing = [
     'views/activity-log.ts', 'views/approvals.ts', 'views/bootstrap-panel.ts',
-    'views/capabilities.ts', 'views/dashboard.ts', 'views/designer.ts',
+    'views/capabilities.ts', 'views/dashboard.ts',
     'views/flow-impact.ts', 'views/impact.ts', 'views/inbox.ts', 'views/intake-panel.ts',
     'views/journey.ts', 'views/reconciliation.ts', 'views/stories.ts',
     'views/workspace-panel.ts', 'views/workspaces-panel.ts'

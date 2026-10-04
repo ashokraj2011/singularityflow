@@ -443,7 +443,7 @@
       },
       {
         "command": "singularityFlow.openDesigner",
-        "title": "Singularity Flow: Workflow Designer",
+        "title": "Singularity Flow: Workflow Designer (opens Workflow Studio)",
         "icon": "$(symbol-structure)"
       },
       {
@@ -508,7 +508,7 @@
       },
       {
         "command": "singularityFlow.configureTemplates",
-        "title": "Singularity Flow: Configure Templates & Instructions",
+        "title": "Singularity Flow: Configure Templates (opens Workflow Studio Artifacts)",
         "icon": "$(file-text)"
       },
       {
@@ -896,6 +896,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "singularityFlow.openDesigner",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.configureTemplates",
+          "when": "false"
+        },
         {
           "command": "singularityFlow.explainChangeAtCursor",
           "when": "singularityFlow.repositoryActive && resourceScheme == file"

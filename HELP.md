@@ -358,7 +358,7 @@ Favorites       Personal shortcuts to frequently used menus
 Inbox           Generated documents · review packets · approvals · portfolio dashboard
 Workspaces      Local directory · selected capabilities · repositories · health
 Lifecycle       Intake · workflow selection · phases · artifacts · progress · decisions
-Configuration   Workflow/Artifact Designers · agents · prompts · skills · prompt packs ·
+Configuration   Workflow Studio · agents · prompts · skills · prompt packs ·
                 capabilities · integrations · world-model rules
 Help            Offline topics · command reference · troubleshooting
 Logs            Activity · prompts · Copilot usage · workspace operations
@@ -2767,13 +2767,16 @@ Conformance stores a source/test tree hash. Later code or test changes make the 
 The easiest way to create and change workflows is **Workflow Studio** in VS Code (Command Palette **Singularity Flow: Workflow Studio**, or **Configuration Center → Workflow Studio**). It draws every workflow as a canvas of connected steps: each step shows what it produces, the agent that drafts it and who signs it off, and arrows show the order, decisions and send-back rules. Drag the background to move around, zoom with Ctrl or Cmd and the mouse wheel (**Fit** shows the whole workflow), and select a step to edit it in the properties panel on the right. You pick everything from lists:
 
 - start a workflow from one of yours or from a packaged blueprint, then add, remove and reorder steps;
-- choose the agent that drafts each step, what the step produces, which earlier steps it reads, who signs it off and how many approvals it needs, and where rejected work goes back to;
+- choose the agent that drafts each step, what the step produces, which earlier steps it reads (each required or optional), which approval groups sign it off, which of them must approve and how many approvals it needs, and its send-back rules (each earlier step rejected work may go back to, at most how many times);
+- design artifact templates from sections under **Artifacts**, edit artifact sets, and choose a step's template, the file it writes and its artifact set;
+- name a workflow's planned claims (which steps define clauses, who plans each code step's claims), or let them be worked out;
+- edit **Epic workflows**: their steps, each step's agents, lanes, knowledge views, sign-off and outputs;
 - choose which skill drafts a step (**Drafted with**): automatic, or a specialised skill such as `/sf-design` that can draft what the step produces. On a shared step the choice is the open workflow's own;
 - create an agent from a role (analyst, architect, developer, tester, designer, reviewer) without editing Markdown;
 - add people to approval groups;
 - add a **decision** after a step with the diamond tool, drawn as a diamond on the arrow after the step: an if / else whose rules read values the step records, a loop that goes back until a goal is met (at most a few rounds), or a question a person answers. See [Decisions, branches and loops](docs/topics/workflow-decisions.md).
 
-Edits collect as one set of changes. **Check changes** asks the engine to validate the whole resulting configuration — workflow, agents and templates together — and shows each file's diff; **Publish** writes them as one review proposal on the approved configuration (or, for a working-tree authority, as files to commit). Running Stories keep the workflow they started with.
+Edits collect as one set of changes. **Check changes** asks the engine to validate the whole resulting configuration — workflow, portfolio, agents and templates together — and shows each file's diff; **Publish** writes them as one review proposal on the approved configuration (or, for a working-tree authority, as files to commit). **Changes** also lists the configuration proposals waiting for review; **Review and activate** opens the exact diff and merges it after you confirm. **Export…** and **Import…** move workflows between repositories as one reviewed bundle. Running Stories keep the workflow they started with.
 
 A step's default agent is shared by every workflow that uses the step. To give one workflow a different agent, use **Use a copy in this workflow**, which creates a separate step for it.
 
@@ -2785,7 +2788,7 @@ singularity-flow workflow studio apply --change-set changes.json --dry-run --jso
 singularity-flow workflow studio apply --change-set changes.json --propose --json
 ```
 
-A change set is `{"schema": "sflow-studio-change-set@1", "base": {...}, "changes": [...]}`, where each change is one of `workflow.create`, `workflow.update`, `workflow.install`, `phase.create`, `phase.update`, `phase.agent`, `agent.create`, `agent.update`, `group.create` and `group.update`. The `base` returned by `workflow studio --json` makes a stale change set refuse rather than overwrite a newer configuration.
+A change set is `{"schema": "sflow-studio-change-set@1", "base": {...}, "changes": [...]}`, where each change is one of `workflow.create`, `workflow.update`, `workflow.install`, `phase.create`, `phase.update`, `phase.agent`, `agent.create`, `agent.update`, `group.create`, `group.update`, `template.create`, `template.update`, `artifactSet.create`, `artifactSet.update`, `artifactSet.remove`, `epicWorkflow.create`, `epicWorkflow.update`, `epicStep.create`, `epicStep.update`, `epicOutput.set`, `epicOutput.remove`, the `integration.target.*` and `marketplace.*` changes, and the `import.*` changes the Library queues. The `base` returned by `workflow studio --json` makes a stale change set refuse rather than overwrite a newer configuration.
 
 ### Editing the definition
 
@@ -2823,7 +2826,7 @@ The supported visual surface is the Singularity Flow VS Code extension. Its four
 - **Workspaces**: local directory, repositories, capability scope, and health.
 - **Lifecycle**: intake, workflow selection, phases, artifacts, progress, and approvals.
 - **Inbox**: generated artifacts, review packets, decisions, and capability-level portfolio progress.
-- **Configuration**: visual workflow/artifact and agent/prompt/skill/prompt-pack designers, capabilities, integrations, and world-model rules.
+- **Configuration**: Workflow Studio (Story and Epic workflows, artifacts, and configuration proposals), the agent/prompt/skill/prompt-pack designer, capabilities, integrations, and world-model rules.
 
 Build and install the extension with `npm run vscode:package`, then
 `code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force`.
@@ -3068,7 +3071,7 @@ but cannot start new Stories until reviewed. Migrate one with `workflow edit <ID
 or give a short workflow a scope-and-plan checkpoint step; opting out of planned claims is retired.
 Use `--planned-claims auto` to re-infer and pin a valid topology after changing phases.
 
-Workflow Designer saves and `workflow ... --propose` author from the approved `sflow/config`
+Workflow Studio publishes and `workflow ... --propose` author from the approved `sflow/config`
 revision in a disposable checkout and push one `sflow/config-change/workflow/...` review branch.
 They never edit the selected Story's pinned configuration. Merge the proposal into `sflow/config`,
 then run `singularity-flow workspace refresh-configuration` to update workspace state and make the

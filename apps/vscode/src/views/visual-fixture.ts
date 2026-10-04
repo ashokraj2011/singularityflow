@@ -58,7 +58,7 @@ function fixtureBody(theme: VisualTheme): string {
       <section class="configuration-nav-group"><h2>Repository setup</h2><ul><li><button class="configuration-nav-item active" aria-current="page">${icon('configuration')}<span>Overview</span></button></li><li><button class="configuration-nav-item">${icon('capability')}<span>Capabilities</span></button></li></ul></section>
       <section class="configuration-nav-group"><h2>Governance &amp; review</h2><ul><li><button class="configuration-nav-item">${icon('approval')}<span>People &amp; approvals</span></button></li></ul></section>
     </nav></aside><main class="configuration-content"><div class="summary-grid"><div class="summary-card"><strong>4</strong><span>approval groups</span></div><div class="summary-card"><strong>3</strong><span>governed agents</span></div></div>
-      <div class="configuration-action-list"><button class="configuration-action-row">${icon('workflow')}<span><strong>Workflow Designer</strong><small>Work types, phases, gates, and artifact flow.</small></span>${icon('next')}</button></div></main></div>
+      <div class="configuration-action-list"><button class="configuration-action-row">${icon('workflow')}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button></div></main></div>
   </section>
   <section><h2>${icon('artifact')}Artifact inventory</h2><table><thead><tr><th>Artifact</th><th>Status</th><th>Owner</th></tr></thead>
     <tbody><tr><td>${icon('document')}Requirements specification</td><td><span class="pill ok">${icon('success')}Approved</span></td><td>Product owner</td></tr>

@@ -13,10 +13,11 @@ generation, not an in-place edit.
 
 ## Configure a loop
 
-In VS Code, open **Singularity Flow → Configuration Center → Workflows & artifacts**, select a
-Story workflow, and use **Rework loops**. Choose the review phase, an earlier repair phase, a
-maximum number of attempts, and optionally an earlier phase whose new approved generation
-resets the budget. Review the previewed backward edge before saving.
+In VS Code, open **Workflow Studio**, open a Story workflow, select the review step and, under
+**Sign-off**, use **Add a send-back rule**. Choose the earlier repair step, the maximum number of
+attempts, and optionally an earlier step whose new approved generation resets the budget
+(**Count again after**). Rules into the same step share one budget. **Check changes** validates the
+backward edges before you publish.
 
 From a shell, the corresponding workflow-authoring option is:
 

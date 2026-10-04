@@ -27,7 +27,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 48
+version: 49
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -260,11 +260,11 @@ The same holds for every role:
   the exact deterministic preview and stop for confirmation before an import or copy mutation.
 - **VS Code, visually:** open **Workflow Studio** (Command Palette **Singularity Flow: Workflow
   Studio**, or **Configuration Center → Workflow Studio**). See *Workflow Studio* below.
-- **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer
-  toolbar exposes **Export**, **Import**, and **Duplicate** alongside workflow editing. It previews
-  phase contracts and exposes planned claims, code task, and approval groups. Lead-governed saves
-  create review proposals; self-governed saves leave an uncommitted edit on local `sflow/config`.
-  The selected Story snapshot is never edited.
+- **VS Code:** in **Workflow Studio**, **Your workflows** offers **Export…**, **Import…** and
+  **Duplicate** for Story workflows, and the Epic workflows list offers **Duplicate** as a linked
+  copy. An import previews its plan read-only and stops for confirmation. Lead-governed changes
+  create review proposals, listed under **Changes → Waiting for review**; self-governed changes
+  leave an uncommitted edit on local `sflow/config`. The selected Story snapshot is never edited.
   **Configuration Center → Shared workflow drafts** (or Command Palette **Singularity Flow:
   Shared workflow drafts**) opens six guided stages with an advanced literal JSON editor.
   Shared autosave is opt-in for the exact opened draft and authority; an acknowledged revision
@@ -974,7 +974,7 @@ bytes live on `sflow/config`; a Story contains an immutable copy selected when t
 Writing a new workflow into the active Story would neither update future Stories nor update the
 approved catalog, and it would make the Story fail its protected-path gate.
 
-For a lead-governed repository, the Workflow Designer performs this bounded transaction:
+For a lead-governed repository, Workflow Studio (and every `--propose` command) performs this bounded transaction:
 
 1. read the exact approved `sflow/config` revision into a disposable checkout;
 2. apply and validate the workflow edit there;
@@ -1079,11 +1079,11 @@ singularity-flow workflow copy story:feature feature-team \
 existing workflow ID. Imports are idempotent when the exact dependency closure already exists and
 fail before mutation on any conflicting ID or changed bundle digest.
 Use the qualified `story:<id>` or `initiative:<id>` source whenever both catalogs contain the same
-workflow ID. The Workflow Designer supplies this qualification automatically.
+workflow ID. Workflow Studio supplies this qualification automatically.
 
 New Story workflows infer a required planned-claims contract when a qualifying clause phase and code-phase owner exist. The CLI prints the resolved phase simulation after a successful non-JSON create or edit; inspect it again with `singularity-flow workflow simulate customer-onboarding`. Validation and simulation read the same custom definition. A custom workflow has no packaged baseline for `workflow diff`; use simulate instead.
 
-To make review-led correction part of a Story workflow, add a bounded backward **rework loop** in the Workflows & artifacts Designer or with `workflow edit <ID> --loop <REVIEW-PHASE>:<EARLIER-PHASE>:<MAX-ATTEMPTS>[:<RESET-PHASE>] --propose`. The optional reset phase must be strictly earlier than the return target. The loop becomes a reviewer rejection route and a repair-attempt budget; it does not execute phases, approve artifacts, or amend a specification automatically. Existing Stories retain their pinned workflow. See [Bounded rework loops](../WORKFLOW-REWORK-LOOPS.md) for the full sequence and safety boundaries.
+To make review-led correction part of a Story workflow, add a bounded backward **rework loop** with a step's send-back rules in Workflow Studio or with `workflow edit <ID> --loop <REVIEW-PHASE>:<EARLIER-PHASE>:<MAX-ATTEMPTS>[:<RESET-PHASE>] --propose`. The optional reset phase must be strictly earlier than the return target. The loop becomes a reviewer rejection route and a repair-attempt budget; it does not execute phases, approve artifacts, or amend a specification automatically. Existing Stories retain their pinned workflow. See [Bounded rework loops](../WORKFLOW-REWORK-LOOPS.md) for the full sequence and safety boundaries.
 
 `workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default governed Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
 
@@ -1099,7 +1099,7 @@ singularity-flow workflow validate
 singularity-flow workflow validate customer-onboarding --json
 ```
 
-The validator runs during configuration load and every Workflow Designer/CLI save as well. A future
+The validator runs during configuration load and every Workflow Studio check and CLI save as well. A future
 workflow cannot silently reach implementation with no clause source or planning owner, and every route
 must guarantee the responsibilities a Story owes or declare what it omits (see Responsibilities every
 route owes below). Opting out of planned claims is retired; non-code workflows are reported as not

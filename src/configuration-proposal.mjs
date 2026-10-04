@@ -1,7 +1,7 @@
 /**
  * Author shared configuration without ever borrowing the caller's application checkout.
  *
- * A Workflow Designer can be opened while a Story worktree is selected.  That Story contains a
+ * Workflow Studio can be opened while a Story worktree is selected.  That Story contains a
  * pinned copy of `singularity/`, so writing there changes neither the approved configuration nor
  * future Stories; it only makes the current Story fail its protected-path gate.  Configuration
  * proposals therefore borrow `sflow/config` in a disposable clone, validate the edit there, and

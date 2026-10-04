@@ -2933,8 +2933,9 @@ The supported visual surface is the VS Code extension:
   approval bottlenecks, generations and rework, models, exact-or-unavailable token
   usage, and provider/configured cost. It is a read-only projection, not another
   state store.
-- **Configuration** contains the Workflow and Artifact Designers; governed Agent,
-  Prompt, Skill, and Prompt Pack Designers; capability mapping; integrations;
+- **Configuration** opens Workflow Studio (Story and Epic workflows, artifacts,
+  configuration proposals); the governed Agent, Prompt, Skill, and Prompt Pack
+  Designer; capability mapping; integrations;
   approval policy; and world-model rules. Configuration affects future work;
   active work follows its immutable pinned resolution.
 

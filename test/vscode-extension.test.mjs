@@ -5607,7 +5607,7 @@ test('the compact sidebar uses distinct modern icons for navigation and task act
 });
 
 test('icon-only actions are labelled and raw Unicode action glyphs cannot return', async () => {
-  const files = ['designer-page.ts', 'instruction-designer-page.ts', 'approvals.ts', 'inbox.ts'];
+  const files = ['instruction-designer-page.ts', 'approvals.ts', 'inbox.ts'];
   for (const file of files) {
     const content = await readFile(source(`views/${file}`), 'utf8');
     assert.doesNotMatch(content, /<button[^>]*>[↑↓×+]/u, `${file} contains a raw action glyph`);
@@ -7436,11 +7436,6 @@ test('the status dashboard carries lifecycle analytics without inventing them wh
   assert.equal(withoutStory.analytics, null);
 });
 
-const { buildProfiles, buildTemplateUsage, consequence, standingOn } =
-  await import(source('views/designer-model.ts'));
-const { designerHtml, DESIGNER_SCRIPT } = await import(source('views/designer-page.ts'));
-const { newArtifactDraft, renderArtifactTemplate, sectionFor, validateArtifactDraft } =
-  await import(source('views/artifact-designer-model.ts'));
 const {
   instructionCatalog, parseAgent, parseSkill, renderAgent, renderAgentMappings, renderSkill,
   validateAgent, validateAgentMappingsDraft, validateSkill
@@ -7452,131 +7447,6 @@ test('the instruction designer browser script is valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(INSTRUCTION_DESIGNER_SCRIPT));
 });
 
-const DESIGN_SNAPSHOT = {
-  portfolioPath: 'singularity/portfolio.yml',
-  definitionPath: 'singularity/workflow.yml',
-  portfolio: {
-    initiativeProfiles: {
-      'enterprise-delivery': { label: 'Enterprise delivery', phases: ['discover-define', 'delivery'] }
-    },
-    initiativePhases: {
-      'discover-define': {
-        label: 'Discover & Define',
-        outputs: [
-          { id: 'business-case', label: 'Business case', required: true,
-            template: 'initiatives/business-case.md',
-            approval: { mode: 'individual', authorities: ['product-approvers'], minimum: 1 } },
-          { id: 'source-catalog', label: 'Source catalog', required: false, template: null, generator: 'source-catalog' }
-        ],
-        checklist: [{ id: 'business-case-exists', label: 'Business case exists' }],
-        bundleApproval: { mode: 'bundle', chain: [{ authority: 'product-approvers', label: 'Product Governance' }] }
-      },
-      delivery: { label: 'Delivery', outputs: [], checklist: [] }
-    }
-  },
-  templates: [
-    { path: 'singularity/templates/initiatives/business-case.md', name: 'business-case.md', bytes: 2185 },
-    { path: 'singularity/templates/initiatives/unused-draft.md', name: 'unused-draft.md', bytes: 400 }
-  ],
-  initiatives: [
-    { id: 'SF-1', title: 'One-tap checkout', status: 'in_progress', currentPhase: 'discover-define',
-      pinnedTemplates: [{ path: 'singularity/templates/initiatives/business-case.md', sha256: 'abc' }] },
-    { id: 'SF-0', title: 'Closed thing', status: 'complete',
-      pinnedTemplates: [{ path: 'singularity/templates/initiatives/business-case.md', sha256: 'abc' }] }
-  ]
-};
-
-test('the designer reads a profile as the ordered phases it actually runs', () => {
-  const [profile] = buildProfiles(DESIGN_SNAPSHOT);
-  assert.equal(profile.label, 'Enterprise delivery');
-  assert.deepEqual(profile.phases.map((phase) => phase.id), ['discover-define', 'delivery']);
-  assert.deepEqual(profile.phases.map((phase) => phase.order), [0, 1]);
-
-  const [discover] = profile.phases;
-  assert.equal(discover.outputs.length, 2);
-  assert.equal(discover.outputs[0].template, 'initiatives/business-case.md');
-  assert.equal(discover.outputs[1].generator, 'source-catalog', 'generated outputs have no template');
-  assert.equal(discover.bundleApproval.chain[0].label, 'Product Governance');
-});
-
-test('a template knows what points at it and who is standing on it', () => {
-  // The files cannot tell you either. That is the whole reason this is a screen.
-  const usage = buildTemplateUsage(DESIGN_SNAPSHOT);
-  const businessCase = usage.find((entry) => entry.name === 'business-case.md');
-  assert.deepEqual(businessCase.usedBy, [
-    { profile: 'enterprise-delivery', phase: 'discover-define', output: 'business-case' }
-  ]);
-  // Only Epics still running: a closed one has nothing left to stop.
-  assert.deepEqual(businessCase.standing.map((entry) => entry.id), ['SF-1']);
-
-  const unused = usage.find((entry) => entry.name === 'unused-draft.md');
-  assert.deepEqual(unused.usedBy, [], 'listed rather than hidden — it may be about to be wired up');
-  assert.deepEqual(unused.standing, []);
-});
-
-test('editing the portfolio stops every running Epic, and the screen says so first', () => {
-  // An Epic pins the portfolio hash at start and validates against those exact bytes for the rest
-  // of its life. Editing it does not change the Epic — it stops it, at whatever moment somebody
-  // next runs a phase.
-  const standing = standingOn(DESIGN_SNAPSHOT, 'singularity/portfolio.yml');
-  assert.deepEqual(standing.map((entry) => entry.id), ['SF-1']);
-  assert.match(consequence(standing, 'singularity/portfolio.yml'),
-    /1 running Epic pinned .*it stops it at the next phase/);
-
-  const template = standingOn(DESIGN_SNAPSHOT, 'singularity/templates/initiatives/business-case.md');
-  assert.deepEqual(template.map((entry) => entry.id), ['SF-1']);
-
-  // A template nobody pinned is a free edit, and saying so is as useful as the warning.
-  const free = standingOn(DESIGN_SNAPSHOT, 'singularity/templates/initiatives/unused-draft.md');
-  assert.deepEqual(free, []);
-  assert.match(consequence(free, 'unused-draft.md'), /changes what the next Epic starts from and nothing else/);
-});
-
-test('the phases tab shows each artifact, whether it is required, and what approves it', () => {
-  const html = designerHtml('phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all',
-    standingOn(DESIGN_SNAPSHOT, 'singularity/portfolio.yml'), 'singularity/portfolio.yml', null);
-  assert.match(html, /Discover &amp; Define/);
-  assert.match(html, /Business case/);
-  assert.match(html, /required/);
-  assert.match(html, /Product Governance/);
-  assert.match(html, /Generated by source-catalog/);
-  // The warning leads, because it is the thing the file cannot tell you.
-  assert.match(html, /1 running Epic pinned/);
-});
-
-test('the templates tab can be filtered to what is risky and what is dead', () => {
-  const templates = buildTemplateUsage(DESIGN_SNAPSHOT);
-  const pinned = designerHtml('templates', [], templates, null, 'pinned', [], 'singularity/portfolio.yml', null);
-  assert.match(pinned, /business-case\.md/);
-  assert.doesNotMatch(pinned, /unused-draft\.md/);
-
-  const unused = designerHtml('templates', [], templates, null, 'unused', [], 'singularity/portfolio.yml', null);
-  assert.match(unused, /unused-draft\.md/);
-  assert.doesNotMatch(unused, /business-case\.md/);
-
-  const all = designerHtml('templates', [], templates, null, 'all', [], 'singularity/portfolio.yml', null);
-  assert.match(all, /SF-1/, 'the Epic standing on it is named on the row');
-  assert.match(all, /Artifact template designer/);
-  assert.match(all, /data-section-canvas/);
-});
-
-test('the artifact designer emits traceable Markdown and validates unsafe paths', () => {
-  const draft = newArtifactDraft();
-  Object.assign(draft, {
-    governs: 'initiative', phaseId: 'elaboration', outputId: 'solution-architecture',
-    outputLabel: 'Solution architecture', outputPath: 'solution-architecture.md',
-    fileName: 'initiatives/solution-architecture.md', title: 'Solution Architecture',
-    purpose: 'Define the approved system boundaries.',
-    sections: [sectionFor('requirements'), sectionFor('acceptance-criteria'), sectionFor('evidence')]
-  });
-  assert.deepEqual(validateArtifactDraft(draft), []);
-  const markdown = renderArtifactTemplate(draft);
-  assert.match(markdown, /REQ-001/);
-  assert.match(markdown, /AC-001/);
-  assert.match(markdown, /\{\{inputs\}\}/);
-  draft.fileName = '../outside.md';
-  assert.match(validateArtifactDraft(draft).join(' '), /safe \.md path/);
-});
 
 test('the instruction designer separates agents, prompts, repository skills and packaged prompt packs', () => {
   const instructionSnapshot = {
@@ -7834,43 +7704,25 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the Configuration Center exposes the dashboard directly');
 });
 
-test('workflow creation stays visible and offers exact guarded activation', async () => {
+test('configuration proposals stay visible in Workflow Studio and offer exact guarded activation', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
-  const proposal = {
-    branch: 'sflow/config-change/workflow/create-demo-abc123',
-    proposalCommit: 'a'.repeat(40),
-    valid: true,
-    workflows: [{ id: 'demo', label: 'Demo workflow', governs: 'story', change: 'added', phases: ['intake'] }]
-  };
-  const html = designerHtml(
-    'phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all', [], 'singularity/portfolio.yml',
-    null, null, null, undefined, [], [], '', [], [], [proposal], true, null
-  );
-  assert.match(html, /Pending configuration proposals \(1\)/);
-  assert.match(html, /Demo workflow \(added\)/);
-  assert.match(html, /data-review-proposal="sflow\/config-change\/workflow\/create-demo-abc123"/);
-  const settingsOnly = designerHtml(
-    'phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all', [], 'singularity/portfolio.yml',
-    null, null, null, undefined, [], [], '', [], [], [{ ...proposal, workflows: [] }], true, null
-  );
-  assert.match(settingsOnly, /Configuration-only change \(for example World Model, policy, agent, or template settings\)/,
-    'a settings-only proposal must not look like a failed workflow diff');
-  assert.match(DESIGNER_SCRIPT, /type: 'review-proposal'/,
-    'the persistent proposal row dispatches review through the host boundary');
-  assert.match(extension, /'workflow', 'proposals', '--json'/,
-    'opening or refreshing the designer reloads durable proposal branches');
+  const host = await readFile(source('views/workflow-studio.ts'), 'utf8');
+  const { WORKFLOW_STUDIO_SCRIPT } = await import(source('views/workflow-studio-page.ts'));
+  assert.match(host, /\['workflow', 'proposals', '--json'\]/, 'Changes reloads durable proposal branches');
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /Waiting for review/);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /Configuration-only change/, 'a settings-only proposal does not look like a failed workflow diff');
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /type: 'studio\.reviewProposal'/, 'a proposal row dispatches review through the host boundary');
   assert.match(extension, /It remains visible as Pending review/,
-    'creation reports durable proposal state instead of making the workflow appear to disappear');
-  assert.match(extension, /'workflow', 'proposal', branch, '--json'/,
-    'the UI opens the exact proposal diff before activation');
+    'a proposal reports its durable state instead of making the change appear to disappear');
+  assert.match(extension, /'workflow', 'proposal', branch, '--json'/, 'the exact proposal diff opens before activation');
+  assert.match(extension, /showReviewDocument\(`\$\{inspected\.branch\}\.diff`/, 'the diff opens read-only');
   assert.match(extension, /'workflow', 'activate', inspected\.branch/);
-  assert.match(extension, /--confirm', inspected\.proposalCommit/,
-    'activation binds the complete reviewed proposal commit');
-  assert.match(extension, /WORKFLOW_CONFIGURATION_UNPROTECTED/,
-    'a direct unprotected merge requires a second explicit acknowledgement');
+  assert.match(extension, /--confirm', inspected\.proposalCommit/, 'activation binds the complete reviewed proposal commit');
+  assert.match(extension, /WORKFLOW_CONFIGURATION_UNPROTECTED/, 'a direct unprotected merge requires a second explicit acknowledgement');
   assert.match(extension, /application branch remains unchanged/i);
+  assert.match(extension, /'singularityFlow\.openDesigner': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio'\)/,
+    'the retired Designer command opens Workflow Studio');
 });
-
 test('configuration recovery stays inside VS Code for conflicting MCP host entries', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /detail\.includes\('--replace-server'\)/,

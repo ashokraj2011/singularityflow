@@ -879,56 +879,19 @@ test('every rendered tab is one the panel will accept', () => {
 const centerHtml = (snapshotValue, tab = 'overview') =>
   configurationCenterHtml(configurationCenterView(snapshotValue), tab, null, null, null, []);
 
-test('the editable file sets are listed as openable files', () => {
-  const view = configurationCenterView({
-    ...snapshot,
-    templates: [{ path: 'singularity/templates/intake.md', name: 'intake.md' }],
-    agentPrompts: [{ path: '.github/agents/architect.agent.md', name: 'architect.agent.md' }],
-    repositorySkills: [{ path: '.github/skills/review/SKILL.md', name: 'review' }],
-    flowSkills: [{ id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md', description: 'Diagnose a repository.' }],
-    agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true }],
-    agentMappings: { path: 'singularity/agent-mappings.yml', exists: true }
-  });
-  assert.deepEqual(view.fileSets.map((set) => set.id), ['templates', 'prompts', 'skills', 'agents']);
-  assert.deepEqual(view.fileSets.map((set) => set.files.length), [1, 1, 2, 2]);
-
-  const html = configurationCenterHtml(view, 'templates', null, null, null, []);
-  for (const path of ['singularity/templates/intake.md', '.github/agents/architect.agent.md',
-    '.github/skills/review/SKILL.md', 'plugin/skills/sflow-doctor/SKILL.md',
-    'singularity/agent-mappings.yml']) {
-    assert.ok(html.includes(`data-open-path="${path}"`), `${path} should be openable`);
+test('templates are edited in Workflow Studio and instructions in the Agent Designer, also when the definition is refused', () => {
+  // Configuration is how a repository is repaired, so the tools that edit its files stay reachable
+  // when the definition is invalid. The Center no longer keeps a read-only list of them.
+  for (const configurationValid of [true, false]) {
+    const view = configurationCenterView({ ...snapshot, configurationValid });
+    const html = configurationCenterHtml(view, 'overview', null, null, null, []);
+    assert.match(html, /data-action="workflow-studio"/, 'workflows, steps and templates open in Workflow Studio');
+    assert.match(html, /data-action="open-instruction-designer"/, 'agents, prompts and skills open in the Agent Designer');
+    assert.doesNotMatch(html, /data-tab="templates"|Templates &amp; instructions|Workflows &amp; artifacts|data-action="open-designer"/);
+    assert.equal(Object.hasOwn(view, 'fileSets'), false);
   }
-});
-
-test('packaged skills are listed beside the repository’s own, and marked as packaged', () => {
-  // A repository that had written none of its own was once told it had no agents while every
-  // shipped pack sat unlisted beside it.
-  const view = configurationCenterView({
-    ...snapshot,
-    repositorySkills: [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }],
-    flowSkills: [
-      { id: 'sflow-approve', path: 'plugin/skills/sflow-approve/SKILL.md' },
-      { id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md' }
-    ]
-  });
-  const skills = view.fileSets.find((set) => set.id === 'skills');
-  // The repository's own first: those are the files a team wrote and can change.
-  assert.deepEqual(skills.files.map((file) => file.label), ['ours', 'sflow-approve', 'sflow-doctor']);
-  assert.deepEqual(skills.files.map((file) => file.packaged), [false, true, true]);
-  assert.match(configurationCenterHtml(view, 'templates', null, null, null, []), /packaged/);
-});
-
-test('the file sets stay visible when the workflow definition is refused', () => {
-  // Configuration is how a repository is repaired. Hiding it when the definition is invalid hides
-  // the files whose editing is the fix.
-  const view = configurationCenterView({
-    ...snapshot,
-    configurationValid: false,
-    templates: [{ path: 'singularity/templates/intake.md', name: 'intake.md' }],
-    repositorySkills: [{ path: '.github/skills/review/SKILL.md', name: 'review' }]
-  });
-  assert.equal(view.fileSets.find((set) => set.id === 'templates').files.length, 1);
-  assert.equal(view.fileSets.find((set) => set.id === 'skills').files.length, 1);
+  assert.ok(extensionSource.includes("message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio')"),
+    'a stale link to the old Workflows & artifacts entry opens Workflow Studio');
 });
 
 test('validated configuration changes have a visible review and publish path', () => {
@@ -1161,7 +1124,7 @@ test('model independence is reported with whatever is blocking it', () => {
 
 test('every tool the Configuration sidebar used to open is reachable from the Center', () => {
   const html = centerHtml(snapshot);
-  for (const action of ['reset-jira', 'open-designer', 'open-instruction-designer',
+  for (const action of ['reset-jira', 'workflow-studio', 'open-instruction-designer',
     'open-specification-trace', 'open-flow-impact', 'open-copilot', 'open-prompt-audit',
     'inspect-composition-cache', 'check-ledger-deployment', 'open-impact-file']) {
     // Rendered *and* handled: a card whose action name the host does not answer is the defect this
@@ -1175,7 +1138,7 @@ test('the Center renders whether or not an Epic is checked out', () => {
   const bare = configurationCenterHtml(
     configurationCenterView({ initiative: null, initiatives: [], workItems: [] }), 'overview', null, null, null, []);
   assert.match(bare, /Configuration Center/);
-  assert.match(bare, /data-action="open-designer"/);
+  assert.match(bare, /data-action="workflow-studio"/);
 });
 
 /**

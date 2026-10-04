@@ -24,7 +24,6 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
     { label: 'Workflow Studio', glyph: 'workflow', action: 'workflow-studio' },
-    { label: 'Workflows & artifacts', glyph: 'workflow', action: 'workflow' },
     { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
     { label: 'World model', glyph: 'worldModel', tab: 'world-model' },
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
@@ -33,7 +32,6 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Auto mode', glyph: 'start', tab: 'auto' },
     { label: 'Agents & delivery', glyph: 'agent', action: 'open-instruction-designer' },
     { label: 'Model routing', glyph: 'agent', tab: 'models' },
-    { label: 'Templates & instructions', glyph: 'document', tab: 'templates' },
     { label: 'MCP tools', glyph: 'mcp', tab: 'mcp' }
   ] },
   { label: 'Governance & review', items: [
@@ -56,39 +54,6 @@ function navigation(active: ConfigurationTab): string {
   </aside>`;
 }
 
-/**
- * The editable file sets: artifact templates, repository prompts, skills and prompt packs.
- *
- * This is the Configuration sidebar's file tree, moved. It is read-only in the sense that the rows
- * open the file rather than editing it in place — the catalog and these files are governed, and a
- * panel that wrote them here would be a second way to change policy that no review saw.
- */
-function fileSets(view: ConfigurationCenterView): string {
-  return view.fileSets.map((set) => `<section class="plain">
-    <div class="section-heading"><h2>${icon(set.id === 'templates' ? 'artifact' : set.id === 'prompts' ? 'prompt' : set.id === 'agents' ? 'agent' : 'skill')}${escape(set.label)}</h2>
-      <span class="muted">${set.files.length ? `${set.files.length}` : 'none'}</span></div>
-    ${set.files.length ? `<table class="configuration-table"><thead><tr>
-      <th>Name</th><th>Reference</th><th>File</th><th>Status</th>
-    </tr></thead><tbody>
-    ${set.files.map((entry) => `<tr>
-        <td><strong>${escape(entry.label)}</strong>${entry.description ? `<br><small>${escape(entry.description)}</small>` : ''}</td>
-        <td>${entry.catalogId ? `<code>template:${escape(entry.catalogId)}</code>` : `<small class="muted">${entry.kind ? escape(entry.kind) : 'not catalogued'}</small>`}</td>
-        <td><button class="link" data-open-path="${escape(entry.path)}">${escape(entry.name)}</button></td>
-        <td>${status(entry)}</td>
-      </tr>`).join('')}
-  </tbody></table>` : `<p class="empty">This repository declares no ${escape(set.label.toLowerCase())}.</p>`}
-  </section>`).join('');
-}
-
-/**
- * Whether an edit survives an upgrade outranks how many phases reference it, so packaged wins the
- * cell. Usage that was never computed is reported as exactly that, never as "unused".
- */
-function status(entry: ConfigurationCenterView['fileSets'][number]['files'][number]): string {
-  if (entry.packaged) return '<small class="muted">packaged</small>';
-  if (entry.usedBy === null) return '<small class="muted">not computed</small>';
-  return entry.usedBy.length ? escape(entry.usedBy.join(', ')) : '<small class="muted">unused</small>';
-}
 
 function overview(view: ConfigurationCenterView): string {
   return `<section class="plain configuration-overview"><div class="section-heading"><div><h2>${icon('ok')}Repository readiness</h2><p class="muted">A quick view of the governed setup that applies to this repository.</p></div></div>
@@ -115,7 +80,6 @@ function overview(view: ConfigurationCenterView): string {
     <p class="muted">Open the most common operational tools without turning every destination into an equally prominent card.</p>
     <div class="configuration-action-list">
       <button class="configuration-action-row" data-action="workflow-studio">${icon('workflow', { size: 16 })}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button>
-      <button class="configuration-action-row" data-action="open-designer">${icon('workflow', { size: 16 })}<span><strong>Workflow Designer</strong><small>Work types, phases, gates, and artifact flow.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="shared-workflow-drafts">${icon('workflow', { size: 16 })}<span><strong>Shared workflow drafts</strong><small>Explicitly save partial drafts in the configuration authority across machines.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with governed context.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-specification-trace">${icon('document', { size: 16 })}<span><strong>Specification traceability</strong><small>Review which clauses each artifact and test claims to satisfy.</small></span>${icon('next')}</button>
@@ -579,7 +543,7 @@ export function configurationCenterHtml(
       ? `<div class="notice warning"><strong>Validated local configuration candidate.</strong> These editable values are not effective authority until configuration is reviewed and published.</div>`
       : '';
   const content = `${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
-      ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+      ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
   const guardedContent = pendingProposal
     ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(pendingProposal.branch)}</code> and are not approved yet. Merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
     : content;

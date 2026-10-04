@@ -168,7 +168,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'fault-repairs': 'singularityFlow.openFaultRepairs',
   'capability-map': 'singularityFlow.mapCapability',
   'capability-refresh': 'singularityFlow.refreshCapability',
-  'workflow-design': 'singularityFlow.openDesigner',
+  'workflow-design': 'singularityFlow.openWorkflowStudio',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',
   'visual-assurance': 'singularityFlow.openVisualAssurance',

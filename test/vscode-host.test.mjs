@@ -394,10 +394,11 @@ function stubVscode() {
     const viewState = new EventEmitter();
     const disposal = new EventEmitter();
     const panel = {
-      id, title, options, visible: true,
+      id, title, options, visible: true, sent: [],
       webview: {
         html: '', cspSource: 'vscode-resource:',
-        onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; }
+        onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; },
+        postMessage: async (message) => { panel.sent.push(message); return true; }
       },
       post: async (message) => { await handler?.(message); },
       onDidChangeViewState: viewState.event,
@@ -645,10 +646,10 @@ test('the built extension activates against a real repository and populates the 
 
   // The section is one entry, so "discoverable under Configuration" now means discoverable in the
   // Center it opens. Driven through the real command rather than asserted against the page source.
-  await registered.commands.get('singularityFlow.configureTemplates')();
+  await registered.commands.get('singularityFlow.openConfigurationCenter')();
   const centerPanel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
   assert.ok(centerPanel, 'the Configuration Center opens from the single Configuration entry');
-  assert.match(centerPanel.webview.html, /Agents and prompts/, 'agents are discoverable in the Center');
+  assert.match(centerPanel.webview.html, /data-action="open-instruction-designer"/, 'agents are discoverable from the Center');
 
   // And the editor-facing mapping produces a usable TreeItem.
   const item = provider.getTreeItem(initiativeRoot);
@@ -722,16 +723,13 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
    * files whose editing is the fix. The inventory moved into the Center, so that is where the
    * guarantee is now checked — with the definition actually refused, not with a hand-built snapshot.
    */
-  await registered.commands.get('singularityFlow.configureTemplates')();
+  await registered.commands.get('singularityFlow.openConfigurationCenter')();
   const centerPanel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
   assert.ok(centerPanel, 'the Configuration Center opens against a refused definition');
-  for (const heading of ['Artifact templates', 'Repository prompts', 'Skills and prompt packs', 'Agents and prompts']) {
-    assert.ok(centerPanel.webview.html.includes(heading), `${heading} remain visible`);
-  }
-  // The designers live on the overview tab, so switch to it rather than asserting one tab's markup
-  // contains another's.
-  await registered.commands.get('singularityFlow.openConfigurationCenter')();
-  assert.match(centerPanel.webview.html, /data-action="open-designer"/, 'workflow and phase design remains reachable');
+  // Templates are edited in Workflow Studio, agents, prompts and skills in the Agent Designer; both
+  // stay reachable when the definition is refused.
+  assert.match(centerPanel.webview.html, /data-action="workflow-studio"/, 'workflow, step and template design remains reachable');
+  assert.match(centerPanel.webview.html, /data-action="open-instruction-designer"/, 'agents, prompts and skills remain reachable');
   assert.ok(registered.commands.has('singularityFlow.reinitialize'),
     'the compatibility command routes to safe seeded reinitialize');
   assert.ok(registered.commands.has('singularityFlow.factoryReset'),
@@ -5738,86 +5736,33 @@ test('the lifecycle analytics dashboard opens and reports the repository it is a
   assert.match(panel.webview.html, /Start or attach a Story to see phase progress/);
 });
 
-test('the designer opens, reads the real lifecycle, and creates a template through the engine', async (t) => {
+test('the retired Designer and templates commands open Workflow Studio, which exports and imports bundles through the engine', async (t) => {
   if (!requireBundle(t)) return;
-  // The value it adds over the YAML is knowing who is standing on a file. The value it must not
-  // lose is that a template is governed configuration: writing one goes through the engine, which
-  // validates before it writes, rather than the editor writing the file itself.
   const { root, registered } = await activated();
-  // Workflow design belongs to shared configuration. This fixture predates that authority branch,
-  // so seed it from the configuration already approved on main before opening the designer.
   run('git', ['push', '-q', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
   await registered.commands.get('singularityFlow.openDesigner')();
-  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.designer');
-  assert.ok(panel, 'a designer panel was created');
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workflowStudio');
+  assert.ok(panel, 'the Designer command opens Workflow Studio');
   assert.match(panel.webview.html, /default-src 'none'/);
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.ok(!registered.panels.some((entry) => entry.id === 'singularityFlow.designer'), 'no Designer panel exists any more');
 
-  // Real phases from this repository's own portfolio.
-  assert.match(panel.webview.html, /Workflow designer/);
-  assert.match(panel.webview.html, /data-profile-pick/);
-  assert.match(panel.webview.html, /Intake|Discover/);
-  assert.match(panel.webview.html, /data-open-workflow-export/);
-  assert.match(panel.webview.html, /data-import-workflows/);
-  assert.match(panel.webview.html, /data-open-workflow-copy/);
+  await registered.commands.get('singularityFlow.configureTemplates')();
+  assert.deepEqual(panel.sent.at(-1), { type: 'studio.focus', view: 'artifacts' }, 'templates open in Studio\'s Artifacts');
 
-  await panel.post({ type: 'open-workflow-export' });
-  const portableWorkflow = panel.webview.html.match(/data-workflow-export-id="([^"]+)"/)?.[1];
-  assert.ok(portableWorkflow, 'the export chooser lists approved workflows');
-  await panel.post({ type: 'export-workflows', workflowIds: [portableWorkflow] });
+  await panel.post({ type: 'studio.exportWorkflows', workflowIds: ['story:feature'] });
   assert.equal(registered.saveDialogs.at(-1)?.title, 'Export portable workflow bundle');
   assert.deepEqual(registered.saveDialogs.at(-1)?.filters, { 'Workflow bundle': ['json'] });
+  await panel.post({ type: 'studio.exportWorkflows', workflowIds: ['../escape'] });
+  assert.deepEqual(panel.sent.at(-1), { type: 'studio.failed', message: 'Choose at least one workflow to export.' }, 'only workflow names are exported');
 
-  await panel.post({ type: 'import-workflows' });
+  await panel.post({ type: 'studio.importWorkflows', pending: 0 });
   assert.equal(registered.openDialogs.at(-1)?.title, 'Import portable workflow bundle');
   assert.equal(registered.openDialogs.at(-1)?.canSelectFiles, true);
   assert.equal(registered.openDialogs.at(-1)?.canSelectMany, false);
-
-  await panel.post({ type: 'tab', tab: 'templates' });
-  assert.match(panel.webview.html, /Artifact template designer/);
-  assert.match(panel.webview.html, /Live document preview/);
-  assert.match(panel.webview.html, /data-template-filter/);
-
-  const artifact = {
-    type: 'save-artifact', phase: 'initiative:discover-define', outputId: 'release-checklist',
-    outputLabel: 'Release checklist', outputPath: 'release-checklist.md',
-    fileName: 'initiatives/release-checklist.md', title: 'Release checklist',
-    purpose: 'Confirm release scope and evidence.', required: true,
-    sections: [
-      { kind: 'checklist', title: 'Completion checklist', guidance: 'Name the exact evidence.' },
-      { kind: 'evidence', title: 'Evidence', guidance: 'Use the approved phase inputs.' }
-    ]
-  };
-  // A path the designer refuses never reaches configuration save.
-  await panel.post({ ...artifact, fileName: '../escape.md' });
-  await settle();
-  assert.match(panel.webview.html, /safe \.md path/);
-  assert.equal(existsSync(path.join(root, 'singularity/templates/initiatives/escape.md')), false);
-
-  await panel.post(artifact);
-  // The selected Epic checkout is an immutable consumer of configuration. The template is written
-  // beside the approved templates in a review proposal, never into this active checkout.
-  const created = path.join(root, 'singularity/templates/initiatives/release-checklist.md');
-  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
-  const proposal = await until(() => run('git', [
-    'for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config-change/workflow/save-file-release-checklist.md-*'
-  ], { cwd: remote }).stdout.trim() || null, { what: 'the artifact-template configuration proposal to be published' });
-  assert.equal(existsSync(created), false, 'the selected Epic checkout remains untouched');
-  const text = run('git', [
-    '--git-dir', remote, 'show', `${proposal}:singularity/templates/initiatives/release-checklist.md`
-  ]).stdout;
-  // Written in the shape every other artifact template follows, so it is usable immediately.
-  assert.match(text, /singularity-flow:initiative-metadata/);
-  assert.match(text, /\{\{initiative\.id\}\} — Release checklist/);
-  assert.match(text, /## Completion checklist/);
-  assert.match(text, /\{\{inputs\}\}/);
-  await until(() => registered.infos.find(
-    (message) => /Artifact-template proposal .* was pushed/.test(message)
-  ) ?? null, { what: 'the editor to report the artifact-template proposal' });
+  assert.deepEqual(panel.sent.at(-1), { type: 'studio.importDone', outcome: 'cancelled', branch: null, error: null }, 'closing the dialog is a cancelled import');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
-
 test('the instruction designer exposes all four libraries and saves repository prompts through the engine', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
@@ -5863,7 +5808,7 @@ test('a window with nothing open keeps workspace setup out of Lifecycle', async 
   assert.equal(item.command.command, 'singularityFlow.openWorkspaces');
 
   // And a repository command names the ways forward rather than only what is wrong.
-  await registered.commands.get('singularityFlow.openDesigner')();
+  await registered.commands.get('singularityFlow.openWorkflowStudio')();
   await settle();
   assert.match(registered.warnings.at(-1) ?? '', /Singularity Flow: /);
   assert.deepEqual(registered.warningActions.at(-1), ['Map a capability', 'Find a workspace']);

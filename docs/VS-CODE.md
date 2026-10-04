@@ -259,11 +259,10 @@ for repository-owned configuration:
   identities, governed AI agents, and host-owned tool processes instead of
   presenting them as one kind of user.
 
-- **Workflow Designer** — create or edit work types, phase order, inputs, gates,
-  checks, approvals, and world-model routing.
-- **Artifact Designer** — compose Markdown artifact templates from ordered
-  sections, required fields, traceability tables, instructions, and optional
-  remote template URLs.
+- **Workflow Studio** — create or edit Story and Epic workflows, step order,
+  inputs, sign-off, send-back rules, decisions, planned claims, artifact
+  templates (built from sections) and artifact sets; review and activate
+  configuration proposals; export and import workflow bundles.
 - **Agent Delivery & Instruction Designer** — create and edit
   `.github/agents/*.agent.md`, including phase scope, instructions, tool policy,
   world-model views, remote skills, remote artifact templates, generated outputs,

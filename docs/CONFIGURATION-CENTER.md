@@ -13,7 +13,7 @@ The installed tutorials are `sflow explain configuration`, `sflow explain workfl
 | Area | Visual editor | Governed storage |
 |---|---|---|
 | Capabilities and repository ownership | Capability Designer | `singularity/capabilities.yml` and the state branch |
-| Story workflows, phases, gates and artifacts | Workflow and Artifact Designers | `singularity/workflow.yml` and `singularity/templates/` |
+| Story and Epic workflows, steps, sign-off, artifacts and configuration proposals | Workflow Studio | `singularity/workflow.yml`, `singularity/portfolio.yml` and `singularity/templates/` |
 | Repository and work-type Auto enablement | Auto mode | `singularity/workflow.yml` |
 | Agents, mappings, remote Markdown, prompts, skills and prompt packs | Agent Delivery & Instruction Designer | `.github/agents/`, `singularity/agent-mappings.yml`, `singularity/agents.lock.yml`, `singularity/prompts/`, repository skills and packs |
 | People and Story approval groups | People & approvals | `singularity/workflow.yml` |

@@ -458,7 +458,6 @@ test('heavy VS Code panels own and release their snapshot slice leases', () => {
     ['capabilities.ts', ['configuration', 'diagnostics']],
     ['approvals.ts', ['configuration']],
     ['dashboard.ts', ['configuration', 'integrations', 'diagnostics']],
-    ['designer.ts', ['configuration']],
     ['instruction-designer.ts', ['configuration']],
     ['ast-intelligence.ts', ['configuration']]
   ]);

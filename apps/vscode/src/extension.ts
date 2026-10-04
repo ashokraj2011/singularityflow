@@ -52,7 +52,6 @@ import {
 } from './story-start-handoff.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
-import type { DesignerMessage } from './views/designer.ts';
 import {
   workflowMutationConflictCount, workflowMutationPlanDetail, workflowMutationPlanMarkdown,
   type WorkflowMutationPreview
@@ -7143,7 +7142,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     // A configuration proposal the Center created waits in Workflow Studio's Changes, with its diff and activation.
     else if (message.action === 'workflow-proposals') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
-    else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
+    else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'workflow-studio') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
       'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
@@ -7154,11 +7153,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }
     else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
     else if (message.action === 'models') { await openConfigurationCenter('models'); return null; }
-    else if (message.action === 'templates') { await openConfigurationCenter('templates'); return null; }
+    else if (message.action === 'templates') { await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'artifacts' }); return null; }
     // Absorbed from the Configuration sidebar section, which now only leads here.
     else if (message.action === 'publish-configuration') await vscode.commands.executeCommand('singularityFlow.publishConfiguration');
     else if (message.action === 'reset-jira') await vscode.commands.executeCommand('singularityFlow.resetJira');
-    else if (message.action === 'open-designer') await vscode.commands.executeCommand('singularityFlow.openDesigner');
+    else if (message.action === 'open-designer') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'open-instruction-designer') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'open-specification-trace') await vscode.commands.executeCommand('singularityFlow.openSpecificationTrace');
     else if (message.action === 'open-flow-impact') await vscode.commands.executeCommand('singularityFlow.openFlowImpact');
@@ -7388,14 +7387,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   /**
-   * One proposal boundary for create, edit, import, and linked copy.
+   * One proposal boundary for workflow configuration changes made outside Workflow Studio's change
+   * set (an imported bundle).
    *
-   * Keeping these routes here means the designer never writes workflow configuration directly:
+   * Keeping these routes here means the extension never writes workflow configuration directly:
    * every mutation receives the same validation, lead-authority proposal, exact-diff review, and
    * local-authority draft treatment as the existing authoring controls.
   */
-  const createWorkflowProposal = async (baseCommand: string[], title: string): Promise<string | null> =>
-    (await proposeWorkflowChange(baseCommand, title)).error;
   const proposeWorkflowChange = async (baseCommand: string[], title: string): Promise<WorkflowChangeOutcome> => {
     const command = [...baseCommand];
     if (!command.includes('--propose')) command.push('--propose');
@@ -7531,19 +7529,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return proposeWorkflowChange(
       ['workflow', 'import', source.fsPath, '--confirm', preview.confirmation],
       `Importing workflows from ${path.basename(source.fsPath)}`
-    );
-  };
-  const copyLinkedWorkflow = async (sourceId: string, targetId: string, label: string): Promise<string | null> => {
-    const baseCommand = ['workflow', 'copy', sourceId, targetId, '--label', label];
-    const preview = await previewWorkflowProposal(
-      baseCommand,
-      `Previewing ${sourceId} as ${targetId}`
-    );
-    if (preview.error) return preview.error;
-    if (!preview.confirmation) return null;
-    return createWorkflowProposal(
-      [...baseCommand, '--confirm', preview.confirmation],
-      `Duplicating ${sourceId} as ${targetId}`
     );
   };
 
@@ -8020,8 +8005,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal(error, { headline: `Could not return ${workflow.workItem.id} forward` });
       }
     },
-    // Workflow Studio is the visual way in: workflows, steps, agents and approvals edited together
-    // and published as one change. The Designer stays for artifact templates and advanced policy.
+    // Workflow Studio is the visual way in: Story and Epic workflows, steps, agents, approvals and
+    // artifacts edited together and published as one change, with its proposals reviewed there.
     'singularityFlow.decideStory': async (target?: unknown) => {
       const workId = typeof target === 'string' ? target
         : (target as { workId?: unknown } | undefined)?.workId;
@@ -8054,67 +8039,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           jiraStatus: async () => ((await secureCredentials.jiraStatus()).connected ? 'stored'
             : String(process.env.JIRA_BASE_URL ?? '').trim() && String(process.env.JIRA_PAT ?? process.env.JIRA_API_TOKEN ?? '').trim() ? 'environment' : 'missing')
         }
-      });
+      }, focus);
     },
-    'singularityFlow.openDesigner': async () => {
-      const { DesignerPanel } = lazyPanels();
-      return DesignerPanel.show(context, store, async (message) => {
-      if (message.type === 'open') {
-        await openArtifact(repository, { kind: 'artifact', id: message.path, label: message.path, path: message.path });
-        return null;
-      }
-      if (message.type === 'review-proposal') {
-        return reviewAndActivateWorkflowProposal(message.branch);
-      }
-      if (message.type === 'export-workflows') return exportWorkflowBundle(message.workflowIds);
-      if (message.type === 'import-workflows') return (await importWorkflowBundle()).error;
-      if (message.type === 'copy-workflow') return copyLinkedWorkflow(message.sourceId, message.targetId, message.label);
-      // Authoring a lifecycle runs the same command the CLI runs, so the validation that refuses an
-      // incoherent profile is one implementation rather than two that drift.
-      if (message.type === 'run') {
-        return createWorkflowProposal(message.command, message.title);
-      }
-      // Written through the engine, which validates before it writes — a template is governed
-      // configuration like any other, and the editor does not get its own way past that.
-      output.appendLine(`\n$ singularity-flow configuration save ${message.path} --propose --json`);
-      try {
-        const text = await client.runText(
-          ['configuration', 'save', message.path, '--propose', '--json'],
-          { input: message.content }
-        );
-        const proposal = JSON.parse(text) as {
-          branch?: string; files?: string[]; reviewRequired?: boolean; baseBranch?: string;
-          authorityMode?: string;
-        };
-        await refreshAfterKnownMutation();
-        if (proposal.reviewRequired && proposal.branch) {
-          void vscode.window.showInformationMessage(
-            `Artifact-template proposal ${proposal.branch} was pushed. Merge it into `
-            + `${proposal.baseBranch ?? 'sflow/config'}, then refresh workspace configuration. `
-            + 'The active Story was not changed.'
-          );
-        } else if (proposal.authorityMode === 'local') {
-          const openSourceControl = 'Open Source Control';
-          const selected = await vscode.window.showInformationMessage(
-            'Artifact template was saved as an uncommitted local configuration draft. Review and '
-            + 'commit it through the local authority; no proposal was pushed.',
-            openSourceControl, 'Later'
-          );
-          if (selected === openSourceControl) {
-            await vscode.commands.executeCommand('workbench.view.scm');
-          }
-        }
-        return null;
-      } catch (error) {
-        output.appendLine(`  refused: ${(error as Error).message}`);
-        return (error as Error).message;
-      }
-      }, () => client.run<{
-        branch: string; proposalCommit: string; valid: boolean;
-        workflows: Array<{ id: string; label?: string; governs?: string; change: string; phases?: string[] }>;
-        failure?: { message?: string };
-      }[]>(['workflow', 'proposals', '--json']));
-    },
+    // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
+    // release, so links and habits land in Studio.
+    'singularityFlow.openDesigner': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio'),
     'singularityFlow.openInstructionDesigner': async () => {
       const { InstructionDesignerPanel } = lazyPanels();
       return InstructionDesignerPanel.show(context, store, async (message) => {
@@ -8311,7 +8240,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
     // Every tab has a palette command: with the Configuration section collapsed to one entry, the
     // palette is the only route into a tab that does not start at the Center's overview.
-    'singularityFlow.configureTemplates': () => openConfigurationCenter('templates'),
+    // Templates are designed in Workflow Studio's Artifacts; instructions in the Agent Designer.
+    'singularityFlow.configureTemplates': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'artifacts' }),
     'singularityFlow.configureModels': () => openConfigurationCenter('models'),
     'singularityFlow.openWorkspaceLogs': async () => {
       const { WorkspaceLogsPanel } = lazyPanels();

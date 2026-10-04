@@ -6,6 +6,7 @@ export type SidebarNextActionId = 'setup-wizard' | 'workspace-switch' | 'work-st
 
 export interface SidebarNavigation {
   workspace: { name: string; repository?: string } | null;
+  subject?: { id: string; kind: 'Story' | 'Initiative'; phase: string | null };
   next: { label: string; description: string; actionId: SidebarNextActionId } | null;
 }
 
@@ -22,7 +23,7 @@ function lastPathSegment(value: string | null | undefined): string | undefined {
 export function deriveSidebarNavigation(
   entries: readonly WorkspaceEntry[],
   snapshot: RepositorySnapshot | null,
-  options: { loading?: boolean } = {}
+  options: { loading?: boolean; verifiedContext?: { workspaceId?: string | null; root: string } | null } = {}
 ): SidebarNavigation {
   const selected = entries.filter((entry) => Boolean(entry.active));
   if (selected.length > 1) return { workspace: null, next: null };
@@ -40,6 +41,19 @@ export function deriveSidebarNavigation(
     };
   }
 
+  // An old editor snapshot must not be presented as work in the newly selected workspace.
+  const normalized = (value: string) => {
+    const slash = value.replace(/\\/g, '/').replace(/\/+$/u, '');
+    return /^[a-z]:\//i.test(slash) ? slash.toLowerCase() : slash;
+  };
+  if (snapshot?.repository?.root && entry.path) {
+    const root = normalized(snapshot.repository.root);
+    const workspaceRoot = normalized(entry.path);
+    const leadRoot = entry.leadRepositoryPath ? normalized(entry.leadRepositoryPath) : null;
+    const verifiedMember = options.verifiedContext?.workspaceId === entry.id
+      && normalized(options.verifiedContext.root) === root;
+    if (!verifiedMember && root !== workspaceRoot && root !== leadRoot && !root.startsWith(`${workspaceRoot}/`)) snapshot = null;
+  }
   const repository = lastPathSegment(snapshot?.repository?.root)
     ?? lastPathSegment(entry.leadRepositoryPath);
   const workspace = {
@@ -59,6 +73,8 @@ export function deriveSidebarNavigation(
       : `Initiative ${snapshot.initiative?.state?.initiative?.id ?? ''}`.trim();
     return {
       workspace,
+      subject: { id: story?.workItem.id ?? snapshot.initiative?.state?.initiative?.id ?? '',
+        kind: story ? 'Story' : 'Initiative', phase: story?.currentPhase ?? null },
       next: {
         label: 'Continue current work',
         description: detail,

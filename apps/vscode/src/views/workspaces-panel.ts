@@ -414,6 +414,11 @@ export class WorkspacesPanel {
    * a completed refresh into a race — the failure `evidence-manager` had for one commit.
    */
   private router = registerMessageRouter('singularityFlow.workspaces', {
+    'setup-route': (message) => {
+      const routes: Record<string, string> = { capability: 'singularityFlow.mapCapability', team: 'singularityFlow.onboardTeam', guided: 'singularityFlow.startWizard' };
+      const route = stringField(message, 'route');
+      if (route && routes[route]) void navigateTo(routes[route]!);
+    },
     // The selected workspace is the one meant: refresh it to the new version without a Git URL.
     'repository-refresh': () => vscode.commands.executeCommand('singularityFlow.refreshCapability',
       this.selected ? { workspacePath: this.selected } : undefined),

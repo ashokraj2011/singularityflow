@@ -165,10 +165,12 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   const script = [...panel.webview.html.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)]
     .map((match) => match[1]).find((body) => body.includes('data-refresh-stories'));
   assert.ok(script, 'the Inbox click handler must be installed in the webview');
-  let click;
+  const clicks = [];
+  const click = event => { for (const listener of clicks) listener(event); };
   runInNewContext(script, {
     window: { __sfVscode: { postMessage: (message) => webviewMessage(message) } },
-    document: { addEventListener: (type, listener) => { if (type === 'click') click = listener; } }
+    document: { getElementById: () => null,
+      addEventListener: (type, listener) => { if (type === 'click') clicks.push(listener); } }
   });
   const refreshButton = { hasAttribute: (name) => name === 'data-refresh-stories', dataset: {} };
   const clickRefresh = () => click({ target: { closest: () => refreshButton } });

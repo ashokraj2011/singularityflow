@@ -52,6 +52,8 @@ export type AutoActionRequest = {
 };
 
 let panel: vscode.WebviewPanel | null = null;
+const panelChanged = new vscode.EventEmitter<void>();
+export const onResultPanelChanged = panelChanged.event;
 let current: ResultCardView | null = null;
 let currentOrigin: ResultOrigin = 'cli';
 let currentNote: string | null = null;
@@ -225,6 +227,7 @@ export function showResultCard(view: ResultCardView,
         currentHelpTopic = previous.helpTopic;
         currentRepositoryBinding = previous.repositoryBinding;
         render(panel, current, currentNote, currentHelpTopic);
+        panelChanged.fire();
       },
       'result.home': () => { void vscode.commands.executeCommand('singularityFlow.myWork'); },
       'result.journal': () => { void vscode.commands.executeCommand('singularityFlow.openJournal'); },
@@ -292,6 +295,7 @@ export function showResultCard(view: ResultCardView,
     panel.reveal(view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, true);
   }
   render(panel, view, note, currentHelpTopic);
+  panelChanged.fire();
 }
 
 /**

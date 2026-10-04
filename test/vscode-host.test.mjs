@@ -22,6 +22,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
+import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
 import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
@@ -1153,44 +1154,15 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
   assert.ok(navigation, 'the visible webview provider is registered');
-  assert.match(navigation.webview.html, /<small>Singularity<\/small><strong>Flow<\/strong>/);
-  assert.match(navigation.webview.html, /title="My Work — current work and next actions"[^>]*>[\s\S]*?<span>My Work<\/span>/);
-  assert.doesNotMatch(navigation.webview.html, />Talk to SFlow<\/span>/,
-    'the compatibility alias is not presented as visible navigation');
-  for (const [section, label] of Object.entries({
-    favorites: 'Favorites', workspaces: 'Workspaces', lifecycle: 'Work', inbox: 'Inbox & reviews',
-    configuration: 'Configuration', help: 'Help & diagnostics'
-  })) {
-    assert.match(navigation.webview.html, new RegExp(`data-section="${section}"`));
-    assert.match(navigation.webview.html, new RegExp(`<span>${label.replace(/&/g, '&amp;')}<\\/span>`),
-      `${label} is rendered in readable title case`);
-  }
-  const sectionTitleRule = navigation.webview.html.match(/\.section-title \{[^}]+\}/)?.[0] ?? '';
-  assert.match(sectionTitleRule, /font-weight:500/,
-    'section names use a restrained medium weight rather than full bold');
-  assert.doesNotMatch(sectionTitleRule, /text-transform:uppercase/,
-    'section names are not forced to all caps');
-  assert.match(navigation.webview.html, /data-section="workspaces" open/,
-    'workspace setup is the first open section without a selection');
-  for (const section of ['favorites', 'lifecycle', 'inbox', 'configuration', 'help', 'logs']) {
-    assert.doesNotMatch(navigation.webview.html, new RegExp(`data-section="${section}" open`),
-      `${section} starts collapsed until a workspace is selected`);
-  }
-  assert.match(navigation.webview.html, /aria-label="Choose or create a workspace"/);
-  assert.match(navigation.webview.html, /data-action="setup-wizard"[^>]*data-selection-key="action:setup-wizard"/,
-    'an empty installation opens guided setup from the workspace selector');
-  assert.match(navigation.webview.html, /<span class="next-heading">Next step<\/span>/);
-  assert.match(navigation.webview.html, /Review capability changes/);
-  assert.match(navigation.webview.html, /details\[data-section="logs"\]>summary/,
-    'opening Logs requests its summary instead of scanning it during activation');
-  assert.ok(navigation.webview.html.indexOf('data-section="workspaces"')
-    < navigation.webview.html.indexOf('data-section="inbox"'),
-  'setup precedes Inbox until a workspace exists');
-  for (const heading of navigation.webview.html.matchAll(/<summary class="section-heading">([\s\S]*?)<\/summary>/g)) {
-    assert.ok((heading[1].match(/class="icon-button"/g) ?? []).length <= 1,
-      'section headers keep at most one icon-only action');
-  }
-  assert.match(navigation.webview.html, /\.node-row\.actionable\.last-opened/);
+  assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
+  const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
+  assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
+    ['my-work', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
+  assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
+  assert.match(navigation.webview.html, /data-action="setup-wizard"/);
+  assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
+  assert.match(navigation.webview.html, /scale\(1\.015\)/);
+  assert.match(navigation.webview.html, /transform:none!important/);
   assert.match(navigation.webview.html, /default-src 'none'/);
   assert.doesNotMatch(navigation.webview.html, /unsafe-inline|unsafe-eval/);
   assert.match(navigation.webview.html, /prefers-reduced-motion/);
@@ -1205,8 +1177,8 @@ test('developers can choose, launch, unpin, and retain favorite menus', async (t
   await extension.activate(context(values));
 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
-  assert.match(navigation.webview.html, /data-section="favorites"/);
-  assert.match(navigation.webview.html, /aria-label="Choose favorite menus"/);
+  assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
+  assert.match(navigation.webview.html, /data-action="favorites-manage"/);
   assert.match(navigation.webview.html, /aria-label="Unpin My Work"/);
   assert.match(navigation.webview.html, /aria-label="Unpin Start intake"/);
   assert.match(navigation.webview.html, /aria-label="Unpin Inbox"/);
@@ -1243,8 +1215,8 @@ test('an intentionally empty Favorites preference stays empty', async (t) => {
 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
   assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin My Work"/);
-  assert.match(navigation.webview.html, /Pin the menus you use most/);
-  assert.match(navigation.webview.html, />Choose favorites<\/button>/);
+  assert.match(navigation.webview.html, /Pinned shortcuts/);
+  assert.match(navigation.webview.html, />Choose shortcuts<\/button>/);
 });
 
 test('existing installations receive Map a capability once and may still unpin it', async (t) => {
@@ -1265,7 +1237,7 @@ test('existing installations receive Map a capability once and may still unpin i
   assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'), ['my-work']);
 });
 
-test('menu personas tailor first-use Favorites and section order without overriding personal choices', async (t) => {
+test('menu personas suggest pins without moving primary destinations or overriding personal choices', async (t) => {
   if (!requireBundle(t)) return;
   const settings = new Map([['role', 'qa'], ['userName', 'Quinn Analyst']]);
   const values = new Map();
@@ -1279,7 +1251,7 @@ test('menu personas tailor first-use Favorites and section order without overrid
   await extension.activate(context(values));
 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
-  assert.match(navigation.webview.html, /Change QA menu persona/);
+  assert.match(navigation.webview.html, /Profile and shortcut suggestions/);
   for (const label of ['My Work', 'Inbox', 'Visual assurance', 'Approvals']) {
     assert.match(navigation.webview.html, new RegExp(`aria-label="Unpin ${label}"`));
   }
@@ -1287,28 +1259,27 @@ test('menu personas tailor first-use Favorites and section order without overrid
     'QA starts with role-specific Favorites');
   assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin Guided start"/,
     'established roles do not start with onboarding pinned');
-  assert.ok(navigation.webview.html.indexOf('data-section="inbox"')
-    < navigation.webview.html.indexOf('data-section="lifecycle"'), 'QA sees decisions before lifecycle');
+  const order = () => [...(navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '').matchAll(/data-action="([^"]+)"/g)].map(match => match[1]);
+  const initialOrder = order();
 
   await navigation.post({ type: 'action', action: 'persona-manage' });
   await until(() => settings.get('role') === 'product-owner');
   assert.ok(registered.executedCommands.some((entry) => entry.id === 'singularityFlow.choosePersona'));
   assert.equal(registered.inputBoxes.length, 0, 'the header persona switch does not ask for the name again');
-  await until(() => navigation.webview.html.includes('Change Product owner menu persona'));
+  await until(() => navigation.webview.html.includes('aria-label="Unpin Goals"'));
 
   settings.set('role', 'architect');
   navigation.provider.profileChanged();
-  await until(() => navigation.webview.html.includes('Change Architect menu persona'));
+  await until(() => navigation.webview.html.includes('aria-label="Unpin Flow impact"'));
   assert.match(navigation.webview.html, /aria-label="Unpin Flow impact"/);
-  assert.ok(navigation.webview.html.indexOf('data-section="configuration"')
-    < navigation.webview.html.indexOf('data-section="lifecycle"'), 'Architect sees configuration first');
+  assert.deepEqual(order(), initialOrder, 'personas do not move the main navigation');
 
   registered.pickedFavorites = [{ menuId: 'help-open' }];
   await navigation.post({ type: 'action', action: 'favorites-manage' });
   await until(() => values.get('singularityFlow.navigationFavorites.v2')?.[0] === 'help-open');
   settings.set('role', 'admin');
   navigation.provider.profileChanged();
-  await until(() => navigation.webview.html.includes('Change Admin menu persona'));
+  await settle();
   assert.match(navigation.webview.html, /aria-label="Unpin Help Center"/);
   assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin Configuration Center"/,
     'an explicit Favorites choice survives persona changes');
@@ -3950,6 +3921,26 @@ test('the Stories panel opens and offers the push once a plan exists', async (t)
   assert.match(panel.webview.html, /Push these Stories|Merge order|repository/);
 });
 
+test('primary Stories and Reviews open separate screens through the existing guarded commands', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  await navigation.post({ type: 'action', action: 'stories' });
+  const stories = await until(() => registered.panels.find(entry => entry.id === 'singularityFlow.workspaceStories'));
+  assert.match(stories.webview.html, /id="story-search"/);
+  assert.match(stories.webview.html, /Viewing details does not switch/);
+  await navigation.post({ type: 'action', action: 'reviews' });
+  const reviews = await until(() => registered.panels.find(entry => entry.id === 'singularityFlow.reviews'));
+  assert.match(reviews.webview.html, /id="review-filter"/);
+  assert.match(reviews.webview.html, /Proposals are not counted as pending until checked/);
+  assert.notEqual(stories, reviews);
+  const before = registered.executedCommands.length;
+  await reviews.post({ type: 'review-route', route: 'unrecognized-command' });
+  assert.equal(registered.executedCommands.length, before);
+  await reviews.post({ type: 'review-route', route: 'approvals' });
+  await until(() => registered.executedCommands.some(entry => entry.id === 'singularityFlow.openApprovals'));
+});
+
 test('the impact panel supports workspace advisory analysis and governed plan reconciliation', async (t) => {
   if (!requireBundle(t)) return;
   const { registered } = await activated();
@@ -6074,6 +6065,17 @@ test('Inbox opens another Story while the selected workspace points at a managed
   run('git', ['init', '-q', '-b', 'main', source], { cwd: base });
   run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: source });
   run('git', ['config', 'user.email', EMAIL], { cwd: source });
+  // Real, dependency-free test harness: Story start still has to pass the readiness gate.
+  await writeFile(path.join(source, 'package.json'), JSON.stringify({
+    name: 'story-switch-fixture', version: '1.0.0', private: true,
+    packageManager: 'npm@10.8.0', scripts: { test: 'node --test' }
+  }));
+  await writeFile(path.join(source, 'package-lock.json'), JSON.stringify({
+    name: 'story-switch-fixture', version: '1.0.0', lockfileVersion: 3,
+    packages: { '': { name: 'story-switch-fixture', version: '1.0.0' } }
+  }));
+  await writeFile(path.join(source, 'smoke.test.mjs'), 'import test from "node:test"; test("fixture readiness", () => {});\n');
+  await writeFile(path.join(source, '.gitignore'), 'node_modules/\n');
   const cli = (args, cwd = source) => spawnSync(process.execPath,
     [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args],
     { cwd, encoding: 'utf8', env: process.env });
@@ -6099,6 +6101,8 @@ test('Inbox opens another Story while the selected workspace points at a managed
   ]);
   assert.equal(created.status, 0, created.stderr);
   const canonical = path.join(base, 'workspaces', 'story-workspace', 'repos', 'finalui1');
+  const readinessPlan = await buildRepositoryReadinessPlan(canonical, { scope: 'dependency-test' });
+  await executeRepositoryReadinessPlan(canonical, { scope: 'dependency-test', confirmation: readinessPlan.planId });
   const makeStory = (id) => {
     const started = cli([
       'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',

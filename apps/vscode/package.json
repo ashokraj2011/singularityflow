@@ -522,6 +522,14 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "singularityFlow.openWorkspaceStories",
+        "title": "Singularity Flow: Workspace Stories"
+      },
+      {
+        "command": "singularityFlow.openReviews",
+        "title": "Singularity Flow: Reviews"
+      },
+      {
         "command": "singularityFlow.openInbox",
         "title": "Singularity Flow: Inbox (work summary)",
         "icon": "$(inbox)"

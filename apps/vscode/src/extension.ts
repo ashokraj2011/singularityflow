@@ -90,6 +90,7 @@ import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/
 import { NodeTreeProvider } from './views/navigation.ts';
 import { SidebarViewProvider } from './views/sidebar.ts';
 import { deriveSidebarNavigation } from './views/sidebar-navigation-model.ts';
+import { sidebarDestination } from './views/sidebar-destination.ts';
 import { buildApprovals } from './views/approvals-model.ts';
 import { PROFILE_PERSONAS, isProfilePersonaId, resolveProfilePersona } from './views/profile-personas.ts';
 import {
@@ -107,7 +108,7 @@ import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
 import {
   onAutoResultAction, onHomeRequest, onResultAction, resultPanelRepositoryChanged,
-  resultPanelIsHome, showRefusal, showResultCard
+  resultPanelIsHome, onResultPanelChanged, showRefusal, showResultCard
 } from './views/result-panel.ts';
 import { buildResultCard } from './views/result-card-model.ts';
 import {
@@ -893,7 +894,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
-    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
+    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork',
     'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
@@ -1026,6 +1027,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return { name: settings.get<string>('userName') ?? '', role: settings.get<string>('role') ?? '' };
   }, () => recordHostSidebarRender(hostSidebarProjection));
   refreshPersonaMenus = () => sidebar.profileChanged();
+  const syncSidebarDestination = () => {
+    const input = vscode.window.tabGroups?.activeTabGroup?.activeTab?.input;
+    const type = input && typeof input === 'object' && 'viewType' in input && typeof input.viewType === 'string'
+      ? input.viewType : null;
+    sidebar.setActiveDestination(sidebarDestination(type, resultPanelIsHome()));
+  };
+  if (vscode.window.tabGroups) context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs(syncSidebarDestination),
+    vscode.window.tabGroups.onDidChangeTabGroups(syncSidebarDestination)
+  );
+  context.subscriptions.push(onResultPanelChanged(syncSidebarDestination));
+  syncSidebarDestination();
   sidebar.bind('workspaces', workspaceTree);
   sidebar.bind('logs', logsTree);
   sidebar.bind('help', helpTree);
@@ -4621,10 +4634,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the last session and not yet confirmed. A plain refresh over content already known to be current
   // says nothing: the tree is right, it is simply being re-checked.
   context.subscriptions.push(store.onDidChange((state) => {
-    sidebar.setFreshness(state.stale ? 'Showing the last known state — checking the repository…' : null);
-    sidebar.setNavigation(deriveSidebarNavigation(workspaceEntries, state.stale ? null : state.snapshot,
-      { loading: state.loading }));
-    sidebar.setPendingApprovals(state.stale ? 0
+    sidebar.setFreshness(state.error ? 'Workspace state could not be confirmed. Open Help & diagnostics.'
+      : state.stale ? 'Showing the last known state — checking the repository…' : null);
+    sidebar.setNavigation(deriveSidebarNavigation(workspaceEntries, state.stale || state.error ? null : state.snapshot,
+      { loading: state.loading, verifiedContext: activeRepositoryContext() }));
+    sidebar.setPendingApprovals(state.stale || state.error || !state.snapshot || state.snapshot.included && !state.snapshot.included.includes('lifecycle') ? null
       : buildApprovals(state.snapshot).pending.filter((approval) => approval.standing === 'yours').length);
     /**
      * The first read specifically, which is the one with nothing behind it.
@@ -7563,6 +7577,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return InboxPanel.show(context, store, onInboxMessage,
           () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding);
       },
+    'singularityFlow.openWorkspaceStories': async () => {
+      const { InboxPanel } = lazyPanels();
+      return InboxPanel.show(context, store, onInboxMessage,
+        () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding, 'stories');
+    },
+    'singularityFlow.openReviews': async () => {
+      const { InboxPanel } = lazyPanels();
+      return InboxPanel.show(context, store, onInboxMessage,
+        () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding, 'reviews');
+    },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>
       vscode.commands.executeCommand('singularityFlow.myWork'),

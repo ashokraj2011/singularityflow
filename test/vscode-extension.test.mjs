@@ -5584,26 +5584,19 @@ test('every core semantic icon resolves for native trees and theme-aware states 
 });
 
 test('the compact sidebar uses distinct modern icons for navigation and task actions', async () => {
-  const content = await readFile(source('views/sidebar.ts'), 'utf8');
-  assert.match(content, /label: 'Favorites', icon: 'favorite'/);
+  const content = await readFile(source('views/sidebar-page.ts'), 'utf8');
+  assert.match(content, /label: 'My Work', icon: 'home'/);
   assert.match(content, /label: 'Workspaces', icon: 'workspace'/);
-  assert.match(content, /label: 'Work', icon: 'workflow'/);
-  assert.match(content, /label: 'Inbox & reviews', icon: 'inbox'/);
+  assert.match(content, /label: 'Stories', icon: 'story'/);
+  assert.match(content, /label: 'Reviews', icon: 'approval'/);
   assert.match(content, /label: 'Configuration', icon: 'configuration'/);
-  assert.match(content, /label: 'Help & diagnostics', icon: 'help'/);
-  assert.match(content, /label: 'Start new work', icon: 'start'/);
-  assert.match(content, /label: 'Create workspace', icon: 'workspaceAdd'/);
-  assert.match(content, /label: 'Manage workspaces', icon: 'workspaceManage'/);
-  assert.doesNotMatch(content, /label: 'Inbox & reviews', icon: 'approval'/,
-    'an inbox must not be represented as a governance approval');
+  assert.match(content, /link\('help-tools', 'Help & diagnostics', 'help'/);
   assert.doesNotMatch(content, /label: 'Configuration', icon: 'workflow'/,
     'configuration and lifecycle need distinct visual identities');
-  assert.match(content, /current-phase-row/,
-    'the active Story phase has a dedicated visual state');
-  assert.match(content, /sf-current-phase-pulse/,
-    'the active Story phase uses the restrained green pulse requested by the lifecycle UI');
+  assert.match(content, /subject.phase/);
+  assert.doesNotMatch(content, /@keyframes|sf-current-phase-pulse/);
   assert.match(content, /prefers-reduced-motion:\s*reduce/,
-    'the active-phase pulse respects reduced-motion accessibility');
+    'hover motion respects reduced-motion accessibility');
 });
 
 test('icon-only actions are labelled and raw Unicode action glyphs cannot return', async () => {

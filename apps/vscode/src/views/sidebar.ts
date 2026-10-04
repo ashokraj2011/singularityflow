@@ -1,17 +1,12 @@
-/**
- * The single Singularity Flow navigation surface.
- *
- * Native TreeViews are excellent for one hierarchy, but five independent TreeViews make VS Code
- * allocate five headers, five scroll regions and large empty panes. This view keeps the same tested
- * TreeNode read models and commands while presenting them as one compact, branded accordion.
- */
+/** Task-oriented navigation. The existing read models and guarded commands remain authoritative. */
 import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
-import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
-import { isProfilePersonaId, resolveProfilePersona, type ProfilePersona } from './profile-personas.ts';
+import { contentSecurityPolicy, nonce, type IconName } from './webview.ts';
+import { resolveProfilePersona, type ProfilePersona } from './profile-personas.ts';
 import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 import { MicrotaskCoalescer } from '../single-flight.ts';
-import { HELP_COMMANDS, HELP_TOPICS, LINK_HELP, SECTION_HELP } from './navigator-help.ts';
+import { HELP_COMMANDS, HELP_TOPICS } from './navigator-help.ts';
+import { PRIMARY_NAVIGATION, sidebarBody, SIDEBAR_STYLE, SIDEBAR_SCRIPT } from './sidebar-page.ts';
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
@@ -20,137 +15,8 @@ interface TreeSource {
   snapshot(): readonly TreeNode[];
 }
 
-/**
- * `empty` is the sentence a section shows when it has nothing, plus the one action that resolves it.
- *
- * All five sections rendered the same four words — "Nothing to show yet." — with nothing to click.
- * The tree models state the principle exactly right and follow it: an empty view in a governance
- * tool reads as "nothing to do", which is the most expensive thing it could wrongly say. This is
- * that principle applied to the surface that contradicted it.
- */
-const SECTION_META: Record<SidebarSection, {
-  label: string;
-  icon: IconName;
-  actions: Array<{ id: string; label: string; icon: IconName }>;
-  linkHeading?: string;
-  links?: Array<{ id: string; label: string; icon: IconName }>;
-  more?: Array<{ id: string; label: string; icon: IconName }>;
-  empty: { text: string; action: string; actionLabel: string };
-}> = {
-  favorites: {
-    label: 'Favorites', icon: 'favorite', actions: [
-      { id: 'favorites-manage', label: 'Choose favorite menus', icon: 'edit' }
-    ],
-    empty: {
-      text: 'Pin the menus you use most. Favorites are personal to this VS Code installation.',
-      action: 'favorites-manage', actionLabel: 'Choose favorites'
-    }
-  },
-  inbox: {
-    label: 'Inbox & reviews', icon: 'inbox', actions: [],
-    linkHeading: 'Reviews', links: [
-      { id: 'approvals-open', label: 'Review approvals', icon: 'approval' },
-      { id: 'capability-proposals', label: 'Review capability changes', icon: 'capability' }
-    ],
-    more: [
-      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' }
-    ],
-    empty: {
-      text: 'Nothing is waiting on you. Submitted phases appear here for approval.',
-      action: 'inbox-open', actionLabel: 'Open the inbox'
-    }
-  },
-  workspaces: {
-    label: 'Workspaces', icon: 'workspace', actions: [],
-    linkHeading: 'Set up', links: [
-      { id: 'capability-map', label: 'Map a capability', icon: 'capability' },
-      { id: 'capability-refresh', label: 'Refresh capability to new version', icon: 'refresh' },
-      { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' }
-    ],
-    more: [
-      { id: 'setup-wizard', label: 'Guided start', icon: 'start' },
-      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' }
-    ],
-    empty: {
-      text: 'No workspace is selected. A workspace points at the governed repository whose lifecycle you want to see.',
-      action: 'setup-wizard', actionLabel: 'Map capability and create workspace'
-    }
-  },
-  lifecycle: {
-    label: 'Work', icon: 'workflow', actions: [
-      { id: 'refresh', label: 'Refresh work', icon: 'refresh' }
-    ],
-    // Explaining the current changes is part of the work, so it sits beside starting it rather
-    // than under Help, where nobody looked for it.
-    links: [
-      { id: 'work-start', label: 'Start new work', icon: 'start' },
-      { id: 'change-explorer', label: 'Explain changes', icon: 'code' }
-    ],
-    more: [
-      { id: 'code-explanation', label: 'Code explanation', icon: 'code' },
-      { id: 'comprehension-center', label: 'Comprehension Center', icon: 'code' },
-      { id: 'goals', label: 'Goals', icon: 'impact' },
-      { id: 'impact-form', label: 'Change Flight Plan', icon: 'compare' },
-      { id: 'command-center', label: 'Command Center', icon: 'workflow' }
-    ],
-    empty: {
-      text: 'No work item is in flight in this workspace.',
-      action: 'work-start', actionLabel: 'Start intake'
-    }
-  },
-  configuration: {
-    label: 'Configuration', icon: 'configuration', actions: [],
-    more: [
-      { id: 'ast-intelligence', label: 'AST intelligence', icon: 'worldModel' },
-      { id: 'flow-impact', label: 'Flow impact studies and reports', icon: 'impact' }
-    ],
-    empty: {
-      text: 'No governed configuration is loaded. It lives on the capability’s configuration branch, not on main.',
-      action: 'configuration-center', actionLabel: 'Open Configuration Center'
-    }
-  },
-  help: {
-    label: 'Help & diagnostics', icon: 'help', actions: [],
-    linkHeading: 'Troubleshoot', links: [
-      { id: 'diagnostics', label: 'Diagnostics & Schema Health', icon: 'statusCurrent' },
-      { id: 'fault-repairs', label: 'Faults & Repairs', icon: 'warning' }
-    ],
-    more: [
-      { id: 'journal', label: 'Local Journal', icon: 'book' },
-      { id: 'activity-log', label: 'Activity log', icon: 'commit' },
-      { id: 'prompt-audit', label: 'Prompt audit', icon: 'prompt' },
-      { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
-    ],
-    empty: {
-      text: 'Guides, the command reference, the activity log, and what was sent to the model.',
-      action: 'help-open', actionLabel: 'Open the Help Center'
-    }
-  },
-  logs: {
-    label: 'Logs', icon: 'commit', actions: [
-      { id: 'logs-refresh', label: 'Refresh workspace logs', icon: 'refresh' }
-    ],
-    empty: {
-      text: 'Open the combined workspace timeline for activity, prompts, Copilot usage, and workspace operations.',
-      action: 'logs-open', actionLabel: 'Open workspace logs'
-    }
-  },
-};
-
-/**
- * The home, reachable from the sidebar at last. `[UXH:REQ-020]` `[UXH:D1]`
- *
- * My Work is not inbox, workspace, lifecycle or configuration business — it is where a person
- * starts before they know which of those they want, which is why it sits in the brand header above
- * the sections rather than inside one. It had **no entry in this sidebar at all**: reachable from
- * the status bar, the result card's footer and the command palette, which is where a reader looks
- * last. `my-work` runs the same command the status bar does, so both lead to one place.
- *
- * (This note lives out here deliberately. Inside the header template literal, the backticks around
- * a clause anchor close the string — the trap `result-card-page.ts` already records, and which this
- * comment hit on its first attempt.)
- */
 const ACTION_COMMANDS: Record<string, string> = {
+  ...Object.fromEntries(PRIMARY_NAVIGATION.map(item => [item.id, item.command])),
   'favorites-manage': 'singularityFlow.manageFavorites',
   'persona-manage': 'singularityFlow.choosePersona',
   'my-work': 'singularityFlow.myWork',
@@ -233,81 +99,9 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'help-open', label: 'Help Center', description: 'offline guides and commands', icon: 'help', command: ACTION_COMMANDS['help-open']! }
 ]);
 
-/**
- * Contextual help for the menus: a card under the row a person hovers or focuses, with what the
- * menu is for, the same thing from a terminal, and the guide that explains it. `?` pins it for the
- * focused row and Escape closes it. Built with textContent only: the catalogue is data.
- */
-const HELP_SCRIPT = `
-        const helpCatalogue=(()=>{try{return JSON.parse(document.body.dataset.help||'{}');}catch{return {};}})();
-        const popover=document.getElementById('sf-help');
-        const HELP_TARGETS='summary.section-heading,.section-link,.next-action,.brand-home,.brand-persona,.workspace-switch,.icon-button,.empty-action,.node-row[data-selection-key^="node:favorite:"]';
-        let helpFor=null, showTimer=null, hideTimer=null;
-        const helpKey=(target)=>{
-          if(target.matches('summary.section-heading')){const section=target.closest('details.section');return section?'section:'+section.dataset.section:null;}
-          const key=target.dataset.selectionKey||'';
-          if(key.startsWith('node:favorite:')) return 'link:'+key.slice('node:favorite:'.length);
-          return target.dataset.action?'link:'+target.dataset.action:null;
-        };
-        const element=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;};
-        const hideHelp=()=>{clearTimeout(showTimer);popover.hidden=true;if(helpFor)helpFor.removeAttribute('aria-describedby');helpFor=null;};
-        const showHelp=(target)=>{
-          const entry=helpCatalogue[helpKey(target)]; if(!entry){hideHelp();return;}
-          clearTimeout(hideTimer); popover.replaceChildren();
-          popover.append(element('div','help-title',entry.title), element('p','help-summary',entry.summary));
-          if(entry.cli){const cli=element('div','help-cli');cli.append(element('code','',entry.cli));const copy=element('button','help-copy','Copy');copy.type='button';copy.dataset.helpCopy=entry.cli;cli.append(copy);popover.append(cli);}
-          const actions=element('div','help-actions');const guide=element('button','help-guide','Open guide');guide.type='button';guide.dataset.helpTopic=entry.topic;
-          actions.append(guide, element('span','help-hint','? pins · Esc closes'));popover.append(actions);
-          popover.hidden=false; helpFor=target; target.setAttribute('aria-describedby','sf-help');
-          const row=target.getBoundingClientRect(); const height=popover.offsetHeight;
-          const below=row.bottom+6; popover.style.top=(below+height<window.innerHeight-4?below:Math.max(4,row.top-height-6))+'px';
-        };
-        document.addEventListener('mouseover',(event)=>{
-          if(event.target.closest('#sf-help')){clearTimeout(hideTimer);return;}
-          const target=event.target.closest(HELP_TARGETS); if(!target||target===helpFor)return;
-          clearTimeout(showTimer); showTimer=setTimeout(()=>showHelp(target),450);
-        });
-        document.addEventListener('mouseout',(event)=>{
-          const target=event.target.closest(HELP_TARGETS+',#sf-help'); if(!target)return;
-          if(event.relatedTarget&&(target.contains(event.relatedTarget)||event.relatedTarget.closest?.('#sf-help')))return;
-          clearTimeout(showTimer); hideTimer=setTimeout(hideHelp,180);
-        });
-        document.addEventListener('focusin',(event)=>{const target=event.target.closest(HELP_TARGETS);if(target&&event.target.matches(':focus-visible'))showHelp(target);});
-        document.addEventListener('focusout',(event)=>{if(!event.relatedTarget||!event.relatedTarget.closest?.('#sf-help'))hideTimer=setTimeout(hideHelp,120);});
-        document.addEventListener('keydown',(event)=>{
-          if(event.key==='Escape'&&!popover.hidden){hideHelp();return;}
-          if(event.key==='?'){const target=document.activeElement?.closest?.(HELP_TARGETS);if(target){event.preventDefault();popover.hidden||helpFor!==target?showHelp(target):hideHelp();}}
-        });
-        document.querySelector('main')?.addEventListener('scroll',hideHelp,{passive:true});
-        popover.addEventListener('click',(event)=>{
-          const copy=event.target.closest('[data-help-copy]'); if(copy){vscode.postMessage({type:'help-copy',command:copy.dataset.helpCopy});copy.textContent='Copied';return;}
-          const guide=event.target.closest('[data-help-topic]'); if(guide){vscode.postMessage({type:'help-topic',topic:guide.dataset.helpTopic});hideHelp();}
-        });
-`;
-
 const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v2';
 const LEGACY_FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
 const FAVORITE_BY_ID = new Map(FAVORITE_MENUS.map((menu) => [menu.id, menu]));
-
-const ALL_SECTIONS = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
-const KNOWN_ICONS = new Set<string>(ICON_NAMES);
-
-function semanticIcon(node: TreeNode): IconName {
-  if (node.icon && KNOWN_ICONS.has(node.icon)) return node.icon as IconName;
-  if (/success|passed|approved/i.test(node.icon ?? node.description ?? '')) return 'success';
-  if (/warning|stale/i.test(node.icon ?? node.description ?? '')) return 'warning';
-  if (/blocked|error|rejected|failed/i.test(node.icon ?? node.description ?? '')) return 'blocked';
-  if (/waiting|clock|queued|awaiting/i.test(node.icon ?? node.description ?? '')) return 'waiting';
-  const byKind: Partial<Record<TreeNode['kind'], IconName>> = {
-    initiative: 'initiative', phase: 'phase', pack: 'pack', artifact: 'artifact',
-    repository: 'repository', story: 'story', source: 'document', action: 'next', group: 'collection'
-  };
-  return byKind[node.kind] ?? 'document';
-}
-
-function hasAction(node: TreeNode): boolean {
-  return Boolean(node.runCommand || node.path || node.packagePath || node.command || node.approve);
-}
 
 export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly roots: Record<SidebarSection, readonly TreeNode[]> = {
@@ -322,7 +116,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private freshness: string | null = null;
   private awaitingFirstRead = false;
   private navigation: SidebarNavigation = { workspace: null, next: null };
-  private pendingApprovals = 0;
+  private pendingApprovals: number | null = null;
+  private activeDestination: string | null = null;
+  private renderedBody: string | null = null;
   private favoriteIds: string[];
   private favoritesCustomized: boolean;
   /** Three tree providers publish one snapshot synchronously; replace the document once, not thrice. */
@@ -360,16 +156,6 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     return this.persona().menuIds.filter((id) => FAVORITE_BY_ID.has(id));
   }
 
-  private sectionOrder(): SidebarSection[] {
-    const ordered = this.persona().sectionOrder
-      .filter((section): section is SidebarSection => ALL_SECTIONS.includes(section as SidebarSection));
-    const complete = [...new Set([...ordered, ...ALL_SECTIONS])];
-    // Before the first workspace exists, a persona's Inbox or Work preference cannot be actionable.
-    // Put setup immediately after Favorites until a workspace has been selected.
-    return this.navigation.workspace
-      ? complete : ['favorites', 'workspaces', ...complete.filter((section) => section !== 'favorites' && section !== 'workspaces')];
-  }
-
   /** Re-render machine-local guidance when the VS Code profile changes. */
   profileChanged(): void {
     if (!this.favoritesCustomized) this.favoriteIds = this.personaFavoriteIds();
@@ -404,7 +190,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       menuId: menu.id
     })), {
       title: 'Choose favorite Singularity Flow menus',
-      placeHolder: `Select menus to keep at the top · ${persona.label} suggestions appear first`,
+      placeHolder: `Select pinned shortcuts · ${persona.label} suggestions appear first`,
       canPickMany: true,
       ignoreFocusOut: true
     });
@@ -462,8 +248,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.renders.request();
   }
 
-  setPendingApprovals(count: number): void {
-    const normalized = Number.isSafeInteger(count) && count > 0 ? count : 0;
+  setPendingApprovals(count: number | null): void {
+    const normalized = count === null ? null : Number.isSafeInteger(count) && count > 0 ? count : 0;
     if (normalized === this.pendingApprovals) return;
     this.pendingApprovals = normalized;
     this.renders.request();
@@ -497,6 +283,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.renderedBody = null;
     view.webview.options = { enableScripts: true };
     this.subscriptions.push(view.webview.onDidReceiveMessage((message: unknown) => this.receive(message)));
     // First paint is deliberately immediate. Any setup notifications already queued are included
@@ -521,7 +308,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       return;
     }
     if (value.type === 'action' && typeof value.action === 'string') {
-      const command = ACTION_COMMANDS[value.action];
+      if (['work-tools', 'help-tools', 'activity-tools', 'understand-changes'].includes(value.action)) {
+        void this.openTools(value.action);
+        return;
+      }
+      const favorite = value.action.startsWith('favorite:') ? value.action.slice('favorite:'.length) : null;
+      const command = favorite && this.favoriteIds.includes(favorite)
+        ? FAVORITE_BY_ID.get(favorite)?.command : ACTION_COMMANDS[value.action];
       if (command) void vscode.commands.executeCommand(command);
       return;
     }
@@ -553,407 +346,78 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     }
   }
 
-  private renderNode(section: SidebarSection, node: TreeNode, path: number[], depth = 0): string {
-    const key = `${section}:${path.join('.')}`;
-    this.nodeIndex.set(key, node);
-    const description = node.description
-      ? `<span class="node-description">${escape(node.description)}</span>` : '';
-    const tooltip = escape(node.tooltip ?? [node.label, node.description].filter(Boolean).join(' — '));
-    const actionable = hasAction(node);
-    const hasChildren = Boolean(node.children?.length);
-    const workspaceRow = section === 'workspaces' && node.id.startsWith('workspace:') && !hasChildren;
-    const directAction = actionable && !hasChildren && !workspaceRow;
-    const currentPhase = node.contextValue === 'sflow.story.phase.current';
-    const row = `<span class="node-row${directAction ? ' actionable' : ''}${currentPhase ? ' current-phase-row' : ''}"${directAction
-      ? ` data-selection-key="node:${escape(node.id)}"` : ''}${directAction
-      ? ` role="button" tabindex="0" data-node="${escape(key)}"` : ''} title="${tooltip}">
-        <span class="node-icon">${icon(semanticIcon(node), { size: 16 })}</span>
-        <span class="node-copy"><span class="node-label">${escape(node.label)}</span>${description}</span>
-        ${workspaceRow
-          ? `<span class="workspace-row-actions">${node.runCommand === 'singularityFlow.switchWorkspace'
-            ? `<button type="button" data-workspace-action="select" data-workspace-key="${escape(key)}"
-                aria-label="Select ${escape(node.label)}" title="Select and open ${escape(node.label)} in this window">Select</button>`
-            : node.contextValue?.startsWith('sflow.workspace.active')
-              ? `<button type="button" data-workspace-action="open" data-workspace-key="${escape(key)}"
-                  aria-label="Open ${escape(node.label)} in this window" title="Open ${escape(node.label)} in this window">Open</button>` : ''}
-              <button type="button" data-workspace-action="details" data-workspace-key="${escape(key)}"
-                aria-label="Details for ${escape(node.label)}" title="Details for ${escape(node.label)}">Details</button></span>`
-          : section === 'favorites'
-          ? `<button class="favorite-remove" type="button" data-remove-favorite="${escape(node.id.replace(/^favorite:/, ''))}" aria-label="Unpin ${escape(node.label)}" title="Unpin ${escape(node.label)}">${icon('close', { size: 14 })}</button>`
-          : actionable ? (hasChildren
-          ? `<button class="node-open" type="button" data-open-node="${escape(key)}" aria-label="Open ${escape(node.label)}" title="Open ${escape(node.label)}">${icon('next', { size: 14 })}</button>`
-          : `<span class="node-open" aria-hidden="true">${icon('next', { size: 14 })}</span>`) : ''}
-      </span>`;
-    if (!hasChildren) return `<div class="leaf depth-${Math.min(depth, 3)}">${row}</div>`;
-    const children = node.children!.map((child, index) =>
-      this.renderNode(section, child, [...path, index], depth + 1)).join('');
-    const open = depth === 0 || node.kind === 'initiative' || node.id === 'configuration'
-      || node.id === 'story:phase-rail' || currentPhase
-      || node.id.startsWith('completed-story:') || node.id.startsWith('completed-initiative:')
-      ? ' open' : '';
-    return `<details class="node depth-${Math.min(depth, 3)}${currentPhase ? ' current-phase' : ''}" data-node-state="${escape(key)}"${open}>
-      <summary>${row}</summary><div class="children">${children}</div></details>`;
+  /** Called from editor tab events, never optimistically from a navigation click. */
+  setActiveDestination(id: string | null): void {
+    if (id === this.activeDestination) return;
+    this.activeDestination = id;
+    // Keep focus and scroll intact when an editor tab changes.
+    if (this.view) void this.view.webview.postMessage({ type: 'active-destination', id });
   }
 
-  private renderSection(section: SidebarSection): string {
-    const meta = SECTION_META[section];
-    const actions = meta.actions.map((action) => `<button class="icon-button" type="button"
-      data-action="${escape(action.id)}" data-selection-key="action:${escape(action.id)}" aria-label="${escape(action.label)}" title="${escape(action.label)}">
-      ${icon(action.icon, { size: 16 })}</button>`).join('');
-    const nodes = this.roots[section];
-    const link = (action: { id: string; label: string; icon: IconName }): string => {
-      const label = section === 'inbox' && action.id === 'approvals-open' && this.pendingApprovals
-        ? `${action.label} (${this.pendingApprovals})` : action.label;
-      return `<button class="section-link" type="button" data-action="${escape(action.id)}"${LINK_HELP[action.id]
-        ? ` aria-describedby="sf-help-text-${escape(action.id)}"` : ''}
-        data-selection-key="action:${escape(action.id)}">${icon(action.icon, { size: 14 })}<span>${escape(label)}</span></button>`;
+  private async openTools(group: string): Promise<void> {
+    const groups: Record<string, { title: string; ids: string[] }> = {
+      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'work-start', 'adhoc-work', 'goals', 'impact-form', 'understand-changes', 'epic-stories', 'command-center', 'flow-impact'] },
+      'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explanation', 'comprehension-center'] },
+      'help-tools': { title: 'Help & diagnostics', ids: ['help-open', 'diagnostics', 'fault-repairs', 'local-reset'] },
+      'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'prompt-audit', 'journal'] }
     };
-    // An idle Work tree already contains Start intake; a second shortcut would be the same action.
-    const links = (meta.links ?? []).filter((action) => {
-      if (section === 'lifecycle' && action.id === 'work-start') {
-        return Boolean(this.navigation.workspace && this.navigation.next)
-          && !nodes.some((node) => node.id === 'start-intake');
-      }
-      if (section === 'inbox' && action.id === 'approvals-open' && !this.navigation.workspace) return false;
-      return true;
+    const selected = groups[group];
+    if (!selected) return;
+    const menus = selected.ids.flatMap(id => {
+      if (id === 'current-work-actions') return [{ label: 'Current work actions & artifacts', description: 'Progress, evidence, phase actions and lifecycle maintenance', id }];
+      if (id === 'understand-changes') return [{ label: 'Understand changes', description: 'Explorer, explanations and comprehension', id }];
+      if (id === 'epic-stories') return [{ label: 'Epic Story plan', description: 'Decomposition, dependencies and materialization', id }];
+      const menu = FAVORITE_BY_ID.get(id);
+      return menu ? [{ label: menu.label, description: menu.description, id }] : [];
     });
-    const shortcuts = links.length
-      ? `<div class="section-shortcuts">${meta.linkHeading ? `<span class="shortcut-heading">${escape(meta.linkHeading)}</span>` : ''}
-          ${links.map(link).join('')}</div>` : '';
-    const moreActions = (meta.more ?? []).filter((action) => !(section === 'workspaces'
-      && action.id === 'setup-wizard' && this.navigation.next?.actionId === 'setup-wizard'));
-    const more = moreActions.length
-      ? `<details class="section-more" data-node-state="more:${section}"><summary>More actions</summary>
-          <div class="section-more-links">${moreActions.map(link).join('')}</div></details>` : '';
-    /**
-     * Three ways to have nothing, and only one of them means nothing.
-     *
-     * A section is bound the moment its tree source exists, which is before the first snapshot has
-     * landed — so "bound and empty" was being rendered as "Nothing is waiting on you" for the whole
-     * of every cold open. That is the exact failure this file's own header calls the most expensive
-     * thing the surface could wrongly say, and it said it on the one screen a person sees first.
-     *
-     * Only the first read gets this treatment. A later refresh over a section already known to be
-     * empty leaves the real sentence on screen: the answer is not in doubt, it is being rechecked,
-     * and replacing it every time would be a flicker that tells the reader nothing.
-     */
-    const content = nodes.length
-      ? nodes.map((node, index) => this.renderNode(section, node, [index])).join('')
-      : this.awaitingFirstRead
-        ? `<div class="empty"><p>Reading the governed repository. My Work will refresh as soon as it is ready.</p>
-            <button class="empty-action" type="button" data-action="my-work" data-selection-key="action:my-work">Open My Work</button>
-          </div>`
-        : this.bound.has(section)
-          ? `<div class="empty"><p>${escape(meta.empty.text)}</p>
-            <button class="empty-action" type="button" data-action="${escape(meta.empty.action)}" data-selection-key="action:${escape(meta.empty.action)}">${escape(meta.empty.actionLabel)}</button>
-          </div>`
-          // Bound but not yet reported, versus never connected: saying "nothing here" while the CLI is
-          // still being spawned is a lie the reader has no way to detect.
-          : `<div class="empty"><p>Connecting to the Singularity Flow CLI. If this takes longer than expected, open Help for setup and diagnostics.</p>
-              <button class="empty-action" type="button" data-action="help-open" data-selection-key="action:help-open">Open Help Center</button>
-            </div>`;
-    const persona = this.persona();
-    const personaSection = persona.id === 'other'
-      ? 'lifecycle' : persona.sectionOrder.find((candidate) => candidate !== 'favorites');
-    const initiallyOpen = section === (this.navigation.workspace ? personaSection : 'workspaces') ? ' open' : '';
-    return `<details class="section" data-section="${section}"${initiallyOpen}>
-      <summary class="section-heading">
-        <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span>${SECTION_HELP[section]
-          ? `<span class="sr-only">: ${escape(SECTION_HELP[section]!.summary)}</span>` : ''}</span>
-        <span class="section-actions">${actions}</span>
-      </summary>
-      <div class="section-body">${shortcuts}${more}${content}</div>
-    </details>`;
+    const chosen = await vscode.window.showQuickPick(menus, { title: selected.title, matchOnDescription: true });
+    if (!chosen || !selected.ids.includes(chosen.id)) return;
+    if (chosen.id === 'current-work-actions') {
+      const source = this.roots.lifecycle;
+      const actions: Array<{ label: string; description: string; node: TreeNode }> = [];
+      const visit = (nodes: readonly TreeNode[], parent = '') => {
+        for (const node of nodes) {
+          if (node.runCommand || node.command || node.path || node.packagePath || node.approve) {
+            actions.push({ label: node.label, description: parent, node });
+          }
+          if (node.children) visit(node.children, node.label);
+        }
+      };
+      visit(source);
+      const action = await vscode.window.showQuickPick(actions, { title: 'Current work actions & artifacts', matchOnDescription: true });
+      if (action && actions.includes(action) && source === this.roots.lifecycle) {
+        this.nodeIndex.set('current-work-action', action.node);
+        this.receive({ type: 'node', key: 'current-work-action' });
+      }
+      return;
+    }
+    if (chosen.id === 'understand-changes') return this.openTools(chosen.id);
+    if (chosen.id === 'epic-stories') { await vscode.commands.executeCommand('singularityFlow.openStories'); return; }
+    const menu = FAVORITE_BY_ID.get(chosen.id);
+    if (menu) await vscode.commands.executeCommand(menu.command);
   }
 
   private render(): void {
     if (!this.view) return;
     this.nodeIndex.clear();
+    this.roots.favorites.forEach((node, index) => this.nodeIndex.set(`favorites:${index}`, node));
+    const body = sidebarBody({
+        navigation: this.navigation, freshness: this.freshness, loading: this.awaitingFirstRead,
+        active: this.activeDestination, pending: this.pendingApprovals,
+        favorites: this.favoriteIds.flatMap(id => {
+          const menu = FAVORITE_BY_ID.get(id);
+          return menu ? [{ id, label: menu.label, icon: menu.icon }] : [];
+        })
+      });
+    if (body === this.renderedBody) return;
+    this.renderedBody = body;
     const token = nonce();
-    const profile = this.profile();
-    const persona = resolveProfilePersona(profile.role);
-    const configuredPersona = isProfilePersonaId(profile.role);
-    const sectionOrder = this.sectionOrder();
-    const sections = sectionOrder.map((section) => this.renderSection(section)).join('');
-    const workspace = this.navigation.workspace;
-    const workspaceLabel = workspace ? [workspace.name, workspace.repository].filter(Boolean).join(' · ') : 'No workspace selected';
-    const next = this.navigation.next;
-    const workspaceAction = workspace || next?.actionId === 'workspace-switch' ? 'workspace-switch' : 'setup-wizard';
-    // The status dot was hard-coded green, so it said "ready" while the CLI was still being found —
-    // and said it just as confidently when resolution had failed.
-    const ready = sectionOrder.filter((section) => section !== 'favorites')
-      .every((section) => this.bound.has(section));
     this.view.webview.html = `<!doctype html><html><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(this.view.webview, token)}">
-      <style nonce="${token}">
-        /* The Singularity terminal look: near-black panel, hairlines, one green for structure and the
-           next step, monospace for the labels a person scans. Light and high-contrast keep the same
-           structure on the editor's own colours. */
-        :root { color-scheme: light dark;
-          --mono: var(--vscode-editor-font-family, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace);
-          --bg: var(--vscode-sideBar-background); --raised: var(--vscode-list-hoverBackground);
-          --line: var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border)); --line-strong: var(--vscode-panel-border);
-          --text: var(--vscode-sideBar-foreground, var(--vscode-foreground)); --dim: var(--vscode-descriptionForeground);
-          --accent: #3d8e10; --accent-strong: #3d8e10;
-          --quiet: color-mix(in srgb, var(--accent) 13%, transparent); --accent-line: color-mix(in srgb, var(--accent) 55%, transparent); }
-        body.vscode-dark { --bg:#0d110e; --raised:#141b16; --line:#1e2822; --line-strong:#2d3a31; --text:#dfe7e1; --dim:#87948b;
-          --accent:#3d8e10; --accent-strong:#3d8e10; --quiet:rgba(61,142,16,.12); --accent-line:rgba(61,142,16,.65); }
-        body.vscode-light { --bg:#f7faf8; --raised:#ebf2ed; --line:#dae3dd; --line-strong:#c3cfc7; --text:#15211b; --dim:#56675d;
-          --accent:#3d8e10; --accent-strong:#31720d; --quiet:rgba(61,142,16,.08); --accent-line:rgba(61,142,16,.5); }
-        body.vscode-high-contrast, body.vscode-high-contrast-light { --bg:var(--vscode-sideBar-background); --line:var(--vscode-contrastBorder);
-          --line-strong:var(--vscode-contrastBorder); --accent:var(--vscode-contrastActiveBorder, LinkText); --accent-strong:var(--vscode-contrastActiveBorder, LinkText);
-          --quiet:transparent; --accent-line:var(--vscode-contrastActiveBorder, LinkText); }
-        @media (forced-colors: active) {
-          :root { --accent:LinkText; --accent-strong:LinkText; --quiet:transparent; }
-          .empty-action,button.node-open,.next-action,.help-popover { border:1px solid ButtonText; box-shadow:none; }
-        }
-        * { box-sizing:border-box; }
-        body { margin:0; padding:0 0 18px; color:var(--text); background:var(--bg); font:var(--vscode-font-size)/1.4 var(--vscode-font-family); }
-        button { font:inherit; }
-        .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
-        .brand { display:flex; align-items:center; gap:9px; padding:14px 12px 12px; border-bottom:1px solid var(--line); }
-        .brand-symbol { flex:none; display:block; }
-        .brand-copy { min-width:0; line-height:1.05; }
-        .brand-copy small { display:block; color:var(--accent-strong); font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; }
-        .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:700; letter-spacing:.01em; }
-        .brand-home { margin-left:auto; display:flex; align-items:center; gap:5px; padding:4px 11px; border:1px solid var(--line-strong);
-          border-radius:999px; color:var(--text); background:transparent; cursor:pointer; white-space:nowrap; font-size:.88em; }
-        .brand-home:hover { border-color:var(--accent-line); background:var(--quiet); }
-        .brand-home:active { transform:translateY(1px); }
-        .brand-home.last-opened { border-color:var(--accent); color:var(--accent-strong); background:var(--quiet); }
-        .brand-persona { display:flex; align-items:center; gap:4px; max-width:110px; padding:3px 6px; border:0; border-radius:4px;
-          cursor:pointer; color:var(--dim); background:transparent; font-size:11px; }
-        .brand-persona span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .brand-persona:hover { color:var(--accent-strong); background:var(--raised); }
-        .brand-persona:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        .brand-status { margin-left:2px; width:7px; height:7px; flex:none; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet), 0 0 8px var(--accent); }
-        .brand-status.connecting { background:var(--dim); box-shadow:0 0 0 3px transparent; }
-        .workspace-context { display:flex; align-items:center; gap:10px; min-width:0; padding:10px 12px; border-bottom:1px solid var(--line); }
-        .workspace-context-label { flex:none; color:var(--dim); font-size:12px; }
-        .workspace-switch { display:flex; align-items:center; justify-content:space-between; gap:6px; min-width:0; flex:1; padding:6px 9px;
-          border:1px solid var(--line-strong); border-radius:3px; color:var(--text); background:var(--raised); cursor:pointer; text-align:left;
-          font-family:var(--mono); font-size:12px; }
-        .workspace-switch:hover { border-color:var(--accent-line); }
-        .workspace-switch span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .workspace-switch:focus-visible,.next-action:focus-visible,.section-link:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        .next-step { display:flex; flex-direction:column; gap:7px; padding:12px; border-bottom:1px solid var(--line); }
-        .next-heading { font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-strong); }
-        .next-action { display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; padding:9px 11px;
-          border:1px solid var(--accent); border-radius:3px; color:var(--text); background:linear-gradient(90deg, var(--quiet), transparent 85%);
-          text-align:left; cursor:pointer; font-weight:600; box-shadow:0 0 18px -9px var(--accent); }
-        .next-action .ico { color:var(--accent-strong); }
-        .next-action:hover { background:var(--quiet); box-shadow:0 0 0 1px var(--accent-line), 0 0 20px -6px var(--accent); }
-        .next-description { font-family:var(--mono); color:var(--dim); font-size:11.5px; letter-spacing:.02em; }
-        main { overflow-y:auto; padding-top:6px; }
-        details { margin:0; }
-        summary { list-style:none; }
-        summary::-webkit-details-marker { display:none; }
-        .section { border-bottom:0; }
-        .section-heading { display:flex; align-items:center; min-height:40px; padding:0 8px 0 14px; cursor:pointer; background:transparent; }
-        .section-heading:hover { background:var(--raised); }
-        .section-heading:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
-        .section-heading:before { content:''; width:6px; height:6px; margin:0 12px 0 0; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor;
-          transform:rotate(-45deg); transition:transform .14s ease; opacity:.6; }
-        .section[open]>.section-heading:before { transform:rotate(45deg) translate(-1px,-1px); color:var(--accent-strong); opacity:1; }
-        .section-title { display:flex; align-items:center; gap:11px; min-width:0; color:var(--text); font-size:13px; font-weight:500; }
-        .section-title .ico { color:var(--dim); }
-        .section[open]>.section-heading .section-title .ico { color:var(--accent-strong); }
-        .section-actions { display:flex; gap:1px; margin-left:auto; }
-        .icon-button { display:grid; place-items:center; width:28px; height:28px; padding:0; border:0; border-radius:4px; color:var(--dim); background:transparent; cursor:pointer; }
-        .icon-button:hover { color:var(--accent-strong); background:var(--quiet); }
-        .icon-button:active { transform:translateY(1px); }
-        .icon-button.last-opened { color:var(--accent-strong); background:var(--quiet); box-shadow:inset 0 0 0 1px var(--accent-line); }
-        .icon-button:focus-visible,.actionable:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
-        .section-body { padding:2px 8px 10px 14px; }
-        .section-shortcuts { display:flex; flex-direction:column; gap:1px; margin:2px 0 6px 18px; }
-        .shortcut-heading { padding:4px 8px 2px; color:var(--dim); font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
-        .section-link { display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px; border:0; border-radius:3px;
-          color:var(--text); background:transparent; text-align:left; cursor:pointer; }
-        .section-link .ico { color:var(--dim); flex:none; }
-        .section-link:hover { background:var(--raised); }
-        .section-link:hover .ico { color:var(--accent-strong); }
-        .section-link.last-opened { background:var(--quiet); box-shadow:inset 2px 0 0 var(--accent); }
-        .section-more { margin:2px 0 6px 18px; }
-        .section-more>summary { padding:5px 8px; border-radius:3px; color:var(--dim); font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
-        .section-more>summary:hover { background:var(--raised); color:var(--text); }
-        .section-more>summary:focus-visible { outline:1px solid var(--vscode-focusBorder); }
-        .section-more>summary::before { content:'›'; display:inline-block; width:12px; }
-        .section-more[open]>summary::before { transform:rotate(90deg); }
-        .section-more-links { display:flex; flex-direction:column; gap:1px; margin-left:5px; }
-        .workspace-row-actions { display:flex; align-items:center; gap:3px; flex:none; }
-        .workspace-row-actions button { padding:2px 6px; border:1px solid var(--line-strong); border-radius:3px; color:var(--text); background:transparent;
-          font-family:var(--mono); font-size:10px; cursor:pointer; }
-        .workspace-row-actions button:hover { border-color:var(--accent-line); background:var(--quiet); color:var(--accent-strong); }
-        .workspace-row-actions button:focus-visible { outline:1px solid var(--vscode-focusBorder); }
-        .node { display:block; }
-        .node>summary { cursor:pointer; }
-        .node>summary:before { content:''; float:left; width:5px; height:5px; margin:12px 3px 0 5px; border-right:1px solid currentColor;
-          border-bottom:1px solid currentColor; transform:rotate(-45deg); opacity:.6; }
-        .node[open]>summary:before { transform:rotate(45deg); }
-        .node-row { display:flex; align-items:flex-start; min-height:31px; gap:8px; padding:6px 5px; border-radius:3px; min-width:0; }
-        .node>summary .node-row { margin-left:13px; }
-        .leaf .node-row { margin-left:18px; }
-        .depth-1 .node-row { padding-left:8px; } .depth-2 .node-row { padding-left:16px; } .depth-3 .node-row { padding-left:24px; }
-        .node-row.actionable { cursor:pointer; }
-        .node-row.actionable:hover { background:var(--raised); }
-        .node-row.actionable:active { transform:translateY(1px); }
-        .node-row.actionable.last-opened { color:var(--vscode-list-activeSelectionForeground,var(--text));
-          background:var(--quiet); box-shadow:inset 2px 0 0 var(--accent); }
-        .node-icon { display:grid; place-items:center; flex:0 0 17px; height:18px; color:var(--dim); }
-        .current-phase-row { border-left:2px solid var(--accent); background:var(--quiet); }
-        .current-phase-row .node-icon { color:var(--accent-strong); animation:sf-current-phase-pulse 1.65s ease-in-out infinite; }
-        .current-phase-row .node-label { color:var(--accent-strong); }
-        @keyframes sf-current-phase-pulse {
-          0%,100% { opacity:.72; filter:drop-shadow(0 0 0 transparent); }
-          50% { opacity:1; filter:drop-shadow(0 0 4px var(--accent)); }
-        }
-        .node-copy { display:flex; flex-direction:column; min-width:0; flex:1; }
-        .node-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
-        .node-description { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim); font-family:var(--mono); font-size:10.5px; }
-        .node-open { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:3px; opacity:0; color:var(--accent-strong); background:transparent; }
-        .favorite-remove { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:3px; color:var(--dim); background:transparent; cursor:pointer; }
-        .favorite-remove:hover { color:var(--vscode-errorForeground); background:var(--raised); }
-        .favorite-remove:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        button.node-open:hover { opacity:1; background:var(--raised); }
-        .actionable:hover .node-open,.actionable:focus-visible .node-open { opacity:1; }
-        button.node-open:focus-visible { opacity:1; outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        .children { margin-left:1px; border-left:1px solid var(--vscode-tree-indentGuidesStroke, var(--line)); }
-        .empty { padding:9px 12px 12px 28px; color:var(--dim); font-size:11.5px; }
-        .empty p { margin:0 0 8px; max-width:34em; line-height:1.5; }
-        .empty-action { padding:5px 11px; border:1px solid var(--accent); border-radius:3px; cursor:pointer; color:var(--accent-strong); background:var(--quiet); font-size:11px; font-weight:600; }
-        .empty-action:hover { box-shadow:0 0 0 1px var(--accent-line), 0 0 16px -6px var(--accent); }
-        .empty-action:active { transform:translateY(1px); }
-        .empty-action.last-opened { box-shadow:0 0 0 1px var(--vscode-focusBorder); }
-        .empty-action:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
-        .freshness { display:flex; align-items:center; gap:6px; padding:5px 12px; font-family:var(--mono); font-size:10.5px; color:var(--dim); background:var(--quiet); }
-        .freshness .ico { flex:none; opacity:.8; }
-        /* Contextual help: one card under the hovered or focused row. */
-        .help-popover { position:fixed; z-index:20; left:8px; right:8px; padding:10px 11px 9px; border:1px solid var(--accent-line); border-radius:4px;
-          background:var(--raised); box-shadow:0 12px 32px -12px rgba(0,0,0,.65); font-size:12px; }
-        .help-popover[hidden] { display:none; }
-        .help-title { display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.1em;
-          text-transform:uppercase; color:var(--accent-strong); }
-        .help-title:before { content:'?'; display:inline-grid; place-items:center; width:15px; height:15px; border:1px solid var(--accent-line); border-radius:2px; font-size:10px; }
-        .help-summary { margin:7px 0 8px; color:var(--text); line-height:1.45; }
-        .help-cli { display:flex; align-items:center; gap:6px; margin:0 0 8px; padding:4px 5px 4px 8px; border:1px solid var(--line-strong); border-radius:3px; background:var(--bg); }
-        .help-cli code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-family:var(--mono); font-size:11px; }
-        .help-copy, .help-guide { padding:2px 8px; border:1px solid var(--line-strong); border-radius:3px; color:var(--text); background:transparent; cursor:pointer; font-size:11px; }
-        .help-copy:hover { border-color:var(--accent-line); }
-        .help-guide { color:var(--accent-strong); border-color:var(--accent-line); background:var(--quiet); font-weight:600; }
-        .help-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-        .help-hint { font-family:var(--mono); font-size:10px; color:var(--dim); }
-        .help-copy:focus-visible, .help-guide:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
-        /* The labelled My Work pill fits a default-width sidebar; the persona name goes first when space runs out. */
-        @media (max-width:340px) {
-          .brand-persona { min-width:27px; padding:4px 6px; justify-content:center; }
-          .brand-persona span { display:none; }
-        }
-        @media (max-width:280px) {
-          .brand-home { min-width:27px; padding:4px 6px; justify-content:center; }
-          .brand-home span { display:none; }
-        }
-        @media (prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
-      </style></head><body data-help="${escape(JSON.stringify(this.helpCatalogue()))}">
-      <header class="brand">${brandSymbol(30)}
-        <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
-        <button class="brand-home" data-action="my-work" data-selection-key="action:my-work" type="button"
-          title="My Work — current work and next actions">${icon('home', { size: 14 })}<span>My Work</span></button>
-        <button class="brand-persona" data-action="persona-manage" data-selection-key="action:persona-manage" type="button"
-          aria-label="${configuredPersona ? `Change ${escape(persona.label)} menu persona` : 'Choose a menu persona'}"
-          title="${configuredPersona ? `${escape(persona.label)} menu · ${escape(persona.description)}. Change persona.` : 'Choose a persona to tailor menu order and suggestions.'}">${icon('agent', { size: 14 })}<span>${configuredPersona ? escape(persona.label) : 'Set persona'}</span></button>
-        <span class="brand-status${ready ? '' : ' connecting'}" role="img"
-          aria-label="${ready ? 'Navigation loaded' : 'Navigation loading'}"
-          title="${ready ? 'Navigation sections loaded; repository health is shown in the section content' : 'Loading Singularity Flow navigation…'}"></span></header>
-      <div class="workspace-context"><span class="workspace-context-label">${workspace ? 'Working in' : 'Workspace'}</span>
-        <button class="workspace-switch" data-action="${workspaceAction}"
-          data-selection-key="action:${workspaceAction}" type="button" aria-label="${workspace ? 'Change workspace' : 'Choose or create a workspace'}"
-          title="${escape(workspaceLabel)} — ${workspace ? 'change workspace' : 'choose or create a workspace'}">
-          <span>${escape(workspaceLabel)}</span>${icon('next', { size: 14 })}</button></div>
-      ${next ? `<div class="next-step"><span class="next-heading">Next step</span>
-        <button class="next-action" type="button" data-action="${escape(next.actionId)}"
-          data-selection-key="action:${escape(next.actionId)}"><span>${escape(next.label)}</span>${icon('next', { size: 14 })}</button>
-        <span class="next-description">${escape(next.description)}</span></div>` : ''}
-      ${this.freshness ? `<div class="freshness" role="status">${icon('wait', { size: 14 })}<span>${escape(this.freshness)}</span></div>` : ''}
-      <main>${sections}</main>
-      <div id="sf-help" class="help-popover" role="tooltip" hidden></div>
-      <div hidden>${Object.entries(LINK_HELP).map(([id, entry]) => `<span id="sf-help-text-${escape(id)}">${escape(entry.summary)}</span>`).join('')}</div>
-      <script nonce="${token}">
-        const vscode=acquireVsCodeApi(); const prior=vscode.getState()||{};
-        const markLastOpened=(target)=>{
-          const selected=target?.closest?.('[data-selection-key]'); if(!selected) return;
-          const key=selected.dataset.selectionKey;
-          for(const item of document.querySelectorAll('[data-selection-key]')) item.classList.toggle('last-opened',item.dataset.selectionKey===key);
-          const state=vscode.getState()||{}; state.__lastOpened=key; vscode.setState(state);
-        };
-        if(typeof prior.__lastOpened==='string') for(const item of document.querySelectorAll('[data-selection-key]')) item.classList.toggle('last-opened',item.dataset.selectionKey===prior.__lastOpened);
-        for(const section of document.querySelectorAll('[data-section]')){
-          if(Object.prototype.hasOwnProperty.call(prior,section.dataset.section)) section.open=Boolean(prior[section.dataset.section]);
-          section.addEventListener('toggle',()=>{const state=vscode.getState()||{};state[section.dataset.section]=section.open;vscode.setState(state);});
-        }
-        // Nodes inside a section, on the same terms. Every node already carried data-node-state and
-        // nothing read it, so expanding Capabilities lasted until the next redraw — and the sidebar
-        // redraws on every change under singularity/, which is often. Only nodes the reader has
-        // actually toggled are stored, so this cannot grow without them doing something.
-        const nodeKeys=new Set();
-        for(const node of document.querySelectorAll('[data-node-state]')){
-          const key='node:'+node.dataset.nodeState;
-          nodeKeys.add(key);
-          if(Object.prototype.hasOwnProperty.call(prior,key)) node.open=Boolean(prior[key]);
-          node.addEventListener('toggle',(event)=>{
-            // details/toggle does not bubble in every engine, but a nested one that did would
-            // otherwise record its ancestor's key against its own state.
-            if(event.target!==node) return;
-            const state=vscode.getState()||{};
-            state[key]=node.open;
-            // Drop keys for nodes that no longer exist, so a long session does not accumulate the
-            // state of every Story ever expanded.
-            for(const stale of Object.keys(state)) if(stale.startsWith('node:')&&!nodeKeys.has(stale)) delete state[stale];
-            vscode.setState(state);
-          });
-        }
-        // The whole document is replaced on every refresh, and a refresh happens several times per
-        // change under singularity/. Without this, reading the tree while anything was publishing
-        // threw the reader back to the top repeatedly.
-        const main=document.querySelector('main');
-        if(main){
-          if(typeof prior.__scroll==='number') main.scrollTop=prior.__scroll;
-          let pending=null;
-          main.addEventListener('scroll',()=>{
-            if(pending) return;
-            pending=setTimeout(()=>{pending=null;const state=vscode.getState()||{};state.__scroll=main.scrollTop;vscode.setState(state);},120);
-          });
-        }
-        document.addEventListener('click',(event)=>{
-          const removeFavorite=event.target.closest('[data-remove-favorite]'); if(removeFavorite){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'favorite-remove',action:removeFavorite.dataset.removeFavorite});return;}
-          const action=event.target.closest('[data-action]'); if(action){event.preventDefault();event.stopPropagation();markLastOpened(action);vscode.postMessage({type:'action',action:action.dataset.action});return;}
-          const logsHeading=event.target.closest('details[data-section="logs"]>summary'); if(logsHeading&&!logsHeading.parentElement.open){vscode.postMessage({type:'action',action:'logs-refresh'});}
-          const workspaceAction=event.target.closest('[data-workspace-action]'); if(workspaceAction){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'workspace',action:workspaceAction.dataset.workspaceAction,key:workspaceAction.dataset.workspaceKey});return;}
-          const openNode=event.target.closest('[data-open-node]'); if(openNode){event.preventDefault();event.stopPropagation();markLastOpened(openNode.closest('.node-row'));vscode.postMessage({type:'node',key:openNode.dataset.openNode});return;}
-          const node=event.target.closest('[data-node]'); if(node&&!event.target.closest('summary')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}
-          else if(node&&node.closest('.leaf')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}
-        });
-        document.addEventListener('keydown',(event)=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-node]')){event.preventDefault();markLastOpened(event.target);vscode.postMessage({type:'node',key:event.target.dataset.node});}});
-${HELP_SCRIPT}
-      </script></body></html>`;
+      <style nonce="${token}">${SIDEBAR_STYLE}</style></head><body>${body}
+      <script nonce="${token}">${SIDEBAR_SCRIPT}</script></body></html>`;
     this.onRender();
-  }
-
-  /** Help for every menu and action, keyed as the page looks it up: `section:<id>` or `link:<id>`. */
-  private helpCatalogue(): Record<string, { title: string; summary: string; cli?: string; topic: string }> {
-    const labels = new Map<string, string>(FAVORITE_MENUS.map((menu) => [menu.id, menu.label]));
-    for (const meta of Object.values(SECTION_META)) {
-      for (const action of [...meta.actions, ...(meta.links ?? []), ...(meta.more ?? [])]) labels.set(action.id, action.label);
-      labels.set(meta.empty.action, labels.get(meta.empty.action) ?? meta.empty.actionLabel);
-    }
-    labels.set('workspace-switch', 'Working in');
-    labels.set('persona-manage', 'Menu persona');
-    const catalogue: Record<string, { title: string; summary: string; cli?: string; topic: string }> = {};
-    for (const [section, entry] of Object.entries(SECTION_HELP)) {
-      catalogue[`section:${section}`] = { title: SECTION_META[section as SidebarSection]?.label ?? section, ...entry };
-    }
-    for (const [id, entry] of Object.entries(LINK_HELP)) catalogue[`link:${id}`] = { title: labels.get(id) ?? id, ...entry };
-    return catalogue;
   }
 
   dispose(): void {

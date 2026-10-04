@@ -9,6 +9,9 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
+import { workspaceStoriesHtml, STORY_FILTER_SCRIPT } from './workspace-stories-page.ts';
+
+export type InboxMode = 'inbox' | 'stories' | 'reviews';
 
 const STATUS_CLASS: Record<string, string> = {
   approved: 'ok', awaiting_approval: 'wait', published: 'wait', rejected: 'bad', stale: 'bad'
@@ -141,6 +144,20 @@ const SCRIPT = `
     else if (target.dataset.openApproval) vscode.postMessage({ type: 'open-approval', id: target.dataset.openApproval });
     else if (target.dataset.decide) vscode.postMessage({ type: 'decide', id: target.dataset.decide });
   });
+  document.addEventListener('click',event=>{
+    const target=event.target.closest('[data-review-route]');
+    if(target)vscode.postMessage({type:'review-route',route:target.dataset.reviewRoute});
+  });
+  const reviewFilter=document.getElementById('review-filter');
+  if(reviewFilter) {
+    reviewFilter.value=vscode.getState()?.reviewFilter||'all';
+    const update=()=>{
+      for(const group of document.querySelectorAll('[data-review-group]'))group.hidden=reviewFilter.value!=='all'&&group.dataset.reviewGroup!==reviewFilter.value;
+      vscode.setState({...vscode.getState(),reviewFilter:reviewFilter.value});
+    };
+    reviewFilter.addEventListener('change',update);update();
+  }
+  ${STORY_FILTER_SCRIPT}
 `;
 
 export type InboxMessage =
@@ -153,13 +170,14 @@ export type InboxMessage =
   | { type: 'decide'; workId: string };
 
 export class InboxPanel {
-  private static current: InboxPanel | null = null;
+  private static current = new Map<InboxMode, InboxPanel>();
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
   private readonly storyCatalog: () => readonly WorkspaceStoryCatalogRow[];
   private readonly repositoryPath: () => string | null;
   private readonly catalogIssue: () => string | null;
   private readonly repositoryBinding: () => InboxRepositoryBinding | null;
+  private readonly mode: InboxMode;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
@@ -173,9 +191,11 @@ export class InboxPanel {
     storyCatalog: () => readonly WorkspaceStoryCatalogRow[],
     repositoryPath: () => string | null,
     catalogIssue: () => string | null,
-    repositoryBinding: () => InboxRepositoryBinding | null
+    repositoryBinding: () => InboxRepositoryBinding | null,
+    mode: InboxMode = 'inbox'
   ) {
     this.panel = panel;
+    this.mode = mode;
     this.store = store;
     this.storyCatalog = storyCatalog;
     this.repositoryPath = repositoryPath;
@@ -199,6 +219,14 @@ export class InboxPanel {
       return id ? buildApprovals(store.current.snapshot).pending.find((item) => item.id === id) ?? null : null;
     };
     const router = registerMessageRouter('singularityFlow.inbox', {
+      'review-route': (message) => {
+        const commands: Record<string, string> = {
+          proposals: 'singularityFlow.reviewCapabilityProposals', visual: 'singularityFlow.openVisualAssurance',
+          approvals: 'singularityFlow.openApprovals'
+        };
+        const route = stringField(message, 'route');
+        if (route && commands[route]) void navigateTo(commands[route]!);
+      },
       'refresh-stories': () => {
         if (this.refreshingStories) return;
         this.refreshingStories = true;
@@ -256,27 +284,32 @@ export class InboxPanel {
     storyCatalog: () => readonly WorkspaceStoryCatalogRow[] = () => [],
     repositoryPath: () => string | null = () => null,
     catalogIssue: () => string | null = () => null,
-    repositoryBinding: () => InboxRepositoryBinding | null = () => null
+    repositoryBinding: () => InboxRepositoryBinding | null = () => null,
+    mode: InboxMode = 'inbox'
   ): InboxPanel {
-    if (InboxPanel.current) {
-      InboxPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      return InboxPanel.current;
+    const existing = InboxPanel.current.get(mode);
+    if (existing) {
+      existing.panel.reveal(vscode.ViewColumn.Active);
+      return existing;
     }
-    const panel = vscode.window.createWebviewPanel('singularityFlow.inboxPanel', 'Inbox', vscode.ViewColumn.Active, {
+    const title = mode === 'stories' ? 'Stories' : mode === 'reviews' ? 'Reviews' : 'Inbox';
+    const viewType = mode === 'stories' ? 'singularityFlow.workspaceStories' : mode === 'reviews' ? 'singularityFlow.reviews' : 'singularityFlow.inboxPanel';
+    const panel = vscode.window.createWebviewPanel(viewType, title, vscode.ViewColumn.Active, {
       enableScripts: true, retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
     });
-    InboxPanel.current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue, repositoryBinding);
-    return InboxPanel.current;
+    const current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue, repositoryBinding, mode);
+    InboxPanel.current.set(mode, current);
+    return current;
   }
 
   static refreshCurrent(): void {
-    const current = InboxPanel.current;
-    if (!current) return;
     // This method is called after catalog discovery, including automatic runs. A newly confirmed
     // complete catalog clears an older explicit-refresh error even if the user did not click Retry.
-    if (!current.catalogIssue()) current.refreshError = null;
-    current.render();
+    for (const current of InboxPanel.current.values()) {
+      if (!current.catalogIssue()) current.refreshError = null;
+      current.render();
+    }
   }
 
   private currentInbox(): Inbox {
@@ -285,17 +318,31 @@ export class InboxPanel {
 
   private render(): void {
     const token = nonce();
-    this.panel.webview.html = page('Inbox', inboxHtml(this.currentInbox(), {
+    const state = this.store.current;
+    const refresh = {
       refreshing: this.refreshingStories,
       error: this.refreshError ?? this.catalogIssue()
-    }),
+    };
+    const inbox = this.currentInbox();
+    const title = this.mode === 'stories' ? 'Stories' : this.mode === 'reviews' ? 'Reviews' : 'Inbox';
+    const warning = state.error ? `<p role="alert" class="warning-text">${escape(state.error.message)}</p>`
+      : state.stale ? '<p role="status" class="warning-text">Showing last known state. Refresh before making a decision.</p>'
+      : !state.snapshot ? '<p role="status">Reading workspace state…</p>' : '';
+    const body = this.mode === 'stories' ? workspaceStoriesHtml(inbox, refreshStoriesControl(refresh))
+      : this.mode === 'reviews' ? `<header><h1>${icon('approval')}Reviews</h1><p class="meta">Decisions and evidence. No action is approved simply by opening this screen.</p></header>
+        <label>Review category<select id="review-filter"><option value="all">All categories</option><option value="phases">Phase approvals &amp; workflow decisions</option><option value="proposals">Configuration &amp; capability changes</option><option value="visual">Visual evidence</option></select></label>
+        <section data-review-group="phases"><h2>Phase approvals &amp; decisions</h2>${state.snapshot && !state.error && !state.stale && (!state.snapshot.included || state.snapshot.included.includes('lifecycle')) ? decisionCards(inbox) : '<p>Current approval state is not confirmed.</p>'}<button class="secondary" data-review-route="approvals">Open all phase reviews</button></section>
+        <section data-review-group="proposals"><h2>Configuration &amp; capability changes</h2><p class="muted">Open the proposal queue to check its current state. Proposals are not counted as pending until checked.</p><button class="secondary" data-review-route="proposals">Review proposals</button></section>
+        <section data-review-group="visual"><h2>Visual evidence</h2><p class="muted">Inspect screenshots and comparison evidence for the current work.</p><button class="secondary" data-review-route="visual">Review visual evidence</button></section>`
+      : inboxHtml(inbox, refresh);
+    this.panel.webview.html = page(title, warning + body,
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (InboxPanel.current === this) InboxPanel.current = null;
+    if (InboxPanel.current.get(this.mode) === this) InboxPanel.current.delete(this.mode);
     this.subscription.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

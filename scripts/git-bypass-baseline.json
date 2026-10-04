@@ -304,6 +304,14 @@
       },
       "digest": "67f52bb7ffc08992e07c954646d2379f3b9942680376658ebf9b039fe8fabad1"
     },
+    "scripts/verify-sidebar-installed.mjs": {
+      "counts": {
+        "command-run": 8,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "4c5c55560a61b05713ce1d8cd04a6d67fa213f6a6a45e85ab95299df03dc8058"
+    },
     "scripts/vscode-bundle-budget.mjs": {
       "counts": {
         "process-import": 1,

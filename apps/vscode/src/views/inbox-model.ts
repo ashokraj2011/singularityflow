@@ -75,6 +75,8 @@ export interface InboxStory {
   materialized: boolean;
   attachable: boolean;
   branch: string | null;
+  /** Only populated when the exact Story's workflow phases are present in this snapshot. */
+  progress?: string;
 }
 
 export interface Inbox {
@@ -187,7 +189,7 @@ function phaseGroups(
     }));
 }
 
-const TERMINAL_STORY_STATUSES = new Set(['closed', 'cancelled', 'invalid']);
+const TERMINAL_STORY_STATUSES = new Set(['closed', 'complete', 'completed', 'merged', 'cancelled', 'invalid']);
 
 function storiesOf(
   snapshot: RepositorySnapshot | null,
@@ -248,6 +250,11 @@ function storiesOf(
       attachable: Boolean(row.repositoryPath || row.repositoryUrl),
       branch: row.branch
     });
+  }
+  const currentStory = [...byRepositoryAndId.values()].find(story => story.current);
+  if (currentStory && snapshot?.workflow?.workItem.id === currentStory.workId) {
+    const phases = Object.values(snapshot.workflow.phases ?? {});
+    if (phases.length) currentStory.progress = `${phases.filter(phase => phase.status === 'approved' || phase.status === 'complete').length} / ${phases.length} phases completed`;
   }
   return [...byRepositoryAndId.values()].sort((left, right) => Number(left.terminal) - Number(right.terminal)
     || Number(right.current) - Number(left.current)

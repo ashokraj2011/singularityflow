@@ -654,6 +654,10 @@ export function workspacesHtml(
       : 'No workspaces yet.'}</p>`}
     <p><button class="secondary" data-create="new">Create a workspace</button>
       <button class="secondary" data-adopt="existing">Use an existing clone</button></p>
+    <details><summary>Set up capabilities &amp; teams</summary><p>
+      <button class="secondary" data-setup-route="capability">Map a capability</button>
+      <button class="secondary" data-setup-route="team">Onboard a team</button>
+      <button class="secondary" data-setup-route="guided">Guided setup</button></p></details>
   </section>
 
   <section>${row
@@ -670,6 +674,10 @@ export function workspacesHtml(
 
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
+  document.addEventListener('click',event=>{
+    const target=event.target.closest('[data-setup-route]');
+    if(target)vscode.postMessage({type:'setup-route',route:target.dataset.setupRoute});
+  });
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-fos-action],[data-repository-refresh],[data-repository-refresh-url],[data-help-topic],[data-copy-command],[data-copy-clear]');
     if (!target) return;

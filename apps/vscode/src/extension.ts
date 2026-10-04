@@ -1253,6 +1253,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (id === 'singularityFlow.startWork' && await prepareDeferredWorkspaceForWork()) return;
       const handler = handlers.get(id);
       if (handler) return handler(...args);
+      // Capability/setup reviews are machine-wide and must remain reachable before a workspace
+      // exists. Phase decisions still require the repository-bound Reviews screen above.
+      if (id === 'singularityFlow.openReviews') {
+        return vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
+      }
       void vscode.window.showWarningMessage(
         `Singularity Flow: ${unavailableReason}`,
         'Map a capability', 'Find a workspace'

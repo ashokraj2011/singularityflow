@@ -1166,6 +1166,10 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /default-src 'none'/);
   assert.doesNotMatch(navigation.webview.html, /unsafe-inline|unsafe-eval/);
   assert.match(navigation.webview.html, /prefers-reduced-motion/);
+  await navigation.post({ type: 'action', action: 'reviews' });
+  await until(() => registered.executedCommands.some(entry => entry.id === 'singularityFlow.reviewCapabilityProposals'));
+  assert.equal(registered.warnings.some(message => /no.*workspace/i.test(message)), false,
+    'rootless setup proposals remain reviewable through the primary Reviews destination');
 });
 
 test('developers can choose, launch, unpin, and retain favorite menus', async (t) => {

@@ -36,6 +36,10 @@ exports.run = async () => {
     results.push({ command, status: 'passed' });
   }
   await vscode.commands.executeCommand('singularityFlow.openReviews');
+  const focusDeadline = Date.now() + 20_000;
+  while (!vscode.window.tabGroups.activeTabGroup.activeTab?.input?.viewType?.endsWith('singularityFlow.reviews')
+    && Date.now() < focusDeadline) await new Promise(resolve => setTimeout(resolve, 50));
+  assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab?.input?.viewType?.endsWith('singularityFlow.reviews'));
   const retainedTab = vscode.window.tabGroups.activeTabGroup.activeTab;
   await vscode.commands.executeCommand('singularityFlow.myWork', { reveal: false });
   assert.equal(vscode.window.tabGroups.activeTabGroup.activeTab, retainedTab,

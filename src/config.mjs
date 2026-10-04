@@ -1334,6 +1334,13 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     }
     if (pricing.input == null && pricing.output == null && pricing.cachedInput == null) throw new SingularityFlowError(`Token pricing for '${model}' must define input, output, or cachedInput.`);
   }
+  // Premium-request multipliers are GitHub's per-model rates. They change, so none are bundled.
+  const multipliers = definition.tokens?.premiumMultipliers;
+  if (multipliers != null && (typeof multipliers !== 'object' || Array.isArray(multipliers))) throw new SingularityFlowError('tokens.premiumMultipliers must map model names to numbers.');
+  for (const [model, multiplier] of Object.entries(multipliers ?? {})) {
+    if (!model.trim()) throw new SingularityFlowError('tokens.premiumMultipliers model names must not be empty.');
+    if (!Number.isFinite(multiplier) || multiplier < 0) throw new SingularityFlowError(`tokens.premiumMultipliers.${model} must be a non-negative number.`);
+  }
   for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
   if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
   assertDocumentStoragePolicy(definition.documents?.storage);

@@ -182,6 +182,8 @@ export const STYLE = `
   .duration-track { fill: var(--vscode-progressBar-background, rgba(128,128,128,.18)); opacity: .35; }
   .duration-active { fill: var(--sf-accent); }
   .duration-waiting { fill: var(--sf-wait); }
+  .prompt-over { fill: var(--sf-bad); }
+  .prompt-budget { stroke: var(--sf-bad); stroke-width: 2; stroke-dasharray: 3 2; }
   .analytics-empty { margin-top: 1rem; border: 1px dashed var(--sf-border-color); border-radius: var(--sf-radius); padding: .8rem 1rem; }
   .capability-dashboard { margin-top: 1rem; padding: 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: linear-gradient(135deg, var(--sf-accent-quiet), transparent 58%); }
   .capability-dashboard h3 { font-size: 1.1rem; margin: .05rem 0; }

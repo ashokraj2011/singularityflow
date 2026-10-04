@@ -175,8 +175,12 @@ workflow report:
 - wall-clock elapsed, active phase time, and approval waiting time;
 - the phase with the largest approval-latency bottleneck;
 - generations, rework cycles, rejections, self-approvals, and sequence overrides;
-- exact or partial token usage by phase and provider/model; and
-- provider cost or configured model pricing, with incomplete coverage called out.
+- exact or partial token usage by phase and provider/model;
+- provider cost or configured model pricing, with incomplete coverage called out;
+- Copilot activity by phase, for when tokens are unavailable: requests, turns, model
+  and tool calls, estimated premium requests, quota and model-substitution events,
+  and the governed prompt's size against its budget; and
+- how often a later reviewer sent work back to an earlier phase.
 
 Missing provider telemetry and missing pricing are shown as **Unavailable**, never
 as a misleading zero. Durations include nights and weekends and are not productivity

@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 7
+version: 8
 aliases:
   - tokens
   - cost
@@ -37,6 +37,32 @@ Use this topic when the current goal matches **telemetry and cost**. Start in a 
 5. At a lifecycle boundary, run `sflow telemetry reconcile [PHASE]` when automatic reconciliation reports a pending generation.
 6. Run `sflow context xray [WORK-ID]` to inspect the current phase, or `sflow tokens report [WORK-ID]` for whole-Story totals. Use `sflow tokens report --today` for a repository-wide, content-free local-day aggregate that excludes prompts, paths, Story IDs, identities, packet IDs, and model names. Add `--phase PHASE` to narrow a Story projection and `--json` to retain every metric envelope. Use `sflow context doctor` to inspect the observe/assist/enforce policy and selected budget profile.
 7. For a pre-registered IMP study, run `sflow tokens compare --study STUDY-ID`. A token reduction with a regressed quality floor is `cheaper-but-worse`, never an improvement.
+
+## Copilot activity when tokens are unavailable
+
+Many Copilot plans leave token counts off their spans. For SFlow-owned launches, each generation's sanitized telemetry record still counts:
+
+- **requests**: the prompts sent to Copilot, from its request (`invoke_agent`) spans;
+- **turns**: the model round trips of each request, as Copilot reports them or, where it does not, the model calls under that request (marked as derived);
+- **model calls and tool calls**, and how many of them failed;
+- **quota and model events**: Copilot answering with a different model than the one requested, usually because the premium allowance ran out, and calls refused as rate limited or over quota.
+
+These are counts and model names only. No prompt, response, tool argument, tool result, error message or conversation identifier is kept.
+
+The record also stores the size of the governed prompt SFlow composed for the generation: exact bytes from the committed prompt snapshot, tokens estimated as bytes ÷ 4, and the prompt budget. Copilot adds its own instructions, tool definitions and chat history, which no client can see, so the size is a floor on what the model read.
+
+`sflow report` and VS Code's Lifecycle Analytics chart these per phase, with generations and how often a later reviewer sent the work back. GitHub bills one premium request per prompt, times the serving model's multiplier, and does not bill the tool calls an agent makes on its own. Reports estimate premium requests from optional multipliers:
+
+```yaml
+tokens:
+  premiumMultipliers:
+    model-alpha-1.5: 1
+    model-alpha-mini: 0
+```
+
+A name also matches dated builds of that model: `model-alpha-1.5` matches `model-alpha-1-5-20250929`, but `model-alpha` does not match `model-alpha-mini`. No multipliers are bundled, because GitHub changes them. A model without one makes the estimate partial or unavailable, and GitHub's billing stays authoritative.
+
+Native IDE chat exports no spans to SFlow, so its phases show generations and prompt size but no requests, turns or quota events.
 
 ## State and safety
 

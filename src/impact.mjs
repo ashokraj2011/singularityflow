@@ -732,7 +732,7 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
   if (!plan.classification.confirmed) throw new SingularityFlowError('Impact receipt requires confirmed complexity and risk bands.');
   const study = workflow.resolution.impact.studies.find((item) => item.id === plan.study.id);
   if (!study) throw new SingularityFlowError(`Pinned impact study '${plan.study.id}' is unavailable.`);
-  const report = deriveReport(workflow, { pricing: config.tokens?.pricing ?? null, now: finalization.finalizedAt });
+  const report = deriveReport(workflow, { pricing: config.tokens?.pricing ?? null, premiumMultipliers: config.tokens?.premiumMultipliers ?? null, now: finalization.finalizedAt });
   const native = nativeMetricRecords(workflow, report, finalization);
   const evidenceDirectory = path.join(measurementRoot(root, config, workflow), 'evidence');
   await mkdir(evidenceDirectory, { recursive: true });

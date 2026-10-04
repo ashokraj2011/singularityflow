@@ -483,11 +483,97 @@ export interface StoryModelUsage {
   costStatus: string;
 }
 
+/** A count summed over a phase's model-assisted generations; `partial` when some did not report it. */
+export interface CopilotCount {
+  value: number | null;
+  status: 'none' | 'unavailable' | 'partial' | 'observed' | (string & {});
+}
+
+export interface CopilotPremiumEstimate {
+  value: number | null;
+  status: 'none' | 'unavailable' | 'partial' | 'estimated' | (string & {});
+  missingModels: string[];
+}
+
+/** A quota, model-substitution or failure event counted from Copilot's spans. */
+export interface CopilotEvent {
+  phase?: string;
+  generation: number;
+  kind: 'model-substituted' | 'quota-exceeded' | 'rate-limited' | 'failed' | (string & {});
+  operation: string;
+  requestedModel: string | null;
+  resolvedModel: string | null;
+  errorType: string | null;
+  count: number;
+  firstAt: string | null;
+  lastAt: string | null;
+}
+
+/** The governed prompt sflow composed for a phase's latest generation. Tokens are bytes / 4. */
+export interface CopilotPromptSize {
+  generation: number;
+  bytes: number;
+  estimatedTokens: number;
+  maximumBytes: number | null;
+  maximumEstimatedTokens: number | null;
+  budgetMode: string | null;
+  originalBytes: number | null;
+  omittedSections: number;
+  overBudget: boolean;
+  largestBytes: number;
+  limitTokens: number | null;
+  limitShare: number | null;
+}
+
+export interface StoryPhaseCopilot {
+  status: 'none' | 'unavailable' | 'partial' | 'observed' | (string & {});
+  generations: number;
+  capturedGenerations: number;
+  requests: CopilotCount;
+  turns: CopilotCount;
+  /** True when some turns were counted from model calls rather than reported by Copilot. */
+  turnsDerived: boolean;
+  modelCalls: CopilotCount;
+  toolCalls: CopilotCount;
+  failedRequests: CopilotCount;
+  failedModelCalls: CopilotCount;
+  failedToolCalls: CopilotCount;
+  premiumRequests: CopilotPremiumEstimate;
+  events: CopilotEvent[];
+  /** Event occurrences: a line listing two substituted calls counts two. */
+  eventCount: number;
+  omittedEvents: number;
+  prompt: CopilotPromptSize | null;
+}
+
+export interface StoryCopilotSummary {
+  status: string;
+  requests: CopilotCount;
+  turns: CopilotCount;
+  /** True when some turns were counted from model calls rather than reported by Copilot. */
+  turnsDerived: boolean;
+  modelCalls: CopilotCount;
+  toolCalls: CopilotCount;
+  failedRequests: CopilotCount;
+  failedModelCalls: CopilotCount;
+  failedToolCalls: CopilotCount;
+  premiumRequests: CopilotPremiumEstimate;
+  premiumMultipliersConfigured: boolean;
+  events: CopilotEvent[];
+  /** Event occurrences: a line listing two substituted calls counts two. */
+  eventCount: number;
+  omittedEvents: number;
+  largestPrompt: { phase: string; bytes: number; estimatedTokens: number } | null;
+  promptsOverBudget: string[];
+}
+
 export interface StoryPhaseReport {
   id: string;
   label: string;
   status: PhaseStatus;
   generations: number;
+  /** Times a later phase's reviewer sent the work back to this phase. Absent from older CLIs. */
+  sentBack?: number;
   elapsedMs: number | null;
   activeMs: number | null;
   waitingMs: number | null;
@@ -504,6 +590,8 @@ export interface StoryPhaseReport {
   agents: string[];
   cost: number | null;
   costStatus: string;
+  /** Copilot requests, turns, calls, premium estimate and prompt size. Absent from older CLIs. */
+  copilot?: StoryPhaseCopilot;
 }
 
 /** The deterministic lifecycle report produced by `deriveReport`; never recalculated in VS Code. */
@@ -541,6 +629,8 @@ export interface StoryWorkflowReport {
     missingModels: string[];
   };
   bottleneck: { phase: string; waitingMs: number; share: number | null } | null;
+  sentBack?: number;
+  copilot?: StoryCopilotSummary;
   phases: StoryPhaseReport[];
 }
 

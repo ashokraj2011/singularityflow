@@ -243,6 +243,12 @@
             },
             "additionalProperties": false
           }
+        },
+        "premiumMultipliers": {
+          "type": "object",
+          "description": "Optional GitHub Copilot premium-request multipliers keyed by model name; a name also matches dated builds of that model. Reports estimate premium requests as requests times the serving model's multiplier. None are assumed by default.",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "type": "number", "minimum": 0 }
         }
       },
       "additionalProperties": false

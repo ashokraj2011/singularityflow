@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   beginTelemetryCapture, captureTelemetryCursorsForWorkItem, collectCopilotUsage,
-  groupedUsage, parseCopilotTelemetry, recordPhaseTelemetry,
-  restoreTelemetryCursorsForWorkItem
+  groupedUsage, parseCopilotTelemetry, phaseTelemetrySummary, recordPhaseTelemetry,
+  restoreTelemetryCursorsForWorkItem, verifyPhaseTelemetry
 } from '../src/telemetry.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
 
 async function telemetryRepository() {
@@ -171,4 +172,110 @@ test('one Story cursor rollback preserves cursor updates for other Stories', asy
   ));
   assert.equal(record.cursors['WORK-A:planning:1'], undefined);
   assert.equal(record.cursors['WORK-B:planning:1'].workId, 'WORK-B');
+});
+
+test('request, model-call and tool spans become content-free activity, including OTLP status and span times', () => {
+  const lines = [
+    { traceId: 'trace-1', name: 'invoke_agent copilot', startTime: [1790000000, 0], endTime: [1790000060, 500_000_000],
+      attributes: { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.request.model': 'model-alpha-1.5', 'copilot_chat.turn_count': 2,
+        'gen_ai.conversation.id': 'conversation-must-not-leak', 'gen_ai.input.messages': 'prompt-must-not-leak' } },
+    { traceId: 'trace-1', name: 'chat model-alpha-1.5', endTime: '2026-10-01T10:00:01Z',
+      attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-alpha-1.5', 'gen_ai.response.model': 'gpt-4.1',
+        'copilot_chat.request.max_prompt_tokens': 64000 } },
+    { traceId: 'trace-1', name: 'chat model-alpha-1.5', status: { code: 2, message: 'quota message must not leak' },
+      attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-alpha-1.5' } },
+    { traceId: 'trace-1', name: 'execute_tool run_in_terminal',
+      attributes: { 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.call.arguments': 'arguments-must-not-leak',
+        'error.type': 'command failed: cat secret-must-not-leak' } },
+    { name: 'create_agent copilot', attributes: { 'gen_ai.operation.name': 'create_agent' } }
+  ];
+  const parsed = parseCopilotTelemetry(`${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+  assert.deepEqual(parsed.activities.map(({ operation, failed, errorType }) => ({ operation, failed, errorType })), [
+    { operation: 'invoke_agent', failed: false, errorType: null },
+    { operation: 'chat', failed: false, errorType: null },
+    { operation: 'chat', failed: true, errorType: 'error' },
+    { operation: 'execute_tool', failed: true, errorType: 'error' }
+  ], 'other operations are not activity, and a free-text error class is reduced to "error"');
+  assert.equal(parsed.activities[0].at, new Date(1_790_000_060_500).toISOString(), 'OpenTelemetry JS [seconds, nanoseconds] times are read');
+  assert.equal(parsed.activities[0].turns, 2);
+  assert.equal(parsed.activities[1].resolvedModel, 'gpt-4.1');
+  assert.equal(parsed.activities[1].maxPromptTokens, 64000);
+  assert.equal(parsed.activities[2].resolvedModel, null, 'a span name carries the requested model, never the answer');
+  assert.equal(parsed.spans.length, 2, 'usage still comes from chat spans only');
+  assert.doesNotMatch(JSON.stringify(parsed), /must-not-leak/);
+});
+
+async function telemetryItem(prefix) {
+  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+  const itemDirectory = path.join(root, 'singularity', 'work-items', 'WRK-9');
+  await mkdir(path.join(itemDirectory, 'context', 'prompts'), { recursive: true });
+  return { root, itemDirectory, itemRelative: 'singularity/work-items/WRK-9' };
+}
+
+// The shape a composition writes: the budget's limits sit under `policy`.
+async function composedPrompt(itemDirectory, { phase = 'design', generation = 2, bytes = 4100, budget = {
+  policy: { mode: 'assist', profile: 'standard', maximumBytes: 4000, maximumEstimatedPromptTokens: 1000 },
+  originalBytes: 9000, finalBytes: 4100, omitted: [{ id: 'a' }, { id: 'b' }]
+} } = {}) {
+  await writeFile(path.join(itemDirectory, 'context', `${phase}-gen${generation}.json`), JSON.stringify({
+    schemaVersion: currentSchemaVersion('prompt-injection'), workId: 'WRK-9', phase, generation, promptBudget: budget
+  }));
+  await writeFile(path.join(itemDirectory, 'context', 'prompts', `${phase}-gen${generation}.md`), 'x'.repeat(bytes));
+}
+
+const capturedActivity = {
+  source: 'copilot-otel', requests: 2, turns: 7, turnsCounted: 2, turnsAssurance: 'provider-reported',
+  modelCalls: 7, toolCalls: 11, failedRequests: 0, failedModelCalls: 1, failedToolCalls: 2,
+  requestsByModel: [{ model: 'model-alpha-1.5', requests: 2 }], promptLimits: [], events: [], omittedEvents: 0
+};
+
+test('a generation\'s telemetry records its activity and the size of the prompt sflow composed for it', async () => {
+  const { root, itemDirectory, itemRelative } = await telemetryItem('sflow-tel-activity-');
+  await composedPrompt(itemDirectory);
+  const workflow = { workItem: { id: 'WRK-9', workType: 'story' } };
+  const phase = { id: 'design', generation: 2 };
+  const result = await recordPhaseTelemetry(root, workflow, phase, [], {
+    source: 'copilot-otel', pending: false, spans: 7, activity: capturedActivity
+  }, { itemDirectory, itemRelative });
+  assert.deepEqual(result.prompt, {
+    source: 'sflow-composition', bytes: 4100, estimatedTokens: 1025,
+    estimation: 'UTF-8 bytes divided by four, rounded up',
+    maximumBytes: 4000, maximumEstimatedTokens: 1000, budgetMode: 'assist', originalBytes: 9000, omittedSections: 2
+  });
+  assert.deepEqual(result.activity, capturedActivity);
+  const record = JSON.parse(await readFile(path.join(root, result.path), 'utf8'));
+  assert.deepEqual(record.activity, capturedActivity);
+  assert.equal(record.prompt.bytes, 4100);
+  const summary = phaseTelemetrySummary(result);
+  assert.deepEqual(summary.activity, capturedActivity);
+  assert.equal(summary.prompt.bytes, 4100);
+
+  // A flat budget summary still states its limits.
+  await composedPrompt(itemDirectory, { generation: 4, bytes: 10, budget: { mode: 'observe', maximumBytes: 72000, maximumEstimatedPromptTokens: 18000, originalBytes: 10, omitted: [] } });
+  const flat = await recordPhaseTelemetry(root, workflow, { id: 'design', generation: 4 }, [], { source: 'copilot-otel', pending: true, spans: 0 }, { itemDirectory, itemRelative });
+  assert.deepEqual([flat.prompt.maximumBytes, flat.prompt.maximumEstimatedTokens, flat.prompt.budgetMode], [72000, 18000, 'observe']);
+
+  const published = { ...phase, telemetry: [summary], usage: [] };
+  assert.deepEqual((await verifyPhaseTelemetry(root, workflow, published, 2)).errors, []);
+  const altered = { ...published, telemetry: [{ ...summary, activity: { ...capturedActivity, requests: 1 } }] };
+  assert.deepEqual((await verifyPhaseTelemetry(root, workflow, altered, 2)).errors,
+    [`telemetry activity differs from workflow state: ${result.path}`]);
+});
+
+test('a generation authored without a model, or composed for another generation, records no prompt size', async () => {
+  const { root, itemDirectory, itemRelative } = await telemetryItem('sflow-tel-noprompt-');
+  await composedPrompt(itemDirectory, { generation: 1 });
+  const workflow = { workItem: { id: 'WRK-9', workType: 'story' } };
+  const manual = await recordPhaseTelemetry(root, workflow, { id: 'design', generation: 1 }, [], {
+    source: 'not-invoked', pending: false, spans: 0
+  }, { itemDirectory, itemRelative });
+  assert.equal(manual.prompt, null, 'nothing was sent to a model');
+  assert.equal(manual.activity, null);
+  const summary = phaseTelemetrySummary(manual);
+  assert.equal('activity' in summary || 'prompt' in summary, false, 'the state summary keeps its old shape');
+
+  const later = await recordPhaseTelemetry(root, workflow, { id: 'design', generation: 3 }, [], {
+    source: 'copilot-otel', pending: true, spans: 0
+  }, { itemDirectory, itemRelative });
+  assert.equal(later.prompt, null, 'generation 1\'s prompt is not generation 3\'s');
 });

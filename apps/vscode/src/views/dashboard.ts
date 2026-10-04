@@ -12,6 +12,7 @@ import {
   buildDashboard, dashboardHealth, humanizeDuration,
   type Check, type Dashboard, type LifecycleAnalytics, type LifecyclePhaseMetric
 } from './dashboard-model.ts';
+import { copilotActivityHtml } from './dashboard-copilot.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import type { IconName } from './webview.ts';
@@ -140,10 +141,13 @@ function analyticsHtml(analytics: LifecycleAnalytics | null): string {
     </div>
   </section>
 
+  ${copilotActivityHtml(analytics)}
+
   <section>
     <h2>${icon('approval')}Governance and rework</h2>
     <div class="summary-grid governance-kpis">
       <div class="summary-card"><strong>${analytics.reworkCycles}</strong><span>Regeneration cycles</span></div>
+      <div class="summary-card"><strong>${analytics.sentBack}</strong><span>Sent back to an earlier phase</span></div>
       <div class="summary-card"><strong>${analytics.rejections}</strong><span>Rejections</span></div>
       <div class="summary-card${analytics.selfApprovals ? ' governance-warning' : ''}"><strong>${analytics.selfApprovals}</strong><span>Self-approvals · not independent review</span></div>
       <div class="summary-card"><strong>${analytics.sequenceOverrides}</strong><span>Confirmed sequence overrides</span></div>

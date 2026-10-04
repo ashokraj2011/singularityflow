@@ -65,7 +65,7 @@ import {
 import {
   publishedArchitectureIntentBinding, resolveArchitectureIntentPublicationBinding
 } from './architecture-intent-service.mjs';
-import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
+import { beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry } from './telemetry.mjs';
 import { retainUnchangedPhases } from './phase-retention.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
@@ -3940,10 +3940,7 @@ export async function publishGeneration(root, config, workflow, {
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
     itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
   });
-  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), {
-    generation: telemetry.generation, path: telemetry.path, sha256: telemetry.sha256, status: telemetry.status,
-    models: telemetry.models, providerCost: telemetry.providerCost
-  }];
+  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), phaseTelemetrySummary(telemetry)];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
   // Generate the downstream projection from the exact generation bytes that this publication
@@ -4074,14 +4071,7 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
     itemDirectory: workDir(root, config, workflow.workItem.id),
     itemRelative: workDirRelative(config, workflow.workItem.id)
   });
-  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== generation), {
-    generation,
-    path: telemetry.path,
-    sha256: telemetry.sha256,
-    status: telemetry.status,
-    models: telemetry.models,
-    providerCost: telemetry.providerCost
-  }];
+  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== generation), phaseTelemetrySummary(telemetry)];
   rebuildUsageAggregates(workflow);
   workflow.history.push({
     at: nowIso(),
@@ -4102,6 +4092,8 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
     models: telemetry.models,
     usage: normalizedUsage,
     providerCost: telemetry.providerCost,
+    activity: telemetry.activity,
+    prompt: telemetry.prompt,
     path: telemetry.path
   };
 }
@@ -7405,14 +7397,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   });
   specification.telemetry = [
     ...(specification.telemetry ?? []).filter((entry) => Number(entry.generation) !== Number(specification.generation)),
-    {
-      generation: amendmentTelemetry.generation,
-      path: amendmentTelemetry.path,
-      sha256: amendmentTelemetry.sha256,
-      status: amendmentTelemetry.status,
-      models: amendmentTelemetry.models,
-      providerCost: amendmentTelemetry.providerCost
-    }
+    phaseTelemetrySummary(amendmentTelemetry)
   ];
 
   // An approved intent amendment creates a new specification generation without travelling

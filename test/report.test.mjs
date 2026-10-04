@@ -199,3 +199,143 @@ test('humanizeDuration chooses seconds, minutes, hours, and days', () => {
   assert.equal(humanizeDuration(3 * 86400000), '3.0d');
   assert.equal(humanizeDuration(null), '—');
 });
+
+function copilotWorkflow() {
+  const activity = (fields) => ({
+    source: 'copilot-otel', requests: 1, turns: null, turnsCounted: 0, turnsAssurance: 'unavailable',
+    modelCalls: null, toolCalls: 0, failedRequests: 0, failedModelCalls: 0, failedToolCalls: 0,
+    requestsByModel: [], promptLimits: [], events: [], omittedEvents: 0, ...fields
+  });
+  const prompt = (bytes, maximumBytes = 65536, fields = {}) => ({
+    source: 'sflow-composition', bytes, estimatedTokens: Math.ceil(bytes / 4),
+    estimation: 'UTF-8 bytes divided by four, rounded up', maximumBytes, maximumEstimatedTokens: maximumBytes / 4,
+    budgetMode: 'observe', originalBytes: bytes, omittedSections: 0, ...fields
+  });
+  const event = (kind, fields) => ({
+    kind, operation: 'chat', requestedModel: 'model-premium-2', resolvedModel: null, errorType: null,
+    count: 1, firstAt: '2026-07-01T12:00:00.000Z', lastAt: '2026-07-01T12:00:00.000Z', ...fields
+  });
+  return {
+    schemaVersion: 2, status: 'in_progress', currentPhase: 'implementation',
+    workItem: { id: 'ENG-7', title: 'Copilot metered', workType: 'feature', branch: 'ENG-7' },
+    phaseOrder: ['requirements', 'design', 'implementation'],
+    phases: {
+      requirements: {
+        id: 'requirements', label: 'Requirements', status: 'approved', startedAt: at(0), approvedAt: at(60), generation: 1,
+        usage: [{ status: 'unavailable', generation: 1, spans: 5, model: 'model-alpha-1.5', provider: 'github' }],
+        telemetry: [{ generation: 1, status: 'unavailable', models: ['model-alpha-1.5'], activity: activity({
+          requests: 2, turns: 5, turnsCounted: 2, turnsAssurance: 'provider-reported', modelCalls: 5, toolCalls: 8, failedToolCalls: 1,
+          requestsByModel: [{ model: 'model-alpha-1.5', requests: 2 }],
+          promptLimits: [{ model: 'model-alpha-1.5', maxPromptTokens: 100000 }]
+        }), prompt: prompt(20480) }],
+        approvals: [], checks: []
+      },
+      design: {
+        id: 'design', label: 'Design', status: 'approved', startedAt: at(60), approvedAt: at(300), generation: 2,
+        // Generation 1 predates activity counting: only its chat-span count is known.
+        usage: [{ status: 'unavailable', generation: 1, spans: 3, model: 'model-premium-2', provider: 'github' }],
+        telemetry: [
+          { generation: 1, status: 'unavailable', models: ['model-premium-2'] },
+          { generation: 2, status: 'unavailable', models: ['model-premium-2'], activity: activity({
+            requests: 1, turns: 4, turnsCounted: 1, turnsAssurance: 'derived-from-model-calls', modelCalls: 4, toolCalls: 2,
+            requestsByModel: [{ model: 'model-premium-2', requests: 1 }],
+            events: [
+              event('model-substituted', { resolvedModel: 'gpt-4.1', count: 2 }),
+              event('rate-limited', { errorType: '429', firstAt: '2026-07-01T12:05:00.000Z', lastAt: '2026-07-01T12:05:00.000Z' })
+            ]
+          }), prompt: prompt(80000) }
+        ],
+        approvals: [], checks: []
+      },
+      implementation: {
+        id: 'implementation', label: 'Implementation', status: 'in_progress', startedAt: at(300), generation: 1,
+        usage: [], telemetry: [{ generation: 1, status: 'not-invoked', models: [] }], approvals: [], checks: []
+      }
+    },
+    usage: { totalTokens: 0, records: 2, exactRecords: 0, unavailableRecords: 2, byPhase: {}, byAgent: {} },
+    sequenceOverrides: [],
+    history: [
+      { at: at(200), actor: 'bob@example.com', agent: 'architect', event: 'phase_rejected', phase: 'implementation', detail: 'CR-001 returned to design: the diagram is missing' }
+    ]
+  };
+}
+
+test('the report counts Copilot requests, turns, calls, premium requests and prompt size per phase without inventing values', () => {
+  const report = deriveReport(copilotWorkflow(), { premiumMultipliers: { 'model-alpha-1.5': 1 }, now: at(360) });
+  const [requirements, design, implementation] = report.phases;
+
+  assert.equal(requirements.copilot.status, 'observed');
+  assert.deepEqual(requirements.copilot.requests, { value: 2, status: 'observed' });
+  assert.deepEqual(requirements.copilot.turns, { value: 5, status: 'observed' });
+  assert.deepEqual(requirements.copilot.toolCalls, { value: 8, status: 'observed' });
+  assert.deepEqual(requirements.copilot.failedToolCalls, { value: 1, status: 'observed' });
+  assert.deepEqual(requirements.copilot.premiumRequests, { value: 2, status: 'estimated', missingModels: [] });
+  assert.equal(requirements.copilot.prompt.bytes, 20480);
+  assert.equal(requirements.copilot.prompt.limitTokens, 100000);
+  assert.equal(requirements.copilot.prompt.limitShare, 5);
+  assert.equal(requirements.copilot.prompt.overBudget, false);
+
+  assert.equal(design.copilot.status, 'partial', 'generation 1 was not captured');
+  assert.deepEqual(design.copilot.requests, { value: 1, status: 'partial' });
+  assert.deepEqual(design.copilot.turns, { value: 4, status: 'partial' });
+  assert.equal(design.copilot.turnsDerived, true);
+  assert.deepEqual(design.copilot.modelCalls, { value: 7, status: 'observed' }, 'chat-span counts fill in for older records');
+  assert.deepEqual(design.copilot.premiumRequests, { value: null, status: 'unavailable', missingModels: ['model-premium-2'] });
+  assert.deepEqual(design.copilot.events.map((entry) => [entry.generation, entry.kind]), [[2, 'model-substituted'], [2, 'rate-limited']]);
+  assert.equal(design.copilot.prompt.overBudget, true);
+  assert.equal(design.sentBack, 1, 'implementation\'s reviewer sent the work back to design');
+
+  assert.equal(implementation.copilot.status, 'none', 'a manual generation sent nothing to Copilot');
+  assert.deepEqual(implementation.copilot.requests, { value: null, status: 'none' });
+  assert.equal(implementation.copilot.prompt, null);
+  assert.equal(implementation.rejections[0].returnedTo, 'design');
+
+  assert.deepEqual(report.copilot.requests, { value: 3, status: 'partial' });
+  assert.deepEqual(report.copilot.premiumRequests, { value: 2, status: 'partial', missingModels: ['model-premium-2'] });
+  assert.equal(report.copilot.premiumMultipliersConfigured, true);
+  assert.deepEqual(report.copilot.events.map((entry) => entry.phase), ['design', 'design']);
+  assert.deepEqual(report.copilot.largestPrompt, { phase: 'design', bytes: 80000, estimatedTokens: 20000 });
+  assert.deepEqual(report.copilot.promptsOverBudget, ['design']);
+  assert.equal(report.sentBack, 1);
+
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /tokens unavailable \(the provider did not report them\)/, 'no exact usage is not zero tokens');
+  assert.match(markdown, /1 rework cycle · 1 send-back · tokens unavailable/);
+  assert.match(markdown, /\| github \| model-alpha-1\.5 \| 1 \| 0 \| 1 \| unavailable \|/);
+  assert.match(markdown, /## Copilot activity by phase/);
+  assert.match(markdown, /\| Design \(`design`\) \| 2 \| 1 \| 1\* \| 4\* \| 7 \| 2\* \| unavailable \| 78\.1 KB \(~20,000 tokens\), over its 64\.0 KB budget \|/);
+  assert.match(markdown, /\| Requirements \(`requirements`\) \| 1 \| 0 \| 2 \| 5 \| 5 \| 8 \(1 failed\) \| ~2 \| 20\.0 KB \(~5,120 tokens\), 5% of the model's prompt limit \|/);
+  assert.match(markdown, /\| Implementation \(`implementation`\) \| 1 \| 0 \| — \| — \| — \| — \| — \| — \|/);
+  assert.match(markdown, /Copilot answered 2 model calls for model-premium-2 with gpt-4\.1/);
+  assert.match(markdown, /design generation 2, from 2026-07-01T12:05:00\.000Z: 1 model call was rate limited \(429\)\./);
+  assert.match(markdown, /3 quota or model events/, 'two substituted calls and one rate-limited call');
+  assert.equal(design.copilot.eventCount, 3);
+  assert.match(markdown, /Premium requests are partial: no `tokens\.premiumMultipliers` entry for model-premium-2/);
+  assert.match(markdown, /GitHub's billing is authoritative/);
+
+  const html = renderHtml(report);
+  assert.match(html, /<h2>Copilot activity by phase<\/h2>/);
+  assert.match(html, /Estimated premium requests/);
+  assert.match(html, /stroke-dasharray="4 3"/, 'the prompt budget is drawn');
+  assert.match(html, /⚠ 3 quota\/model events/);
+  assert.match(html, /no model-assisted generation/);
+  assert.match(html, /unavailable: the provider did not report tokens/, 'tokens Copilot did not report are not drawn as zero');
+  assert.match(html, /of 64\.0 KB budget, over it/);
+  assert.match(html, /<code>singularity-flow copilot<\/code>/);
+  assert.doesNotMatch(html, /<script/);
+});
+
+test('without multipliers premium requests stay unavailable, and a Story with no Copilot data gets no section', () => {
+  const report = deriveReport(copilotWorkflow(), { now: at(360) });
+  assert.deepEqual(report.copilot.premiumRequests, {
+    value: null, status: 'unavailable', missingModels: ['model-alpha-1.5', 'model-premium-2']
+  });
+  assert.equal(report.copilot.premiumMultipliersConfigured, false);
+  assert.match(renderMarkdown(report), /Premium requests are unavailable: no `tokens\.premiumMultipliers` entry/);
+
+  const plain = deriveReport(fixtureWorkflow());
+  assert.equal(plain.copilot.status, 'none');
+  assert.equal(plain.phases[1].rejections[0].returnedTo, null, 'an older rejection detail names no target');
+  assert.doesNotMatch(renderMarkdown(plain), /Copilot activity/);
+  assert.doesNotMatch(renderHtml(plain), /Copilot activity/);
+});

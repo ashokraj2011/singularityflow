@@ -510,6 +510,43 @@ test('publication commits sanitized Copilot telemetry under the work item and re
   assert.equal(flow(root, ['gate']).status, 0);
 });
 
+test('publication counts Copilot requests, turns, tool calls and quota events from spans that carry no tokens', async () => {
+  const root = await repository(); const workId = 'TELEMETRY-ACTIVITY-1';
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const now = Date.now();
+  const time = (offset) => new Date(now - offset).toISOString();
+  // A plan whose spans report no token counts: what the report can still chart.
+  const spans = [
+    { traceId: 'one', name: 'invoke_agent copilot', endTime: time(500), attributes: { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.conversation.id': 'conversation-must-not-leak' } },
+    { traceId: 'one', name: 'chat model-premium-2', endTime: time(900), attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.response.model': 'model-premium-2' } },
+    { traceId: 'one', name: 'chat model-premium-2', endTime: time(800), attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.response.model': 'gpt-4.1' } },
+    { traceId: 'one', name: 'execute_tool read_file', endTime: time(700), attributes: { 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.call.arguments': 'arguments-must-not-leak' } }
+  ];
+  await writeFile(path.join(root, '.git/singularity-flow/copilot-otel.jsonl'), `${spans.map((span) => JSON.stringify(span)).join('\n')}\n`);
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+
+  const published = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const context = published.phases.intake.telemetry[0];
+  assert.equal(context.activity.requests, 1);
+  assert.equal(context.activity.turns, 2, 'the request\'s model calls are its turns when Copilot reports no count');
+  assert.equal(context.activity.toolCalls, 1);
+  assert.deepEqual(context.activity.events.map((event) => [event.kind, event.requestedModel, event.resolvedModel]),
+    [['model-substituted', 'model-premium-2', 'gpt-4.1']]);
+  const telemetryRecord = JSON.parse(await readFile(path.join(root, context.path), 'utf8'));
+  assert.deepEqual(telemetryRecord.activity, context.activity);
+  assert.doesNotMatch(JSON.stringify(telemetryRecord), /must-not-leak|"traceId"/);
+
+  const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout);
+  assert.deepEqual(report.copilot.requests, { value: 1, status: 'observed' });
+  assert.deepEqual(report.copilot.premiumRequests, { value: null, status: 'unavailable', missingModels: ['model-premium-2'] });
+  assert.equal(report.copilot.events[0].phase, 'intake');
+  assert.match(flow(root, ['report', workId]).stdout, /## Copilot activity by phase/);
+  assert.equal(flow(root, ['gate']).status, 0, 'the committed record and workflow state agree');
+});
+
 test('Copilot telemetry published before turn completion is reconciled and committed on submit', async () => {
   const root = await repository(); const workId = 'TELEMETRY-LATE-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });

@@ -10,7 +10,8 @@
  * true. A dashboard that leads with counts trains people to skim past the one line that mattered.
  */
 import type {
-  RepositorySnapshot, InitiativeSnapshot, StoryWorkflowReport, StoryPhaseReport, StoryModelUsage
+  RepositorySnapshot, InitiativeSnapshot, StoryWorkflowReport, StoryPhaseReport, StoryModelUsage,
+  StoryCopilotSummary, CopilotCount, CopilotPremiumEstimate, CopilotPromptSize, CopilotEvent
 } from '../cli/snapshot.ts';
 import { phasesInOrder } from '../cli/snapshot.ts';
 
@@ -72,6 +73,10 @@ export interface LifecycleAnalytics {
   costStatus: string;
   models: StoryModelUsage[];
   bottleneck: { phase: string; waitingMs: number; share: number | null } | null;
+  /** Times reviewers sent work back to an earlier phase. */
+  sentBack: number;
+  /** Copilot activity, premium estimate and prompt size; null when the CLI predates them. */
+  copilot: StoryCopilotSummary | null;
   phases: LifecyclePhaseMetric[];
 }
 
@@ -207,6 +212,8 @@ export function buildLifecycleAnalytics(report: StoryWorkflowReport | null | und
     costStatus: report.costStatus,
     models: report.tokens.byModel,
     bottleneck: report.bottleneck,
+    sentBack: report.sentBack ?? 0,
+    copilot: report.copilot ?? null,
     phases: report.phases.map((phase) => ({
       ...phase,
       elapsedShare: share(phase.elapsedMs),
@@ -214,6 +221,51 @@ export function buildLifecycleAnalytics(report: StoryWorkflowReport | null | und
       waitingShare: share(phase.waitingMs)
     }))
   };
+}
+
+/** A Copilot count as the report states it: a dash when nothing was model-assisted, never a false zero. */
+export function copilotCountLabel(metric: CopilotCount | null | undefined): string {
+  if (!metric || metric.status === 'none') return '—';
+  if (metric.value == null) return 'Unavailable';
+  return `${metric.value.toLocaleString('en-US')}${metric.status === 'partial' ? ' (partial)' : ''}`;
+}
+
+export function premiumLabel(estimate: CopilotPremiumEstimate | null | undefined): string {
+  if (!estimate || estimate.status === 'none') return '—';
+  if (estimate.value == null) return 'Unavailable';
+  const value = Number.isInteger(estimate.value) ? estimate.value.toLocaleString('en-US') : estimate.value.toFixed(2);
+  return `~${value}${estimate.status === 'partial' ? ' (partial)' : ''}`;
+}
+
+export function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function promptSizeLabel(prompt: CopilotPromptSize | null | undefined): string {
+  if (!prompt) return 'No composed prompt';
+  const budget = prompt.maximumBytes != null ? ` of ${sizeLabel(prompt.maximumBytes)} budget` : '';
+  return `${sizeLabel(prompt.bytes)}${budget} · ~${prompt.estimatedTokens.toLocaleString('en-US')} tokens`;
+}
+
+/** What the prompt's size means against its budget and the model's own limit, or null when nothing stands out. */
+export function promptSizeNote(prompt: CopilotPromptSize | null | undefined): string | null {
+  if (!prompt) return null;
+  const notes: string[] = [];
+  if (prompt.overBudget) notes.push('over budget');
+  else if (prompt.omittedSections) notes.push(`${prompt.omittedSections} section${prompt.omittedSections === 1 ? '' : 's'} left out to fit`);
+  if (prompt.limitShare != null) notes.push(`${prompt.limitShare}% of the model's prompt limit`);
+  return notes.length ? notes.join(', ') : null;
+}
+
+export function copilotEventSentence(event: CopilotEvent): string {
+  const where = `${event.phase ?? 'phase'} generation ${event.generation}${event.firstAt ? `, from ${event.firstAt}` : ''}`;
+  const calls = `${event.count} ${event.operation === 'invoke_agent' ? 'request' : 'model call'}${event.count === 1 ? '' : 's'}`;
+  if (event.kind === 'model-substituted') return `${where}: Copilot answered ${calls} for ${event.requestedModel} with ${event.resolvedModel}. The premium allowance may have run out.`;
+  if (event.kind === 'quota-exceeded') return `${where}: ${calls} failed because the allowance was exhausted (${event.errorType}).`;
+  if (event.kind === 'rate-limited') return `${where}: ${calls} ${event.count === 1 ? 'was' : 'were'} rate limited (${event.errorType}).`;
+  return `${where}: ${calls} failed (${event.errorType ?? 'error'}).`;
 }
 
 export function humanizeDuration(milliseconds: number | null | undefined): string {

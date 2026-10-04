@@ -722,7 +722,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       ? acceptedStory.workflow
       : await loadStoryAggregate(root, definition, selectedId);
     progress = progressSnapshot(workflow);
-    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
+    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
     detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');
@@ -1073,7 +1073,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
       ? acceptedStory.workflow
       : await loadStoryAggregate(root, definition, selectedWorkId);
     progress = progressSnapshot(workflow);
-    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
+    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
     detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');

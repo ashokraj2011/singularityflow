@@ -1978,6 +1978,8 @@ singularity-flow report ENG-142 --format html --out workflow-report.html
 
 From Copilot, use `/sf-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, provider/model identity, exact token usage with per-model totals, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
 
+When Copilot leaves token counts off its spans, the report charts what it did instead: requests, turns, model and tool calls, estimated premium requests (from optional `tokens.premiumMultipliers`), quota and model-substitution events, and the size of the governed prompt SFlow composed for each phase, against its budget. Each count is marked observed, partial or unavailable; none is shown as zero when it was not captured.
+
 CLI responsiveness is governed separately from workflow duration. Run `npm run benchmark:dx`
 to measure the pinned reference fixture, or add `--timings` to a command to see dispatch, module
 load, and execution stages. Local POC and release gates run `npm run benchmark:dx:enforce`
@@ -2814,7 +2816,7 @@ evidence workflow.
 | `singularity-flow status [ID]` | Show phase, governed agent, artifacts, human approvals, usage, and warnings. Add `--submission-readiness --json` for the compact read-only lifecycle preflight used before a submission attempt; it does not run the submission gates. |
 | `singularity-flow approvals [ID]` | Show the ordered phase approval chain with governed document names, authority groups, thresholds, and recorded approvers. Use `--json` to include invalidated decision history. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
-| `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
+| `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, Copilot activity, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
 | `singularity-flow guide --first-run [--keep]` | Run a disposable, zero-model, zero-network quick-fix lifecycle and clean it up after success. |
 | `singularity-flow nextsteps [ID]` | Show ordered `NOW`, `THEN`, and `ALTERNATIVE` actions without changing state. |

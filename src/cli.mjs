@@ -3966,7 +3966,7 @@ async function reportCommand(positionals, options) {
   }
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
-  const report = await timer.measure('derive', async () => deriveReport(workflow, { pricing: config.tokens?.pricing ?? null }));
+  const report = await timer.measure('derive', async () => deriveReport(workflow, { pricing: config.tokens?.pricing ?? null, premiumMultipliers: config.tokens?.premiumMultipliers ?? null }));
   let rendered = await timer.measure('render', async () => format === 'json'
     ? `${JSON.stringify(report, null, 2)}\n`
     : format === 'html' ? renderHtml(report) : renderMarkdown(report));
@@ -7207,6 +7207,20 @@ async function phaseCommand(positionals, options) {
       `tokens: ${tokens || unavailable}`,
       `provider cost: ${providerCost == null ? unavailable : `$${providerCost.toFixed(6)}`}`
     ));
+    const activity = telemetry.activity;
+    const prompt = telemetry.prompt;
+    if (activity || prompt) {
+      const events = (activity?.events ?? []).reduce((sum, event) => sum + event.count, 0);
+      console.log(style.fields(
+        ...(activity ? [
+          `Copilot requests: ${activity.requests ?? 'unavailable'}`,
+          `turns: ${activity.turns ?? 'unavailable'}`,
+          `tool calls: ${activity.toolCalls}`,
+          ...(events ? [`quota/model events: ${events}`] : [])
+        ] : []),
+        ...(prompt ? [`governed prompt: ${prompt.bytes.toLocaleString('en-US')} bytes (~${prompt.estimatedTokens.toLocaleString('en-US')} tokens)`] : [])
+      ));
+    }
     console.log(`Telemetry record: ${telemetry.path}`);
     if (telemetry.status === 'pending') console.log('Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.');
   }
@@ -7604,6 +7618,8 @@ async function runSubmitCommand(positionals, options, submitContext) {
   if (reconciliation.updated) {
     console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
     console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
+    const reconciledActivity = copilotActivityLine(reconciliation.activity);
+    if (reconciledActivity) console.log(reconciledActivity);
     workflow = await loadStoryAggregate(root, config, resolvedWorkId);
   } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
   const workflowBeforeSubmission = structuredClone(workflow);
@@ -7892,7 +7908,21 @@ async function telemetryCommand(positionals, options) {
   }
   console.log(`Reconciled ${result.phase} generation ${result.generation}: ${result.status}.`);
   console.log(`Models: ${result.models.join(', ') || 'unavailable'} | Tokens: ${result.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${result.providerCost == null ? 'unavailable' : `$${result.providerCost.toFixed(6)}`}`);
+  const reconciledActivity = copilotActivityLine(result.activity);
+  if (reconciledActivity) console.log(reconciledActivity);
   console.log(`Commit: ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}`);
+}
+
+/** The Copilot activity a reconciled generation recorded, for the line after its models and tokens. */
+function copilotActivityLine(activity) {
+  if (!activity) return null;
+  const events = (activity.events ?? []).reduce((sum, event) => sum + event.count, 0);
+  return [
+    `Copilot requests: ${activity.requests ?? 'unavailable'}`,
+    `Turns: ${activity.turns ?? 'unavailable'}`,
+    `Tool calls: ${activity.toolCalls}`,
+    ...(events ? [`Quota/model events: ${events}`] : [])
+  ].join(' | ');
 }
 
 async function xrayProjection(positionals, options, { defaultToCurrentPhase = true } = {}) {

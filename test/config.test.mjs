@@ -1213,6 +1213,23 @@ test('optional token pricing accepts non-negative per-million rates and rejects 
   assert.throws(() => validateDefinition(definition), /must be a non-negative number/);
 });
 
+test('optional premium-request multipliers accept non-negative rates per model and reject anything else', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-premium-')); await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.tokens.premiumMultipliers = { 'model-alpha-1.5': 1, 'gpt-5-mini': 0, 'model-premium-2': 3 };
+  assert.equal(validateDefinition(structuredClone(definition)).tokens.premiumMultipliers['gpt-5-mini'], 0);
+  for (const [value, message] of [
+    [{ 'gpt-5': -1 }, /tokens\.premiumMultipliers\.gpt-5 must be a non-negative number/],
+    [{ 'gpt-5': '1' }, /tokens\.premiumMultipliers\.gpt-5 must be a non-negative number/],
+    [{ ' ': 1 }, /model names must not be empty/],
+    [[1, 2], /must map model names to numbers/]
+  ]) {
+    assert.throws(() => validateDefinition({ ...structuredClone(definition), tokens: { ...definition.tokens, premiumMultipliers: value } }), message);
+  }
+  const schema = JSON.parse(await readFile(path.join(process.cwd(), 'schemas/workflow-definition.schema.json'), 'utf8'));
+  assert.deepEqual(schema.properties.tokens.properties.premiumMultipliers.additionalProperties, { type: 'number', minimum: 0 });
+});
+
 test('workflow.yml storage providers normalize and reject invalid SharePoint config', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-storage-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
   const base = await loadDefinition(root);

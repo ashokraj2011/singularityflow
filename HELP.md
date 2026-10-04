@@ -2126,6 +2126,8 @@ active-versus-waiting charts, per-phase and per-model token tables, cost coverag
 and governance/rework indicators. The dashboard refreshes from the repository
 snapshot; it does not maintain a second analytics database.
 
+When Copilot leaves token counts off its spans, the report still shows what Copilot did in each phase: requests sent, turns, model and tool calls (with failures), estimated premium requests, quota and model-substitution events, and the size of the governed prompt SFlow composed, against its budget. Generations and the number of times a later reviewer sent work back show how many iterations each phase took. Counts come from the spans of launches through `singularity-flow copilot`; each one is marked observed, partial or unavailable, and a missing count is never shown as zero.
+
 Durations are wall-clock time and include nights and weekends. They are not business-hours or productivity estimates. Token counts are exact only when the provider supplied them. Reports prefer exact provider cost captured by Copilot telemetry and fall back to configured model pricing; incomplete coverage is marked partial.
 
 Use `/sf-report` in Copilot.
@@ -2159,6 +2161,17 @@ tokens:
 ```
 
 No model prices are bundled because prices change over time. Exact total tokens without an input/output breakdown cannot be priced safely and remain unavailable for cost calculation.
+
+GitHub bills Copilot by premium requests: one per prompt, times the serving model's multiplier. Reports estimate them from optional multipliers keyed by model name; a name also matches dated builds of that model:
+
+```yaml
+tokens:
+  premiumMultipliers:
+    model-alpha-1.5: 1
+    model-alpha-mini: 0
+```
+
+No multipliers are bundled, because GitHub changes them. A model without one leaves the estimate partial, and GitHub's billing stays authoritative. Each generation's telemetry record also counts requests, turns, model and tool calls and quota events, and stores the size of the governed prompt SFlow composed for it.
 
 Use `singularity-flow telemetry probe` to inspect documented host capabilities, then `singularity-flow telemetry enable` to review and accept metadata-only local capture. Launch through `singularity-flow copilot` or `singularity-flow workspace copilot`. `telemetry status` reports captured, partial, unavailable, conflict, and disabled SFlow-owned launches without exposing raw host paths. Use `telemetry reconcile [PHASE]` to retry a delayed generation explicitly. Reconciliation commits and pushes only the sanitized record, never raw traces, prompts, source, or tool content.
 

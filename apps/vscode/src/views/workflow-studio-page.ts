@@ -599,6 +599,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     openSetForm: function () { return openSetForm.apply(null, arguments); }, setFormProblems: function () { return setFormProblems.apply(null, arguments); },
     keepSetForm: function () { return keepSetForm.apply(null, arguments); },
     chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
+    // Send-back rules.
+    addSendBack: function () { return addSendBack.apply(null, arguments); }, retargetSendBack: function () { return retargetSendBack.apply(null, arguments); },
+    setLoopBudget: function () { return setLoopBudget.apply(null, arguments); }, loopBudget: function () { return loopBudget.apply(null, arguments); },
     createStep: function () { return createStep.apply(null, arguments); }, addExistingStep: function () { return addExistingStep.apply(null, arguments); },
     copyStepForWorkflow: function () { return copyStepForWorkflow.apply(null, arguments); }, stepSettings: function () { return stepSettings.apply(null, arguments); },
     stepOutput: function () { return stepOutput.apply(null, arguments); }, setStepOutput: function () { return setStepOutput.apply(null, arguments); },
@@ -2214,6 +2217,76 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     changed();
   }
 
+  // ---- Send-back rules ------------------------------------------------------------------------
+  //
+  // A step's rules each name an earlier step rejected work goes back to, how many times at most, and
+  // optionally a step whose next run starts the count again. Rules into the same step share its
+  // repair budget, so changing one changes all of them, as the engine requires.
+
+  function loopBudget(workflow, to) {
+    var into = workflow.reworkLoops.find(function (entry) { return entry.to === to; });
+    return into ? { maxAttempts: into.maxAttempts, resetOnPhase: into.resetOnPhase || null } : null;
+  }
+  function setLoopBudget(workflow, to, maxAttempts, resetOnPhase) {
+    workflow.reworkLoops.forEach(function (entry) {
+      if (entry.to !== to) return;
+      entry.maxAttempts = maxAttempts;
+      if (resetOnPhase) entry.resetOnPhase = resetOnPhase; else delete entry.resetOnPhase;
+    });
+  }
+  function ruleWithBudget(workflow, from, to, fallback) {
+    var budget = loopBudget(workflow, to) || fallback || { maxAttempts: 3, resetOnPhase: null };
+    var reset = budget.resetOnPhase && workflow.phases.indexOf(budget.resetOnPhase) >= 0 && workflow.phases.indexOf(budget.resetOnPhase) < workflow.phases.indexOf(to) ? budget.resetOnPhase : null;
+    var rule = { from: from, to: to, maxAttempts: budget.maxAttempts };
+    if (reset) rule.resetOnPhase = reset;
+    return rule;
+  }
+  function addSendBack(workflow, phaseId, earlier) {
+    var taken = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; }).map(function (entry) { return entry.to; });
+    var target = earlier.slice().reverse().find(function (id) { return taken.indexOf(id) < 0; });
+    if (!target) return false;
+    workflow.reworkLoops.push(ruleWithBudget(workflow, phaseId, target));
+    return true;
+  }
+  function retargetSendBack(workflow, rule, to) {
+    var index = workflow.reworkLoops.indexOf(rule);
+    if (index < 0 || rule.to === to) return;
+    var others = workflow.reworkLoops.filter(function (entry) { return entry !== rule; });
+    var replaced = ruleWithBudget({ phases: workflow.phases, reworkLoops: others }, rule.from, to, { maxAttempts: rule.maxAttempts, resetOnPhase: rule.resetOnPhase || null });
+    workflow.reworkLoops.splice(index, 1, replaced);
+  }
+  function sendBackEditor(workflow, phaseId, earlier) {
+    var rules = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; });
+    var box = el('div', { class: 'field', role: 'group', 'aria-label': 'If rejected, send back to' }, el('span', { class: 'lane-label', text: 'IF REJECTED, SEND BACK TO' }));
+    if (!earlier.length) { box.appendChild(el('span', { class: 'hint', text: 'The first step has no earlier step to send work back to; rejected work is redone here.' })); return box; }
+    if (!rules.length) box.appendChild(el('span', { class: 'hint', text: 'Rejected work is redone in this step. Add a rule to let approvers send it back to an earlier step.' }));
+    rules.forEach(function (rule, index) {
+      var targets = earlier.filter(function (id) { return id === rule.to || !rules.some(function (other) { return other !== rule && other.to === id; }); });
+      var resets = workflow.phases.slice(0, workflow.phases.indexOf(rule.to));
+      var sharing = workflow.reworkLoops.filter(function (other) { return other !== rule && other.to === rule.to; }).map(function (other) { return stepLabel(other.from); });
+      box.appendChild(el('div', { class: 'decision-box', 'aria-label': 'Send-back rule ' + (index + 1) },
+        el('div', { class: 'studio-row', style: 'flex-wrap:nowrap' },
+          select('step-back-' + index, targets.map(function (id) { return { value: id, label: stepLabel(id) }; }), rule.to, function (value) { retargetSendBack(workflow, rule, value); changed(); }, { 'aria-label': 'Send back to', style: 'flex:1;min-width:0' }),
+          button('Remove', function () { workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry !== rule; }); changed(); }, { class: 'secondary', 'aria-label': 'Remove the send-back to ' + stepLabel(rule.to) })),
+        el('div', { class: 'grid-2' },
+          field('step-back-max-' + index, 'At most', el('input', { type: 'text', inputmode: 'numeric', id: 'step-back-max-' + index, 'data-key': 'step-back-max-' + index, value: String(rule.maxAttempts),
+            onchange: function (event) {
+              var count = /^\s*\d+\s*$/.test(event.target.value) ? Number(event.target.value) : NaN;
+              if (!Number.isInteger(count) || count < 1 || count > 100) { setStatus('A step can be sent back 1 to 100 times.'); render(); return; }
+              setLoopBudget(workflow, rule.to, count, rule.resetOnPhase || null); changed();
+            } }), 'times (1 to 100)'),
+          field('step-back-reset-' + index, 'Count again after', select('step-back-reset-' + index, [{ value: '', label: 'Never' }].concat(resets.map(function (id) { return { value: id, label: stepLabel(id) + ' runs again' }; })), rule.resetOnPhase || '', function (value) {
+            setLoopBudget(workflow, rule.to, rule.maxAttempts, value || null); changed();
+          }))),
+        sharing.length ? el('span', { class: 'hint', text: 'Shares its count with the send-back from ' + sharing.join(', ') + ' into ' + stepLabel(rule.to) + '.' }) : null));
+    });
+    var free = earlier.some(function (id) { return !rules.some(function (rule) { return rule.to === id; }); });
+    box.appendChild(el('div', { class: 'studio-row' },
+      button('Add a send-back rule', function () { if (addSendBack(workflow, phaseId, earlier)) changed(); }, { class: 'secondary', disabled: !free }),
+      rules.length ? el('span', { class: 'hint', text: 'Sending work back repeats the steps in between; approvers choose which rule to use.' }) : null));
+    return box;
+  }
+
   function renderInspector(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
     var phase = state.draft.phases[phaseId];
@@ -2273,19 +2346,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       if (groupBlocked(settings.approval.group)) signoff.push(el('div', { class: 'callout bad' }, 'Nobody is in this group, so this step could never be approved.'));
       signoff.push(el('div', { class: 'studio-row' }, button('Manage people', function () { state.returnTo = boardReturn(); state.view = 'people'; render(); }, { class: 'secondary' })));
-      var loop = workflow.reworkLoops.find(function (entry) { return entry.from === phaseId; });
-      var loopCount = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; }).length;
-      signoff.push(field('step-back', 'If rejected, send back to', select('step-back', [{ value: '', label: 'This step (redo it)' }].concat(earlier.map(function (id) { return { value: id, label: stepLabel(id) }; })), loop ? loop.to : '', function (value) {
-        workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry.from !== phaseId; });
-        if (value) {
-          var kept = { from: phaseId, to: value, maxAttempts: loop ? loop.maxAttempts : 3 };
-          if (loop && loop.resetOnPhase && workflow.phases.indexOf(loop.resetOnPhase) < workflow.phases.indexOf(value)) kept.resetOnPhase = loop.resetOnPhase;
-          workflow.reworkLoops.push(kept);
-        }
-        changed();
-      }, { disabled: !earlier.length || loopCount > 1 }), loopCount > 1 ? 'This step has ' + loopCount + ' send-back rules; change them in the Workflow Designer.'
-        : !earlier.length ? 'The first step has no earlier step to send work back to.'
-          : 'Sending work back repeats the steps in between, at most ' + (loop ? loop.maxAttempts : 3) + ' times' + (loop && loop.resetOnPhase ? ', counted again after ' + stepLabel(loop.resetOnPhase) + ' runs again' : '') + '.'));
+      signoff.push(sendBackEditor(workflow, phaseId, earlier));
     } else {
       signoff.push(el('span', { class: 'hint', text: 'No sign-off: when the agent submits, the Story goes straight on. Turn it on to have people approve this step.' }));
     }

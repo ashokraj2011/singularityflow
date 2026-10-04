@@ -1353,3 +1353,39 @@ test('a packaged template is customized into the repository, and a catalog refer
   assert.equal(logic.templateKey('template:unknown'), 'template:unknown');
   assert.equal(logic.templateKey('common/intake.md'), 'common/intake.md');
 });
+
+test('a step can send rejected work back to several earlier steps, and rules into one step share its count', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioWithHost();
+  const state = logic.state();
+  state.model = model;
+  state.draft = logic.initialDraft(model);
+  const feature = state.draft.workflows.feature;
+  feature.reworkLoops = [];
+  const earlier = feature.phases.slice(0, feature.phases.indexOf('implementation-spec'));
+
+  // Nearest earlier step first, then the next; never the same edge twice.
+  assert.equal(logic.addSendBack(feature, 'implementation-spec', earlier), true);
+  assert.equal(logic.addSendBack(feature, 'implementation-spec', earlier), true);
+  assert.deepEqual(feature.reworkLoops.map((rule) => [rule.from, rule.to, rule.maxAttempts]), [['implementation-spec', 'design', 3], ['implementation-spec', 'requirements', 3]]);
+
+  // A second rule into design takes design's count; changing it changes both.
+  feature.reworkLoops.push({ from: 'implementation', to: 'design', maxAttempts: 3 });
+  logic.setLoopBudget(feature, 'design', 5, 'requirements');
+  assert.deepEqual(feature.reworkLoops.filter((rule) => rule.to === 'design').map((rule) => [rule.maxAttempts, rule.resetOnPhase]), [[5, 'requirements'], [5, 'requirements']]);
+
+  // Retargeting adopts the count of the step it now points at, and drops a reset that would come after it.
+  const second = feature.reworkLoops[1];
+  logic.retargetSendBack(feature, second, 'intake');
+  assert.deepEqual(feature.reworkLoops[1], { from: 'implementation-spec', to: 'intake', maxAttempts: 3 });
+  logic.retargetSendBack(feature, feature.reworkLoops[1], 'design');
+  assert.deepEqual(feature.reworkLoops[1], { from: 'implementation-spec', to: 'design', maxAttempts: 5, resetOnPhase: 'requirements' });
+  feature.reworkLoops.splice(1, 1);
+
+  const changeSet = logic.changeSetFrom(model, state.draft);
+  const update = changeSet.changes.find((change) => change.op === 'workflow.update' && change.id === 'feature');
+  assert.deepEqual(update.reworkLoops, feature.reworkLoops);
+  const result = check(root, changeSet);
+  assert.equal(result.valid, true, JSON.stringify(result.problems));
+});

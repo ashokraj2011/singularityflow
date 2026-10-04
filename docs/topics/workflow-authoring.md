@@ -27,7 +27,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 45
+version: 46
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -47,7 +47,9 @@ whole workflow.
 
 Selecting a step opens its properties on the right, in sections: the step (name, what it produces,
 which skill drafts it), the drafting agent (**Edit agent**, **Create an agent**), sign-off (a switch, the approval group,
-how many approvals it needs, and which earlier step rejected work goes back to), what it reads from
+how many approvals it needs, and its send-back rules: each earlier step an approver may send rejected
+work back to, at most how many times, and which step's next run starts the count again; rules into
+the same step share one count), what it reads from
 earlier steps (each one required or optional: an optional input may be missing when a decision skips
 the step that writes it), artifacts (the template it drafts from, the file it writes and its artifact
 set), knowledge views, clarifying questions, and what happens after it. Everything is

@@ -17,15 +17,24 @@ function currentPhase(workflow) {
  * submission, which completes the step when it has no sign-off. The guide and `phase show` share
  * it, so a skill's closing handoff is the engine's own next action instead of text it hard-codes.
  */
-export function phaseHandoff(workflow, phase) {
+export function phaseHandoff(workflow, phase, {
+  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path)
+} = {}) {
+  const view = hasDocuments ? copilotAction({
+    skill: '/sflow-phase-documents',
+    command: `singularity-flow phase show ${phase.id} --show-artifact`,
+    reason: `Optionally view the documents produced in ${phase.id} before submitting.`,
+    optional: true
+  }) : null;
+  const withView = (actions) => view ? [...actions, view] : actions;
   const noApproval = phase.approvalPolicy?.mode === 'none';
-  if (isConvergencePhase(phase)) return [
+  if (isConvergencePhase(phase)) return withView([
     copilotAction({
       skill: '/sflow-submit',
       command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
       reason: 'Review the exact deterministic convergence result, then explicitly confirm advancement before it can be submitted for human approval.'
     })
-  ];
+  ]);
   const submit = copilotAction({
     skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
     reason: noApproval
@@ -34,14 +43,14 @@ export function phaseHandoff(workflow, phase) {
   });
   // A pinned independent source review must be ready before submission. Route there first: a
   // submit that only refuses leaves an agent following this guide with no next action.
-  if (sourceReviewRequired(workflow, phase.id)) return [
+  if (sourceReviewRequired(workflow, phase.id)) return withView([
     copilotAction({
       skill: '/sflow-review-source', command: `singularity-flow review-source status ${phase.id}`,
       reason: `Check the independent source review of ${phase.id} and any human decisions it still needs, then submit.`
     }),
     submit
-  ];
-  return [submit];
+  ]);
+  return withView([submit]);
 }
 
 function nextActions(workflow, phase) {

@@ -87,6 +87,10 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
     const match = value.match(/^(?:singularity-flow|sflow)\s+explain\s+code(?:\s+(.+))?$/u);
     return match?.[1] ? `${selected} ${match[1]}` : selected;
   }
+  if (selected === '/sf-phase-documents') {
+    const match = value.match(/^(?:singularity-flow|sflow)\s+phase\s+show(?:\s+([A-Za-z0-9][A-Za-z0-9._-]*))?(?:\s+(?:--json|--show-artifact))*$/u);
+    return match?.[1] ? `${selected} ${match[1]}` : selected;
+  }
   return selected;
 }
 

@@ -1530,6 +1530,20 @@ export async function handleWorldModelV4Command(root, config, command, positiona
   }
   if (command === 'context') return contextCommand(root, config, options, positionals[2] ?? optionString(options, 'phase'));
   if (command === 'doctor') {
+    if (!isWorldModelV4(config, options)) {
+      const result = {
+        status: 'not-applicable', format: 'legacy-v3', state: 'not-applicable',
+        detail: {
+          code: 'WMB_FORMAT_LEGACY',
+          message: 'This repository uses legacy-v3 World Model configuration. The registered-v4 contract audit does not diagnose its active Story grounding.'
+        },
+        next: { command: 'singularity-flow wm status --json' },
+        summary: null
+      };
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+      else console.log(`${result.detail.message} Next: ${result.next.command}`);
+      return result;
+    }
     let store = null;
     let state = 'not-built';
     let detail = null;

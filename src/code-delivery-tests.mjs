@@ -1517,7 +1517,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     affectedRoots: command.affectedRoots,
     adapter: parsed?.adapter ?? command.result?.adapter ?? null,
     profile,
-    candidate: { commit: check?.sourceCommit ?? null, treeSha256: check?.sourceTreeSha256 ?? null },
+    candidate: { commit: check?.sourceCommit ?? null, treeSha256: check?.sourceTreeSha256 ?? null,
+      ...(check?.testInputSha256 ? { testInputSha256: check.testInputSha256 } : {}) },
     process: {
       status: check?.status ?? 'not-run', exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,
       signal: check?.signal ?? null, timedOut: check?.timedOut === true,

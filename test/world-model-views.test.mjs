@@ -18,6 +18,7 @@ import {
   worldModelWorkflowViewUsage
 } from '../src/world-model-views.mjs';
 import { resolveWorldModelViewIds } from '../src/worldmodel.mjs';
+import { resolveGroundingPlan, selectionId } from '../src/world-model-selection.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -212,6 +213,24 @@ test('the command sentinel all resolves once to concrete approved view IDs', () 
   assert.throws(
     () => resolveWorldModelViewIds(config, ['Not A View']),
     (error) => error.code === 'WORLD_MODEL_VIEW_INVALID'
+  );
+});
+
+test('explicit phase view order survives resolution so composition and publication agree on tiers', () => {
+  const config = {
+    definition: { worldModel: { views: ['development', 'security', 'testing'] } },
+    phases: { verification: { views: ['testing', 'development', 'security'] } }
+  };
+  const phaseViews = resolveWorldModelViewIds(config, config.phases.verification.views);
+  assert.deepEqual(phaseViews, ['testing', 'development', 'security']);
+  const plan = resolveGroundingPlan({ phase: 'verification', phaseViews, depth: 'standard' });
+  assert.deepEqual(plan.selections.map(selectionId), [
+    'core/brief', 'testing/full', 'development/brief', 'security/brief'
+  ]);
+  assert.deepEqual(
+    resolveWorldModelViewIds(config, ['testing', 'development', 'testing']),
+    ['testing', 'development'],
+    'deduplication must not move the primary phase view'
   );
 });
 

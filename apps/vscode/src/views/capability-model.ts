@@ -43,6 +43,8 @@ export interface CapabilityDetail {
   repository: string | null;
   sourceRoots: string[];
   sharedRoots: string[];
+  sourceHashExcludedRoots: string[];
+  testConfigurationPaths: string[];
   metadata: Record<string, string>;
   jira: { projectKey?: string; board?: string; component?: string } | null;
   teams: string[];
@@ -179,6 +181,8 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     repository: row.repository ?? null,
     sourceRoots: row.sourceRoots ?? [],
     sharedRoots: row.sharedRoots ?? [],
+    sourceHashExcludedRoots: row.sourceHashExcludedRoots ?? [],
+    testConfigurationPaths: row.testConfigurationPaths ?? [],
     metadata: row.metadata ?? {},
     jira: row.jira ?? null,
     teams: row.teams ?? [],
@@ -209,6 +213,8 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
 const EDIT_FLAGS: Array<[string, string]> = [
   ['name', '--name'], ['kind', '--kind'], ['parent', '--parent'], ['repository', '--repository'],
   ['sourceRoots', '--source-roots'], ['sharedRoots', '--shared-roots'],
+  ['sourceHashExcludedRoots', '--source-hash-excluded-roots'],
+  ['testConfigurationPaths', '--test-configuration-paths'],
   ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['teams', '--teams'],
   ['autoEligibility', '--auto-eligibility'], ['autoProtectedScope', '--auto-protected-scope'],
   ['autoMaximumTouchedPaths', '--auto-maximum-touched-paths'],

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { commandGuidanceForCommands, commandGuidanceLines } from '../src/safe-command-guidance.mjs';
+import { commandGuidanceForCommands, commandGuidanceLines, safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { renderDirectSkill } from '../src/direct-skills.mjs';
 import { COMMAND_PRESENTATION_CONTRACT } from '../scripts/skill-policy.mjs';
 
@@ -20,6 +20,17 @@ test('command guidance distinguishes a Copilot journey from an exact phase opera
     assert.equal(guidance[key].command, null);
     assert.equal(guidance[key].copilotStatus, 'unavailable');
   }
+});
+
+test('phase document display has a read-only Copilot route with the exact phase selector', () => {
+  const guidance = safeCommandGuidance('singularity-flow phase show specification --show-artifact');
+  assert.equal(guidance.skill, '/sf-phase-documents');
+  assert.equal(guidance.copilotCommand, '/sf-phase-documents specification');
+  assert.equal(commandGuidanceForCommands({ view: 'singularity-flow phase show specification --json' }).view.copilotCommand,
+    '/sf-phase-documents specification');
+  assert.equal(safeCommandGuidance({
+    command: 'singularity-flow phase show specification --show-artifact', skill: '/sf-phase'
+  }), null, 'the generative phase skill cannot stand in for a document read');
 });
 
 test('all bundled and direct Copilot skills require command pairs or an explicit absence', async () => {

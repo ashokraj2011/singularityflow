@@ -47,6 +47,8 @@ interface OrganisationCapability {
   repositories?: string[];
   sourceRoots?: string[];
   sharedRoots?: string[];
+  sourceHashExcludedRoots?: string[];
+  testConfigurationPaths?: string[];
   metadata?: Record<string, unknown>;
   jira?: { projectKey?: string | null } | null;
   teams?: string[];
@@ -165,6 +167,8 @@ interface SavedMapRequest {
   repositoryUrl: string | null;
   sourceRoots: string[] | null;
   sharedRoots: string[] | null;
+  sourceHashExcludedRoots: string[] | null;
+  testConfigurationPaths: string[] | null;
   metadata: Record<string, string>;
   jiraProject: string | null;
   teams: string[] | null;
@@ -178,6 +182,7 @@ interface SavedMapRequest {
 
 const MAP_SINGLE_VALUE_OPTIONS = new Set([
   '--lead', '--kind', '--name', '--parent', '--repository', '--source-roots', '--shared-roots',
+  '--source-hash-excluded-roots', '--test-configuration-paths',
   '--clone-mode', '--clone-fallback', '--sparse-cone', '--jira-project', '--teams',
   '--supersede-branch', '--supersede-commit'
 ]);
@@ -262,6 +267,10 @@ function savedMapRequest(operation: Pick<MapCapabilityOperation, 'argv' | 'capab
     repositoryUrl: repositoryValues[0] ?? null,
     sourceRoots: values.has('--source-roots') ? csv(values.get('--source-roots')?.[0]) : null,
     sharedRoots: values.has('--shared-roots') ? csv(values.get('--shared-roots')?.[0]) : null,
+    sourceHashExcludedRoots: values.has('--source-hash-excluded-roots')
+      ? csv(values.get('--source-hash-excluded-roots')?.[0]) : null,
+    testConfigurationPaths: values.has('--test-configuration-paths')
+      ? csv(values.get('--test-configuration-paths')?.[0]) : null,
     metadata,
     jiraProject: values.get('--jira-project')?.[0] ?? null,
     teams: values.has('--teams') ? csv(values.get('--teams')?.[0]) : null,
@@ -320,6 +329,14 @@ export function compareApprovedCapability(operation: MapCapabilityOperation, org
   if (request.sharedRoots != null
     && JSON.stringify(normalizedList(capability.sharedRoots ?? [])) !== JSON.stringify(request.sharedRoots)) {
     differences.push('shared roots');
+  }
+  if (request.sourceHashExcludedRoots != null
+    && JSON.stringify(normalizedList(capability.sourceHashExcludedRoots ?? [])) !== JSON.stringify(request.sourceHashExcludedRoots)) {
+    differences.push('separately hashed directories');
+  }
+  if (request.testConfigurationPaths != null
+    && JSON.stringify(normalizedList(capability.testConfigurationPaths ?? [])) !== JSON.stringify(request.testConfigurationPaths)) {
+    differences.push('test configuration paths');
   }
   if (!sameRecordSubset(capability.metadata ?? {}, request.metadata)) differences.push('metadata');
   if (request.jiraProject != null && capability.jira?.projectKey !== request.jiraProject) {
@@ -1780,6 +1797,7 @@ export class BootstrapPanel {
       if (field === 'lead' || field === 'capabilityId' || field === 'name' || field === 'kind'
         || field === 'parent' || field === 'repositoryUrl' || field === 'jiraProject'
         || field === 'teams' || field === 'sourceRoots' || field === 'sharedRoots'
+        || field === 'sourceHashExcludedRoots' || field === 'testConfigurationPaths'
         || field === 'sparseCone' || field === 'cloneMode' || field === 'cloneFallback'
         || field === 'inspectionLeadUrl') {
         const previousRepository = this.form.repositoryUrl;

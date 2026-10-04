@@ -44,6 +44,8 @@ export interface CapabilityNode {
   /** Application and shared directory scopes for monorepo grounding. */
   sourceRoots?: string[];
   sharedRoots?: string[];
+  sourceHashExcludedRoots?: string[];
+  testConfigurationPaths?: string[];
   /** Organisation-defined key/value attributes such as application ID or cost centre. */
   metadata?: Record<string, string>;
   /** Named links to whatever describes this capability — Confluence pages, briefs, runbooks. */

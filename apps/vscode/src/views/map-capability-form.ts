@@ -194,6 +194,8 @@ export interface MapCapabilityForm {
   collectionWithoutRepository: boolean;
   sourceRoots: string;
   sharedRoots: string;
+  sourceHashExcludedRoots: string;
+  testConfigurationPaths: string;
   cloneMode: 'full' | 'blobless' | 'blobless-sparse';
   sparseCone: string;
   cloneFallback: 'refuse' | 'full';
@@ -211,7 +213,8 @@ export interface MapCapabilityForm {
 
 /** Whether Cancel would throw away anything the person typed. */
 export function mapFormHasInput(form: MapCapabilityForm): boolean {
-  return [form.capabilityId, form.name, form.parent, form.repositoryUrl, form.sourceRoots, form.sharedRoots]
+  return [form.capabilityId, form.name, form.parent, form.repositoryUrl, form.sourceRoots, form.sharedRoots,
+    form.sourceHashExcludedRoots, form.testConfigurationPaths]
     .some((value) => String(value ?? '').trim().length > 0)
     || form.metadata.some((entry) => String(entry.key ?? '').trim() || String(entry.value ?? '').trim());
 }
@@ -219,6 +222,7 @@ export function mapFormHasInput(form: MapCapabilityForm): boolean {
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
+  sourceHashExcludedRoots: '', testConfigurationPaths: '',
   inspectionStatus: 'idle', inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
   replacement: null,
   inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null,
@@ -389,13 +393,20 @@ export function mapProblems(form: MapCapabilityForm): string[] {
   if (form.kind === 'collection' && form.repositoryUrl.trim()) {
     problems.push('A Collection cannot name a repository. Choose Delivery or clear the clone URL.');
   }
-  const paths = [...form.sourceRoots.split(','), ...form.sharedRoots.split(','), ...form.sparseCone.split(',')]
+  const paths = [...form.sourceRoots.split(','), ...form.sharedRoots.split(','), ...form.sparseCone.split(','),
+    ...form.sourceHashExcludedRoots.split(','), ...form.testConfigurationPaths.split(',')]
     .map((entry) => entry.trim()).filter(Boolean);
   for (const entry of paths) {
     if (entry === '.' || entry.includes('\\') || /^(?:\/|[A-Za-z]:[\\/])/.test(entry)
       || entry.split(/[\\/]+/).includes('..') || /[*?\[\]{}]/.test(entry)) {
       problems.push(`'${entry}' must be a repository-relative directory without '..' or glob characters.`);
     }
+  }
+  for (const entry of [...form.sourceHashExcludedRoots.split(','), ...form.testConfigurationPaths.split(',')]
+    .map((value) => value.trim()).filter(Boolean)) {
+    if (entry === 'singularity' || entry.startsWith('singularity/')
+      || entry === '.git' || entry.startsWith('.git/')
+      || /[<>:"|]/u.test(entry)) problems.push(`'${entry}' is not a portable application or test-input path.`);
   }
   if (form.cloneMode === 'blobless-sparse' && !form.sparseCone.split(',').some((entry) => entry.trim())) {
     problems.push('Blobless sparse cloning requires at least one sparse checkout directory.');
@@ -417,6 +428,8 @@ export function mapCommand(form: MapCapabilityForm): string[] {
   if (form.repositoryUrl.trim()) args.push('--repository', form.repositoryUrl.trim());
   if (form.sourceRoots.trim()) args.push('--source-roots', form.sourceRoots.trim());
   if (form.sharedRoots.trim()) args.push('--shared-roots', form.sharedRoots.trim());
+  if (form.sourceHashExcludedRoots.trim()) args.push('--source-hash-excluded-roots', form.sourceHashExcludedRoots.trim());
+  if (form.testConfigurationPaths.trim()) args.push('--test-configuration-paths', form.testConfigurationPaths.trim());
   if (form.cloneMode !== 'full') {
     args.push('--clone-mode', form.cloneMode, '--clone-fallback', form.cloneFallback);
     if (form.sparseCone.trim()) args.push('--sparse-cone', form.sparseCone.trim());
@@ -928,6 +941,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       <label class="field full"><span>Sparse checkout directories</span><input type="text" value="${escape(form.sparseCone)}" data-map="sparseCone" placeholder="apps/payments, libs/contracts, singularity"><small>Comma-separated cone-mode directories. Required only for blobless + sparse.</small></label>
       <label class="field full"><span>World-model application roots</span><input type="text" value="${escape(form.sourceRoots)}" data-map="sourceRoots" placeholder="apps/payments"><small>Leave empty for the whole repository.</small></label>
       <label class="field full"><span>World-model shared roots</span><input type="text" value="${escape(form.sharedRoots)}" data-map="sharedRoots" placeholder="libs/contracts, libs/platform"></label>
+      <label class="field full"><span>Separately hashed directories</span><input type="text" value="${escape(form.sourceHashExcludedRoots)}" data-map="sourceHashExcludedRoots" placeholder="generated, test/fixtures"><small>Comma-separated repository directories. They leave the source and World Model hashes (except explicitly listed test-config files), but changing them invalidates test evidence.</small></label>
+      <label class="field full"><span>Test configuration files</span><input type="text" value="${escape(form.testConfigurationPaths)}" data-map="testConfigurationPaths" placeholder="src/test/resources/application-test.yml"><small>Exact repository-relative files, not globs. These get a separate test-input fingerprint and cannot silently reuse earlier test evidence.</small></label>
     </div>` : '<p class="muted">A Collection groups capabilities and does not ship from a repository. To map code, choose Delivery above; the Git clone URL field will appear here.</p>'}
 
     <div class="editor-card">

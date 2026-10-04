@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { posix, SingularityFlowError } from './util.mjs';
+import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-policy.mjs';
 
 /**
  * A source scope is deliberately a set of directory prefixes, not glob expressions.
@@ -32,10 +33,13 @@ export function worldModelSourceScope(definition = {}) {
   const configured = definition.worldModel ?? definition;
   const sourceRoots = normalizeSourceRoots(configured?.sourceRoots, 'worldModel.sourceRoots');
   const sharedRoots = normalizeSourceRoots(configured?.sharedRoots, 'worldModel.sharedRoots');
+  const { sourceHashExcludedRoots, testConfigurationPaths } = sourcePathPolicy(configured);
   const paths = [...new Set([...sourceRoots, ...sharedRoots])].sort();
   return Object.freeze({
     sourceRoots: Object.freeze(sourceRoots),
     sharedRoots: Object.freeze(sharedRoots),
+    sourceHashExcludedRoots: Object.freeze(sourceHashExcludedRoots),
+    testConfigurationPaths: Object.freeze(testConfigurationPaths),
     paths: Object.freeze(paths),
     all: paths.length === 0
   });
@@ -45,7 +49,8 @@ export function worldModelSourceScope(definition = {}) {
 export function sourcePathIncluded(file, definition = {}) {
   const relative = posix(String(file ?? '')).replace(/^\.\//, '');
   const scope = worldModelSourceScope(definition);
-  return scope.all || scope.paths.some((root) => relative === root || relative.startsWith(`${root}/`));
+  return (scope.all || scope.paths.some((root) => relative === root || relative.startsWith(`${root}/`)))
+    && (!isSeparatelyHashedTestInput(relative, scope) || scope.testConfigurationPaths.includes(relative));
 }
 
 /**
@@ -59,7 +64,9 @@ export function withWorldModelSourceScope(definition, scope = null) {
     worldModel: {
       ...(definition.worldModel ?? {}),
       sourceRoots: normalizeSourceRoots(scope.sourceRoots, 'Capability sourceRoots'),
-      sharedRoots: normalizeSourceRoots(scope.sharedRoots, 'Capability sharedRoots')
+      sharedRoots: normalizeSourceRoots(scope.sharedRoots, 'Capability sharedRoots'),
+      ...(scope.sourceHashExcludedRoots != null || scope.testConfigurationPaths != null
+        ? sourcePathPolicy(scope) : {})
     }
   };
 }

@@ -216,6 +216,7 @@ skills:
   sflow-next: { class: mutation, kernelModelPolicy: conditional }
   sflow-nextsteps: { class: conversational, executionBoundary: repository }
   sflow-phase: { class: generative, maximumTokenOverride: 840, exception: "It drafts every step on the automatic route, so it relays any step routed to another skill with its terminal equivalent and shows why an unverified route was withheld; a chosen skill is never bypassed." }
+  sflow-phase-documents: { class: echo }
   sflow-plugin: { class: mutation, executionBoundary: machine }
   sflow-pr: { class: mutation }
   sflow-progress: { class: echo, executionBoundary: repository }

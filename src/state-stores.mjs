@@ -234,7 +234,7 @@ export {
   proposeStorySkillVersion, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
   rollForwardRework, scanArtifacts,
   pinnedResolutionVerification,
-  sourceTreeHash, storyPublicationPending, storySkillVersionStatus, storyWelEnrollmentStatus,
+  sourceTreeHash, testInputTreeHash, storyPublicationPending, storySkillVersionStatus, storyWelEnrollmentStatus,
   submitConfirmedConvergencePhase,
   submitPhase, validateId, workflowBranchAllowed,
   workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath

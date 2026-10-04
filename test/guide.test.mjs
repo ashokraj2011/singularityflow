@@ -32,6 +32,10 @@ test('workflow guide recommends the valid next skill for each lifecycle state', 
 
   guide = workflowGuide(workflow('in_progress', 1));
   assert.equal(guide.nextActions[0].skill, '/sf-submit');
+  assert.equal(guide.nextActions[1].skill, '/sf-phase-documents');
+  assert.equal(guide.nextActions[1].copilotCommand, '/sf-phase-documents intake');
+  assert.equal(guide.nextActions[1].optional, true);
+  assert.match(guideText(guide), /View the documents produced|view the documents produced/i);
 
   guide = workflowGuide(workflow('awaiting_approval', 1));
   assert.deepEqual(guide.nextActions.map((item) => item.skill), ['/sf-approve', '/sf-reject']);

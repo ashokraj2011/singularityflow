@@ -278,7 +278,7 @@ export function safeCommandGuidance(value) {
   // `/sf-code`, `/sf-converge` and every listed authoring skill re-read the step's verified route
   // before doing any work, so presenting one for that step's prepare/phase commands only renders a
   // route; the engine chooses which one to present. The catalog is read only when a skill is asserted.
-  if (phaseId) {
+  if (phaseId && !(safe.argv[0] === 'phase' && safe.argv[1] === 'show')) {
     allowedSkills.add('/sf-code');
     allowedSkills.add('/sf-converge');
   }
@@ -287,7 +287,8 @@ export function safeCommandGuidance(value) {
     : input.copilotCommand != null
       ? directCopilotSkillId(input.copilotCommand)
       : null;
-  if (phaseId && assertedSkill && !allowedSkills.has(assertedSkill)
+  if (phaseId && !(safe.argv[0] === 'phase' && safe.argv[1] === 'show')
+      && assertedSkill && !allowedSkills.has(assertedSkill)
       && authoringSkillEntry(assertedSkill.slice(1))) {
     allowedSkills.add(assertedSkill);
   }
@@ -324,7 +325,7 @@ export function commandGuidanceForCommands(commands) {
     // /sf-phase is an authoring journey, not a relay for a read-only check or a standalone
     // publication. Do not turn a request to inspect a draft into generation/publication.
     const phaseOperation = safe.argv[0] === 'phase'
-      && ['draft-check', 'prepublish', 'show', 'begin', 'publish'].includes(safe.argv[1]);
+      && ['draft-check', 'prepublish', 'begin', 'publish'].includes(safe.argv[1]);
     return [id, Object.freeze({ command: safe.command,
       copilotCommand: phaseOperation ? null : safe.copilotCommand,
       copilotStatus: phaseOperation ? 'unavailable' : 'available',

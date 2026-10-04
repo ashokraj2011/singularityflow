@@ -166,7 +166,10 @@ function list(values: string[] | undefined, empty: string): string {
 
 /** Engine-returned routes are displayed only. Report text never becomes a runnable webview action. */
 export function testRecoveryHtml(draft: TestRecoveryDraft): string {
-  if (!testRecoveryEnabled(draft)) return '';
+  if (!testRecoveryEnabled(draft)) return `<section data-test-policy-availability><h2>Test execution scope</h2>
+    <p class="meta">This workflow does not advertise Story test-scope selection. Its configured test commands remain required.
+    To choose changed-and-affected or all-configured tests at intake, enable <code>testRecovery.enabled</code>
+    in the approved repository workflow and refresh this intake. Capability path exclusions alone do not change test scope or accept failed tests.</p></section>`;
   const capability = draft.testRecovery!;
   const radios = (field: 'testBaselineDisposition' | 'testExecutionMode' | 'testBaselineScope',
     label: string, choices: Array<[string, string]>): string => `<fieldset><legend>${label}</legend>

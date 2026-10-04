@@ -170,6 +170,7 @@ import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/re
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from './candidate-isolation.mjs';
+import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-policy.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -3049,13 +3050,22 @@ function rebuildUsageAggregates(workflow) {
   }
 }
 
+const TEST_INPUT_SELECTION = Symbol('test-input-selection');
+
 export async function sourceTreeHash(root, ...governanceSources) {
+  const selection = governanceSources.at(-1) === TEST_INPUT_SELECTION ? 'test-input' : 'application';
+  if (selection === 'test-input') governanceSources.pop();
   assertNoHiddenWorktreeChanges(root, 'Application source hashing');
   const pathContext = applicationPathContext(...governanceSources);
   // The candidate is HEAD plus the uncommitted changes some step's plan names [E2G-027, D9]. A file
   // no plan names counts as committed: its uncommitted edits stay in the worktree outside every
   // generation and verification runs without them, while committing it changes the bound tree.
   const [governanceConfig, governanceWorkflow] = governanceSources;
+  const sourcePolicy = sourcePathPolicy(governanceWorkflow?.resolution?.capability?.sourceScope
+    ?? governanceWorkflow?.resolution?.worldModelSourceScope);
+  const separatelyHashed = (relative) => isSeparatelyHashedTestInput(relative, sourcePolicy);
+  const selected = (relative, untracked = false) => isApplicationChangePath(relative, { ...pathContext, untracked })
+    && (selection === 'test-input' ? separatelyHashed(relative) : !separatelyHashed(relative));
   const keptOut = (governanceWorkflow?.workItem?.id && governanceConfig
     ? await outsideEveryCandidate(workDir(root, governanceConfig, governanceWorkflow.workItem.id), governanceWorkflow)
     : null) ?? (() => false);
@@ -3063,7 +3073,7 @@ export async function sourceTreeHash(root, ...governanceSources) {
   // parser so a malformed record or an unrepresentable filename cannot silently change the
   // sealed application-source digest. The object format must be observed before parsing OIDs.
   const objectFormat = executeGitQuery(root, 'repository.object-format');
-  const indexed = executeGitQuery(root, 'repository.index-detail', { objectFormat }).entries
+  const indexEntries = executeGitQuery(root, 'repository.index-detail', { objectFormat }).entries
     .map((entry) => {
       if (entry.path.kind !== 'utf8') {
         throw new SingularityFlowError(
@@ -3074,8 +3084,17 @@ export async function sourceTreeHash(root, ...governanceSources) {
       // Git's path is already repository-relative with '/' separators. Running it through the
       // host-native path normalizer would rewrite a literal POSIX backslash filename.
       return { path: entry.path.value, mode: entry.mode, object: entry.oid, stage: entry.stage };
-    })
-    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext));
+    });
+  if (selection === 'test-input') {
+    const tracked = new Map(indexEntries.filter(entry => entry.stage === 0).map(entry => [entry.path, entry]));
+    const unavailable = sourcePolicy.testConfigurationPaths.filter(relative =>
+      !['100644', '100755'].includes(tracked.get(relative)?.mode));
+    if (unavailable.length) throw new SingularityFlowError(
+      `Declared test configuration must be tracked regular files in the repository: ${unavailable.join(', ')}.`,
+      { code: 'TEST_CONFIGURATION_PATH_UNAVAILABLE', details: { paths: unavailable } }
+    );
+  }
+  const indexed = indexEntries.filter((entry) => entry.stage === 0 && selected(entry.path));
   const unstaged = new Set(run('git', [
     'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD', '--'
   ], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
@@ -3088,9 +3107,8 @@ export async function sourceTreeHash(root, ...governanceSources) {
     if (atHead) byPath.set(relative, { path: relative, mode: atHead.mode, object: atHead.object, stage: 0 });
     else byPath.delete(relative);
   }
-  for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, {
-    ...pathContext, untracked: true
-  }) && !keptOut(candidate))) {
+  for (const relative of untrackedFiles(root).filter((candidate) => selected(candidate, true)
+    && !keptOut(candidate))) {
     byPath.set(relative, { path: relative, mode: null, object: null, stage: 0, untracked: true });
     unstaged.add(relative);
   }
@@ -3158,7 +3176,17 @@ export async function sourceTreeHash(root, ...governanceSources) {
       manifest.push({ path: entry.path, mode: String(info.mode), kind: 'non-regular', object: null });
     }
   }
-  return `sha256:${createHash('sha256').update(canonicalJson(manifest)).digest('hex')}`;
+  return `sha256:${createHash('sha256').update(canonicalJson(selection === 'test-input'
+    ? { policy: sourcePolicy, manifest } : manifest)).digest('hex')}`;
+}
+
+/** A separate, exact binding for approved excluded directories and test configuration files. */
+export async function testInputTreeHash(root, ...governanceSources) {
+  const workflow = governanceSources[1];
+  const policy = sourcePathPolicy(workflow?.resolution?.capability?.sourceScope
+    ?? workflow?.resolution?.worldModelSourceScope);
+  if (!policy.sourceHashExcludedRoots.length && !policy.testConfigurationPaths.length) return null;
+  return sourceTreeHash(root, ...governanceSources, TEST_INPUT_SELECTION);
 }
 
 export async function generationResultDigest(root, config, workflow, phase, bindings = null) {
@@ -3339,12 +3367,14 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
           && execution.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(execution.status)))) {
     throw refuse('the receipt does not describe the approved generation and passing executions.');
   }
-  if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)) {
+  const currentTestInput = await testInputTreeHash(root, config, workflow);
+  if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)
+      || (currentTestInput && receipt.tree.testInputSha256 !== currentTestInput)) {
     const repairTarget = reviewRepairTarget(workflow, phase);
     const testingRepairRoute = repairTarget
       ? ` Review the exact repair preview with Shell: singularity-flow reject ${phase.id} --to ${repairTarget.id} --repair --reason <REASON>. Copilot: /sf-reject. The confirmed return preserves changed bytes and requires new Code tests.`
       : ' Return to Code.';
-    throw refuse(`application source or tests changed after the approved execution.${testingRepairRoute}`);
+    throw refuse(`application source or separately hashed test inputs changed after the approved execution.${testingRepairRoute}`);
   }
   const replay = await verifyCodeDeliveryReceipt(root, receipt, {
     protectedPaths: [...new Set([
@@ -3749,6 +3779,7 @@ export async function publishGeneration(root, config, workflow, {
     const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
     await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
     const workingStateDigest = await sourceTreeHash(root, config, workflow);
+    const testInputSha256 = await testInputTreeHash(root, config, workflow);
     const receipt = {
       schemaVersion: currentSchemaVersion('code-delivery'),
       kind: 'code-delivery',
@@ -3798,7 +3829,8 @@ export async function publishGeneration(root, config, workflow, {
       ...(autoCandidateVerification ? {
         autoCandidateVerification: structuredClone(autoCandidateVerification)
       } : {}),
-      tree: { workingStateDigest, generationCommit: null, generationTree: null },
+      tree: { workingStateDigest, ...(testInputSha256 ? { testInputSha256 } : {}),
+        generationCommit: null, generationTree: null },
       model: {
         task: 'code',
         required: effectiveAuthorship.producer === 'governed-agent',
@@ -3830,6 +3862,7 @@ export async function publishGeneration(root, config, workflow, {
       receiptPath,
       changeSetPath,
       sourceTreeSha256: workingStateDigest,
+      ...(testInputSha256 ? { testInputSha256 } : {}),
       ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
       ...(autoCandidateVerification ? {
         autoCandidateVerification: structuredClone(autoCandidateVerification)
@@ -4514,6 +4547,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   validateEnvironmentQualityCommandCatalog(declaration, catalog);
   const sourceCommit = head(root);
   const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+  const testInputSha256 = await testInputTreeHash(root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
@@ -4553,6 +4587,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       checks.push({
         id: policy.id, command, requirement: policy.requirement,
         externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256,
+        ...(testInputSha256 ? { testInputSha256 } : {}),
         startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null,
         stdout: '', stderr: policy.reason
       });
@@ -4666,6 +4701,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       isolatedResultRestore = null;
     }
     const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
+    const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
       : null;
@@ -4676,7 +4712,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...isolationNeed.excluded] } : {}),
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-      sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
+      sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+      startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
       ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
       ...(result.timedOut ? { timedOut: true } : {}),
@@ -4689,12 +4726,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
       stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
     };
-    if (completedTreeSha256 !== sourceTreeSha256) {
+    if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
       const error = new SingularityFlowError(
-        `Quality command '${policy.id}' changed application source or tests. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
+        `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
         { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
           phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
-          beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256
+          beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
+          testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
         } }
       );
       throw policy.kind === 'test'
@@ -4992,9 +5030,10 @@ async function submitPhaseTransition(root, config, workflow, {
       );
     }
     const currentTree = await sourceTreeHash(root, config, workflow);
-    if (evidence.sourceTreeSha256 !== currentTree) {
+    const currentTestInput = await testInputTreeHash(root, config, workflow);
+    if (evidence.sourceTreeSha256 !== currentTree || (currentTestInput && evidence.testInputSha256 !== currentTestInput)) {
       throw new SingularityFlowError(
-        `Phase ${phase.id} code or tests changed after publication. Publish a fresh generation before submission.`,
+        `Phase ${phase.id} code or separately hashed test inputs changed after publication. Publish a fresh generation before submission.`,
         { code: 'CODE_DELIVERY_RECEIPT_STALE' }
       );
     }
@@ -5291,8 +5330,10 @@ async function submitPhaseTransition(root, config, workflow, {
   phase.validationVerdict = validation.verdict;
   if (codeDeliveryRequired) {
     const validatedSourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+    const validatedTestInputSha256 = await testInputTreeHash(root, config, workflow);
     const changedAfterCheck = phase.checks.find((check) =>
-      check.sourceTreeSha256 && check.sourceTreeSha256 !== validatedSourceTreeSha256);
+      check.sourceTreeSha256 && (check.sourceTreeSha256 !== validatedSourceTreeSha256
+        || (validatedTestInputSha256 && check.testInputSha256 !== validatedTestInputSha256)));
     if (changedAfterCheck) {
       throw new SingularityFlowError(
         `Quality command '${changedAfterCheck.id}' no longer describes the current source tree. `
@@ -5313,11 +5354,14 @@ async function submitPhaseTransition(root, config, workflow, {
     phase.deliveryEvidence.validation = {
       sourceCommit: phase.generationCommit,
       sourceTreeSha256: validatedSourceTreeSha256,
+      ...(validatedTestInputSha256 ? { testInputSha256: validatedTestInputSha256 } : {}),
       commands: deliveryCommands.map((command, index) => ({
         id: phase.checks[index]?.id ?? `quality-${index + 1}`,
         command: externalCommandText(command, index)
       })),
-      checks: phase.checks.map((check) => ({ id: check.id, status: check.status, sourceTreeSha256: check.sourceTreeSha256 })),
+      checks: phase.checks.map((check) => ({ id: check.id, status: check.status,
+        sourceTreeSha256: check.sourceTreeSha256,
+        ...(check.testInputSha256 ? { testInputSha256: check.testInputSha256 } : {}) })),
       status: failed.length ? 'failed' : unavailableRequired.length ? 'unavailable' : 'passed',
       validatedAt: nowIso()
     };
@@ -5703,6 +5747,13 @@ export async function approvePhase(root, config, workflow, {
       }
     );
   }
+  const currentTestInputSha256 = await testInputTreeHash(root, config, workflow);
+  if (currentTestInputSha256 && submittedReview.testInputSha256 !== currentTestInputSha256) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' separately hashed test inputs changed after submission. Submit a fresh review packet before approval.`,
+      { code: 'STORY_REVIEW_TEST_INPUT_CHANGED' }
+    );
+  }
   // A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
   // whether an unrelated commit was inserted *before* that point. Permit prior partial approvals
   // and the exact Auto human-boundary checkpoint for this submitted phase. Auto records that
@@ -5888,7 +5939,9 @@ export async function approvePhase(root, config, workflow, {
         { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
       );
     }
-    if (validation.sourceTreeSha256 !== currentTree) {
+    const currentTestInput = await testInputTreeHash(root, config, workflow);
+    if (validation.sourceTreeSha256 !== currentTree
+        || (currentTestInput && validation.testInputSha256 !== currentTestInput)) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' code or tests changed after validation. Submit a fresh validated generation.`,
         { code: 'CODE_DELIVERY_VALIDATION_STALE' }

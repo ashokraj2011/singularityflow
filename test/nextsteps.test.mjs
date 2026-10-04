@@ -62,6 +62,9 @@ test('active generation plan includes current, subsequent, alternative, and foll
 test('generated and approval-pending phases return only valid next transitions', () => {
   const generated = workflowNextSteps(workflow({ generation: 1 }));
   assert.equal(generated[0].skill, '/sf-submit');
+  assert.equal(generated[1].skill, '/sf-phase-documents');
+  assert.equal(generated[1].timing, 'alternative');
+  assert.equal(generated[1].copilotCommand, '/sf-phase-documents intake');
   assert.equal(generated.filter((item) => item.skill === '/sf-submit').length, 1);
 
   const awaiting = workflowNextSteps(workflow({ generation: 1, phaseStatus: 'awaiting_approval' }));

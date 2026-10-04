@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 9
+version: 10
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -35,6 +35,11 @@ testRecovery:
 Keep test commands structured (`kind: test`, explicit argv and a supported report contract). This opt-in does not infer a waiver for old string commands or change an already-started Story. A runnable example must use the repository's actual test command and report format, not a generic placeholder runner.
 
 The VS Code intake section appears only when exact-base preflight advertises the pilot for the selected workflow. Non-code workflows do not gain a unit-test obligation merely because recovery is enabled. Unsupported choices stay visibly unavailable. The engine revalidates the selected base, workflow and policy at mutation time.
+
+Capability onboarding can separately declare exact `sourceHashExcludedRoots` directories and
+`testConfigurationPaths` files in `singularity/capabilities.yml`. They are pinned into a new Story's
+capability resolution and independently fingerprinted for test evidence. They do not by themselves
+select changed-only testing, accept a pre-existing failure, or enable this intake pilot.
 
 ## Use it from each surface
 

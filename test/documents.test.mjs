@@ -131,6 +131,8 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(publication.stdout, /sha256:[0-9a-f]{12}/);
   assert.doesNotMatch(publication.stdout, /--- BEGIN /);
   assert.match(publication.stdout, /Add --show-artifact to print/);
+  assert.match(publication.stdout, /View phase documents before submitting/);
+  assert.match(publication.stdout, /\/sf-phase-documents intake/);
   readiness = JSON.parse(flow(root, ['status', 'DOCS-1', '--submission-readiness', '--json']).stdout);
   assert.equal(readiness.classification, 'ready-to-attempt');
   assert.equal(readiness.phaseStatus, 'in_progress');
@@ -164,6 +166,9 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(reviewJson.displayBinding.documents[0].sha256, reviewJson.documents[0].sha256);
   assert.equal(reviewJson.documents[0].truncated, false);
   assert.equal(reviewJson.documents[0].previewBytes, reviewJson.documents[0].size);
+  assert.equal(reviewJson.handoff[0].copilotCommand, '/sf-submit');
+  assert.equal(reviewJson.handoff[1].copilotCommand, '/sf-phase-documents intake');
+  assert.equal(reviewJson.handoff[1].optional, true);
   const submission = flow(root, ['submit']);
   assert.match(submission.stdout, /Submitted intake phase for approval/);
   assert.match(submission.stdout, /Generated documents ready for review/);
@@ -660,7 +665,7 @@ test('a composed prompt not yet published is recomposed once the documents its p
   assert.equal(uploaded.pendingPrompt, 'singularity/work-items/PENDING-1/context/intake-gen1.json');
   // next composes when the phase is offered documents, even with world-model grounding off.
   const next = flow(root, ['next']);
-  assert.match(next.stderr, /Recomposing intake generation 1: its supporting documents changed \(now offered DOC-001\)/);
+  assert.match(next.stderr, /Recomposing intake generation 1: supporting documents changed: now offered DOC-001/);
   assert.match(next.stdout, /## DOC-001 — Ledger notes[\s\S]*Show the ledger total before payment/);
   const receipt = JSON.parse(await readFile(path.join(context, 'intake-gen1.json'), 'utf8'));
   assert.deepEqual(receipt.supportingEvidence.map((entry) => entry.id), ['DOC-001']);

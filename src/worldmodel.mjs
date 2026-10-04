@@ -35,7 +35,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import {
-  changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
+  changedSnapshotPaths, expectedLegacyGroundingPlan, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
   resolveWorldModelSource, validateWorldModelDirectory, worldModelCommit, worldModelFreshness,
   worldModelSourceSnapshot
 } from './grounding.mjs';
@@ -535,8 +535,11 @@ export function resolveWorldModelViewIds(config, values, { label = 'World-model 
     );
   }
   const concrete = [...new Set(expanded)]
-    .filter((view) => !['auto', 'core'].includes(view))
-    .sort();
+    .filter((view) => !['auto', 'core'].includes(view));
+  // The first phase view is the primary full-tier view at standard depth. Sorting an explicit
+  // phase declaration here makes composition choose a different primary view than publication,
+  // which verifies the Story's pinned declaration in its original order. The `all` catalog is
+  // already sorted by configuredWorldModelViews; named selections retain the author's order.
   const invalid = concrete.filter((view) => view === 'all' || !WORLD_MODEL_VIEW_ID.test(view));
   if (invalid.length) {
     throw new SingularityFlowError(`${label} must contain concrete lower-case kebab-case or namespaced dot IDs: ${invalid.join(', ')}.`, {
@@ -4684,14 +4687,37 @@ async function compose(root, options, {
     }
     // A pending prompt is reused byte for byte, but not once the documents its phase is offered
     // have changed: it would hand the author documents since detached, or miss ones since added.
-    const drift = existing ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
+    const evidenceDrift = existing
+      ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
+    // A pending legacy prompt composed by an older build may have alphabetized explicit phase
+    // views. At standard depth that silently changes which view is full. Never reuse that pair
+    // after the pinned phase plan is resolved correctly; retain it in superseded history and
+    // compose a new pair before publication. Published generations are excluded above.
+    const recordedSelections = existing?.record?.requiredSelections;
+    const legacySelections = Array.isArray(recordedSelections)
+      && existing.record.groundingAvailability?.status !== 'unavailable'
+      && !recordedSelections.some((selection) => selection?.tier === 'registered-v4');
+    const expectedSelections = legacySelections
+      ? expectedLegacyGroundingPlan(definition, phase, agent).selections : null;
+    // Extra focused views are allowed. Recompose only when the immutable pending receipt lacks
+    // a selection the pinned phase actually requires, exactly as the publication verifier does.
+    const recordedIds = new Set(recordedSelections?.map(selectionId) ?? []);
+    const missingSelections = expectedSelections?.map(selectionId)
+      .filter((id) => !recordedIds.has(id)) ?? [];
+    const selectionDrift = missingSelections.length
+      ? `phase world-model selections are missing ${missingSelections.join(', ')} (recorded ${recordedSelections.map(selectionId).join(', ')})`
+      : null;
+    const drift = [
+      evidenceDrift ? `supporting documents changed: ${evidenceDrift}` : null,
+      selectionDrift ? `phase grounding plan changed: ${selectionDrift}` : null
+    ].filter(Boolean).join('; ') || null;
     if (drift && storyLockHeld && !renderOnly) {
       const moved = await supersedePromptGeneration(root, workflow, phase, expectedPrompt,
-        `supporting documents changed: ${drift}`);
-      console.error(`Recomposing ${phase.id} generation ${nextPhaseGeneration(phase)}: its supporting documents changed (${drift}). The earlier prompt is kept in ${moved.directory}.`);
+        drift);
+      console.error(`Recomposing ${phase.id} generation ${nextPhaseGeneration(phase)}: ${drift}. The earlier prompt is kept in ${moved.directory}. Review the authored artifact against the new prompt before publication.`);
       existing = null;
     } else if (drift) {
-      console.error(`Warning: the prompt composed for ${phase.id} generation ${nextPhaseGeneration(phase)} predates a change to its supporting documents (${drift}). Run singularity-flow wm compose --phase ${phase.id} to recompose it.`);
+      console.error(`Warning: the prompt composed for ${phase.id} generation ${nextPhaseGeneration(phase)} is out of date (${drift}). Run singularity-flow wm compose --phase ${phase.id} to recompose it, then review the authored artifact.`);
     }
     if (existing) {
       const existingDeliveryLifecycle = workflow.resolution?.worldModelHistoryPin?.status === 'active'

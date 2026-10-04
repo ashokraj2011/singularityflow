@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7377e3d8beb39ca85ce0bf418b56d3ab26484acc",
+  "sourceCommit": "7bd78148965d69881071ad1f6017558f0a063416",
   "topicCount": 75,
-  "contentSha256": "b344e7ac914105029727d26bd348dbacfc549482ef2815f4c4951f7ff2d4d8f2",
+  "contentSha256": "e4e919b874fdea0697e7760dd8d8af7615dfcdb26b6f3688cb0b115038bc076b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -88,8 +88,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 20,
-      "sha256": "ef1be25707e56448f9a87ecd9019e16739afa7daa3f3ee9990a8b25dfdaf8d46",
+      "version": 21,
+      "sha256": "97674c8eadf9698a2172e12497443531405b03a4160ea169a1239de6599ad2f6",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
@@ -536,8 +536,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 9,
-      "sha256": "007fe343f60239dc2116627d8d3a525180211ddc86d9458448457f7f06861641",
+      "version": 10,
+      "sha256": "59dcbe3ff01668978ff9a136c6f8ddfa22b2c846f889d8f1a472b18b633b6259",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

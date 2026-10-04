@@ -22,15 +22,26 @@ export async function phaseGroundingPreflight(root, config, workflow, phase, dra
     code: missing ? 'phase.grounding.required' : 'phase.grounding.not-ready',
     category: 'grounding', path: check.path, line: null, message
   }));
+  // An intact pending legacy prompt may carry the wrong tier from an older resolver. The
+  // composer can archive that pair and record a corrected one; the v4 doctor cannot diagnose it.
+  // Do not offer this route when another integrity error is present or the phase is published.
+  const pendingSelectionDrift = !missing
+    && workflow.phases?.[phase.id]?.status === 'in_progress'
+    && check.errors.length > 0
+    && check.errors.every((message) => /grounding composition omitted required selection '[^']+' for /.test(message));
   return {
     check,
     blockers,
     actions: blockers.length ? [{
       command: missing ? `singularity-flow wm compose --phase ${phase.id}`
-        : 'singularity-flow wm doctor --json',
+        : pendingSelectionDrift
+          ? `singularity-flow wm compose --phase ${phase.id} --work-id ${workflow.workItem.id}`
+          : 'singularity-flow wm doctor --json',
       skill: '/sf-worldmodel',
       detail: missing
         ? 'Compose the governed phase prompt, then rerun prepublish. No prompt has been recorded for this generation.'
+        : pendingSelectionDrift
+          ? 'Recompose the pending prompt from the pinned phase plan. Singularity Flow keeps the old pair in superseded history; review the authored artifact against the new prompt before publication.'
         : 'Inspect the grounding diagnostics before retrying. Preserve the saved generation prompt and receipt; '
           + 'rebuilding a World Model does not replace context already used for generation. '
           + 'Use governed recovery if a new generation is needed; never edit receipt hashes or freshness flags.'

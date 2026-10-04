@@ -312,14 +312,22 @@ export async function worldModelSourceSnapshot(root, definition = {}) {
   const scope = worldModelSourceScope(effectiveDefinition);
   const hash = createHash('sha256');
   hash.update(WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM).update('\0');
-  hash.update(JSON.stringify({ sourceRoots: scope.sourceRoots, sharedRoots: scope.sharedRoots })).update('\0');
+  hash.update(JSON.stringify({ sourceRoots: scope.sourceRoots, sharedRoots: scope.sharedRoots,
+    ...(effectiveDefinition.worldModel?.sourceHashExcludedRoots != null
+      || effectiveDefinition.worldModel?.testConfigurationPaths != null
+      ? { sourceHashExcludedRoots: scope.sourceHashExcludedRoots,
+        testConfigurationPaths: scope.testConfigurationPaths } : {}) })).update('\0');
   for (const entry of records) {
     hash.update(entry.path).update('\0').update(entry.status).update('\0')
       .update(entry.mode ?? '').update('\0').update(entry.objectId ?? '').update('\0');
   }
   return {
     algorithm: WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM,
-    scope: { sourceRoots: [...scope.sourceRoots], sharedRoots: [...scope.sharedRoots], all: scope.all },
+    scope: { sourceRoots: [...scope.sourceRoots], sharedRoots: [...scope.sharedRoots], all: scope.all,
+      ...(effectiveDefinition.worldModel?.sourceHashExcludedRoots != null
+        || effectiveDefinition.worldModel?.testConfigurationPaths != null
+        ? { sourceHashExcludedRoots: [...scope.sourceHashExcludedRoots],
+          testConfigurationPaths: [...scope.testConfigurationPaths] } : {}) },
     sha256: `sha256:${hash.digest('hex')}`,
     files: records
   };
@@ -1490,6 +1498,19 @@ async function verifyPersistedStoryGrounding(
   return { record: verified.record, pin };
 }
 
+/** One pinned legacy phase plan for both pending-prompt repair and publication verification. */
+export function expectedLegacyGroundingPlan(definition, phase, agent) {
+  return resolveGroundingPlan({
+    phase: phase.id,
+    phaseViews: phase.worldModel?.views ?? [],
+    agentViews: definition.agents?.[agent]?.worldModelViews ?? [],
+    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
+    depth: phase.worldModel?.depth ?? 'standard',
+    evidence: phase.worldModel?.evidence ?? false,
+    context: definition.worldModel?.context ?? {}
+  });
+}
+
 export async function verifyGroundingRecord(root, definition, workflow, phase, {
   generation = nextPhaseGeneration(phase),
   // A generation a later one of the same phase replaced. What it was composed from is still
@@ -1692,15 +1713,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   // Resolved with the same rule the composer used, from the same module. When these two disagreed
   // the verifier reported views as "omitted" that composition had correctly decided not to include.
-  const plan = resolveGroundingPlan({
-    phase: phase.id,
-    phaseViews: phase.worldModel?.views ?? [],
-    agentViews: definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [],
-    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
-    depth: phase.worldModel?.depth ?? 'standard',
-    evidence: phase.worldModel?.evidence ?? false,
-    context: definition.worldModel?.context ?? {}
-  });
+  const plan = expectedLegacyGroundingPlan(definition, phase, agent ?? record.agent);
   // The receipt, not today's mutable repository default, decides how historical grounding is
   // verified. Every v4 composition records this exact tier marker; changing configuration later
   // must not reinterpret an already published legacy-v3 generation.

@@ -16,9 +16,31 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 20
+version: 21
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
+
+## Source exclusions and test configuration
+
+For a delivery capability, **Map a capability** now has two optional path lists. **Separately hashed
+directories** accepts exact repository-relative directory prefixes (for
+example `generated` or `src/test/fixtures`). **Test configuration files** accepts exact file paths
+(for example `src/test/resources/application-test.yml`), not globs. The corresponding CLI mapping
+flags are `--source-hash-excluded-roots` and `--test-configuration-paths`; the capability editor
+supports the same fields. Review and activate the resulting `singularity/capabilities.yml` change
+before starting a Story that should use it. Existing Stories retain their pinned capability map.
+
+These paths leave the application-source fingerprint, but are **not ignored**. Explicit test-config
+files remain in World Model scanning when inside its source scope; other excluded-directory files
+leave that scan. A separate test-input fingerprint covers both lists and is checked when a quality command runs, when a code generation is
+submitted, and when the review is approved. An excluded directory can therefore reduce World Model
+scanning without making changed test inputs count as unchanged evidence. Do not put runtime source
+directories here merely to suppress a stale-model warning; the reviewer must inspect the exact map.
+
+The independent Story-intake choice between **Changed and affected tests** and **All configured
+tests** is described in [Story test policy and recovery](test-recovery.md). That choice requires an
+approved workflow with `testRecovery.enabled: true`; a capability path setting does not enable a
+test-risk waiver or change the selected test scope.
 
 An ordinary initialized repository needs no map: it resolves as the deterministic implicit
 `repository-root`, shown as **This repository**. Use `sflow capability show [PATH]` or `sflow why

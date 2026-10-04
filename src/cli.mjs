@@ -6649,7 +6649,7 @@ async function phaseReview(root, config, workflow, phase) {
     } : null,
     witnessReview,
     documents,
-    ...(await phaseAuthoringSummary(root, config, workflow, phase))
+    ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents }))
   };
 }
 
@@ -6660,7 +6660,7 @@ async function phaseReview(root, config, workflow, phase) {
  * reader acts on an unverified choice. `handoff` is what follows publishing the step, so it is
  * empty once the step is no longer in progress.
  */
-export async function phaseAuthoringSummary(root, config, workflow, phase) {
+export async function phaseAuthoringSummary(root, config, workflow, phase, { documents = null } = {}) {
   const route = authoringRoute(phase, workflow);
   const policy = await pinnedResolutionVerification(root, config, workflow);
   if (!policy.verified) {
@@ -6676,7 +6676,8 @@ export async function phaseAuthoringSummary(root, config, workflow, phase) {
     ...(route.authoringSkillWarning ? { authoringSkillWarning: route.authoringSkillWarning } : {}),
     policyVerified: true,
     handoff: phase.status === 'in_progress'
-      ? phaseHandoff(workflow, phase).map(({ skill, command, copilotCommand, reason }) => ({ skill, command, copilotCommand, reason }))
+      ? phaseHandoff(workflow, phase, documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 })
+        .map(({ skill, command, copilotCommand, reason, optional }) => ({ skill, command, copilotCommand, reason, ...(optional ? { optional } : {}) }))
       : []
   };
 }
@@ -6761,13 +6762,16 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
     }
   }
   const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
-  if (readable.length && !showArtifact) {
+  const viewRoute = review.handoff?.find((entry) => entry.optional && entry.skill === '/sf-phase-documents');
+  if (viewRoute && !showArtifact) {
+    console.log('');
+    printCommandRoutes(viewRoute, { label: style.action('View phase documents before submitting') });
+    if (readable.length) console.log(style.detail(`Add --show-artifact to print ${readable.length === 1 ? 'the document' : `all ${readable.length} documents`} here instead.`));
+  } else if (readable.length && !showArtifact) {
     console.log('');
     printCommandRoutes(`singularity-flow documents view <id> --work-id ${review.workId}`, { label: style.action('Read them') });
-    console.log(style.detail(`Add --show-artifact to print ${readable.length === 1 ? 'the document' : `all ${readable.length} documents`} here instead.`));
   }
 }
-
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
   const root = repoRoot();
@@ -13234,8 +13238,8 @@ function capabilityChanges(options) {
   // The list form, for a capability shipping from more than one. Empty clears it back to none.
   put('repositories', 'repositories', list);
   put('lead-repository', 'leadRepository', (value) => value || null);
-  put('source-roots', 'sourceRoots', list);
-  put('shared-roots', 'sharedRoots', list);
+  for (const [option, field] of [['source-roots', 'sourceRoots'], ['shared-roots', 'sharedRoots'],
+    ['source-hash-excluded-roots', 'sourceHashExcludedRoots'], ['test-configuration-paths', 'testConfigurationPaths']]) put(option, field, list);
   // Merged rather than replaced: `--doc runbook=...` adds or changes that one key and leaves the
   // rest, which is what editing a set of links means. Clearing one is `--doc runbook=`.
   for (const [option, field] of [
@@ -13502,8 +13506,8 @@ async function capabilityCommand(positionals, options) {
       // infrastructure differently. `--doc confluence=<url>`, `--resource aws=<arn>`.
       documentation: optionMap(optionStrings(options, 'doc'), 'Capability documentation'),
       resources: optionMap(optionStrings(options, 'resource'), 'Capability resources'),
-      sourceRoots: (optionString(options, 'source-roots') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
-      sharedRoots: (optionString(options, 'shared-roots') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      ...Object.fromEntries([['source-roots', 'sourceRoots'], ['shared-roots', 'sharedRoots'], ['source-hash-excluded-roots', 'sourceHashExcludedRoots'], ['test-configuration-paths', 'testConfigurationPaths']]
+        .map(([flag, field]) => [field, (optionString(options, flag) ?? '').split(',').map((item) => item.trim()).filter(Boolean)])),
       clone: options['clone-mode'] !== undefined || options['sparse-cone'] !== undefined
         || options['clone-fallback'] !== undefined ? {
           mode: optionString(options, 'clone-mode', 'full'),

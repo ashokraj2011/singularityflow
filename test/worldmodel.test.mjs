@@ -556,6 +556,35 @@ test('wm inject renders matched agent context and records the generation audit',
   await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
   await writeFile(promptPath, 'tampered prompt\n');
   assert.match((await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' })).errors.join('\n'), /prompt snapshot hash differs/);
+
+  // A prompt composed by the old alphabetizing resolver can be intact yet carry the wrong
+  // standard-depth tier. Recomposition archives the pending pair instead of reusing it or
+  // changing its receipt in place. The Story's pinned phase declaration remains authoritative.
+  await writeFile(promptPath, canonicalPrompt);
+  await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify({
+    ...freshAudit,
+    requiredSelections: [
+      { kind: 'core', tier: 'brief' },
+      { kind: 'view', view: 'security', tier: 'full' },
+      { kind: 'view', view: 'architecture', tier: 'brief' }
+    ]
+  }));
+  const tierRepair = await phaseGroundingPreflight(root, loadedDefinition, verificationWorkflow, phase, {
+    producer: 'governed-agent', ownership: { agent: 'developer', proven: true }, generation: 1
+  });
+  assert.ok(tierRepair.blockers.length > 0);
+  assert.equal(tierRepair.actions[0].command, 'singularity-flow wm compose --phase design --work-id WM-1');
+  const repaired = flow(['wm', 'compose', '--phase', 'design', '--work-id', 'WM-1'], root, { agent: 'developer' });
+  assert.match(repaired.stderr, /phase grounding plan changed/);
+  const repairedReceipt = JSON.parse(await readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'));
+  assert.deepEqual(repairedReceipt.requiredSelections.map((selection) => `${selection.view ?? 'core'}/${selection.tier}`), [
+    'core/brief', 'architecture/full', 'security/brief'
+  ]);
+  const archived = (await readdir(path.join(workDir, 'context/superseded')))
+    .find((entry) => entry.startsWith('design-gen1-'));
+  assert.ok(archived);
+  assert.match(JSON.parse(await readFile(path.join(workDir, 'context/superseded', archived, 'reason.json'), 'utf8')).reason,
+    /phase grounding plan changed/);
 });
 
 test('the packaged builder prompt contains only requested view and tier instructions', async () => {

@@ -113,7 +113,7 @@ export function workflowNextSteps(workflow, {
 
   const undecided = phase.status === 'awaiting_approval' ? applicabilityActions(workflow, phase) : [];
   let immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
-    undecided.length ? (index === 0 ? 'then' : 'alternative')
+    item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
     item.skill,
     item.command,

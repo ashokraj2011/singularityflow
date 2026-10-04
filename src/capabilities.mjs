@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from './source-scope.mjs';
+import { sourcePathPolicy } from './source-path-policy.mjs';
 import {
   exists, portableIdentifier, secureRepositoryPath, SingularityFlowError
 } from './util.mjs';
@@ -131,7 +132,9 @@ export function resolveExplicitCapability({
   }
   const normalizedScope = {
     sourceRoots: normalizeSourceRoots(sourceScope?.sourceRoots),
-    sharedRoots: normalizeSourceRoots(sourceScope?.sharedRoots)
+    sharedRoots: normalizeSourceRoots(sourceScope?.sharedRoots),
+    ...(sourceScope?.sourceHashExcludedRoots != null || sourceScope?.testConfigurationPaths != null
+      ? sourcePathPolicy(sourceScope) : {})
   };
   const exactDependencies = structuredClone(dependencies ?? []);
   const effectivePolicy = foldCapabilityPolicy({}, policy);
@@ -457,6 +460,7 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
 
   normalizeSourceRoots(capability.sourceRoots, `Capability '${id}'.sourceRoots`);
   normalizeSourceRoots(capability.sharedRoots, `Capability '${id}'.sharedRoots`);
+  sourcePathPolicy(capability);
 
   for (const field of MERGED_MAPS) validateCapabilityTextMap(id, field, capability[field]);
 
@@ -752,6 +756,9 @@ export function resolveCapabilitySourceScope(definition, capabilityId) {
   const pathIds = capabilityPath(definition, capabilityId);
   let sourceRoots = [];
   const sharedRoots = [];
+  const excludedRoots = new Set();
+  const testConfigurationPaths = new Set();
+  let hasPathPolicy = false;
   let configured = false;
   for (const id of pathIds) {
     const capability = capabilities[id];
@@ -762,9 +769,19 @@ export function resolveCapabilitySourceScope(definition, capabilityId) {
     for (const root of normalizeSourceRoots(capability.sharedRoots, `Capability '${id}'.sharedRoots`)) {
       if (!sharedRoots.includes(root)) sharedRoots.push(root);
     }
+    if (capability.sourceHashExcludedRoots != null || capability.testConfigurationPaths != null) {
+      const policy = sourcePathPolicy(capability);
+      policy.sourceHashExcludedRoots.forEach(root => excludedRoots.add(root));
+      policy.testConfigurationPaths.forEach(file => testConfigurationPaths.add(file));
+      hasPathPolicy = true;
+      configured = true;
+    }
   }
   return configured || sharedRoots.length
-    ? { sourceRoots: sourceRoots.sort(), sharedRoots: sharedRoots.sort() }
+    ? { sourceRoots: sourceRoots.sort(), sharedRoots: sharedRoots.sort(), ...(hasPathPolicy ? {
+      sourceHashExcludedRoots: [...excludedRoots].sort(),
+      testConfigurationPaths: [...testConfigurationPaths].sort()
+    } : {}) }
     : null;
 }
 
@@ -851,6 +868,7 @@ export function capabilityTree(definition) {
       leadRepository: capabilityLeadRepository(capability),
       sourceRoots: normalizeSourceRoots(capability.sourceRoots, `Capability '${id}'.sourceRoots`),
       sharedRoots: normalizeSourceRoots(capability.sharedRoots, `Capability '${id}'.sharedRoots`),
+      ...sourcePathPolicy(capability),
       metadata: capability.metadata ?? {},
       documentation: capability.documentation ?? {},
       resources: capability.resources ?? {},

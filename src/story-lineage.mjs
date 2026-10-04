@@ -8,7 +8,7 @@ import {
 } from './git.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
 import {
-  commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, workflowBranchAllowed,
+  commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, testInputTreeHash, workflowBranchAllowed,
   storyWelEnrollmentStatus, workflowPublicationBranch, workDir
 } from './state-stores.mjs';
 import {
@@ -446,6 +446,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     ...(skillEvidence ? { skill: skillEvidence } : {})
   };
   const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+  const testInputSha256 = await testInputTreeHash(root, config, workflow);
   if (submissionEvidence.codeDelivery?.autoCandidate) {
     const candidate = validateAutoCandidateBinding(
       submissionEvidence.codeDelivery.autoCandidate
@@ -477,6 +478,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     submissionCommit: submittedCommit,
     sourceCommit: submittedCommit,
     sourceTreeSha256,
+    ...(testInputSha256 ? { testInputSha256 } : {}),
     phase: phase.id,
     generation: phase.generation,
     authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' },

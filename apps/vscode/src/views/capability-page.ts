@@ -15,7 +15,8 @@ import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
 const FIELDS = [
-  'name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots', 'metadata',
+  'name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots',
+  'sourceHashExcludedRoots', 'testConfigurationPaths', 'metadata',
   'jira.projectKey', 'jira.board', 'teams', 'autoEligibility', 'autoProtectedScope',
   'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights'
 ] as const;
@@ -292,6 +293,16 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
       <input type="text" value="${escape(detail.sharedRoots.join(', '))}" data-field="sharedRoots"
         placeholder="libs/contracts, libs/platform">
       <small>Shared directories accumulate down the capability tree and remain in grounding.</small>
+    </label>
+    <label class="field span-2"><span>Separately hashed test-input directories</span>
+      <input type="text" value="${escape(detail.sourceHashExcludedRoots.join(', '))}" data-field="sourceHashExcludedRoots"
+        placeholder="generated, test/fixtures">
+      <small>Excluded from the application-source and World Model hashes, but independently fingerprinted so changed inputs invalidate test evidence.</small>
+    </label>
+    <label class="field span-2"><span>Test configuration files</span>
+      <input type="text" value="${escape(detail.testConfigurationPaths.join(', '))}" data-field="testConfigurationPaths"
+        placeholder="src/test/resources/application-test.yml">
+      <small>Exact files, not globs. Their separate fingerprint is checked at publication, submission and approval.</small>
     </label>
   </div>
 

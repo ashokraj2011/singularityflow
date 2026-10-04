@@ -286,6 +286,11 @@ test('wm build --format registered-v4 works against the packaged legacy-v3 catal
   assert.notEqual(definition.worldModel.format, 'registered-v4');
   assert.ok(definition.worldModel.views.includes('business'));
 
+  const legacyDoctor = await quiet(() => worldModelCommand(root, ['wm', 'doctor'], { json: true }));
+  assert.equal(legacyDoctor.status, 'not-applicable');
+  assert.equal(legacyDoctor.format, 'legacy-v3');
+  assert.equal(legacyDoctor.next.command, 'singularity-flow wm status --json');
+
   const planned = await quiet(() => worldModelCommand(root, ['wm', 'plan'], {
     format: 'registered-v4', json: true
   }));

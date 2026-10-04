@@ -355,7 +355,8 @@ function promptSha256(value) {
 }
 
 /**
- * Set a pending prompt pair aside so its generation can be composed again from changed inputs.
+ * Set a pending prompt pair aside so its generation can be composed again from changed inputs,
+ * including supporting documents or the pinned phase's resolved grounding selections.
  * Only the pair for the generation after the last published one is pending: no publication,
  * approval or receipt has consumed it yet. The pair is kept in the Story under
  * `context/superseded/` with the reason, so what was replaced stays visible.

@@ -328,7 +328,8 @@ function validateCapabilityMapRequest(input) {
 
   for (const [field, value] of Object.entries({
     repositoryUrls: input.repositoryUrls, sourceRoots: input.sourceRoots,
-    sharedRoots: input.sharedRoots, teams: input.teams,
+    sharedRoots: input.sharedRoots, sourceHashExcludedRoots: input.sourceHashExcludedRoots,
+    testConfigurationPaths: input.testConfigurationPaths, teams: input.teams,
     sparseCone: input.clone?.sparseCone ?? []
   })) {
     if (!Array.isArray(value)) {
@@ -3537,6 +3538,8 @@ export async function mapCapability(leadUrl, {
   resources = {},
   sourceRoots = [],
   sharedRoots = [],
+  sourceHashExcludedRoots = [],
+  testConfigurationPaths = [],
   clone = null,
   jiraProject = null,
   teams = [],
@@ -3580,6 +3583,7 @@ export async function mapCapability(leadUrl, {
   validateCapabilityMapRequest({
     leadUrl, capabilityId, name, kind, type, parent, repositoryUrl, repositoryUrls,
     leadRepositoryUrl, metadata, documentation, resources, sourceRoots, sharedRoots,
+    sourceHashExcludedRoots, testConfigurationPaths,
     clone, jiraProject, teams
   });
   // Capture caller authorship before the enterprise environment below intentionally isolates Git
@@ -3800,6 +3804,12 @@ export async function mapCapability(leadUrl, {
       if (sharedRoots.length
           && canonicalJson(normalizeSourceRoots(existingCapability.sharedRoots ?? []))
             !== canonicalJson(normalizeSourceRoots(sharedRoots))) differences.push('sharedRoots');
+      if (sourceHashExcludedRoots.length
+          && canonicalJson(existingCapability.sourceHashExcludedRoots ?? [])
+            !== canonicalJson([...sourceHashExcludedRoots].sort())) differences.push('sourceHashExcludedRoots');
+      if (testConfigurationPaths.length
+          && canonicalJson(existingCapability.testConfigurationPaths ?? [])
+            !== canonicalJson([...testConfigurationPaths].sort())) differences.push('testConfigurationPaths');
       if (jiraProject != null && existingCapability.jira?.projectKey !== jiraProject) {
         differences.push('jira.projectKey');
       }
@@ -3911,6 +3921,8 @@ export async function mapCapability(leadUrl, {
     if (Object.keys(resources).length) set('resources', resources);
     if (sourceRoots.length) set('sourceRoots', sourceRoots);
     if (sharedRoots.length) set('sharedRoots', sharedRoots);
+    if (sourceHashExcludedRoots.length) set('sourceHashExcludedRoots', sourceHashExcludedRoots);
+    if (testConfigurationPaths.length) set('testConfigurationPaths', testConfigurationPaths);
     if (jiraProject) set('jira.projectKey', jiraProject);
     if (teams.length) set('teams', teams);
 

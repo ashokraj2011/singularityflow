@@ -1,12 +1,14 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 
 /** A native reporter is required for exact Node identities: ordinary TAP omits passing files. */
 export function nodeTestReporterEnvironment(environment, root, { argv = [], cwd = root } = {}) {
   const env = { ...environment };
   delete env.NODE_TEST_CONTEXT;
   env.SINGULARITY_FLOW_NODE_TEST_ROOT = root;
-  const reporter = new URL('./node-test-reporter.mjs', import.meta.url).href;
+  const reporter = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'node-test-reporter.mjs')).href;
   let options = argv.slice(1).join(' ');
   if (/^(?:npm|pnpm|yarn)(?:\.cmd|\.exe)?$/iu.test(path.basename(argv[0] ?? ''))) {
     const script = argv[1] === 'run' || argv[1] === 'run-script' ? argv[2] : argv[1];

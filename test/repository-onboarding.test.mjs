@@ -2195,6 +2195,66 @@ test('an existing configuration setup proposal activates only from its exact bas
   }
 });
 
+test('a setup proposal may carry the approved package baseline unchanged, but never rewrite it', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  const baseline = 'singularity/.product/configuration-baseline.yml';
+  const commitOn = async (branch, directory, content, message, { amend = false, extra = {} } = {}) => {
+    const clone = path.join(fixture.base, directory);
+    run('git', ['clone', '-q', '--branch', branch, fixture.remote, clone], { cwd: fixture.base });
+    run('git', ['config', 'user.name', 'Configuration Refresh'], { cwd: clone });
+    run('git', ['config', 'user.email', 'refresh@example.test'], { cwd: clone });
+    for (const [relative, bytes] of Object.entries({ [baseline]: content, ...extra })) {
+      await mkdir(path.dirname(path.join(clone, relative)), { recursive: true });
+      await writeFile(path.join(clone, relative), bytes);
+      run('git', ['add', relative], { cwd: clone });
+    }
+    run('git', ['commit', '-q', ...(amend ? ['--amend'] : []), '-m', message], { cwd: clone });
+    run('git', ['push', '-q', '--force', fixture.remote, `HEAD:refs/heads/${branch}`], { cwd: clone });
+    return run('git', ['rev-parse', 'HEAD'], { cwd: clone }).stdout.trim();
+  };
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    // Configuration refresh records which files the framework owns on the approved branch itself.
+    const approvedBaseline = 'format: singularity-flow-configuration-baseline/v1\nproduct:\n  version: 0.9.0\n';
+    await commitOn(CONFIGURATION_BRANCH, 'refresh', approvedBaseline, '[configuration] refresh packaged configuration');
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: plan.planId
+    });
+    assert.equal(applied.status, 'configuration-review-required');
+    const carried = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.deepEqual(carried.invalidFiles, [], 'the inherited baseline is not "non-configuration work"');
+    assert.equal(carried.valid, true);
+
+    // Rewriting it would let the proposal claim files as framework-owned: refused, by name.
+    // Amended, so the proposal keeps its approved parent and only the baseline differs.
+    await commitOn(applied.proposal.branch, 'rewriter', 'format: singularity-flow-configuration-baseline/v1\nclaimed:\n  - src/app.mjs\n', '[configuration] recreate repository setup', { amend: true });
+    const rewritten = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.equal(rewritten.valid, false);
+    assert.ok(rewritten.invalidFiles.includes(baseline));
+    assert.match(rewritten.failure.message, /adds or rewrites singularity\/\.product\/configuration-baseline\.yml/);
+
+    // Any other file that is not configuration is named too, instead of "invalid work".
+    await commitOn(applied.proposal.branch, 'stray', approvedBaseline, '[configuration] recreate repository setup',
+      { amend: true, extra: { 'README.md': '# Unrelated work\n' } });
+    const stray = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.deepEqual(stray.invalidFiles, ['README.md']);
+    assert.equal(stray.failure.message, 'The proposal contains files that are not configuration: README.md.');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test('an advanced configuration target blocks a stale setup proposal', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;

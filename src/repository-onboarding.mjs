@@ -76,6 +76,10 @@ const CURRENT_WORKFLOW_FORMAT_VERSION = 2;
 const STATE_BRANCH_DEFAULT = 'state';
 const CONFIGURATION_REF = `refs/heads/${CONFIGURATION_BRANCH}`;
 const CONFIGURATION_RECOVERY_RECEIPT = 'singularity/.product/configuration-recovery.json';
+// Configuration refresh's record of which files the framework owns (workspace-configuration-refresh.mjs).
+// Only refresh writes it: a setup proposal may carry its approved parent's copy unchanged, or drop
+// it, but never add or rewrite one, which would let the proposal claim files as framework-owned.
+const PACKAGE_CONFIGURATION_BASELINE = 'singularity/.product/configuration-baseline.yml';
 const LEDGER_HEAD_PATH = 'ledger/head.json';
 const ONBOARDING_REVIEW_PREFIX = 'sflow/config-change/onboarding/';
 const STATE_MARKER_MAX_BYTES = 256 * 1024;
@@ -3123,6 +3127,20 @@ function setupProposalFailure(code, message) {
   return Object.freeze({ code, message });
 }
 
+/** Why a setup proposal is invalid, naming the files when files are the reason. */
+function setupProposalInvalidReason({ invalidFiles = [], changedFiles = null } = {}) {
+  if (invalidFiles.includes(PACKAGE_CONFIGURATION_BASELINE)) {
+    return `The proposal adds or rewrites ${PACKAGE_CONFIGURATION_BASELINE}, the record of framework-owned files that only configuration refresh writes.`;
+  }
+  if (invalidFiles.length) {
+    const shown = invalidFiles.slice(0, 5).join(', ');
+    return `The proposal contains files that are not configuration: ${shown}${invalidFiles.length > 5 ? ` and ${invalidFiles.length - 5} more` : ''}.`;
+  }
+  if (changedFiles == null) return 'The proposal\'s changes could not be read.';
+  if (!changedFiles.length) return 'The proposal changes nothing.';
+  return 'The proposal contains invalid or non-configuration work.';
+}
+
 function setupProposalChangedFiles(root, base, env) {
   const args = base
     ? ['diff-tree', '--no-commit-id', '--no-renames', '--name-status', '-r', base, 'HEAD']
@@ -3168,19 +3186,25 @@ async function inspectSetupProposalSnapshot(remote, branch, expectedCommit, targ
     const tree = run('git', [
       'ls-tree', '-r', '-z', '--format=%(objectmode) %(path)', 'HEAD'
     ], { cwd: root, env: gitEnv }).stdout.split('\0').filter(Boolean);
+    // The approved parent's baseline, carried unchanged, is configuration the proposal inherits.
+    const baselineInherited = proposalBase != null && !(changedFiles ?? [])
+      .some((changed) => changed.paths.includes(PACKAGE_CONFIGURATION_BASELINE));
     const invalidFiles = tree.flatMap((line) => {
       const separator = line.indexOf(' ');
       const mode = line.slice(0, separator);
       const file = line.slice(separator + 1);
       return (mode === '100644' || mode === '100755')
           && (isConfigurationAsset(file, policy)
-            || file === CONFIGURATION_RECOVERY_RECEIPT)
+            || file === CONFIGURATION_RECOVERY_RECEIPT
+            || (file === PACKAGE_CONFIGURATION_BASELINE && baselineInherited))
         ? [] : [file];
     });
     for (const changed of changedFiles ?? []) {
       for (const file of changed.paths) {
         if (!isConfigurationAsset(file, policy)
-            && !(rootProposal && file === CONFIGURATION_RECOVERY_RECEIPT)) {
+            && !(rootProposal && file === CONFIGURATION_RECOVERY_RECEIPT)
+            && !(file === PACKAGE_CONFIGURATION_BASELINE && changed.status === 'D')
+            && !invalidFiles.includes(file)) {
           invalidFiles.push(file);
         }
       }
@@ -3246,7 +3270,7 @@ async function inspectSetupProposalSnapshot(remote, branch, expectedCommit, targ
         ? 'The source refs no longer match the confirmed setup plan, or its source receipt cannot be verified.'
         : status === 'stale-target'
           ? 'The approved configuration changed after this proposal was created.'
-          : configurationError ?? 'The proposal contains invalid or non-configuration work.'
+          : configurationError ?? setupProposalInvalidReason({ invalidFiles, changedFiles })
     );
     let diff = null;
     if (includeDiff && changedFiles != null) {

@@ -53,14 +53,18 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.deepEqual(navigator.map((entry) => [entry.command, entry.group.split('@')[0]]), [
     ['singularityFlow.openChangeExplorer', 'navigation'],
     ['singularityFlow.openCodeExplanation', '1_explain'],
-    ['singularityFlow.openComprehensionCenter', '1_explain']
+    ['singularityFlow.openComprehensionCenter', '1_explain'],
+    ['singularityFlow.refreshCapability', '2_maintain']
   ]);
   assert.equal((menus['editor/context'] ?? []).some((entry) => entry.command), false,
     'every Singularity Flow editor action lives in its one submenu');
 
   // Outside a governed repository none of this appears; inside one, every entry is gated the same way.
+  // Refresh Capability is the exception on purpose: with no repository open it offers the
+  // registered workspaces, which is when a person most needs it.
+  const repositoryFree = new Set(['singularityFlow.refreshCapability']);
   for (const menu of ['editor/context', 'explorer/context', 'editor/title', 'scm/title', 'scm/resourceState/context', 'view/title']) {
-    for (const entry of menus[menu] ?? []) {
+    for (const entry of (menus[menu] ?? []).filter((item) => !repositoryFree.has(item.command))) {
       assert.match(entry.when ?? '', new RegExp(`\\b${REPOSITORY.replace('.', '\\.')}\\b`), `${menu}: ${entry.command ?? entry.submenu}`);
     }
   }

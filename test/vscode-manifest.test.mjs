@@ -277,7 +277,10 @@ test('every command hidden from the palette is reachable or an explicit compatib
     ...[...source.matchAll(/executeCommand\(\s*'(singularityFlow\.[\w.]+)'/g)].map((match) => match[1])
   ]);
   // Hidden aliases may remain callable for old keybindings without occupying current navigation.
-  const compatibilityAliases = new Set(['singularityFlow.openDeveloperHome']);
+  // The retired Workflow Designer and Configure Templates & Instructions open Workflow Studio.
+  const compatibilityAliases = new Set([
+    'singularityFlow.openDeveloperHome', 'singularityFlow.openDesigner', 'singularityFlow.configureTemplates'
+  ]);
   const orphaned = hidden.filter((command) => !reachable.has(command) && !compatibilityAliases.has(command));
   assert.deepEqual(orphaned, []);
 });

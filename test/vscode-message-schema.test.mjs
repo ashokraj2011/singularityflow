@@ -30,8 +30,10 @@ const messages = await import(path.join(views, 'views', 'messages.ts'));
  * migrating one — what the ratchet counts is how many hand-rolled handlers are still reachable, and
  * a deleted one is not. Worth saying because the two reasons look identical in the number and are
  * not the same news: this one closed a surface rather than improving it.
+ *
+ * 10 → 9 when the Workflow Designer (`designer.ts`) was retired: Workflow Studio does what it did.
  */
-const UNMIGRATED_MESSAGE_HANDLERS = 10;
+const UNMIGRATED_MESSAGE_HANDLERS = 9;
 
 async function sources(dir) {
   const entries = await readdir(dir, { withFileTypes: true });

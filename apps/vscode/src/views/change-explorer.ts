@@ -398,6 +398,22 @@ function columnHtml(view: Xpl2Explanation, key: string, column: Column): string 
   return `<div class="xpl-column" data-column-key="${key}" role="list" aria-label="${escape(column.title)}"><h3>${escape(column.title)}</h3>${visible.map((node, index) => nodeButton(view, node, key, index)).join('')}${cluster}${empty}</div>`;
 }
 
+/**
+ * The clauses a changed file declares itself: its own `@clause` comments, or, for a changed test,
+ * its `@ac` tags. Null when it declares none. Shown in place of "reason not recorded".
+ */
+function declaredTags(view: Xpl2Explanation, fileId: string): string | null {
+  const label = (id: string) => view.nodes.find((node) => node.id === id)?.label ?? id;
+  const list = (kind: string, ids: string[]) => {
+    const unique = [...new Set(ids.map(label))];
+    return unique.length ? `${kind} ${unique.slice(0, 2).join(', ')}${unique.length > 2 ? ` +${unique.length - 2}` : ''}` : null;
+  };
+  const clauses = view.relationships.filter((edge) => edge.type === 'source-tags-clause' && edge.from === fileId).map((edge) => edge.to);
+  const tests = view.relationships.filter((edge) => edge.type === 'test-source-in-change' && edge.to === fileId).map((edge) => edge.from);
+  const criteria = view.relationships.filter((edge) => edge.type === 'test-source-tags-clause' && tests.includes(edge.from)).map((edge) => edge.to);
+  return list('@clause', clauses) ?? list('@ac', criteria);
+}
+
 function relationshipSentence(view: Xpl2Explanation, edge: Xpl2Relationship): string {
   const from = view.nodes.find((node) => node.id === edge.from)?.label ?? edge.from;
   const to = view.nodes.find((node) => node.id === edge.to)?.label ?? edge.to;
@@ -526,9 +542,10 @@ function inventoryRail(view: Xpl2Explanation, audience: ExplorerAudience): strin
     <label class="xpl-search-label" for="xpl-search">Find a changed file</label>
     <input id="xpl-search" type="search" placeholder="Search captured files…" autocomplete="off" spellcheck="false">
     <ul class="xpl-files" id="xpl-files">${files.map((file) => {
-      const status = file.opaque && !file.hunks ? 'opaque resource'
+      const shape = file.opaque && !file.hunks ? 'opaque resource'
         : view.relationships.some((edge) => edge.type === 'region-associated-with-clause' && edge.to === file.fileId) ? 'region association'
-          : 'reason not recorded';
+          : null;
+      const status = [shape, declaredTags(view, file.fileId)].filter(Boolean).join(' · ') || 'reason not recorded';
       return `<li data-path="${escape(file.path.toLowerCase())}"><button type="button" class="xpl-file" data-node="${escape(file.fileId)}"><span class="xpl-op" aria-label="${escape(file.operation)}">${escape(file.operation.slice(0, 1).toUpperCase())}</span><span><strong>${escape(file.path)}</strong><span class="xpl-sub">${fileKindLabels(file).map((label) => `${escape(label)} · `).join('')}${file.hunks ? `${file.hunks} text hunk${file.hunks === 1 ? '' : 's'}` : ''}${file.hunks && file.opaque ? ' · ' : ''}${file.opaque ? `${file.opaque} opaque` : ''} · ${escape(status)}</span></span></button></li>`;
     }).join('')}</ul>
     <p class="xpl-note" id="xpl-filter-note" hidden>Filtering changes this list, not the evidence set.</p>

@@ -14,6 +14,7 @@ import { readStoryClauseSources } from '../src/comprehension/xpl2/clause-sources
 import { patchAddedLines, readChangeSourceTags } from '../src/comprehension/xpl2/source-tags.mjs';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import { cliJson, comprehensionSlice, createChangeRepository, isolatedHome, xpl2InputFor } from './helpers/xpl2-fixture.mjs';
+import { attribute, mapBlock, renderExplorer } from './helpers/xpl2-html.mjs';
 
 const CART_BEFORE = [
   '// @clause:OLD-1:REQ-001 keeps the legacy rounding rule',
@@ -135,4 +136,20 @@ test('a clause\'s specification text links it to the clauses it names, across ar
   assert.ok(asked.selection.nodes.includes('clause:FIX-1:IFC-001'));
   assert.ok(asked.statements.filter((entry) => asked.selection.statements.includes(entry.id))
     .some((entry) => entry.kind === 'clause-cites'));
+});
+
+test('the Change Explorer draws tag and citation links and names a file\'s own tags instead of a missing reason', async (t) => {
+  const { root } = await taggedChange(t);
+  const slice = await comprehensionSlice(root);
+  const view = slice.explanationView;
+  const html = renderExplorer(view, { patch: slice.diff.patch, patchFiles: slice.diff.files });
+  const rail = (file) => html.match(new RegExp(`<strong>${file.replaceAll('.', '\\.')}</strong><span class="xpl-sub">([^<]*)</span>`, 'u'))?.[1];
+  assert.match(rail('src/cart.js'), /@clause FIX-1:REQ-001$/u);
+  assert.match(rail('src/discount.js'), /opaque resource · @clause FIX-1:REQ-002$/u, 'a new file keeps saying its content is not projected');
+  assert.match(rail('test/cart.test.js'), /@ac FIX-1:AC-001$/u);
+  const edges = JSON.parse(attribute(html, 'data-edges'));
+  assert.ok(edges.some((edge) => edge.style === 'proposed' && edge.toNode === 'clause:FIX-1:REQ-001'), 'a declared @clause tag is drawn');
+  // Tagged files sit in the Changed code column, linked, not under "Also changed".
+  assert.match(mapBlock(html), /data-column="code"[^>]*>[\s\S]*?src\/cart\.js/u);
+  assert.match(html, /Declared tag \(@clause in code, @ac in tests\)/u);
 });

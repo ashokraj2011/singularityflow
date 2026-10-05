@@ -249,15 +249,15 @@ export const CX_STYLE = `
   .cx-repo-summary strong { color: var(--cx-text); }
   .cx-repo h3 { margin: 0 0 .4rem; font-family: var(--cx-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--cx-dim); }
   .cx-repo-entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; }
-  .cx-repo-entry { text-align: left; display: grid; gap: .15rem; padding: .5rem .65rem; border: 1px solid var(--cx-line); border-radius: 6px; background: transparent; color: var(--cx-text); cursor: pointer; font: inherit; }
-  .cx-repo-entry:hover, .cx-repo-entry:focus-visible { border-color: var(--cx-accent, var(--vscode-focusBorder)); }
+  #cx-root .cx-repo-entry { text-align: left; display: grid; justify-content: stretch; gap: .15rem; padding: .5rem .65rem; border: 1px solid var(--cx-line); border-radius: 6px; background: transparent; color: var(--cx-text); cursor: pointer; }
+  #cx-root .cx-repo-entry:hover, #cx-root .cx-repo-entry:focus-visible { border-color: var(--cx-changed); }
   .cx-repo-entry small { color: var(--cx-dim); font-size: 11px; }
   .cx-repo-file { display: grid; gap: .2rem; padding: .45rem 0; border-top: 1px solid var(--cx-line); }
   .cx-repo-file .head { display: flex; gap: .5rem; align-items: baseline; font-family: var(--cx-mono); font-size: 12px; }
   .cx-repo-file .head small { color: var(--cx-dim); font-family: inherit; }
   .cx-repo-syms { display: flex; flex-wrap: wrap; gap: .3rem; }
-  .cx-repo-sym { font-family: var(--cx-mono); font-size: 11.5px; border: 1px solid var(--cx-line); border-radius: 4px; padding: .05rem .4rem; background: transparent; color: var(--cx-text); cursor: pointer; }
-  .cx-repo-sym:hover, .cx-repo-sym:focus-visible { border-color: var(--cx-accent, var(--vscode-focusBorder)); }
+  #cx-root .cx-repo-sym { font-family: var(--cx-mono); font-size: 11.5px; border: 1px solid var(--cx-line); border-radius: 4px; padding: .1rem .45rem; background: transparent; color: var(--cx-text); cursor: pointer; }
+  #cx-root .cx-repo-sym:hover, #cx-root .cx-repo-sym:focus-visible { border-color: var(--cx-changed); }
   .cx-repo-tag { font-size: 11.5px; color: var(--cx-dim); }
   .cx-trace-summary { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; align-items: center; padding: .55rem .9rem; border-bottom: 1px solid var(--cx-line); font-family: var(--cx-mono); font-size: 11.5px; color: var(--cx-dim); }
   .cx-trace-summary strong { color: var(--cx-text); }

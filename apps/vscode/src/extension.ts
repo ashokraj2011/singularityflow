@@ -909,6 +909,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
+    'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
@@ -7323,6 +7324,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { ComprehensionCenterPanel } = lazyPanels();
     return ComprehensionCenterPanel.show(context, store, client, { tab: 'explorer', focus });
   };
+  // The Code Explainer at the cursor: the function there, its callers and callees, and how the
+  // change touches them. A file outside the governed repository is refused in the same words.
+  const showCodeExplainer = async (atCursor: boolean): Promise<unknown> => {
+    await reconcileActiveWorkspaceSelection();
+    const { CodeExplainerPanel } = lazyPanels();
+    // The gate count is the status bar's, from the same derivation, for the same repository and Story.
+    const services = {
+      gates: () => {
+        const active = activeRepositoryContext();
+        const workId = store.current.snapshot?.workflow?.workItem.id ?? null;
+        return active && statusChromeCache && statusChromeCache.repository === path.resolve(active.root)
+          && statusChromeCache.workId === workId ? statusChromeCache.value.gates ?? null : null;
+      }
+    };
+    if (!atCursor) return CodeExplainerPanel.show(context, store, client, { services });
+    const focus = await explainFocusRequest(undefined, true);
+    if (!focus) return undefined;
+    return CodeExplainerPanel.show(context, store, client, { focus: { path: focus.path, line: focus.line }, services });
+  };
 
   // What a person reviews before a configuration change (a proposal's diff, an import plan) opens
   // read-only and memory-backed, so reviewing leaves nothing to save. The name's extension picks the
@@ -7880,6 +7900,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // "Explain This Change" also passes the cursor line.
     'singularityFlow.explainFileChanges': ((argument?: unknown) => showChangeExplorerFocused(argument, false)) as never,
     'singularityFlow.explainChangeAtCursor': () => showChangeExplorerFocused(undefined, true),
+    'singularityFlow.openCodeExplainer': () => showCodeExplainer(false),
+    'singularityFlow.explainCodeAtCursor': () => showCodeExplainer(true),
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();
       const { showSgosWorkflowCreator } = lazyPanels();

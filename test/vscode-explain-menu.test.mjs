@@ -38,8 +38,8 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.match(placed('explorer/context', 'singularityFlow.explorerMenu').when, /!explorerResourceIsFolder/,
     'right-click a file in the Explorer; a folder has no single file to explain');
   assert.deepEqual(menus['singularityFlow.editorMenu'].map((entry) => entry.command), [
-    'singularityFlow.explainChangeAtCursor', 'singularityFlow.explainFileChanges',
-    'singularityFlow.openChangeExplorer', 'singularityFlow.openCodeExplanation',
+    'singularityFlow.explainCodeAtCursor', 'singularityFlow.explainChangeAtCursor', 'singularityFlow.explainFileChanges',
+    'singularityFlow.openCodeExplainer', 'singularityFlow.openChangeExplorer', 'singularityFlow.openCodeExplanation',
     'singularityFlow.previewSelectedImpact'
   ]);
   assert.deepEqual(menus['singularityFlow.explorerMenu'].map((entry) => entry.command), [
@@ -48,10 +48,12 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.equal(placed('editor/title', 'singularityFlow.explainFileChanges').group.split('@')[0], 'navigation',
     'the editor title shows it as a button, not in the overflow');
   assert.ok(placed('scm/title', 'singularityFlow.openChangeExplorer'));
+  assert.ok(placed('scm/title', 'singularityFlow.openCodeExplainer'), 'the Code Explainer sits beside the Change Explorer in Source Control');
   assert.ok(placed('scm/resourceState/context', 'singularityFlow.explainFileChanges'), 'right-click a changed file');
   const navigator = (menus['view/title'] ?? []).filter((entry) => /view == singularityFlow\.navigation\b/.test(entry.when));
   assert.deepEqual(navigator.map((entry) => [entry.command, entry.group.split('@')[0]]), [
     ['singularityFlow.openChangeExplorer', 'navigation'],
+    ['singularityFlow.openCodeExplainer', 'navigation'],
     ['singularityFlow.openCodeExplanation', '1_explain'],
     ['singularityFlow.openComprehensionCenter', '1_explain'],
     ['singularityFlow.refreshCapability', '2_maintain']
@@ -78,15 +80,22 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   }
   assert.equal(commandTitles.get('singularityFlow.explainChangeAtCursor').title, 'Explain This Change');
   assert.equal(commandTitles.get('singularityFlow.explainFileChanges').title, 'Explain Changes in This File');
+  assert.equal(commandTitles.get('singularityFlow.explainCodeAtCursor').title, 'Explain This Code');
+  assert.equal(commandTitles.get('singularityFlow.openCodeExplainer').title, 'Code Explainer');
+  assert.equal((menus.commandPalette ?? []).find((entry) => entry.command === 'singularityFlow.explainCodeAtCursor')?.when,
+    `${REPOSITORY} && resourceScheme == file`, 'the palette offers the cursor command only with a file open in a governed repository');
 
-  // The sidebar puts it in Work, where the change is, instead of at the bottom of Help.
+  // The sidebar puts it in Work tools, where the change is, instead of at the bottom of Help.
   const sidebar = await readFile(path.join(root, 'apps/vscode/src/views/sidebar.ts'), 'utf8');
-  const work = sidebar.slice(sidebar.indexOf('  lifecycle: {'), sidebar.indexOf('  configuration: {'));
-  assert.match(work, /links: \[[^\]]*\{ id: 'change-explorer', label: 'Explain changes'/);
-  assert.match(work, /more: \[[^\]]*'code-explanation'[^\]]*'comprehension-center'/);
-  const help = sidebar.slice(sidebar.indexOf('  help: {'), sidebar.indexOf('  logs: {'));
-  assert.doesNotMatch(help, /change-explorer|comprehension-center/);
+  const group = (id) => sidebar.match(new RegExp(`'${id}': \\{ title: '[^']+', ids: \\[([^\\]]*)\\]`))?.[1] ?? '';
+  assert.match(group('work-tools'), /'understand-changes'/);
+  assert.deepEqual([...group('understand-changes').matchAll(/'([^']+)'/g)].map((match) => match[1]),
+    ['change-explorer', 'code-explainer', 'code-explanation', 'comprehension-center']);
+  assert.doesNotMatch(group('help-tools'), /change-explorer|code-explainer|comprehension-center/);
   assert.match(sidebar, /'code-explanation': 'singularityFlow\.openCodeExplanation'/);
+  assert.match(sidebar, /'code-explainer': 'singularityFlow\.openCodeExplainer'/);
+  assert.match(sidebar, /\{ id: 'code-explainer', label: 'Code Explainer', description: [^}]*command: ACTION_COMMANDS\['code-explainer'\]! \}/,
+    'the Code Explainer can be pinned to Favorites');
   assert.match(sidebar, /\{ id: 'change-explorer', label: 'Explain changes', description: [^}]*command: ACTION_COMMANDS\['change-explorer'\]! \}/,
     'it can be pinned to Favorites');
 });

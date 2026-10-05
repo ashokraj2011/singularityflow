@@ -730,6 +730,12 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "singularityFlow.openCodeExplainer",
+        "category": "Singularity Flow",
+        "title": "Code Explainer",
+        "icon": "$(type-hierarchy)"
+      },
+      {
         "command": "singularityFlow.openCodeExplanation",
         "category": "Singularity Flow",
         "title": "Code Explanation",
@@ -745,6 +751,12 @@
         "command": "singularityFlow.explainChangeAtCursor",
         "category": "Singularity Flow",
         "title": "Explain This Change"
+      },
+      {
+        "command": "singularityFlow.explainCodeAtCursor",
+        "category": "Singularity Flow",
+        "title": "Explain This Code",
+        "icon": "$(symbol-method)"
       },
       {
         "command": "singularityFlow.openComprehensionCenter",
@@ -828,12 +840,20 @@
       ],
       "singularityFlow.editorMenu": [
         {
+          "command": "singularityFlow.explainCodeAtCursor",
+          "group": "1_explain@0"
+        },
+        {
           "command": "singularityFlow.explainChangeAtCursor",
           "group": "1_explain@1"
         },
         {
           "command": "singularityFlow.explainFileChanges",
           "group": "1_explain@2"
+        },
+        {
+          "command": "singularityFlow.openCodeExplainer",
+          "group": "2_views@0"
         },
         {
           "command": "singularityFlow.openChangeExplorer",
@@ -877,6 +897,11 @@
           "command": "singularityFlow.openChangeExplorer",
           "when": "singularityFlow.repositoryActive && scmProvider == git",
           "group": "navigation@90"
+        },
+        {
+          "command": "singularityFlow.openCodeExplainer",
+          "when": "singularityFlow.repositoryActive && scmProvider == git",
+          "group": "navigation@91"
         }
       ],
       "scm/resourceState/context": [
@@ -891,6 +916,11 @@
           "command": "singularityFlow.openChangeExplorer",
           "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
           "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.openCodeExplainer",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "group": "navigation@2"
         },
         {
           "command": "singularityFlow.openCodeExplanation",
@@ -919,6 +949,10 @@
         },
         {
           "command": "singularityFlow.explainChangeAtCursor",
+          "when": "singularityFlow.repositoryActive && resourceScheme == file"
+        },
+        {
+          "command": "singularityFlow.explainCodeAtCursor",
           "when": "singularityFlow.repositoryActive && resourceScheme == file"
         },
         {

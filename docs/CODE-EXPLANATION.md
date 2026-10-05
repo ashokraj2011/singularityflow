@@ -203,6 +203,10 @@ or otherwise change lifecycle state.
   and Explorer context menus, the editor title, Source Control and the sidebar's Work section open
   it; **Explain This Change** focuses the Change Explorer on the change at the cursor by the same
   rule as `explain --subject line`.
+- **VS Code Code Explainer:** an interactive, function-level view of the same capture joined with
+  the editor's language services (symbols, call hierarchy, references): a layered call graph, an
+  inspector, a requirement → test trace and a walkthrough. **Explain This Code** opens it on the
+  function at the cursor. See [Code Explainer](CODE-EXPLAINER.md).
 
 The three surfaces consume the engine result. UI state, skill prose, and webview state are never
 authority.

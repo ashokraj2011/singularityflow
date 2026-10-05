@@ -1,4 +1,4 @@
-import { isConvergencePhase } from './phase-roles.mjs';
+import { intentAmendmentSource, isConvergencePhase } from './phase-roles.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
@@ -104,7 +104,15 @@ export function workflowGuide(workflow) {
         approvalsRequired: phase.approvalPolicy?.minimum ?? 0
       };
     }),
-    nextActions: nextActions(workflow, active)
+    nextActions: [
+      ...nextActions(workflow, active),
+      ...(intentAmendmentSource(workflow) ? [copilotAction({
+        skill: '/sflow-reject',
+        command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,
+        reason: 'If the approved intent must change, propose a reviewed amendment; no convergence finding or revision loop is required. Existing intent stays approved until the scope authority decides.',
+        optional: true
+      })] : [])
+    ]
   };
 }
 

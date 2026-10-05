@@ -1,40 +1,57 @@
 ---
 name: sflow-reject
-description: Request changes to a submitted or closed Story, return an in-progress review step's source/test edits to its Code step after exact review, or safely abandon rework. Records authority and invalidation without rewriting Git history.
+description: Propose or review an intent amendment in any workflow, request changes to a submitted or closed Story, or safely return/abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
-argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | roll-forward [CR-ID]"
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | intent-amendment [status|propose|decide|acknowledge] | roll-forward [CR-ID]"
 
 ---
 # Request governed changes
+
+<!-- sflow-copilot-pause -->
+Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly.
 
 <!-- sflow-output-contract: governed-review -->
 **Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `singularity-flow nextsteps` only for read-only guidance and never edit managed state to bypass a gate.
+On `Out of sequence`, relay the refusal. On `Soft sequence warning`, leave continuation to the
+human. Never edit managed state to bypass a gate.
 
-1. Read status first. Show the current phase, artifact hashes, allowed `rejectTo` targets, reviewer Git identity, authority group, and governed agent.
-2. Require a specific rejection reason and target phase; do not invent either. Present only the allowed targets, then preserve the human's exact comment.
-3. For a phase awaiting approval, run `singularity-flow reject <phase> --work-id <WORK-ID> --fetch --to <earlier-phase> --reason "..."`.
-   If an in-progress review step holds source/test edits and the engine names a return to its
-   approved Code step, preserve them. Preview `singularity-flow reject <review> --to <code> --repair --reason "..."`
-   in the bound worktree. Show paths and digest; request human confirmation. Only then
-   rerun with `--confirm <sha256>`. Do not `--fetch` a dirty bound worktree. The return opens a new
-   Code generation; retest and approve it before repeating the review.
-4. For a closed Story, run `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
-5. Stop on an unauthorized identity, disallowed target, disabled post-completion reopening, stale branch, or pending publication. Changing agents never grants decision authority.
-6. Show which approvals and later phases will be invalidated before recording the decision. A later approved phase is kept (rule E1) only if nothing it decided over changes; the engine decides when the Story reaches it.
-7. Report the change-request ID, comment, human identity, authority group, governed agent, reopened target, invalidated phases, commit, and push.
-8. Stop after recording the request. Do not modify artifacts unless the user separately asks to address it.
+## Intent changes
 
-If the user later decides to abandon everything changed after that return, do not reset Git and do
-not manually copy artifacts. Preview the stored forward checkpoint first:
+For `singularity-flow story intent-amendment`, use this route, not phase rejection:
 
-`singularity-flow story rework roll-forward --work-id <WORK-ID> --change-request <CR-ID> --json`
+1. Inspect `singularity-flow status --json`. Confirm the human's changed intent and reason.
+   Draft separate amended scope Markdown;
+   never edit approved intent in place.
+2. Run `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --json`.
+   Every workflow supports it after scope approval; do not invent an `update-intent` convergence
+   finding or change YAML. The CLI binds the phase and exact clause diff. Before scope approval,
+   record the human change in clarification and revise/review the ordinary scope draft instead.
+3. Show amendment ID, clause diff and blast radius.
+   Only an authorized human scope reviewer may decide with exact confirmation; do not self-approve.
+   A stale proposal can be rejected by that authority and replaced without changing approved intent.
+4. Acknowledge only when asked, using the returned command. Revalidate downstream phases and
+   grounding; never waive tests or approvals. Closed Stories use reviewed reopening. Stop after the requested action.
 
-Show every restored path, the original phase, the local-backup guarantee, and the exact confirmation
-digest. Only after explicit confirmation run the same command with `--confirm <sha256>`. Report the
-backup path, governed commit, push, and restored phase. A missing checkpoint, a changed digest, a
-cross-boundary rename, or a staged rework path is a hard stop; preserve the current bytes and relay
-the engine's recovery instruction.
+## Phase correction
+
+1. Show status, hashes, `rejectTo` targets, Git identity/authority and agent.
+   Require a specific rejection reason and target phase; do not invent either.
+2. Awaiting approval: `singularity-flow reject <phase> --work-id <WORK-ID> --fetch --to <earlier-phase> --reason "..."`.
+   For an in-progress review holding source/test edits, preserve them and preview the engine's
+   return: `singularity-flow reject <review> --to <code> --repair --reason "..."`.
+   Show paths/digest and request confirmation before repeating with `--confirm <sha256>`.
+   Do not `--fetch` a dirty bound worktree. Retest and approve the new Code generation before review.
+3. Closed Story: `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
+4. Show invalidations. Relay identity, target, reopening, freshness or publication refusals;
+   agent changes grant no authority. Report decision ID, comment, identity/authority, agent,
+   target, invalidations and commit/push. Author repairs only when requested.
+
+## Abandon rework
+
+Preview `singularity-flow story rework roll-forward --work-id <WORK-ID> --change-request <CR-ID> --json`.
+Show paths, phase, backup guarantee and digest. After explicit confirmation repeat with
+`--confirm <sha256>`. Report backup, commit/push and phase. Never reset Git or copy artifacts.
+On checkpoint, digest, boundary or staged-path errors, preserve bytes and relay recovery.

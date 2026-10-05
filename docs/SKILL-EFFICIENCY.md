@@ -14,12 +14,20 @@ Every skill has:
 - a 500-estimated-token warning threshold;
 - an 800-estimated-token hard ceiling.
 
-Only the registry's eleven read-only documentation, diagnostics, Home, status,
-progress, receipt, and recommendation skills may be selected automatically from
-natural-language requests. Every other skill sets `disable-model-invocation:
-true` and remains directly available through its `/sf-*` or `/sflow-*` command.
+All bundled skills set `disable-model-invocation: true` and remain directly available through
+their `/sf-*` or `/sflow-*` command. Installation never opts unrelated native Copilot requests
+into governance. Select the SFlow workflow agent explicitly for natural-language Home routing.
 That frontmatter prevents automatic skill selection; it does not mean that a
 Copilot skill runs without its host model.
+
+`/sf-pause` persists a machine-local guidance preference outside repositories; `/sf-pause off`
+restores guidance without advancing a Story. Before boundary discovery, the generated skill
+guard reads `singularity-flow pause status --json` and returns control to native Copilot when
+`data.paused` is true. Delegations rely on their canonical owner's guard; the mode control itself
+remains available while paused. The audit reports this fixed safety overhead separately from
+each skill's unchanged domain-prose budget. Ordinary native turns load no SFlow skill or guard.
+Paused hooks inject no context and do no repository reads. Restart chat with the host's default
+Agent to discard instructions already loaded before pausing.
 
 Every skill also carries a generated execution boundary. Relative paths resolve
 from the root reported by Flow, Story artifacts remain under

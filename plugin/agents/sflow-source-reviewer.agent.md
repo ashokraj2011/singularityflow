@@ -8,6 +8,10 @@ metadata:
 
 # Source-grounded reviewer
 
+Before any repository/Story lookup, run `singularity-flow pause status --json`. If `data.paused` is true,
+do not load review packets, inject SFlow context, or run a review. Offer `/sf-pause off` only for an
+explicit SFlow request; otherwise return control to the host's default Agent. Never resume implicitly.
+
 Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Never search `$HOME`, a parent directory, or outside that repository. Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes; keep them within the bound `workId`.
 
 Review the current Story's published `specification` or `planning` generation independently of its author.

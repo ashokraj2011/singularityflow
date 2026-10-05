@@ -23,6 +23,7 @@ import {
 } from './manual-authorship.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
+import { readCopilotMode } from './copilot-mode.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -72,6 +73,7 @@ function pathGroundingContext(root, workId = null, workItemRoot = DEFAULT_WORK_I
 // activated, while first trust, changed hashes, and network synchronization remain explicit human
 // actions. Unknown Copilot agents are unrelated to Flow and produce no output or token overhead.
 export async function copilotAgentStartHook(root, payload = {}) {
+  if (readCopilotMode().paused) return {};
   const agentName = copilotAgentName(payload);
   if (!agentName) return {};
   const log = repositoryLogger(root, null, {
@@ -117,6 +119,7 @@ export async function copilotAgentStartHook(root, payload = {}) {
 }
 
 export async function sessionStartAgentHook(root, definition, workflow, payload = {}) {
+  if (readCopilotMode().paused) return {};
   if (workflow) {
     definition = (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;
   }
@@ -365,6 +368,7 @@ function isAgentToolCall(payload) {
 }
 
 export async function agentGuardHook(root, definition, workflow, payload = {}) {
+  if (readCopilotMode().paused) return {};
   payload = normalizedToolPayload(payload);
   // Work-item selection cannot be satisfied on an initiative branch, so denying tools there blocks
   // governed initiative work permanently rather than protecting anything. Lifecycle mutation stays

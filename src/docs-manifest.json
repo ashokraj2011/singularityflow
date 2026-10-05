@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "38bf8ed5edffc64b1b253f415736a3f691068746",
+  "sourceCommit": "27298580e6149fd008d23298ee6770e88fae9a5f",
   "topicCount": 75,
-  "contentSha256": "6c043b8f992475a0ad7cfcdf41e1a2766cc798d930db5e07e1869f06e58f9cda",
+  "contentSha256": "56ff86d4fabf903f4ab3b48d22c2366906b1f79570d1dc962fd7f286d322c044",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,9 +128,9 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 11,
-      "sha256": "f60b5875b3e39d49823e3ae5e4b78dc8175dc6895fb6e7c52aa3e8a3c3c87c67",
-      "routingSha256": "548b95980ef4bb0755e04b820ccc4a041aa172419db2619bd04509ae3e7fbcf9",
+      "version": 12,
+      "sha256": "18d653957efcae25f5ba69f9b6ec77150317ace79bcbce0056f8e35c5b2ee34c",
+      "routingSha256": "e858ea1962d0e273c529409ccaba3c62598ecc238bf7dba15de5e82163ce305b",
       "file": "copilot-and-surfaces.md"
     },
     {
@@ -144,8 +144,8 @@
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 8,
-      "sha256": "7eb7d32cf8075875a5da40fbaffb9e2a3590ee67f90bb9635c68d5fdb95ab132",
+      "version": 9,
+      "sha256": "82038c3f854ac29547134f2fe4719defec50fef29a2c7cab53115374bc3e4bc5",
       "routingSha256": "f78f882be7abeaff7d971f6b2f436739deb89348ff7f685294e5ed6db4c2eeba",
       "file": "developer-home.md"
     },
@@ -400,8 +400,8 @@
     {
       "id": "reconciliation",
       "title": "Reconciliation and dispositions",
-      "version": 5,
-      "sha256": "947f830bb9119219f2f3b056eb17852fb31fd2e746e57bdbc6871cd14a9625bb",
+      "version": 6,
+      "sha256": "9a0d3cd1da92ff9ed53b8815c24e683eb3843897ab19648bf93b63b0084b121b",
       "routingSha256": "03fa022ac92647d74c79a24175b8dc222439eb11bd74b419cc734aef8aaf0616",
       "file": "reconciliation.md"
     },

@@ -19,6 +19,7 @@ import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
 import { withCliJsonOutput } from './cli-json-output.mjs';
+import { copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -42,7 +43,7 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
 // repository-scoped and may safely use the repository explicitly selected by `workspace use` when
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
-  'about', 'help', 'guide', 'show', 'quickstart', 'home',
+  'about', 'help', 'guide', 'show', 'quickstart', 'home', 'pause',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall', 'product',
   'workspace', 'session', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
@@ -559,7 +560,7 @@ async function runMain(argv) {
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
   // a root would invoke Git before the command even reached its strict no-repository boundary.
-  const localOnlyRequest = ['reinstall', 'product'].includes(effectiveArgv[0])
+  const localOnlyRequest = ['reinstall', 'product', 'pause'].includes(effectiveArgv[0])
     || (effectiveArgv[0] === 'skill'
       && parseArgs(effectiveArgv).positionals[1] === 'inspect');
   let root = null;
@@ -623,6 +624,23 @@ async function runMain(argv) {
       operation: { id: 'help.command', modelPolicy: 'never', classification: 'read', output: 'human' },
       modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'help', startedAt: new Date().toISOString()
     }, () => console.log(renderCommandHelp(definition.name)));
+  }
+  // Pause controls and paused host hooks must be served before Git routing, product review,
+  // command timing, telemetry, or repository/session discovery. Installing skills is opt-in;
+  // pausing guidance is never permission to bypass an explicitly invoked CLI gate.
+  if (definition.name === 'pause') {
+    const operation = resolveOperation({ requestedCommand: 'pause', positionals, options });
+    return withOperationContext({ operation, modelMode, root: null, argvSha256,
+      argvHash: `sha256:${argvSha256}`, command: 'pause', startedAt: new Date().toISOString() },
+    async () => (await import('./commands/pause.mjs')).run(effectiveArgv, { positionals, options, operation }));
+  }
+  if (['hook', 'home'].includes(definition.name)) {
+    const mode = readCopilotMode();
+    if (mode.paused) {
+      if (definition.name === 'hook') return console.log('{}');
+      const result = copilotModePresentation(mode);
+      return console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : result.message);
+    }
   }
   // Skill option errors must precede repository discovery/routing. In particular, a diagnostic
   // without an explicit Story and phase cannot accidentally select an active workspace first.

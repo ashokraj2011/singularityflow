@@ -66,6 +66,10 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
   if (explicit && /\s/u.test(explicit) && directCopilotSkillId(explicit) !== '/sf-approve') return explicit;
   const selected = directCopilotSkillId(explicit) ?? explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
+  if (selected === '/sf-pause') {
+    const match = value.match(/^(?:singularity-flow|sflow)\s+pause(?:\s+(on|off|status))?(?:\s+--json)?$/u);
+    return match?.[1] ? `${selected} ${match[1]}` : selected;
+  }
   if (selected === '/sf-approve') {
     const selectors = approvalSelectors(value);
     return selectors ? `${selected} ${selectors}` : selected;

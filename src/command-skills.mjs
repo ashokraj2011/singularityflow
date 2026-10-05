@@ -13,6 +13,7 @@
 import { canonicalCommand, COMMAND_REGISTRY } from './command-registry.mjs';
 
 const entries = {
+  pause: ['sf-pause'],
   specify: ['sf-specify'],
   plan: ['sf-plan'],
   implement: ['sf-implement'],

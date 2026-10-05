@@ -27,6 +27,10 @@ function finalCheckSentence(s) {
 }
 
 export const MESSAGES = Object.freeze({
+  'copilot.mode-reported': {
+    headline: (s) => `SFlow Copilot guidance is ${slot(s.mode)}. Story state, approvals, branches and checkouts are unchanged.${s.stateAvailable === false ? ' The local preference is unreadable; guidance remains paused until explicitly repaired with pause off.' : ''}`,
+    preserves: false
+  },
   'story.test-policy.risk-inspected': {
     headline: (s) => `Story risk review is ${slot(s.status)}. This command made no changes and ran no tests. Use --json for exact blockers and eligible decisions.`,
     preserves: true

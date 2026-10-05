@@ -1778,8 +1778,12 @@ handlers are available only for teams that deliberately install a custom
 command-hook policy.
 
 The skill catalog is governed by [`plugin/skills/registry.yml`](plugin/skills/registry.yml):
-only help, next steps, and status may be selected automatically; all other skills
-are explicit `/sf-*` operations. Body budgets, output contracts, utility-agent
+all bundled skills are explicit `/sf-*` operations, so installation never takes over native Copilot
+requests. Select the SFlow workflow agent to opt into ordinary-language routing. `/sf-pause` pauses
+that guidance on this machine; `/sf-pause off` restores it without changing or advancing a Story.
+Switch to the host's default Agent and start a new chat to discard previously loaded phase
+instructions. Terminal equivalent: `singularity-flow pause [on|off|status] --json`.
+Body budgets, output contracts, utility-agent
 routing, and measurement guidance are documented in
 [`docs/SKILL-EFFICIENCY.md`](docs/SKILL-EFFICIENCY.md). Run `npm run audit:skills`
 to verify the catalog.

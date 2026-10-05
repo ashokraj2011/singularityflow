@@ -104,13 +104,21 @@ export function scopeStepOf(workflow) {
 }
 
 /**
- * Whether a step's feedback may propose amending the scope it was built from: it is inside a
- * declared rework loop that starts again from the scope step.
+ * Any active step may propose a reviewed amendment to its approved scope. This is a kernel
+ * capability, not a work-type opt-in: no convergence finding or configured rework loop is needed.
+ * Before scope approval, edit/review its draft instead; closed or cancelled Stories must use their
+ * ordinary reopen route. A proposal never approves itself or silently changes pinned policy.
  */
-export function loopAmendmentSource(workflow, phaseId) {
-  const scope = scopeStepIdOf(workflow);
-  return Boolean(scope && phaseId) && (workflow?.resolution?.reworkLoops ?? [])
-    .some((loop) => loop.resetOnPhase === scope && (loop.from === phaseId || loop.to === phaseId));
+export function intentAmendmentSource(workflow, phaseId = workflow?.currentPhase) {
+  const scope = scopeStepOf(workflow);
+  const phase = workflow?.phases?.[phaseId];
+  const order = workflow?.phaseOrder ?? [];
+  return Boolean(scope && phase && phaseId === workflow.currentPhase
+    && !['completed', 'complete', 'cancelled', 'archived'].includes(workflow.status)
+    && scope.status === 'approved' && Number(scope.generation) >= 1
+    && ['in_progress', 'awaiting_approval'].includes(phase.status)
+    && order.indexOf(phaseId) > order.indexOf(scope.id)
+    && order.includes(scope.id));
 }
 
 /** A step whose output is a conformance report, whatever it is called. */

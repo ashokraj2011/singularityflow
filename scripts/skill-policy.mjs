@@ -3,6 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { operationCatalog } from '../src/command-registry.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
+import { COPILOT_PAUSE_GUARD, COPILOT_PAUSE_MARKER } from '../src/copilot-mode.mjs';
 
 export const COMMAND_PRESENTATION_CONTRACT = 'For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.';
 
@@ -284,7 +285,7 @@ function referencedModelOperations(body) {
 const AUTOMATIC_DESCRIPTIONS = Object.freeze({
   'sflow-advise': 'Guide unclear SFlow situations with grounded safe choices.',
   'sflow-help': 'Answer questions about Singularity Flow and its workflow.',
-  'sflow-home': 'Guide developer requests through explicit governed choices.',
+  'sflow-home': 'Guide explicitly requested Singularity Flow work through governed choices.',
   'sflow-nextsteps': 'Show ordered next actions from the current workflow state.',
   'sflow-status': 'Show the current phase, artifacts, checks, and approvals.'
 });
@@ -331,6 +332,13 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
     const end = heading.index + heading[0].length;
     body = `${skill.body.slice(0, end)}\n\n${rendered}${skill.body.slice(end)}`;
   }
+  return `---\n${skill.frontmatterSource}\n---\n${body}`;
+}
+
+function withCopilotPauseGuard(text, enabled, file) {
+  const skill = splitSkill(text, file);
+  let body = skill.body.replace(/<!-- sflow-copilot-pause -->\r?\n[^\r\n]*\r?\n\r?\n?/gu, '');
+  if (enabled) body = body.replace(/^(# .+)$/mu, `$1\n\n${COPILOT_PAUSE_MARKER}\n${COPILOT_PAUSE_GUARD}`);
   return `---\n${skill.frontmatterSource}\n---\n${body}`;
 }
 
@@ -440,10 +448,14 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       continue;
     }
     const file = path.join(skillRoot, name, 'SKILL.md');
+    // Delegations do no preflight; their canonical owner checks pause. The control itself must
+    // remain usable while paused. This fixed shared guard is not extra domain prose allowance.
+    const pauseGuardRequired = name !== 'sflow-pause' && rule.class !== 'delegation';
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
       text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind);
+      text = withCopilotPauseGuard(text, pauseGuardRequired, file);
       await writeFile(file, text);
     }
     const skill = splitSkill(text, file);
@@ -453,12 +465,17 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     // The shared command-presentation requirement is fixed engine-owned overhead, not an
     // allowance to grow per-skill prose. Report both budgets and keep the existing domain cap.
     const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens;
+    const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${COPILOT_PAUSE_GUARD}\n\n`) : 0;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + pauseGuardTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
     const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
+    if (pauseGuardRequired && (!skill.body.includes(COPILOT_PAUSE_GUARD)
+        || skill.body.indexOf(COPILOT_PAUSE_MARKER) > skill.body.indexOf(boundaryMarker))) {
+      errors.push(`${name}: pause guard must precede all repository/Story boundary lookups`);
+    }
     if (automatic.has(name)) {
       if (skill.frontmatter['disable-model-invocation'] === true) errors.push(`${name}: automatic skill must not disable model invocation`);
       if (descriptionTokens > 15) errors.push(`${name}: automatic description is ${descriptionTokens} estimated tokens; maximum is 15`);
@@ -509,6 +526,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       descriptionTokens,
       bodyTokens,
       commandPresentationTokens,
+      pauseGuardTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,
       previewBytes: classPolicy.previewBytes,

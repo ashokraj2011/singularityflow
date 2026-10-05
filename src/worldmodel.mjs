@@ -416,7 +416,7 @@ function workSourcePromptContext(workflow, source, sourceRecord) {
     `- Immutable source: \`${sourceRecord.path}\``,
     `- SHA-256: \`${sourceRecord.sha256}\``,
     '- Authority: this is the requested outcome. Later evidence may refine missing detail but may not silently contradict or replace it.',
-    '- Conflict recovery: if a human answer or approved artifact conflicts with this source, stop and use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`; recompose only after the amendment is governed.',
+    '- Conflict recovery: confirm the intent change with the human. After scope approval, any active phase in any workflow can use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`; no convergence finding or revision loop is required. Recompose after authorized approval and acknowledgement. Before scope approval, record the human change in clarification and revise/review the scope draft normally; never rewrite this pinned source.',
     '',
     '```json',
     JSON.stringify(projection, null, 2),

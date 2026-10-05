@@ -1795,6 +1795,8 @@ Governed agents combine role instructions and additive world-model views. Starte
 
 ### Copilot multi-user session guidance
 
+Installing SFlow skills does not opt ordinary Copilot requests into governed work: bundled skills are explicit-only. Select a SFlow agent or invoke a SFlow skill when you want its guidance. Use `/sf-pause` (`singularity-flow pause on --json`) to pause SFlow guidance on this machine, `/sf-pause status` to inspect it, and `/sf-pause off` to restore it. Paused SFlow hooks add no context and skills do not route ordinary requests through SFlow. No Story, approval, artifact, branch, or checkout is changed; explicitly invoked lifecycle commands still enforce their gates, and already-running commands or autonomous flights are not aborted. To remove instructions already loaded in a conversation, switch to Copilot's default Agent and start a new chat. Reload skills or the IDE after upgrading an old installation. `/sf-resume` remains the separate Story-resume skill.
+
 Repositories may make Git-backed work-item part of Copilot session startup:
 
 ```yaml
@@ -3344,6 +3346,7 @@ singularity-flow harness report [--json]
 singularity-flow about
 sflow-about
 singularity-flow help [TOPIC] [--json]
+singularity-flow pause [on|off|status] [--json]
 singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
 singularity-flow init --smart-detect --dry-run [--json]
 singularity-flow init --smart-detect [--yes | --confirm SHA256] [--json]
@@ -3796,7 +3799,7 @@ singularity-flow story converge [--assisted] [--json]
 singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
 singularity-flow story intent-amendment status [--json]
 singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT
-singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT --source-phase <CURRENT-PHASE> --clause WORK-ID:CLAUSE-ID [--clause WORK-ID:CLAUSE-ID ...]
+singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--source-phase <CURRENT-PHASE>] [--clause WORK-ID:CLAUSE-ID ...]
 singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
 singularity-flow story intent-amendment acknowledge [AMD-ID]
 singularity-flow story rework [--reason TEXT] [--confirm]
@@ -3813,6 +3816,15 @@ singularity-flow refresh-branch [--remote origin] [--json]
 singularity-flow stack status|sync [--epic INIT-ID] [--json]
 singularity-flow regression analyze [--base main] [--good REF] [--bad REF] [--path PATH]...
 ```
+
+Intent amendments are available by default in every workflow after scope approval, including
+existing Story pins. No convergence finding, convergence phase, revision-loop declaration, YAML
+change, or migration is required. The CLI binds the active phase and computes the exact clause
+diff. A proposal leaves approved intent unchanged; only the scope's authorized human reviewers
+may decide it. Approval creates a new scope generation and requires downstream revalidation and
+acknowledgement. Before approval, revise/review the ordinary scope draft; closed Stories use the
+reviewed reopen route. An authorized reviewer may reject a stale proposal and replace it without
+altering the approved scope.
 
 `state reconcile --check` is read-only and compares every declared projection with
 the authoritative lifecycle state: status Markdown, managed artifact metadata,

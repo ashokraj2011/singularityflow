@@ -79,6 +79,20 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  pause: {
+    summary: 'Pause SFlow guidance and use native Copilot without changing a Story.',
+    description: [
+      'Use pause on (the default), pause off, or pause status. This is a machine-local preference,',
+      'stored outside repositories and never pushed. Pause disables SFlow context injection and',
+      'natural-language routing; bundled skills are explicit-only even when not paused.',
+      'Copilot: /sf-pause, /sf-pause off, /sf-pause status. /sf-resume still resumes a Story.',
+      'No Story, approval, branch, artifact, or checkout changes. No Git, network, or test execution.',
+      'Already-running commands and autonomous flights are not aborted. Explicit shell commands',
+      'remain available and enforce their normal gates; pause is not a governance bypass.',
+      'Switch from the SFlow custom agent to the host default Agent and start a new chat to remove',
+      'previously loaded instructions. Reload skills or the IDE after updating an older installation.'
+    ]
+  },
   onboard: {
     summary: 'Attach an existing checkout to an exact verified configuration authority without cloning it.',
     description: [
@@ -2071,7 +2085,7 @@ const PAGES = Object.freeze({
       ['singularity-flow story references verify --work-id PAY-1 --json', 'Verify every local reference is clean, detached, and at its pinned commit.'],
       ['singularity-flow story references materialize --work-id PAY-1', 'Recreate only missing local reference checkouts from immutable Story pins.'],
       ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
-      ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected intent for an update-intent finding without editing the approved specification.'],
+      ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected approved intent from any active downstream phase in any workflow, without a convergence finding or rework loop. The CLI binds the phase and exact changed clauses; only scope authority approval applies it.'],
       ['singularity-flow story checks PAY-1', 'Record configured repository-check evidence against the submitted packet.']
     ],
     seeAlso: ['start', 'submit', 'epic']

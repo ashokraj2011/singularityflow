@@ -14,6 +14,7 @@ const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 
 const LAZY_MODULES = Object.freeze({
+  pause: './commands/pause.mjs',
   // The five verbs share one dispatcher; each is a registered command in its own right so the
   // registry, tripwires and help treat it like any other [SPK:REQ-010].
   specify: './commands/fast-path.mjs',
@@ -92,8 +93,8 @@ function operation(id, modelPolicy = 'never', overrides = {}) {
 
 function command([name, aliases = []]) {
   const classification = READ_ONLY.has(name) ? 'read' : 'mutation';
-  const output = STRUCTURED.has(name) ? 'human-or-json' : 'human';
-  const mixed = name === 'wm' || name === 'workspace' || name === 'pr' || MODEL_FREE_MIXED_COMMANDS.has(name);
+  const output = name === 'pause' || STRUCTURED.has(name) ? 'human-or-json' : 'human';
+  const mixed = name === 'pause' || name === 'wm' || name === 'workspace' || name === 'pr' || MODEL_FREE_MIXED_COMMANDS.has(name);
   return Object.freeze({
     name,
     aliases: Object.freeze(aliases),
@@ -110,7 +111,7 @@ function command([name, aliases = []]) {
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['governance'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
-  ['adhoc'], ['land'], ['local'],
+  ['adhoc'], ['land'], ['local'], ['pause'],
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
@@ -432,6 +433,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
+  pause: Object.freeze(['on', 'off', 'status']),
   decision: DECISION_SUBCOMMANDS,
   import: IMPORT_SUBCOMMANDS,
   imports: IMPORTS_SUBCOMMANDS,
@@ -1405,6 +1407,11 @@ function resolveReviseOperation(definition, options) {
 
 export function resolveOperation({ requestedCommand, positionals, options = {}, context = {} }) {
   const definition = commandDefinition(requestedCommand);
+  if (definition.name === 'pause') {
+    const action = positionals[1] ?? 'on';
+    if (!['on', 'off', 'status'].includes(action)) return unknownSubcommand('pause', action, ['on', 'off', 'status']);
+    return never(`pause.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
   if (definition.operation) return definition.operation;
   if (definition.name === 'init') {
     if (optionBoolean(options, 'recover')) return never('init.smart-detect.recover', definition, 'mutation');
@@ -1662,6 +1669,7 @@ export function operationCatalog() {
   sgos.push(never('learn.progress-import.plan', commandDefinition('learn'), 'read'));
   sgos.push(never('learn.reset.plan', commandDefinition('learn'), 'read'));
   const modelFreeMixed = [
+    ...['on', 'off', 'status'].map((action) => never(`pause.${action}`, commandDefinition('pause'), action === 'status' ? 'read' : 'mutation')),
     never('phase', commandDefinition('phase'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...['context', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),

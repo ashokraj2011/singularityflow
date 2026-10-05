@@ -1,6 +1,6 @@
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import {
-  convergencePhaseOf, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, loopAmendmentSource, scopeStepOf
+  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, scopeStepOf
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
@@ -7301,10 +7301,16 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
-  if (proposal.source != null) {
+  // Rejecting a stale proposal changes no approved intent or evidence. It must remain available
+  // to the scope authority, otherwise a moved source leaves a pending proposal blocking forever.
+  const staleProposalDetails = {
+    workId: workflow.workItem.id, phase: workflow.currentPhase,
+    recoveryCommand: `singularity-flow story intent-amendment decide ${proposal.id} --decision reject --confirm ${proposal.id} --work-id ${workflow.workItem.id}`
+  };
+  if (decision === 'approve' && proposal.source != null) {
     const source = proposal.source;
     const phase = workflow.phases[source.phaseId];
-    if (!loopAmendmentSource(workflow, source.phaseId)
+    if (!intentAmendmentSource(workflow, source.phaseId)
         || source.kind !== 'phase-feedback'
         || workflow.currentPhase !== source.phaseId
         || !phase
@@ -7314,22 +7320,29 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
         || (source.artifactPresent && typeof source.artifactSha256 !== 'string')
         || (!source.artifactPresent && source.artifactSha256 !== null)
         || typeof source.sourceTreeSha256 !== 'string'
-        || requiredRepoPath(config, workflow, phase) !== source.artifactPath) {
+        || (phase.requiredArtifact?.path ? requiredRepoPath(config, workflow, phase) : null) !== source.artifactPath) {
       throw new SingularityFlowError(
         `Intent amendment '${proposal.id}' no longer matches its source phase '${source.phaseId}'.`,
-        { code: 'INTENT_AMENDMENT_SOURCE_STALE' }
+        { code: 'INTENT_AMENDMENT_SOURCE_STALE', details: staleProposalDetails }
       );
     }
-    const artifact = await repositoryArtifactSnapshot(root, source.artifactPath);
+    const artifact = source.artifactPath ? await repositoryArtifactSnapshot(root, source.artifactPath)
+      : { exists: false, symbolicLink: false, sha256: null };
     if (artifact.exists !== source.artifactPresent
         || artifact.symbolicLink
         || artifact.sha256 !== source.artifactSha256
         || await sourceTreeHash(root, config, workflow) !== source.sourceTreeSha256) {
       throw new SingularityFlowError(
-        `Code or Testing evidence changed after intent amendment '${proposal.id}' was proposed. Create a new proposal.`,
-        { code: 'INTENT_AMENDMENT_SOURCE_STALE' }
+        `Source-phase evidence changed after intent amendment '${proposal.id}' was proposed. Create a new proposal.`,
+        { code: 'INTENT_AMENDMENT_SOURCE_STALE', details: staleProposalDetails }
       );
     }
+  }
+  if (decision === 'approve' && specification.generation !== proposal.specification?.generation) {
+    throw new SingularityFlowError(
+      `The approved scope generation changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
+      { code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails }
+    );
   }
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
@@ -7342,7 +7355,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
   }
   const selfApproval = actorKey(proposal.proposedBy ?? {}) === key;
-  if (selfApproval && specification.approvalPolicy.allowSelfApproval === false) {
+  if (decision === 'approve' && selfApproval && specification.approvalPolicy.allowSelfApproval === false) {
     throw new SingularityFlowError(
       `Specification policy prohibits the proposer from approving intent amendment '${proposal.id}'. Ask another authorized Git identity.`
     );
@@ -7418,7 +7431,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   if (!current.exists || current.sha256 !== proposal.specification.beforeSha256) {
     throw new SingularityFlowError(
       `Specification changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
-      { code: 'INTENT_AMENDMENT_STALE' }
+      { code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails }
     );
   }
   const proposedFile = await intentAmendmentPath(root, config, workflow,
@@ -7427,7 +7440,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const proposedSnapshot = await snapshot(proposedFile);
   if (proposedSnapshot.sha256 !== proposal.specification.proposedSha256) {
     throw new SingularityFlowError(`Intent amendment '${proposal.id}' proposed bytes changed after review.`, {
-      code: 'INTENT_AMENDMENT_STALE'
+      code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails
     });
   }
 

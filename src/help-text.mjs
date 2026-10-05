@@ -740,6 +740,7 @@ Usage:
   singularity-flow jira sprint <WORK-ID> --to SPRINT-ID --confirm <WORK-ID> [--json]
   singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
   singularity-flow plugin install                     Installs plugin plus direct /sf-* personal skills
+  singularity-flow pause [on|off|status] [--json]       Pause SFlow Copilot guidance; preserve Story state
   singularity-flow plugin uninstall | list | verify [--json] | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
   singularity-flow configuration validate --json
@@ -844,6 +845,8 @@ Usage:
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
   singularity-flow story intent-amendment status [--work-id ID] [--json]
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
+    [--source-phase CURRENT-PHASE] [--clause ID]... (optional exact list; otherwise computed)
+    Available in every workflow after scope approval; no convergence finding or rework loop required.
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]

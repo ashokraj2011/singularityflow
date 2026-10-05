@@ -7,6 +7,9 @@ argument-hint: "[WORKSPACE-ID] [--repository REPOSITORY-ID] [--resolve PATH=loca
 
 # Refresh approved workspace configuration
 
+<!-- sflow-copilot-pause -->
+Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly.
+
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Preserve the CLI's exact plan, conflicts, branch effects, failures, and retry instructions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->

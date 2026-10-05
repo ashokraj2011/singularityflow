@@ -1,9 +1,13 @@
 ---
 name: sflow-home
-description: Guide developer requests through explicit governed choices.
+description: Guide explicitly requested Singularity Flow work through governed choices.
+disable-model-invocation: true
 
 ---
 # Singularity Flow home
+
+<!-- sflow-copilot-pause -->
+Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly.
 
 <!-- sflow-output-contract: conversational-guidance -->
 **Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.

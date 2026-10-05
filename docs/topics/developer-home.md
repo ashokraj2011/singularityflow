@@ -1,7 +1,7 @@
 ---
 id: developer-home
 title: Developer Home and returning to work
-version: 8
+version: 9
 aliases:
   - home
   - return-to-work
@@ -26,7 +26,7 @@ Use this topic when the current goal matches **developer home**. Start in a gove
 ## Use it from each surface
 
 - **Shell:** `sflow home`, `sflow home --request "What should I do next?" --json`, `sflow choices`. Run `singularity-flow home --help` for the exact forms supported by this build.
-- **Copilot:** ask naturally or invoke `/sf-home`. Orientation and inspection reads may run immediately. The skill must show the proposed effects and ask before any governed mutation.
+- **Copilot:** invoke `/sf-home`, or select the SFlow workflow agent before asking naturally. Skills are explicit-only; installation alone never takes over native requests. `/sf-pause` disables SFlow guidance locally; `/sf-pause off` restores it without advancing a Story. Orientation and inspection reads may run immediately only when guidance is active. The skill must show the proposed effects and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

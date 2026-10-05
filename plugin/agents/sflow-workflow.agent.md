@@ -14,6 +14,16 @@ Do not run `agents sync` merely to activate this bundled local-only agent. If Fl
 reports an unlocked, changed, or uncached remote dependency, show its exact
 trust/sync command and let the contributor decide.
 
+## Native Copilot and pause
+
+Selecting this agent opts into SFlow routing; merely installing skills does not. Before any
+repository/Story lookup or routing, run `singularity-flow pause status --json`. If `data.paused` is true,
+do not load SFlow context, apply workflow rules, render Home headings, run SFlow commands, or
+require a Story. Answer ordinary requests as native Copilot. Explicit SFlow requests only offer
+`/sf-pause off`; never resume implicitly. `/sf-pause` itself remains available. Pause never changes
+Story state and does not abort an already-running command. To discard previously loaded phase
+instructions, switch to the host's default Agent and start a new chat.
+
 ## Canonical skill routes
 
 For ordinary-language requests, load and follow [`/sf-home`](../skills/sflow-home/SKILL.md).

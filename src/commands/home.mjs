@@ -15,6 +15,7 @@ import { message } from '../gateway/messages.mjs';
 import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 import { identity, localGitDisplayName } from '../git.mjs';
+import { copilotModePresentation, readCopilotMode } from '../copilot-mode.mjs';
 
 function renderConversation(conversation, homeEnvelope) {
   if (!conversation) return;
@@ -141,6 +142,11 @@ export function compositeHomeEnvelope(homeEnvelope, answerEnvelope = null, conve
 }
 
 export async function run(_argv, { options }) {
+  const mode = readCopilotMode();
+  if (mode.paused) {
+    const result = copilotModePresentation(mode);
+    return console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : result.message);
+  }
   const workspaceReference = optionString(options, 'workspace');
   const lens = optionString(options, 'lens', 'developer');
   const request = optionString(options, 'request');

@@ -857,6 +857,15 @@ interface FileChange {
   diffable: boolean;
 }
 
+/**
+ * Singularity Flow's own files: its governed records, agent definitions and machine-local state.
+ * They are never explained as code. The engine leaves them out of the capture; this keeps an older
+ * capture from drawing them.
+ */
+export function isSingularityOwnedPath(path: string): boolean {
+  return ['singularity', '.github/agents', '.singularity-flow'].some((root) => path === root || path.startsWith(`${root}/`));
+}
+
 /** The change set per path: parsed hunks (with their XPL2 unit ids), operation and clause associations. */
 function changeByPath(input: CxBuildInput['change']): Map<string, FileChange> {
   const result = new Map<string, FileChange>();
@@ -876,6 +885,7 @@ function changeByPath(input: CxBuildInput['change']): Map<string, FileChange> {
   }
   for (const file of view?.inventory.files ?? []) {
     const path = file.pathAfter ?? file.pathBefore ?? file.path;
+    if (isSingularityOwnedPath(path)) continue;
     const section = sections.get(path);
     const hunks = section ? parseFilePatch(section) : (input.computed?.[path] ?? []);
     const units = view?.inventory.units.filter((unit) => unit.fileId === file.fileId) ?? [];
@@ -990,20 +1000,18 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
   };
 
   /**
-   * Changed files with no symbols (documents, configuration, images) share one card, and the
-   * Story's own records under singularity/ share another, folded: forty state files would
-   * otherwise bury the code they accompany.
+   * Changed files with no symbols (documents, configuration, images) share one card. Singularity
+   * Flow's own records never get this far (isSingularityOwnedPath).
    */
   const groupFor = (file: string): CxModule => {
-    const story = file.startsWith('singularity/') || file.startsWith('.github/');
-    const id = story ? 'm:(story records)' : 'm:(other files)';
+    const id = 'm:(other files)';
     const existing = modules.get(id);
     if (existing) return existing;
     const module: CxModule = {
-      id, path: story ? '(story records)' : '(other files)', name: story ? 'Story & configuration records' : 'Other changed files',
-      dir: story ? 'singularity' : '', language: 'plaintext', role: 'other', status: 'modified', added: 0, removed: 0,
+      id, path: '(other files)', name: 'Other changed files',
+      dir: '', language: 'plaintext', role: 'other', status: 'modified', added: 0, removed: 0,
       symbolIds: [], clauses: [], units: [], external: false, label: null, symbolSource: 'none', symbolReason: null,
-      opaque: null, diffable: false, group: true, collapsed: story
+      opaque: null, diffable: false, group: true, collapsed: false
     };
     modules.set(id, module);
     return module;

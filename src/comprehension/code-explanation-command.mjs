@@ -139,7 +139,8 @@ export async function runCodeExplanation(_argv, {
     diff: slice.diff,
     structure: slice.structure,
     evidence: slice.evidence,
-    graph: slice.graph
+    graph: slice.graph,
+    codeScope: slice.codeScope
   }, drilldown(options));
   const narrative = await optionalNarrative(root, explanation, {
     requested: wantsNarrative,
@@ -170,7 +171,8 @@ export async function runCodeExplanation(_argv, {
     outcome: succeeded('code-explanation.reported', {
       units: explanation.counts.returnedUnits,
       unexplained: explanation.unexplained.hunkIds.length
-        + explanation.unexplained.opaqueUnitIds.length
+        + explanation.unexplained.opaqueUnitIds.length,
+      hidden: explanation.scope.hiddenEntries
     }),
     effects: noEffects(),
     next,

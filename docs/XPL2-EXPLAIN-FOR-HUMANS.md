@@ -94,11 +94,12 @@ for an unavailable or inaccessible source.
 
 ## 4. Catalogs
 
-**Statement templates** (`xpl2.<kind>@1`): `change-inventory`, `hunk`, `opaque-unit`, `file-type`,
-`mode-change`, `declaration-overlap`, `region-association`, `cause-not-recorded`, `clause-declared`,
-`clause-required`, `clause-untagged`, `test-tag`, `test-result`, `admission-unavailable`,
-`feature-state`, `gap-observed`, `no-complete-evaluation`, `line-in-unit`, `line-outside`,
-`line-opaque`, `generation-recorded`, `provenance-unavailable`, `source-state`. Text arguments are
+**Statement templates** (`xpl2.<kind>@1`): `change-inventory`, `singularity-files-hidden`, `hunk`,
+`opaque-unit`, `file-type`, `mode-change`, `declaration-overlap`, `region-association`,
+`cause-not-recorded`, `clause-declared`, `clause-required`, `clause-untagged`, `test-tag`,
+`test-result`, `admission-unavailable`, `feature-state`, `gap-observed`, `no-complete-evaluation`,
+`line-in-unit`, `line-outside`, `line-opaque`, `generation-recorded`, `provenance-unavailable`,
+`source-state`. Text arguments are
 display-sanitized (controls, format and bidirectional characters removed and bounded); identities
 are compared on untouched values.
 

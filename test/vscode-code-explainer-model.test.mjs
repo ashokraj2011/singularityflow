@@ -12,7 +12,7 @@ import test from 'node:test';
 
 import {
   buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, countParameters, declaredName, diffLines,
-  estimateComplexity, explanationText, exportDocument, externalLabel, flattenSymbols, hoverParts, isTestPath,
+  estimateComplexity, explanationText, exportDocument, externalLabel, flattenSymbols, hoverParts, isSingularityOwnedPath, isTestPath,
   leadingStart, maskSource, parseFilePatch, SYMBOL_KIND, symbolKey, textSymbols, visibleCode, workingDiff
 } from '../apps/vscode/src/views/code-explainer-model.ts';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
@@ -333,18 +333,31 @@ test('nothing is called deleted when the working text cannot be read, and a code
   assert.equal(readable.intelligence.languages[0].symbols, 'text');
 });
 
-test('the Story\'s own records share one folded card', () => {
-  const files = ['singularity/work-items/S-1/workflow.json', 'singularity/work-items/S-1/STATUS.md', 'README.md'];
+test('Singularity Flow\'s own files are never drawn; other files without code share one card', () => {
+  const files = [
+    'singularity/work-items/S-1/workflow.json', 'singularity/work-items/S-1/STATUS.md',
+    '.github/agents/architect.agent.md', '.singularity-flow/story-worktrees/w/src/a.js',
+    '.github/workflows/ci.yml', 'README.md'
+  ];
   const view = {
     nodes: [], relationships: [], statements: [], attention: [],
     inventory: { files: files.map((file, index) => ({ fileId: `file:${index}`, path: file, pathBefore: null, pathAfter: file, operation: 'added', unitIds: [`O-00${index}`], hunks: 0, opaque: 1 })), units: [] }
   };
   const model = buildCodeExplainerModel(baseInput({ change: { view, patch: null, patchFiles: [], base: 'b' } }), 'z');
-  const records = model.modules.find((module) => module.path === '(story records)');
-  const other = model.modules.find((module) => module.path === '(other files)');
-  assert.deepEqual([records.symbolIds.length, records.collapsed, records.role], [2, true, 'other']);
-  assert.deepEqual([other.symbolIds.length, other.collapsed], [1, false]);
-  assert.deepEqual(model.walkthrough, [], 'documents and records are not steps of the code walkthrough');
+  assert.deepEqual(model.modules.map((module) => module.path), ['(other files)']);
+  const other = model.modules[0];
+  assert.deepEqual([other.symbolIds.length, other.collapsed, other.name], [2, false, 'Other changed files']);
+  assert.equal(model.symbols.some((symbol) => /singularity|\.github\/agents/.test(symbol.file ?? '')), false);
+  assert.deepEqual(model.walkthrough, [], 'documents are not steps of the code walkthrough');
+});
+
+test('isSingularityOwnedPath names the governed roots and machine-local state only', () => {
+  for (const path of ['singularity', 'singularity/workflow.yml', '.github/agents/qa.agent.md', '.singularity-flow/x']) {
+    assert.equal(isSingularityOwnedPath(path), true, path);
+  }
+  for (const path of ['singularity.md', 'src/singularity/x.ts', '.github/workflows/ci.yml', '.github/agents.md']) {
+    assert.equal(isSingularityOwnedPath(path), false, path);
+  }
 });
 
 test('prompts and the export carry facts, never the source or an authority', async (t) => {

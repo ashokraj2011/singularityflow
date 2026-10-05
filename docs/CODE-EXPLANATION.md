@@ -74,6 +74,28 @@ another retained Revision Loop Candidate,” and it does not infer candidate anc
 discarded attempts. An invalid or unavailable revision is refused rather than silently replaced
 with another baseline.
 
+### Application code only
+
+An explanation covers the repository's application code. Singularity Flow's own files are not code
+to explain and never appear as change units, hunks, regions or subject statements:
+
+- the governed roots `singularity/` and `.github/agents/`;
+- every root the repository configures (`workItemRoot`, `initiativeRoot`, `templatesRoot`,
+  `agentPromptsRoot`, the world-model output directories and `governedRoots`), read from
+  `singularity/workflow.yml` itself, so one malformed agent file cannot turn a work-item root back
+  into code;
+- machine-local state under `.singularity-flow/`, such as Story worktrees and caches;
+- Git metadata.
+
+They are counted, never dropped silently. `scope.hiddenEntries` and `scope.hiddenGroups` report how
+many change entries were left out and under which folders. The human headline adds "N Singularity
+Flow file change(s) are not code and are not shown.", and `explain --subject change` states the same
+count with `xpl2.singularity-files-hidden@1`. Every comprehension capture (`explain code`,
+`explain --subject`, the `comprehension` commands and the snapshot VS Code leases) builds its change
+set through the same filter, and the change set's digest covers what remains, so a region identity
+means the same thing on every surface. The bounded patch asks Git only for the remaining tracked
+paths, so a Story's records can no longer push the code's own hunks past the preview limit.
+
 ## Fixed computed sections
 
 The computed result always preserves the following order. JSON uses the stable section names shown
@@ -177,6 +199,7 @@ store nothing.
 | Condition | Result |
 |---|---|
 | No changed resources | The three fixed sections remain present with zero observable units. |
+| Only Singularity Flow's own files changed | The three fixed sections remain present with zero observable units; `scope.hiddenEntries` counts what was left out. |
 | Untracked resource | Path and opaque unit remain visible; body, textual hunk, and semantics are unavailable. |
 | Binary, mode-only, or metadata change | Opaque unit remains visible; no textual or declaration claim is made. |
 | Bounded patch unavailable or too large | Resource units remain visible; hunk coordinates and patch detail are unavailable. |

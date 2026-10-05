@@ -674,7 +674,8 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'code-explanation.reported': {
-    headline: (s) => `Code explanation projected ${slot(s.units, '0')} change unit(s); ${slot(s.unexplained, '0')} remain unexplained.`,
+    headline: (s) => `Code explanation projected ${slot(s.units, '0')} change unit(s); ${slot(s.unexplained, '0')} remain unexplained.`
+      + (Number(s.hidden) > 0 ? ` ${s.hidden} Singularity Flow file change(s) are not code and are not shown.` : ''),
     preserves: true
   },
   'explanation.subject-reported': {

@@ -81,7 +81,8 @@ export function buildChangeExplanationUniverse({
   clauseSources = null,
   replay = null,
   sourceReferences = [],
-  includeAllDeclaredClauses = false
+  includeAllDeclaredClauses = false,
+  codeScope = null
 }) {
   const b = createXpl2Builder();
   const truth = manifest.sourceKind === 'repository-change-set'
@@ -557,6 +558,17 @@ export function buildChangeExplanationUniverse({
       units: inventoryUnits.length, complete: true
     }
   });
+  // The capture explains application code only; Singularity Flow's own records are named by count.
+  const hidden = codeScope?.hidden ?? null;
+  if (hidden?.entries > 0) {
+    b.statement({
+      about: 'change', template: 'xpl2.singularity-files-hidden@1', cites: ['SRC-MANIFEST'],
+      arguments: {
+        entries: hidden.entries,
+        groups: hidden.groups.map(({ group, entries }) => `${group}: ${entries}`).join(', ')
+      }
+    });
+  }
   const admission = b.statement({
     about: 'change', template: 'xpl2.admission-unavailable@1', cites: ['OBS-ADMISSION'], arguments: { truth }
   });

@@ -2,9 +2,9 @@
 import { branch } from '../git.mjs';
 import { readCachedAstSymbols } from '../ast-intelligence.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
-import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { buildBrownfieldTouchedAreaAssessment } from './brownfield.mjs';
+import { buildComprehensionChangeSet, comprehensionDiffOptions, comprehensionPathContext } from './code-scope.mjs';
 import { buildChangeRegionManifest, evaluateComprehensionCoverage } from './contracts.mjs';
 import { resolveComprehensionBaseline } from './context.mjs';
 import { buildComprehensionDiffPreview } from './diff-preview.mjs';
@@ -36,10 +36,12 @@ async function loadComprehensionIdeSliceOnce(root, {
     workId: context.workId,
     phase: context.phase
   };
-  const changeSet = await buildRepositoryChangeSet(root, {
+  // Only application code is explained; Singularity Flow's own records are counted in codeScope.
+  const pathContext = await comprehensionPathContext(root);
+  const { changeSet, hidden } = await buildComprehensionChangeSet(root, {
     baseCommit: context.base,
     subject: observationSubject
-  });
+  }, pathContext);
   const manifest = buildChangeRegionManifest(changeSet);
   const sourceReferences = manifest.regions.flatMap((region) =>
     comprehensionSourceReferences(manifest, region).map((reference) => ({
@@ -52,7 +54,7 @@ async function loadComprehensionIdeSliceOnce(root, {
       referenceSha256: reference.referenceSha256
     })));
   const brownfield = buildBrownfieldTouchedAreaAssessment(manifest);
-  const diff = buildComprehensionDiffPreview(root, changeSet);
+  const diff = buildComprehensionDiffPreview(root, changeSet, comprehensionDiffOptions(changeSet, hidden));
   const emptyEvidence = {
     bindings: [], dispositions: [], causes: [], decisions: [], transformationReceipts: []
   };
@@ -100,7 +102,7 @@ async function loadComprehensionIdeSliceOnce(root, {
     workflow: selectedWorkflow, phaseId: context.phase, manifest
   });
   const codeExplanation = buildCodeExplanation({
-    context, manifest, diff, structure, evidence, graph
+    context, manifest, diff, structure, evidence, graph, codeScope: { hidden }
   });
   // The Change Explorer view is built from exactly the same inputs, inside the same capture, so
   // the map, inventory, inspector and CLI subject views describe one snapshot [XPL2-REQ-004].
@@ -112,7 +114,7 @@ async function loadComprehensionIdeSliceOnce(root, {
     clauseSources = await readStoryClauseSources(root, selectedWorkflow);
     explanationView = explainXpl2Subject({
       context, manifest, codeExplanation, evidence, workflow: selectedWorkflow,
-      clauseSources, replay, sourceReferences
+      clauseSources, replay, sourceReferences, codeScope: { hidden }
     }, { subject: 'change' });
   } catch (error) {
     explanationViewUnavailableReason = error?.code ?? 'XPL2_VIEW_UNAVAILABLE';
@@ -121,10 +123,10 @@ async function loadComprehensionIdeSliceOnce(root, {
   // The patch and cached navigation hints are read after the change-set record. Re-read the exact
   // baseline-to-worktree subject before releasing the slice; a concurrent editor change must
   // retry the whole projection rather than combine two repository moments under one digest.
-  const revalidatedChangeSet = await buildRepositoryChangeSet(root, {
+  const { changeSet: revalidatedChangeSet } = await buildComprehensionChangeSet(root, {
     baseCommit: context.base,
     subject: observationSubject
-  });
+  }, pathContext);
   if (revalidatedChangeSet.digest !== changeSet.digest) {
     throw new SingularityFlowError(
       'Repository changes moved while the comprehension snapshot was being read. Refresh and retry.',
@@ -135,7 +137,7 @@ async function loadComprehensionIdeSliceOnce(root, {
   // CLI subject views rebuild from these exact inputs. They stay out of the serialized IDE
   // snapshot, which carries only the computed view.
   const explanationInputs = includeExplanationInputs
-    ? { workflow: selectedWorkflow, clauseSources }
+    ? { workflow: selectedWorkflow, clauseSources, codeScope: { hidden } }
     : undefined;
 
   return {
@@ -146,6 +148,7 @@ async function loadComprehensionIdeSliceOnce(root, {
     authoritative: false,
     lifecycleGate: false,
     context,
+    codeScope: { hidden },
     manifest,
     sourceReferences,
     brownfield,
@@ -176,7 +179,8 @@ async function loadComprehensionIdeSliceOnce(root, {
       mechanicalMoveCandidates: brownfield.counts['mechanical-move-candidate'],
       sourceReferences: sourceReferences.length,
       explanationUnits: codeExplanation.counts.explanationUnits,
-      opaqueExplanationUnits: codeExplanation.counts.opaqueUnits
+      opaqueExplanationUnits: codeExplanation.counts.opaqueUnits,
+      hiddenSingularityEntries: hidden.entries
     },
     availability: {
       structure: structure.status,

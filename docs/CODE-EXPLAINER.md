@@ -15,8 +15,10 @@ function at the cursor (and works on code the change did not touch). The sidebar
 - **Dependency graph.** One card per file, one row per function, method or class, laid out in layers:
   callers to the left of what they call. Changed rows carry their `+added −removed` counts and a
   colour bar (new, modified, removed); unchanged rows appear only when they call changed code or are
-  called by it. Calls between rows of one file loop around the card's edge. Documents, configuration
-  and the Story's own records share two folded cards instead of one card each.
+  called by it. Calls between rows of one file loop around the card's edge. Changed files without
+  code (documents, configuration) share one *Other changed files* card. Singularity Flow's own files
+  (its governed roots, agent definitions and `.singularity-flow/` state) are never drawn, and
+  **Explain This Code** refuses them: they are not application code.
 - **Inspector.** For the selected function: an explanation written from the facts below, its
   estimated complexity, size, callers, calls and test references, its typed signature, the exact
   lines that changed inside it, and links to every caller, callee and test reference. Selecting a call
@@ -36,7 +38,7 @@ test, external and other cards; **Call depth** 1–3 follows callers of callers 
 
 | Fact | Source | What it does not mean |
 |---|---|---|
-| What changed | The Story's leased comprehension capture: the XPL2 `change` view and its bounded patch. When the patch preview is not available (a Story's own records often exceed it), the base version of each changed code file is read through `comprehension source` (digest-checked) and diffed line by line against the working text. | — |
+| What changed | The Story's leased comprehension capture: the XPL2 `change` view and its bounded patch. Singularity Flow's own files are not part of it. When the patch preview is not available (a very large change can exceed it), the base version of each changed code file is read through `comprehension source` (digest-checked) and diffed line by line against the working text. | — |
 | Which function a line is in | The editor's document symbols; a comment or decorator block directly above a declaration belongs to it. A removed line of a rewritten region follows the most similar added line; a function declared only on removed lines is listed as removed. With no language service, an outline read from the file's own text, marked *text outline*. | A text outline gives positions only, not calls. |
 | Calls | The editor's call hierarchy (`vscode.prepareCallHierarchy`, incoming and outgoing calls). | Static resolution only: dynamic dispatch, callbacks and reflection can add calls it cannot see. |
 | Test references | The editor's references, kept only when they are in a test file. | A test that names a function does not prove it exercises the change. |

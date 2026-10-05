@@ -7310,6 +7310,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       showRefusal('The selected file is outside the active governed repository.', { headline: 'Selection is out of scope' });
       return null;
     }
+    // Singularity Flow's own records and agent files are not application code (code-explainer-model).
+    if (['singularity', '.github/agents', '.singularity-flow'].some((root) => relative === root || relative.startsWith(`${root}/`))) {
+      showRefusal('This is one of Singularity Flow\'s own files, not application code, so it is not explained. Open an application file instead.', { headline: 'Not application code' });
+      return null;
+    }
     const document = vscode.workspace.textDocuments?.find((entry) => entry.uri.fsPath === selected.fsPath);
     return {
       path: relative,

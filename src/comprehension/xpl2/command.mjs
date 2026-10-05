@@ -119,7 +119,8 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     workflow: slice.explanationInputs?.workflow ?? null,
     clauseSources: slice.explanationInputs?.clauseSources ?? null,
     replay: slice.replay,
-    sourceReferences: slice.sourceReferences
+    sourceReferences: slice.sourceReferences,
+    codeScope: slice.codeScope
   };
   const proof = query.subject === 'gap' ? await readProofGaps(root, slice.context.workId) : null;
   const { model, bytes } = boundedModel(input, query, proof, maximumBytes);

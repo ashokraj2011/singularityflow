@@ -495,7 +495,8 @@ export function buildCodeExplanation({
   diff = null,
   structure = null,
   evidence = null,
-  graph = null
+  graph = null,
+  codeScope = null
 } = {}, {
   hunk = null,
   symbol = null,
@@ -562,6 +563,12 @@ export function buildCodeExplanation({
     vocabulary: ['passed-current', 'ready', 'owed', 'stale'], clauses: [], records: []
   });
   const counts = explanationCounts(regions, units, whyEachChange);
+  // Singularity Flow's own files are never explained as code; say how many were left out.
+  const scope = {
+    policy: 'application-code',
+    hiddenEntries: codeScope?.hidden?.entries ?? 0,
+    hiddenGroups: (codeScope?.hidden?.groups ?? []).map(({ group, entries }) => ({ group, entries }))
+  };
   const availability = {
     diff: { status: diffSource.status, reason: diffSource.reason },
     structure: structureAvailability(units, structureSource),
@@ -591,6 +598,7 @@ export function buildCodeExplanation({
     status,
     reason,
     candidate,
+    scope,
     query: {
       ...normalizedQuery,
       status: queryAvailable ? 'available' : 'unavailable',

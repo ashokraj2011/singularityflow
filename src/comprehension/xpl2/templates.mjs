@@ -86,6 +86,12 @@ const TEMPLATES = [
       + `${plural(a.hunks, 'text hunk')} and ${plural(a.opaque, 'opaque unit')}, ${plural(a.units, 'change unit')} in total.`
   },
   {
+    id: 'xpl2.singularity-files-hidden@1',
+    arguments: { entries: 'count', groups: 'text' },
+    render: (a) => `${plural(a.entries, 'Singularity Flow file change')} (${a.groups}) `
+      + `${a.entries === 1 ? 'is' : 'are'} not code and ${a.entries === 1 ? 'is' : 'are'} not shown.`
+  },
+  {
     id: 'xpl2.hunk@1',
     arguments: {
       unitId: 'identifier', path: 'text', operation: 'operation',

@@ -23,16 +23,25 @@ const MAX_HIDDEN_GROUPS = 20;
 const MAX_DIFF_PATHS = 2_000;
 
 /**
- * The repository's governed roots, read from its definition file itself. Full definition loading
- * validates agents and templates too, and one malformed agent file must not turn a configured
- * work-item root back into code to explain.
+ * The repository's definition file as written, or an empty object when it is absent or unreadable.
+ * Full definition loading validates agents and templates too, and one malformed agent file must
+ * not turn a configured work-item root back into code to explain.
  */
+export async function comprehensionDefinition(root) {
+  try {
+    const parsed = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The repository's governed roots, read from its definition file itself. */
 export async function comprehensionPathContext(root) {
   try {
-    const text = await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8');
-    return applicationPathContext(YAML.parse(text) ?? {});
+    return applicationPathContext(await comprehensionDefinition(root));
   } catch {
-    // An uninitialised repository, or one whose definition is unreadable, keeps the built-in roots.
+    // A definition whose roots cannot be read keeps the built-in roots.
     return applicationPathContext();
   }
 }

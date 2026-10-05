@@ -109,17 +109,72 @@ async function optionalNarrative(root, explanation, {
   }
 }
 
+const REPOSITORY_INCOMPATIBLE = ['narrate', 'length', 'since', 'hunk', 'symbol', 'clause', 'work-id', 'phase'];
+
+/**
+ * The `--repository` request, or null. `--repository` also takes a value in workspace commands, so
+ * the parser hands it the next word: `explain code --repository src/pay` reads as that scope.
+ */
+function repositoryRequest(options) {
+  const value = Array.isArray(options.repository) ? options.repository.at(-1) : options.repository;
+  if (value === undefined) return null;
+  const word = String(value).toLowerCase();
+  if (['false', '0', 'no', 'off'].includes(word)) return null;
+  const named = value === true || ['true', '1', 'yes', 'on'].includes(word) ? null : String(value);
+  return { scope: optionString(options, 'path') ?? named };
+}
+
+/** `explain code --repository [--path DIR]`: what the repository holds, not what changed. */
+async function runRepositoryExplanation(root, options, operation, scope) {
+  const conflicting = REPOSITORY_INCOMPATIBLE.filter((name) => options[name] != null);
+  if (conflicting.length) throw new SingularityFlowError(
+    `--repository explains what the repository holds; it does not take ${conflicting.map((name) => `--${name}`).join(', ')}.`,
+    { code: 'CMP_EXPLANATION_QUERY_INVALID' }
+  );
+  const { explainRepository } = await import('./repository-explanation.mjs');
+  const explanation = await explainRepository(root, { scope, index: !optionBoolean(options, 'no-index') });
+  const shown = explanation.scope.path ?? null;
+  const overBudget = explanation.budget.status === 'over-budget';
+  const folders = explanation.entries.filter((entry) => entry.kind === 'folder');
+  const next = (overBudget ? folders : folders.filter((entry) => entry.files > 1)).slice(0, 3).map((entry, index) => action({
+    id: `code-explanation.repository-folder-${index + 1}`,
+    label: `Explain ${entry.path} (${entry.files} file${entry.files === 1 ? '' : 's'}).`,
+    command: `singularity-flow explain code --repository --path ${guidanceWord(entry.path)}`,
+    kind: 'informational'
+  }));
+  return emitCommandResult(commandResult({
+    operation,
+    subject: { kind: 'repository', id: path.basename(root) },
+    outcome: overBudget
+      ? succeeded('code-explanation.repository-over-budget', {
+        scope: shown ?? 'The repository', files: explanation.budget.files ?? 'more',
+        maxFiles: explanation.budget.maxFiles, maxMiB: Math.round(explanation.budget.maxBytes / (1024 * 1024))
+      })
+      : succeeded('code-explanation.repository-reported', {
+        scope: shown ?? 'the repository', files: explanation.counts.files, symbols: explanation.counts.symbols,
+        clauses: explanation.counts.clauses, indexed: explanation.index.built ? 'yes' : 'no'
+      }),
+    effects: noEffects(),
+    next,
+    restState: 'informational',
+    data: { mode: 'observe-only', repository: explanation }
+  }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+}
+
 export async function runCodeExplanation(_argv, {
   positionals, options, operation
 }) {
   if (positionals[1] !== 'code' || positionals.length !== 2) {
     throw new SingularityFlowError(
       'Usage: singularity-flow explain code [--hunk H-ID | --symbol SYMBOL-ID | --clause CLAUSE-ID] '
-      + '[--since REVISION] [--narrate] [--length brief|standard|long] [--json]',
+      + '[--since REVISION] [--narrate] [--length brief|standard|long] [--json], '
+      + 'or singularity-flow explain code --repository [--path DIR-OR-FILE] [--json]',
       { code: 'CMP_EXPLANATION_QUERY_INVALID' }
     );
   }
   const root = repoRoot();
+  const repository = repositoryRequest(options);
+  if (repository) return runRepositoryExplanation(root, options, operation, repository.scope);
   const wantsNarrative = optionBoolean(options, 'narrate');
   const length = optionString(options, 'length', 'standard');
   if (!wantsNarrative && options.length != null) throw new SingularityFlowError(

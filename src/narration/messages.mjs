@@ -678,6 +678,17 @@ export const MESSAGES = Object.freeze({
       + (Number(s.hidden) > 0 ? ` ${s.hidden} Singularity Flow file change(s) are not code and are not shown.` : ''),
     preserves: true
   },
+  'code-explanation.repository-reported': {
+    headline: (s) => `Explained ${slot(s.scope, 'the repository')}: ${slot(s.files, '0')} application file(s), `
+      + `${slot(s.symbols, '0')} indexed declaration(s), ${slot(s.clauses, '0')} tagged clause(s).`
+      + (s.indexed === 'yes' ? ' The local AST index was filled for this scope (derived, disposable).' : ''),
+    preserves: true
+  },
+  'code-explanation.repository-over-budget': {
+    headline: (s) => `${slot(s.scope, 'The repository')} holds ${slot(s.files, 'more')} application files, more than the AST budget `
+      + `(${slot(s.maxFiles, '500')} files, ${slot(s.maxMiB, '20')} MiB), so it is explained one folder or file at a time. Nothing was indexed.`,
+    preserves: true
+  },
   'explanation.subject-reported': {
     headline: (s) => `Explained the ${slot(s.subject, 'change')} subject (${slot(s.status, 'available')}) with ${slot(s.statements, '0')} cited statement(s); nothing was changed.`,
     preserves: true

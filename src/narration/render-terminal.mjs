@@ -407,6 +407,74 @@ function explanationSubjectText(result) {
   return lines.filter((line) => line != null).join('\n');
 }
 
+function sizeText(bytes) {
+  if (!Number.isFinite(bytes)) return 'size not measured';
+  return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+/** Whole-repository explanation: folders, then code with its declarations and tags, then clauses. */
+function repositoryExplanationText(result) {
+  const explanation = result.data.repository;
+  const safe = codeExplanationTerminalValue;
+  const budget = explanation.budget;
+  const scope = explanation.scope.path ? safe(explanation.scope.path) : 'whole repository';
+  const lines = [
+    style.heading(headline(result)),
+    `${safe(explanation.repository.name)} · HEAD ${safe(explanation.repository.head ?? 'none').slice(0, 12)} · scope: ${scope} · authority: none`,
+    budget.status === 'over-budget'
+      ? `Budget: ${budget.files == null ? 'more application files than a bounded listing holds' : `${budget.files} application files`}`
+        + ` exceed the AST budget of ${budget.maxFiles} files and ${sizeText(budget.maxBytes)} (${safe(budget.reason)}).`
+      : `Budget: ${budget.files} application file(s), ${sizeText(budget.bytes)}, within the AST budget of ${budget.maxFiles} files and ${sizeText(budget.maxBytes)}.`
+  ];
+  const index = explanation.index;
+  if (index?.status === 'not-indexed') lines.push('Index: not built; ask about one folder or file to explain it.');
+  else if (index?.status === 'disabled') lines.push('Index: structural intelligence (AST) is off, so declarations are not listed.');
+  else if (index?.counts) {
+    lines.push(`Index: ${index.counts.symbols} declaration(s) from ${index.counts.indexedFiles} indexed file(s)`
+      + `${index.counts.workingTreeFiles ? ` and ${index.counts.workingTreeFiles} file(s) read from the working tree because they differ from HEAD` : ''}`
+      + `${index.counts.notIndexedFiles ? `; ${index.counts.notIndexedFiles} file(s) not indexed${index.reason ? ` (${safe(index.reason)})` : ''}` : ''}`
+      + `${index.built ? '; the index was filled now for this scope' : index.warm?.status === 'complete' && index.warm.mode === 'background' ? '; indexed in the background when the workspace was set up' : ''}.`);
+  }
+  if (explanation.hiddenSingularityFiles) lines.push(`Not shown: ${explanation.hiddenSingularityFiles} Singularity Flow file(s), which are not code.`);
+  if (explanation.entries.length) {
+    lines.push('', style.heading('FOLDERS AND FILES'));
+    for (const entry of explanation.entries.slice(0, 40)) {
+      const languages = entry.languages.map((item) => `${safe(item.language)} ${item.files}`).join(' · ');
+      lines.push(`  ${safe(entry.path)}${entry.kind === 'folder' ? '/' : ''}  ${entry.kind === 'folder' ? `${entry.files} file(s) · ` : ''}`
+        + `${languages}${entry.tests ? ` · ${entry.tests} test file(s)` : ''}`);
+    }
+    const omitted = explanation.entriesTotal - Math.min(40, explanation.entries.length);
+    if (omitted > 0) lines.push(`  ${omitted} more entr${omitted === 1 ? 'y' : 'ies'}; --json lists ${explanation.entries.length}.`);
+  }
+  const described = explanation.files.filter((file) => file.symbols.length || file.tags.length);
+  if (described.length) {
+    lines.push('', style.heading('CODE'));
+    for (const file of described.slice(0, 60)) {
+      lines.push(`  ${safe(file.path)}  ${safe(file.language)} · ${sizeText(file.bytes)}${file.test ? ' · test' : ''}`);
+      if (file.symbols.length) {
+        lines.push(`     ${file.symbols.slice(0, 8).map((symbol) => `${safe(symbol.kind)} ${safe(symbol.name)} L${symbol.line}`).join(' · ')}`
+          + `${file.symbolCount > 8 ? ` · ${file.symbolCount - 8} more` : ''}`);
+      }
+      for (const tag of file.tags.slice(0, 4)) {
+        lines.push(`     @${safe(tag.tag)} ${safe(tag.clauseId)} at L${tag.line}${tag.note ? `: “${safe(tag.note)}”` : ''}`);
+      }
+    }
+    if (described.length > 60) lines.push(`  ${described.length - 60} more file(s) with declarations or tags; --json lists them.`);
+  }
+  if (explanation.clauses.length) {
+    lines.push('', style.heading('CLAUSES TAGGED IN CODE AND TESTS'));
+    for (const clause of explanation.clauses.slice(0, 30)) {
+      const code = clause.code.map((entry) => `${safe(entry.path)}:${entry.line}`).join(', ') || 'no code';
+      const tests = clause.tests.map((entry) => `${safe(entry.path)}:${entry.line}`).join(', ') || 'no test';
+      lines.push(`  ${safe(clause.clauseId)}  code: ${code} · tests: ${tests}`);
+    }
+  }
+  lines.push('', style.detail('A declaration is what the AST index records and a tag is the author\'s declaration; neither shows behavior or coverage.'));
+  if (result.next.length) lines.push('', style.heading('Next:'), ...nextLines(result));
+  lines.push(style.detail(preservationLine(result)));
+  return lines.filter((line) => line != null).join('\n');
+}
+
 function codeExplanationText(result) {
   const { context = {}, explanation, narrative = null } = result.data ?? {};
   if (!explanation) return [headline(result), preservationLine(result)].filter(Boolean).join('\n');
@@ -634,6 +702,9 @@ export function renderCommandResult(result) {
   }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
   if (result.operation.id.startsWith('explain.subject')) return explanationSubjectText(result);
+  if (result.operation.id.startsWith('explain.code') && result.data?.repository?.kind === 'repository-explanation') {
+    return repositoryExplanationText(result);
+  }
   if (result.operation.id.startsWith('explain.code')) return codeExplanationText(result);
   if (result.operation.id === 'change.show.shadow') return shadowPassportText(result);
   if (result.operation.id.startsWith('proof.')) return proofObservationText(result);

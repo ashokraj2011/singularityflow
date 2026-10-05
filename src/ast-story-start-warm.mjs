@@ -120,7 +120,7 @@ export async function runStoryStartAstWarmWorker(root, workId) {
   }
 }
 
-function launchDetached(root, workId) {
+export function launchDetached(root, workId) {
   const child = spawn(process.execPath, [WORKER, workId], {
     cwd: root,
     env: process.env,

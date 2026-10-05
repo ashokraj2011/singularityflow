@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8130ac3dafb4c1d894dd3a6da7b6da7da43667aa",
+  "sourceCommit": "f9898d868ce70aed840950e5885225f957a21f8a",
   "topicCount": 75,
-  "contentSha256": "4d862462013be1837e5932d2138f5a6ce5588bf782b0b4a7f644761f75fe6a06",
+  "contentSha256": "403162a05ff1c5ef006751febcdb87a494d664052a551c55c8f17d4424a68a5a",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -64,8 +64,8 @@
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 4,
-      "sha256": "3183df9a9edeb460fd864f420cc85d3ad7aae79304a714e489974dd32eb3d3df",
+      "version": 5,
+      "sha256": "9e40cd30fbbcef05b45e0ddb97e05bac2ebba428d31b6082932b4e2e9c765d2c",
       "routingSha256": "1671f988a2f09eeb1af1cef10389c698c3e3a813a6caf2a362c9c3509bf23847",
       "file": "ast-intelligence.md"
     },
@@ -104,8 +104,8 @@
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 7,
-      "sha256": "881d9571d8154938559ef5bd4d36c1d5156393e55c055c4c670ad2cfad6b63c4",
+      "version": 8,
+      "sha256": "b560f5c341961816106ac36d55d6751839b31eb05ef103346eb70c6f5895cb81",
       "routingSha256": "850900458031734fd5a411202347b68652e528c290aeaa6dce22d6e7cfc910e2",
       "file": "code-explanation.md"
     },
@@ -592,8 +592,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 9,
-      "sha256": "2679cde43297cfb981c5f8e5a8a0b91054677cde88b66c5cb134f56762855b6d",
+      "version": 10,
+      "sha256": "4926888a3ba4bca88d3ae6d828aef4aa08576a2fae98b667dde57e561a4d13cb",
       "routingSha256": "4d60343e291e638a0267e6605861c798f629b641c57cf4a98ab6ce87633647b6",
       "file": "workspaces-and-sessions.md"
     },

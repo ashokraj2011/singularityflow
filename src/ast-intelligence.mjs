@@ -22,7 +22,7 @@ import { effectiveAstMode, readAstPreference, setAstPreference } from './ast-mod
 import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
-import { latestStoryStartAstWarmStatus } from './ast-story-start-status.mjs';
+import { latestStoryStartAstWarmStatus, readRepositoryAstWarmStatus } from './ast-story-start-status.mjs';
 import { OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
 import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
@@ -2246,6 +2246,7 @@ export async function astDoctor(root) {
     };
   });
   const storyStartWarm = await latestStoryStartAstWarmStatus(root);
+  const repositoryWarm = await readRepositoryAstWarmStatus(root);
   return {
     schemaVersion: 4, // schema-transient: live diagnostic result, never persisted
     healthy: true,
@@ -2258,6 +2259,7 @@ export async function astDoctor(root) {
     scope: runtime.sourceScope,
     cache,
     storyStartWarm,
+    repositoryWarm,
     catalog: runtime.languageCatalog,
     languages,
     projects: {

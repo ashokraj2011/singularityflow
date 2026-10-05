@@ -26,6 +26,15 @@ function at the cursor (and works on code the change did not touch). The sidebar
 - **Requirement → test trace.** Four columns: requirements (with gaps, the author's `@clause` notes
   and the requirements each one cites or is cited by), changed code, tests and the
   recorded results of the phase. Clicking a card lights its chain.
+- **Repository.** What the whole repository holds, from `explain code --repository`:
+  - its folders, with counts;
+  - each file's declarations and `@clause`/`@ac` tags;
+  - the clauses those tags name.
+
+  It opens on its own when there is no change to explain. A repository over the AST budget is
+  explained one folder at a time: choose a folder to explain it, and **Up** to go back. Choosing a
+  declaration opens it in the dependency graph, with its callers, callees and tests. The page asks
+  by entry index; the host resolves each request against the explanation it read.
 - **Walkthrough.** The changed functions in reading order (callers before the functions they call,
   code before tests, whole-file changes last), one step at a time, each with its explanation and diff.
 

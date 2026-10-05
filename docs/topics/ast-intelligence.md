@@ -22,7 +22,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 4
+version: 5
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,
@@ -58,6 +58,11 @@ The repository can also set `ast.warmOnStoryStart.mode` to `background` (the def
 cache when a Story starts**. Background warming starts only after the governed Story commit is
 durable and lets Story work continue immediately. The wait option completes the same bounded build
 before returning from Story start. Neither option can fail, roll back, or block the Story.
+
+Workspace creation, adoption and repair also warm the cache for each repository's application code
+when it fits `ast.budgets`. A larger repository is not indexed up front; `sflow explain code
+--repository --path <folder>` indexes the folder it explains on request. `wm ast doctor` shows the
+repository record as `repositoryWarm`.
 
 `scope: configured-roots` uses pinned capability/world-model roots and falls back to the bounded
 repository when no roots are declared. `scope: repository` explicitly requests the bounded entire

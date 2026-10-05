@@ -106,7 +106,7 @@ test('the host accepts a closed set of messages, each naming ids, never a path, 
   const router = source.slice(source.indexOf("registerMessageRouter('singularityFlow.codeExplainer'"), source.indexOf('private accept('));
   const accepted = [...router.matchAll(/'(cx\.[A-Za-z]+)':/g)].map((match) => match[1]);
   assert.deepEqual(accepted, ['cx.ready', 'cx.reindex', 'cx.depth', 'cx.open', 'cx.openModule', 'cx.openTest', 'cx.openSite',
-    'cx.diff', 'cx.ask', 'cx.copy', 'cx.export', 'cx.changeExplorer', 'cx.story']);
+    'cx.diff', 'cx.ask', 'cx.copy', 'cx.export', 'cx.changeExplorer', 'cx.repository', 'cx.repoOpen', 'cx.story']);
   const fields = [...router.matchAll(/(?:string|integer|enum)Field\(message, '([a-z]+)'/g)].map((match) => match[1]);
   assert.deepEqual([...new Set(fields)].sort(), ['depth', 'edge', 'index', 'line', 'module', 'symbol', 'to']);
   assert.match(source, /navigationTarget\(raw\)/, 'the footer navigation is handled');

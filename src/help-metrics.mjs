@@ -70,11 +70,14 @@ async function location(root) {
   const workspace = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile()
   );
-  const directory = workspace
-    ? path.join(workspace.workspacePath, '.singularity-flow', DIRECTORY)
+  // An older selection record has no workspace path, and the best-effort lookup still returns a
+  // navigation context for its checkout. With no workspace directory, keep help in the repository.
+  const workspacePath = workspace?.workspacePath ?? null;
+  const directory = workspacePath
+    ? path.join(workspacePath, '.singularity-flow', DIRECTORY)
     : path.join(gitDir(root), 'singularity-flow', DIRECTORY);
   return {
-    scope: workspace ? 'workspace' : 'repository',
+    scope: workspacePath ? 'workspace' : 'repository',
     directory,
     logFile: path.join(directory, LOG),
     settingsFile: path.join(directory, SETTINGS)

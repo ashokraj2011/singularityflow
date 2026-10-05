@@ -9,6 +9,9 @@ import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import {
   clearHelpMetrics, helpMetricsStatus, recordHelpMetric, setHelpMetrics
 } from '../src/help-metrics.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from '../src/workspace-context.mjs';
 
 const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-help-metrics-machine-'));
 process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machine, 'active.json');
@@ -44,10 +47,12 @@ async function workspaceFixture() {
   return { workspace, root, manifest };
 }
 
+/** Without a workspace path this writes the older selection record, which did not retain one. */
 async function selectWorkspace(workspacePath, repositoryPath) {
   await writeFile(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, `${JSON.stringify({
     schemaVersion: currentSchemaVersion('active-workspace'),
-    workspaceId: 'help-workspace', workspaceName: 'Help workspace', workspacePath,
+    workspaceId: 'help-workspace', workspaceName: 'Help workspace',
+    ...(workspacePath ? { workspacePath } : {}),
     repositoryId: 'application', repositoryPath, selectedAt: '2026-08-26T00:00:00.000Z'
   })}\n`);
 }
@@ -198,6 +203,43 @@ test('help metrics location: a member uses the selected workspace path, and a re
     assert.equal(fallback.scope, 'repository');
     assert.equal(fallback.logFile, path.join(await repositoryMetrics(root), 'events.jsonl'));
     assert.equal(fallback.count, 0);
+  } finally {
+    await rm(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, { force: true });
+  }
+});
+
+test('help metrics location: an older selection without a workspace path keeps help in .git', async () => {
+  const { root } = await workspaceFixture();
+  const unrelated = await repository();
+  await selectWorkspace(null, root);
+  try {
+    // The best-effort lookup still resolves the selected checkout for navigation, but that context
+    // names no workspace directory to aggregate under.
+    const navigation = await workspaceMemberContextForRepository(
+      root, activeWorkspaceFile(), workspaceRegistryFile()
+    );
+    assert.equal(navigation?.repositoryId, 'application', 'the older selection still resolves its checkout');
+    assert.equal(navigation.workspacePath, null);
+
+    const expected = await repositoryMetrics(root);
+    const recorded = await recordHelpMetric(root, metric());
+    assert.equal(recorded.scope, 'repository');
+    assert.equal(recorded.directory, expected);
+    const status = await helpMetricsStatus(root);
+    assert.equal(status.scope, 'repository');
+    assert.equal(status.logFile, path.join(expected, 'events.jsonl'));
+    assert.equal(status.count, 1);
+    assert.equal((await setHelpMetrics(root, false)).enabled, false);
+    assert.equal((await clearHelpMetrics(root)).removed, 1);
+
+    // A repository the older selection does not name gets no context and stays repository-local.
+    assert.equal(await workspaceMemberContextForRepository(
+      unrelated, activeWorkspaceFile(), workspaceRegistryFile()
+    ), null);
+    const other = await recordHelpMetric(unrelated, metric());
+    assert.equal(other.scope, 'repository');
+    assert.equal(other.directory, await repositoryMetrics(unrelated));
+    assert.equal((await helpMetricsStatus(unrelated)).count, 1);
   } finally {
     await rm(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, { force: true });
   }

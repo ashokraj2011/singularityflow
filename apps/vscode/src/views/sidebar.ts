@@ -52,6 +52,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'command-center': 'singularityFlow.openCommandCenter',
   'comprehension-center': 'singularityFlow.openComprehensionCenter',
   'change-explorer': 'singularityFlow.openChangeExplorer',
+  'code-explainer': 'singularityFlow.openCodeExplainer',
   'code-explanation': 'singularityFlow.openCodeExplanation'
 };
 
@@ -74,6 +75,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
   { id: 'command-center', label: 'Command Center', description: 'governed execution processes and requests', icon: 'workflow', command: ACTION_COMMANDS['command-center']! },
   { id: 'change-explorer', label: 'Explain changes', description: 'the current changes, why they were made, and what they touch', icon: 'code', command: ACTION_COMMANDS['change-explorer']! },
+  { id: 'code-explainer', label: 'Code Explainer', description: 'changed functions, their callers, callees and tests, as an interactive graph', icon: 'code', command: ACTION_COMMANDS['code-explainer']! },
   { id: 'code-explanation', label: 'Code explanation', description: 'why each changed hunk is there', icon: 'code', command: ACTION_COMMANDS['code-explanation']! },
   { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
   { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
@@ -362,7 +364,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private async openTools(group: string): Promise<void> {
     const groups: Record<string, { title: string; ids: string[] }> = {
       'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'work-start', 'adhoc-work', 'goals', 'impact-form', 'understand-changes', 'epic-stories', 'command-center', 'flow-impact'] },
-      'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explanation', 'comprehension-center'] },
+      'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'code-explanation', 'comprehension-center'] },
       'help-tools': { title: 'Help & diagnostics', ids: ['help-open', 'diagnostics', 'fault-repairs', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'prompt-audit', 'journal'] }
     };

@@ -43,6 +43,7 @@ export const LINK_HELP: Readonly<Record<string, NavigatorHelp>> = Object.freeze(
   'workspace-manage': { summary: 'Choose, open, archive and repair workspaces on this machine.', cli: 'singularity-flow workspace', topic: 'workspaces-and-sessions' },
   refresh: { summary: 'Read the governed repository again.', cli: 'singularity-flow status', topic: 'repository-state-and-snapshots' },
   'change-explorer': { summary: 'The current changes, why each was made, and what it touches.', cli: 'singularity-flow explain', topic: 'code-explanation' },
+  'code-explainer': { summary: 'An interactive graph of the changed functions, their callers, callees and tests, with a walkthrough.', topic: 'code-explanation' },
   'code-explanation': { summary: 'Why each changed hunk is there, line by line.', cli: 'singularity-flow explain', topic: 'code-explanation' },
   'comprehension-center': { summary: 'Exact change regions, their causes, unknowns and replay.', cli: 'singularity-flow comprehension', topic: 'code-explanation' },
   goals: { summary: 'Outcomes and the governed work linked to them.', cli: 'singularity-flow goal', topic: 'goals-and-outcomes' },

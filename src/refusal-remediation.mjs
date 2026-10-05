@@ -328,6 +328,14 @@ const KNOWN = Object.freeze({
     step('review-auto-policy', 'Review how repository, work-type, and capability Auto policy fold together.',
       'singularity-flow explain auto-mode', 'configuration')
   ],
+  // A confirmed import with conflicts nobody chose for: the preview lists each with its choices.
+  WORKFLOW_IMPORT_CONFLICT: (argv) => {
+    const at = argv.findIndex((value, index) => value === 'workflow' && argv[index + 1] === 'import');
+    const file = at >= 0 && /^[A-Za-z0-9_./@+,%-]+$/.test(argv[at + 2] ?? '') ? argv[at + 2] : '<BUNDLE-FILE>';
+    return [step('preview-import-choices',
+      'Preview the import again. It lists each conflict with its choices: keep yours, replace yours with theirs, or import theirs under a new name.',
+      `singularity-flow workflow import ${file} --dry-run`)];
+  },
   UNKNOWN_COMMAND: () => [
     step('list-commands', 'Find the supported command and its exact spelling.',
       'singularity-flow --help', 'help'),

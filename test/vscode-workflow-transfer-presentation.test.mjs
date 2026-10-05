@@ -6,7 +6,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const workflowTransferPresentation = new URL('../apps/vscode/src/views/workflow-transfer-presentation.ts', import.meta.url);
-const { workflowMutationPlanDetail, workflowMutationPlanMarkdown } = await import(workflowTransferPresentation);
+const {
+  workflowImportChoiceItems, workflowImportConflictTitle, workflowImportOpenChoices, workflowImportResolveArgs,
+  workflowImportSuggestedChoices, workflowImportSuggestionSummary, workflowMutationPlanDetail, workflowMutationPlanMarkdown
+} = await import(workflowTransferPresentation);
+
+const stepConflict = {
+  subject: 'phase:release-plan', kind: 'phase', id: 'release-plan', reasons: ['definition: same ID has different content'],
+  choices: ['keep', 'replace', 'rename'], suggested: 'rename', renameTo: 'release-plan-imported', usedBy: ['story:mobile-release']
+};
+const groupConflict = {
+  subject: 'approval-group:release-managers', kind: 'approval-group', id: 'release-managers',
+  reasons: ['definition: same ID has different content'], choices: ['keep', 'replace', 'rename'], suggested: 'keep',
+  renameTo: 'release-managers-imported', usedBy: []
+};
+const configurationConflict = {
+  subject: null, kind: null, id: 'story.configuration:singularity/workflow.yml', reasons: ['configuration: invalid'],
+  choices: [], suggested: null, usedBy: []
+};
 
 test('workflow import confirmation renders every operation beyond eight without truncation', () => {
   const add = Array.from({ length: 12 }, (_, index) => ({
@@ -53,4 +70,57 @@ test('workflow transfer review displays the exact bound destination, not only it
     assert.match(rendered, /local working-tree content; no remote authorization/);
     assert.doesNotMatch(rendered, /remote fingerprint=/);
   }
+});
+
+test('each import conflict offers its choices, the suggested one first, in the person\'s terms', () => {
+  const items = workflowImportChoiceItems(stepConflict);
+  assert.deepEqual(items.map((item) => item.label), [
+    'Import theirs as release-plan-imported', 'Keep yours', 'Replace yours with theirs'
+  ]);
+  assert.equal(items[0].description, 'suggested');
+  assert.deepEqual(items[0].choice, { action: 'rename', to: 'release-plan-imported' });
+  assert.equal(items[1].detail, 'The imported workflow uses your step.');
+  assert.equal(items[2].detail, 'This also changes story:mobile-release.');
+  assert.equal(workflowImportChoiceItems(groupConflict)[0].label, 'Keep yours');
+  assert.equal(workflowImportChoiceItems({ ...groupConflict, kind: 'workflow' })[0].detail, 'Theirs is not imported.');
+  assert.equal(workflowImportConflictTitle(stepConflict, 0, 2), 'Import conflict 1 of 2: step release-plan');
+});
+
+test('suggested import choices become exact --resolve arguments; unresolvable conflicts still block', () => {
+  const plan = { status: 'blocked', unresolved: [stepConflict, groupConflict, configurationConflict] };
+  const { resolvable, blocking } = workflowImportOpenChoices(plan);
+  assert.deepEqual(resolvable.map((item) => item.subject), ['phase:release-plan', 'approval-group:release-managers']);
+  assert.deepEqual(blocking, [configurationConflict]);
+  const choices = workflowImportSuggestedChoices(resolvable);
+  assert.deepEqual(choices, {
+    'phase:release-plan': { action: 'rename', to: 'release-plan-imported' }, 'approval-group:release-managers': { action: 'keep' }
+  });
+  assert.deepEqual(workflowImportResolveArgs(choices), [
+    '--resolve', 'approval-group:release-managers=keep', '--resolve', 'phase:release-plan=rename:release-plan-imported'
+  ]);
+  assert.equal(workflowImportSuggestionSummary(resolvable),
+    'Import 1 under new names, keep 1 of yours; nothing of yours changes unless you replace it.');
+});
+
+test('a resolved import plan shows new names, replacements and what was kept; an open one shows each choice', () => {
+  const resolved = {
+    status: 'ready', planSha256: `sha256:${'e'.repeat(64)}`,
+    renamed: [{ subject: 'phase:release-plan', to: 'release-plan-imported' }],
+    operations: {
+      add: [], reuse: [], conflicts: [],
+      replace: [{ kind: 'template', id: 'singularity/templates/x.md', subject: 'template-file:singularity/templates/x.md' }],
+      keep: [{ kind: 'story.approvalAuthorities', id: 'release-managers', subject: 'approval-group:release-managers' }]
+    }
+  };
+  for (const rendered of [workflowMutationPlanDetail(resolved), workflowMutationPlanMarkdown(resolved, 'Import')]) {
+    assert.match(rendered, /New names \(1\)/);
+    assert.match(rendered, /phase:release-plan → release-plan-imported/);
+    assert.match(rendered, /Replace yours \(1\)/);
+    assert.match(rendered, /Keep yours \(1\)/);
+  }
+  const open = workflowMutationPlanMarkdown({ status: 'blocked', unresolved: [stepConflict, configurationConflict] }, 'Import');
+  assert.match(open, /## Choices needed \(2\)/);
+  assert.match(open, /Choice: \*\*Import theirs as release-plan-imported\*\*/);
+  assert.match(open, /Used here by: story:mobile-release/);
+  assert.match(open, /No choice resolves this/);
 });

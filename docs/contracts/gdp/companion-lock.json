@@ -4,11 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "d9e1333c142762ca17a0439e4a7aa1aea05de026",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-04-STEP-ACTION-RECEIPTS.md",
+    "reviewedAtCommit": "d1dd5cc87a9d41316971bb03fbaa4298dfff1e54",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-WORKFLOW-BUNDLE-V4.md",
     "companionIds": [
-      "migration-registry",
-      "workflow-configuration"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -100,7 +99,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:a0fece4e4a1073d537ab4a5647980edb51e2e7258022c5c6a9dfef0a044d433e"
+      "sha256": "sha256:b5411b0bd0267af28e8545c3e82dd2ea39d2151d7e3b8a15a74d8dc7c9d45c14"
     },
     {
       "id": "smart-initialization-v1",

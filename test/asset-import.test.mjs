@@ -218,7 +218,7 @@ test('imports check reports changed sources with the exact reviewed update comma
   assert.ok(await readStagedImport(root, sha256('# Two')), 'the new version is staged for review');
 });
 
-test('a workflow bundle carries an imported skill as an ordinary locked dependency, never a path in this repository', async () => {
+test('a workflow bundle carries an imported skill as its exact bytes, with its lock and where it came from', async () => {
   const root = await repository();
   const url = 'https://skills.example.org/bundle.md';
   const { sha, imports } = await staged(root, '# Bundled skill\n', url);
@@ -230,5 +230,10 @@ test('a workflow bundle carries an imported skill as an ordinary locked dependen
   const dependency = bundle.agentLocks.architect.dependencies.find((entry) => entry.id === 'bundled');
   assert.equal(dependency.sha256, sha);
   assert.equal(dependency.url, url);
-  assert.equal(dependency.vendored, undefined);
+  // The destination reads the copy the bundle carries and never fetches the skill again.
+  assert.equal(dependency.vendored, 'singularity/imports/agents/architect/skill-bundled.md');
+  const copy = bundle.assets.find((asset) => asset.kind === 'vendored');
+  assert.deepEqual([copy.path, copy.content, copy.owner], [dependency.vendored, '# Bundled skill\n', { kind: 'agent', id: 'architect' }]);
+  assert.equal(bundle.imports['skill:architect/bundled'].source.url, url);
+  assert.equal(bundle.requirements.dependencyMaterialization, 'vendored');
 });

@@ -150,10 +150,11 @@ test('historical workflow bundle projections keep stored identities without inve
     const before = Buffer.from(rawBytes);
     const opened = readRecord('workflow-bundle', rawBytes);
     assert.equal(opened.storedVersion, storedVersion);
-    assert.equal(opened.record.schemaVersion, 3);
+    assert.equal(opened.record.schemaVersion, 4);
     assert.deepEqual(opened.migratedThrough, storedVersion === 1
-      ? [{ from: 1, to: 2 }, { from: 2, to: 3 }] : [{ from: 2, to: 3 }]);
-    assert.deepEqual(opened.record, { ...stored, schemaVersion: 3, skillPackages: [] });
+      ? [{ from: 1, to: 2 }, { from: 2, to: 3 }, { from: 3, to: 4 }] : [{ from: 2, to: 3 }, { from: 3, to: 4 }]);
+    // Nor does it invent imported copies: a historical bundle carried none.
+    assert.deepEqual(opened.record, { ...stored, schemaVersion: 4, skillPackages: [], imports: {} });
     assert.equal(opened.record.bundleSha256, stored.bundleSha256);
     assert.deepEqual(opened.record.objects, stored.objects);
     assert.equal(Object.hasOwn(opened.record.objects.story.phases, 'design-intake'), false);

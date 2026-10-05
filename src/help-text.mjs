@@ -333,7 +333,9 @@ Usage:
   singularity-flow workflow export --workflow ID [--workflow ID...] --out FILE [--json]
                                                         export selected workflows and their complete dependency closure
   singularity-flow workflow import <FILE> [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
-                                                        preview, then import an exact workflow bundle through configuration review
+    [--resolve KIND:ID=keep|replace|rename[:NAME]]... [--resolve-all suggested|keep|replace|rename]
+                                                        preview, then import an exact workflow bundle through configuration review;
+                                                        each same-name conflict needs a choice
   singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label TEXT
     [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
                                                         linked copy: preserve the complete workflow record and reuse dependencies

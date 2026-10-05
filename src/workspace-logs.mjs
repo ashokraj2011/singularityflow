@@ -229,6 +229,12 @@ export async function collectWorkspaceLogs({
     activeWorkspaceFile(env, home), workspaceRegistryFile(env, home), { refresh: false }
   );
   if (!context) throw new SingularityFlowError('No workspace is active. Select a workspace before reading workspace logs.');
+  // An older selection record has no workspace path, so it cannot name the repositories to read.
+  if (!context.workspacePath) {
+    throw new SingularityFlowError(
+      `The active workspace selection for '${context.workspaceName ?? context.workspaceId}' does not record its workspace directory. Select the workspace again before reading workspace logs.`
+    );
+  }
   const workspace = await readWorkspace(context.workspacePath);
   const warnings = [];
   const entries = [];

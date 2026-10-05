@@ -176,6 +176,13 @@ export async function activeGoalWorkspace({ env = process.env, home = undefined 
       { code: 'GOAL_WORKSPACE_REQUIRED' }
     );
   }
+  // An older selection record has no workspace path, so it cannot locate the workspace's Goals.
+  if (!selected.workspacePath) {
+    throw new SingularityFlowError(
+      `The active workspace selection for '${selected.workspaceName ?? selected.workspaceId}' does not record its workspace directory. Run 'singularity-flow workspace use <WORKSPACE>' again before managing Goals.`,
+      { code: 'GOAL_WORKSPACE_REQUIRED' }
+    );
+  }
   const workspace = await readWorkspace(selected.workspacePath);
   const lead = workspace.repositories[workspace.leadRepository];
   const leadRepositoryPath = workspaceRepositoryPath(workspace, lead);

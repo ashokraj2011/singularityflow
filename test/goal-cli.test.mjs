@@ -131,3 +131,18 @@ test('goal sync reports a killed pre-commit creation as recovered instead of not
   assert.equal(recovered.data.publication.recoveredPrepared, true);
   assert.equal(recovered.data.publication.commit, null);
 });
+
+test('goal CLI asks for a new selection when an older one has no workspace path', async () => {
+  // Older selection records did not retain a workspace path, and the v1->v2 migration does not add
+  // one. Goals live in the workspace directory, so such a selection cannot locate them.
+  const { base, env } = await environment();
+  await writeFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, `${JSON.stringify({
+    schemaVersion: 2, workspaceId: 'local--goal-team', workspaceName: 'Goal team',
+    repositoryId: 'app', repositoryPath: path.join(base, 'workspaces', 'goal-team', 'repos', 'app')
+  })}\n`);
+  const result = spawnSync(process.execPath, [bin, 'goal', 'list', '--json'], { cwd: base, env, encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  const refusal = JSON.parse(result.stdout);
+  assert.equal(refusal.error.code, 'GOAL_WORKSPACE_REQUIRED');
+  assert.match(refusal.error.message, /selection for 'Goal team' does not record its workspace directory/);
+});

@@ -140,6 +140,17 @@ test('workspace log filters are applied before pagination', async () => {
   await assert.rejects(() => collectWorkspaceLogs({ env, source: 'raw-spans' }), /Log source must be/);
 });
 
+test('workspace logs ask for a new selection when an older one has no workspace path', async () => {
+  // Older selection records did not retain a workspace path, and the v1->v2 migration does not add
+  // one. Without it there is no manifest naming the repositories whose logs belong together.
+  const { env } = await fixture();
+  const selection = JSON.parse(await readFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, 'utf8'));
+  delete selection.workspacePath;
+  await writeFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, `${JSON.stringify(selection, null, 2)}\n`);
+  await assert.rejects(() => collectWorkspaceLogs({ env }),
+    /selection for 'Logs demo' does not record its workspace directory\. Select the workspace again/);
+});
+
 test('workspace logs include launch-owned telemetry with its governed attribution', async () => {
   const { root, first, env } = await fixture();
   const machineEnv = {

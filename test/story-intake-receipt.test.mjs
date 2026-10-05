@@ -11,6 +11,7 @@ import test from 'node:test';
 import {
   STORY_INTAKE_RECEIPT_TTL_MS, claimStoryIntakeReceipt, mintStoryIntakeReceipt, storyIntakeInputsDigest
 } from '../src/story-intake-receipt.mjs';
+import { admitStoryIntakeReceipt } from '../src/story-intake-verification.mjs';
 
 const commit = 'a'.repeat(40);
 const inputs = {
@@ -108,4 +109,27 @@ test('the request digest ignores reference order and nothing else', () => {
   assert.notEqual(storyIntakeInputsDigest({ ...inputs, references }),
     storyIntakeInputsDigest({ ...inputs, references: [{ ...references[0], branch: 'release' }, references[1]] }));
   assert.notEqual(storyIntakeInputsDigest(inputs), storyIntakeInputsDigest({ ...inputs, baseBranch: 'release' }));
+});
+
+test('a receipt cannot override an onboarding pin and a mismatch releases its claim', async (t) => {
+  const { root } = await repository(t);
+  const minted = await mint(root);
+  const authority = {
+    remote: 'https://example.test/org/config.git', branch: 'sflow/config', commit, sourceCommit: commit
+  };
+  for (const replacement of [
+    { remote: 'https://example.test/other/config.git' },
+    { branch: 'state' },
+    { commit: 'c'.repeat(40) },
+    { sourceCommit: 'd'.repeat(40) }
+  ]) {
+    const admitted = await admitStoryIntakeReceipt(root, minted.id, {
+      inputs, workId: inputs.workId, remote: inputs.remote, baseBranch: inputs.baseBranch,
+      configurationAuthority: { ...authority, ...replacement }
+    });
+    assert.deepEqual(admitted, { status: 'rejected', reason: 'configuration' });
+  }
+  const released = await claimStoryIntakeReceipt(root, minted.id, { inputs });
+  assert.equal(released.status, 'claimed');
+  await released.consume();
 });

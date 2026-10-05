@@ -1753,7 +1753,6 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   if (intakeReceiptId) {
     if (!requestedBase || optionString(options, 'ref', id) !== id) intake.reason = 'inputs';
     else if (durableLocalStory) intake.reason = 'story-exists';
-    else if (sealedConfiguration) intake.reason = 'configuration';
     else {
       const admission = await admitStoryIntakeReceipt(sourceRoot, intakeReceiptId, {
         inputs: {
@@ -1762,7 +1761,13 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
           references: intakeReferences
             .map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
         },
-        workId: id, remote: requestedRemote, baseBranch: requestedBase
+        workId: id, remote: requestedRemote, baseBranch: requestedBase,
+        configurationAuthority: sealedConfiguration ? {
+          remote: sealedConfiguration.authority.remote,
+          branch: sealedConfiguration.authority.branch,
+          commit: sealedConfiguration.snapshot.observedCommit,
+          sourceCommit: sealedConfiguration.snapshot.sourceCommit
+        } : null
       });
       if (admission.status !== 'admitted') intake.reason = admission.reason;
       else {
@@ -1802,7 +1807,14 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       intake.reused.push('launch-fetch');
     } else {
       await measureCommandSpan('start.fetch', () =>
-        fetchRemote(sourceRoot, requestedRemote, { transportRemote: fetchAuthority.url }));
+        fetchRemote(sourceRoot, requestedRemote, {
+          transportRemote: fetchAuthority.url,
+          // A stale Story tracking ref needs the ordinary inventory/prune path before reuse or
+          // resume can be decided. The normal new-Story path transfers only its chosen base.
+          branches: refExists(sourceRoot, `refs/remotes/${requestedRemote}/${canonicalBranch}`)
+            ? undefined : [requestedBase],
+          respectPartialClone: true
+        }));
     }
     requestedBaseFetchAuthority = fetchAuthority;
     requestedBaseRef = `refs/remotes/${requestedRemote}/${requestedBase}`;
@@ -2509,7 +2521,10 @@ export async function startCommand(positionals, options) {
     }
     if (!await reuseIsolatedBaseFetch(baseAtStart)) {
       await measureCommandSpan('start.fetch', () =>
-        fetchRemote(root, remote, { transportRemote: fetchAuthority.url }));
+        fetchRemote(root, remote, {
+          transportRemote: fetchAuthority.url,
+          branches: refExists(root, remoteStoryRef) ? undefined : [baseAtStart], respectPartialClone: true
+        }));
     }
     const selectedBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
     if (!refExists(root, selectedBaseRef)) {
@@ -2715,7 +2730,10 @@ export async function startCommand(positionals, options) {
     }
     if (!await reuseIsolatedBaseFetch(baseAtStart)) {
       await measureCommandSpan('start.fetch', () =>
-        fetchRemote(root, remote, { transportRemote: fetchAuthority.url }));
+        fetchRemote(root, remote, {
+          transportRemote: fetchAuthority.url,
+          branches: refExists(root, remoteStoryRef) ? undefined : [baseAtStart], respectPartialClone: true
+        }));
     }
     if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
   }
@@ -3279,7 +3297,7 @@ export async function startCommand(positionals, options) {
       allowedPaths: [workDirRelative(config, id)],
       operation: 'story-start',
       write: async (creationPreimage) => {
-        workflow = await createWorkflow(root, config, {
+        workflow = await measureCommandSpan('start.publication.workflow', () => createWorkflow(root, config, {
           id,
           title: optionString(options, 'title', source.title || id),
           source,
@@ -3303,9 +3321,9 @@ export async function startCommand(positionals, options) {
           referenceRepositories,
           worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight),
           baselineFailures: optionString(options, 'baseline-failures') ?? null
-        });
+        }));
         returnLocator = await writeReturnLocator(root, config, workflow);
-        publication = await commitAndPublish(
+        publication = await measureCommandSpan('start.publication.commit', () => commitAndPublish(
           root,
           config,
           workflow,
@@ -3344,7 +3362,7 @@ export async function startCommand(positionals, options) {
               }
             } : {})
           }
-        );
+        ));
         return { workflow, publication };
       }
     })));

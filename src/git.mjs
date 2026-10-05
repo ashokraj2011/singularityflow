@@ -825,6 +825,23 @@ export function safePruneRefspecs(root, remote, { env = process.env } = {}) {
 }
 
 export async function fetchRemote(root, remote = 'origin', options = {}) {
+  // A new Story needs one selected base, not every Story/config-history branch in a large remote.
+  // Never apply wildcard pruning or custom refspecs to this narrow refresh: unrelated tracking refs
+  // and the contributor's remote configuration must remain untouched.
+  if (options.branches != null && !Array.isArray(options.branches)) {
+    throw new SingularityFlowError('A selected-branch fetch requires an array of branch names.', {
+      code: 'GIT_REMOTE_BRANCH_INVALID'
+    });
+  }
+  const branches = options.branches == null ? null : [...new Set(options.branches)];
+  if (branches && (!branches.length || branches.some((name) => typeof name !== 'string'
+      || !name || name.startsWith('-') || git(['check-ref-format', `refs/heads/${name}`], {
+        cwd: root, allowFailure: true
+      }).status !== 0))) {
+    throw new SingularityFlowError('A selected-branch fetch requires valid, explicit branch names.', {
+      code: 'GIT_REMOTE_BRANCH_INVALID'
+    });
+  }
   if (!prepareRemoteBranchTracking(root, remote)) {
     if (Object.hasOwn(options, 'transportRemote')) {
       throw new SingularityFlowError(
@@ -857,7 +874,7 @@ export async function fetchRemote(root, remote = 'origin', options = {}) {
   // Even the ordinary fetch path uses the exact local authority resolved at the call boundary.
   // Git must not re-read a mutable remote name after the permission/configuration check.
   const frozen = frozenRemoteTransport(requestedTransport);
-  const pruneRefspecs = safePruneRefspecs(root, remote);
+  const pruneRefspecs = branches ? null : safePruneRefspecs(root, remote);
   const partialClone = options.respectPartialClone === true
     && git(['config', '--local', '--get', `remote.${remote}.promisor`], {
       cwd: root, allowFailure: true
@@ -867,8 +884,10 @@ export async function fetchRemote(root, remote = 'origin', options = {}) {
     }).stdout.trim() === 'blob:none';
   const result = await runRemoteGitAsync([
     'fetch', ...(pruneRefspecs ? ['--prune'] : []),
-    ...(partialClone ? ['--filter=blob:none'] : []), frozen.remote,
-    `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
+    ...(partialClone ? ['--filter=blob:none'] : []), ...(branches ? ['--no-tags'] : []), frozen.remote,
+    ...(branches
+      ? branches.map((name) => `+refs/heads/${name}:refs/remotes/${remote}/${name}`)
+      : [`+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])])
   ], {
     cwd: root, operation: 'remote-configuration', allowFailure: false,
     env: frozen.env
@@ -997,6 +1016,33 @@ export async function checkout(root, name, {
     : localBase ?? remoteBase ?? 'HEAD';
   git(['switch', '-c', name, baseRef], { cwd: root, stdio: 'inherit' });
   return `created-from-${baseRef}`;
+}
+
+/** Observe a small set of exact local refs in one bounded read, without caching mutable tips. */
+export function localRefHeads(root, refs) {
+  if (!Array.isArray(refs) || !refs.length || refs.length > 32
+      || refs.some((ref) => typeof ref !== 'string' || !ref.startsWith('refs/')
+        || /[\s\u0000-\u001f\u007f*?\[\\~^:]/u.test(ref) || ref.includes('..')
+        || ref.endsWith('/') || ref.startsWith('-'))) {
+    throw new SingularityFlowError('Local ref observation requires bounded exact ref names.', {
+      code: 'GIT_REF_SELECTION_INVALID'
+    });
+  }
+  const selected = new Set(refs);
+  const result = git(['for-each-ref', '--format=%(refname) %(objectname)', ...selected], {
+    cwd: root, allowFailure: true, maxBuffer: 64 * 1024
+  });
+  const output = gitReadOutput(result, 'Selected local refs');
+  const observed = new Map();
+  for (const line of output.trim().split(/\r?\n/u).filter(Boolean)) {
+    const [ref, commit, extra] = line.split(' ');
+    if (extra || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit ?? '')) throw new SingularityFlowError(
+      'Local ref observation returned an invalid object identity.', { code: 'GIT_READ_UNAVAILABLE' }
+    );
+    // Git also lists descendants of a requested ref prefix. They are not the requested ref.
+    if (selected.has(ref)) observed.set(ref, commit);
+  }
+  return observed;
 }
 
 export function refHead(root, ref, { env = process.env } = {}) {

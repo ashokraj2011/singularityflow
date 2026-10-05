@@ -14,11 +14,31 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 18
+version: 19
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
 VS Code starts every Story in a dedicated linked Git worktree and opens that folder after the governed start commit lands. The checkout used to launch Start Work is never switched or cleaned, so a cancelled or unfinished Story can keep its uncommitted files while another Work ID starts independently. The CLI automatically uses the same isolation whenever its launch checkout is dirty; pass `--isolated-worktree` to request it from a clean checkout too. Failed-start cleanup removes only a clean disposable worktree and branch without unique commits. It retains dirty checkouts and unpublished commits with an exact recovery path.
+
+An existing workspace repository is reused, not cloned again for each Story. The ordinary new-Story
+launch refreshes only the selected base branch, retains a partial clone's `blob:none` filter, and
+cuts the Story from that exact refreshed commit. A linked worktree shares the repository's Git
+objects and inherits its sparse checkout. Starting a Story does not pull or merge into the
+workspace's current branch. Resume, stale tracking refs, missing repositories, reference repositories,
+and required authority/state refreshes can still need their own Git reads or transfers.
+
+On supported POSIX hosts, an exact passing intake receipt can be reused even when onboarding has
+pinned the configuration authority. Start still verifies live base, destination, configuration and
+publication permission; changed inputs fall back to full validation and never repin the authority.
+The daily product-version check uses the same exact-commit configuration object cache as start.
+It still observes approved authority; a local disposable configuration projection is not a second
+network clone of the application. Windows keeps the full receipt/cache fallback until its storage
+profile is qualified; the selected-base refresh itself is cross-platform.
+
+For timing diagnostics, add `--timings` to the CLI start. The Git-private command timing record
+separates `start.publication.workflow` from `start.publication.commit`, in addition to authority,
+intake, fetch, worktree and readiness spans. This distinguishes repository setup from the durable
+commit/push/ledger transaction without logging credentials or repository contents.
 
 In VS Code, Start Work opens at once on Story. It shows the last complete workflow and branch listing for the repository, labelled as last known, while it reads the current one; with none recorded yet, it says it is reading. Readiness is checked once typing the Story ID pauses, not only when the field loses focus. No base is ever preselected, and neither the last known listing nor an earlier answer enables Start: only a passing readiness check for the chosen base and workflow does.
 

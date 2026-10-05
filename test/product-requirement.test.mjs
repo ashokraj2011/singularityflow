@@ -92,6 +92,19 @@ test('only an approved configuration authority can carry a requirement; a workin
   assert.equal(found.requirement.release.source, '/shared/sflow');
 });
 
+test('the build requirement gate shares exact configuration objects, not a cached authority verdict', async () => {
+  let options;
+  let calls = 0;
+  const read = async (_root, fn, input) => { options = input; calls += 1; return fn(null); };
+  assert.equal(await readApprovedProductRequirement('/unused', { read }), null);
+  assert.equal(await readApprovedProductRequirement('/unused', { read }), null);
+  assert.equal(calls, 2, 'each gate still resolves approved authority');
+  assert.deepEqual(options, {
+    preferAuthority: true, allowLocalHeads: false,
+    useObjectCache: true, reuseAuthorityObservation: true
+  });
+});
+
 test('an https release is copied file by file as its RELEASE.json names them, and never over http', async (t) => {
   const release = await distributionFixture();
   t.after(() => Promise.all([rm(release.directory, { recursive: true, force: true }), rm(release.keyDirectory, { recursive: true, force: true })]));

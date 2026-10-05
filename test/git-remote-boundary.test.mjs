@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { safeGitDiagnosticReference } from '../src/git-remote-diagnostics.mjs';
+import { nonInteractiveGitEnvironment } from '../src/git-execution.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -44,8 +45,11 @@ test('remote Git cannot bypass the bounded non-interactive execution boundary', 
     'remote Git must use runRemoteGit/runRemoteGitAsync so it has timeouts and no hidden prompts');
 
   const boundary = await readFile(path.join(root, 'src/git-execution.mjs'), 'utf8');
-  assert.match(boundary, /GIT_TERMINAL_PROMPT:\s*'0'/);
-  assert.match(boundary, /GCM_INTERACTIVE:\s*'Never'/);
+  assert.match(boundary, /withoutInteractiveGitPrompts\(env\)/,
+    'the remote boundary uses the shared prompt-suppression owner');
+  const isolated = nonInteractiveGitEnvironment({ GIT_TERMINAL_PROMPT: '1', GCM_INTERACTIVE: 'Always' });
+  assert.equal(isolated.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(isolated.GCM_INTERACTIVE, 'Never');
   assert.match(boundary, /remoteGitEnvironment\(env\)/,
     'the final remote executor must isolate even legacy callers that pass an ambient environment');
   assert.match(boundary, /SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS/);

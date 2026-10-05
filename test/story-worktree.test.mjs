@@ -602,7 +602,12 @@ test('required repository readiness refuses before an isolated Story worktree is
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.repositoryReadiness.requiredBeforeStory = true;
   await writeFile(definitionFile, YAML.stringify(definition));
-  run('git', ['add', 'singularity/workflow.yml'], root);
+  // A repository with no detected commands legitimately records its empty receipt inline. This
+  // refusal fixture needs an actual, unexecuted command or it no longer exercises missing proof.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    name: 'readiness-refusal-fixture', private: true, scripts: { test: 'node --test' }
+  }));
+  run('git', ['add', 'singularity/workflow.yml', 'package.json'], root);
   run('git', ['commit', '-qm', 'require repository readiness'], root);
   run('git', ['push', '-q', 'origin', 'main'], root);
   const before = git(root, ['worktree', 'list', '--porcelain']);

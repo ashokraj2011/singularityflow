@@ -14,6 +14,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { onboardRepository } from '../src/onboard.mjs';
 
 const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
 const posix = { skip: process.platform === 'win32' ? 'Story intake receipts are POSIX-only.' : false };
@@ -106,6 +107,72 @@ test('a passing preview\'s receipt lets start verify every input in one wave, on
   const reused = data(start(root, 'STORY-AGAIN', ['--intake-receipt', receipt.id]));
   assert.deepEqual([reused.intakeReceipt.status, reused.intakeReceipt.reason], ['rejected', 'missing'],
     'a receipt serves one start only');
+});
+
+test('an exact sealed onboarding pin permits receipt reuse without repinning configuration', posix, async (t) => {
+  const { root } = await repository(t);
+  const attached = await onboardRepository(root, { remote: 'origin' });
+  const receipt = preflight(root, 'STORY-FOS-FAST');
+  assert.equal(receipt.issued, true);
+  const started = start(root, 'STORY-FOS-FAST', ['--intake-receipt', receipt.id]);
+  const result = data(started);
+  assert.equal(result.intakeReceipt.status, 'verified', JSON.stringify(result.intakeReceipt));
+  assert.deepEqual([...result.intakeReceipt.reused].sort(),
+    ['authority-check', 'base-probe', 'destination', 'dry-run', 'launch-fetch']);
+  assert.equal(counter(started.stderr, 'git.remote.command.fetch'), 0);
+  const workflow = JSON.parse(await readFile(path.join(result.repositoryPath,
+    'singularity/work-items/STORY-FOS-FAST/workflow.json'), 'utf8'));
+  assert.equal(workflow.resolution.configurationSource.commit, attached.descriptor.authority.commit);
+  assert.equal(git(root, 'branch', '--show-current'), 'main');
+});
+
+test('a start without a receipt fetches only its chosen base and preserves the launch checkout', posix, async (t) => {
+  const { root, remote, base } = await repository(t);
+  const producer = path.join(base, 'producer');
+  git(base, 'clone', '-q', remote, producer);
+  git(producer, 'config', 'user.name', 'Story Publisher');
+  git(producer, 'config', 'user.email', EMAIL);
+  git(producer, 'switch', '-q', '-c', 'selected-base');
+  await writeFile(path.join(producer, 'selected.txt'), 'exact selected base\n');
+  git(producer, 'add', '.');
+  git(producer, 'commit', '-qm', 'selected base advances');
+  const selectedCommit = git(producer, 'rev-parse', 'HEAD');
+  git(producer, 'push', '-q', 'origin', 'selected-base');
+  git(producer, 'switch', '-q', '--orphan', 'unrelated-large-branch');
+  await writeFile(path.join(producer, 'unrelated.txt'), 'not required for this Story\n');
+  git(producer, 'add', '.');
+  git(producer, 'commit', '-qm', 'unrelated history');
+  const unrelatedCommit = git(producer, 'rev-parse', 'HEAD');
+  git(producer, 'push', '-q', 'origin', 'unrelated-large-branch');
+  const beforeHead = git(root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(root, 'local-work.txt'), 'preserve unsaved application work\n');
+  const beforeStatus = git(root, 'status', '--porcelain');
+  const started = start(root, 'STORY-SELECTED-BASE', ['--from-branch', 'selected-base']);
+  const result = data(started);
+  assert.equal(git(result.repositoryPath, 'rev-parse', 'HEAD^'), selectedCommit);
+  assert.equal(git(result.repositoryPath, 'branch', '--show-current'), 'STORY-SELECTED-BASE');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead);
+  assert.equal(git(root, 'status', '--porcelain'), beforeStatus);
+  assert.notEqual(run('git', ['cat-file', '-e', `${unrelatedCommit}^{commit}`], root,
+    { allowFailure: true }).status, 0, 'unrelated remote history is not transferred');
+  assert.notEqual(run('git', ['show-ref', '--verify', '--quiet',
+    'refs/remotes/origin/unrelated-large-branch'], root, { allowFailure: true }).status, 0);
+  const timings = (await readFile(path.join(root,
+    '.git/singularity-flow/dx/timings.jsonl'), 'utf8'))
+    .trim().split('\n').map((line) => JSON.parse(line));
+  const timing = timings.findLast((item) => item.event === 'dx.command-timing' && item.command === 'start');
+  assert.ok(timing.spans['start.publication.workflow'] >= 0);
+  assert.ok(timing.spans['start.publication.commit'] >= 0);
+});
+
+test('a stale deleted Story tracking ref retains the ordinary prune and collision validation path', posix, async (t) => {
+  const { root } = await repository(t);
+  git(root, 'update-ref', 'refs/remotes/origin/STORY-DELETED-TRACKING', git(root, 'rev-parse', 'HEAD'));
+  const started = start(root, 'STORY-DELETED-TRACKING');
+  const result = data(started);
+  assert.equal(git(result.repositoryPath, 'branch', '--show-current'), 'STORY-DELETED-TRACKING');
+  assert.equal(git(result.repositoryPath, 'rev-parse', 'HEAD^'), git(root, 'rev-parse', 'origin/main'));
+  assert.equal(git(root, 'branch', '--show-current'), 'main');
 });
 
 test('a Story started with a receipt is the Story started without one', posix, async (t) => {

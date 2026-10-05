@@ -14,6 +14,7 @@ import {
 } from '../src/configuration-branch.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
+import { readApprovedProductRequirement } from '../src/product-requirement.mjs';
 import { configurationReadRoot, configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { recordSha256 } from '../src/records.mjs';
@@ -110,6 +111,27 @@ const projection = (snapshot) => ({ authority: snapshot.authority, observedCommi
     ...asset, contents: asset.contents.toString('base64') })) });
 const cacheProfile = { skip: process.platform === 'win32' ? 'Windows cache profile is deliberately deferred; original clone remains supported.' : false };
 const cacheKeys = async (cache) => (await readdir(cache)).filter((entry) => /^[a-f0-9]{64}$/u.test(entry));
+
+test('the product-version gate warms the exact objects subsequently used by Story start', cacheProfile, async (t) => {
+  const f = await fixture(t);
+  await onlineReaderEnvironment(f, async () => {
+    assert.equal(await readApprovedProductRequirement(f.source), null);
+    const warm = await read(f);
+    assert.equal(warm.snapshot.sourceCommit, f.commit);
+    assert.equal(warm.counters['configuration.object-cache-hit'], 1);
+    assert.equal(warm.counters['configuration.object-cache-fetch'] ?? 0, 0);
+    assert.equal(warm.counters['git.remote.command.clone'], 1,
+      'only the local exact-object projection remains; no new authority transfer');
+    await advanceAuthority(f, 1);
+    const timer = commandTimer('requirement-cache-fixture', { commandClass: 'read' });
+    assert.equal(await withCommandTiming(timer, () => readApprovedProductRequirement(f.source)), null);
+    const counters = timer.finish().counters;
+    assert.equal(counters['configuration.object-cache-miss'], 1,
+      'a new remote tip is observed, not answered from the old cached revision');
+    assert.equal(counters['git.remote.command.ls-remote'], 1,
+      'snapshot admission reuses only this read\'s live authority observation');
+  });
+});
 
 async function advanceAuthority(f, number) {
   await writeFile(path.join(f.source, 'singularity/templates/common/note.md'), `# Approved note ${number}\n`);

@@ -22,7 +22,7 @@ import { realpath } from 'node:fs/promises';
 import { CONFIGURATION_BRANCH, STATE_CONFIGURATION_BRANCH } from './configuration-branch.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteAuthority, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
-import { gitCommonDir, refExists, refHead } from './git.mjs';
+import { gitCommonDir, localRefHeads, refHead } from './git.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { processResultSucceeded } from './process-result.mjs';
 import { resolveReferenceRepositoryPins } from './reference-repositories.mjs';
@@ -55,7 +55,9 @@ function completeRepository(root) {
  * Claim the receipt and check everything that needs no network. On success the caller owns the
  * claim and must `consume()` it once a durable Story commit exists, or `release()` it.
  */
-export async function admitStoryIntakeReceipt(root, id, { inputs, workId, remote, baseBranch, now = Date.now() }) {
+export async function admitStoryIntakeReceipt(root, id, {
+  inputs, workId, remote, baseBranch, configurationAuthority = null, now = Date.now()
+}) {
   const claimed = await claimStoryIntakeReceipt(root, id, { inputs, now });
   if (claimed.status !== 'claimed') return claimed;
   const refuse = async (reason) => {
@@ -68,7 +70,27 @@ export async function admitStoryIntakeReceipt(root, id, { inputs, workId, remote
   if (repository.remote !== remote || repository.baseBranch !== baseBranch
       || repository.destinationRef !== `refs/heads/${workId}`
       || receipt.authority.branch !== CONFIGURATION_BRANCH) return refuse('inputs');
-  if (refExists(root, `refs/heads/${workId}`) || refExists(root, `refs/remotes/${remote}/${workId}`)) {
+  // A sealed onboarding pin is compatible only with this exact receipt authority. The pin remains
+  // immutable; a newer intake catalog cannot silently replace it. The subsequent wave still
+  // observes live authority, so neither matching scalars nor a MAC is an approval witness.
+  if (configurationAuthority && (receipt.authority.remote !== configurationAuthority.remote
+      || receipt.authority.branch !== configurationAuthority.branch
+      || receipt.authority.commit !== configurationAuthority.commit
+      || (receipt.authority.sourceCommit ?? receipt.authority.commit)
+        !== (configurationAuthority.sourceCommit ?? configurationAuthority.commit))) {
+    return refuse('configuration');
+  }
+  // These refs are read together, not memoized across the start's writes or across invocations.
+  const storyRef = `refs/heads/${workId}`;
+  const trackingStory = `refs/remotes/${remote}/${workId}`;
+  const baseRef = `refs/remotes/${remote}/${baseBranch}`;
+  let refs;
+  try {
+    refs = localRefHeads(root, [storyRef, trackingStory, baseRef]);
+  } catch {
+    return refuse('base-not-local');
+  }
+  if (refs.has(storyRef) || refs.has(trackingStory)) {
     return refuse('story-exists');
   }
   const fetch = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
@@ -76,8 +98,7 @@ export async function admitStoryIntakeReceipt(root, id, { inputs, workId, remote
   if (fetch.url !== repository.fetch.url || fetch.fingerprint !== repository.fetch.fingerprint
       || (repository.push && (push.url !== repository.push.url
         || push.fingerprint !== repository.push.fingerprint))) return refuse('remote');
-  const baseRef = `refs/remotes/${remote}/${baseBranch}`;
-  if (refHead(root, baseRef) !== repository.baseCommit || !objectPresent(root, repository.baseCommit)
+  if (refs.get(baseRef) !== repository.baseCommit || !objectPresent(root, repository.baseCommit)
       || !completeRepository(root)) return refuse('base-not-local');
   return {
     status: 'admitted',

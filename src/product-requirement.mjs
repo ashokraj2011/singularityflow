@@ -123,7 +123,13 @@ export async function readApprovedProductRequirement(root, { read = withApproved
       requirement: parseProductRequirement(text),
       authority: Object.freeze({ kind: authority.kind, ref: authority.ref ?? null, commit: authority.commit })
     });
-  }, { preferAuthority: true, allowLocalHeads: false });
+  }, {
+    preferAuthority: true, allowLocalHeads: false,
+    // The daily build gate and the ensuing start read the same approved catalog. Share its exact
+    // immutable Git objects instead of transferring the configuration twice. The reader still resolves
+    // live authority and validates the snapshot; no verdict or mutable branch tip is cached here.
+    useObjectCache: true, reuseAuthorityObservation: true
+  });
 }
 
 /**
@@ -471,4 +477,3 @@ export async function enforceProductRequirement({
   write('Singularity Flow: continuing this command on the required build.');
   return handOff();
 }
-

@@ -1935,7 +1935,8 @@ async function proposeIntentAmendment(root, config, workflow, verifiedConvergenc
           actor: actorKey(actor),
           agent: null,
           event: 'intent_amendment_proposed',
-          phase: source?.phaseId ?? 'convergence',
+          // Without loop feedback the amendment comes from the convergence step's findings, whatever it is called.
+          phase: source?.phaseId ?? convergencePhaseOf(workflow)?.id ?? workflow.currentPhase,
           detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}`
         });
       },

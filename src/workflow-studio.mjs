@@ -33,7 +33,7 @@ import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, 
 import { normalizeArtifactSet } from './artifact-sets.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import {
-  authoringRoute, compiledSkillStep, deterministicOnlyGeneration, stepOutputKind, workflowCodeGeneration
+  authoringRoute, compiledSkillStep, deterministicOnlyGeneration, legacyAuthoringSkill, stepOutputKind, workflowCodeGeneration
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
@@ -2067,6 +2067,12 @@ class StudioCandidate {
       set(['plannedClaims', 'owners'], Object.fromEntries(Object.entries(claims.owners).map(([code, owner]) => [swap(code), swap(owner)])), 'planned claims');
     }
     if (Array.isArray(type.documents?.allowedPhases) && type.documents.allowedPhases.includes(from)) set(['documents', 'allowedPhases'], type.documents.allowedPhases.map(swap), 'document uploads');
+    // Source review checks a step by what it does (it defines the scope or plans the claims), so
+    // a copy, which does the same, is reviewed in its place.
+    if (Array.isArray(type.sourceReview?.phases) && type.sourceReview.phases.includes(from)) set(['sourceReview', 'phases'], type.sourceReview.phases.map(swap), 'source review');
+    // Auto may stop at the step, by its bare ID or after one of its milestones (published:<step>).
+    const stop = typeof type.auto?.defaultUntil === 'string' ? /^(?:(published|submitted|phase-complete):)?(.+)$/.exec(type.auto.defaultUntil) : null;
+    if (stop?.[2] === from) set(['auto', 'defaultUntil'], stop[1] ? `${stop[1]}:${to}` : to, 'where Auto stops');
     const design = type.designSources;
     if (isObject(design)) {
       // Design sources are captured in design-intake unless the workflow names another step.
@@ -2187,9 +2193,52 @@ class StudioCandidate {
         .map(([, phase]) => phase.label);
       if (steps.length) warnings.push({ code: 'STUDIO_GROUP_EMPTY', message: `Nobody can sign off ${steps.join(', ')} yet: add people to ${group?.label ?? groupId}.`, subject: { kind: 'group', id: groupId } });
     }
+    return [...warnings, ...this.copyWarnings()];
+  }
+
+  /**
+   * What a copy cannot take along, said at Check rather than lost at run time: the engine governs
+   * a step by what it does, never by its name, but a specialised skill still picks up its built-in
+   * step by name, and an agent's remote skills and templates name the steps they are for.
+   */
+  copyWarnings() {
+    const warnings = [];
+    for (const [copyId, source] of this.copies) {
+      const node = this.phase(copyId);
+      if (!node) continue;
+      const copy = this.phaseLabel(copyId);
+      const original = this.phaseLabel(source);
+      // The skill that would take the copy were it still called by its step's name.
+      const byName = node.authoringSkill == null ? legacyAuthoringSkill({ ...node, id: source }) : null;
+      if (byName && !legacyAuthoringSkill({ ...node, id: copyId })) {
+        warnings.push({
+          code: 'STUDIO_COPY_SKILL_BY_NAME',
+          message: `/${byName} takes ${original} by its name when the step names no drafting skill, but it does not take ${copy}. To draft ${copy} with /${byName}, choose it under Drafted with.`,
+          subject: { kind: 'phase', id: copyId }
+        });
+      }
+      const agent = [...this.agents.values()].find((entry) => entry.defaultFor.includes(copyId));
+      if (!agent) continue;
+      let parsed;
+      try {
+        const text = this.rendered.get(agent.id) ?? (agent.touched ? renderAgent(agent) : agent.text);
+        parsed = parseAgentDependencies(text, { source: agent.relative ?? agent.fileName ?? `${agent.id}.agent.md`, agentId: agent.id });
+      } catch { continue; }
+      const scoped = [...parsed.skills, ...parsed.templates].filter((entry) => entry.phases.includes(source) && !entry.phases.includes(copyId))
+        .concat(parsed.generated.filter((entry) => entry.phase === source));
+      for (const entry of scoped) {
+        warnings.push({
+          code: 'STUDIO_COPY_AGENT_RESOURCE',
+          message: `${agent.label} uses ${RESOURCE_WORDS[entry.type]} ${entry.id} only in ${original}, so ${copy} is drafted without it. To keep it, import it again with ${copy} among its steps.`,
+          subject: { kind: 'agent', id: agent.id }
+        });
+      }
+    }
     return warnings;
   }
 }
+
+const RESOURCE_WORDS = Object.freeze({ skill: 'skill', template: 'template', generated: 'generated artifact' });
 
 function orderChanges(changes) {
   if (!Array.isArray(changes)) throw new SingularityFlowError('A Studio change set lists its changes in a "changes" array.', { code: 'STUDIO_CHANGE_SET_INVALID' });

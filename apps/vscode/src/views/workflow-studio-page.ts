@@ -2565,6 +2565,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (current && !options.some(function (option) { return option.value === current; })) options.push({ value: current, label: '/' + current });
     var chosen = choices.find(function (choice) { return choice.id === current; });
     var hint = chosen && chosen.description ? chosen.description : current ? 'Drafted with /' + current + '.' : 'Chosen by what the step produces.';
+    // A specialised skill also takes its built-in step by that step's name, never a copy of it.
+    var copyOf = (state.draft.phases[phaseId] || {}).copyOf;
+    var byName = !current && copyOf && automatic === '/sf-phase'
+      ? catalog.find(function (choice) { return (choice.legacyPhases || []).indexOf(copyOf) >= 0 && choice.produces.indexOf(output) >= 0; }) : null;
+    if (byName) hint += ' ' + byName.label + ' takes ' + stepLabel(copyOf) + ' by its name, but not this copy: choose it here to draft the copy with it.';
     if (settings.authoringSkillSetByWorkflow) hint = 'Set by this workflow. ' + hint;
     else if (users.length) hint += ' Only this workflow changes; ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + (users.length === 1 ? ' keeps its own.' : ' keep their own.');
     return { options: options, value: current, hint: hint };

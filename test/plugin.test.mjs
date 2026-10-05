@@ -341,20 +341,23 @@ test('code and verification skills place qualified trace tags in the intended fi
 });
 
 test('fast-path authoring skills execute the returned preparation checkpoint before editing', async () => {
-  for (const [name, phase, artifact] of [
-    ['sflow-specify', 'specification', 'spec.md'],
-    ['sflow-plan', 'planning', 'plan.md']
+  // Each skill works on the step its router names (`<PHASE>`), whatever that step is called: a step
+  // copied in Workflow Studio has its own name, and the router routes it [E2G-001].
+  for (const [name, authoring] of [
+    ['sflow-specify', 'author the specification'],
+    ['sflow-plan', 'Derive the plan']
   ]) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
-    const prepare = `singularity-flow prepare ${phase}`;
+    assert.match(content, /`<PHASE>`, the step its commands name/);
+    assert.doesNotMatch(content, /(?:prepare|--phase|draft-check|prepublish) (?:specification|planning)\b/,
+      `${name} names a built-in step instead of the routed one`);
     assert.match(content, /first `NOW` action in the returned `next\[\]`/);
-    assert.ok(content.includes(`to be \`${prepare}\``), `${name} must require the exact routed prepare action`);
+    assert.ok(content.includes('to be `singularity-flow prepare <PHASE>`'), `${name} must require the exact routed prepare action`);
     assert.match(content, /run that exact returned command once/);
     assert.match(content, /If the action differs, stop and relay the returned route/);
-    const authoring = artifact === 'plan.md' ? 'Derive `plan.md`' : 'author `spec.md`';
     assert.ok(content.indexOf('run that exact returned command once') < content.indexOf(authoring),
-    `${name} must prepare before authoring`);
-    assert.ok(content.indexOf('run that exact returned command once') < content.indexOf(`phase draft-check ${phase}`),
+      `${name} must prepare before authoring`);
+    assert.ok(content.indexOf('run that exact returned command once') < content.indexOf('phase draft-check <PHASE>'),
       `${name} must prepare before draft-check`);
   }
 });
@@ -491,9 +494,9 @@ test('Copilot phase authoring repairs structured draft findings before publicati
     'sflow-requirements': 'phase draft-check <phase>',
     'sflow-review': 'phase draft-check review',
     'sflow-verify': 'phase draft-check verification',
-    'sflow-specify': 'phase draft-check specification',
-    'sflow-plan': 'phase draft-check planning',
-    'sflow-converge': 'phase draft-check convergence'
+    'sflow-specify': 'phase draft-check <PHASE>',
+    'sflow-plan': 'phase draft-check <PHASE>',
+    'sflow-converge': 'phase draft-check <PHASE>'
   };
 
   for (const [name, command] of Object.entries(storyAuthoringSkills)) {
@@ -501,7 +504,7 @@ test('Copilot phase authoring repairs structured draft findings before publicati
     assert.ok(content.includes(`singularity-flow ${command} --json`), `${name} omits the read-only draft check`);
     assert.ok(content.includes(`singularity-flow ${command.replace('draft-check', 'prepublish')} --json`),
       `${name} omits the read-only prepublish gate`);
-    assert.match(content, /singularity-flow recover <WORK-ID> --phase (?:<phase>|[a-z-]+) --json/,
+    assert.match(content, /singularity-flow recover <WORK-ID> --phase (?:<phase>|<PHASE>|[a-z-]+) --json/,
       `${name} omits phase-scoped recovery`);
     assert.match(content, /prepublish (?:`status` )?is `ready`/i, `${name} may publish an unready draft`);
     assert.match(content, /(?:repair|re-author|correct) every (?:structured )?(?:agent )?(?:authoring )?finding/i,

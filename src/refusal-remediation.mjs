@@ -88,7 +88,7 @@ function artifactAuthoringPhase(argv, error) {
   if (argv[0] === 'clarification' && ['status', 'record'].includes(argv[1])) {
     return lowerKebab(argv[2]);
   }
-  if (argv[0] === 'converge') return 'convergence';
+  // A fast-path verb such as `converge` names no step: its profile routes a step of any name.
   if (argv[0] === 'phase' && [
     'begin', 'rollover', 'draft-check', 'prepublish', 'show', 'publish', 'approve', 'submit'
   ].includes(argv[1])) {

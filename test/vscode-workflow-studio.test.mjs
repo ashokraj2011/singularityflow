@@ -198,6 +198,19 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
   const { loadDefinition, resolveWorkType } = await import(path.join(packageRoot, 'src/config.mjs'));
   const { fastPathProfile } = await import(path.join(packageRoot, 'src/fast-path.mjs'));
   const { planStudioChangeSet } = await import(path.join(packageRoot, 'src/workflow-studio.mjs'));
+  const { authoringRoute, legacyAuthoringSkill, phaseRequiresCodeDelivery } = await import(path.join(packageRoot, 'src/code-delivery-policy.mjs'));
+  const roles = await import(path.join(packageRoot, 'src/phase-roles.mjs'));
+  // How the engine reads a step, from what it does: none of it may follow the step's name [E2G-001].
+  const reading = (resolved, id) => {
+    const phase = resolved.phases.find((entry) => entry.id === id);
+    const route = authoringRoute(phase);
+    return {
+      kind: roles.artifactKindOf(phase), convergence: roles.isConvergencePhase(phase), conformance: roles.isConformancePhase(phase),
+      visual: roles.isVisualVerificationPhase(phase), testEvidence: roles.isTestEvidencePhase(phase), code: phaseRequiresCodeDelivery(phase),
+      responsibilities: resolved.obligationGraph.nodes.find((node) => node.id === id)?.responsibilities ?? null,
+      route: [route.effectiveAuthoringSkill, route.authoringSkillSource]
+    };
+  };
   const root = await repository();
   const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
   const before = await loadDefinition(root);
@@ -220,9 +233,11 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
     /^\.obligationGraph\.digest$/];
   // Each covers a different way a copy used to lose its settings: per-workflow template, write scope,
   // tool evidence and test evidence; summary inputs in both directions and the fast path; planned
-  // claims; design sources; an artifact set's file name; global lists that allow the step.
+  // claims; design sources; an artifact set's file name; global lists that allow the step; source
+  // review of the scope and the plan; deterministic convergence.
   for (const [workflowId, phaseId] of [['spec-code-test-loop', 'testing'], ['spec-driven-standard', 'verification'], ['feature', 'implementation'],
-    ['figma-mobile', 'conformance'], ['reference-driven-build', 'release'], ['classic-delivery', 'intake'], ['feature', 'design']]) {
+    ['figma-mobile', 'conformance'], ['reference-driven-build', 'release'], ['classic-delivery', 'intake'], ['feature', 'design'],
+    ['spec-driven-standard', 'specification'], ['spec-driven-standard', 'planning'], ['reference-driven-build', 'convergence']]) {
     const draft = logic.initialDraft(model);
     const copyId = logic.copyStep(model, draft, workflowId, phaseId);
     const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-copy-'));
@@ -230,9 +245,15 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
     const plan = await planStudioChangeSet(scratch, logic.changeSetFrom(model, draft), { write: true }).catch((error) => ({ valid: false, problems: [error.message] }));
     assert.equal(plan.valid, true, `${workflowId} ${phaseId}: ${JSON.stringify(plan.problems)}`);
     const after = await loadDefinition(scratch);
-    const changed = differences(rename(resolveWorkType(before, workflowId), phaseId, copyId), resolveWorkType(after, workflowId))
+    const [left, right] = [resolveWorkType(before, workflowId), resolveWorkType(after, workflowId)];
+    const changed = differences(rename(left, phaseId, copyId), right)
       .filter((at) => !expected.some((pattern) => pattern.test(at)));
     assert.deepEqual(changed, [], `${workflowId}: copying ${phaseId} changed how the workflow runs`);
+    assert.deepEqual(reading(right, copyId), reading(left, phaseId), `${workflowId}: the engine reads the copy of ${phaseId} differently`);
+    // Only a skill's pickup of a built-in step by its name stays behind, and Check says so.
+    const byName = Boolean(legacyAuthoringSkill(left.phases.find((entry) => entry.id === phaseId)))
+      && !legacyAuthoringSkill(right.phases.find((entry) => entry.id === copyId));
+    assert.equal(plan.warnings.some((warning) => warning.code === 'STUDIO_COPY_SKILL_BY_NAME'), byName, `${workflowId} ${phaseId}: ${JSON.stringify(plan.warnings)}`);
     assert.deepEqual(fastPathProfile(after, workflowId), rename(fastPathProfile(before, workflowId), phaseId, copyId), `${workflowId}: fast path`);
     // Shared lists outside the workflow (its document steps are compared with the rest of it above).
     const allowLists = (definition) => new Map([
@@ -719,6 +740,68 @@ test('the page offers no drafting skill where the engine refuses one, and a copy
   assert.deepEqual(picker(compiledPage, 'feature', 'design'), fixed);
   compiledPage.addExistingStep('chore', 'design', 'intake');
   assert.deepEqual(picker(compiledPage, 'chore', 'design'), fixed);
+});
+
+test('where a copy\'s drafting skill is chosen, the page says which skill took its step by name, as Check does [E2G-001]', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const hint = (workflowId, phaseId) => page.skillPicker(workflowId, phaseId, page.stepSettings(workflowId, phaseId), []).hint;
+  assert.doesNotMatch(hint('feature', 'design'), /by its name/, 'the built-in step itself needs no word about it');
+  page.copyStepForWorkflow('feature', 'design');
+  assert.match(hint('feature', 'design-feature'), /\/sf-design takes Architecture and design by its name, but not this copy: choose it here to draft the copy with it\.$/);
+  const plan = check(root, page.changeSetFrom(model, page.state().draft));
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.warnings.filter((warning) => warning.code === 'STUDIO_COPY_SKILL_BY_NAME').map((warning) => warning.subject.id), ['design-feature']);
+  page.chooseAuthoringSkill('feature', 'design-feature', 'sf-design');
+  assert.doesNotMatch(hint('feature', 'design-feature'), /by its name/, 'a copy that chose the skill keeps it');
+  assert.equal(check(root, page.changeSetFrom(model, page.state().draft)).warnings.some((warning) => warning.code === 'STUDIO_COPY_SKILL_BY_NAME'), false);
+  page.copyStepForWorkflow('feature', 'intake');
+  assert.doesNotMatch(hint('feature', 'intake-feature'), /by its name/, 'no skill takes intake by name');
+});
+
+test('a Story started after the copies runs each as the step it replaces: scope, plan, source review and deterministic convergence [E2G-001]', async () => {
+  const { loadDefinition } = await import(path.join(packageRoot, 'src/config.mjs'));
+  const { loadStoryAggregate } = await import(path.join(packageRoot, 'src/state-stores.mjs'));
+  const { generationSkillForPhase } = await import(path.join(packageRoot, 'src/code-delivery-policy.mjs'));
+  const { planFastPath } = await import(path.join(packageRoot, 'src/fast-path.mjs'));
+  const { workflowGuide } = await import(path.join(packageRoot, 'src/guide.mjs'));
+  const roles = await import(path.join(packageRoot, 'src/phase-roles.mjs'));
+  const root = await repository({ edit: (document) => {
+    document.setIn(['git', 'publish'], 'off');
+    document.setIn(['worldModel', 'grounding'], 'off');
+    document.setIn(['repositoryReadiness', 'requiredBeforeStory'], false);
+  } });
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  const [specification, planning, convergence] = ['specification', 'planning', 'convergence'].map((id) => logic.copyStep(model, draft, 'spec-driven-standard', id));
+  const written = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', 'apply', '--change-set', '-', '--json'], root, JSON.stringify(logic.changeSetFrom(model, draft))).stdout);
+  assert.equal(written.valid, true, JSON.stringify(written.problems));
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'Copy the spec-driven steps'], root);
+  run('git', ['init', '--bare', '-b', 'main', `${root}.git`], root);
+  run('git', ['remote', 'add', 'origin', `${root}.git`], root); run('git', ['push', '-u', 'origin', 'main'], root);
+  run(process.execPath, [bin, 'start', 'COPY-1', '--from-branch', 'main', '--work-type', 'spec-driven-standard',
+    '--title', 'Retry a failed payment', '--description', 'Let an operator retry a failed payment.'], root);
+
+  const definition = await loadDefinition(root);
+  const workflow = await loadStoryAggregate(root, definition, 'COPY-1');
+  assert.deepEqual(workflow.phaseOrder, [specification, planning, 'implementation', convergence, 'verification', 'release']);
+  assert.equal(roles.scopeStepOf(workflow).id, specification, 'the copy defines the scope');
+  assert.deepEqual([roles.sourceReviewKind(workflow, specification), roles.sourceReviewKind(workflow, planning)], ['specification', 'planning']);
+  assert.deepEqual(workflow.resolution.sourceReview.phases, [specification, planning], 'both copies are source-reviewed');
+  assert.equal(roles.convergencePhaseOf(workflow).id, convergence);
+  assert.equal(generationSkillForPhase(workflow.phases[convergence], workflow), '/sflow-converge');
+  // At the copy, guidance and the converge verb route the engine's deterministic convergence of it.
+  const atConvergence = structuredClone(workflow);
+  atConvergence.currentPhase = convergence;
+  for (const id of [specification, planning, 'implementation']) atConvergence.phases[id].status = 'approved';
+  atConvergence.phases[convergence].status = 'in_progress';
+  assert.equal(workflowGuide(atConvergence).nextActions[0].command, `singularity-flow prepare ${convergence}`);
+  const fast = planFastPath(atConvergence, definition, 'converge', { modelMode: { enabled: false } });
+  assert.equal(fast.checkpoint.kind, 'deterministic-generation');
+  assert.deepEqual([fast.next[0].command, fast.next[0].skill], [`singularity-flow prepare ${convergence}`, '/sf-converge']);
 });
 
 test('a workflow that sets what a step produces keeps it when the step\'s own output changes', async () => {

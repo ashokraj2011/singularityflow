@@ -241,6 +241,97 @@ test('a copy drafts with the skill the step has in its workflow, automatic inclu
   assert.deepEqual([copied.effectiveAuthoringSkill, copied.authoringSkillSource], ['/sf-phase', 'automatic']);
 });
 
+/** Copy steps of one workflow in its place, as "Use a copy in this workflow" does. */
+async function copySteps(root, model, workflowId, steps, extra = {}) {
+  const workflow = model.workflows.find((entry) => entry.id === workflowId);
+  const copyId = (id) => (steps.includes(id) ? `${id}-${workflowId}` : id);
+  return changeSet(root, [
+    ...steps.map((id) => ({ op: 'phase.create', id: copyId(id), label: `${id} copy`, copyOf: id, copyFromWorkflow: workflowId, ...(extra[id] ?? {}) })),
+    { op: 'workflow.update', id: workflowId, phases: workflow.phases.map(copyId) }
+  ], model.base);
+}
+
+test('a copy takes its step\'s place in source review and where Auto stops, so the spec-driven specification and plan can be copied [E2G-001]', async () => {
+  const root = await repository({ edit: (document) => document.setIn(['workTypes', 'spec-driven-standard', 'auto'], document.createNode({ defaultUntil: 'published:planning' })) });
+  const before = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const model = json(root, ['workflow', 'studio']);
+  const file = await copySteps(root, model, 'spec-driven-standard', ['specification', 'planning']);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  // Source review once listed the steps by name only, so Check refused both copies.
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.ok(plan.summary.some((line) => /takes the place of .*source review.*where Auto stops/.test(line)), plan.summary.join('\n'));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const type = after.workTypes['spec-driven-standard'];
+  assert.deepEqual(type.sourceReview.phases, ['specification-spec-driven-standard', 'planning-spec-driven-standard']);
+  assert.equal(type.auto.defaultUntil, 'published:planning-spec-driven-standard');
+  assert.deepEqual(type.plannedClaims, { mode: 'required', clausePhases: ['specification-spec-driven-standard'], owners: { implementation: 'planning-spec-driven-standard' } });
+  assert.deepEqual(after.workTypes['reference-driven-build'], before.workTypes['reference-driven-build'], 'the other workflow sharing the steps is unchanged');
+  flow(root, ['workflow', 'validate', 'spec-driven-standard']);
+  // The engine reviews each copy for what it does: one defines the scope, the other plans the claims.
+  const { loadDefinition, resolveWorkType } = await import('../src/config.mjs');
+  const { reviewKindForResponsibilities } = await import('../src/phase-roles.mjs');
+  const resolved = resolveWorkType(await loadDefinition(root), 'spec-driven-standard');
+  assert.deepEqual(resolved.sourceReview.phases.map((id) => reviewKindForResponsibilities(
+    resolved.obligationGraph.nodes.find((node) => node.id === id).responsibilities)), ['specification', 'planning']);
+});
+
+test('a copy of convergence is convergence: the engine knows it by its artifact kind, never by its name [E2G-001]', async () => {
+  const root = await repository();
+  const model = json(root, ['workflow', 'studio']);
+  json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'spec-driven-standard', ['convergence'])]);
+  const copy = json(root, ['workflow', 'studio']).workflows.find((workflow) => workflow.id === 'spec-driven-standard').steps.find((step) => step.id === 'convergence-spec-driven-standard');
+  assert.deepEqual([copy.effectiveAuthoringSkill, copy.authoringSkillSource], ['/sf-converge', 'fixed'], 'deterministic convergence, drafted only by the engine');
+  flow(root, ['workflow', 'validate', 'spec-driven-standard']);
+  // Its rules follow it: a person must still approve it.
+  const file = path.join(root, 'singularity/workflow.yml');
+  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  document.setIn(['phases', 'convergence-spec-driven-standard', 'approval'], 'none');
+  await writeFile(file, document.toString());
+  const refused = flow(root, ['workflow', 'validate', 'spec-driven-standard'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /convergence-spec-driven-standard.*(?:explicit human decision|cannot waive convergence)/s);
+});
+
+test('a copy says at Check what it cannot take along: a skill that takes its step by name, and an agent skill kept for that step [E2G-001]', async () => {
+  const root = await repository();
+  const agentFile = path.join(root, '.github/agents/architect.agent.md');
+  await writeFile(agentFile, `${await readFile(agentFile, 'utf8')}\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-kit | https://example.test/design-kit.md | design | yes | 4096 |\n`);
+  run('git', ['commit', '-qam', 'Keep a design skill for the design step'], root);
+  const model = json(root, ['workflow', 'studio']);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'feature', ['design']), '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const said = (result, code) => result.warnings.filter((warning) => warning.code === code).map((warning) => warning.message);
+  assert.deepEqual(said(plan, 'STUDIO_COPY_SKILL_BY_NAME'), ['/sf-design takes Architecture and design by its name when the step names no drafting skill, but it does not take design copy. To draft design copy with /sf-design, choose it under Drafted with.']);
+  assert.deepEqual(said(plan, 'STUDIO_COPY_AGENT_RESOURCE'), ['Architect uses skill design-kit only in Architecture and design, so design copy is drafted without it. To keep it, import it again with design copy among its steps.']);
+  // A copy that chooses the skill keeps it, and a step no skill takes by name says nothing.
+  const chosen = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'feature', ['design'], { design: { authoringSkill: 'sf-design' } }), '--dry-run']);
+  assert.equal(chosen.valid, true, JSON.stringify(chosen.problems));
+  assert.deepEqual(said(chosen, 'STUDIO_COPY_SKILL_BY_NAME'), []);
+  const intake = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'feature', ['intake']), '--dry-run']);
+  assert.deepEqual(intake.warnings.filter((warning) => warning.code.startsWith('STUDIO_COPY_')), []);
+});
+
+test('no rule in src recognises a step by its name, because a copy of the step has its own [E2G-001]', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const names = Object.keys(YAML.parse(await readFile(path.join(packageRoot, 'templates/workflow.yml'), 'utf8')).phases);
+  // A step's ID compared with a packaged step's name, as `phase.id === 'convergence'` or `currentPhase !== 'release'`.
+  const id = String.raw`(?:\b(?:phase|step|current|active|resolved|entry|candidate|node|workflow)\??\.(?:id|currentPhase)|\b(?:phaseId|stepId|currentPhase|activePhase))\b`;
+  const literal = `'(?:${names.join('|')})'`;
+  const pattern = new RegExp(String.raw`${id}\s*[!=]==?\s*${literal}|${literal}\s*[!=]==?\s*${id}`, 'g');
+  // Historical Story records keep the names they were written with; only their migrations read them.
+  const allowed = new Set(['src/schema-migrations.mjs']);
+  const offenders = [];
+  for (const relative of (await readdir(path.join(packageRoot, 'src'), { recursive: true })).filter((entry) => entry.endsWith('.mjs'))) {
+    const file = `src/${relative.split(path.sep).join('/')}`;
+    if (allowed.has(file)) continue;
+    (await readFile(path.join(packageRoot, file), 'utf8')).split('\n').forEach((line, index) => {
+      for (const match of line.matchAll(pattern)) offenders.push(`${file}:${index + 1}: ${match[0]}`);
+    });
+  }
+  assert.deepEqual(offenders, [], 'key the rule on what the step does (src/phase-roles.mjs): a copy made in Workflow Studio is called something else');
+});
+
 test('from a Story checkout, Studio changes become one review proposal on the approved configuration', async () => {
   const { initializeDefinition } = await import('../src/config.mjs');
   const { remoteFingerprint } = await import('../src/git-remote-diagnostics.mjs');

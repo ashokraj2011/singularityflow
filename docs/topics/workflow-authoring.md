@@ -27,7 +27,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 49
+version: 50
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -141,10 +141,14 @@ step copied from the shared one, so one workflow can choose its own agent. The c
 workflow runs the step: every input keeps its settings (optional, clause selector, approved-summary
 projection, preserved headings), and so do the workflow's sign-off rules, template, write scope and
 tool evidence for it. It then takes the step's place there: the steps that read it, send-back
-targets, decisions, planned claims and fast-path verbs name the copy, and shared lists that allow
-the step (MCP servers, document uploads, architecture intent) allow the copy too. Check still
-refuses a copy the engine cannot follow, such as a source-reviewed `specification` or `planning`
-step, whose ID the engine requires.
+targets, decisions, planned claims, source review, where Auto stops and fast-path verbs name the
+copy, and shared lists that allow the step (MCP servers, document uploads, architecture intent)
+allow the copy too. The engine governs the copy exactly as the step, because it reads what a step
+does, never its name (see *A step is governed by what it is* below). Check says what a copy cannot
+take along: a skill that takes its built-in step by name (`/sf-requirements`, `/sf-design`,
+`/sf-release`) does not take the copy, so choose it under **Drafted with** to keep it, and an agent's
+remote skill or template kept for the step is not used for the copy until it is imported again with
+the copy among its steps.
 
 What a step produces is read from the engine's own contract, the same one that decides whether a
 step delivers code: a verification or testing step that writes tests against source is a document,
@@ -207,7 +211,8 @@ the Story's pinned policy cannot be verified, every route field is withheld (`au
 and follows the step's own clarification mode, inputs and artifact contract. It continues only on
 its own route: run by hand on a step routed elsewhere, including its own built-in step after that
 step was changed into code or sign-off only, it names the step's skill and stops. A built-in step
-with no setting, such as `design`, still accepts its original skill.
+with no setting, such as `design`, still accepts its original skill by its name; a copy of it has a
+name of its own, so the copy's **Drafted with** hint says to choose that skill there.
 
 In Workflow Studio, the Step section's **Drafted with** list offers **Automatic** and every skill
 that can draft what the step produces, each with its description as the option's tooltip. On a step
@@ -240,8 +245,12 @@ The same holds for every role:
 - **Visual verification** (`visual-test-evidence`): `verification.profiles` need such a step, and
   visual evidence is recorded only while it is active.
 - **Source review and intent amendment**: a step that defines the scope is reviewed as a
-  specification and one that plans the claims as a plan; an amendment changes the scope step, and a
-  step may propose one from feedback when it sits in a rework loop that restarts from that step.
+  specification and one that plans the claims as a plan (the review context and its report carry
+  that `kind`, never the step's name, and `/sf-review-source` checks the `kind`); an amendment
+  changes the scope step, and a step may propose one from feedback when it sits in a rework loop
+  that restarts from that step.
+- **The five verbs**: `/sf-specify`, `/sf-plan` and `/sf-converge` work on the step their router
+  names (`<PHASE>`), so a copied specification, plan or convergence step keeps its verb.
 - **Initiative milestones**: a child Story reaches its plan, verification and conformance milestones
   when the steps that plan its claims, record its test evidence and report its conformance are
   approved.

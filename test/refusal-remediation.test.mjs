@@ -589,6 +589,16 @@ test('incomplete authoring remediation derives a safe phase from lifecycle argv 
   }
 });
 
+test('a fast-path verb names no step, so its refusal names the step the engine reported or none [E2G-001]', () => {
+  const refusal = (details) => refusalRemediationPlan(Object.assign(new Error('Draft is incomplete.'), {
+    code: 'ARTIFACT_AUTHORING_INCOMPLETE', ...(details ? { details } : {})
+  }), ['converge']);
+  // A convergence step copied in Workflow Studio is called something else; guessing its packaged name sends people to a step that is not there.
+  assert.equal(refusal().steps.some((entry) => /\bconvergence\b/.test(entry.command ?? '')), false);
+  assert.equal(refusal({ phase: 'convergence-spec-driven-standard' }).steps[0].command,
+    'singularity-flow phase prepublish convergence-spec-driven-standard --json');
+});
+
 test('approval authoring failures end the approval turn and route to governed phase repair', () => {
   for (const argv of [
     ['phase', 'approve', 'verification'],

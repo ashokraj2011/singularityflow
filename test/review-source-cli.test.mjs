@@ -34,7 +34,12 @@ function cli(root, ...args) {
   return result.stdout.trim();
 }
 
-test('real Story CLI retains pinned reviewer report and separate human disposition before submission', async (t) => {
+/**
+ * A spec-driven Story whose scope step has a published specification awaiting its independent
+ * source review. With `copied`, the step is the workflow's own copy, made in Workflow Studio under
+ * a name of its own.
+ */
+async function publishedSpecificationStory(t, { copied = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-cli-'));
   t.after(async () => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-b', 'main');
@@ -52,15 +57,24 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
     if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   }
   await writeFile(workflowFile, YAML.stringify(authored));
+  if (copied) {
+    const { planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+    const steps = authored.workTypes['spec-driven-standard'].phases;
+    await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+      { op: 'phase.create', id: 'specification-spec-driven-standard', label: 'Specification (Spec-Driven Standard)', copyOf: 'specification', copyFromWorkflow: 'spec-driven-standard' },
+      { op: 'workflow.update', id: 'spec-driven-standard', phases: steps.map((id) => (id === 'specification' ? 'specification-spec-driven-standard' : id)) }
+    ] }, { write: true });
+  }
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'Initialize governed review fixture');
   git(root, 'switch', '-c', WORK_ID);
 
   const config = await loadConfig(root);
   const resolved = resolveWorkType(config, 'spec-driven-standard');
-  const authorAgent = resolved.phases.find((phase) => phase.id === 'specification').defaultAgent;
+  const phaseId = resolved.phases[0].id;
+  const authorAgent = resolved.phases[0].defaultAgent;
   await setAgentSession(root, config, ACTOR, authorAgent, WORK_ID,
-    { phaseId: 'specification', source: 'test' });
+    { phaseId, source: 'test' });
   const workflow = await withOperationContext({
     operation: { id: 'test.source-review-cli', command: 'test', modelPolicy: 'never' },
     modelMode: { enabled: false, source: 'test' }, root, command: 'test'
@@ -72,7 +86,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
       notes: 'Export is out of scope.' },
     baseBranch: 'main', workType: 'spec-driven-standard', agent: authorAgent, resolved
   }));
-  const phase = workflow.phases.specification;
+  const phase = workflow.phases[phaseId];
   const artifact = path.join(root, 'singularity/work-items', WORK_ID, phase.requiredArtifact.path);
   await mkdir(path.dirname(artifact), { recursive: true });
   await writeFile(artifact, `# Specification — ${WORK_ID}
@@ -99,7 +113,7 @@ Storage is available.
 ## Out of scope
 Export.
 `);
-  await scanArtifacts(root, config, workflow, 'specification');
+  await scanArtifacts(root, config, workflow, phaseId);
   const authorship = buildGenerationAuthorship({
     options: normalizeAuthorshipOptions({ producer: 'human', channel: 'manual-in-place', externalAiUse: 'none' }),
     actor: ACTOR, governedAgentContext: authorAgent, source: null
@@ -108,20 +122,21 @@ Export.
     operation: { id: 'test.source-review-publish', command: 'test', modelPolicy: 'never' },
     modelMode: { enabled: false, source: 'test' }, root, command: 'test'
   }, () => commitAndPublish(root, config, workflow,
-    { type: 'artifact-generated', phaseId: 'specification', generation: 1 },
-    `[${WORK_ID}][phase:specification][generated:1] publish`,
+    { type: 'artifact-generated', phaseId, generation: 1 },
+    `[${WORK_ID}][phase:${phaseId}][generated:1] publish`,
     phase.artifacts.map((entry) => entry.path), {
       beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
-        phaseId: 'specification', authorship, persist: false,
+        phaseId, authorship, persist: false,
         publicationTransaction: { publicationEvent,
           transactionId: transactionContext.transactionId,
           expectedHead: transactionContext.expectedHead }
       })
     }));
+  return { root, phaseId, authorAgent };
+}
 
-  const packet = JSON.parse(cli(root, 'review-source', 'context', 'specification', '--json'));
-  assert.equal(packet.requiredReviewerAgentId, 'sflow-source-reviewer');
-  assert.equal(packet.binding.generation, 1);
+/** The reviewer's report on the published specification: two covered statements and one exclusion. */
+function reviewReport(packet) {
   const story = packet.sources.find((entry) => entry.id === 'story');
   const lines = story.text.split(/\r?\n/u);
   const coveredLine = lines.findIndex((line) => line.includes('Save a draft and show saved status.')) + 1;
@@ -129,7 +144,7 @@ Export.
   // Every requirement statement needs its own row: the acceptance criterion is one [D-14].
   const criterionLine = lines.findIndex((line) => line.includes('Saving persists the draft and displays saved status.')) + 1;
   assert.ok(coveredLine > 0 && excludedLine > 0 && criterionLine > 0);
-  const report = {
+  return {
     ...packet.reportTemplate,
     rows: [
       { id: 'save-draft', sourceId: 'story', line: coveredLine,
@@ -143,6 +158,14 @@ Export.
         reason: 'Explicitly outside this Story.' }
     ]
   };
+}
+
+test('real Story CLI retains pinned reviewer report and separate human disposition before submission', async (t) => {
+  const { root, authorAgent } = await publishedSpecificationStory(t);
+  const packet = JSON.parse(cli(root, 'review-source', 'context', 'specification', '--json'));
+  assert.equal(packet.requiredReviewerAgentId, 'sflow-source-reviewer');
+  assert.equal(packet.binding.generation, 1);
+  const report = reviewReport(packet);
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, `${JSON.stringify(report, null, 2)}\n`);
   cli(root, 'agent', '--agent', 'sflow-source-reviewer');
@@ -185,6 +208,26 @@ Export.
   });
   assert.equal(approval.status, 0, `approval after a ready review failed:\n${approval.stderr}\n${approval.stdout}`);
   assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
+});
+
+test('a specification copied in Workflow Studio is reviewed for what it does, so its review is accepted [E2G-001]', async (t) => {
+  const { root, phaseId, authorAgent } = await publishedSpecificationStory(t, { copied: true });
+  assert.equal(phaseId, 'specification-spec-driven-standard');
+  const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  // The report template once carried the step's name as its kind, which the evaluator compares with
+  // what the step does, so every review of a renamed step was refused as an invalid contract.
+  assert.equal(packet.kind, 'specification');
+  assert.equal(packet.reportTemplate.kind, 'specification');
+  await mkdir(path.dirname(packet.stagingPath), { recursive: true });
+  await writeFile(packet.stagingPath, `${JSON.stringify(reviewReport(packet), null, 2)}\n`);
+  cli(root, 'agent', '--agent', 'sflow-source-reviewer');
+  const submitted = JSON.parse(cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json'));
+  assert.equal(submitted.status, 'correction-required');
+  assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
+  cli(root, 'agent', '--agent', authorAgent);
+  const decided = JSON.parse(cli(root, 'review-source', 'decide', phaseId,
+    '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
+  assert.equal(decided.status, 'ready');
 });
 
 test('legacy/off-policy Story status does not demand a reviewer or published generation', async (t) => {

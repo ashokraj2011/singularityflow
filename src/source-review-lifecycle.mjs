@@ -538,14 +538,16 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
 /** Build the JSON payload a reviewer authors, with no lifecycle or filesystem mutation. */
 export async function sourceReviewContext(root, config, workflow, phaseId, stagingPath) {
   const input = await sourceReviewInput(root, config, workflow, phaseId);
+  // The report's kind is what the step does (specification or planning), never the step's name:
+  // the evaluator compares it with that, so a renamed or copied step's review is accepted too.
   const reportTemplate = {
-    schemaVersion: currentSchemaVersion('source-grounded-review'), resultType: 'source-grounded-review', kind: phaseId,
+    schemaVersion: currentSchemaVersion('source-grounded-review'), resultType: 'source-grounded-review', kind: input.kind,
     binding: input.binding, reviewer: { agentId: input.reviewerAgentId, readOnly: true },
     sourcesReviewed: input.sources.map((source) => source.id), rows: [], findings: []
   };
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
-    phase: phaseId, generation: input.generation, binding: input.binding,
+    phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
     authorAgentId: input.authorAgentId, requiredReviewerAgentId: input.reviewerAgentId,
     reviewerAgentSha256: input.reviewerAgentSha256,
     sources: input.sources.map((source) => ({ id: source.id, path: source.path,

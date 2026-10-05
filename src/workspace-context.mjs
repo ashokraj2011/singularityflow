@@ -12,13 +12,25 @@ import { workspaceRepositoryPathAliases } from './workspace-repository-paths.mjs
 
 // Workspace creation/materialization owns the remote Git, clone-strategy, and enterprise transport
 // graph. Context-only commands must not load that graph merely to read a local manifest or registry.
-// Keep the compatibility implementation behind a true dynamic boundary until a caller reaches one
-// of the less frequent manifest/status mutation paths below. The promise also coalesces concurrent
-// context reads without creating another module instance.
+// Keep the compatibility implementation behind a dynamic boundary until a caller reaches one of the
+// less frequent manifest/status mutation paths below. The promise also coalesces concurrent context
+// reads without creating another module instance.
+//
+// In the VS Code bundles that boundary defers evaluation only: esbuild inlines dynamic imports, so a
+// bundled function that mentions workspaceModule() at all, even in a branch it never takes, ships
+// and parses the whole graph. Member resolution, which Help metrics and prompt audit reach, therefore
+// reads manifests and the registry through workspaceManifestModule() alone. That import is dynamic
+// as well, so the startup reads' static graph does not grow.
 let workspaceModulePromise = null;
 function workspaceModule() {
   workspaceModulePromise ??= import('./workspace.mjs');
   return workspaceModulePromise;
+}
+
+let workspaceManifestModulePromise = null;
+function workspaceManifestModule() {
+  workspaceManifestModulePromise ??= import('./workspace-manifest.mjs');
+  return workspaceManifestModulePromise;
 }
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
@@ -336,11 +348,8 @@ export async function activateWorkspaceContext(registryFile, selectionFile, refe
   });
 }
 
-export async function readActiveWorkspaceContext(selectionFile, registryFile, {
-  refresh = true,
-  gitReadMode = 'reference',
-  onGitShadowComparison = null
-} = {}) {
+/** The active selection exactly as stored, without the workspace and Git reads of a refresh. */
+async function storedActiveWorkspaceContext(selectionFile) {
   let selected;
   try {
     selected = readRecord('active-workspace', await readFile(selectionFile)).record;
@@ -351,7 +360,16 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
   if (!selected.workspaceId) {
     throw new SingularityFlowError('The active workspace selection is invalid. Select the workspace again.');
   }
-  if (!refresh) return { ...selected, prompt: workspacePromptLabel(selected) };
+  return { ...selected, prompt: workspacePromptLabel(selected) };
+}
+
+export async function readActiveWorkspaceContext(selectionFile, registryFile, {
+  refresh = true,
+  gitReadMode = 'reference',
+  onGitShadowComparison = null
+} = {}) {
+  const selected = await storedActiveWorkspaceContext(selectionFile);
+  if (!selected || !refresh) return selected;
   let context;
   try {
     context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
@@ -607,7 +625,7 @@ export async function workspaceMemberContextForRepository(
 ) {
   let selected;
   try {
-    selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
+    selected = await storedActiveWorkspaceContext(selectionFile);
   } catch (error) {
     if (strict) throw error;
     return null;
@@ -654,7 +672,7 @@ export async function workspaceMemberContextForRepository(
   // recover and validate the current manifest from the machine registry. Cached capabilities are
   // navigation hints, never configuration authority.
   if (!workspacePath && strict) {
-    const { readWorkspaceRegistry } = await workspaceModule();
+    const { readWorkspaceRegistry } = await workspaceManifestModule();
     const candidates = (await readWorkspaceRegistry(registryFile))
       .filter((entry) => !entry.archivedAt && entry.id === selected.workspaceId);
     let matches = candidates;
@@ -704,7 +722,7 @@ export async function workspaceMemberContextForRepository(
 
   let workspace;
   try {
-    const { readWorkspace } = await workspaceModule();
+    const { readWorkspace } = await workspaceManifestModule();
     workspace = await readWorkspace(workspacePath);
     workspaceSnapshot = workspace;
   } catch (error) {
@@ -718,7 +736,7 @@ export async function workspaceMemberContextForRepository(
   // Exact canonical member paths are the common case. Resolve all of them before asking Git for any
   // common directories, so selecting the Nth repository does not spawn Git twice for every earlier
   // member.
-  const { workspaceRepositoryPath } = await workspaceModule();
+  const { workspaceRepositoryPath } = await workspaceManifestModule();
   const pathAliases = workspaceRepositoryPathAliases(workspace.repositories);
   const refuseAlias = (member) => {
     const alias = pathAliases.get(member.repositoryId);

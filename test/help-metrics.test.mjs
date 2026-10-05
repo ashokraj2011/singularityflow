@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -19,6 +19,42 @@ async function repository() {
   run('git', ['init', '-q'], { cwd: root });
   return root;
 }
+
+/** A one-repository workspace whose member checkout matches its reviewed origin. */
+async function workspaceFixture() {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'sflow-help-workspace-'));
+  const root = path.join(workspace, 'repos', 'application');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q'], { cwd: root });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/application.git'], {
+    cwd: root
+  });
+  const manifest = {
+    version: 1, id: 'help-workspace', name: 'Help workspace',
+    anchor: { provider: 'workspace', key: 'help-workspace', title: 'Help workspace' },
+    leadRepository: 'application',
+    repositories: {
+      application: {
+        url: 'https://example.invalid/application.git', path: 'repos/application',
+        defaultBranch: 'main'
+      }
+    }
+  };
+  await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { workspace, root, manifest };
+}
+
+async function selectWorkspace(workspacePath, repositoryPath) {
+  await writeFile(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, `${JSON.stringify({
+    schemaVersion: currentSchemaVersion('active-workspace'),
+    workspaceId: 'help-workspace', workspaceName: 'Help workspace', workspacePath,
+    repositoryId: 'application', repositoryPath, selectedAt: '2026-08-26T00:00:00.000Z'
+  })}\n`);
+}
+
+const repositoryMetrics = async (root) => path.join(
+  await realpath(root), '.git', 'singularity-flow', 'help-metrics'
+);
 
 const metric = (index = 0, overrides = {}) => ({
   surface: 'chat', intent: 'concept', outcome: 'resolved', topicId: 'project-binding',
@@ -100,35 +136,68 @@ test('metrics can be disabled, re-enabled, retained, and atomically cleared', as
 });
 
 test('a selected workspace aggregates repository help under the workspace directory', async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), 'sflow-help-workspace-'));
-  const root = path.join(workspace, 'repos', 'application');
-  await mkdir(root, { recursive: true });
-  run('git', ['init', '-q'], { cwd: root });
-  run('git', ['remote', 'add', 'origin', 'https://example.invalid/application.git'], {
-    cwd: root
-  });
-  await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
-    version: 1, id: 'help-workspace', name: 'Help workspace',
-    anchor: { provider: 'workspace', key: 'help-workspace', title: 'Help workspace' },
-    leadRepository: 'application',
-    repositories: {
-      application: {
-        url: 'https://example.invalid/application.git', path: 'repos/application',
-        defaultBranch: 'main'
-      }
-    }
-  }, null, 2)}\n`);
-  await writeFile(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, `${JSON.stringify({
-    schemaVersion: currentSchemaVersion('active-workspace'),
-    workspaceId: 'help-workspace', workspaceName: 'Help workspace', workspacePath: workspace,
-    repositoryId: 'application', repositoryPath: root, selectedAt: '2026-08-26T00:00:00.000Z'
-  })}\n`);
+  const { workspace, root } = await workspaceFixture();
+  await selectWorkspace(workspace, root);
   try {
     await recordHelpMetric(root, metric());
     const status = await helpMetricsStatus(root);
     assert.equal(status.scope, 'workspace');
     assert.equal(status.logFile, path.join(workspace, '.singularity-flow', 'help-metrics', 'events.jsonl'));
     assert.equal(status.count, 1);
+  } finally {
+    await rm(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, { force: true });
+  }
+});
+
+test('help metrics location: a repository no selected workspace claims keeps .git/singularity-flow/help-metrics', async () => {
+  const root = await repository();
+  const expected = await repositoryMetrics(root);
+  const recorded = await recordHelpMetric(root, metric());
+  assert.equal(recorded.scope, 'repository');
+  assert.equal(recorded.directory, expected);
+  assert.equal((await readFile(path.join(expected, 'events.jsonl'), 'utf8')).trim().split('\n').length, 1);
+
+  // Selecting a workspace does not move help for a repository that workspace does not list.
+  const { workspace, root: member } = await workspaceFixture();
+  await selectWorkspace(workspace, member);
+  try {
+    const status = await helpMetricsStatus(root);
+    assert.equal(status.scope, 'repository');
+    assert.equal(status.logFile, path.join(expected, 'events.jsonl'));
+    assert.equal(status.count, 1);
+  } finally {
+    await rm(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, { force: true });
+  }
+});
+
+test('help metrics location: a member uses the selected workspace path, and a refused manifest falls back to .git', async () => {
+  const { workspace, root, manifest } = await workspaceFixture();
+  // The directory is spelled from the stored selection, not from the manifest's resolved path, so
+  // a workspace selected through a symbolic link keeps that spelling.
+  const alias = `${workspace}-alias`;
+  await symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  await selectWorkspace(alias, root);
+  try {
+    const recorded = await recordHelpMetric(root, metric());
+    assert.equal(recorded.scope, 'workspace');
+    assert.equal(recorded.directory, path.join(alias, '.singularity-flow', 'help-metrics'));
+    assert.equal((await helpMetricsStatus(root)).count, 1);
+
+    // Membership still rests on readWorkspace's validation: a manifest it refuses proves nothing,
+    // so best-effort metrics go back to the repository instead of the workspace.
+    await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
+      ...manifest,
+      repositories: {
+        application: {
+          ...manifest.repositories.application,
+          url: 'https://user:secret@example.invalid/application.git'
+        }
+      }
+    }, null, 2)}\n`);
+    const fallback = await helpMetricsStatus(root);
+    assert.equal(fallback.scope, 'repository');
+    assert.equal(fallback.logFile, path.join(await repositoryMetrics(root), 'events.jsonl'));
+    assert.equal(fallback.count, 0);
   } finally {
     await rm(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, { force: true });
   }

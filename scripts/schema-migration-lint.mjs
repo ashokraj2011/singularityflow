@@ -24,7 +24,7 @@ const TRANSIENT_SCHEMA_CONSTANTS = new Set([
   'src/narration/command-result.mjs',
   'src/personalization.mjs',
   'src/workspace-logs.mjs',
-  'src/workspace.mjs'
+  'src/workspace-manifest.mjs'
 ]);
 
 // The world-model view contract is a durable frozen-identity family: its record schema stays v1

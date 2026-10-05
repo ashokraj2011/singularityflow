@@ -3588,7 +3588,7 @@ argument-hint: &quot;change | clause --id ID | test --id ID | line --path PATH -
     <details>
       <summary>
         <span class="skill-number">050</span>
-        <span class="skill-title"><strong>sflow-explain-code</strong><span>Explain current code changes from deterministic records, with an optional advisory walkthrough.</span></span>
+        <span class="skill-title"><strong>sflow-explain-code</strong><span>Explain current code changes, or what the whole repository holds, from deterministic records, with an optional advisory walkthrough of changes.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -3597,11 +3597,11 @@ argument-hint: &quot;change | clause --id ID | test --id ID | line --path PATH -
           <span class="pill">conversational</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~356 body tokens</span>
+          <span class="pill">~428 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-explain-code</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CLAUSE-ID] [--since REVISION]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CLAUSE-ID] [--since REVISION] | --repository [--path DIR-OR-FILE]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>explain.code.narrate</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-explain-code/SKILL.md</code></dd></div>
         </dl>
@@ -3611,11 +3611,11 @@ argument-hint: &quot;change | clause --id ID | test --id ID | line --path PATH -
         </div>
         <pre data-source="sflow-explain-code"><code>---
 name: sflow-explain-code
-description: Explain current code changes from deterministic records, with an optional advisory walkthrough.
+description: Explain current code changes, or what the whole repository holds, from deterministic records, with an optional advisory walkthrough of changes.
 disable-model-invocation: true
-argument-hint: &quot;[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CLAUSE-ID] [--since REVISION]&quot;
+argument-hint: &quot;[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CLAUSE-ID] [--since REVISION] | --repository [--path DIR-OR-FILE]&quot;
 ---
-# Explain current code changes
+# Explain current code changes, or the repository
 
 &lt;!-- sflow-output-contract: guided-actions --&gt;
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say &quot;Copilot: no verified equivalent&quot;; never invent a slash command.
@@ -3626,8 +3626,10 @@ argument-hint: &quot;[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CL
    - normally: `singularity-flow explain code $ARGUMENTS --json`;
    - when `$ARGUMENTS` already contains `--narrate`, use that same command unchanged;
    - only when the user explicitly asks for a narrative or walkthrough in prose and `$ARGUMENTS` does not contain
-     `--narrate`: `singularity-flow explain code $ARGUMENTS --narrate --json`.
-   Never run both forms in one invocation.
+     `--narrate` or `--repository`: `singularity-flow explain code $ARGUMENTS --narrate --json`.
+   Never run both forms in one invocation. `--repository [--path DIR-OR-FILE]` explains what the repository (or
+   one folder or file) holds instead of what changed; a repository over the AST budget answers with its folders,
+   and the returned next actions name the `--path` to ask about next.
 2. Relay the returned computed sections, availability reasons, stable IDs, authority labels, and next actions unchanged. For narration, preserve the exact `Narrative — advisory, not a record` banner and citation IDs.
 3. Stop. Never read or summarize source files yourself, infer a missing cause or caller, call a criterion satisfied, store narrative as evidence, or perform any lifecycle mutation.
 </code></pre>

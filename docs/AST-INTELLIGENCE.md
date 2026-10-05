@@ -114,6 +114,14 @@ an independent local worker and returns immediately. `before-first-phase` waits 
 before returning from Story start. In both modes failures become local status warnings, never undo
 the Story, and never block a phase. The latest job is visible in AST Intelligence and `wm ast doctor`.
 
+Workspace warming uses the same worker for a repository's application code. When a workspace clones,
+adopts or repairs a repository, and AST is not `off`, the checkout's application files are counted
+against `ast.budgets`. Within the budget, the files present in the working tree are indexed in the
+background. Over it, nothing is queued and the record says `over-budget`. `explain code --repository`
+then works one folder or file at a time, indexing a scope that fits when someone asks about it. These
+records use keys no Work ID can take (`@repository`, `@repository:<path>`), and `wm ast doctor`
+reports them as `repositoryWarm`. Story-start warming ignores them.
+
 The effective mode is the most restrictive of `ast.mode`, the machine preference,
 `SINGULARITY_FLOW_AST`, and an operation override. With mode `off`, the command returns a valid
 `disabled` envelope before repository census or fingerprinting and creates no cache or

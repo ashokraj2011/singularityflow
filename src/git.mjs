@@ -1883,6 +1883,19 @@ export function worktreePatchMatching(root, base, pattern, { maximumBytes = 64 *
   { cwd: root, maxBuffer: maximumBytes }, `Changes since ${base}`);
 }
 
+/**
+ * Every path Git tracks under `prefix` (the whole repository when null), and whether the listing
+ * fit in `maximumBytes`. A listing that does not fit is reported as incomplete with no paths, never
+ * cut short into a wrong count: a caller deciding whether a repository is small enough to index
+ * needs no more than that.
+ */
+export function trackedPathListing(root, { prefix = null, maximumBytes = 8 * 1024 * 1024, env = process.env } = {}) {
+  const result = git(['ls-files', '-z', ...(prefix ? ['--', `:(literal)${prefix}`] : [])],
+    { cwd: root, env, allowFailure: true, maxBuffer: maximumBytes });
+  if (result.error?.code === 'ENOBUFS') return { paths: [], complete: false };
+  return { paths: nullList(gitReadOutput(result, 'Tracked paths') ?? ''), complete: true };
+}
+
 /** Those of `paths` that Git tracks. */
 export function trackedPaths(root, paths) {
   return paths.length ? nullList(gitAnswer(['ls-files', '-z', '--', ...paths.map((relative) => `:(literal)${relative}`)],

@@ -27,6 +27,11 @@ singularity-flow explain code
   [--narrate]
   [--length brief|standard|long]
   [--json]
+
+singularity-flow explain code --repository
+  [--path DIR-OR-FILE]
+  [--no-index]
+  [--json]
 ```
 
 `sflow` is the equivalent short executable name. The exact second positional, `code`, selects this
@@ -62,6 +67,12 @@ over the same capture and returns typed, cited statements with no model and no a
 **Change Explorer**. See [Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md) for the subjects, catalogs,
 compatibility rules and acceptance status.
 
+Subject views carry the clause links a change has while it is being written: a `@clause` comment in
+changed code (with the author's note after the ID), an `@ac` comment in a changed test, and a
+clause's specification text naming another clause. `explain --subject change` lists them under
+*Why it is linked*, and `explain --subject clause --id ID` gathers everything linked to one clause.
+`explain code` keeps its fixed schema and does not change.
+
 ## Subject and interval
 
 This tranche describes the exact repository change-set compatibility subject returned by the
@@ -73,6 +84,59 @@ Without `--since`, the existing comprehension baseline precedence selects and re
 another retained Revision Loop Candidate,” and it does not infer candidate ancestry or reconstruct
 discarded attempts. An invalid or unavailable revision is refused rather than silently replaced
 with another baseline.
+
+### Application code only
+
+An explanation covers the repository's application code. Singularity Flow's own files are not code
+to explain and never appear as change units, hunks, regions or subject statements:
+
+- the governed roots `singularity/` and `.github/agents/`;
+- every root the repository configures (`workItemRoot`, `initiativeRoot`, `templatesRoot`,
+  `agentPromptsRoot`, the world-model output directories and `governedRoots`), read from
+  `singularity/workflow.yml` itself, so one malformed agent file cannot turn a work-item root back
+  into code;
+- machine-local state under `.singularity-flow/`, such as Story worktrees and caches;
+- Git metadata.
+
+They are counted, never dropped silently. `scope.hiddenEntries` and `scope.hiddenGroups` report how
+many change entries were left out and under which folders. The human headline adds "N Singularity
+Flow file change(s) are not code and are not shown.", and `explain --subject change` states the same
+count with `xpl2.singularity-files-hidden@1`. Every comprehension capture (`explain code`,
+`explain --subject`, the `comprehension` commands and the snapshot VS Code leases) builds its change
+set through the same filter, and the change set's digest covers what remains, so a region identity
+means the same thing on every surface. The bounded patch asks Git only for the remaining tracked
+paths, so a Story's records can no longer push the code's own hunks past the preview limit.
+
+## Whole repository (`--repository`)
+
+`explain code --repository` answers "what is here" rather than "what changed". It lists the
+application files Git tracks: one level of folders and files below the scope, with file counts,
+languages and test files, plus each file with the declarations the AST index records. It also lists
+every `@clause` and `@ac` comment, with the author's note after a `@clause` ID, and the clauses
+those tags name, with the code and tests that name each one. Singularity Flow's own files are
+counted and never shown, as for change explanations. It is model-free and grants no authority. A
+declaration is what the index records, and a tag is the author's declaration; neither shows behavior
+or coverage. `--narrate`, `--since` and the change drill-downs are refused with `--repository`.
+
+The AST budget (`ast.budgets`, 500 files and 20 MiB by default) decides what is explained up front:
+
+- **Within the budget**, the whole repository is explained. When a workspace clones, adopts or
+  repairs a repository, it queues a background index of that checkout's application code, so the
+  explanation is ready from the start. `explain code --repository` reads that index. If the index
+  has gaps for the current HEAD, the command fills them first, unless `--no-index` is given, and
+  records the fill so the next run only reads. Files that differ from HEAD are read from the working
+  tree in memory, so the explanation describes the code as it is now.
+- **Over the budget**, nothing is indexed up front. The repository is explained one folder or file at
+  a time: the answer lists its folders with counts, and the next actions name
+  `explain code --repository --path <folder>`. A scope that fits the budget is explained and indexed
+  on request; a larger one lists its own folders.
+
+The budget counts every tracked application file. A listing larger than 8 MiB is treated as over
+budget without being read further. Only files present in the working tree are indexed, so a sparse
+checkout never fetches a blob. The local AST cache under the Git directory is the only thing this
+command may write: derived, disposable machine state, never governed state. The background index
+runs the same worker as Story-start warming, records its state as `repositoryWarm` in
+`wm ast doctor`, and never fails, delays or rolls back the workspace operation.
 
 ## Fixed computed sections
 
@@ -177,6 +241,7 @@ store nothing.
 | Condition | Result |
 |---|---|
 | No changed resources | The three fixed sections remain present with zero observable units. |
+| Only Singularity Flow's own files changed | The three fixed sections remain present with zero observable units; `scope.hiddenEntries` counts what was left out. |
 | Untracked resource | Path and opaque unit remain visible; body, textual hunk, and semantics are unavailable. |
 | Binary, mode-only, or metadata change | Opaque unit remains visible; no textual or declaration claim is made. |
 | Bounded patch unavailable or too large | Resource units remain visible; hunk coordinates and patch detail are unavailable. |
@@ -196,6 +261,7 @@ or otherwise change lifecycle state.
 - **Terminal:** human output keeps the three fixed sections in order; `--json` returns their bounded
   structured form and exact availability metadata.
 - **Copilot:** `/sf-explain-code` is a one-command relay. Narrative requires an explicit request.
+  `/sf-explain-code --repository [--path DIR-OR-FILE]` relays the whole-repository explanation.
 - **VS Code:** the Comprehension Center exposes the computed explanation through its leased,
   read-only comprehension snapshot. Its narrative button only prefills
   `/sf-explain-code --narrate` in Copilot with partial-query mode; it never submits or invokes the
@@ -206,7 +272,8 @@ or otherwise change lifecycle state.
 - **VS Code Code Explainer:** an interactive, function-level view of the same capture joined with
   the editor's language services (symbols, call hierarchy, references): a layered call graph, an
   inspector, a requirement → test trace and a walkthrough. **Explain This Code** opens it on the
-  function at the cursor. See [Code Explainer](CODE-EXPLAINER.md).
+  function at the cursor. Its **Repository** tab shows `explain code --repository` and opens on its
+  own when there is no change to explain. See [Code Explainer](CODE-EXPLAINER.md).
 
 The three surfaces consume the engine result. UI state, skill prose, and webview state are never
 authority.

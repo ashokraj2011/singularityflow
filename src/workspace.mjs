@@ -3790,6 +3790,32 @@ async function cloneIntoWorkspace(root, operation, {
   }
 }
 
+// A specifier the editor bundler does not follow: VS Code creates, adopts and repairs workspaces
+// through the CLI, so the bundled runtimes never need the indexer and must not carry its modules.
+const REPOSITORY_INDEXER = './comprehension/repository-explanation.mjs';
+
+/**
+ * Code explanation is available from the moment a repository is in place: each cloned, adopted or
+ * repaired checkout queues a background index of its application code when that code fits the AST
+ * budget, and records why not otherwise. Loaded on demand so workspace commands that never
+ * materialize a repository pay nothing for it; it never fails the workspace operation.
+ */
+async function indexMaterializedRepositories(operations) {
+  const ready = operations.filter((operation) => operation?.status === 'complete' && operation.target);
+  if (!ready.length) return [];
+  try {
+    const { scheduleRepositoryAstWarm } = await import(REPOSITORY_INDEXER);
+    const results = [];
+    for (const operation of ready) {
+      const warm = await scheduleRepositoryAstWarm(operation.target);
+      results.push({ repository: operation.repository, status: warm.status, reason: warm.reason ?? null });
+    }
+    return results;
+  } catch (error) {
+    return ready.map((operation) => ({ repository: operation.repository, status: 'failed', reason: error?.code ?? 'AST_REPOSITORY_WARM_FAILED' }));
+  }
+}
+
 async function discardStagedWorkspaceClone(result) {
   if (result?.status !== 0 || typeof result.discard !== 'function') return null;
   try {
@@ -4028,6 +4054,7 @@ export async function createWorkspace(options, {
         .map(discardStagedWorkspaceClone));
     }
   }
+  const codeIndex = clone ? await indexMaterializedRepositories(journal.operations) : [];
   const finalStatus = await workspaceStatus(root, {
     level: clone ? 'full' : 'readiness', env: gitEnv
   });
@@ -4036,6 +4063,7 @@ export async function createWorkspace(options, {
     resumed: false,
     workspace: finalStatus.workspace,
     status: finalStatus,
+    codeIndex,
     materialization: journal.operations.map((operation) => ({
       repository: operation.repository,
       requested: operation.clone,
@@ -5000,7 +5028,8 @@ export async function repairWorkspace(workspacePath, {
       .filter((stagedResult) => !claimedStagedResults.has(stagedResult))
       .map(discardStagedWorkspaceClone));
   }
-  return { repaired, status: await workspaceStatus(workspacePath, { level: statusLevel, env }) };
+  const codeIndex = await indexMaterializedRepositories(pending.map(({ operation }) => operation));
+  return { repaired, codeIndex, status: await workspaceStatus(workspacePath, { level: statusLevel, env }) };
 }
 
 export async function fetchWorkspace(workspacePath, { env = process.env } = {}) {

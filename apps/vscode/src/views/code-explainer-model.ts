@@ -93,7 +93,7 @@ export interface CxChangeView {
   snapshot?: { baseline?: { revision?: string | null } | null; workId?: string | null; phase?: string | null } | null;
   nodes: Array<{ id: string; kind: string; label: string; status: string | null; detail?: Record<string, unknown> | null }>;
   relationships: Array<{ id?: string; type: string; from: string; to: string; granularity?: string; scope?: string; qualifier?: string | null }>;
-  statements: Array<{ id: string; kind: string; about: string; text: string }>;
+  statements: Array<{ id: string; kind: string; about: string; text: string; arguments?: Record<string, unknown> }>;
   attention: Array<{ id: string; category: string; about: string; reason: string; statement: string }>;
   inventory: {
     files: Array<{ fileId: string; path: string; pathBefore: string | null; pathAfter: string | null; operation: string; unitIds: string[]; hunks: number; opaque: number; roles?: string[]; sources?: { before?: string; after?: string } }>;
@@ -196,8 +196,13 @@ export interface CxSymbol {
   tests: Array<{ path: string; line: number; symbolId: string | null }>;
   testStatus: 'complete' | 'unavailable' | 'not-requested';
   clauses: string[];
+  /** `@clause` tags in its own lines (its leading comment block included): the author's declaration. */
+  tags: CxClauseTag[];
   explanation: CxSegment[][];
 }
+
+/** A `@clause` comment in changed code, as the change view read it. */
+export interface CxClauseTag { clause: string; line: number; note: string | null; added: boolean }
 
 export interface CxModule {
   id: string;
@@ -211,6 +216,8 @@ export interface CxModule {
   removed: number;
   symbolIds: string[];
   clauses: string[];
+  /** Clauses a `@clause` comment in this file names. */
+  tagged: string[];
   units: string[];
   external: boolean;
   label: string | null;
@@ -231,11 +238,17 @@ export interface CxEdge { id: string; from: string; to: string; sites: number[] 
 export interface CxTrace {
   available: boolean;
   reason: string | null;
-  requirements: Array<{ id: string; label: string; text: string | null; status: 'tagged' | 'untagged' | 'declared'; modules: string[]; tests: string[]; gap: string | null }>;
+  requirements: Array<{
+    id: string; label: string; text: string | null; status: 'tagged' | 'untagged' | 'declared'; modules: string[]; tests: string[]; gap: string | null;
+    /** Files whose `@clause` comment names it, with the author's note; a subset of `modules`. */
+    declaredIn: string[]; notes: Array<{ path: string; line: number; note: string }>;
+    /** Clauses its specification text names, and those whose text names it. */
+    cites: string[]; citedBy: string[];
+  }>;
   code: Array<{ moduleId: string; symbols: string[] }>;
   tests: Array<{ id: string; path: string; requirements: string[]; symbols: string[]; inChange: boolean; source: 'declared-tag' | 'reference' | 'both' }>;
   runs: Array<{ id: string; label: string; status: string }>;
-  counts: { requirements: number; tagged: number; gaps: number; tests: number; runs: number; passed: number; failed: number };
+  counts: { requirements: number; tagged: number; declared: number; gaps: number; tests: number; runs: number; passed: number; failed: number };
 }
 
 export interface CxModel {
@@ -853,8 +866,34 @@ interface FileChange {
   unitByHunk: Map<CxDiffHunk, string>;
   opaque: string | null;
   clauses: string[];
+  tags: CxClauseTag[];
   fileId: string | null;
   diffable: boolean;
+}
+
+/**
+ * Singularity Flow's own files: its governed records, agent definitions and machine-local state.
+ * They are never explained as code. The engine leaves them out of the capture; this keeps an older
+ * capture from drawing them.
+ */
+export function isSingularityOwnedPath(path: string): boolean {
+  return ['singularity', '.github/agents', '.singularity-flow'].some((root) => path === root || path.startsWith(`${root}/`));
+}
+
+/** A `clause-tag` statement's file and tag; null for any other statement or a malformed one. */
+function clauseTagOf(statement: CxChangeView['statements'][number]): { path: string; tag: CxClauseTag } | null {
+  if (statement.kind !== 'clause-tag') return null;
+  const args = statement.arguments ?? {};
+  const line = Number(args.line);
+  if (typeof args.path !== 'string' || !args.path || typeof args.clauseId !== 'string' || !Number.isSafeInteger(line) || line < 1) return null;
+  return {
+    path: args.path,
+    tag: {
+      clause: visibleCode(args.clauseId), line,
+      note: typeof args.note === 'string' && args.note ? visibleCode(args.note) : null,
+      added: args.placement === 'added'
+    }
+  };
 }
 
 /** The change set per path: parsed hunks (with their XPL2 unit ids), operation and clause associations. */
@@ -874,8 +913,14 @@ function changeByPath(input: CxBuildInput['change']): Map<string, FileChange> {
     const clause = relationship.from.replace(/^clause:/, '');
     clausesByFile.set(relationship.to, [...(clausesByFile.get(relationship.to) ?? []), clause]);
   }
+  const tagsByPath = new Map<string, CxClauseTag[]>();
+  for (const statement of view?.statements ?? []) {
+    const tag = clauseTagOf(statement);
+    if (tag) tagsByPath.set(tag.path, [...(tagsByPath.get(tag.path) ?? []), tag.tag]);
+  }
   for (const file of view?.inventory.files ?? []) {
     const path = file.pathAfter ?? file.pathBefore ?? file.path;
+    if (isSingularityOwnedPath(path)) continue;
     const section = sections.get(path);
     const hunks = section ? parseFilePatch(section) : (input.computed?.[path] ?? []);
     const units = view?.inventory.units.filter((unit) => unit.fileId === file.fileId) ?? [];
@@ -895,6 +940,7 @@ function changeByPath(input: CxBuildInput['change']): Map<string, FileChange> {
       unitByHunk,
       opaque: opaqueUnit && !hunks.length ? (opaqueUnit.opacity?.reason ?? opaqueUnit.opaqueReason ?? 'opaque-content') : null,
       clauses: [...new Set(clausesByFile.get(file.fileId) ?? [])].sort(),
+      tags: (tagsByPath.get(path) ?? []).sort((left, right) => left.line - right.line || left.clause.localeCompare(right.clause)),
       fileId: file.fileId,
       diffable: Boolean(file.sources?.before || file.sources?.after)
     });
@@ -907,7 +953,7 @@ function changeByPath(input: CxBuildInput['change']): Map<string, FileChange> {
       const hunks = parseFilePatch(sections.get(path) ?? '');
       result.set(path, {
         path, operation: file.operation ?? (file.pathAfter ? (file.pathBefore ? 'modified' : 'added') : 'deleted'),
-        units: [], hunks, unitByHunk: new Map(), opaque: hunks.length ? null : 'no-text-hunks', clauses: [], fileId: null, diffable: false
+        units: [], hunks, unitByHunk: new Map(), opaque: hunks.length ? null : 'no-text-hunks', clauses: [], tags: [], fileId: null, diffable: false
       });
     }
   }
@@ -921,7 +967,7 @@ function emptySymbol(partial: Partial<WorkingSymbol> & Pick<CxSymbol, 'id' | 'ke
     file: null, start: null, end: null, line: null, status: 'unchanged', role: 'context', depth: null, primary: false,
     added: 0, removed: 0, hunks: 0, units: [], diff: [], diffTruncated: false, signature: null, signatureSource: null, doc: null,
     metrics: null, callers: [], callees: [], callStatus: 'not-requested', tests: [], testStatus: 'not-requested',
-    clauses: [], explanation: [], flat: null, ...partial
+    clauses: [], tags: [], explanation: [], flat: null, ...partial
   };
 }
 
@@ -965,7 +1011,8 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
       role: 'context',
       status: external ? 'external' : operation === 'added' ? 'added' : operation === 'deleted' ? 'deleted'
         : operation === 'renamed' ? 'renamed' : operation ? 'modified' : 'unchanged',
-      added: 0, removed: 0, symbolIds: [], clauses: change?.clauses ?? [], units: change?.units ?? [],
+      added: 0, removed: 0, symbolIds: [], clauses: change?.clauses ?? [],
+      tagged: [...new Set((change?.tags ?? []).map((tag) => tag.clause))].sort(), units: change?.units ?? [],
       external, label, symbolSource: fileInput?.symbols?.length ? 'language-service' : 'none',
       symbolReason: fileInput?.symbols?.length ? null : (fileInput?.symbolReason ?? null), opaque: change?.opaque ?? null,
       diffable: change?.diffable ?? false, group: false, collapsed: false
@@ -990,20 +1037,18 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
   };
 
   /**
-   * Changed files with no symbols (documents, configuration, images) share one card, and the
-   * Story's own records under singularity/ share another, folded: forty state files would
-   * otherwise bury the code they accompany.
+   * Changed files with no symbols (documents, configuration, images) share one card. Singularity
+   * Flow's own records never get this far (isSingularityOwnedPath).
    */
   const groupFor = (file: string): CxModule => {
-    const story = file.startsWith('singularity/') || file.startsWith('.github/');
-    const id = story ? 'm:(story records)' : 'm:(other files)';
+    const id = 'm:(other files)';
     const existing = modules.get(id);
     if (existing) return existing;
     const module: CxModule = {
-      id, path: story ? '(story records)' : '(other files)', name: story ? 'Story & configuration records' : 'Other changed files',
-      dir: story ? 'singularity' : '', language: 'plaintext', role: 'other', status: 'modified', added: 0, removed: 0,
-      symbolIds: [], clauses: [], units: [], external: false, label: null, symbolSource: 'none', symbolReason: null,
-      opaque: null, diffable: false, group: true, collapsed: story
+      id, path: '(other files)', name: 'Other changed files',
+      dir: '', language: 'plaintext', role: 'other', status: 'modified', added: 0, removed: 0,
+      symbolIds: [], clauses: [], tagged: [], units: [], external: false, label: null, symbolSource: 'none', symbolReason: null,
+      opaque: null, diffable: false, group: true, collapsed: false
     };
     modules.set(id, module);
     return module;
@@ -1214,6 +1259,14 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
       moduleScope.set(file, symbol);
       addSymbol(symbol);
     }
+    // A `@clause` tag belongs to the function whose own lines hold it, its leading comment block
+    // included, by the same rule that assigns changed lines. A tag outside every function stays with
+    // the file's module-scope row when the change has one.
+    for (const tag of change.tags) {
+      const owner = ownerAt(tag.line);
+      const symbol = owner === 'module' ? moduleScope.get(file) : byKey.get(owner);
+      if (symbol && !symbol.tags.some((entry) => entry.clause === tag.clause && entry.line === tag.line)) symbol.tags.push(tag);
+    }
   }
 
   // 3. Calls: both ends become symbols (creating those outside the harvested files), then edges.
@@ -1422,6 +1475,13 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
         sentences.push([{ t: `${plural(files.length, 'test file')} ${files.length === 1 ? 'refers' : 'refer'} to it: ${files.slice(0, 3).join(', ')}${files.length > 3 ? ` and ${files.length - 3} more` : ''}. A reference shows a test names it, not that the test exercises this change.` }]);
       } else if (symbol.testStatus === 'complete') sentences.push([{ t: 'No test file refers to it (by the language service\'s references).' }]);
     }
+    for (const tag of symbol.tags.slice(0, 3)) {
+      const text = clauseText.get(tag.clause);
+      sentences.push([{ t: `Its @clause comment on line ${tag.line}${tag.added ? ', added by this change,' : ''} names requirement ` }, { code: tag.clause },
+        { t: text ? ` (“${firstSentence(text, 160)}”)` : '' },
+        { t: tag.note ? `, with the author's note “${tag.note}”.` : ', with no note on how the code meets it.' },
+        { t: ' A tag is the author\'s declaration; it does not prove this code meets the requirement.' }]);
+    }
     for (const clause of symbol.clauses.slice(0, 3)) {
       const text = clauseText.get(clause);
       sentences.push([{ t: 'Requirement ' }, { code: clause }, { t: text ? ` (“${firstSentence(text, 160)}”)` : '' },
@@ -1574,7 +1634,7 @@ function buildTrace(
 ): CxTrace {
   const empty: CxTrace = {
     available: false, reason: null, requirements: [], code: [], tests: [], runs: [],
-    counts: { requirements: 0, tagged: 0, gaps: 0, tests: 0, runs: 0, passed: 0, failed: 0 }
+    counts: { requirements: 0, tagged: 0, declared: 0, gaps: 0, tests: 0, runs: 0, passed: 0, failed: 0 }
   };
   const changedModules = [...modules.values()].filter((module) => module.role === 'changed' || module.role === 'other');
   const code = changedModules.map((module) => ({
@@ -1597,7 +1657,7 @@ function buildTrace(
       const clause = node.id.replace(/^clause:/, '');
       requirements.set(node.id, {
         id: clause, label: visibleCode(node.label), text: clauseText.get(clause) ? visibleCode(clauseText.get(clause)) : null,
-        status: 'declared', modules: [], tests: [], gap: null
+        status: 'declared', modules: [], tests: [], gap: null, declaredIn: [], notes: [], cites: [], citedBy: []
       });
     }
     if (node.kind === 'test') {
@@ -1609,6 +1669,20 @@ function buildTrace(
       const requirement = requirements.get(relationship.from);
       const module = fileModule.get(relationship.to);
       if (requirement && module && !requirement.modules.includes(module)) requirement.modules.push(module);
+    } else if (relationship.type === 'source-tags-clause') {
+      const requirement = requirements.get(relationship.to);
+      const module = fileModule.get(relationship.from);
+      if (requirement && module) {
+        if (!requirement.modules.includes(module)) requirement.modules.push(module);
+        if (!requirement.declaredIn.includes(module)) requirement.declaredIn.push(module);
+      }
+    } else if (relationship.type === 'clause-cites-clause') {
+      const from = requirements.get(relationship.from);
+      const to = requirements.get(relationship.to);
+      if (from && to) {
+        if (!from.cites.includes(to.id)) from.cites.push(to.id);
+        if (!to.citedBy.includes(from.id)) to.citedBy.push(from.id);
+      }
     } else if (relationship.type === 'test-source-tags-clause') {
       const requirement = requirements.get(relationship.to);
       const test = tests.get(relationship.from);
@@ -1627,6 +1701,14 @@ function buildTrace(
         requirement.gap = visibleCode(gap.label);
         if (requirement.status !== 'tagged') requirement.status = 'untagged';
       }
+    }
+  }
+  // The author's notes after each `@clause` tag, a few per requirement.
+  for (const statement of view.statements) {
+    const tag = clauseTagOf(statement);
+    const requirement = tag?.tag.note ? requirements.get(statement.about) : null;
+    if (tag && requirement && requirement.notes.length < 4) {
+      requirement.notes.push({ path: visibleCode(tag.path), line: tag.tag.line, note: tag.tag.note! });
     }
   }
   // Language-service references from test files to changed symbols: method-level, named as references.
@@ -1654,6 +1736,7 @@ function buildTrace(
     counts: {
       requirements: requirementList.length,
       tagged: requirementList.filter((requirement) => requirement.status === 'tagged').length,
+      declared: requirementList.filter((requirement) => requirement.declaredIn.length).length,
       gaps: requirementList.filter((requirement) => requirement.gap).length,
       tests: testList.length,
       runs: runs.length,
@@ -1798,21 +1881,21 @@ export function exportDocument(model: CxModel, generatedAt: string): Record<stri
     schemaVersion: CX_SCHEMA,
     generatedAt,
     authority: 'none',
-    note: 'Derived from the captured change and the editor language services. A call edge is what the language service reported; a test reference is not coverage; a requirement link is region-level.',
+    note: 'Derived from the captured change and the editor language services. A call edge is what the language service reported; a test reference is not coverage; a requirement link is region-level or an author\'s @clause tag, never proof.',
     repository: model.repository,
     story: model.story,
     change: model.change,
     intelligence: model.intelligence,
     modules: model.modules.map((module) => ({
       path: module.path, language: module.language, role: module.role, status: module.status,
-      added: module.added, removed: module.removed, requirements: module.clauses
+      added: module.added, removed: module.removed, requirements: module.clauses, declaredRequirements: module.tagged
     })),
     symbols: model.symbols.filter((symbol) => symbol.role !== 'context').map((symbol) => ({
       id: symbol.id, name: symbol.qualifiedName, kind: symbol.kind, module: symbol.moduleId.slice(2),
       lines: symbol.start !== null ? [symbol.start, symbol.end] : null, status: symbol.status, role: symbol.role,
       added: symbol.added, removed: symbol.removed, units: symbol.units, signature: symbol.signature,
       metrics: symbol.metrics, callers: symbol.callers, callees: symbol.callees,
-      tests: symbol.tests.map((entry) => `${entry.path}:${entry.line}`), requirements: symbol.clauses,
+      tests: symbol.tests.map((entry) => `${entry.path}:${entry.line}`), requirements: symbol.clauses, clauseTags: symbol.tags,
       explanation: explanationText(model, symbol.id)
     })),
     calls: model.edges.map((edge) => ({ from: edge.from, to: edge.to, sites: edge.sites })),

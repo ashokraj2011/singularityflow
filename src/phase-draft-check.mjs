@@ -5,7 +5,9 @@ import {
   effectivePhasePublicationProducer, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
+import {
+  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, otherStoryTagsNote, phaseRequiresCodeDelivery
+} from './delivery-evidence.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
 import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
@@ -158,7 +160,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
         findings.push({
           code: 'code.delivery.source-clause-tag-missing', category: 'traceability',
           path: missing.expectedPaths?.[0] ?? null, line: null, value: missing.clauseId,
-          message: `Planned clause ${missing.clauseId} needs @clause:${missing.clauseId} in an exact planned product source path: ${missing.expectedPaths.join(', ')}.`,
+          message: `Planned clause ${missing.clauseId} needs @clause:${missing.clauseId} in an exact planned product source path: ${missing.expectedPaths.join(', ')}${otherStoryTagsNote(missing.otherStoryTags)}.`,
           fingerprint: null
         });
       }

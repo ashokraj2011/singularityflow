@@ -1827,6 +1827,22 @@ export function untrackedFiles(root) {
   return nullList(git(['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
 }
 
+/**
+ * The zero-context patch from `base` to the working tree, with renames found, of only the files
+ * whose added or removed lines match `pattern` (Git's `-G`). Untracked files are not in it.
+ */
+export function worktreePatchMatching(root, base, pattern, { maximumBytes = 64 * 1024 * 1024 } = {}) {
+  return gitAnswer(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv',
+    '--unified=0', '--find-renames', '--src-prefix=a/', '--dst-prefix=b/', `-G${pattern}`, base, '--'],
+  { cwd: root, maxBuffer: maximumBytes }, `Changes since ${base}`);
+}
+
+/** Those of `paths` that Git tracks. */
+export function trackedPaths(root, paths) {
+  return paths.length ? nullList(gitAnswer(['ls-files', '-z', '--', ...paths.map((relative) => `:(literal)${relative}`)],
+    { cwd: root }, 'Tracked paths')) : [];
+}
+
 export function changedFiles(root) {
   const unstaged = nullList(git(['diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
   const staged = nullList(git(['diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);

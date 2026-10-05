@@ -411,6 +411,125 @@ test('in a namespace other Stories share, only a test tag the generation adds mu
   });
 });
 
+test('in a namespace other Stories share, an earlier Story\'s source tag with the same ID does not bind this Story\'s clause', async (t) => {
+  const item = await fixture({ 'ORDER:REQ-001': planned(['src/payment.js', 'src/refund.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  // Each Story numbers its own clauses, so the earlier Story's ORDER:REQ-001 is another clause.
+  item.workflow.resolution.spec.namespace = 'ORDER';
+  const earlier = '// @clause:ORDER:REQ-001 refuses a card past its expiry date';
+  await openCodeGeneration(item, { 'src/payment.js': [earlier, 'export const payment = false;', ''].join('\n') });
+  const { root, phase, workflow, config } = item;
+  await writeFile(path.join(root, 'tests/payment.test.js'), 'test("payment", () => {});\n');
+  const write = (relative, ...lines) => writeFile(path.join(root, relative), [...lines, ''].join('\n'));
+  const refused = (where) => assert.rejects(evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.equal(error.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+    assert.deepEqual(error.details.sourceBindingsMissing, [{
+      clauseId: 'ORDER:REQ-001', expectedPaths: ['src/payment.js', 'src/refund.js'], otherStoryTags: [where]
+    }]);
+    assert.ok(error.message.includes(`@clause:ORDER:REQ-001 in src/payment.js or src/refund.js (the tag at ${where.path}:${where.line} is from before this Story, so it names an earlier Story's clause)`));
+    return true;
+  });
+  // The Story changes its planned file but forgets its own tag.
+  await write('src/payment.js', earlier, 'export const payment = true;');
+  await refused({ path: 'src/payment.js', line: 1 });
+  await readyForDraftCheck(item);
+  const missing = (await draftCheck(item)).findings.find((finding) => finding.code === 'code.delivery.source-clause-tag-missing');
+  assert.equal(missing?.message, 'Planned clause ORDER:REQ-001 needs @clause:ORDER:REQ-001 in an exact planned product source path: src/payment.js, src/refund.js'
+    + ' (the tag at src/payment.js:1 is from before this Story, so it names an earlier Story\'s clause).');
+  // A tag that moves with its code, here into a new file, is still the earlier Story's.
+  await write('src/payment.js', 'export const payment = true;');
+  await write('src/refund.js', earlier, 'export const refund = false;');
+  await refused({ path: 'src/refund.js', line: 1 });
+  // Its own tag binds, and the binding is explained in its own words, not the earlier Story's.
+  await rm(path.join(root, 'src/refund.js'));
+  await write('src/payment.js', earlier, '// @clause:ORDER:REQ-001 marks an accepted payment as paid', 'export const payment = true;');
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(evidence.sourceBindings.bindings.map((binding) => [binding.clauseId, binding.sourcePath, binding.line]),
+    [['ORDER:REQ-001', 'src/payment.js', 2]]);
+  assert.deepEqual(evidence.implementationBindings.bindings.map((binding) => binding.explanation),
+    [{ text: 'marks an accepted payment as paid', path: 'src/payment.js', line: 2 }]);
+});
+
+test('in a namespace other Stories share, an earlier Story\'s test tag with the same ID neither satisfies nor witnesses this Story\'s criterion', async (t) => {
+  const item = await fixture({ 'ORDER:REQ-001': planned(['src/payment.js']) }, { clauses: ['ORDER:AC-001'] });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  item.workflow.resolution.spec.namespace = 'ORDER';
+  // An earlier Story's node:test test, read exactly, tagged with that Story's own AC-001.
+  const header = ["import test from 'node:test';", ''];
+  const earlier = ['// @ac:ORDER:AC-001', 'test("refuses an expired card", () => {});', ''];
+  await openCodeGeneration(item, { 'tests/payment.test.js': [...header, ...earlier].join('\n') });
+  const { root, phase, workflow, config } = item;
+  config.governance.requireAcceptanceCriteriaTags = true;
+  await writeFile(path.join(root, 'src/payment.js'), '// @clause:ORDER:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
+  // The Story adds its test above the earlier one.
+  const tests = (...lines) => writeFile(path.join(root, 'tests/payment.test.js'), [...header, ...lines, '', ...earlier].join('\n'));
+  const preflight = () => evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  // It forgets its tag.
+  await tests('test("pays", () => {});');
+  await assert.rejects(preflight(), (error) => {
+    assert.equal(error.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+    assert.ok(error.message.includes('changed tests do not contain required traceability tags: @ac:ORDER:AC-001'
+      + ' (the tag at tests/payment.test.js:5 is from before this Story, so it names an earlier Story\'s criterion)'));
+    return true;
+  });
+  // Its tag sits on no test, and the earlier Story's tag on a test does not make up for it.
+  await tests('// @ac:ORDER:AC-001', '', 'test("pays", () => {});');
+  await assert.rejects(preflight(), (error) => {
+    assert.match(error.message, /@ac:ORDER:AC-001 is not on a test: tests\/payment\.test\.js:3 /);
+    return true;
+  });
+  // Its own tag makes its own test the only witness of its criterion.
+  await tests('// @ac:ORDER:AC-001', 'test("pays", () => {});');
+  let evidence = await preflight();
+  assert.deepEqual(evidence.acceptanceCriteria.witnesses.map((witness) => [witness.clauseId, witness.testSource, witness.identity?.name]),
+    [['ORDER:AC-001', 'tests/payment.test.js', 'pays']]);
+  assert.deepEqual(evidence.acceptanceCriteria.unattachedTags, []);
+  // So does its tag in a new test file, beside the earlier Story's test left as it was.
+  await writeFile(path.join(root, 'tests/payment.test.js'), [...header, ...earlier].join('\n'));
+  await writeFile(path.join(root, 'tests/pays.test.js'), [...header, '// @ac:ORDER:AC-001', 'test("pays", () => {});', ''].join('\n'));
+  evidence = await preflight();
+  assert.deepEqual(evidence.acceptanceCriteria.witnesses.map((witness) => [witness.clauseId, witness.testSource, witness.identity?.name]),
+    [['ORDER:AC-001', 'tests/pays.test.js', 'pays']]);
+  assert.deepEqual(evidence.acceptanceCriteria.bindings.map((binding) => [binding.clauseId, binding.testSource]),
+    [['ORDER:AC-001', 'tests/pays.test.js']]);
+});
+
+test('in a namespace other Stories share, the Story\'s own tags still count in a rework generation', async (t) => {
+  const item = await fixture({ 'ORDER:REQ-001': planned(['src/payment.js']) }, { clauses: ['ORDER:AC-001'] });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  item.workflow.resolution.spec.namespace = 'ORDER';
+  const earlierSource = '// @clause:ORDER:REQ-001 refuses a card past its expiry date';
+  const earlierTest = ["import test from 'node:test';", '', '// @ac:ORDER:AC-001', 'test("refuses an expired card", () => {});', ''];
+  await openCodeGeneration(item, {
+    'src/payment.js': [earlierSource, 'export const payment = false;', ''].join('\n'),
+    'tests/payment.test.js': earlierTest.join('\n')
+  });
+  const { root, phase, workflow, config } = item;
+  config.governance.requireAcceptanceCriteriaTags = true;
+  const own = '// @clause:ORDER:REQ-001 marks an accepted payment as paid';
+  const write = (relative, ...lines) => writeFile(path.join(root, relative), [...lines, ''].join('\n'));
+  // Generation one delivers the Story's own tags, committed with it.
+  await write('src/payment.js', earlierSource, own, 'export const payment = true;');
+  await write('tests/payment.test.js', ...earlierTest, '// @ac:ORDER:AC-001', 'test("pays", () => {});');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'generation one');
+  const first = git(root, 'rev-parse', 'HEAD');
+  // A rework measures the next generation from generation one, and opens a new interval there.
+  Object.assign(phase, { generation: 1, generationIntent: { status: 'open', id: 'intent-rework', baseline: { commit: first, previousGenerationCommit: first } } });
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory: path.join(root, 'singularity/work-items/BIND-1'), itemRelative: 'singularity/work-items/BIND-1'
+  });
+  assert.equal(workflow.workIntervals.current.sourceBaseCommit, first);
+  // Generation two changes the code and the test beside the tags generation one added.
+  await write('src/payment.js', earlierSource, own, 'export const payment = Boolean(true);');
+  await write('tests/payment.test.js', ...earlierTest, '// @ac:ORDER:AC-001', 'test("pays", () => { /* retried */ });');
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.equal(evidence.baselineCommit, first);
+  assert.deepEqual(evidence.sourceBindings.bindings.map((binding) => [binding.clauseId, binding.line]), [['ORDER:REQ-001', 2]]);
+  assert.deepEqual(evidence.implementationBindings.bindings.map((binding) => binding.explanation?.text), ['marks an accepted payment as paid']);
+  assert.deepEqual(evidence.acceptanceCriteria.witnesses.map((witness) => [witness.clauseId, witness.identity?.name]), [['ORDER:AC-001', 'pays']]);
+});
+
 test('a source tag in the Work ID is refused even where the baseline already carried it', async (t) => {
   const item = await fixture({ 'ORDER:REQ-001': planned(['src/payment.js']) });
   t.after(() => rm(item.root, { recursive: true, force: true }));

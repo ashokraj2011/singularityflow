@@ -38,9 +38,9 @@ import { scanJavaScriptDeclarations } from './verification/javascript-declaratio
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
-import { committedChangedPaths } from './git.mjs';
+import { committedChangedPaths, trackedPaths, worktreePatchMatching } from './git.mjs';
 import {
-  applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry,
+  applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry, isApplicationPath,
   isGeneratedOutputPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
@@ -394,6 +394,18 @@ export async function taggedAcceptanceIds(root, testPaths) {
   };
 }
 
+/** taggedAcceptanceIds' result without the tag lines in `excluded`, which bind nothing here. */
+function withoutTags(tags, excluded) {
+  const drop = new Set(excluded);
+  const locations = tags.locations.filter((location) => !drop.has(location));
+  const bindings = new Map(locations.map((location) => [JSON.stringify([location.clauseId, location.testSource]),
+    { clauseId: location.clauseId, testSource: location.testSource, bindingAssurance: 'namespace-qualified' }]));
+  return {
+    ...tags, ids: [...new Set(locations.map((location) => location.clauseId))].sort(), locations,
+    bindings: [...bindings.values()].sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
+  };
+}
+
 /**
  * The criteria a test tag can name [E2G-015]: the clauses of the Story's active specification
  * indexes, the same set submission binds each witness to (story-lineage witnessReviewSnapshot).
@@ -460,6 +472,82 @@ function carriedTags(root, changeSet, occurrences, kind, reads) {
   return carried;
 }
 
+/** A path named by a `---` or `+++` patch header, without its side prefix; null for /dev/null. */
+function patchHeaderPath(value, prefix) {
+  let text = value.replace(/\t$/u, '');
+  if (text.startsWith('"')) {
+    text = text.slice(1, -1).replace(/\\([0-7]{3}|.)/gu, (_, escape) => (escape.length === 3
+      ? String.fromCharCode(Number.parseInt(escape, 8)) : ({ n: '\n', t: '\t' })[escape] ?? escape));
+  }
+  return text.startsWith(prefix) ? text.slice(prefix.length) : null;
+}
+
+/**
+ * The tag lines of one kind (`clause` or `ac`) this Story added, as tagKey(path, line), or null for a
+ * Story with no work interval [E2G-011, E2G-015]. They are measured from the source base of the
+ * Story's first work interval, which a rework or a later code step still shares; a generation's own
+ * baseline is its previous commit. A line counts where the Story's change since that base adds it
+ * (every line of an untracked file), unless the change removes at least as many copies of it as it
+ * adds: a tag that moved with its code stays where it came from. A line that a merge brought into
+ * the Story branch counts as added. `occurrences` are the tags in question, each with its `path` and
+ * `line`; `reads` picks the changed paths whose lines count.
+ */
+async function storyAddedTagLines(root, workflow, occurrences, kind, reads) {
+  const base = workflow.workIntervals?.history?.[0]?.sourceBaseCommit ?? workflow.workIntervals?.current?.sourceBaseCommit;
+  if (!base) return null;
+  const normalize = (line) => line.trim().replace(/\s+/gu, ' ');
+  const added = new Map();
+  const net = new Map();
+  const count = (relative, text, delta) => {
+    let counted = false;
+    try { counted = Boolean(relative) && reads(relative); } catch { /* a path no rule can govern counts for nothing */ }
+    if (counted) net.set(text, (net.get(text) ?? 0) + delta);
+  };
+  const add = (relative, line, text) => {
+    if (!added.has(relative)) added.set(relative, new Map());
+    added.get(relative).set(line, text);
+    count(relative, text, 1);
+  };
+  // Only files whose change adds or removes such a line; every other tag is where the base had it.
+  const patch = worktreePatchMatching(root, base, kind === 'clause' ? '@[Cc][Ll][Aa][Uu][Ss][Ee]' : '@[Aa][Cc]');
+  let oldPath = null;
+  let newPath = null;
+  let hunk = null;
+  for (const line of patch.split('\n')) {
+    if (hunk?.removed > 0 && line.startsWith('-')) {
+      hunk.removed -= 1;
+      count(oldPath, normalize(line.slice(1)), -1);
+    } else if (hunk?.added > 0 && line.startsWith('+')) {
+      hunk.added -= 1;
+      if (newPath) add(newPath, hunk.line, normalize(line.slice(1)));
+      hunk.line += 1;
+    } else if (line.startsWith('diff --git ')) {
+      [oldPath, newPath, hunk] = [null, null, null];
+    } else if (!hunk && line.startsWith('--- ')) {
+      oldPath = patchHeaderPath(line.slice(4), 'a/');
+    } else if (!hunk && line.startsWith('+++ ')) {
+      newPath = patchHeaderPath(line.slice(4), 'b/');
+    } else {
+      const header = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(line);
+      if (header) hunk = { removed: Number(header[1] ?? 1), added: Number(header[3] ?? 1), line: Number(header[2]) };
+    }
+  }
+  const unseen = [...new Set(occurrences.map((tag) => tag.path))].filter((relative) => !added.has(relative));
+  if (unseen.length) {
+    const tracked = new Set(trackedPaths(root, unseen));
+    for (const relative of unseen.filter((candidate) => !tracked.has(candidate))) {
+      const text = await readFile(path.join(root, ...relative.split('/')), 'utf8');
+      text.split(/\r?\n/u).forEach((line, index) => add(relative, index + 1, normalize(line)));
+    }
+  }
+  return new Set(occurrences.filter((tag) => (net.get(added.get(tag.path)?.get(tag.line)) ?? 0) > 0)
+    .map((tag) => tagKey(tag.path, tag.line)));
+}
+
+function tagKey(relative, line) {
+  return JSON.stringify([relative, line]);
+}
+
 /**
  * Test tags naming a criterion the specification does not hold, each with the file and line to
  * correct [E2G-015]. Submission refuses such a tag once it sits on an exactly identified test
@@ -524,8 +612,12 @@ function witnessIdentity(declaration) {
  * declarations, each with its own gaps; a profile that only counts tests leaves the file-level
  * association, capped at module-observed. A required criterion whose tags all sit in exact modules
  * but on no test declaration is a publication error: that tag can never verify anything.
+ * `othersTag({ testSource, clauseId, line })` is true where the tag a test or comment at that line
+ * carries is an earlier Story's, which witnesses nothing here.
  */
-export async function discoverAcceptanceWitnesses(root, phase, { testPaths, sourcePaths = [], requiredAcIds = [], bindings = [] } = {}) {
+export async function discoverAcceptanceWitnesses(root, phase, {
+  testPaths, sourcePaths = [], requiredAcIds = [], bindings = [], othersTag = () => false
+} = {}) {
   const commands = [];
   for (const [index, command] of (await resolveDeliveryQualityCommands(root, {
     ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths, testPaths }
@@ -561,6 +653,7 @@ export async function discoverAcceptanceWitnesses(root, phase, { testPaths, sour
     const discovered = await discoverDeclarations(root, profile, files);
     for (const declaration of discovered.declarations) {
       for (const clauseId of declaration.clauseIds) {
+        if (othersTag({ testSource: declaration.sourcePath, clauseId, line: declaration.line })) continue;
         witnesses.push({
           clauseId, testSource: declaration.sourcePath, profile, commandId: commandId || null,
           resultAdapter: testAdapterProfile(profile).resultAdapter,
@@ -572,7 +665,8 @@ export async function discoverAcceptanceWitnesses(root, phase, { testPaths, sour
       }
     }
     for (const tag of discovered.unattachedTags) {
-      unattachedTags.push({ testSource: tag.sourcePath, line: tag.line, clauseIds: tag.clauseIds, code: tag.code, message: tag.message });
+      const clauseIds = tag.clauseIds.filter((clauseId) => !othersTag({ testSource: tag.sourcePath, clauseId, line: tag.line }));
+      if (clauseIds.length) unattachedTags.push({ testSource: tag.sourcePath, line: tag.line, clauseIds, code: tag.code, message: tag.message });
     }
     for (const [file, gaps] of Object.entries(discovered.fileGaps)) {
       if (!discovered.unattachedTags.some((tag) => tag.sourcePath === file)) {
@@ -746,10 +840,21 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
     `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the governed specification before publishing.`,
     { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
   );
-  const bindings = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
+  const tagged = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
     (tagsByPath.get(sourcePath) ?? [])
       .filter((tag) => tag.clauseId === clauseId)
       .map(({ line, tag }) => ({ clauseId, sourcePath, line, tag }))));
+  // Each Story numbers its own clauses in a namespace other Stories share, so there a tag binds this
+  // Story's clause only where this Story added it; an earlier Story's tag with the same ID names
+  // that Story's clause.
+  const shared = tagged.filter((binding) => criteria.sharedNamespaces.has(namespaceOf(binding.clauseId)));
+  const pathContext = applicationPathContext(config, workflow);
+  const own = shared.length ? await storyAddedTagLines(root, workflow, shared.map((binding) => ({
+    path: binding.sourcePath, line: binding.line
+  })), 'clause', (candidate) => isApplicationPath(candidate, pathContext)
+    && !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate)) : null;
+  const othersTags = own ? shared.filter((binding) => !own.has(tagKey(binding.sourcePath, binding.line))) : [];
+  const bindings = tagged.filter((binding) => !othersTags.includes(binding));
   const deleted = new Set(deletedSourcePaths);
   for (const { clauseId, expectedPaths } of required) {
     for (const sourcePath of expectedPaths) {
@@ -758,9 +863,21 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
       }
     }
   }
-  const missing = required.filter(({ clauseId }) =>
-    !bindings.some((binding) => binding.clauseId === clauseId));
+  const missing = required.filter(({ clauseId }) => !bindings.some((binding) => binding.clauseId === clauseId))
+    .map((entry) => {
+      const others = othersTags.filter((binding) => binding.clauseId === entry.clauseId)
+        .map((binding) => ({ path: binding.sourcePath, line: binding.line }));
+      return others.length ? { ...entry, otherStoryTags: others } : entry;
+    });
   return { mode: 'enforce', required, bindings, missing };
+}
+
+/** Why a tag the Story did not add binds nothing here, said after the tag a step still owes. */
+export function otherStoryTagsNote(tags = [], noun = 'clause') {
+  if (!tags.length) return '';
+  const where = tags.map((tag) => `${tag.path}:${tag.line}`).join(', ');
+  return tags.length === 1 ? ` (the tag at ${where} is from before this Story, so it names an earlier Story's ${noun})`
+    : ` (the tags at ${where} are from before this Story, so they name an earlier Story's ${noun})`;
 }
 
 async function pathEvidence(root, paths, { changeSet = null } = {}) {
@@ -1102,19 +1219,35 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
-  const tags = await taggedAcceptanceIds(root, testPaths);
+  const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
+  const scanned = await taggedAcceptanceIds(root, testPaths);
+  // In a namespace other Stories share, a test tag names this Story's criterion only where this Story
+  // added it: an earlier Story's tag with the same ID neither satisfies nor witnesses it [E2G-015].
+  const shared = scanned.locations.filter((location) => criteria?.held.has(location.clauseId)
+    && criteria.sharedNamespaces.has(namespaceOf(location.clauseId)));
+  const own = shared.length ? await storyAddedTagLines(root, workflow, shared.map((location) => ({
+    path: location.testSource, line: location.line
+  })), 'ac', (candidate) => isApplicationPath(candidate, pathContext) && isAllowedTestAutomationPath(candidate)) : null;
+  const othersTags = own ? shared.filter((location) => !own.has(tagKey(location.testSource, location.line))) : [];
+  const tags = othersTags.length ? withoutTags(scanned, othersTags) : scanned;
   const taggedAcIds = tags.ids;
   const missingAcIds = requiredAcIds.filter((id) => !taggedAcIds.includes(id));
   if (missingAcIds.length) {
-    errors.push(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}`).join(', ')}`);
+    errors.push(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}${otherStoryTagsNote(othersTags
+      .filter((location) => location.clauseId === id).map((location) => ({ path: location.testSource, line: location.line })), 'criterion')}`).join(', ')}`);
   }
+  // A test carries the nearest tag with its ID at or above its line.
+  const othersTag = ({ testSource, clauseId, line }) => line != null && othersTags.some((location) =>
+    location.testSource === testSource && location.clauseId === clauseId && location.line === Math.max(0, ...scanned.locations
+      .filter((candidate) => candidate.testSource === testSource && candidate.clauseId === clauseId && candidate.line <= line)
+      .map((candidate) => candidate.line)));
   const witnessDiscovery = await discoverAcceptanceWitnesses(root, phase, {
-    testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings
+    testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings,
+    othersTag
   });
   errors.push(...witnessDiscovery.errors);
   // A tag naming a criterion the specification does not hold is refused while this generation is
   // still editable, not at submission once it has been spent [E2G-015].
-  const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
   const unknownCriteria = unknownCriterionTags(criteria, {
     locations: tags.locations, witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
     owed: requiredAcIds,
@@ -1135,7 +1268,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (bound) errors.push(...bound.problems);
   if (sourceBindings.missing.length) {
     errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
-      .map(({ clauseId, expectedPaths }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}`).join('; ')}`);
+      .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`);
   }
   if (errors.length) {
     const unknown = unknownCriteria.length > 0;

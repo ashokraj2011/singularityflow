@@ -424,6 +424,18 @@ function namespaceOf(clauseId) {
 }
 
 /**
+ * Whether a tag naming something the specification lacks is the Story's to correct [E2G-011,
+ * E2G-015]: in its Work ID wherever it sits, in a namespace other Stories share only where the
+ * generation added it, and in any other namespace never. `carried` returns the IDs the generation's
+ * files already named at its baseline (carriedTags); it is asked only about a shared namespace.
+ */
+function storyOwnsTag(criteria, clauseId, carried) {
+  const namespace = namespaceOf(clauseId);
+  if (!criteria?.namespaces.has(namespace)) return false;
+  return !criteria.sharedNamespaces.has(namespace) || !carried().has(clauseId);
+}
+
+/**
  * The tags of one kind (`clause` or `ac`) that the generation's files already carried at its
  * baseline [E2G-011, E2G-015]: every tag in a file it left unchanged, and every tag in the baseline
  * version of each file it changed, renamed, copied or deleted, so a tag that moves with its code is
@@ -453,13 +465,18 @@ function carriedTags(root, changeSet, occurrences, kind, reads) {
  * correct [E2G-015]. Submission refuses such a tag once it sits on an exactly identified test
  * (WEL_WITNESS_MAPPING_STALE), so publication refuses it first, in any namespace, and in a Story
  * without a specification index too: that Story holds no criterion for a test to witness. With an
- * index, a tag in one of the Story's own namespaces is refused wherever it sits, so a mistyped
- * criterion cannot hide in a module whose runner only counts tests. Another Story's tag that sits on
- * no exact test binds nothing here and stays, as do a legacy Story's tags its runner only counts.
- * `owed` are the criteria the step must tag; without an index they come from its earlier artifacts'
- * text (acceptanceIds), and their message says that removing the tag cannot help.
+ * index, a tag in the Story's Work ID is refused wherever it sits, so a mistyped criterion cannot
+ * hide in a module whose runner only counts tests; in a namespace other Stories share, so is one
+ * the generation adds. Another Story's tag that sits on no exact test binds nothing here and stays,
+ * as do a legacy Story's tags its runner only counts. `carried` returns the criteria the tagged
+ * files already named at the generation's baseline (carriedTags), given every tag read now; it is
+ * asked only about a shared namespace, and by default nothing is carried. `owed` are the criteria
+ * the step must tag; without an index they come from its earlier artifacts' text (acceptanceIds),
+ * and their message says that removing the tag cannot help.
  */
-export function unknownCriterionTags(criteria, { locations = [], witnesses = [], unattachedTags = [], owed = [] } = {}) {
+export function unknownCriterionTags(criteria, {
+  locations = [], witnesses = [], unattachedTags = [], owed = [], carried = () => new Set()
+} = {}) {
   const key = (testSource, clauseId) => JSON.stringify([testSource, String(clauseId ?? '').toUpperCase()]);
   // Exactly the witnesses submission reviews: an identified test with no gaps.
   const exact = new Set(witnesses.filter((witness) => witness.identity && !(witness.gaps ?? []).length)
@@ -472,12 +489,15 @@ export function unknownCriterionTags(criteria, { locations = [], witnesses = [],
     ...witnesses.filter((witness) => !tagged.has(key(witness.testSource, witness.clauseId)))
       .map((witness) => ({ clauseId: witness.clauseId, testSource: witness.testSource, line: witness.line }))
   ];
+  let carriedIds = null;
+  const carriedNow = () => (carriedIds ??= carried(occurrences.map((occurrence) => ({
+    clauseId: String(occurrence.clauseId ?? '').toUpperCase(), path: occurrence.testSource
+  }))));
   const findings = new Map();
   for (const { clauseId: rawClauseId, testSource, line } of occurrences) {
     const clauseId = String(rawClauseId ?? '').toUpperCase();
     if (!clauseId || criteria?.held.has(clauseId)) continue;
-    const namespace = clauseId.slice(0, clauseId.lastIndexOf(':'));
-    if (!exact.has(key(testSource, clauseId)) && !criteria?.namespaces.has(namespace)) continue;
+    if (!exact.has(key(testSource, clauseId)) && !storyOwnsTag(criteria, clauseId, carriedNow)) continue;
     const where = `${testSource}${line ? `:${line}` : ''}`;
     findings.set(JSON.stringify([testSource, line ?? null, clauseId]), {
       code: 'EVIDENCE_CRITERION_UNKNOWN', clauseId, path: testSource, line: line ?? null,
@@ -711,19 +731,15 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
   }
   const approved = new Set(clauseIds.map(normalizeQualifiedClauseId));
   // A tag in one of the Story's own namespaces, the ones its test tags are held to, must name a
-  // clause it approved [E2G-011]. A tag in its Work ID is the Story's wherever it sits. In a
-  // namespace other Stories share, a changed file may carry an older Story's tag, which stays; only
-  // a tag this generation adds there is the Story's to correct.
-  const criteria = specificationCriteria(active, workflow, config);
-  const namespaces = criteria?.namespaces ?? new Set([workflow.workItem.id.toUpperCase()]);
-  const shared = (tag) => Boolean(criteria?.sharedNamespaces.has(namespaceOf(tag.clauseId)));
+  // clause it approved [E2G-011]. In a namespace other Stories share, a changed file may carry an
+  // earlier Story's tag, which stays. Without an index only the Work ID is the Story's, as before.
+  const criteria = specificationCriteria(active, workflow, config)
+    ?? { namespaces: new Set([workflow.workItem.id.toUpperCase()]), sharedNamespaces: new Set() };
   const named = [...tagsByPath].flatMap(([sourcePath, tags]) => tags.map((tag) => ({ ...tag, path: sourcePath })));
-  const suspect = named.filter((tag) => namespaces.has(namespaceOf(tag.clauseId)) && !approved.has(tag.clauseId));
-  const carried = suspect.some(shared)
-    ? carriedTags(root, changeSet, named, 'clause', (candidate) =>
-      !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate))
-    : new Set();
-  const unapproved = suspect.filter((tag) => !(shared(tag) && carried.has(tag.clauseId)))
+  let carried = null;
+  const carriedNow = () => (carried ??= carriedTags(root, changeSet, named, 'clause', (candidate) =>
+    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate)));
+  const unapproved = named.filter((tag) => !approved.has(tag.clauseId) && storyOwnsTag(criteria, tag.clauseId, carriedNow))
     .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath: tag.path, line: tag.line,
       message: `@clause:${tag.clauseId} at ${tag.path}:${tag.line} names a clause this Story has not approved.` }));
   if (unapproved.length) throw new SingularityFlowError(
@@ -1101,7 +1117,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
   const unknownCriteria = unknownCriterionTags(criteria, {
     locations: tags.locations, witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
-    owed: requiredAcIds
+    owed: requiredAcIds,
+    carried: (occurrences) => carriedTags(root, applicationChangeSet, occurrences, 'ac', isAllowedTestAutomationPath)
   });
   if (unknownCriteria.length) {
     const named = unknownCriteria.map((finding) => `@ac:${finding.clauseId} at ${finding.path}${finding.line ? `:${finding.line}` : ''}`).join('; ');

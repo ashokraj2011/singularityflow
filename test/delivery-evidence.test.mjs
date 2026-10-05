@@ -204,6 +204,45 @@ test('publication refuses a test tag naming a criterion the specification does n
   assert.equal(findings[2].message, '@ac:E2E:AC-001 at tests/retry.test.mjs:4 names a criterion the active specification does not hold.');
 });
 
+test('in a namespace other Stories share, a test tag the files already carried is not the Story\'s to correct', () => {
+  const criteria = specificationCriteria({ indexes: [{ clauses: [indexedClause('ORDER:REQ-001'), indexedClause('ORDER:AC-001')] }] },
+    { workItem: { id: 'WORK-1' }, resolution: { spec: { namespace: 'ORDER' } } });
+  assert.deepEqual([...criteria.namespaces].sort(), ['ORDER', 'WORK-1']);
+  assert.deepEqual([...criteria.sharedNamespaces], ['ORDER'], 'every Story of the work type uses the configured namespace');
+  const asked = [];
+  const carried = (occurrences) => {
+    asked.push(occurrences);
+    return new Set(['ORDER:AC-003', 'ORDER:AC-005', 'WORK-1:AC-004']);
+  };
+  const findings = unknownCriterionTags(criteria, {
+    locations: [
+      { clauseId: 'ORDER:AC-003', testSource: 'tests/order.test.js', line: 2 },
+      { clauseId: 'ORDER:AC-009', testSource: 'tests/order.test.js', line: 6 },
+      { clauseId: 'WORK-1:AC-004', testSource: 'tests/order.test.js', line: 9 },
+      { clauseId: 'ORDER:AC-005', testSource: 'tests/exact.test.mjs', line: 3 }
+    ],
+    witnesses: [{ clauseId: 'ORDER:AC-005', testSource: 'tests/exact.test.mjs', line: 4, ...exactTest('refunds') }],
+    carried
+  });
+  // An earlier Story's carried tag stays where its runner only counts tests. One the generation
+  // added, one in the Work ID and one on an exact test are refused, carried or not.
+  assert.deepEqual(findings.map((finding) => [finding.path, finding.line, finding.clauseId]), [
+    ['tests/exact.test.mjs', 3, 'ORDER:AC-005'],
+    ['tests/order.test.js', 6, 'ORDER:AC-009'],
+    ['tests/order.test.js', 9, 'WORK-1:AC-004']
+  ]);
+  assert.equal(asked.length, 1, 'what the files carried is read once');
+  assert.deepEqual(asked[0].map((occurrence) => [occurrence.path, occurrence.clauseId]), [
+    ['tests/order.test.js', 'ORDER:AC-003'], ['tests/order.test.js', 'ORDER:AC-009'],
+    ['tests/order.test.js', 'WORK-1:AC-004'], ['tests/exact.test.mjs', 'ORDER:AC-005']
+  ]);
+  // Nothing in a shared namespace to decide, so nothing is read.
+  assert.deepEqual(unknownCriterionTags(criteria, {
+    locations: [{ clauseId: 'WORK-1:AC-007', testSource: 'tests/order.test.js', line: 12 }],
+    carried: () => assert.fail('a Work ID tag needs no baseline')
+  }).map((finding) => finding.clauseId), ['WORK-1:AC-007']);
+});
+
 test('a Story without a specification index refuses only the tags its submission would refuse', () => {
   assert.equal(specificationCriteria({ indexes: [] }, { workItem: { id: 'LITE-1' } }), null);
   assert.equal(specificationCriteria({}, { workItem: { id: 'LITE-1' } }), null);

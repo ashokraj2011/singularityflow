@@ -184,7 +184,10 @@ async function openCodeGeneration(item, files = {}) {
   git(root, 'config', 'user.name', 'Source Binding Test');
   git(root, 'config', 'user.email', 'source-binding@example.invalid');
   await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
-  for (const [relative, text] of Object.entries(files)) await writeFile(path.join(root, relative), text);
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), text);
+  }
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'approved planning baseline');
   git(root, 'switch', '-c', 'BIND-1');
@@ -382,6 +385,30 @@ test('in a namespace other Stories share, only a source tag this generation adds
   await write('src/payment.js', payment, expiry, history, 'export const payment = true;');
   await write('src/history.js', '// @clause:ORDER:REQ-002 appends each attempt to the history', 'export const history = [];');
   assert.deepEqual((await evaluateCodeDeliveryPreflight(root, config, workflow, phase)).sourceBindings.missing, []);
+});
+
+test('in a namespace other Stories share, only a test tag the generation adds must name a criterion the specification holds', async (t) => {
+  const item = await fixture({ 'ORDER:REQ-001': planned(['src/payment.js']) }, { clauses: ['ORDER:AC-001'] });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  item.workflow.resolution.spec.namespace = 'ORDER';
+  // An earlier Story's test, tagged with that Story's criterion in the namespace every Story uses.
+  const earlier = ['// @ac:ORDER:AC-003', 'test("refuses an expired card", () => {});', ''];
+  await openCodeGeneration(item, { 'tests/payment.test.js': earlier.join('\n') });
+  const { root, phase, workflow, config } = item;
+  await writeFile(path.join(root, 'src/payment.js'), '// @clause:ORDER:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
+  const tests = (...lines) => writeFile(path.join(root, 'tests/payment.test.js'),
+    [...earlier, '// @ac:ORDER:AC-001', 'test("pays", () => {});', '', ...lines].join('\n'));
+  await tests();
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(evidence.acceptanceCriteria.tagged, ['ORDER:AC-001', 'ORDER:AC-003']);
+
+  await tests('// @ac:ORDER:AC-009', 'test("retries", () => {});', '');
+  await assert.rejects(evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.equal(error.code, 'EVIDENCE_CRITERION_UNKNOWN');
+    assert.deepEqual(error.details.findings.map((finding) => [finding.path, finding.line, finding.clauseId]),
+      [['tests/payment.test.js', 7, 'ORDER:AC-009']]);
+    return true;
+  });
 });
 
 test('a source tag in the Work ID is refused even where the baseline already carried it', async (t) => {

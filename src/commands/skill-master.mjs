@@ -7,9 +7,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { SingularityFlowError } from '../util.mjs';
-
-export const SKILL_MASTER_READS = Object.freeze(['list', 'show']);
-export const SKILL_MASTER_CHANGES = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
+import { SKILL_MASTER_READS } from './skill.mjs';
 const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'expected-authority-commit',
   'expected-authority-remote-fingerprint', 'expected-authority-source-commit'];
 const OPTIONS = Object.freeze({

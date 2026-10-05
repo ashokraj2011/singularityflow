@@ -2,9 +2,11 @@ import { inspectSkillPackage, skillInspectionView } from '../skp-package.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import {
-  runSkillMaster, SKILL_MASTER_CHANGES, SKILL_MASTER_READS, validateSkillMasterRequest
-} from './skill-master.mjs';
+
+/** The skill master's actions: named skills any agent can attach. Its service loads only for them. */
+export const SKILL_MASTER_READS = Object.freeze(['list', 'show']);
+export const SKILL_MASTER_CHANGES = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
+const skillMaster = () => import('./skill-master.mjs');
 
 const INSPECT_OPTIONS = new Set(['json', 'skill-id']);
 const APPROVED_OPTIONS = new Set(['json', 'expected-package-sha256']);
@@ -15,10 +17,11 @@ const DOCTOR_OPTIONS = new Set(['json', 'story', 'phase', 'source']);
  * exact selected local directory and returns inert suggestions; it never admits a phase, installs
  * a native host skill, or makes a configuration proposal.
  */
-export function validateSkillRequest({ positionals, options }) {
+export async function validateSkillRequest({ positionals, options }) {
   const subcommand = positionals[1];
-  // The skill master: named skills any agent can attach.
-  if ([...SKILL_MASTER_READS, ...SKILL_MASTER_CHANGES].includes(subcommand)) return validateSkillMasterRequest({ positionals, options });
+  if ([...SKILL_MASTER_READS, ...SKILL_MASTER_CHANGES].includes(subcommand)) {
+    return (await skillMaster()).validateSkillMasterRequest({ positionals, options });
+  }
   if (!['inspect', 'approved', 'doctor'].includes(subcommand)) {
     throw new SingularityFlowError(
       `Unknown skill action '${subcommand ?? 'none'}'. The skill master: 'singularity-flow skill list|show|create|edit|attach|detach|remove'. Skill packages: 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
@@ -80,9 +83,9 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
   // local edit), which the CLI monolith owns; it calls back here with that path.
   if (SKILL_MASTER_CHANGES.includes(positionals[1]) && !applyChangeSet) return (await import('./legacy.mjs')).run(argv);
   if ([...SKILL_MASTER_READS, ...SKILL_MASTER_CHANGES].includes(positionals[1])) {
-    return runSkillMaster({ positionals, options, applyChangeSet, printResult });
+    return (await skillMaster()).runSkillMaster({ positionals, options, applyChangeSet, printResult });
   }
-  const subcommand = validateSkillRequest({ positionals, options });
+  const subcommand = await validateSkillRequest({ positionals, options });
   if (subcommand === 'doctor') {
     const [{ repoRoot }, { loadConfig, resolveWorkItem }, { resolveStorySkillPackage },
       { withApprovedConfigurationRead }, { diagnoseRetainedSkillPackage }] = await Promise.all([

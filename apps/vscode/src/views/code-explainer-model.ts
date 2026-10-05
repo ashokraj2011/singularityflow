@@ -267,6 +267,8 @@ export interface CxModel {
     durationMs: number | null;
   };
   focus: string | null;
+  /** The symbol at the line a person asked about, when the request found one. */
+  requested: string | null;
   modelEnabled: boolean;
 }
 
@@ -791,6 +793,17 @@ export function diffLines(before: string[], after: string[], context = 3, maxEdi
     index = stop;
   }
   return hunks;
+}
+
+/**
+ * The line diff for one changed file: its exact base text against its working lines. Null when the
+ * working side could not be read: an unreadable file is not an empty one, and diffing against
+ * nothing would report every line as removed.
+ */
+export function workingDiff(before: string | null, working: string[] | null, deleted: boolean): CxDiffHunk[] | null {
+  if (!deleted && !working) return null;
+  const lines = (text: string) => (text ? text.replace(/\r?\n$/, '').split(/\r?\n/) : []);
+  return diffLines(before === null ? [] : lines(before), deleted ? [] : lines(working!.join('\n')));
 }
 
 /** Myers' O(ND) shortest edit script over lines; null when it needs more than `limit` edits. */
@@ -1522,6 +1535,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
       durationMs: input.durationMs ?? null
     },
     focus: focusSymbol?.id ?? (order[0] ?? null),
+    requested: focusSymbol?.id ?? null,
     modelEnabled: input.modelEnabled
   };
 }

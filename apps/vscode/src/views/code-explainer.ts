@@ -22,8 +22,8 @@ import { DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceSt
 import { changeExplorerDiffHost } from './change-explorer-diff.ts';
 import { containedWorkingPath, readExactSource } from './change-explorer-source.ts';
 import {
-  buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, CX_LIMITS, diffLines, explanationText, exportDocument, externalLabel, hoverParts,
-  isCodeLanguage, isTestPath, languageOf, symbolKey,
+  buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, CX_LIMITS, explanationText, exportDocument, externalLabel, hoverParts,
+  isCodeLanguage, isTestPath, languageOf, symbolKey, workingDiff,
   type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol
 } from './code-explainer-model.ts';
 import { CODE_EXPLAINER_SCRIPT, codeExplainerBody } from './code-explainer-page.ts';
@@ -118,6 +118,8 @@ export class CodeExplainerPanel {
   private diffController: AbortController | null = null;
   private pageReady = false;
   private building = false;
+  /** A person asked about a line; the next build's view selects what is there. */
+  private focusPending = false;
   private disposed = false;
 
   private constructor(
@@ -128,6 +130,7 @@ export class CodeExplainerPanel {
     private focus: CodeExplainerFocus | null,
     private readonly services: CodeExplainerServices
   ) {
+    this.focusPending = Boolean(focus);
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
@@ -238,8 +241,9 @@ export class CodeExplainerPanel {
       .filter((entry) => entry.moduleId === `m:${focus.path}` && entry.start !== null && entry.end !== null
         && entry.start <= focus.line! && focus.line! <= entry.end!)
       .sort((a, b) => (a.end! - a.start!) - (b.end! - b.start!))[0] : null;
-    if (symbol && symbol.callStatus === 'complete') this.post({ type: 'cx.focus', symbol: symbol.id });
-    else void this.build();
+    if (symbol && symbol.callStatus === 'complete') { this.post({ type: 'cx.focus', symbol: symbol.id }); return; }
+    this.focusPending = true;
+    void this.build();
   }
 
   private renewLease(): void {
@@ -377,18 +381,19 @@ export class CodeExplainerPanel {
       }).slice(0, CX_LIMITS.changedFiles);
       const run = (args: string[], signal?: AbortSignal) => this.client.run(args, signal);
       const context = { base: usable.context.base, workId: usable.context.workId, phase: usable.context.phase };
-      const textLines = (text: string) => (text ? text.replace(/\r?\n$/, '').split(/\r?\n/) : []);
       let read = 0;
       await mapLimit(needing, 4, async (file) => {
         const relative = file.pathAfter ?? file.pathBefore ?? file.path;
         const sources = (file as { sources?: { before?: string } }).sources;
         const reference = sources?.before ? usable.sourceReferences.find((entry) => entry.ref === sources.before) ?? null : null;
-        const working = files.get(relative)?.lines;
-        const after = file.pathAfter && working ? textLines(working.join('\n')) : [];
+        const working = files.get(relative)?.lines ?? null;
+        // An unreadable working file is not an empty one; leave it to the file-level row.
+        if (file.pathAfter && !working) return;
         try {
           const before = reference ? await readExactSource(run, context, reference) : null;
           if (before?.binary) return;
-          computed[relative] = diffLines(before ? textLines(before.text) : [], after);
+          const hunks = workingDiff(before ? before.text : null, working, !file.pathAfter);
+          if (hunks) computed[relative] = hunks;
         } catch (error) {
           notes.push(`${relative}: the base version could not be read (${error instanceof Error ? error.message : String(error)}).`);
         }
@@ -435,7 +440,9 @@ export class CodeExplainerPanel {
       this.model = buildCodeExplainerModel({ ...input, durationMs: input.status === 'pending' ? null : Date.now() - started }, `cx-${generation}`);
       this.locations = locations;
       this.request = 0;
-      if (this.pageReady) this.post({ type: 'cx.model', model: this.model, reset, progress });
+      const focusId = this.focusPending ? this.model.requested : null;
+      if (this.pageReady) this.post({ type: 'cx.model', model: this.model, reset, progress, focus: focusId });
+      if (progress === null) this.focusPending = false;
     };
     publish(true, 'Tracing calls…');
 

@@ -13,7 +13,7 @@ import test from 'node:test';
 import {
   buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, countParameters, declaredName, diffLines,
   estimateComplexity, explanationText, exportDocument, externalLabel, flattenSymbols, hoverParts, isTestPath,
-  leadingStart, maskSource, parseFilePatch, SYMBOL_KIND, symbolKey, textSymbols, visibleCode
+  leadingStart, maskSource, parseFilePatch, SYMBOL_KIND, symbolKey, textSymbols, visibleCode, workingDiff
 } from '../apps/vscode/src/views/code-explainer-model.ts';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import { createXpl2Fixture } from './helpers/xpl2-fixture.mjs';
@@ -363,4 +363,21 @@ test('prompts and the export carry facts, never the source or an authority', asy
   assert.doesNotMatch(text, /createdAt\.toISOString|formatInZone/, 'no changed source line is exported');
   assert.ok(exported.symbols.every((entry) => !('diff' in entry)));
   assert.ok(exported.symbols.find((entry) => entry.name === 'formatDate').explanation.includes('does not prove'));
+});
+
+test('a working file that cannot be read gives no diff rather than a deleted file', () => {
+  assert.equal(workingDiff('a\nb\n', null, false), null, 'unreadable is not empty');
+  assert.deepEqual(workingDiff('a\nb\n', null, true)[0].lines.map((line) => line.k).join(''), '--', 'a deleted file removes its lines');
+  assert.deepEqual(workingDiff(null, ['x', ''], false)[0].lines.map((line) => [line.k, line.t]), [['+', 'x']], 'a new file adds its lines');
+  assert.deepEqual(workingDiff('a\r\nb\r\n', ['a', 'c', ''], false)[0].lines.map((line) => line.k).join(''), ' -+', 'line endings do not count as changes');
+});
+
+test('the symbol at a requested line is named, so a rebuilt view can select it', async (t) => {
+  const { model: plain } = await fixtureModel(t);
+  assert.equal(plain.requested, null, 'nothing was asked for');
+  const { model } = await fixtureModel(t, { focus: { path: 'src/export/format.ts', line: 41 } });
+  assert.equal(model.requested, model.symbols.find((entry) => entry.qualifiedName === 'formatDate').id);
+  assert.equal(model.focus, model.requested);
+  const { model: between } = await fixtureModel(t, { focus: { path: 'src/export/format.ts', line: 3 } });
+  assert.equal(between.requested, null, 'a line outside every function names nothing');
 });

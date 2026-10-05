@@ -1758,7 +1758,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       if (view.selected && !model.byId[view.selected]) view.selected = null;
       if (view.selectedModule && !model.moduleById[view.selectedModule]) view.selectedModule = null;
       if (view.selectedEdge && !model.edges.some(function (edge) { return edge.id === view.selectedEdge; })) view.selectedEdge = null;
-      if (message.focus && model.byId[message.focus]) { view.selected = message.focus; view.selectedModule = null; }
+      if (message.focus && model.byId[message.focus]) { view.selected = message.focus; view.selectedModule = null; view.selectedEdge = null; }
       else if (!view.selected && !view.selectedModule && model.focus) view.selected = model.focus;
       render(fresh);
       if (message.focus && model.byId[message.focus]) { const symbol = model.byId[message.focus]; const rows = moduleRows(model, model.moduleById[symbol.moduleId], view).rows; centreOn(symbol.moduleId, rows.findIndex(function (row) { return row.id === symbol.id; })); }

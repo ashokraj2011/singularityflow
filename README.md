@@ -332,6 +332,15 @@ reports ambiguous peer entry points. It also hashes SDK, NuGet and shared build 
 The .NET route uses `dotnet test` with fresh TRX results; its current proof ceiling is module-level
 observation, not exact acceptance-criterion proof. Required SDKs are not installed automatically.
 
+SwiftPM intake recognizes `Package.swift`, binds `Package.resolved` and `.swift-version`, and
+requires a confirmed structured test run instead of recording a "nothing to test" receipt.
+The inferred `swift test` command collects XCTest and Swift Testing XML from a dedicated generated
+report directory, retains failed/skipped counts, and clears only the known report pair before
+readiness execution. The proof ceiling is **module-observed**, not exact criterion proof. Detection
+does not execute `Package.swift`, fetch dependencies or install/accept an SDK license. Xcode-only
+projects require an explicit scheme, destination and structured result command; nested-only
+packages still need module-scoped readiness support. See [Swift support status](docs/SWIFT-SUPPORT-STATUS.md).
+
 For large monorepos, `precheck --scope dependency-test` narrows the **command types**, not the
 repository directories. Module-scoped readiness and exact Kotlin/.NET criterion adapters remain
 follow-up work; this manifest-link fix does not claim either or a 300 GB performance qualification.

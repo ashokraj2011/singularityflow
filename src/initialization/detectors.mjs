@@ -3,13 +3,14 @@ import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';
 import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from '../gradle-manifests.mjs';
+import { isXcodeManifest, SWIFT_TEST_ARGUMENTS } from '../swift-manifests.mjs';
 
-const VERSION = '1.1.0';
-const IMPLEMENTATION = 'sflow-smart-init-detectors-v1.1';
+const VERSION = '1.2.0';
+const IMPLEMENTATION = 'sflow-smart-init-detectors-v1.2';
 
 export const BUILTIN_DETECTORS = Object.freeze([
   ['node', 100], ['go', 90], ['maven', 80], ['gradle', 70], ['python', 60],
-  ['dotnet', 65], ['rust', 50], ['make', 40], ['docker', 30]
+  ['dotnet', 65], ['swift', 55], ['rust', 50], ['make', 40], ['docker', 30]
 ].map(([id, priority]) => Object.freeze({
   id, version: VERSION, priority,
   implementationSha256: `sha256:${recordSha256({ id, version: VERSION, implementation: IMPLEMENTATION })}`
@@ -375,6 +376,28 @@ function detectRust(snapshot, files) {
   ]);
 }
 
+function detectSwift(snapshot, files) {
+  // Package.swift is executable source. Detection binds its bytes but never loads the package,
+  // invokes a compiler, or guesses test frameworks from comments or arbitrary Swift expressions.
+  const result = conventionalStack(files, 'package.swift', 'swift', 'swift', () => [
+    { purpose: 'verify', launcher: 'swift', args: [...SWIFT_TEST_ARGUMENTS] },
+    { purpose: 'build', launcher: 'swift', args: ['build'] }
+  ]);
+  for (const source of files.values()) {
+    if (!isXcodeManifest(source.path)) continue;
+    const directory = path.posix.dirname(path.posix.dirname(source.path));
+    result.facts.push(fact(snapshot, 'swift', source, '#', {
+      kind: 'stack', value: 'swift-xcode', module: directory
+    }));
+    result.ambiguities.push({
+      id: `xcode-test-target:${source.path}`, purpose: 'verify', scope: directory,
+      candidates: [],
+      reason: 'Xcode tests require an approved explicit scheme, destination and structured result command; SwiftPM test inference does not qualify an Xcode project.'
+    });
+  }
+  return result;
+}
+
 function detectMake(snapshot, files) {
   const names = new Set(['makefile', 'gnumakefile']);
   const facts = []; const commands = [];
@@ -430,7 +453,7 @@ export function runSmartInitDetectors(snapshot, { maxModules = 200, maxCommands 
   const files = sourceMap(snapshot);
   const results = [
     detectNode(snapshot, files), detectGo(snapshot, files), detectMaven(snapshot, files),
-    detectGradle(snapshot, files), detectDotnet(snapshot, files), detectPython(snapshot, files), detectRust(snapshot, files),
+    detectGradle(snapshot, files), detectDotnet(snapshot, files), detectPython(snapshot, files), detectSwift(snapshot, files), detectRust(snapshot, files),
     detectMake(snapshot, files), detectDocker(snapshot, files)
   ];
   const facts = results.flatMap((entry) => entry.facts).sort((a, b) => a.id.localeCompare(b.id, 'en'));

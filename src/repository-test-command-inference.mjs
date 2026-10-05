@@ -6,6 +6,15 @@ import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
 export async function inferRepositoryTestCommands(root, { unitOnly = false, platform = process.platform } = {}) {
+  // SwiftPM may coexist with another root build (for example a Node tooling package). Never
+  // let that build's early return hide Swift tests from the intake readiness contract.
+  const swift = await repositoryManifestExists(root, 'Package.swift')
+    ? [await inferModuleTestCommand(root, { root: '.', system: 'swift', manifest: 'Package.swift' }, { platform })]
+    : [];
+  return [...await inferOtherRepositoryTestCommands(root, { unitOnly, platform }), ...swift];
+}
+
+async function inferOtherRepositoryTestCommands(root, { unitOnly, platform }) {
   const regular = (relative) => repositoryManifestExists(root, relative);
   const inferred = async (system, manifest, options = {}) => {
     const command = await inferModuleTestCommand(root, { root: '.', system, manifest }, {

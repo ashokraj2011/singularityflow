@@ -22,6 +22,8 @@ import {
 } from '../util.mjs';
 import { runSmartInitDetectors } from './detectors.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
+import { isInferredSwiftTestCommand, SWIFT_TEST_REPORT_NAMES } from '../swift-manifests.mjs';
+import { prepareInferredSwiftTestReports } from '../verification/swift-reports.mjs';
 
 const PURPOSE_ORDER = Object.freeze(['dependency', 'build', 'quality', 'test', 'start']);
 const PURPOSE_RANK = new Map(PURPOSE_ORDER.map((purpose, index) => [purpose, index]));
@@ -379,14 +381,18 @@ function publicStructuredTest(command) {
 }
 
 function generatedReadinessReportPaths(commands) {
-  return commands.filter((command) => command.purpose === 'test'
-    && command.result?.adapter && command.result?.path)
+  const tests = commands.filter((command) => command.purpose === 'test'
+    && command.result?.adapter && command.result?.path);
+  const swiftReports = tests.flatMap((command) => isInferredSwiftTestCommand(command)
+    ? SWIFT_TEST_REPORT_NAMES.map((name) => path.posix.join(command.workingDirectory, command.result.path, name))
+    : []);
+  const singleReports = tests
     .map((command) => path.posix.normalize(path.posix.join(
       command.workingDirectory === '.' ? '' : command.workingDirectory,
       command.result.path
     )))
-    .filter((relative) => /(?:^|\/)\.sflow\/results\/[^/]+\.(?:json|jsonl|xml|tap|txt)$/u.test(relative))
-    .sort();
+    .filter((relative) => /(?:^|\/)\.sflow\/results\/[^/]+\.(?:json|jsonl|xml|tap|txt)$/u.test(relative));
+  return [...swiftReports, ...singleReports].sort();
 }
 
 /**
@@ -1157,6 +1163,7 @@ export async function executeRepositoryReadinessPlan(root, {
     if (signal?.aborted) throw new SingularityFlowError('Repository readiness was cancelled.', {
       code: 'REPOSITORY_READINESS_CANCELLED'
     });
+    if (command.purpose === 'test') await prepareInferredSwiftTestReports(root, command, { clear: true });
     const controller = new AbortController();
     const externalAbort = () => controller.abort('cancelled');
     signal?.addEventListener?.('abort', externalAbort, { once: true });

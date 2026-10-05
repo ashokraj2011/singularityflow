@@ -5,6 +5,7 @@ import { lstat } from 'node:fs/promises';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError, posix, run } from '../util.mjs';
 import { readRepositoryManifest } from '../repository-manifest.mjs';
+import { isXcodeManifest } from '../swift-manifests.mjs';
 
 export const SMART_INIT_BOUNDS = Object.freeze({
   maxFiles: 2_000,
@@ -24,7 +25,7 @@ const MANIFEST_NAMES = new Set([
   'pipfile.lock', 'cargo.toml', 'cargo.lock', 'makefile', 'gnumakefile',
   'dockerfile', 'global.json', 'nuget.config', 'packages.lock.json', 'directory.build.props',
   'directory.build.targets', 'directory.packages.props', 'gradle.properties',
-  'gradle-wrapper.properties', 'libs.versions.toml'
+  'gradle-wrapper.properties', 'libs.versions.toml', 'package.swift', 'package.resolved', '.swift-version'
 ]);
 
 function isRequirements(name) {
@@ -38,7 +39,7 @@ function candidateKind(relative) {
   if (normalized.startsWith('singularity/') || normalized.startsWith('.github/agents/')) return null;
   const name = path.posix.basename(normalized).toLowerCase();
   if (name === 'bun.lockb') return 'binary-manifest';
-  if (MANIFEST_NAMES.has(name) || isRequirements(name) || /\.(?:slnx?|csproj|fsproj|vbproj)$/u.test(name)) return 'manifest';
+  if (MANIFEST_NAMES.has(name) || isXcodeManifest(normalized) || isRequirements(name) || /\.(?:slnx?|csproj|fsproj|vbproj)$/u.test(name)) return 'manifest';
   if (/(?:^|\/)\.env[^/]*$/i.test(normalized) || /(?:^|\/)secrets?[^/]*$/i.test(normalized)) {
     return 'sensitive-path';
   }
@@ -155,7 +156,8 @@ export async function captureSmartInitSnapshot(root, { bounds = SMART_INIT_BOUND
     );
     const content = candidate.kind === 'binary-manifest' ? null : utf8(bytes, candidate.relative);
     if ((/\.(?:xml|slnx|csproj|fsproj|vbproj|props|targets)$/i.test(candidate.relative)
-        || /(?:^|\/)nuget\.config$/i.test(candidate.relative)) && /<!DOCTYPE|<!ENTITY/i.test(content)) {
+        || /(?:^|\/)nuget\.config$/i.test(candidate.relative)
+        || candidate.relative.endsWith('.xcworkspacedata')) && /<!DOCTYPE|<!ENTITY/i.test(content)) {
       throw new SingularityFlowError(`Initialization XML contains a forbidden entity declaration: ${candidate.relative}`, {
         code: 'INI_MANIFEST_UNSAFE', details: { path: candidate.relative }
       });

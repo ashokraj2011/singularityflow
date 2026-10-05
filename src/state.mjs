@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
+import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
 import { pathToFileURL } from 'node:url';
 import {
   SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitHeadIsUnborn, gitReadOutput, invariant,
@@ -4654,6 +4655,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         structuredResultTarget = isolatedTarget.absolute;
       }
     }
+    await prepareInferredSwiftTestReports(isolation?.root ?? root, policy);
     // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
     // harness marker to a nested `node --test` process makes Node treat the required repository
     // test as an internal child and emit no reporter events. External quality commands are a new

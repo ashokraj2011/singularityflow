@@ -838,8 +838,9 @@ test('configured roots prefer the nearest override and Windows selects command w
   assert.deepEqual((await inferModuleTestCommand(root, module, { platform: 'win32' })).argv, ['.\\mvnw.cmd', 'test']);
 });
 
-test('inferred commands follow monorepo package managers and platform-native runners', async () => {
+test('inferred commands follow monorepo package managers and platform-native runners', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-portable-runners-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
   await mkdir(path.join(root, 'packages', 'web'), { recursive: true });
   await writeFile(path.join(root, 'packages', 'web', 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
@@ -851,6 +852,7 @@ test('inferred commands follow monorepo package managers and platform-native run
   assert.deepEqual(pythonCommand.argv.slice(0, 7), [
     'py', '-3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider'
   ]);
+  await writeFile(path.join(root, 'Package.swift'), '// swift-tools-version: 6.0\n');
   const swiftCommand = await inferModuleTestCommand(root, { root: '.', system: 'swift', manifest: 'Package.swift' });
   assert.deepEqual(swiftCommand.argv.slice(0, 2), ['swift', 'test']);
   assert.equal(swiftCommand.result.adapter, 'junit-xml');

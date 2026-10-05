@@ -19,6 +19,7 @@ import { posix } from '../util.mjs';
 import { profileCeiling, profileForCommand, profileIsExact } from './profiles.mjs';
 import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';
 import { repositoryManifestExists } from '../repository-manifest.mjs';
+import { isXcodeManifest } from '../swift-manifests.mjs';
 
 const MANIFESTS = Object.freeze({
   'pom.xml': 'maven',
@@ -44,6 +45,14 @@ async function scanModules(root) {
     try { entries = await readdir(path.join(root, relative || '.'), { withFileTypes: true }); } catch { return; }
     const manifests = [];
     for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const name = entry.name.endsWith('.xcodeproj') ? `${entry.name}/project.pbxproj`
+        : entry.name.endsWith('.xcworkspace') ? `${entry.name}/contents.xcworkspacedata` : null;
+      if (name && isXcodeManifest(name) && await repositoryManifestExists(root, posix(path.join(relative, name)))) {
+        manifests.push({ name, system: 'xcode' });
+      }
+    }
+    for (const entry of entries) {
       if (!(MANIFESTS[entry.name] || isDotnetManifest(entry.name))) continue;
       if (await repositoryManifestExists(root, posix(path.join(relative, entry.name)))) {
         manifests.push({ name: entry.name, system: MANIFESTS[entry.name] ?? 'dotnet' });
@@ -58,7 +67,8 @@ async function scanModules(root) {
       found.push({ root: relative || '.', systems: [...new Set(manifests.map((entry) => entry.system))].sort(), manifest, ambiguity });
     }
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      if (entry.isDirectory() && !entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name)) {
+      if (entry.isDirectory() && !entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name)
+          && !entry.name.endsWith('.xcodeproj') && !entry.name.endsWith('.xcworkspace')) {
         await walk(posix(path.join(relative, entry.name)), depth + 1);
       }
     }

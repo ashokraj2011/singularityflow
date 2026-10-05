@@ -11,6 +11,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
+import { SWIFT_TEST_ARGUMENTS, SWIFT_TEST_REPORT_DIRECTORY } from './swift-manifests.mjs';
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
@@ -443,12 +444,24 @@ export async function inferModuleTestCommand(root, module, {
         result: { adapter: 'dotnet-trx', path: 'TestResults', minimumDiscovered: 1 }
       };
     }
-    case 'swift': return {
-      id: `${module.root}-swift-tests`, kind: 'test',
-      argv: ['swift', 'test', `--xunit-output=${resultBase}.xml`], workingDirectory: module.root,
-      affectedRoots: [module.root], modelPolicy: 'never',
-      result: { adapter: 'junit-xml', path: resultBase + '.xml', minimumDiscovered: 1 }
-    };
+    case 'swift': {
+      if (!await at(module.manifest ?? 'Package.swift')) throw new SingularityFlowError(
+        `The Swift package manifest is missing: ${module.manifest ?? 'Package.swift'}.`, { code: 'TEST_MODULE_UNCOVERED' }
+      );
+      return {
+        id: `${module.root}-swift-tests`, kind: 'test',
+        // XCTest XML needs parallel execution on older SwiftPM versions. Separate argv also
+        // avoids versions that mis-handle --xunit-output=<path>. Swift Testing emits a companion
+        // XML file; use a dedicated directory so neither framework's results are discarded.
+        argv: ['swift', ...SWIFT_TEST_ARGUMENTS], workingDirectory: module.root,
+        affectedRoots: [module.root], modelPolicy: 'never',
+        result: { adapter: 'junit-xml', path: SWIFT_TEST_REPORT_DIRECTORY, minimumDiscovered: 1 }
+      };
+    }
+    case 'xcode': throw new SingularityFlowError(
+      'Xcode tests require an explicit approved scheme, destination and structured result command; no simulator or test target was guessed.',
+      { code: 'XCODE_TEST_TARGET_REQUIRED' }
+    );
     default: throw new SingularityFlowError(`Unsupported build system '${module.system}'.`, { code: 'TEST_MODULE_UNCOVERED' });
   }
 }

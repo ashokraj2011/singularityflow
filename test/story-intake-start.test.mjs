@@ -20,7 +20,7 @@ const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin',
 const posix = { skip: process.platform === 'win32' ? 'Story intake receipts are POSIX-only.' : false };
 const EMAIL = 'story.publisher@example.com';
 
-test('intake records explicit deferred baseline and test scope without running tests or bypassing strict policy', posix, async t => {
+test('old required-baseline policies start with pending tests and never install or execute them', posix, async t => {
   const { root } = await repository(t);
   git(root, 'fetch', '-q', 'origin');
   git(root, 'merge', '--ff-only', 'origin/sflow/config');
@@ -28,15 +28,26 @@ test('intake records explicit deferred baseline and test scope without running t
   const definition = YAML.parse(await readFile(file, 'utf8'));
   definition.repositoryReadiness.requiredBeforeStory = true;
   definition.repositoryReadiness.baselinePolicy = 'required';
+  definition.initialization = { proof: { preStory: { requiredBeforeStory: true,
+    structuredTests: 'required', dependencyHydration: 'when-detected' } } };
   await writeFile(file, YAML.stringify(definition));
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'intake-baseline', private: true,
-    scripts: { test: 'node --test' } }));
+    scripts: { test: 'node --test', postinstall: 'node -e "require(\'fs\').writeFileSync(\'unexpected-install.txt\',\'ran\')"' } }));
   await writeFile(path.join(root, 'failing.test.mjs'), 'import test from "node:test"; test("pre-existing failure", () => { throw Error("known"); });\n');
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'Baseline choice policy and existing test');
   git(root, 'push', '-q', 'origin', 'main', 'main:refs/heads/sflow/config');
-  const refusal = start(root, 'BASELINE-REQUIRED', [], { allowFailure: true });
-  assert.notEqual(refusal.status, 0);
-  assert.match(refusal.stdout + refusal.stderr, /STORY_REPOSITORY_READINESS_REQUIRED/);
+  const admitted = data(start(root, 'BASELINE-REQUIRED'));
+  assert.equal(admitted.readiness.ready, true);
+  assert.ok(admitted.readiness.warnings.some(row => row.code === 'STORY_TEST_CONFIGURATION_PENDING'));
+  const originalPolicy = JSON.parse(await readFile(path.join(admitted.repositoryPath,
+    'singularity/work-items/BASELINE-REQUIRED/context/test-policy.json'), 'utf8'));
+  assert.equal(originalPolicy.capability.status, 'not-checked');
+  assert.deepEqual(originalPolicy.capability.modules, []);
+  assert.equal(originalPolicy.baselineObservation, 'pending-not-verified');
+  for (const directory of [root, admitted.repositoryPath]) {
+    assert.ok(!(await readdir(directory)).includes('unexpected-install.txt'));
+    assert.ok(!(await readdir(directory)).includes('node_modules'));
+  }
   definition.repositoryReadiness.baselinePolicy = 'choice';
   await writeFile(file, YAML.stringify(definition));
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'Allow deferred test observation');
@@ -52,7 +63,7 @@ test('intake records explicit deferred baseline and test scope without running t
   assert.equal(testPolicy.baselineFailures, 'repair-in-story');
   assert.equal(git(root, 'branch', '--show-current'), 'main');
   assert.equal(git(root, 'status', '--porcelain'), '');
-  assert.equal(git(root, 'worktree', 'list', '--porcelain').includes('BASELINE-REQUIRED'), false);
+  assert.equal(git(root, 'worktree', 'list', '--porcelain').includes('BASELINE-REQUIRED'), true);
 });
 
 test('nested Angular with no root test detection starts without a receipt or implicit test execution', posix, async t => {

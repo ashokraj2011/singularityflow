@@ -235,7 +235,7 @@ import {
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
-import { assertPlannedTestsRunnable, sealStoryTestPolicy } from './verification/test-policy.mjs';
+import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from './verification/test-policy.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
@@ -1038,11 +1038,12 @@ export async function createWorkflow(root, config, {
   // Caller-supplied preview JSON cannot enable TRP or weaken the approved Story policy.
   // Rebuild its exact base/workflow/receipt binding before any Story files are written.
   const trpDefinition = approvedConfigurationSnapshot?.definition ?? config;
-  if (readinessBaseline === 'defer' && (!readinessRepositories.length
+  if (readinessBaseline === 'defer' && ((!readinessRepositories.length
+      && !baselineDeferralAllowed(trpDefinition, readinessBaseline))
       || readinessRepositories.some(repository => !baselineDeferralAllowed(trpDefinition, readinessBaseline,
         repositoryReadiness?.repositories?.[repository.id]?.sourceCommit === repository.baseCommit
           ? repositoryReadiness.repositories[repository.id] : null)))) {
-    throw new SingularityFlowError('Approved policy or required non-test prerequisites do not permit baseline deferral.',
+    throw new SingularityFlowError('Required non-test prerequisites lack current exact-base proof. Test baseline deferral does not waive those prerequisites.',
       { code: 'STORY_REPOSITORY_READINESS_REQUIRED' });
   }
   const trpPolicy = normalizeTestRecoveryPolicy(trpDefinition.testRecovery);
@@ -1059,12 +1060,12 @@ export async function createWorkflow(root, config, {
   if (!freshTrpPlan.enabled && testRecoveryPlan != null) {
     throw new SingularityFlowError('The approved workflow does not enable this Story test policy.', { code: 'TRP_NOT_ENABLED' });
   }
-  // The Story's test policy and the repository's test capability are sealed before anything is
-  // written; a base whose failures must be resolved outside this Story refuses creation [E2G-019, D13].
+  // Seal testing intent, not a claim that the repository or this candidate passes tests.
   const sealedTestPolicy = await sealStoryTestPolicy(root, {
     workId: id, baseCommit, phases: resolution.phases ?? [], baselineFailures,
     trpChoices: freshTrpPlan.enabled ? freshTrpPlan.choices : null,
     executionMode: resolution.testExecutionMode, baselineChoice: readinessBaseline,
+    intakeOnly: true,
     baselinePending: readinessRepositories.some(repository => {
       const receipt = repositoryReadiness?.repositories?.[repository.id];
       const exact = receipt?.sourceCommit === repository.baseCommit ? receipt : null;
@@ -1371,8 +1372,7 @@ export async function createWorkflow(root, config, {
     await writeJson(
       path.join(workDir(root, config, id), 'context/repository-test-readiness.json'),
       storyTestReadinessDocument(id, readinessRepositories, repositoryReadiness, {
-        required: config.repositoryReadiness?.requiredBeforeStory === true
-          || config.initialization?.proof?.preStory?.requiredBeforeStory === true,
+        required: false,
         baselineChoice: readinessBaseline
       })
     );
@@ -1380,8 +1380,8 @@ export async function createWorkflow(root, config, {
   await writeJson(path.join(workDir(root, config, id), sealedTestPolicy.relativePath), sealedTestPolicy.record);
   workflow.testPolicy = { path: sealedTestPolicy.relativePath, sha256: sealedTestPolicy.sha256 };
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [context/test-policy.json](./context/test-policy.json) — sealed test policy and the repository's test capability at creation\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
-  const firstPhaseNeedsReadinessRepair = ['readiness-repair', 'baseline-risk-publication'].includes(workflow.testRecovery?.route)
-    && phaseRequiresCodeDelivery(phases[0]);
+  const firstPhaseNeedsReadinessRepair = (['readiness-repair', 'baseline-risk-publication'].includes(workflow.testRecovery?.route)
+    || sealedTestPolicy.record.baselineFailures === 'resolve-outside') && phaseRequiresCodeDelivery(phases[0]);
   if (!firstPhaseNeedsReadinessRepair) await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
     itemDirectory: workDir(root, config, id),
@@ -2209,6 +2209,7 @@ async function storyHasTestRecovery(root, config, workflow) {
 }
 
 export async function assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase) {
+  if (phaseRequiresCodeDelivery(phase)) await assertStoryBaselineDisposition(root, config, workflow);
   if (!await storyHasTestRecovery(root, config, workflow)) return { enabled: false, featureCodingAllowed: true };
   if (!phaseRequiresCodeDelivery(phase)) return { enabled: true, featureCodingAllowed: true, applicable: false };
   const agreement = await loadStoryTestRecoveryAgreement(root, config, workflow);

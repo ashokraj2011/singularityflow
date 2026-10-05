@@ -257,14 +257,13 @@ import {
   assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
-  acceptedPreStoryFailureForRepository, assertStoryStartReady, inspectStoryStartReadiness,
+  assertStoryStartReady, inspectStoryStartReadiness,
   requiredRepositoryReadinessScope, repositoryReadinessRequired
 } from './story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
-import { baselineChoiceAllowed, baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
+import { baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
 import { storyBaseRequired, assertStoryStartChoices } from './story-start-inputs.mjs';
 import { markCliFailureLogged } from './cli-failure.mjs';
-import { hydrateRepositoryDependencies } from './initialization/runtime-readiness.mjs';
 import {
   loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext,
 } from './story-start-base-configuration.mjs';
@@ -1639,37 +1638,22 @@ async function bindIsolatedStoryConfiguration(handoff, prepared) {
 
 async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot), baselineChoice = 'reuse') {
   intakeBaselineChoice(baselineChoice);
-  if (!baselineChoiceAllowed(definition, baselineChoice)) throw new SingularityFlowError(
-    'The approved policy does not permit deferred baseline tests. Choose reuse or a reviewed run.',
-    { code: 'TEST_BASELINE_DEFER_NOT_ALLOWED' });
-  const required = definition?.repositoryReadiness?.requiredBeforeStory === true
-    || definition?.initialization?.proof?.preStory?.requiredBeforeStory === true;
-  if (!required) return null;
+  if (!repositoryReadinessRequired(definition)) return null;
   const scope = requiredRepositoryReadinessScope(definition);
   const evidence = await collectRepositoryReadinessEvidence([{
     id: 'lifecycle', root: sourceRoot, baseCommit: sourceCommit
-  }], { scope, recordEmpty: baselineChoice !== 'defer', testRuntime: definition.repositoryReadiness?.testRuntime });
+  }], { scope, testRuntime: definition.repositoryReadiness?.testRuntime });
   const receipt = evidence.repositories.lifecycle;
   if (baselineDeferralAllowed(definition, baselineChoice,
     receipt?.sourceCommit === sourceCommit ? receipt : null)) return evidence;
-  if (baselineChoice !== 'defer' && receipt?.status === 'pass' && receipt.sourceCommit === sourceCommit) return evidence;
-  const dependencyRequired = definition?.repositoryReadiness?.dependencyHydration === 'required'
-    || definition?.initialization?.proof?.preStory?.dependencyHydration === 'required';
-  if (baselineChoice !== 'defer' && acceptedPreStoryFailureForRepository(receipt, sourceCommit, {
-    scope, dependencyRequired
-  })) return evidence;
   throw new SingularityFlowError(
-    baselineChoice === 'defer'
-      ? 'Baseline tests are deferred, but required non-test prerequisites lack current exact-base proof. Run the readiness plan or review the approved prerequisite policy.'
-      : baselineChoiceAllowed(definition, 'defer')
-        ? 'No compatible baseline is available. Review and run the exact selected-base plan, or explicitly defer baseline tests; required non-test prerequisites remain enforced.'
-        : 'Repository readiness must pass or have an exact-base accepted failing-test baseline before a Story worktree is created.',
+    'Required non-test prerequisites lack current exact-base proof. Review the readiness plan or approved prerequisite policy. Test setup and results do not block Story creation.',
     {
       code: 'STORY_REPOSITORY_READINESS_REQUIRED',
       details: {
         sourceCommit,
         reasons: receipt?.reasons ?? ['receipt-missing'],
-        baselinePolicy: baselineChoiceAllowed(definition, 'defer') ? 'choice' : 'required',
+        baselinePolicy: 'choice',
         nextAction: `singularity-flow precheck --run --base-commit ${sourceCommit} --scope ${scope} --json`,
         nextSkill: scope === 'full' ? '/sf-ready --full' : '/sf-ready',
         recoveryCommands: [`singularity-flow precheck --run --base-commit ${sourceCommit} --scope ${scope} --json`]
@@ -1856,10 +1840,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     && launchDefinition?.testRecovery?.enabled === true
     && launchDefinition.testRecovery.enabledRiskCategories?.includes('known-test-failure')
     && optionString(options, 'test-baseline-disposition') === 'accept-known-failures';
-  const launchRepositoryReadiness = !durableLocalStory && !preparedBaselineReview
-    ? await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit,
-        optionString(options, 'readiness-baseline', 'reuse'))
-    : null;
+  if (!durableLocalStory && !preparedBaselineReview) await assertLaunchCheckoutRepositoryReady(
+    sourceRoot, launchDefinition, launchBaseCommit, optionString(options, 'readiness-baseline', 'reuse'));
   // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
   const selectionToken = optionString(options, 'selection-receipt');
   const selectionHandoff = selectionToken && !durableLocalStory
@@ -1871,22 +1853,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const previousDirectory = process.cwd();
   let result;
   try {
-    const readinessPolicy = {
-      ...(launchDefinition?.repositoryReadiness ?? {}),
-      ...(launchDefinition?.initialization?.proof?.preStory ?? {})
-    };
-    if (!durableLocalStory && !preparedBaselineReview
-        && optionString(options, 'readiness-baseline', 'reuse') !== 'defer' && readinessPolicy.requiredBeforeStory === true
-        && readinessPolicy.dependencyHydration !== 'off') {
-      await hydrateRepositoryDependencies(prepared.repositoryPath, {
-        commit: launchBaseCommit,
-        required: readinessPolicy.dependencyHydration === 'required',
-        scope: requiredRepositoryReadinessScope(launchDefinition),
-        testRuntime: launchDefinition?.repositoryReadiness?.testRuntime,
-        allowAcceptedBaseline: launchRepositoryReadiness?.repositories?.lifecycle?.status
-          === 'accepted-known-failures'
-      });
-    }
+    // Intake only creates the isolated checkout and Story. Dependency installation and test
+    // execution belong to an explicitly reviewed readiness run or later code/verification work.
     const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);
     const childOptions = {
       ...options,
@@ -2881,8 +2849,7 @@ export async function startCommand(positionals, options) {
     })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }],
     { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config),
       testRuntime: (approvedConfigurationSnapshot?.definition ?? config).repositoryReadiness?.testRuntime,
-      recordEmpty: optionString(options, 'readiness-baseline', 'reuse') !== 'defer' && !optionStrings(options, 'test-baseline-record').length
-        && repositoryReadinessRequired(approvedConfigurationSnapshot?.definition ?? config) }
+      advisory: !repositoryReadinessRequired(approvedConfigurationSnapshot?.definition ?? config) }
   ));
   const testRecoveryPreview = await prepareTestRecoveryIntake(root, {
     definition: approvedConfigurationSnapshot?.definition ?? config, workId: id,
@@ -3544,7 +3511,7 @@ export async function startCommand(positionals, options) {
     summary(workflow);
     console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
     for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
-    if (sealedTestPolicy?.capability?.modules?.length) {
+    if (sealedTestPolicy?.capability?.status === 'not-checked' || sealedTestPolicy?.capability?.modules?.length) {
       console.log('Test capability (sealed with the Story; plan each criterion where its test can run):');
       for (const line of capabilityLines(sealedTestPolicy.capability)) console.log(`  ${line}`);
     }
@@ -11202,9 +11169,9 @@ async function watchCommand(positionals, options) {
 }
 
 async function recoverCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const root = repoRoot(); const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
   const plan = await recoveryPlan(root, config, workflow, {
-    fetch: optionBoolean(options, 'fetch'), phaseId: optionString(options, 'phase'), modelEnabled: operationContext()?.modelMode.enabled !== false
+    fetch: optionBoolean(options, 'fetch'), phaseId: optionString(options, 'phase'), inspectActivePhase: true, modelEnabled: operationContext()?.modelMode.enabled !== false
   });
   const result = optionBoolean(options, 'apply')
     ? await applyRecovery(root, config, workflow, plan, { confirm: optionString(options, 'confirm') })
@@ -16386,7 +16353,7 @@ async function workspaceCommand(positionals, options) {
           repositories.map((entry) => ({
             id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
           })),
-          { scope: requiredRepositoryReadinessScope(definition), previewEmpty: true,
+          { scope: requiredRepositoryReadinessScope(definition), advisory: !repositoryReadinessRequired(definition),
             testRuntime: definition.repositoryReadiness?.testRuntime }
         );
         let readiness = inspectStoryStartReadiness({

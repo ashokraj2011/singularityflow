@@ -9,8 +9,16 @@ export function intakeBaselineChoice(value = 'reuse') {
 
 export function baselineChoiceAllowed(definition = {}, choice = 'reuse') {
   intakeBaselineChoice(choice);
-  return choice !== 'defer' || ((definition.repositoryReadiness?.baselinePolicy ?? 'choice') === 'choice'
-    && definition.initialization?.proof?.preStory?.requiredBeforeStory !== true);
+  // Kept for callers of the intake contract. Legacy required-baseline policies do not make
+  // tests an admission ticket. Their execution/evidence policy still applies at publication.
+  return true;
+}
+
+export function requiredIntakePrerequisites(definition = {}) {
+  const policies = [definition.repositoryReadiness, definition.initialization?.proof?.preStory].filter(Boolean);
+  if (!policies.some(policy => policy.requiredBeforeStory === true)) return [];
+  return [['dependencyHydration', 'dependency'], ['build', 'build'], ['applicationStart', 'start']]
+    .filter(([field]) => policies.some(policy => policy[field] === 'required')).map(([, purpose]) => purpose);
 }
 
 /** Missing detection/observation is setup still to do, not a failing test run. */
@@ -25,18 +33,14 @@ export function baselineObservationPending(receipt = null) {
 }
 
 export function baselineDeferralAllowed(definition = {}, choice = 'reuse', receipt = null) {
-  if (!baselineChoiceAllowed(definition, 'defer')
-      || (choice !== 'defer' && !(choice === 'reuse' && baselineObservationPending(receipt)))) return false;
-  if (definition.repositoryReadiness?.requiredBeforeStory !== true
-      && definition.initialization?.proof?.preStory?.requiredBeforeStory !== true) return true;
-  // Choice only defers test observation, never a required dependency/build/start prerequisite.
-  const requirements = [['dependencyHydration', 'dependency'], ['build', 'build'], ['applicationStart', 'start']]
-    .filter(([field]) => definition.repositoryReadiness?.[field] === 'required'
-      || definition.initialization?.proof?.preStory?.[field] === 'required');
+  intakeBaselineChoice(choice);
+  // All test outcomes are advisory at creation, including genuine failures. This does not
+  // relabel them, accept their risk, or allow their evidence through a later phase gate.
+  const requirements = requiredIntakePrerequisites(definition);
   if (!requirements.length) return true;
   if (!['pass', 'failing-tests', 'accepted-known-failures', 'readiness-failed'].includes(receipt?.status)
       || receipt.prerequisitesCurrent === false) return false;
   const passed = new Set((receipt?.commandResults ?? []).filter(entry => entry.status === 'pass')
     .map(entry => entry.purpose));
-  return requirements.every(([, purpose]) => passed.has(purpose));
+  return requirements.every(purpose => passed.has(purpose));
 }

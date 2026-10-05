@@ -24,12 +24,12 @@ async function shippedDefinition() {
   return YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
 }
 
-test('repositories can require pre-Story readiness while omitted policy remains compatible', async () => {
+test('new repositories make tests advisory at intake while explicit prerequisite policy remains typed', async () => {
   const definition = await shippedDefinition();
 
   assert.deepEqual(normalizeRepositoryReadinessPolicy(), DEFAULT_POLICY);
   assert.deepEqual(definition.repositoryReadiness, {
-    ...DEFAULT_POLICY, requiredBeforeStory: true, baselinePolicy: 'choice'
+    ...DEFAULT_POLICY, requiredBeforeStory: false, baselinePolicy: 'choice'
   });
 
   delete definition.repositoryReadiness;

@@ -171,7 +171,7 @@ test('init bootstraps a separate setup branch and start can use it with inline e
   const configurationFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(configurationFile, 'utf8'));
   definition.git.publish = 'off'; definition.worldModel.grounding = 'off';
-  assert.equal(definition.repositoryReadiness.requiredBeforeStory, true);
+  assert.equal(definition.repositoryReadiness.requiredBeforeStory, false);
   await writeFile(configurationFile, YAML.stringify(definition));
   git(root, 'add', '.'); git(root, 'commit', '-m', 'reviewed setup');
   const setupCommit = git(root, 'rev-parse', 'HEAD');

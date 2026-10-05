@@ -55,7 +55,7 @@ import {
   assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
-  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
+  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired
 } from './story-start-readiness.mjs';
 import { loadLegacyStoryBaseContext } from './story-start-base-configuration.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
@@ -535,7 +535,7 @@ export async function startStory(root, {
       capabilityPreflight?.map((entry) => ({
         id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
       })) ?? [{ id: 'lifecycle', root, baseCommit }],
-      { scope: repositoryReadinessScope }
+      { scope: repositoryReadinessScope, advisory: !repositoryReadinessRequired(initialDefinition) }
     );
     startReadiness = inspectStoryStartReadiness({
       workId: id,
@@ -675,7 +675,7 @@ export async function startStory(root, {
       capabilityPreflight?.map((entry) => ({
         id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
       })) ?? [{ id: 'lifecycle', root, baseCommit }],
-      { scope: repositoryReadinessScope }
+      { scope: repositoryReadinessScope, advisory: !repositoryReadinessRequired(initialDefinition) }
     );
     startReadiness = inspectStoryStartReadiness({
       workId: id,
@@ -718,7 +718,7 @@ export async function startStory(root, {
         capabilityPreflight?.map((entry) => ({
           id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
         })) ?? [{ id: 'lifecycle', root, baseCommit }],
-        { scope: selectedScope }
+        { scope: selectedScope, advisory: !repositoryReadinessRequired(definition) }
       );
       repositoryReadinessScope = selectedScope;
     }

@@ -62,11 +62,10 @@ function initializationPolicy(detection, selections) {
     proof: {
       profile: selections.proofProfile,
       readiness,
-      // Repository command detection is not execution evidence. New Stories must consume a
-      // machine-local receipt bound to their exact base revision before an isolated worktree is
-      // created; older smart-init policies without this block remain compatible and advisory.
+      // Detection is not execution evidence. Testing setup and baseline observations are
+      // advisory at Story creation; proof remains mandatory at candidate admission.
       preStory: {
-        requiredBeforeStory: true,
+        requiredBeforeStory: false,
         dependencyHydration: 'when-detected',
         build: 'off',
         structuredTests: 'required-for-code',

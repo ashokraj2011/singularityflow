@@ -4,11 +4,11 @@
  * One record, written with the Story and never rewritten: how much of the suite runs (the affected
  * modules, or every configured test with the Story test policy pilot), what happens to failures the
  * base already has (repaired in this Story, accepted as pre-existing through the pilot's reviewed
- * baseline, or resolved outside this Story before it may start), that a functional criterion is
+ * baseline, or explicitly resolved outside this Story before coding), that a functional criterion is
  * verified by an automated test unless its contract says otherwise, the risk categories and the
- * longest risk acceptance, the failures no decision can waive, and the repository's test capability
- * at the base. A base whose failures must be resolved outside the Story refuses creation and names
- * them (D13); when no confirmed readiness probe has observed the base, it asks for one (D12).
+ * longest risk acceptance and failures no decision can waive. Tool inspection is pending at intake.
+ * An explicit outside-Story repair choice applies at coding, not to Story creation. Test evidence
+ * is still required by the selected phase's publication contract.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -46,14 +46,14 @@ async function assertBaseFailuresResolved(root, baseCommit) {
       ? identities.slice(0, MAX_LISTED).map((name) => `- ${name}`).join('\n') + (identities.length > MAX_LISTED ? `\n- …and ${identities.length - MAX_LISTED} more` : '')
       : `- ${commands.join(', ') || 'a readiness command'} failed without naming its tests`;
     throw new SingularityFlowError(
-      `This Story resolves the base's failing tests outside itself, and the base still fails:\n${listed}\nFix them on the base (as their own Bug or setup work), run the readiness probe again, then start. No Story was created.`,
+      `This Story explicitly requires base failures to be resolved outside itself, and the base still fails:\n${listed}\nRepair the base and run its reviewed readiness probe, then retry this code phase. The Story and its documents are preserved.`,
       { code: 'TEST_BASELINE_FAILING', details: { failing: identities, commands, baselineSha256: failing.baseline.baselineSha256 } }
     );
   }
   const passing = await loadRepositoryReadinessReceipt(root, { ...at, scope: 'dependency-test' });
   if (passing?.receipt?.status !== 'pass') {
     throw new SingularityFlowError(
-      'This Story resolves the base\'s failing tests outside itself, so its base must be observed first: run singularity-flow precheck --run --scope dependency-test, confirm its plan, then start again. No Story was created.',
+      'This Story explicitly requires base failures to be resolved outside itself. Review singularity-flow precheck --run --scope dependency-test for its exact base and confirm the plan before coding. The Story is preserved.',
       { code: 'TEST_BASELINE_UNKNOWN' }
     );
   }
@@ -72,11 +72,11 @@ export async function readSealedStoryTestPolicy(root, config, workflow) {
   }
 }
 
-/** Build the sealed policy for a Story about to be created; refuses (D13) before anything is written. */
+/** Build the sealed policy. Intake records intent without scanning or executing test tools. */
 export async function sealStoryTestPolicy(root, {
   workId, baseCommit = null, phases = [], baselineFailures = null, trpChoices = null,
   executionMode = 'changed-and-affected', baselineChoice = 'reuse', baselinePending = false, testRuntime = {},
-  env = process.env, platform = process.platform, arch = process.arch
+  env = process.env, platform = process.platform, arch = process.arch, intakeOnly = true
 } = {}) {
   const disposition = baselineFailures
     ?? (trpChoices?.baselineDisposition === 'accept-known-failures' ? 'accept-pre-existing' : 'repair-in-story');
@@ -86,9 +86,10 @@ export async function sealStoryTestPolicy(root, {
   if (disposition === 'accept-pre-existing' && trpChoices?.baselineDisposition !== 'accept-known-failures') {
     throw new SingularityFlowError('Accepting pre-existing failures goes through the Story test policy pilot: start with --test-baseline-disposition accept-known-failures and its reviewed terms.', { code: 'TEST_POLICY_INVALID' });
   }
-  if (disposition === 'resolve-outside') await assertBaseFailuresResolved(root, baseCommit);
   const configuredCommands = phases.filter((phase) => phaseRequiresCodeDelivery(phase)).flatMap((phase) => phase.qualityCommands ?? []);
-  const capability = await repositoryTestCapability(root, { configuredCommands, env, platform });
+  const capability = intakeOnly ? { status: 'not-checked', modules: [], truncated: false,
+    guidance: 'Copilot: /sf-test-setup; Shell: singularity-flow capability test-setup --json. Inspect the selected module, review the command and run required tests during coding/verification; intake is not passing evidence.' }
+    : await repositoryTestCapability(root, { configuredCommands, env, platform });
   const record = {
     schemaVersion: 1, kind: 'story-test-policy', workId, baseCommit, host: { platform, arch },
     executionScope: (trpChoices?.executionMode ?? executionMode) === 'all-configured' ? 'full' : 'affected',
@@ -102,6 +103,15 @@ export async function sealStoryTestPolicy(root, {
     capability
   };
   return { record, relativePath: TEST_POLICY_PATH, sha256: `sha256:${recordSha256(record)}`, lines: capabilityLines(capability) };
+}
+
+/** An explicit resolve-outside choice is enforced at coding, never at Story creation. */
+export async function assertStoryBaselineDisposition(root, config, workflow) {
+  const sealed = await readSealedStoryTestPolicy(root, config, workflow);
+  if (sealed?.error) throw new SingularityFlowError(sealed.error, { code: 'TEST_POLICY_INVALID' });
+  if (sealed?.record?.baselineFailures === 'resolve-outside') {
+    await assertBaseFailuresResolved(root, sealed.record.baseCommit);
+  }
 }
 
 /**

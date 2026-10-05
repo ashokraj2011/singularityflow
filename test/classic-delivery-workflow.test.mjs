@@ -133,7 +133,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
   const base = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
 
   const readinessPlan = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
-  assert.equal(config.repositoryReadiness.requiredBeforeStory, true);
+  assert.equal(config.repositoryReadiness.requiredBeforeStory, false);
   assert.equal(readinessPlan.status, 'ready');
   assert.equal(readinessPlan.sourceCommit, base);
   const readiness = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test',

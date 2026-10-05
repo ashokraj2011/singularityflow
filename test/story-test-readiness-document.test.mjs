@@ -80,3 +80,18 @@ test('Story document preserves accepted existing failures and decision instead o
   assert.equal(record.testResults[0].counts.failed, 1);
   assert.equal(record.testResults[0].failingCases[0].name, 'known failing baseline');
 });
+
+test('an unobserved failed test process stays in the Story document, not relabeled pending or passed', () => {
+  const baseCommit = 'a'.repeat(40);
+  const baselineSha256 = `sha256:${'b'.repeat(64)}`;
+  const document = storyTestReadinessDocument('STORY-FAILED-PROCESS', [{ id: 'app', baseCommit }], {
+    repositories: { app: { status: 'readiness-failed', sourceCommit: baseCommit, baselineSha256,
+      commandResults: [{ id: 'unit', purpose: 'test', status: 'failed' }], testObservations: [] } }
+  });
+  assert.equal(document.baselineObservation, 'receipt-only');
+  assert.equal(document.repositories[0].existingFailureDisposition, 'pre-existing-readiness-failure');
+  assert.equal(document.repositories[0].baselineSha256, baselineSha256);
+  assert.equal(document.repositories[0].commandResults[0].status, 'failed');
+  assert.equal(document.repositories[0].riskAcceptance, null);
+  assert.deepEqual(document.repositories[0].testResults, []);
+});

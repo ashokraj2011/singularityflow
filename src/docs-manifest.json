@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2e2b3ecc46d4b1eb5228efbbddb7a6ff7ed9d446",
+  "sourceCommit": "38bf8ed5edffc64b1b253f415736a3f691068746",
   "topicCount": 75,
-  "contentSha256": "28b7d25b5944678be52f1d151ac730e4887474d17dc7b3b29767373773f0e49b",
+  "contentSha256": "6c043b8f992475a0ad7cfcdf41e1a2766cc798d930db5e07e1869f06e58f9cda",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -408,8 +408,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 13,
-      "sha256": "5a4499a1de5bf25d8154bdb56f4b3d37109cc3ebb38c6fa0b877b519a01f8c0b",
+      "version": 14,
+      "sha256": "ce9526b5a76628e3ba6ec92e658f39878de7fbd0187a81b8300b959532001979",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },
@@ -504,8 +504,8 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 21,
-      "sha256": "33d536bcc4416a866829e50725adeff14ece21b50f7991f70e95e061d327d5c0",
+      "version": 22,
+      "sha256": "8c153cc225c8ccc70f57101f0d85116e9b8c2da47694a7b5bf2134ac2e69a9cf",
       "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
       "file": "starting-work.md"
     },

@@ -225,7 +225,8 @@ test('baseline and ongoing scope are independent explicit choices, not implied r
     assert.ok(!args.includes('--accept-test-risk') && !args.includes('--test-baseline-disposition'));
   }
   const strict = intakeHtml({ ...intake, baselinePolicy: 'required', readinessBaseline: 'reuse' });
-  assert.match(strict, /data-readiness-baseline value="defer"\s+disabled/);
+  assert.doesNotMatch(strict, /data-readiness-baseline value="defer"\s+disabled/);
+  assert.match(strict, /Test setup, missing results and existing failures do not block Story creation/);
   assert.match(intakeHtml({ ...intake, readinessBaseline: 'run' }), /Review baseline commands/);
 });
 

@@ -15,7 +15,8 @@ import { snapshot } from '../src/util.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { publishGeneration } from '../src/state.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
-import { recoveryText } from '../src/collaboration.mjs';
+import { applyRecovery, recoveryPlan, recoveryText } from '../src/collaboration.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 async function fixture(t, id = 'planning') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-dependencies-'));
@@ -86,6 +87,56 @@ test('required human clarification blocks preview, recovery and publication, eve
   await writeFile(f.absolute, '# Reviewed work\n\nTODO describe scope.\n');
   const unfinished = await expectBlocked(f, 'clarification', 'PHASE_CLARIFICATION_NOT_READY');
   assert.equal(unfinished.correction.class, 'human-input', 'answer first; do not automatically draft unknown scope');
+});
+
+test('explicit recovery inspects an unpublished active phase without making ordinary status reads heavier', async t => {
+  const f = await fixture(t, 'specification');
+  f.phase.clarification = { mode: 'required' };
+  const before = await tree(f.root);
+  const lightweight = await recoveryPlan(f.root, f.config, f.workflow);
+  assert.equal(lightweight.phaseId, null);
+  assert.deepEqual(lightweight.blockers, []);
+  const plan = await recoveryPlan(f.root, f.config, f.workflow, { inspectActivePhase: true });
+  assert.equal(plan.phaseId, 'specification');
+  assert.equal(plan.phaseRepairRequired, true);
+  assert.equal(plan.requiresRecovery, false, 'open draft authoring is still permitted; this is not a consumed-generation hold');
+  assert.ok(plan.blockers.some(entry => entry.category === 'clarification'));
+  assert.ok(plan.actions.some(entry => entry.command === 'singularity-flow clarification status specification --json'));
+  assert.ok(!plan.actions.some(entry => entry.id === 'none'));
+  assert.equal(plan.applyCommand, null);
+  await assert.rejects(applyRecovery(f.root, f.config, f.workflow, plan, { confirm: plan.planId }), error => {
+    assert.equal(error.code, 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE');
+    assert.equal(error.details.workId, 'READY-1');
+    assert.equal(error.details.phase, 'specification');
+    const refused = refusalEnvelope(error, ['recover', 'READY-1', '--apply', '--json']);
+    const route = refused.remediationPlan.steps.find(entry => entry.command === 'singularity-flow clarification status specification --json');
+    assert.ok(route, 'a mistaken --apply must retain the guided repair instead of sending the user back into recover');
+    assert.equal(route.label, plan.actions.find(entry => entry.command === route.command).detail);
+    assert.equal(refused.remediationPlan.retry.automatic, false);
+    return true;
+  });
+  assert.deepEqual(await tree(f.root), before);
+});
+
+test('automatic recovery guidance keeps the exact explicitly selected phase in its hash-confirmed apply command', () => {
+  const plan = { workId: 'READY-1', phaseId: 'custom-step', branch: 'main', targetBranch: 'main',
+    planId: `sha256:${'a'.repeat(64)}`, actions: [{ id: 'publish', safe: true, automatic: true,
+      command: 'singularity-flow sync', detail: 'Retry retained publication.' }] };
+  assert.match(recoveryText(plan), /recover READY-1 --phase custom-step --apply --confirm sha256:a{64}/);
+  assert.match(recoveryText({ ...plan, modelEnabled: false }), /--confirm sha256:a{64} --no-model/);
+});
+
+test('JSON recovery exposes the exact automatic command with its reviewed inspection options', async t => {
+  const f = await fixture(t, 'custom-step');
+  f.git('branch', 'tracked-base');
+  f.git('branch', '--set-upstream-to=tracked-base');
+  const plan = await recoveryPlan(f.root, f.config, f.workflow, {
+    inspectActivePhase: true, fetch: true, modelEnabled: false
+  });
+  assert.equal(plan.applyCommand,
+    `singularity-flow recover READY-1 --phase custom-step --apply --confirm ${plan.planId} --fetch --no-model`);
+  assert.ok(safeCommandGuidance({ command: plan.applyCommand, skill: '/sf-recover' }));
+  assert.equal(plan.modelEnabled, false);
 });
 
 test('the actual publication entry refuses missing clarification before managed input or generation writes', async t => {
@@ -231,6 +282,7 @@ test('all packaged workflow phase IDs use the same missing-input readiness contr
   assert.equal(Object.keys(definition.workTypes).length, 13);
   assert.equal(seen.size, 32);
   const f = await fixture(t);
+  await writeFile(f.absolute, '# Reviewed work\n\nTODO complete the accepted scope.\n');
   for (const id of seen) {
     const phase = { ...f.phase, id, inputs: [{ phase: 'upstream', path: 'artifacts/upstream/missing.md' }] };
     const workflow = { ...f.workflow, currentPhase: id, phases: { [id]: phase },
@@ -238,5 +290,13 @@ test('all packaged workflow phase IDs use the same missing-input readiness contr
     const report = await inspectPhasePublicationReadiness(f.root, f.config, workflow, phase);
     assert.ok(report.blockers.some(entry => entry.category === 'inputs'), id);
     await assert.rejects(assertPhasePublicationReadiness(f.root, f.config, workflow, phase), { code: 'PHASE_INPUTS_NOT_READY' });
+    const recovery = await recoveryPlan(f.root, f.config, workflow, { inspectActivePhase: true });
+    assert.equal(recovery.phaseId, id);
+    assert.ok(recovery.blockers.some(entry => entry.category === 'inputs'), id);
+    assert.ok(recovery.actions.some(entry => entry.command === `singularity-flow inputs ${id} --dry-run --json`), id);
+    assert.ok(!recovery.actions.some(entry => entry.id === 'none'), id);
+    assert.ok(recovery.actions.some(entry => entry.id === `complete-artifact:${id}`), id);
+    assert.ok(recovery.actions.every(entry => entry.command ? safeCommandGuidance(entry) : entry.detail?.trim()),
+      `${id}: every recovery action must survive the closed Shell/Copilot crosswalk or explain its manual prerequisite`);
   }
 });

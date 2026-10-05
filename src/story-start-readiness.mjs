@@ -7,7 +7,7 @@
  * can never authorize an upgrade, enrollment, checkout, commit, or push.
  */
 import { createHash } from 'node:crypto';
-import { baselineChoiceAllowed, baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
+import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoice, requiredIntakePrerequisites } from './intake-baseline.mjs';
 
 import { BUILD_INFO } from './build-info.mjs';
 import { assertWorkTypeStartable, resolveWorkType } from './config.mjs';
@@ -20,8 +20,7 @@ export const STORY_START_READINESS_FORMAT_VERSION = 1;
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
 
 export function repositoryReadinessRequired(definition = {}) {
-  return definition.repositoryReadiness?.requiredBeforeStory === true
-    || definition.initialization?.proof?.preStory?.requiredBeforeStory === true;
+  return requiredIntakePrerequisites(definition).length > 0;
 }
 
 export function requiredRepositoryReadinessScope(definition = {}) {
@@ -206,98 +205,38 @@ export function inspectStoryStartReadiness({
     ));
   }
 
-  const readinessPolicies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory]
-    .filter(Boolean);
-  // The compatibility block cannot weaken a requirement from the canonical block. Keep the
-  // strongest requirement for each check while repositories migrate between the two shapes.
-  const repositoryReadinessPolicy = {
-    dependencyHydration: readinessPolicies.some((policy) => policy.dependencyHydration === 'required')
-      ? 'required' : 'off',
-    build: readinessPolicies.some((policy) => policy.build === 'required') ? 'required' : 'off',
-    applicationStart: readinessPolicies.some((policy) => policy.applicationStart === 'required')
-      ? 'required' : 'off',
-    structuredTests: readinessPolicies.some((policy) => policy.structuredTests === 'required')
-      ? 'required'
-      : readinessPolicies.some((policy) => policy.structuredTests === 'required-for-code')
-        ? 'required-for-code' : 'off'
-  };
-  // A legacy block must not silently turn off an explicit canonical requirement (or vice versa).
-  const repositoryReadinessRequired = definition?.repositoryReadiness?.requiredBeforeStory === true
-    || definition?.initialization?.proof?.preStory?.requiredBeforeStory === true;
-  const baselinePolicy = baselineChoiceAllowed(definition, 'defer') ? 'choice' : 'required';
+  const prerequisitePurposes = requiredIntakePrerequisites(definition);
+  const readinessRequired = prerequisitePurposes.length > 0;
+  const baselinePolicy = 'choice';
   const readinessScope = requiredRepositoryReadinessScope(definition);
-  if (!baselineChoiceAllowed(definition, readinessBaseline)) checks.push(check(
-    'baseline-choice', 'block', 'TEST_BASELINE_DEFER_NOT_ALLOWED',
-    'The approved policy requires baseline verification. Choose reuse or a reviewed run; deferral is not permitted.'
-  ));
-  if (repositoryReadinessRequired) {
+  {
     const receipts = repositoryReadiness?.repositories
       ?? (normalizedRepositories.length === 1 && repositoryReadiness
         ? { [normalizedRepositories[0].id]: repositoryReadiness } : {});
-    const acceptedKnownFailures = [];
-    const emptyPlans = [];
-    const deferred = [];
+    const failed = [];
+    const pending = [];
     const invalid = normalizedRepositories.find((entry) => {
       const receipt = receipts[entry.id];
-      const exactReceipt = receipt?.sourceCommit === entry.baseCommit ? receipt : null;
-      if (baselineDeferralAllowed(definition, readinessBaseline, exactReceipt)) {
-        deferred.push(entry.id);
-        return false;
-      }
-      const emptyPreview = surface === 'vscode-preflight' && receipt?.status === 'no-commands-applicable'
-        && receipt.scope === readinessScope && /^sha256:[a-f0-9]{64}$/u.test(receipt.planId ?? '')
-        && receipt.structuredTestContract?.satisfied === true
-        && !receipt.structuredTestContract.requiredForCode && !receipt.structuredTestContract.error
-        && receipt.commandResults?.length === 0;
-      const acceptedFailure = acceptedPreStoryFailureForRepository(receipt, entry.baseCommit, {
-        scope: readinessScope,
-        dependencyRequired: repositoryReadinessPolicy.dependencyHydration === 'required'
-      });
-      if ((receipt?.status !== 'pass' && !acceptedFailure && !emptyPreview)
-          || (receipt?.sourceCommit ?? receipt?.sourceHead) !== entry.baseCommit) return true;
-      const passedPurposes = new Set((receipt.commandResults ?? [])
-        .filter((result) => result.status === 'pass').map((result) => result.purpose));
-      if (repositoryReadinessPolicy.dependencyHydration === 'required'
-          && !passedPurposes.has('dependency')) return true;
-      if (repositoryReadinessPolicy.build === 'required' && !passedPurposes.has('build')) return true;
-      if (repositoryReadinessPolicy.applicationStart === 'required'
-          && !passedPurposes.has('start')) return true;
-      const structuredTests = repositoryReadinessPolicy.structuredTests;
-      const codeDetected = (receipt.detectedStacks?.length ?? 0) > 0
-        || [...passedPurposes].some((purpose) => ['dependency', 'build', 'test'].includes(purpose));
-      if (structuredTests === 'required'
-          && receipt.structuredTestContract?.status !== 'available') return true;
-      if (structuredTests === 'required-for-code' && codeDetected
-          && receipt.structuredTestContract?.status !== 'available') return true;
-      if (acceptedFailure) acceptedKnownFailures.push(entry.id);
-      if (emptyPreview) emptyPlans.push(entry.id);
-      return false;
+      const exactReceipt = (receipt?.sourceCommit ?? receipt?.sourceHead) === entry.baseCommit ? receipt : null;
+      if (exactReceipt && (['failing-tests', 'accepted-known-failures', 'readiness-failed'].includes(exactReceipt.status)
+          || exactReceipt.commandResults?.some(result => result.purpose === 'test' && result.status !== 'pass'))) failed.push(entry.id);
+      else if (readinessBaseline === 'defer' || baselineObservationPending(exactReceipt)) pending.push(entry.id);
+      return !baselineDeferralAllowed(definition, readinessBaseline, exactReceipt);
     });
     const complete = normalizedRepositories.length > 0 && !invalid;
-    checks.push(complete && deferred.length
+    checks.push(!complete && readinessRequired
+      ? check('repository-execution', 'block', 'STORY_REPOSITORY_READINESS_REQUIRED',
+          'Required non-test dependency/build/start prerequisites lack current exact-base passing results. Review their readiness plan or the approved prerequisite policy. Test outcomes do not block Story creation.')
+      : failed.length
+      ? check('repository-execution', 'warning', 'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED',
+          'Existing readiness failures were observed. The Story may start and repair tests in scope; no failure is marked passed or risk accepted. Required phase tests and evidence remain enforced before publication.')
+      : pending.length || !normalizedRepositories.length
       ? check('repository-execution', 'warning', readinessBaseline === 'defer'
           ? 'STORY_TEST_BASELINE_DEFERRED' : 'STORY_TEST_CONFIGURATION_PENDING',
-          'Test setup or baseline observation is pending, not failed. The Story can proceed and a test command can be configured later, before required test execution. No passing evidence or failure-risk acceptance is created; required publication checks remain enforced.')
-      : complete && acceptedKnownFailures.length
-      ? check(
-          'repository-execution', 'warning', 'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED',
-          `Known failing tests were accepted for Story creation in ${acceptedKnownFailures.length} exact-base repository/repositories; later test and publication gates remain required.`
-        )
-      : complete && emptyPlans.length ? check(
-          'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_NO_COMMANDS',
-          'No readiness commands apply to the selected base. Story start will record the no-command receipt; no tests have run.'
-        )
-      : complete ? check(
-          'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_VALID',
-          'Locked dependency and existing structured-test readiness is policy-complete for the exact Story base.'
-        )
+          'Test setup or baseline observation is pending. Start the Story; Copilot can inspect the repository, configure and run tests later. Intake runs no tests and creates no passing evidence or risk acceptance; publication checks remain required.')
       : check(
-          'repository-execution', 'block', 'STORY_REPOSITORY_READINESS_REQUIRED',
-          baselinePolicy === 'choice'
-            ? readinessBaseline === 'defer'
-              ? 'Baseline tests are deferred, but required dependency/build/start prerequisites lack current exact-base passing results. Run the selected-base readiness plan or review the approved prerequisite policy.'
-              : 'No compatible baseline is available. Review and run the selected-base readiness plan, or explicitly defer baseline tests. Required non-test prerequisites cannot be deferred.'
-            : 'The selected base lacks a current policy-complete repository-readiness receipt. The approved policy requires a reviewed pre-Story run; it does not allow deferral.'
+          'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_VALID',
+          'Previously observed exact-base readiness is available. It is historical baseline context, not evidence that this Story candidate passes tests.'
         ));
   }
 
@@ -342,7 +281,9 @@ export function inspectStoryStartReadiness({
     base: Object.freeze({ branch: baseBranch, repositories: Object.freeze(normalizedRepositories) }),
     runtime: runtimeIdentity(),
     repositoryExecution: Object.freeze({
-      required: repositoryReadinessRequired,
+      required: readinessRequired,
+      prerequisitePurposes: Object.freeze(prerequisitePurposes),
+      testing: 'advisory-at-intake',
       scope: readinessScope,
       baselinePolicy,
       choice: readinessBaseline

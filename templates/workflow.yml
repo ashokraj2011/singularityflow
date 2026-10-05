@@ -143,11 +143,11 @@ noModel:
   unknownExternalCommands: warn
 
 # Intake explicitly chooses whether to reuse, run, or defer existing-test baseline observation.
-# A reviewed run proves locked dependencies and structured unit tests at the exact base. Build, quality, and
-# application-start checks are deliberately off unless approved repository policy requires the
-# broader full scope. The receipt is machine-local and contains no caches, reports, or secrets.
+# Intake never installs dependencies or runs tests. Copilot configures and runs the selected
+# checks during coding/verification; publication requires fresh structured evidence or an
+# eligible human risk decision. Optional exact-base observations remain historical context.
 repositoryReadiness:
-  requiredBeforeStory: true
+  requiredBeforeStory: false
   # Explicit intake may defer baseline observation. Later code/publication tests stay required.
   baselinePolicy: choice
   # Approved, test-only Node compatibility flags; never alter source or the shell environment.

@@ -162,6 +162,7 @@ export function capabilityModuleFor(capability, candidate) {
 
 /** One line per module, for intake disclosure and `story test-policy show`. */
 export function capabilityLines(capability) {
+  if (capability?.status === 'not-checked') return [capability.guidance];
   return (capability?.modules ?? []).map((entry) => {
     const where = `${entry.root} (${entry.systems.join('/')})`;
     if (entry.status === 'supported') {

@@ -81,7 +81,7 @@ type ReviewableRecovery = {
  */
 function reviewableActions(planned: readonly ReviewableRecovery[],
   repositoryRoot: string | null = null): readonly CardAction[] {
-  return Object.freeze(planned.slice(0, 3).flatMap((entry, index) => {
+  return Object.freeze(planned.slice(0, 20).flatMap((entry, index) => {
     const guidance = commandGuidance(entry);
     if (!guidance) return [];
     const command = repositoryRoot
@@ -91,7 +91,7 @@ function reviewableActions(planned: readonly ReviewableRecovery[],
       id: String(entry?.id ?? `recovery:${index}`),
       handle: String(entry?.id ?? `recovery:${index}`),
       label: String(entry?.label ?? 'Review recovery action'),
-      emphasis: index === 0 ? 'primary' as const : 'secondary' as const,
+      emphasis: 'secondary' as const,
       interaction: 'navigation',
       executable: false,
       detail: repositoryRoot
@@ -102,7 +102,9 @@ function reviewableActions(planned: readonly ReviewableRecovery[],
       copilotCommand: guidance.copilotCommand,
       copyable: guidance.copyable
     }];
-  }));
+  }).slice(0, 3).map((entry, index) => ({
+    ...entry, emphasis: index === 0 ? 'primary' as const : 'secondary' as const
+  })));
 }
 
 /**
@@ -141,7 +143,8 @@ function fromRefusalPlan(result: any, displayMessage: string,
     replyName: null,
     // The runner already redacts and bounds this text. Do not re-read the raw JSON message here.
     why: gate.length ? gate : [{ label: displayMessage.split('\nNext:')[0]?.trim() || 'The command did not complete.' }],
-    warnings: [],
+    warnings: planned.slice(0, 20).filter((entry: any) => !entry?.command && typeof entry?.label === 'string' && entry.label.trim())
+      .map((entry: any) => ({ label: entry.label.slice(0, 2000) })),
     checklist: [],
     gates: null,
     preserved: [],

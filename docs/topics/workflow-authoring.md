@@ -13,6 +13,7 @@ aliases:
   - authoring-skill
 questions:
   - How do I export or import several workflows with their dependencies?
+  - What happens when an imported workflow uses names my repository already has?
   - How do I duplicate a workflow without duplicating its shared phase contracts?
   - How do I inspect a local skill before proposing it as a workflow phase?
   - How do I inspect a skill in approved configuration?
@@ -27,7 +28,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 50
+version: 51
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1013,14 +1014,21 @@ singularity-flow workflow create customer-onboarding \
 
 Export one portable bundle for one or more Story or Initiative workflows. The deterministic bundle
 includes the selected workflow rows and the configuration objects they require: phases, artifact
-sets and templates, approval authorities, governed Agent Markdown, MCP assignments, applicability
-policies, exact remote-agent dependency locks, and declared World Model requirements. Locked remote
-dependencies are hash-verified when the destination fetches them; the bundle never embeds a token
-or credential. Repository-wide policy and installed World Model view contracts are prerequisites:
+sets and templates, approval authorities (including groups only a decision's `by` or a
+specification-quality `exceptionAuthority` names), governed Agent Markdown (including a
+repository's own source reviewer; a packaged reviewer is installed everywhere), MCP assignments,
+applicability policies, exact remote-agent dependency locks, and declared World Model requirements.
+A skill or template an agent's lock names as imported (vendored) travels as its exact bytes, with
+the record of where it came from, and so does an imported MCP server's descriptor: the destination
+never fetches them again, and the reader checks each copy against its lock's hash. Other locked
+remote dependencies are hash-verified when the destination fetches them. The bundle never embeds a
+token or credential. Repository-wide policy and installed World Model view contracts are prerequisites:
 import validates them on the destination but never overwrites them. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
-New exports use bundle v3. MCP assignments reachable from selected phases or agents are included,
+New exports use bundle v4: v3's closure plus the imported copies and their records. Export refuses
+an imported copy that no longer matches its lock; check it with `singularity-flow imports check`
+and import it again first. MCP assignments reachable from selected phases or agents are included,
 including agent-only assignments with an unrestricted phase list. The entire assignment remains
 unchanged: every named Story phase and agent is followed transitively, including their inputs,
 templates, artifact sets and review definitions. Cycles are deduplicated; extra dependency phases
@@ -1030,7 +1038,7 @@ are available; explicitly required servers are included. Historical v1/v2 files 
 schema, digest and original dependency interpretation. Re-export from the source to obtain the
 new closure; compatibility reading does not invent missing objects.
 
-For approved skill phases, bundle v3 includes the exact package manifest, binary-preserving retained
+For approved skill phases, bundle v3 and later include the exact package manifest, binary-preserving retained
 file bytes, and compiled binding. Import preserves CRLF/binary bytes through Git and checks the
 destination's policy and tool/read/check constraints; it cannot widen them. Historical v2 skill
 bundles remain readable. A copied or imported skill still requires separate host admission.
@@ -1067,6 +1075,55 @@ singularity-flow workflow import ./workflow-bundle.json \
   --json
 ```
 
+### Same names: keep yours, replace it, or import theirs under a new name
+
+An object in the bundle that exists here with different content is a conflict. Each conflict
+belongs to one subject: a workflow, step, template, artifact set, approval group, MCP server,
+agent (with its lock, imported copies and their records) or template file. The import stays
+blocked until every subject has a choice:
+
+- `keep` leaves yours as it is. The imported workflow uses yours, and the subject's imported
+  copies and records are not written.
+- `replace` writes theirs over yours. The preview lists which of your workflows use the subject
+  (`Used here by`), because they change too.
+- `rename` imports theirs under a new name and rewrites every reference to it in the bundle:
+  steps, workflows, decisions, send-back targets, source review, agent metadata and resource
+  tables, MCP assignments, template references, locks, imported copies and their records. A
+  renamed step's artifact moves to `artifacts/<new-name>/`, and renamed objects' labels gain
+  "(imported)".
+
+The preview suggests `rename`, so nothing of yours changes, except for approval groups, where it
+suggests `keep`: a group is people, and a second group with the other repository's members is
+rarely wanted. A new name can make another object differ from yours (the workflow that lists a
+renamed step, a step that sends work back to it), so those then need a choice too.
+`--resolve-all suggested` repeats the suggestions until nothing is left that they resolve;
+`--resolve-all keep|replace|rename` makes one choice for everything without its own.
+
+```bash
+singularity-flow workflow import ./release.bundle.json --dry-run
+singularity-flow workflow import ./release.bundle.json --dry-run \
+  --resolve phase:release-plan=rename:release-plan-v2 \
+  --resolve approval-group:release-managers=keep \
+  --resolve-all suggested
+singularity-flow workflow import ./release.bundle.json \
+  --resolve phase:release-plan=rename:release-plan-v2 \
+  --resolve approval-group:release-managers=keep \
+  --resolve-all suggested \
+  --confirm sha256:<previewed-plan-sha256> \
+  --propose
+```
+
+The plan digest binds the choices, so confirm with the flags you previewed; a ready preview prints
+the exact command. A template file takes a new path under the same template root
+(`template-file:<path>=rename:<new-path>`, or a bare file name in the same folder). An agent
+imported under a new name is the default only for steps that are new here; your agent keeps
+drafting your steps. An MCP server that arrives with its imported descriptor gets a host entry of
+its new name (add it with `singularity-flow mcp host add <new-name>`); one configured by hand
+keeps naming the host entry it had. A skill step and the four canonical Epic steps cannot take a
+new name, so keep or replace them, and a skill package must match exactly. Workflow Studio's
+Import asks the same questions: take every suggestion or choose for each conflict, then review and
+confirm the plan.
+
 Copy creates a linked duplicate: the new workflow gets its own complete workflow row and label while
 continuing to reference the same reviewed phase, artifact, agent, approval, MCP, and template
 contracts. Later edits to those shared contracts therefore affect both workflows; use export/import
@@ -1085,8 +1142,9 @@ singularity-flow workflow copy story:feature feature-team \
 ```
 
 `workflow duplicate` is a compatibility alias for `workflow copy`. Neither form overwrites an
-existing workflow ID. Imports are idempotent when the exact dependency closure already exists and
-fail before mutation on any conflicting ID or changed bundle digest.
+existing workflow ID. Imports are idempotent when the exact dependency closure already exists. A
+conflicting ID blocks an import until it has a choice, and a changed bundle digest is refused;
+neither changes anything.
 Use the qualified `story:<id>` or `initiative:<id>` source whenever both catalogs contain the same
 workflow ID. Workflow Studio supplies this qualification automatically.
 

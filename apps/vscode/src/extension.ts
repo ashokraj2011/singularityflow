@@ -53,8 +53,10 @@ import {
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import {
+  workflowImportChoiceItems, workflowImportConflictLabel, workflowImportConflictTitle, workflowImportOpenChoices,
+  workflowImportResolveArgs, workflowImportSuggestedChoices, workflowImportSuggestionSummary,
   workflowMutationConflictCount, workflowMutationPlanDetail, workflowMutationPlanMarkdown,
-  type WorkflowMutationPreview
+  type WorkflowImportChoice, type WorkflowImportConflict, type WorkflowMutationPreview
 } from './views/workflow-transfer-presentation.ts';
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
@@ -7521,22 +7523,61 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { outcome: 'failed', error: (error as Error).message };
     }
   };
+  /** Ask how to resolve each import conflict: every suggestion at once, or one choice per conflict. */
+  const chooseWorkflowImportResolutions = async (
+    conflicts: WorkflowImportConflict[], followUp: boolean
+  ): Promise<Record<string, WorkflowImportChoice> | null> => {
+    const suggested = 'Use the suggested choices';
+    const mode = await vscode.window.showQuickPick([
+      { label: suggested, detail: workflowImportSuggestionSummary(conflicts) },
+      { label: 'Choose for each conflict', detail: conflicts.map(workflowImportConflictLabel).join(' · ') }
+    ], {
+      title: followUp
+        ? `Your choices change ${conflicts.length} more imported object${conflicts.length === 1 ? '' : 's'}`
+        : `The import has ${conflicts.length} object${conflicts.length === 1 ? '' : 's'} named like yours`,
+      placeHolder: 'Nothing is written until you confirm the reviewed plan',
+      ignoreFocusOut: true
+    });
+    if (!mode) return null;
+    if (mode.label === suggested) return workflowImportSuggestedChoices(conflicts);
+    const picked: Record<string, WorkflowImportChoice> = {};
+    for (const [index, conflict] of conflicts.entries()) {
+      const item = await vscode.window.showQuickPick(workflowImportChoiceItems(conflict), {
+        title: workflowImportConflictTitle(conflict, index, conflicts.length),
+        placeHolder: [...conflict.reasons, ...(conflict.usedBy.length ? [`Used here by ${conflict.usedBy.join(', ')}`] : [])].join(' · '),
+        ignoreFocusOut: true
+      });
+      if (!item || !conflict.subject) return null;
+      picked[conflict.subject] = item.choice;
+    }
+    return picked;
+  };
   const previewWorkflowProposal = async (
     baseCommand: string[], title: string
-  ): Promise<{ confirmation?: string; error?: string }> => {
-    const command = [...baseCommand, '--dry-run', '--json'];
-    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
-    let plan: WorkflowMutationPreview;
-    try {
-      plan = await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title,
-        cancellable: false
-      }, () => client.run<WorkflowMutationPreview>(command));
-    } catch (error) {
-      output.appendLine(`  refused: ${(error as Error).message}`);
-      showRefusal(error, { headline: 'Could not preview workflow configuration change' });
-      return { error: (error as Error).message };
+  ): Promise<{ confirmation?: string; error?: string; resolveArgs?: string[] }> => {
+    let choices: Record<string, WorkflowImportChoice> = {};
+    let plan: WorkflowMutationPreview = {};
+    // A new name can make another imported object differ from yours (a renamed step changes the
+    // workflow that lists it), so each round previews the choices so far and asks about what is open.
+    for (let round = 0; round < 8; round += 1) {
+      const command = [...baseCommand, ...workflowImportResolveArgs(choices), '--dry-run', '--json'];
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+      try {
+        plan = await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title,
+          cancellable: false
+        }, () => client.run<WorkflowMutationPreview>(command));
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not preview workflow configuration change' });
+        return { error: (error as Error).message };
+      }
+      const { resolvable, blocking } = workflowImportOpenChoices(plan);
+      if (blocking.length || !resolvable.length) break;
+      const picked = await chooseWorkflowImportResolutions(resolvable, round > 0);
+      if (!picked) return {};
+      choices = { ...choices, ...picked };
     }
     const conflicts = workflowMutationConflictCount(plan);
     const ready = (!plan.status || ['ready', 'planned', 'preview'].includes(plan.status))
@@ -7553,9 +7594,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const confirm = 'Apply reviewed plan';
     const selected = await vscode.window.showWarningMessage(
       'Review the complete workflow configuration plan. The repository authority will decide whether this creates a review proposal or a local edit.',
-      { modal: true, detail }, confirm, 'Cancel'
+      { modal: true, detail }, confirm
     );
-    return selected === confirm ? { confirmation: plan.planSha256 } : {};
+    return selected === confirm ? { confirmation: plan.planSha256, resolveArgs: workflowImportResolveArgs(choices) } : {};
   };
   const exportWorkflowBundle = async (workflowIds: readonly string[]): Promise<string | null> => {
     const target = await vscode.window.showSaveDialog({
@@ -7604,7 +7645,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (preview.error) return { outcome: 'failed', error: preview.error };
     if (!preview.confirmation) return { outcome: 'cancelled', error: null };
     return proposeWorkflowChange(
-      ['workflow', 'import', source.fsPath, '--confirm', preview.confirmation],
+      ['workflow', 'import', source.fsPath, ...(preview.resolveArgs ?? []), '--confirm', preview.confirmation],
       `Importing workflows from ${path.basename(source.fsPath)}`
     );
   };

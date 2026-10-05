@@ -351,7 +351,7 @@ test('workflow bundle closure rejects self-rehashed missing transitive MCP phase
 test('v3 dependency closure never treats inherited constructor keys as retained declarations before target writes', async (t) => {
   const f = await mcpClosureFixture(t);
   const bundle = await exportWorkflowBundle(f.source, ['story:portable-mcp-feature']);
-  assert.equal(bundle.schemaVersion, 3);
+  assert.equal(bundle.schemaVersion, 4);
   for (const catalog of ['workTypes', 'phases', 'mcpServers', 'artifactSets', 'templates']) {
     assert.equal(Object.hasOwn(bundle.objects.story[catalog], 'constructor'), false);
     assert.equal(typeof bundle.objects.story[catalog].constructor, 'function', 'the ordinary object still has the inherited key');
@@ -503,7 +503,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   await writeWorkflowConfiguration(f.source, f.configuration);
   await loadDefinition(f.source);
   const complete = await exportWorkflowBundle(f.source, ['story:historical-mcp']);
-  assert.equal(complete.schemaVersion, 3);
+  assert.equal(complete.schemaVersion, 4);
   assert.ok(complete.objects.story.phases['unrelated-note']);
   assert.ok(complete.objects.story.mcpServers['unrelated-server']);
 
@@ -523,6 +523,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   for (const version of [1, 2]) {
     const stored = structuredClone(historical);
     stored.schemaVersion = version;
+    delete stored.imports;
     if (version === 1) { delete stored.skillPackages; delete stored.semantics; }
     stored.bundleSha256 = bundleDigest(stored);
     const bytes = Buffer.from(`${JSON.stringify(stored, null, 2)}\n`, 'utf8');
@@ -542,6 +543,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   }
   const strict = structuredClone(historical);
   strict.schemaVersion = 3;
+  delete strict.imports;
   strict.bundleSha256 = bundleDigest(strict);
   await assert.rejects(() => planWorkflowImport(f.source, strict),
     (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING'
@@ -562,6 +564,7 @@ test('workflow bundle v1 cannot acquire skill authority through a self-rehashed 
   incomplete.schemaVersion = 1;
   delete incomplete.skillPackages;
   delete incomplete.semantics;
+  delete incomplete.imports;
   incomplete.objects.story.phases.implementation.kind = 'skill';
   incomplete.objects.story.phases.implementation.skillBinding = {
     bindingRefs: { skill: { id: 'example', packageSha256: `sha256:${'a'.repeat(64)}` } }
@@ -576,6 +579,7 @@ test('workflow bundle v1 cannot acquire skill authority through a self-rehashed 
   overridden.schemaVersion = 1;
   delete overridden.skillPackages;
   delete overridden.semantics;
+  delete overridden.imports;
   overridden.objects.story.workTypes.feature.phaseOverrides ??= {};
   overridden.objects.story.workTypes.feature.phaseOverrides.implementation = {
     kind: 'skill', skillBinding: incomplete.objects.story.phases.implementation.skillBinding

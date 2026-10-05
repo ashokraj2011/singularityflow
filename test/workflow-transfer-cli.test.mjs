@@ -301,7 +301,7 @@ test('workflow export writes one portable bundle for several selected workflows'
 
   const bundle = JSON.parse(await readFile(output, 'utf8'));
   assert.equal(bundle.kind, 'sflow-workflow-bundle');
-  assert.equal(bundle.schemaVersion, 3);
+  assert.equal(bundle.schemaVersion, 4);
   assert.equal(bundle.bundleSha256, receipt.bundleSha256);
   assert.deepEqual(bundle.workflows.map((entry) => `${entry.governs}:${entry.id}`), [
     'story:bugfix', 'story:feature'

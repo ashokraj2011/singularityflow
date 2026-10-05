@@ -139,8 +139,8 @@ test('export import / equivalent retained package and compiled binding with exac
   const value = await fixture(t);
   await rm(value.directory, { recursive: true, force: true });
   const bundle = await value.exportBundle();
-  assert.equal(bundle.schemaVersion, 3);
-  assert.equal(currentSchemaVersion('workflow-bundle'), 3);
+  assert.equal(bundle.schemaVersion, 4);
+  assert.equal(currentSchemaVersion('workflow-bundle'), 4);
   assert.deepEqual(bundle.skillPackages[0].manifest, value.capture.manifest);
   assert.equal(bundle.skillPackages[0].source.commit, value.approved.sourceCommit);
   assert.deepEqual(bundle.skillPackages[0].phaseBindings.map((entry) => entry.phaseId), ['threat-model']);
@@ -350,6 +350,7 @@ test('live matching bytes cannot replace an approved snapshot, and v1 keeps its 
   ordinary.schemaVersion = 1;
   delete ordinary.skillPackages;
   delete ordinary.semantics;
+  delete ordinary.imports;
   rehash(ordinary);
   const file = path.join(value.base, 'historical-v1.json');
   await writeFile(file, JSON.stringify(ordinary));

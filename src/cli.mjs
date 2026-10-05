@@ -15,10 +15,6 @@ import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
-  exportWorkflowBundle,
-  planWorkflowCopy, planWorkflowImport, readWorkflowBundle, workflowTransferProposal
-} from './workflow-transfer.mjs';
-import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
   configurationProposalCommitStatus,
   inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals,
@@ -10816,6 +10812,7 @@ async function workflowCommand(positionals, options) {
   }
 
   if (subcommand === 'export') {
+    const { exportWorkflowBundle } = await import('./workflow-transfer.mjs');
     const requested = [...positionals.slice(2), ...optionStrings(options, 'workflow')]
       .flatMap((value) => String(value).split(','))
       .map((value) => value.trim()).filter(Boolean);
@@ -10842,16 +10839,18 @@ async function workflowCommand(positionals, options) {
   }
 
   if (subcommand === 'import') {
+    const {
+      importPlanText, importResolutionOptions, planWorkflowImport, readWorkflowBundle, workflowTransferProposal
+    } = await import('./workflow-transfer.mjs');
     const inputPath = path.resolve(root, requirePositional(positionals, 2, 'workflow bundle file'));
     const bundle = await readWorkflowBundle(inputPath);
+    // Each same-name conflict needs a choice: --resolve <kind>:<id>=keep|replace|rename[:<name>].
+    const choices = importResolutionOptions(optionStrings(options, 'resolve'), options['resolve-all']);
     if (optionBoolean(options, 'dry-run')) {
       const plan = await withApprovedConfigurationRead(root, () =>
-        planWorkflowImport(root, bundle), { preferAuthority: true });
+        planWorkflowImport(root, bundle, choices), { preferAuthority: true });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
-      console.log(`Workflow import preview: ${plan.status}.`);
-      console.log(`  Add: ${plan.added?.length ?? 0} · Reuse exact: ${plan.reused?.length ?? 0} · Conflicts: ${plan.conflicts?.length ?? 0}`);
-      if (plan.changedPaths?.length) console.log(`  Changed paths: ${plan.changedPaths.join(', ')}`);
-      console.log(`  Confirm plan: ${plan.planSha256}`);
+      for (const line of importPlanText(plan, positionals[2])) console.log(line);
       return;
     }
     const expectedPlanSha256 = optionString(options, 'confirm');
@@ -10862,7 +10861,7 @@ async function workflowCommand(positionals, options) {
     }
     const ids = bundle.workflows?.map((entry) => entry.id).filter(Boolean) ?? [];
     const proposal = await withApprovedConfigurationRead(root, async () =>
-      workflowTransferProposal(await planWorkflowImport(root, bundle), {
+      workflowTransferProposal(await planWorkflowImport(root, bundle, choices), {
         expectedPlanSha256, requireApprovedDestination: proposing
       }), { preferAuthority: true });
     const imported = await author({
@@ -10875,11 +10874,13 @@ async function workflowCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(imported, null, 2));
     if (printProposal(imported)) return;
     console.log(`Imported ${ids.length} workflow${ids.length === 1 ? '' : 's'} from ${inputPath}.`);
-    console.log(`  Added: ${imported.added?.length ?? 0} · Reused exact: ${imported.reused?.length ?? 0}`);
+    console.log(`  Added: ${imported.added?.length ?? 0} · Reused exact: ${imported.reused?.length ?? 0}`
+      + ` · Replaced: ${imported.replaced?.length ?? 0} · Kept yours: ${imported.kept?.length ?? 0} · New names: ${imported.renamed?.length ?? 0}`);
     return;
   }
 
   if (subcommand === 'copy' || subcommand === 'duplicate') {
+    const { planWorkflowCopy, workflowTransferProposal } = await import('./workflow-transfer.mjs');
     const sourceId = requirePositional(positionals, 2, 'source workflow ID');
     const targetId = requirePositional(positionals, 3, 'target workflow ID');
     const label = optionString(options, 'label');

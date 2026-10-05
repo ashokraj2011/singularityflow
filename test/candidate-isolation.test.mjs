@@ -167,9 +167,9 @@ test('an unrelated local edit that would break the tests stays in the worktree w
 
   cli('prepare', 'implementation');
   await write('src/value.mjs', `// @clause:${W}:AC-001 doubles the configured factor\nimport { factor } from './config.mjs';\nexport const value = 2 * factor;\n`);
-  await write('test/value.test.mjs', [`// @ac:${W}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
+  await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
     "import { readFileSync } from 'node:fs';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));",
+    "import { value } from '../src/value.mjs';", `// @ac:${W}:AC-001`, "test('value', () => assert.equal(value, 2));",
     "test('text input', () => assert.equal(readFileSync('data.txt', 'utf8'), 'committed text'));",
     "test('MDX input', () => assert.equal(readFileSync('component.mdx', 'utf8'), 'committed MDX'));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');

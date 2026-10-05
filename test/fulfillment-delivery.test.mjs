@@ -76,7 +76,9 @@ test('a real Story delivers modified, existing, test-only, removed and document 
     await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
     await writeFile(path.join(root, relative), Array.isArray(lines) ? lines.join('\n') : lines);
   };
-  const testFile = (tag, body) => [`// @ac:${tag}`, "import test from 'node:test';", "import assert from 'node:assert/strict';", ...body, ''];
+  // The body ends with the test declaration; its tag sits on the line directly above it.
+  const testFile = (tag, body) => ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    ...body.slice(0, -1), `// @ac:${tag}`, ...body.slice(-1), ''];
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Fulfillment Tester'], root);
   run('git', ['config', 'user.email', 'fulfil@example.test'], root);

@@ -153,14 +153,21 @@ test('the CLI accepts and revokes the risk of an inconclusive criterion through 
   cliRun('git', ['config', 'user.email', 'risk@example.test'], root);
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/value.mjs', 'export const value = 1;\n');
-  await write('test/value.test.mjs', [`// @ac:${id}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 1));", ''].join('\n'));
+  await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", `// @ac:${id}:AC-001`, "test('value', () => assert.equal(value, 1));", ''].join('\n'));
   cli('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Node's JUnit report only counts tests, so which test was skipped is not joined to the criterion.
+  // (The inferred `node --test` command is read exactly, where a skipped test leaves it missing.)
+  config.phases.implementation.qualityCommands = [{
+    id: 'unit-tests', kind: 'test', argv: [process.execPath, '--test', '--test-reporter=junit', 'test/value.test.mjs'],
+    workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+    result: { adapter: 'junit-xml', path: '.sflow/results/unit.xml', minimumDiscovered: 1 }
+  }];
   await writeFile(configPath, YAML.stringify(config));
   cliRun('git', ['add', '.'], root);
   cliRun('git', ['commit', '-m', 'Initialize the risk fixture'], root);
@@ -188,9 +195,9 @@ test('the CLI accepts and revokes the risk of an inconclusive criterion through 
   cli('prepare', 'implementation');
   await write('src/value.mjs', `// @clause:${id}:AC-001 returns the approved value 2\nexport const value = 2;\n`);
   // One assertion runs and passes; one is skipped, so the criterion is inconclusive, not verified.
-  await write('test/value.test.mjs', [`// @ac:${id}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));",
-    "test.skip('value in the payment sandbox', () => assert.equal(value, 2));", ''].join('\n'));
+  await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", `// @ac:${id}:AC-001`, "test('value', () => assert.equal(value, 2));",
+    `// @ac:${id}:AC-001`, "test.skip('value in the payment sandbox', () => assert.equal(value, 2));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module returns the approved value 2.'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');

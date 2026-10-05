@@ -84,8 +84,8 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   run('git', ['config', 'user.email', 'amend@example.test'], root);
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/value.mjs', 'export const value = 1;\n');
-  await write('test/value.test.mjs', [`// @ac:${W}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 1));", ''].join('\n'));
+  await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", `// @ac:${W}:AC-001`, "test('value', () => assert.equal(value, 1));", ''].join('\n'));
   cli('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
@@ -124,8 +124,8 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   await write('src/value.mjs', `// @clause:${W}:AC-001 returns the approved value from the helper\nimport { approved } from './helper.mjs';\nexport const value = approved;\n`);
   // A helper the plan did not name.
   await write('src/helper.mjs', 'export const approved = 2;\n');
-  await write('test/value.test.mjs', [`// @ac:${W}:AC-001`, "import test from 'node:test';", "import assert from 'node:assert/strict';",
-    "import { value } from '../src/value.mjs';", "test('value', () => assert.equal(value, 2));", ''].join('\n'));
+  await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", `// @ac:${W}:AC-001`, "test('value', () => assert.equal(value, 2));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module reads the approved value from a small helper.'));
   // A scratch note is prose the plan does not name: left out and kept, never committed [E2G-027].

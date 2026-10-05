@@ -306,6 +306,56 @@ test('workspace capability preview and apply remain exact across CLI processes',
     'a plan from before another process changed the manifest cannot apply');
 });
 
+test('workspace capability changes finish under an older selection without a workspace path', async () => {
+  // Older active-workspace selections did not record a workspace path, and the v1->v2 migration
+  // does not add one. Such a selection cannot be proven to name this workspace, so it is not
+  // cleared; the change it follows has already been applied and must still be reported.
+  const { base, source, env } = await environment();
+  await approveDeliveryCapability(base, source, 'payments');
+  const workspaces = path.join(base, 'workspaces-older-selection');
+  const directory = path.join(workspaces, 'commerce');
+  cli(['workspace', 'create', '--local', '--id', 'commerce', '--base', workspaces,
+    '--lead', 'app', '--repository', `app=${source}`, '--confirm', 'commerce', '--no-clone'], env);
+  const attach = JSON.parse(cli([
+    'workspace', 'attach-capability', directory, 'payments', '--dry-run', '--json'
+  ], env).stdout);
+  cli(['workspace', 'attach-capability', directory, 'payments', '--confirm-plan', attach.planId, '--json'], env);
+  cli(['workspace', 'use', directory, '--repository', 'source', '--json'], env);
+  const olderSelection = JSON.parse(await readFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, 'utf8'));
+  delete olderSelection.workspacePath;
+  const selection = `${JSON.stringify(olderSelection, null, 2)}\n`;
+  await writeFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, selection);
+  const registered = async () => JSON.parse(await readFile(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, 'utf8'))
+    .workspaces.find((entry) => entry.id === 'local--commerce');
+  const before = await registered();
+
+  const detach = JSON.parse(cli([
+    'workspace', 'detach-capability', directory, 'payments', '--drop-local', '--dry-run', '--json'
+  ], env).stdout);
+  const detached = JSON.parse(cli([
+    'workspace', 'detach-capability', directory, 'payments', '--drop-local',
+    '--confirm-plan', detach.planId, '--json'
+  ], env).stdout);
+  assert.deepEqual(detached.workspace.capabilities, []);
+  assert.equal(detached.activeSelectionCleared, false,
+    'a selection without a workspace path is not cleared, even when it names the removed repository');
+  assert.equal(await readFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, 'utf8'), selection);
+  assert.equal(await readFile(path.join(directory, 'workspace.json'), 'utf8')
+    .then((text) => JSON.parse(text).repositories.source ?? null), null);
+  assert.ok((await registered()).openedAt > before.openedAt,
+    'the changed workspace is remembered in the registry');
+
+  const reattach = JSON.parse(cli([
+    'workspace', 'attach-capability', directory, 'payments', '--dry-run', '--json'
+  ], env).stdout);
+  const attached = JSON.parse(cli([
+    'workspace', 'attach-capability', directory, 'payments', '--confirm-plan', reattach.planId, '--json'
+  ], env).stdout);
+  assert.deepEqual(attached.workspace.capabilities, ['payments']);
+  assert.equal(attached.activeSelectionCleared, false);
+  assert.equal(await readFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, 'utf8'), selection);
+});
+
 test('archive and restore round-trip, and archiving demands exact confirmation', async () => {
   const { base, source, env } = await environment();
   const workspaces = path.join(base, 'workspaces');

@@ -16946,7 +16946,7 @@ async function workspaceCommand(positionals, options) {
     const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false })
       .catch(() => null);
     const removed = new Set(result.removedRepositoryIds ?? []);
-    result.activeSelectionCleared = Boolean(active
+    result.activeSelectionCleared = Boolean(active?.workspacePath
       && path.resolve(active.workspacePath) === path.resolve(result.workspace.path)
       && removed.has(active.repositoryId)
       && await clearActiveWorkspaceContext(selectionFile, result.workspace.path, {

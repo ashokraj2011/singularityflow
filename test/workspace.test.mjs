@@ -33,7 +33,7 @@ import {
   withExplicitRepositoryMutationLeases
 } from '../src/cli-entry.mjs';
 import {
-  assertNoActiveSubjectLocks, withRepositoryResetBarrier
+  activeSubjectLocks, assertNoActiveSubjectLocks, withRepositoryResetBarrier
 } from '../src/subject-lock.mjs';
 import { run, SingularityFlowError } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
@@ -2063,6 +2063,55 @@ test('an active workspace selection is cleared after a direct backend capability
     'crash recovery must not silently change the user selection to another repository');
   await assert.rejects(() => readFile(selection, 'utf8'), /ENOENT/,
     'the stale machine-local navigation cursor is removed');
+});
+
+test('a capability drop hands over the command lease on its checkout and refuses one already lost', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drop-lease-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await attachedCapabilityWorkspace(root, 'drop-lease');
+  const workspacePath = fixture.workspace.path;
+  const manifestFile = path.join(workspacePath, 'workspace.json');
+  const apiCheckout = await realpath(fixture.apiCheckout);
+  const roots = await explicitRepositoryMutationRoots({
+    command: 'workspace',
+    subcommand: 'detach-capability',
+    positionals: ['workspace', 'detach-capability', workspacePath, 'api'],
+    options: { 'drop-local': true },
+    classification: 'mutation'
+  });
+  assert.ok(roots.includes(apiCheckout), 'the checkout being dropped is fenced by the command lease');
+  const drop = await previewWorkspaceCapabilityChange(workspacePath, 'api', {
+    action: 'detach', dropLocal: true
+  });
+  const apply = () => changeWorkspaceCapability(workspacePath, 'api', {
+    action: 'detach', dropLocal: true
+  }, { confirmation: drop.planId });
+  const manifest = await readFile(manifestFile, 'utf8');
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (message) => warnings.push(String(message));
+  try {
+    await withExplicitRepositoryMutationLeases(roots, 'workspace.detach-capability', async () => {
+      const lease = (await activeSubjectLocks(apiCheckout))
+        .find((lock) => lock.owner?.subject?.kind === 'repository-mutation');
+      await rm(lease.directory, { recursive: true });
+      await assert.rejects(apply, (error) => error?.code === 'SUBJECT_LOCK_LOST');
+    });
+    assert.equal(warnings.filter((warning) => /lock was taken over/.test(warning)).length, 1,
+      'a lease lost before the drop is still reported at release');
+    assert.ok(await stat(path.join(apiCheckout, '.git')), 'nothing is dropped outside its reset fence');
+    assert.equal(await readFile(manifestFile, 'utf8'), manifest);
+
+    warnings.length = 0;
+    const dropped = await withExplicitRepositoryMutationLeases(
+      roots, 'workspace.detach-capability', apply
+    );
+    assert.deepEqual(dropped.dropped.map((repository) => repository.id), ['api']);
+    assert.equal(await stat(apiCheckout).catch(() => null), null);
+    assert.deepEqual(warnings, [], 'the committed drop explains its own lease leaving with the checkout');
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test('workspace capability detach preserves shared and lead repositories', async () => {

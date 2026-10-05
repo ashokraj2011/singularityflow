@@ -12,8 +12,10 @@ import YAML from 'yaml';
 import {
   acquireSubjectLock,
   activeSubjectLocks,
+  assertNoActiveSubjectLocks,
   assertRepositoryResetAvailable,
   currentSubjectLockOwner,
+  prepareHeldLockRemoval,
   releaseSubjectLock,
   repositoryResetBarrierPath,
   subjectLockPath,
@@ -502,6 +504,169 @@ test('repository mutation leases are unique, visible to reset, and barrier check
     }), (error) => error?.code === 'FACTORY_RESET_IN_PROGRESS');
     assert.equal(callbackRan, false);
   });
+});
+
+const LOCK_TAKEOVER_WARNING = /lock was taken over while this command held it/;
+
+async function capturedWarnings(action) {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (message) => warnings.push(String(message));
+  try {
+    const outcome = await action().then((value) => ({ value }), (error) => ({ error }));
+    return { ...outcome, warnings };
+  } finally {
+    console.warn = original;
+  }
+}
+
+/** A checkout whose common Git directory, and so every lock taken on it, lives inside it. */
+async function checkoutRemovalFixture(t, name) {
+  const base = await mkdtemp(path.join(os.tmpdir(), `sflow-lock-${name}-`));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const checkout = path.join(base, 'checkout');
+  run('git', ['init', '-b', 'main', checkout], base);
+  return { base, checkout, staged: path.join(base, 'staged') };
+}
+
+async function repositoryMutationLock(root) {
+  return (await activeSubjectLocks(root))
+    .find((lock) => lock.owner?.subject?.kind === 'repository-mutation');
+}
+
+test('a lease removed with its checkout by a committed transaction releases without a takeover warning', async (t) => {
+  const { checkout, staged } = await checkoutRemovalFixture(t, 'checkout-removal');
+  let movedLock = null;
+  const outcome = await capturedWarnings(() => withRepositoryMutationLease(
+    checkout, 'workspace.detach-capability', async () => {
+      const handover = await prepareHeldLockRemoval(checkout);
+      assert.equal(handover.locks, 1);
+      await rename(checkout, staged);
+      // The fence travels with the checkout: a reset of the staged copy still refuses.
+      movedLock = await repositoryMutationLock(staged);
+      await assert.rejects(() => assertNoActiveSubjectLocks(staged),
+        (error) => error?.code === 'FACTORY_RESET_ACTIVE_OPERATIONS');
+      await handover.commit(staged);
+      await rm(staged, { recursive: true });
+    }
+  ));
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.warnings, []);
+  assert.match(movedLock?.owner?.subject?.id ?? '', /^workspace\.detach-capability-/);
+});
+
+test('a handed-over lease stops renewing before its checkout moves, so no renewal can fail it', async (t) => {
+  const subject = (id) => ({ kind: 'repository-mutation', id });
+  // A 1 s TTL renews every 333 ms, so this pause spans at least two renewals after the move.
+  const pastTwoRenewals = () => new Promise((resolve) => setTimeout(resolve, 900));
+
+  // Without a handover, a renewal after the move fails a finished operation and looks like a
+  // takeover. This control proves the pause really does span renewals.
+  const unhanded = await checkoutRemovalFixture(t, 'unhanded-renewal');
+  const control = await capturedWarnings(() => withSubjectLock(
+    unhanded.checkout, subject('UNHANDED'), async () => {
+      await rename(unhanded.checkout, unhanded.staged);
+      await pastTwoRenewals();
+    }, { ttlMs: 1_000 }
+  ));
+  assert.equal(control.error?.code, 'SUBJECT_LOCK_HEARTBEAT_FAILED');
+  assert.equal(control.warnings.filter((warning) => LOCK_TAKEOVER_WARNING.test(warning)).length, 1);
+
+  const handed = await checkoutRemovalFixture(t, 'handed-renewal');
+  const outcome = await capturedWarnings(() => withSubjectLock(
+    handed.checkout, subject('HANDED'), async () => {
+      const handover = await prepareHeldLockRemoval(handed.checkout);
+      await rename(handed.checkout, handed.staged);
+      await pastTwoRenewals();
+      await handover.commit(handed.staged);
+      await rm(handed.staged, { recursive: true });
+    }, { ttlMs: 1_000 }
+  ));
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.warnings, []);
+});
+
+test('a lease lost around a checkout handover still warns and is never excused', async (t) => {
+  const takeovers = (warnings) => warnings.filter((warning) => LOCK_TAKEOVER_WARNING.test(warning)).length;
+
+  // Lost before the handover: the checkout must not move outside its fence, and release reports it.
+  const before = await checkoutRemovalFixture(t, 'lost-before-handover');
+  const refused = await capturedWarnings(() => withRepositoryMutationLease(before.checkout, 'drop', async () => {
+    await rm((await repositoryMutationLock(before.checkout)).directory, { recursive: true });
+    await assert.rejects(() => prepareHeldLockRemoval(before.checkout),
+      (error) => error?.code === 'SUBJECT_LOCK_LOST');
+  }));
+  assert.equal(refused.error, undefined);
+  assert.equal(takeovers(refused.warnings), 1);
+  assert.equal(existsSync(path.join(before.checkout, '.git')), true);
+
+  // Lost after the handover but before the move: the commit finds nothing at the destination.
+  const between = await checkoutRemovalFixture(t, 'lost-before-move');
+  const unverified = await capturedWarnings(() => withRepositoryMutationLease(between.checkout, 'drop', async () => {
+    const handover = await prepareHeldLockRemoval(between.checkout);
+    await rm((await repositoryMutationLock(between.checkout)).directory, { recursive: true });
+    await rename(between.checkout, between.staged);
+    await handover.commit(between.staged);
+    await rm(between.staged, { recursive: true });
+  }));
+  assert.equal(unverified.error, undefined);
+  assert.equal(takeovers(unverified.warnings), 1);
+
+  // Moved but never committed: the absence is not explained by a committed removal.
+  const uncommitted = await checkoutRemovalFixture(t, 'uncommitted-removal');
+  const pending = await capturedWarnings(() => withRepositoryMutationLease(uncommitted.checkout, 'drop', async () => {
+    await prepareHeldLockRemoval(uncommitted.checkout);
+    await rename(uncommitted.checkout, uncommitted.staged);
+  }));
+  assert.equal(pending.error, undefined);
+  assert.equal(takeovers(pending.warnings), 1);
+});
+
+test('a handover whose move is undone releases the restored lease normally', async (t) => {
+  const { checkout, staged } = await checkoutRemovalFixture(t, 'undone-removal');
+  const outcome = await capturedWarnings(() => withRepositoryMutationLease(checkout, 'drop', async () => {
+    await prepareHeldLockRemoval(checkout);
+    await rename(checkout, staged);
+    await rename(staged, checkout);
+  }));
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.warnings, []);
+  assert.deepEqual(await activeSubjectLocks(checkout), [], 'the restored lease was released, not left behind');
+});
+
+test('a checkout handover covers only the calling chain and only locks inside the checkout', async (t) => {
+  const { base, checkout } = await checkoutRemovalFixture(t, 'handover-scope');
+  run('git', ['config', 'user.name', 'Kernel Tester'], checkout);
+  run('git', ['config', 'user.email', 'kernel@example.com'], checkout);
+  await writeFile(path.join(checkout, 'README.md'), '# handover scope\n');
+  run('git', ['add', '.'], checkout);
+  run('git', ['commit', '-m', 'initial'], checkout);
+  const linked = path.join(base, 'linked');
+  run('git', ['worktree', 'add', '-b', 'handover-scope', linked], checkout);
+  assert.equal((await prepareHeldLockRemoval(checkout)).locks, 0, 'nothing is held outside a lease');
+
+  let otherEntered;
+  const otherStarted = new Promise((resolve) => { otherEntered = resolve; });
+  let releaseOther;
+  const otherHeld = new Promise((resolve) => { releaseOther = resolve; });
+  const other = withRepositoryMutationLease(checkout, 'other-command', async () => {
+    otherEntered();
+    await otherHeld;
+  });
+  await otherStarted;
+  const outcome = await capturedWarnings(() => withRepositoryMutationLease(checkout, 'this-command', async () => {
+    // A linked worktree keeps its locks in the common Git directory, which its removal leaves behind.
+    const worktree = await withRepositoryMutationLease(linked, 'worktree-command',
+      () => prepareHeldLockRemoval(linked));
+    assert.equal(worktree.locks, 0);
+    const handover = await prepareHeldLockRemoval(checkout);
+    assert.equal(handover.locks, 1, 'another operation lease on the same checkout is not handed over');
+  }));
+  releaseOther();
+  await other;
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.warnings, []);
+  assert.deepEqual(await activeSubjectLocks(checkout), []);
 });
 
 test('active lock scan includes an old worktree-private lock root', async (t) => {

@@ -279,10 +279,15 @@ test('workspace capability preview and apply remain exact across CLI processes',
   ], env).stdout);
   assert.deepEqual(detach.dropRepositories.map((repository) => repository.id), ['source']);
   cli(['workspace', 'use', directory, '--repository', 'source', '--json'], env);
-  const detached = JSON.parse(cli([
+  const detachRun = cli([
     'workspace', 'detach-capability', directory, 'payments', '--drop-local',
     '--confirm-plan', detach.planId, '--json'
-  ], env).stdout);
+  ], env);
+  // The command leases the checkout it drops, and that lease leaves with the checkout. Its release
+  // must recognise the command's own committed drop instead of reporting a takeover.
+  assert.equal(detachRun.stderr, '', 'a committed local drop prints no lock-takeover warning');
+  const detached = JSON.parse(detachRun.stdout);
+  assert.deepEqual(detached.dropped.map((repository) => repository.id), ['source']);
   assert.equal(detached.activeSelectionCleared, true);
   assert.deepEqual(JSON.parse(cli(['workspace', 'current', '--json'], env).stdout), { active: false });
   assert.equal(await readFile(path.join(directory, 'workspace.json'), 'utf8')
@@ -332,10 +337,12 @@ test('workspace capability changes finish under an older selection without a wor
   const detach = JSON.parse(cli([
     'workspace', 'detach-capability', directory, 'payments', '--drop-local', '--dry-run', '--json'
   ], env).stdout);
-  const detached = JSON.parse(cli([
+  const detachRun = cli([
     'workspace', 'detach-capability', directory, 'payments', '--drop-local',
     '--confirm-plan', detach.planId, '--json'
-  ], env).stdout);
+  ], env);
+  assert.equal(detachRun.stderr, '', 'a committed local drop prints no lock-takeover warning');
+  const detached = JSON.parse(detachRun.stdout);
   assert.deepEqual(detached.workspace.capabilities, []);
   assert.equal(detached.activeSelectionCleared, false,
     'a selection without a workspace path is not cleared, even when it names the removed repository');

@@ -1172,7 +1172,10 @@ export async function withSubjectLock(root, subject, callback, options = {}) {
     directory, owner, ttlMs, options.heartbeatFactory ?? null
   );
   const lease = {
-    owner, active: true, reentrantCount: 0, drainWaiters: []
+    owner, active: true, reentrantCount: 0, drainWaiters: [],
+    // `removal` is set only by `prepareHeldLockRemoval`, when this transaction moves the checkout
+    // that contains `directory`.
+    directory, heartbeat, removal: null
   };
   const frame = { lease, active: true };
   const scope = new Map(inherited ?? []);
@@ -1192,8 +1195,11 @@ export async function withSubjectLock(root, subject, callback, options = {}) {
   operationError = appendSecondaryFailure(operationError, heartbeat?.failure ?? null);
   // A false release means the lock we were holding is no longer ours — it was reclaimed as stale
   // while we were working, so something else may have been mutating the same subject alongside
-  // us. Discarding that quietly is how a concurrent mutation becomes invisible.
-  if (!await releaseSubjectLock(root, subject, owner, { hooks: options.hooks ?? null })) {
+  // us. Discarding that quietly is how a concurrent mutation becomes invisible. The one absence that
+  // is not a takeover is the one this transaction caused itself, by committing the removal of the
+  // checkout that contained the lock, and only a verified handover can claim that.
+  if (!await releaseSubjectLock(root, subject, owner, { hooks: options.hooks ?? null })
+      && !await removedWithItsCheckout(lease)) {
     console.warn(
       `Warning: the ${subject.kind} '${subject.id}' lock was taken over while this command held it. `
       + 'Another process may have changed it at the same time; check the result before relying on it.'
@@ -1201,6 +1207,118 @@ export async function withSubjectLock(root, subject, callback, options = {}) {
   }
   if (operationError) throw operationError;
   return result;
+}
+
+/** Resolve symbolic links in `target`, keeping any trailing segments that no longer exist. */
+async function canonicalLocation(target) {
+  const missing = [];
+  let current = path.resolve(target);
+  for (;;) {
+    try { return path.join(await realpath(current), ...missing); }
+    catch (error) {
+      const parent = path.dirname(current);
+      if (error?.code !== 'ENOENT' || parent === current) throw error;
+      missing.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/** `target` relative to `container` when it lies strictly inside it, otherwise null. */
+function pathInsideDirectory(container, target) {
+  const relative = path.relative(container, target);
+  if (!relative || path.isAbsolute(relative)
+      || relative === '..' || relative.startsWith(`..${path.sep}`)) return null;
+  return relative;
+}
+
+/**
+ * Whether a lease's missing lock is explained by this transaction's own committed removal of the
+ * checkout that contained it, rather than by a takeover.
+ */
+async function removedWithItsCheckout(lease) {
+  if (!lease.removal?.committed) return false;
+  // The commit proved the lock left with its checkout. Anything at the original pathname now did not
+  // come from that move, so finding something there keeps the warning.
+  return pathInfo(lease.directory).then((info) => !info, () => false);
+}
+
+/**
+ * Hand the locks this transaction holds inside `checkout` over to the move that is about to remove
+ * that checkout.
+ *
+ * A subject lock lives in its repository's common Git directory, which for an ordinary clone is
+ * inside the checkout. Moving or deleting the checkout takes the lock with it. The heartbeat then
+ * fails against a path that no longer exists, and the release finds nothing at the original path,
+ * which is exactly what a takeover looks like. So every committed `workspace detach-capability
+ * --drop-local` warned that its lease had been taken over, and one whose renewal tick fell between
+ * the move and the release failed outright, after the checkout was already gone.
+ *
+ * Reset exclusion is unchanged. The handover refuses unless every lock it covers is still present
+ * and still ours, so a checkout is never moved after its fence was lost. It stops only the renewal,
+ * never the lease: the directory and owner record travel with the checkout, so a reset scan finds a
+ * live lease wherever the checkout is. Stopping renewal cannot expire that lease early either: its
+ * last renewal still carries nearly a full TTL, and the PID that owns it is still running.
+ *
+ * Nothing is excused at this point. `commit(destination)` belongs at the point where the removal can
+ * no longer be undone, and it marks a lock only after finding it at `destination`, intact and still
+ * ours. A takeover before then leaves nothing at `destination` to find, so its release still warns,
+ * and so does every release whose removal was never committed.
+ *
+ * Only locks held by the calling async chain are considered. A lock held by any other operation, even
+ * one in this process, is never handed over.
+ */
+export async function prepareHeldLockRemoval(checkout) {
+  const leases = new Set();
+  for (const frame of heldLocks.getStore()?.values() ?? []) {
+    // A committed lease has already left with an earlier removal. An uncommitted one is checked and
+    // handed over again, so a retried removal is never left without its handover.
+    if (frame?.active && frame.lease?.active && frame.lease.directory
+        && !frame.lease.removal?.committed) leases.add(frame.lease);
+  }
+  const handovers = [];
+  const info = leases.size ? await pathInfo(checkout) : null;
+  if (info?.isDirectory() && !info.isSymbolicLink()) {
+    const container = await realpath(checkout);
+    for (const lease of leases) {
+      const relative = pathInsideDirectory(container, await canonicalLocation(lease.directory));
+      if (!relative) continue;
+      const current = await activeDirectoryOwner(lease.directory, DEFAULT_TTL_MS);
+      if (!current.info || current.owner?.lockToken !== lease.owner.lockToken
+          || current.owner?.processToken !== PROCESS_TOKEN) {
+        const { subject } = lease.owner;
+        throw new SingularityFlowError(
+          `The ${subject.kind} '${subject.id}' lock this command held in ${checkout} is no longer its own. `
+          + 'Another process may be changing that checkout, so nothing in it was moved. Check it before retrying.',
+          { code: 'SUBJECT_LOCK_LOST', details: { lock: lease.directory, checkout } }
+        );
+      }
+      handovers.push({ lease, relative });
+    }
+  }
+  // Stop renewal only after every covered lock has been checked, so a refusal leaves each of them
+  // exactly as it was.
+  for (const handover of handovers) {
+    handover.lease.removal = { checkout, committed: false };
+    await stopHeartbeat(handover.lease.heartbeat).catch(() => {});
+  }
+  return {
+    locks: handovers.length,
+    async commit(destination) {
+      for (const { lease, relative } of handovers) {
+        try {
+          const moved = await activeDirectoryOwner(
+            path.join(await realpath(destination), relative), DEFAULT_TTL_MS
+          );
+          if (moved.info && moved.owner?.lockToken === lease.owner.lockToken
+              && moved.owner?.processToken === PROCESS_TOKEN) lease.removal.committed = true;
+        } catch {
+          // A lock that cannot be verified keeps its release warning. Verification must never fail
+          // a removal that has already been committed.
+        }
+      }
+    }
+  };
 }
 
 /**

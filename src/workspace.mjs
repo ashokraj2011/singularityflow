@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { withRegistryFileLease } from './file-lease.mjs';
+import { prepareHeldLockRemoval } from './subject-lock.mjs';
 import YAML from 'yaml';
 import { localBranches, prepareRemoteBranchTracking, remoteBranches, safePruneRefspecs } from './git.mjs';
 import {
@@ -2501,6 +2502,19 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
       id: proof.id, path: proof.path
     })));
 
+    // The command's reset-fencing lease on each checkout lives in that checkout's .git and leaves
+    // with it. Hand it to this transaction before anything is created or moved. The handover refuses
+    // when a lease was already lost, so no checkout is dropped outside its reset fence.
+    const lockHandovers = new Map();
+    for (const proof of currentProofs) {
+      if (proof.removable) lockHandovers.set(proof.id, await prepareHeldLockRemoval(proof.path));
+    }
+    // From the manifest write on, the staged checkouts are never moved back, so their leases are
+    // gone from the original paths by this command's own committed drop rather than by a takeover.
+    const commitLockHandovers = async () => {
+      for (const repository of staged) await lockHandovers.get(repository.id)?.commit(repository.target);
+    };
+
     dropRoot = path.join(current.path, '.singularity-flow', 'workspace-capability-drop', preview.planId);
     await assertInside(current.path, dropRoot);
     if (await workspaceDropLstat(dropRoot)) {
@@ -2563,6 +2577,7 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
       });
       await atomicJson(transactionFile, stagedTransaction);
       await atomicJson(manifestFile, preview.manifest);
+      await commitLockHandovers();
       await atomicJson(transactionFile, sealWorkspaceCapabilityDropTransaction({
         ...stagedTransaction, phase: 'manifest-updated'
       }));
@@ -2575,6 +2590,8 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
         for (const repository of [...staged].reverse()) {
           await rename(repository.target, repository.source).catch(() => {});
         }
+      } else {
+        await commitLockHandovers();
       }
       throw error;
     }

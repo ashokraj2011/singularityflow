@@ -469,6 +469,10 @@ async function workspaceManifestsForRepositoryMutation(subcommand, positionals, 
  * Missing/unmaterialized repositories are skipped because there is no Git control directory on
  * which factory reset could operate. Invalid existing checkouts remain the command's own recovery
  * diagnostic. Available member roots are canonicalized by Git and deduplicated across workspaces.
+ *
+ * A checkout the command is about to drop stays in the set. Its lease has to fence it right up to
+ * the move, and the drop hands that lease over (`prepareHeldLockRemoval`) so its release can tell
+ * the command's own removal from a takeover.
  */
 export async function explicitRepositoryMutationRoots({
   command, subcommand = null, positionals = [], options = {}, classification = 'mutation'

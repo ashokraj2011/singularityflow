@@ -118,6 +118,7 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     evidence: slice.evidence,
     workflow: slice.explanationInputs?.workflow ?? null,
     clauseSources: slice.explanationInputs?.clauseSources ?? null,
+    sourceTags: slice.explanationInputs?.sourceTags ?? null,
     replay: slice.replay,
     sourceReferences: slice.sourceReferences,
     codeScope: slice.codeScope

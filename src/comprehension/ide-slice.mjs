@@ -15,6 +15,7 @@ import { comprehensionSourceReferences } from './source-expansion.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
 import { buildCodeExplanation } from './code-explanation.mjs';
 import { readStoryClauseSources } from './xpl2/clause-sources.mjs';
+import { readChangeSourceTags } from './xpl2/source-tags.mjs';
 import { explainXpl2Subject } from './xpl2/subjects.mjs';
 
 /**
@@ -104,6 +105,9 @@ async function loadComprehensionIdeSliceOnce(root, {
   const codeExplanation = buildCodeExplanation({
     context, manifest, diff, structure, evidence, graph, codeScope: { hidden }
   });
+  // Clause and acceptance tags in the changed files, checked against this capture's content
+  // digests: a file edited mid-read moves the snapshot, and the whole slice retries.
+  const sourceTags = await readChangeSourceTags(root, changeSet, diff);
   // The Change Explorer view is built from exactly the same inputs, inside the same capture, so
   // the map, inventory, inspector and CLI subject views describe one snapshot [XPL2-REQ-004].
   // It is optional: a failure is reported as unavailable and never blocks the rest of the slice.
@@ -114,7 +118,7 @@ async function loadComprehensionIdeSliceOnce(root, {
     clauseSources = await readStoryClauseSources(root, selectedWorkflow);
     explanationView = explainXpl2Subject({
       context, manifest, codeExplanation, evidence, workflow: selectedWorkflow,
-      clauseSources, replay, sourceReferences, codeScope: { hidden }
+      clauseSources, replay, sourceReferences, codeScope: { hidden }, sourceTags
     }, { subject: 'change' });
   } catch (error) {
     explanationViewUnavailableReason = error?.code ?? 'XPL2_VIEW_UNAVAILABLE';
@@ -137,7 +141,7 @@ async function loadComprehensionIdeSliceOnce(root, {
   // CLI subject views rebuild from these exact inputs. They stay out of the serialized IDE
   // snapshot, which carries only the computed view.
   const explanationInputs = includeExplanationInputs
-    ? { workflow: selectedWorkflow, clauseSources, codeScope: { hidden } }
+    ? { workflow: selectedWorkflow, clauseSources, codeScope: { hidden }, sourceTags }
     : undefined;
 
   return {

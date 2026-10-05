@@ -58,7 +58,7 @@ future version rather than guess (tested by `XPL2-AC-061`).
 | Subject | Selector | Answers |
 |---|---|---|
 | `change` | none | Inventory, relationships, attention, and every source's state |
-| `clause` | `--id NAMESPACE:ID` | Declarations (all of them, conflicts kept), delivery requirement, region associations, declared tags |
+| `clause` | `--id NAMESPACE:ID` | Declarations (all of them, conflicts kept), the clauses its text names and those naming it, delivery requirement, region associations, `@clause` tags in changed code with the author's note, declared test tags |
 | `test` | `--id` | Declared tags, exact-path presence in the change, recorded results with their scope |
 | `line` | `--path P --line N [--side before\|after]` | The unit that contains the line, or `outside-change-set` / opaque |
 | `gap` | none | The owner's gap register when readable; otherwise the named unavailability |
@@ -80,7 +80,8 @@ indented by the common emitter and is outside this bound). A bounded page sets
 | `SRC-STRUCTURE` | Cached AST symbols | `ast.cached-symbols` | Navigation hints only when cached; `OBS-STRUCTURE` otherwise |
 | `SRC-GRAPH` | Comprehension cause graph | `cmp.intent-graph` | Region-level associations only; `OBS-CAUSE` records absence |
 | `SRC-DELIVERY` | Phase delivery record | `story.delivery-evidence` | Self-hashed; applicability `current` only for the same change set |
-| `SRC-SPEC-NN` | Specification artifacts | `story.specification-artifact` | Bounded read (8 artifacts, 1 MiB each, 500 clauses); inaccessible reveals no content or digest |
+| `SRC-SPEC-NN` | Specification artifacts | `story.specification-artifact` | Bounded read (8 artifacts, 1 MiB each, 500 clauses); inaccessible reveals no content or digest. A citation of a clause another artifact declares is kept as a citation, never a parse failure |
+| `SRC-TAGS` | `@clause` and `@ac` comments in the changed files | `xpl2.source-tags` | Verified against the capture's content digests; bounded (400 files, 1 MiB each, 2,000 tags); `OBS-TAGS` when no changed file can carry one |
 | `SRC-STORY` | Story lifecycle state | `story.workflow-state` | Recorded, unverified |
 | `SRC-REPLAY` | Normalized Story history | `cmp.story-replay` | Recorded order only; not a provenance timeline |
 | `SRC-PROOF` | Shadow proof observation | `gdp.shadow-proof` | `gap` subject only, when the owner answers |
@@ -96,10 +97,10 @@ for an unavailable or inaccessible source.
 
 **Statement templates** (`xpl2.<kind>@1`): `change-inventory`, `singularity-files-hidden`, `hunk`,
 `opaque-unit`, `file-type`, `mode-change`, `declaration-overlap`, `region-association`,
-`cause-not-recorded`, `clause-declared`, `clause-required`, `clause-untagged`, `test-tag`,
-`test-result`, `admission-unavailable`, `feature-state`, `gap-observed`, `no-complete-evaluation`,
-`line-in-unit`, `line-outside`, `line-opaque`, `generation-recorded`, `provenance-unavailable`,
-`source-state`. Text arguments are
+`cause-not-recorded`, `clause-declared`, `clause-cites`, `clause-required`, `clause-untagged`,
+`clause-tag`, `acceptance-tag`, `test-tag`, `test-result`, `admission-unavailable`, `feature-state`,
+`gap-observed`, `no-complete-evaluation`, `line-in-unit`, `line-outside`, `line-opaque`,
+`generation-recorded`, `provenance-unavailable`, `source-state`. Text arguments are
 display-sanitized (controls, format and bidirectional characters removed and bounded); identities
 are compared on untouched values.
 
@@ -121,12 +122,25 @@ Change Explorer:
 | `file-contains-unit` | exact unit | semantic ownership |
 | `declaration-line-overlap` | navigation | body coverage, ownership or behavior |
 | `region-associated-with-clause` | region only | that any individual hunk implements the clause |
+| `source-tags-clause` | declared mapping | that the code implements or meets the clause; the tag is the author's declaration |
+| `clause-cites-clause` | specification text | that either clause is met, or that work on one covers the other |
 | `test-source-tags-clause` | declared mapping | that the test ran, passed or covers the changed code |
 | `test-source-in-change` | exact path | that the test exercises the other changed files |
 | `observation-gap` | diagnostic | that the item has no reason or evidence elsewhere; a gap is not a failed test |
 
 No test-to-clause-to-code join is ever inferred. Attention is ordered: reported failure (only when
 an owner reported one), reason not recorded, worth inspecting, visibility limit.
+
+**Clause links.** A changed file links to a clause through its own `@clause:NS:TYPE-NNN` comment,
+read with the grammar delivery uses; the text after the ID on that line is the author's note on how
+the code meets the clause, quoted as theirs. A changed test links to a criterion through its
+`@ac:NS:AC-NNN` comment. Each tag says whether this change wrote its line (`added`, read from the
+patch's own `+` lines, or any line of a new untracked file), left it alone (`unchanged`) or cannot
+tell (`unknown`). A tag this change wrote is always shown; one already in the file is shown only for
+a clause the Story's specification declares, so an old file's tags for other work stay out. A clause
+links to another only through its specification text naming it; the change view shows the clauses
+its tags and records name plus one citation step either way. A file or test whose change wrote a tag
+(with a note, for `@clause`) is not reported as a change with no recorded reason.
 
 ## 5. Change Explorer (VS Code)
 

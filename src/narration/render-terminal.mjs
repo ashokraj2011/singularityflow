@@ -329,8 +329,9 @@ function codeExplanationTerminalValue(value, fallback = 'unavailable', maximum =
 }
 
 const XPL2_SECTIONS = [
-  ['What changed', ['change-inventory', 'file-type', 'mode-change', 'hunk', 'opaque-unit', 'declaration-overlap']],
-  ['Why it is linked', ['clause-declared', 'clause-required', 'region-association', 'test-tag', 'cause-not-recorded']],
+  ['What changed', ['change-inventory', 'singularity-files-hidden', 'file-type', 'mode-change', 'hunk', 'opaque-unit', 'declaration-overlap']],
+  ['Why it is linked', ['clause-declared', 'clause-cites', 'clause-required', 'clause-tag', 'region-association',
+    'acceptance-tag', 'test-tag', 'cause-not-recorded']],
   ['What was checked', ['test-result', 'clause-untagged', 'gap-observed', 'no-complete-evaluation']],
   ['Limits and unknowns', ['admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable', 'generation-recorded']]
 ];
@@ -384,7 +385,9 @@ function explanationSubjectText(result) {
   const counts = explanation.inventory?.counts;
   if (counts) {
     lines.push('', `Counts: ${counts.files} file(s) · ${counts.textHunks} text hunk(s) · ${counts.opaqueUnits} opaque · `
-      + `${counts.causeBoundUnits} hunk-bound cause link(s) · ${counts.unexplainedUnits} without an exact cause · ${counts.clauses} clause(s)`);
+      + `${counts.causeBoundUnits} hunk-bound cause link(s) · ${counts.unexplainedUnits} without an exact cause · ${counts.clauses} clause(s)`
+      + `${counts.clauseTags || counts.acceptanceTags ? ` · ${counts.clauseTags ?? 0} @clause tag(s) · ${counts.acceptanceTags ?? 0} @ac tag(s)` : ''}`
+      + `${counts.clauseCitations ? ` · ${counts.clauseCitations} clause citation(s)` : ''}`);
   }
   if (explanation.delivery?.complete === false) {
     lines.push(`Delivery bounded: ${explanation.delivery.returnedUnits} of ${explanation.delivery.totalUnits} unit(s) shown; narrow with --subject line or clause, or raise --max-bytes.`);

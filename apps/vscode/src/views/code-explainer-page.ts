@@ -261,6 +261,7 @@ export const CX_STYLE = `
   .cx-trace-links path { fill: none; stroke: var(--cx-edge); stroke-width: 1.4; }
   .cx-trace-links path.tag { stroke: var(--cx-test); }
   .cx-trace-links path.region { stroke: var(--cx-caller); stroke-dasharray: 4 3; }
+  .cx-trace-links path.declared { stroke: var(--cx-test); stroke-dasharray: 1.5 3; }
   .cx-trace-links path.reference { stroke: var(--cx-callee); }
   .cx-trace-links path.lit { stroke-width: 2.4; }
   .cx-trace-links path.dim { opacity: .12; }
@@ -1040,7 +1041,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         row.appendChild(el('span', 'nm', symbol.qualifiedName + (symbol.kind === 'function' || symbol.kind === 'method' || symbol.kind === 'constructor' ? '()' : '')));
         const meta = el('span', 'meta');
         if (symbol.tests.length) { const tag = el('span', 'cx-tag t-test', 'TEST ' + symbol.tests.length); tag.title = 'Test files that refer to it'; meta.appendChild(tag); }
-        if (symbol.clauses.length && symbol.status !== 'unchanged') { const tag = el('span', 'cx-tag t-req', 'REQ'); tag.title = 'Requirement associated with this file\'s change'; meta.appendChild(tag); }
+        if (symbol.tags.length) { const tag = el('span', 'cx-tag t-req', 'REQ'); tag.title = 'Its @clause comment names ' + symbol.tags.map(function (entry) { return entry.clause; }).join(', '); meta.appendChild(tag); }
+        else if (symbol.clauses.length && symbol.status !== 'unchanged') { const tag = el('span', 'cx-tag t-req', 'REQ'); tag.title = 'Requirement associated with this file\'s change'; meta.appendChild(tag); }
         if (symbol.status === 'added') meta.appendChild(el('span', 'cx-tag t-new', 'NEW'));
         if (symbol.status === 'removed') meta.appendChild(el('span', 'cx-tag t-gone', 'GONE'));
         if (symbol.added || symbol.removed) meta.appendChild(delta(symbol.added, symbol.removed));
@@ -1372,6 +1374,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (symbol.status === 'removed') badges.appendChild(chip('Removed', 'bad'));
     if (symbol.status === 'unchanged') badges.appendChild(chip('Unchanged', 'dim'));
     if (symbol.tests.length) badges.appendChild(chip(symbol.tests.length + ' test reference' + (symbol.tests.length === 1 ? '' : 's'), 'warn'));
+    symbol.tags.forEach(function (tag) { badges.appendChild(chip('@clause ' + tag.clause, 'ok')); });
     symbol.clauses.forEach(function (clause) { badges.appendChild(chip(clause, 'info')); });
     inspector.appendChild(badges);
     inspector.appendChild(actionsFor(symbol));
@@ -1442,6 +1445,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     badges.appendChild(chip(module.language, 'dim'));
     badges.appendChild(chip(module.status, module.status === 'added' ? 'ok' : module.status === 'deleted' ? 'bad' : module.status === 'modified' ? 'warn' : 'dim'));
     if (module.added || module.removed) badges.appendChild(chip('+' + module.added + ' −' + module.removed, 'warn'));
+    module.tagged.forEach(function (clause) { badges.appendChild(chip('@clause ' + clause, 'ok')); });
     module.clauses.forEach(function (clause) { badges.appendChild(chip(clause, 'info')); });
     inspector.appendChild(badges);
     const actions = el('div', 'cx-ins-actions');
@@ -1499,6 +1503,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const summary = el('div', 'cx-trace-summary');
     const add = function (value, label) { const span = el('span'); span.appendChild(el('strong', '', value)); span.appendChild(document.createTextNode(' ' + label)); summary.appendChild(span); };
     add(trace.counts.requirements, 'requirements');
+    add(trace.counts.declared, 'named by @clause tags');
     add(trace.counts.tagged, 'tagged by tests');
     add(trace.counts.gaps, 'without a test tag');
     add(trace.code.length, 'changed files');
@@ -1561,9 +1566,12 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         id.appendChild(chip(requirement.status === 'tagged' ? 'tagged' : requirement.gap ? 'gap' : 'declared', requirement.status === 'tagged' ? 'ok' : requirement.gap ? 'warn' : 'dim'));
         node.appendChild(id);
         if (requirement.text) node.appendChild(el('span', 'tx', requirement.text));
+        requirement.notes.forEach(function (entry) { node.appendChild(el('span', 'sym', '✎ ' + entry.path + ':' + entry.line + ' — ' + entry.note)); });
+        requirement.cites.forEach(function (id) { node.appendChild(el('span', 'sym', 'cites ' + id)); });
+        requirement.citedBy.forEach(function (id) { node.appendChild(el('span', 'sym', 'cited by ' + id)); });
         if (requirement.gap) node.appendChild(el('span', 'tx', '⚠ ' + requirement.gap));
       });
-      requirement.modules.forEach(function (m) { links.push({ from: 'r:' + requirement.id, to: 'c:' + m, kind: 'region' }); });
+      requirement.modules.forEach(function (m) { links.push({ from: 'r:' + requirement.id, to: 'c:' + m, kind: requirement.declaredIn.indexOf(m) >= 0 ? 'declared' : 'region' }); });
     });
     if (!requirements.length) reqCol.appendChild(el('p', 'cx-muted', trace.available ? (gapsOnly ? 'No requirement gaps.' : 'No requirement clauses were read for this change.') : (trace.reason || 'Unavailable.')));
     const codeCol = column('Changed code', trace.code.length);
@@ -1605,7 +1613,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     });
     if (!trace.runs.length) runCol.appendChild(el('p', 'cx-muted', 'No test run is recorded for this phase generation.'));
     holder.appendChild(grid);
-    holder.appendChild(el('p', 'cx-trace-note', 'Requirement → file is the change region\'s association (file level). Requirement → test is a declared tag. File → test means a test file refers to a changed function. None of these is proof of coverage.'));
+    holder.appendChild(el('p', 'cx-trace-note', 'Requirement → file is a @clause comment in the file (dotted) or the change region\'s recorded association (dashed), both at file level. Requirement → test is a declared @ac tag. File → test means a test file refers to a changed function. "cites" is the specification text of one requirement naming another. None of these is proof of coverage.'));
     requestAnimationFrame(function () {
       const origin = grid.getBoundingClientRect();
       linksSvg.setAttribute('width', String(grid.scrollWidth));

@@ -62,6 +62,12 @@ over the same capture and returns typed, cited statements with no model and no a
 **Change Explorer**. See [Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md) for the subjects, catalogs,
 compatibility rules and acceptance status.
 
+Subject views carry the clause links a change has while it is being written: a `@clause` comment in
+changed code (with the author's note after the ID), an `@ac` comment in a changed test, and a
+clause's specification text naming another clause. `explain --subject change` lists them under
+*Why it is linked*, and `explain --subject clause --id ID` gathers everything linked to one clause.
+`explain code` keeps its fixed schema and does not change.
+
 ## Subject and interval
 
 This tranche describes the exact repository change-set compatibility subject returned by the

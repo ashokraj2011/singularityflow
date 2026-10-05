@@ -24,7 +24,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 6
+version: 7
 ---
 ## Purpose and prerequisites
 
@@ -110,7 +110,15 @@ Each subject view is built from the same leased capture as `explain code`. Every
 registered template over typed arguments and cites admitted sources or the read observation that
 found something absent; `not recorded`, `disabled`, `unavailable` and `not applicable` stay
 distinct. A region-level association is never shown as hunk-level, a declared test tag is a mapping,
-not coverage, and no test-to-clause-to-code join is inferred. `--for reviewer|auditor|developer`
+not coverage, and no test-to-clause-to-code join is inferred.
+
+The change and clause views show how a change links to the Story's clauses as soon as the code is
+written: a `@clause:NS:REQ-001` comment in changed code (the text after the ID is the author's note
+on how the code meets it), an `@ac:NS:AC-001` comment in a changed test, and a clause whose
+specification text names another clause. Each tag says whether this change wrote it. Ask
+`--subject clause --id NS:REQ-001` to see the clause's text, the clauses it cites and that cite it,
+and the code and tests that tag it. A tag is the author's declaration, not proof that the code
+meets the clause. `--for reviewer|auditor|developer`
 reorders and folds statements without changing the set or its hashes. Output is bounded to 64 KiB by
 default; a bounded page says so and keeps the full counts. Unknown subjects are refused, never sent
 to the documentation search. `--narrate` is not offered for subjects in this release.

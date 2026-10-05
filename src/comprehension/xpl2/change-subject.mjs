@@ -6,7 +6,8 @@
  * evidence, Story state, clause sources and replay). It reuses the existing code-explanation unit
  * enumeration rather than re-deriving hunks, so H-/O- identities stay exactly those of
  * `explain code`. No fact is inferred from a filename, adjacency or chronology: a clause is linked
- * to code only by a recorded region-level cause reference, and a test only by its own declared tag.
+ * to code by a recorded region-level cause reference or by a `@clause` tag in the changed file, to
+ * a test only by the test's own declared tag, and to another clause only by its specification text.
  */
 import { createHash } from 'node:crypto';
 
@@ -82,7 +83,8 @@ export function buildChangeExplanationUniverse({
   replay = null,
   sourceReferences = [],
   includeAllDeclaredClauses = false,
-  codeScope = null
+  codeScope = null,
+  sourceTags = null
 }) {
   const b = createXpl2Builder();
   const truth = manifest.sourceKind === 'repository-change-set'
@@ -228,6 +230,26 @@ export function buildChangeExplanationUniverse({
       id: 'SRC-REPLAY', label: 'Normalized Story history', owner: 'cmp.story-replay', family: 'comprehension-story-replay',
       digest: replay.replaySha256, integrity: 'self-hashed', origin: 'recorded-local', applicability: 'current',
       availability: 'present', coverage: { scope: 'Story history', complete: !replay.truncated, events: replay.counts.matched }
+    });
+  }
+
+  // Clause and acceptance tags in the changed files: the links code and tests carry while they are
+  // written. Their bytes were checked against this capture, so they are observed, never a cause.
+  const tagsRead = sourceTags?.status === 'available';
+  if (tagsRead) {
+    b.source({
+      id: 'SRC-TAGS', label: 'Clause tags in the changed files', owner: 'xpl2.source-tags',
+      family: 'source-clause-tags', digest: sourceTags.tagsSha256, integrity: 'verified',
+      origin: 'observed-local', applicability: 'current', availability: 'present',
+      coverage: {
+        scope: 'changed application files', complete: sourceTags.complete,
+        files: sourceTags.counts.files, tags: sourceTags.counts.tags
+      }
+    });
+  } else if (sourceTags) {
+    b.observation({
+      id: 'OBS-TAGS', adapter: 'xpl2.source-tags', scope: 'clause and acceptance tags in the changed files',
+      completeness: 'complete-for-scope', reason: 'not-applicable'
     });
   }
 
@@ -382,21 +404,41 @@ export function buildChangeExplanationUniverse({
   const deliveryMissing = new Set(evidence?.acceptance?.missing ?? []);
   const bindings = Array.isArray(delivery?.acceptanceCriteria?.bindings) ? delivery.acceptanceCriteria.bindings : [];
   const boundClauseIds = new Set(bindings.map((binding) => binding.clauseId).filter(Boolean));
-  // The Intent column is bounded to clauses this change or its delivery record actually names. An
-  // explicit clause query may still read any declared clause: association need not imply change.
+  // A tag this change wrote is always shown. A tag already in a changed file is shown only for a
+  // clause this Story declares, so an old file's tags for other work do not flood the view.
+  const shownTags = tagsRead
+    ? sourceTags.tags.filter((tag) => tag.placement === 'added' || declaredClauses.has(tag.clauseId)) : [];
+  const taggedClauseIds = new Set(shownTags.map((tag) => tag.clauseId));
+  const directClauseIds = new Set([...associatedClauseIds, ...deliveryRequired, ...boundClauseIds, ...taggedClauseIds]);
+  // One citation step either way, so a tagged requirement brings the criteria that refine it and a
+  // tagged criterion the requirement it refines.
+  const citedClauseIds = new Map();
+  for (const [clauseId, declarations] of declaredClauses) {
+    for (const declared of declarations) {
+      for (const cited of declared.dependsOn ?? []) {
+        if (directClauseIds.has(clauseId) && !citedClauseIds.has(cited)) citedClauseIds.set(cited, declared.citation);
+        if (directClauseIds.has(cited) && !citedClauseIds.has(clauseId)) citedClauseIds.set(clauseId, declared.citation);
+      }
+    }
+  }
+  // The Intent column is bounded to clauses this change or its delivery record actually names, and
+  // the clauses those cite. An explicit clause query may still read any declared clause:
+  // association need not imply change.
   const relevantClauseIds = [...new Set([
-    ...associatedClauseIds, ...deliveryRequired, ...boundClauseIds,
+    ...directClauseIds, ...citedClauseIds.keys(),
     ...(includeAllDeclaredClauses || declaredClauses.size <= INITIAL_GRAPH_NODES ? declaredClauses.keys() : [])
   ])].sort();
   const clauseStatements = new Map();
   for (const clauseId of relevantClauseIds) {
     const declarations = declaredClauses.get(clauseId) ?? [];
     const conflicting = new Set(declarations.map((entry) => entry.bodySha256)).size > 1;
-    // Every relevant clause comes from a declaration, the delivery record or a graph reference,
-    // so one of these admitted sources always exists for it.
+    // Every relevant clause comes from a declaration, the delivery record, a tag, a citation or a
+    // graph reference, so one of these admitted sources always exists for it.
     const cites = declarations.length ? [...new Set(declarations.map((entry) => entry.citation))]
       : deliveryCitation && (deliveryRequired.has(clauseId) || boundClauseIds.has(clauseId)) ? [deliveryCitation]
-        : ['SRC-GRAPH'];
+        : taggedClauseIds.has(clauseId) ? ['SRC-TAGS']
+          : citedClauseIds.has(clauseId) ? [citedClauseIds.get(clauseId)]
+            : ['SRC-GRAPH'];
     const nodeId = clauseNode(clauseId, cites,
       conflicting ? 'conflicting-declarations' : declarations.length ? 'declared' : 'not-declared-here');
     const ids = [];
@@ -431,6 +473,29 @@ export function buildChangeExplanationUniverse({
       b.attention({ category: 'advisory', about: nodeId, reason: 'owner-reported-gap', statement: missing });
     }
     clauseStatements.set(clauseId, ids);
+  }
+
+  // Clause-to-clause links: the clauses each shown clause's own specification text names. A cited
+  // clause outside the shown set stays out, unless no artifact read here declares it at all.
+  let clauseCitations = 0;
+  const shownClauseIds = new Set(relevantClauseIds);
+  for (const clauseId of relevantClauseIds) {
+    for (const declared of declaredClauses.get(clauseId) ?? []) {
+      for (const cited of declared.dependsOn ?? []) {
+        if (!shownClauseIds.has(cited) && declaredClauses.has(cited)) continue;
+        const edge = b.relationship({
+          type: 'clause-cites-clause', from: clauseNodes.get(clauseId),
+          to: clauseNode(cited, [declared.citation], 'not-declared-here'),
+          scope: 'specification-text', cites: [declared.citation]
+        });
+        if (!edge) continue;
+        clauseCitations += 1;
+        b.statement({
+          about: clauseNodes.get(clauseId), template: 'xpl2.clause-cites@1', cites: [declared.citation],
+          arguments: { clauseId, cited, sourcePath: declared.path, line: declared.line ?? 0 }
+        });
+      }
+    }
   }
 
   // Region-level associations, never upgraded to hunk scope.
@@ -516,6 +581,47 @@ export function buildChangeExplanationUniverse({
     }
   }
 
+  // ---- Declared links in the changed files: @clause tags in code, @ac tags in tests -------------
+  const fileByPath = new Map(files.filter((file) => file.pathAfter).map((file) => [file.pathAfter, file]));
+  const explainedFiles = new Set();
+  for (const tag of shownTags) {
+    const file = fileByPath.get(tag.path);
+    if (!file) continue;
+    const clauseId = clauseNode(tag.clauseId, ['SRC-TAGS']);
+    if (tag.tag === 'clause') {
+      b.relationship({
+        type: 'source-tags-clause', from: file.fileId, to: clauseId, scope: 'source-comment',
+        qualifier: tag.placement, cites: ['SRC-TAGS', 'SRC-MANIFEST']
+      });
+      b.statement({
+        about: clauseId, template: 'xpl2.clause-tag@1', cites: ['SRC-TAGS'],
+        arguments: { clauseId: tag.clauseId, path: tag.path, line: tag.line, placement: tag.placement, note: tag.note ?? '' }
+      });
+      // The author wrote down, in this change, how this file serves a clause.
+      if (tag.placement === 'added' && tag.note) explainedFiles.add(file.fileId);
+      continue;
+    }
+    let testId = testNodes.get(tag.path);
+    if (!testId) {
+      testId = `test:${hex12(tag.path)}`;
+      testNodes.set(tag.path, testId);
+      b.node({ id: testId, kind: 'test', label: tag.path, cites: ['SRC-TAGS'] });
+    }
+    b.relationship({
+      type: 'test-source-in-change', from: testId, to: file.fileId, scope: 'exact-path', cites: ['SRC-TAGS', 'SRC-MANIFEST']
+    });
+    b.relationship({
+      type: 'test-source-tags-clause', from: testId, to: clauseId, scope: 'declared-tag',
+      qualifier: 'source-comment', cites: ['SRC-TAGS']
+    });
+    b.statement({
+      about: testId, template: 'xpl2.acceptance-tag@1', cites: ['SRC-TAGS'],
+      arguments: { clauseId: tag.clauseId, path: tag.path, line: tag.line, placement: tag.placement }
+    });
+    // A test this change tags says which criterion it is written for.
+    if (tag.placement === 'added') explainedFiles.add(file.fileId);
+  }
+
   // ---- Observation gaps and visibility limits --------------------------------------------------
   const unexplainedByFile = new Map();
   for (const unit of inventoryUnits) {
@@ -537,7 +643,7 @@ export function buildChangeExplanationUniverse({
       arguments: { unitId: unit.unitId },
       limitations: associated ? ['region-only-association'] : []
     }));
-    if (associated) continue;
+    if (associated || explainedFiles.has(file.fileId)) continue;
     b.node({
       id: causeGapId, kind: 'diagnostic', label: 'Exact reason link not recorded',
       status: 'source-not-recorded', cites: ['OBS-CAUSE']
@@ -620,6 +726,9 @@ export function buildChangeExplanationUniverse({
     regionAssociatedUnits,
     unexplainedUnits: hunkCount,
     clauses: clauseNodes.size,
+    clauseTags: shownTags.filter((tag) => tag.tag === 'clause').length,
+    acceptanceTags: shownTags.filter((tag) => tag.tag === 'ac').length,
+    clauseCitations,
     testBindings: bindings.length,
     testResults: evidence?.testExecutions?.length ?? 0
   };
@@ -629,6 +738,7 @@ export function buildChangeExplanationUniverse({
     cause: referencedUnits.length ? 'partial' : 'unavailable',
     clauses: declaredClauses.size ? 'available' : (clauseSources?.status === 'available' ? 'partial' : 'unavailable'),
     delivery: deliveryCitation ? 'available' : 'unavailable',
+    tags: tagsRead ? (sourceTags.complete ? 'available' : 'partial') : sourceTags ? 'not-applicable' : 'unavailable',
     admission: 'unavailable',
     wel: welState === 'observe' ? 'partial' : 'disabled',
     pe: 'unavailable',

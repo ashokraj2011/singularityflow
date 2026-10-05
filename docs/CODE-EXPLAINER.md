@@ -23,7 +23,8 @@ function at the cursor (and works on code the change did not touch). The sidebar
   estimated complexity, size, callers, calls and test references, its typed signature, the exact
   lines that changed inside it, and links to every caller, callee and test reference. Selecting a call
   edge lists its call sites; selecting a card describes the file.
-- **Requirement → test trace.** Four columns: requirements (with gaps), changed code, tests and the
+- **Requirement → test trace.** Four columns: requirements (with gaps, the author's `@clause` notes
+  and the requirements each one cites or is cited by), changed code, tests and the
   recorded results of the phase. Clicking a card lights its chain.
 - **Walkthrough.** The changed functions in reading order (callers before the functions they call,
   code before tests, whole-file changes last), one step at a time, each with its explanation and diff.
@@ -44,7 +45,7 @@ test, external and other cards; **Call depth** 1–3 follows callers of callers 
 | Test references | The editor's references, kept only when they are in a test file. | A test that names a function does not prove it exercises the change. |
 | Signature and documentation | The editor's hover for the symbol; otherwise the declaration text. | — |
 | Complexity | One plus the decision points counted in the function's own text, strings and comments removed. Bands: ≤5 simple, ≤10 moderate, ≤20 complex. | An estimate, not a syntax-tree measurement. |
-| Requirements | The change view's region associations (file level) and declared test tags. | A file-level association does not prove a function implements the requirement. |
+| Requirements | The change view's `@clause` tags, each bound to the function whose own lines (its leading comment block included) hold it; its region associations (file level); declared `@ac` test tags; and the clauses each requirement's text cites. | A tag is the author's declaration and a file-level association is only that; neither proves a function implements the requirement. |
 | Gates | The same readiness gate count the status bar shows, never recounted. | — |
 
 Every sentence in the explanation says which of these it rests on. **How this view was built** (the

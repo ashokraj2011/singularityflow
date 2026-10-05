@@ -70,6 +70,13 @@ const FILE_TYPE_MEANING = Object.freeze({
   gitlink: "its diff text is the recorded commit pointer, not the submodule's files."
 });
 
+// Where a tag sits relative to this capture's change units.
+const TAG_PLACEMENT_LABELS = Object.freeze({
+  added: 'added by this change',
+  unchanged: 'on a line this change did not touch',
+  unknown: 'line-level change detail is not available'
+});
+
 function fileTypeSentence(a) {
   const meaning = FILE_TYPE_MEANING[a.after === 'missing' ? a.before : a.after];
   if (a.before === a.after) return `${a.path} is ${FILE_TYPE_LABELS[a.after]} on both sides${meaning ? `; ${meaning}` : '.'}`;
@@ -136,6 +143,25 @@ const TEMPLATES = [
     id: 'xpl2.clause-declared@1',
     arguments: { clauseId: 'identifier', sourcePath: 'text', line: 'count', text: 'quote' },
     render: (a) => `${a.clauseId} is declared at ${a.sourcePath}:${a.line}: “${a.text}”`
+  },
+  {
+    id: 'xpl2.clause-cites@1',
+    arguments: { clauseId: 'identifier', cited: 'identifier', sourcePath: 'text', line: 'count' },
+    render: (a) => `${a.clauseId} names ${a.cited} in its specification text (${a.sourcePath}:${a.line}); `
+      + 'a citation links the two clauses, it does not show that either is met.'
+  },
+  {
+    id: 'xpl2.clause-tag@1',
+    arguments: { clauseId: 'identifier', path: 'text', line: 'count', placement: 'tag-placement', note: 'quote' },
+    render: (a) => `${a.path}:${a.line} tags ${a.clauseId} (${TAG_PLACEMENT_LABELS[a.placement]})`
+      + `${a.note ? ` with the author's note “${a.note}”` : ' with no note on how the code meets it'}; `
+      + 'a tag declares intent, it does not show that the code meets the clause.'
+  },
+  {
+    id: 'xpl2.acceptance-tag@1',
+    arguments: { clauseId: 'identifier', path: 'text', line: 'count', placement: 'tag-placement' },
+    render: (a) => `${a.path}:${a.line} tags acceptance criterion ${a.clauseId} (${TAG_PLACEMENT_LABELS[a.placement]}); `
+      + 'a tag is a mapping declaration, not coverage or a result.'
   },
   {
     id: 'xpl2.clause-required@1',
@@ -226,6 +252,7 @@ function validArgument(kind, value) {
     case 'file-type': return Object.hasOwn(FILE_TYPE_LABELS, value);
     case 'mode': return typeof value === 'string' && /^[0-7]{6}$/u.test(value);
     case 'operation': return OPERATIONS.has(value);
+    case 'tag-placement': return Object.hasOwn(TAG_PLACEMENT_LABELS, value);
     case 'reason':
       try { xpl2ReasonText(value); return true; } catch { return false; }
     default: return false;

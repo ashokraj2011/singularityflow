@@ -16,7 +16,7 @@ import {
   leadingStart, maskSource, parseFilePatch, SYMBOL_KIND, symbolKey, textSymbols, visibleCode, workingDiff
 } from '../apps/vscode/src/views/code-explainer-model.ts';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
-import { createXpl2Fixture } from './helpers/xpl2-fixture.mjs';
+import { comprehensionSlice, createChangeRepository, createXpl2Fixture } from './helpers/xpl2-fixture.mjs';
 
 const symbol = (name, kind, start, end, children = [], character = 0) => ({
   name, kind, range: { start, end }, selection: { line: start, character }, children
@@ -285,7 +285,7 @@ test('the trace joins requirements, changed code, tests and recorded results wit
     ['test/export-range.test.ts', ['ORD:AC-001'], 'both']
   ], 'a declared tag and a language-service reference to the same test file are one test with both sources');
   assert.deepEqual(model.trace.runs.map((run) => [run.label, run.status]), [['range-test', 'passed'], ['cancellation-test', 'passed']]);
-  assert.deepEqual(model.trace.counts, { requirements: 3, tagged: 2, gaps: 1, tests: 2, runs: 2, passed: 2, failed: 0 });
+  assert.deepEqual(model.trace.counts, { requirements: 3, tagged: 2, declared: 0, gaps: 1, tests: 2, runs: 2, passed: 2, failed: 0 });
   assert.ok(model.attention.length && model.attention.every((group) => group.count >= 1 && group.text));
   assert.equal(new Set(model.attention.map((group) => `${group.category}:${group.reason}`)).size, model.attention.length, 'attention is grouped by kind and reason');
 });
@@ -393,4 +393,39 @@ test('the symbol at a requested line is named, so a rebuilt view can select it',
   assert.equal(model.focus, model.requested);
   const { model: between } = await fixtureModel(t, { focus: { path: 'src/export/format.ts', line: 3 } });
   assert.equal(between.requested, null, 'a line outside every function names nothing');
+});
+
+test('a @clause comment names a requirement for the function below it, and the trace keeps the author\'s note', async (t) => {
+  const after = [
+    '// @clause:FIX-1:REQ-001 — sums item prices instead of counting items',
+    'export function total(items) {',
+    '  return items.reduce((sum, item) => sum + item.price, 0);',
+    '}',
+    '',
+    'export function count(items) {',
+    '  return items.length;',
+    '}',
+    ''
+  ].join('\n');
+  const { root } = await createChangeRepository(t, {
+    baseline: { 'src/cart.js': 'export function total(items) {\n  return items.length;\n}\n', 'test/cart.test.js': "import test from 'node:test';\n" },
+    change: { 'src/cart.js': after, 'test/cart.test.js': "import test from 'node:test';\n// @ac:FIX-1:AC-001\ntest('total', () => {});\n" }
+  });
+  const slice = await comprehensionSlice(root);
+  const model = buildCodeExplainerModel(baseInput({
+    change: { view: slice.explanationView, patch: slice.diff.patch, patchFiles: slice.diff.files, base: slice.context.base },
+    files: [{ path: 'src/cart.js', language: 'javascript', lines: after.replace(/\n$/, '').split('\n'), symbols: null }]
+  }), 'cx-test');
+  const byName = (name) => model.symbols.find((entry) => entry.name === name && entry.moduleId === 'm:src/cart.js');
+  assert.deepEqual(byName('total').tags, [{ clause: 'FIX-1:REQ-001', line: 1, note: 'sums item prices instead of counting items', added: true }]);
+  assert.deepEqual(byName('count').tags, [], 'a tag belongs only to the function its comment block sits on');
+  assert.match(explanationText(model, byName('total').id),
+    /Its @clause comment on line 1, added by this change, names requirement `FIX-1:REQ-001`, with the author's note “sums item prices instead of counting items”\. A tag is the author's declaration; it does not prove this code meets the requirement\./u);
+  assert.deepEqual(model.modules.find((entry) => entry.id === 'm:src/cart.js').tagged, ['FIX-1:REQ-001']);
+
+  const requirement = (id) => model.trace.requirements.find((entry) => entry.id === id);
+  assert.deepEqual(requirement('FIX-1:REQ-001').declaredIn, ['m:src/cart.js']);
+  assert.deepEqual(requirement('FIX-1:REQ-001').notes, [{ path: 'src/cart.js', line: 1, note: 'sums item prices instead of counting items' }]);
+  assert.equal(requirement('FIX-1:AC-001').status, 'tagged');
+  assert.equal(model.trace.counts.declared, 1);
 });

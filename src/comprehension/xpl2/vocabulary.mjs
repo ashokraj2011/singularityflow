@@ -28,6 +28,16 @@ export const XPL2_RELATIONSHIPS = Object.freeze({
     means: 'A recorded cause reference names this clause for the whole change region.',
     notImplied: 'That any individual hunk implements the clause.'
   }),
+  'source-tags-clause': Object.freeze({
+    granularity: 'declared-mapping', style: 'proposed',
+    means: 'A @clause comment in this changed file names the clause, at the line its statement gives.',
+    notImplied: 'That the code implements or meets the clause; the tag is the author\'s declaration and a person decides.'
+  }),
+  'clause-cites-clause': Object.freeze({
+    granularity: 'specification-text', style: 'citation',
+    means: 'The specification text of the first clause names the second clause.',
+    notImplied: 'That either clause is met, or that work on one covers the other.'
+  }),
   'test-source-tags-clause': Object.freeze({
     granularity: 'declared-mapping', style: 'proposed',
     means: 'The test source declares an acceptance tag for the clause.',

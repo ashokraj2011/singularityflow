@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f011cf2cb0e8dee20ca1af808525f56f51aa7c5b",
-  "topicCount": 75,
-  "contentSha256": "e2390bd02620b7d403b03c4f403d5c4d76162843154b33ba98d0251dcb8422bb",
+  "sourceCommit": "eae00f9d33b81d41dd841dac3d6d3433c9be3a75",
+  "topicCount": 76,
+  "contentSha256": "a47e3be9610f861d47fd90f25d38138c7f5deaaca62225123fc799bb6c5463c4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 11,
-      "sha256": "f60b5875b3e39d49823e3ae5e4b78dc8175dc6895fb6e7c52aa3e8a3c3c87c67",
+      "version": 12,
+      "sha256": "536e0517d9b6632000ce7f70f7acca1ce6c1f4dc87bff17ebede6271018b9fc3",
       "routingSha256": "548b95980ef4bb0755e04b820ccc4a041aa172419db2619bd04509ae3e7fbcf9",
       "file": "copilot-and-surfaces.md"
     },
@@ -300,6 +300,14 @@
       "sha256": "de2d9cdca62d4907146e6493cf49d0c5cf1d1b8829f8f23bf5398500fd720d7d",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
+    },
+    {
+      "id": "jetbrains-ide",
+      "title": "IntelliJ IDEA and Android Studio",
+      "version": 1,
+      "sha256": "c09c654a6a3e09883b264c32b596bfa3c056dc1b311c15b000de03f1e9b6e2f1",
+      "routingSha256": "ca76e911a1c9ced57f1140096123b4a8c7ae50cd27323548c349d55e9a2d3f42",
+      "file": "jetbrains-ide.md"
     },
     {
       "id": "jira-integration",

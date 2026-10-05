@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "resultType": "sflow-refusal-plan",
+  "status": "failed",
+  "error": {
+    "code": "SINGULARITY_FLOW_ERROR",
+    "message": "Workspace 'missing' is not saved. Run 'singularity-flow workspace list'."
+  },
+  "remediationPlan": {
+    "schemaVersion": 1,
+    "status": "blocked",
+    "code": "SINGULARITY_FLOW_ERROR",
+    "steps": [
+      {
+        "id": "command-help",
+        "label": "Review the supported home forms before retrying.",
+        "command": "singularity-flow home --help",
+        "executable": "singularity-flow",
+        "skill": "/sf-home",
+        "copilotCommand": "/sf-home",
+        "argv": [
+          "home",
+          "--help"
+        ],
+        "copyable": true,
+        "platformCommands": {
+          "darwin": "'singularity-flow' 'home' '--help'",
+          "linux": "'singularity-flow' 'home' '--help'",
+          "win32": "& 'singularity-flow' 'home' '--help'"
+        },
+        "kind": "help",
+        "execution": "user-reviewed"
+      },
+      {
+        "id": "diagnose-repository",
+        "label": "Run read-only diagnostics for repository, policy, and recovery state.",
+        "command": "singularity-flow doctor --json",
+        "executable": "singularity-flow",
+        "skill": "/sf-doctor",
+        "copilotCommand": "/sf-doctor",
+        "argv": [
+          "doctor",
+          "--json"
+        ],
+        "copyable": true,
+        "platformCommands": {
+          "darwin": "'singularity-flow' 'doctor' '--json'",
+          "linux": "'singularity-flow' 'doctor' '--json'",
+          "win32": "& 'singularity-flow' 'doctor' '--json'"
+        },
+        "kind": "diagnostic",
+        "execution": "user-reviewed"
+      }
+    ],
+    "retry": {
+      "label": "Retry the original command only after the blocking condition is resolved.",
+      "automatic": false
+    }
+  }
+}

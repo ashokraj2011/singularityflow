@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/generate-intellij-resources.mjs",
+  "templates": [
+    {
+      "id": "fault.diagnose",
+      "argv": [
+        "fix",
+        "<FAULT-ID>",
+        "--diagnose-only"
+      ],
+      "classification": "mutation"
+    },
+    {
+      "id": "fault.evidence",
+      "argv": [
+        "fault",
+        "show",
+        "<FAULT-ID>"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "fault.fix",
+      "argv": [
+        "fix",
+        "<FAULT-ID>"
+      ],
+      "classification": "mutation"
+    },
+    {
+      "id": "goal.next",
+      "argv": [
+        "goal",
+        "next",
+        "<GOAL-ID>"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "help.explain",
+      "argv": [
+        "explain"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "impact.quick",
+      "argv": [
+        "workspace",
+        "impact"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "repository.explore",
+      "argv": [
+        "status"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "repository.open.guide",
+      "argv": [
+        "workspace",
+        "adopt",
+        "<DIRECTORY>",
+        "--id",
+        "<ID>",
+        "--dry-run"
+      ],
+      "classification": "mutation"
+    },
+    {
+      "id": "work.continue",
+      "argv": [
+        "resume",
+        "<WORK-ID>"
+      ],
+      "classification": "mutation"
+    },
+    {
+      "id": "work.list",
+      "argv": [
+        "session",
+        "candidates",
+        "--table"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "work.return",
+      "argv": [
+        "story",
+        "return",
+        "<WORK-ID>"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "work.review",
+      "argv": [
+        "approvals",
+        "<WORK-ID>"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "work.start.intake",
+      "argv": [
+        "start",
+        "<WORK-ID>"
+      ],
+      "classification": "mutation"
+    },
+    {
+      "id": "work.status",
+      "argv": [
+        "status"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "workspace.bootstrap.status",
+      "argv": [
+        "workspace",
+        "bootstrap",
+        "status",
+        "<BOOTSTRAP-ID>"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "workspace.doctor.guide",
+      "argv": [
+        "workspace",
+        "doctor"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "workspace.explore.guide",
+      "argv": [
+        "workspace",
+        "list",
+        "--table"
+      ],
+      "classification": "read"
+    },
+    {
+      "id": "workspace.prepare.guide",
+      "argv": [
+        "workspace",
+        "prepare"
+      ],
+      "classification": "mutation"
+    },
+    {
+      "id": "workspace.switch",
+      "argv": [
+        "workspace",
+        "list",
+        "--table"
+      ],
+      "classification": "read"
+    }
+  ]
+}

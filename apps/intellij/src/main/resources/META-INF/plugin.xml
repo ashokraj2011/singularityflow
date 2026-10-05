@@ -1,0 +1,43 @@
+<idea-plugin>
+    <id>singularityflow.sflow</id>
+    <name>Singularity Flow</name>
+    <vendor>Singularity Flow</vendor>
+    <description><![CDATA[
+        <p>Your Singularity Flow work inside the IDE: the active Story, its current step, what needs you,
+        and the next actions, read from <code>sflow home</code>.</p>
+        <p>A click runs a read-only command in the IDE terminal. Anything that can change state is typed
+        into the terminal for you to review and run, so every confirmation stays in the CLI.</p>
+        <p>Requires Node.js 20 or newer and the Singularity Flow CLI.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="sflow-terminal.xml">org.jetbrains.plugins.terminal</depends>
+    <depends optional="true" config-file="sflow-vcs.xml">com.intellij.modules.vcs</depends>
+
+    <extensionPoints>
+        <extensionPoint qualifiedName="singularityflow.sflow.terminalLauncher"
+                        interface="singularityflow.intellij.terminal.TerminalLauncher" dynamic="true"/>
+    </extensionPoints>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Singularity Flow" anchor="right" icon="/icons/sflow.svg"
+                    factoryClass="singularityflow.intellij.ui.SflowToolWindowFactory"/>
+        <statusBarWidgetFactory id="singularityflow.sflow.status"
+                                implementation="singularityflow.intellij.status.SflowStatusBarWidgetFactory"/>
+        <projectConfigurable parentId="tools" id="singularityflow.sflow.settings"
+                             displayName="Singularity Flow"
+                             instance="singularityflow.intellij.settings.SflowConfigurable"/>
+        <notificationGroup id="Singularity Flow" displayType="BALLOON"/>
+    </extensions>
+
+    <applicationListeners>
+        <listener class="singularityflow.intellij.refresh.SflowActivationListener"
+                  topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+    </applicationListeners>
+    <projectListeners>
+        <listener class="singularityflow.intellij.refresh.SflowFileListener"
+                  topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
+        <listener class="singularityflow.intellij.refresh.SflowToolWindowListener"
+                  topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener"/>
+    </projectListeners>
+</idea-plugin>

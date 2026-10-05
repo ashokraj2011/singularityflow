@@ -16,9 +16,9 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 11
+version: 12
 ---
-CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Copilot accepts ordinary developer language for seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
+CLI, Copilot, VS Code, and the JetBrains plugin read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Copilot accepts ordinary developer language for seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
 ## Purpose and prerequisites
 
@@ -30,6 +30,7 @@ Use this topic when the current goal matches **copilot and surfaces**. Start in 
 - **Copilot:** ask “What am I working on?”, “Continue my Story”, “Start a new bug fix”, “What is blocking this?”, “Generate the active phase”, “The publication push is stuck”, or “What is project binding?” `/sf-home`, `/sf-help`, `/sf-start`, and the other `/sf-*` skills remain explicit escape hatches.
 - **Revision feedback files:** `/sf-revision-attachments` (or `/sflow-revision-attachments`) previews and registers verifiable local files against the selected Story/phase after explicit confirmation. In VS Code, `@sflow /attachments` accepts 1–5 genuine local file references, selects each whole file, and offers a separate confirmed registration button. `@sflow /attachments status` shows active/revoked set digests; `@sflow /attachments remove sha256:<SET>` reviews exclusion. An opaque Copilot chat upload without original bytes or a verified local reference returns `REV_CHAT_ATTACHMENT_UNAVAILABLE`; save it locally and provide its path. Registration only stages feedback evidence. Start an eligible guarded interval separately with `/sf-revise`, which previews the exact Candidate/criteria/attachment binding and requires the full plan digest. `@sflow /revise` runs read-only status/card inspection or prefills that skill; it never starts the interval itself. PDF/DOCX/images remain disabled until approved scanning and extraction exist.
 - **VS Code:** open the Singularity Flow Navigator. The five fixed destinations are **My Work**, **Stories**, **Reviews**, **Workspaces**, and **Configuration**. The context area identifies the workspace, repository, and confirmed active work. Stories lists the workspace catalog; viewing details is read-only, while **Switch to Story** uses the guarded attach flow. Reviews separates phase decisions from proposal and visual-evidence review routes; unqueried queues have no invented counts. Configuration opens the existing Configuration Center directly. **Work tools** retains phase actions, artifacts, Goals, Epic Story plans, and **Understand changes**. **Help & diagnostics** and **Activity & logs** contain the specialist tools; Local Journal remains private local history, not governed evidence. Hover gives a small visual zoom, never a command popup; reduced-motion settings disable the zoom. Commands and Copilot equivalents remain in explicit Help and recovery screens. The sidebar follows the editor theme and does not independently decide lifecycle state.
+- **IntelliJ IDEA and Android Studio:** the Singularity Flow tool window shows the same home as `sflow home`. A read-only command runs on click; anything that can change state is typed into the IDE terminal for you to review and run. See the `jetbrains-ide` topic.
 
 ## Guided workflow
 

@@ -82,18 +82,34 @@ const FALLBACKS = Object.freeze({
   'help.explain': { command: 'singularity-flow explain', skill: '/sf-docs' }
 });
 
+/**
+ * Every command a home choice can fall back to, with its placeholders, keyed by choice.
+ *
+ * Exported for clients that only see the rendered command and must decide, without the kernel,
+ * whether running it can change anything: the IntelliJ client runs a fallback only when it matches
+ * one of these templates that `resolveOperation` classifies as a read.
+ */
+export const HOME_COMMAND_TEMPLATES = Object.freeze({
+  ...Object.fromEntries(Object.entries(FALLBACKS).map(([id, fallback]) => [id, fallback.command])),
+  'work.status': 'singularity-flow status',
+  'work.review': 'singularity-flow approvals <WORK-ID>',
+  'fault.fix': 'singularity-flow fix <FAULT-ID>',
+  'fault.diagnose': 'singularity-flow fix <FAULT-ID> --diagnose-only',
+  'fault.evidence': 'singularity-flow fault show <FAULT-ID>'
+});
+
 function fallbackFor(id, label, slots) {
   if (id === 'workspace.bootstrap.status' && slots.bootstrap) {
     return {
       label,
-      command: `singularity-flow workspace bootstrap status ${slots.bootstrap}`,
+      command: HOME_COMMAND_TEMPLATES['workspace.bootstrap.status'].replace('<BOOTSTRAP-ID>', () => slots.bootstrap),
       skill: '/sf-workspace-bootstrap'
     };
   }
   if (id === 'work.list' && slots.work) {
     return {
       label: `Review ${slots.work}`,
-      command: 'singularity-flow status',
+      command: HOME_COMMAND_TEMPLATES['work.status'],
       skill: '/sf-status'
     };
   }
@@ -167,19 +183,19 @@ function faultChoice(fault, action, rank, emphasis = 'secondary') {
     fix: {
       label: `Fix ${fault.faultId}`,
       reasonCode: 'fault.repair-guided',
-      command: `singularity-flow fix ${fault.faultId}`,
+      command: HOME_COMMAND_TEMPLATES['fault.fix'].replace('<FAULT-ID>', () => fault.faultId),
       skill: '/sf-fix'
     },
     diagnose: {
       label: `Diagnose ${fault.faultId}`,
       reasonCode: 'fault.diagnose-first',
-      command: `singularity-flow fix ${fault.faultId} --diagnose-only`,
+      command: HOME_COMMAND_TEMPLATES['fault.diagnose'].replace('<FAULT-ID>', () => fault.faultId),
       skill: '/sf-fix'
     },
     evidence: {
       label: `Open evidence for ${fault.faultId}`,
       reasonCode: 'fault.open-evidence',
-      command: `singularity-flow fault show ${fault.faultId}`,
+      command: HOME_COMMAND_TEMPLATES['fault.evidence'].replace('<FAULT-ID>', () => fault.faultId),
       skill: '/sf-fault'
     }
   };
@@ -215,7 +231,7 @@ function reviewChoice(work, rank, emphasis = 'secondary') {
     executable: false,
     fallback: {
       label: `Review ${work.id}`,
-      command: `singularity-flow approvals ${work.id}`,
+      command: HOME_COMMAND_TEMPLATES['work.review'].replace('<WORK-ID>', () => work.id),
       skill: '/sf-approvals'
     },
     slots: { work: work.id, phase: work.phase ?? 'none' }

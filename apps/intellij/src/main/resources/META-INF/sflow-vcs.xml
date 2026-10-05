@@ -1,0 +1,7 @@
+<!-- Loaded only in IDEs with version control: refresh after a branch switch. -->
+<idea-plugin>
+    <projectListeners>
+        <listener class="singularityflow.intellij.refresh.SflowBranchListener"
+                  topic="com.intellij.openapi.vcs.BranchChangeListener"/>
+    </projectListeners>
+</idea-plugin>

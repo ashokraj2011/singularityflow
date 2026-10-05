@@ -1,0 +1,6 @@
+<!-- Loaded only when the Terminal plugin is enabled: its API is used by ReworkedTerminalLauncher alone. -->
+<idea-plugin>
+    <extensions defaultExtensionNs="singularityflow.sflow">
+        <terminalLauncher implementation="singularityflow.intellij.terminal.ReworkedTerminalLauncher"/>
+    </extensions>
+</idea-plugin>

@@ -146,8 +146,14 @@ checked.push(
 }
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
+// The IntelliJ client declares the CLI version it was built and tested with.
+const intellijVersion = /^pluginVersion\s*=\s*(\S+)\s*$/m.exec(
+  await readFile(path.join(root, 'apps', 'intellij', 'gradle.properties'), 'utf8').catch(() => '')
+)?.[1];
+checked.push('apps/intellij/gradle.properties');
 for (const [name, version] of Object.entries({
   vscode: vscodeJson.version,
+  intellij: intellijVersion,
   lockPackage: lockJson.packages?.['']?.version,
   lockVscode: lockJson.packages?.['apps/vscode']?.version
 })) {
@@ -241,7 +247,8 @@ const externalAudits = [
   // A stamp that drifts from the mapping is one agent quietly pinned to a model nobody
   // approved — the exact thing the indirection exists to prevent. `[ADP:CON-008]`
   ['scripts/stamp-agent-models.mjs', 'Agent model stamps', ['--check']],
-  ['scripts/generate-operation-catalog.mjs', 'Operation model-policy catalog']
+  ['scripts/generate-operation-catalog.mjs', 'Operation model-policy catalog'],
+  ['scripts/generate-intellij-resources.mjs', 'IntelliJ client resources']
 ];
 const auditResults = await Promise.all(externalAudits.map(async ([script, label, args = []]) => {
   try {

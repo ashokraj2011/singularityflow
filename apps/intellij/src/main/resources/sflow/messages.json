@@ -1,0 +1,645 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/generate-intellij-resources.mjs",
+  "messages": {
+    "approval.awaiting-a-reviewer": {
+      "label": "Waiting for a reviewer"
+    },
+    "approval.open-the-packet": {
+      "label": "Open the review packet"
+    },
+    "approval.requires-an-authorized-reviewer": {
+      "label": "Waiting for an authorized reviewer"
+    },
+    "approval.waiting": {
+      "label": "Waiting on a decision"
+    },
+    "approval.you-are-authorized": {
+      "label": "Your approval decision is needed"
+    },
+    "approval.you-submitted-it": {
+      "label": "You submitted this"
+    },
+    "ast.bounded-structural-evidence": {
+      "label": "Bounded structural evidence",
+      "detail": "This read reports structural facts from the selected repository cone without returning source bodies or changing repository state."
+    },
+    "context.bounded-brief": {
+      "label": "Bounded {slice} context from governed records",
+      "detail": "{bytes} content byte(s) were included; deeper material remains behind a newly sealed read action."
+    },
+    "context.coverage-limited": {
+      "label": "Some context was not included",
+      "detail": "{omission} was unavailable or outside this page's explicit byte budget."
+    },
+    "context.expand-slice": {
+      "label": "Expand only this context slice"
+    },
+    "developer.no-current-work": {
+      "label": "No current work is selected",
+      "detail": "Start new work, resume an existing Story, or switch workspace."
+    },
+    "developer.recommended-next": {
+      "label": "Recommended from the current governed state",
+      "detail": "Review what it will change before selecting it."
+    },
+    "developer.start-with-intake": {
+      "label": "Start by describing the work",
+      "detail": "SFlow will ask only for the consequential choices it cannot derive."
+    },
+    "explain.ambiguous": {
+      "label": "More than one topic matches"
+    },
+    "explain.cited": {
+      "label": "Answered from the compiled documentation"
+    },
+    "explain.no-match": {
+      "label": "No topic matches that"
+    },
+    "explain.unstamped-docs": {
+      "label": "The documentation is not stamped",
+      "detail": "It may be older than this build."
+    },
+    "fault.diagnose-first": {
+      "label": "Diagnose without changing files",
+      "detail": "Produces deterministic facts and hypotheses only; no repair worktree is created."
+    },
+    "fault.open-evidence": {
+      "label": "Open the redacted fault record",
+      "detail": "Shows retained evidence and integrity metadata without exposing absolute paths."
+    },
+    "fault.records-unavailable": {
+      "label": "Fault records could not be read",
+      "detail": "Home continued without treating an unread fault store as an empty one."
+    },
+    "fault.repair-guided": {
+      "label": "Prepare a governed repair",
+      "detail": "Diagnosis and the exact mutation scope are reviewed before an isolated worktree is changed."
+    },
+    "fault.unresolved": {
+      "label": "{severity} fault {fault} needs attention",
+      "detail": "{type}: {summary}"
+    },
+    "gateway.candidates": {
+      "label": "More than one thing matches"
+    },
+    "gateway.clarification": {
+      "label": "One more thing needed"
+    },
+    "gateway.completed": {
+      "label": "Completed exactly as confirmed"
+    },
+    "gateway.confirmation-invalid": {
+      "label": "That confirmation is invalid or already used"
+    },
+    "gateway.confirmation-required": {
+      "label": "Confirm the exact reviewed Plan first"
+    },
+    "gateway.denied-by-policy": {
+      "label": "Policy does not allow this"
+    },
+    "gateway.developer-next": {
+      "label": "Your recommended next step"
+    },
+    "gateway.executor-unavailable": {
+      "label": "This build cannot carry out that Plan"
+    },
+    "gateway.explained": {
+      "label": "Here is the explanation"
+    },
+    "gateway.fingerprint-algorithm-stale": {
+      "label": "That action used an older worktree fingerprint",
+      "detail": "Refresh the view before continuing."
+    },
+    "gateway.handle-binding-invalid": {
+      "label": "That action was not bound to anything checkable"
+    },
+    "gateway.handle-consumed": {
+      "label": "That action was already used",
+      "detail": "A confirmation is for one act."
+    },
+    "gateway.handle-drifted": {
+      "label": "The world moved under that action",
+      "detail": "{drifted} changed since it was offered. Ask again and it will be recomputed."
+    },
+    "gateway.handle-expired": {
+      "label": "That action expired",
+      "detail": "Ask again and it will be recomputed against the current state."
+    },
+    "gateway.handle-invalid": {
+      "label": "That action is not valid"
+    },
+    "gateway.handle-kind-invalid": {
+      "label": "That action is malformed"
+    },
+    "gateway.handle-kind-mismatch": {
+      "label": "That action does not fit here"
+    },
+    "gateway.handle-tampered": {
+      "label": "That action does not match its signature",
+      "detail": "Nothing was carried out. This is not something retrying will fix."
+    },
+    "gateway.handle-unknown": {
+      "label": "That action is no longer available",
+      "detail": "It was offered in a different session. Ask again from here."
+    },
+    "gateway.handle-unrecognised": {
+      "label": "That action failed for a reason this build has no name for"
+    },
+    "gateway.home": {
+      "label": "Your work"
+    },
+    "gateway.legal-now": {
+      "label": "Available now"
+    },
+    "gateway.next": {
+      "label": "What you can do now"
+    },
+    "gateway.not-a-mutation": {
+      "label": "That Plan is not an executable mutation"
+    },
+    "gateway.not-a-read": {
+      "label": "That is not a read"
+    },
+    "gateway.not-implemented": {
+      "label": "Not implemented yet"
+    },
+    "gateway.not-ready": {
+      "label": "Not ready to submit"
+    },
+    "gateway.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "Your work is untouched."
+    },
+    "gateway.plan-invalid": {
+      "label": "That Plan cannot be prepared from the current governed state",
+      "detail": "Nothing was carried out."
+    },
+    "gateway.planner-unavailable": {
+      "label": "This build cannot answer that yet",
+      "detail": "The operation is declared but has no implementation here."
+    },
+    "gateway.read": {
+      "label": "Here is what SFlow found"
+    },
+    "gateway.read-only": {
+      "label": "This session cannot change anything",
+      "detail": "The gateway is read-only."
+    },
+    "gateway.refused": {
+      "label": "Not ready"
+    },
+    "gateway.resolved": {
+      "label": "Ready to go"
+    },
+    "gateway.returned": {
+      "label": "Where you left this"
+    },
+    "goal.durable-execution": {
+      "label": "From the governed Goal lifecycle branch",
+      "detail": "The contract, plan, approval, and state were reconstructed from the exact GEX revision."
+    },
+    "home.active-work-leads": {
+      "label": "You have work in progress"
+    },
+    "home.auto-unavailable": {
+      "label": "Some Auto status could not be read",
+      "detail": "Home did not treat unreadable private Auto records as an empty flight list. Run the displayed diagnostic command."
+    },
+    "home.briefing-unavailable": {
+      "label": "The cross-workspace briefing is unavailable",
+      "detail": "Only this workspace was read."
+    },
+    "home.continue-active-work": {
+      "label": "Continue where you left off"
+    },
+    "home.default-order": {
+      "label": "Shown in the standard order"
+    },
+    "home.governed-goal-active": {
+      "label": "Governed Goal {goal} is {status}"
+    },
+    "home.local-work-unreconciled": {
+      "label": "{files} local change(s) not yet compared against the plan"
+    },
+    "home.needs-your-decision": {
+      "label": "{count} decision(s) are waiting on you"
+    },
+    "home.no-workspace-selected": {
+      "label": "No governed workspace or repository is selected. Choose a workspace or open a governed repository."
+    },
+    "home.nothing-waiting": {
+      "label": "Nothing is waiting on you in {workspace}"
+    },
+    "home.prompt-placeholder": {
+      "label": "What is on your mind today?"
+    },
+    "home.recovery-required": {
+      "label": "A publication was interrupted",
+      "detail": "Finish it before starting anything else — this is the one state where doing something else first can lose work."
+    },
+    "home.select-a-workspace-first": {
+      "label": "Choose a workspace"
+    },
+    "home.selection-stale": {
+      "label": "The selected work changed while this answer was being prepared",
+      "detail": "Refresh Home and choose the current subject again."
+    },
+    "home.stable-choice": {
+      "label": "Always available"
+    },
+    "home.work-summary": {
+      "label": "{active} active, {decisions} needing you"
+    },
+    "impact.evidence-gap": {
+      "label": "{field} was not read"
+    },
+    "impact.from-changed-paths": {
+      "label": "From the paths you changed"
+    },
+    "impact.from-committed-evidence": {
+      "label": "From source at the pinned commit"
+    },
+    "impact.start-reviewed-plan": {
+      "label": "Accept this exact plan in a guarded start ceremony"
+    },
+    "impact.tests-by-path-convention": {
+      "label": "{matched} test(s) matched by path convention",
+      "detail": "Matched by naming, not by running anything."
+    },
+    "impact.work-in-the-same-area": {
+      "label": "Other work touches this area"
+    },
+    "intent.trace.cause-unavailable": {
+      "label": "Governed cause authority is unavailable for {path}",
+      "detail": "The read does not infer intent from proximity, commit prose, or a model summary."
+    },
+    "intent.trace.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "Intent trace is read-only."
+    },
+    "intent.trace.path-not-changed": {
+      "label": "{path} is not present in the exact current change set",
+      "detail": "No cause relationship was inferred."
+    },
+    "intent.trace.resource-observation": {
+      "label": "Observed {regions} exact changed resource region(s) for {path}",
+      "detail": "This resource-level observation is not a governed cause or semantic explanation."
+    },
+    "intent.trace.wrong-repository": {
+      "label": "That repository is not the active repository"
+    },
+    "investigation.assistance-not-invoked": {
+      "label": "Assisted explanation was not invoked",
+      "detail": "This host returned the complete deterministic investigation instead."
+    },
+    "investigation.deterministic-triage": {
+      "label": "Deterministic bug triage found {matches} bounded text match(es)",
+      "detail": "The observations narrow investigation; they do not claim a cause."
+    },
+    "investigation.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "Investigation is read-only."
+    },
+    "investigation.wrong-repository": {
+      "label": "That repository is not the active repository"
+    },
+    "mcp.evidence-observation-required": {
+      "label": "This snapshot is retained for audit only",
+      "detail": "It was supplied by an agent rather than captured by the MCP host, so it does not satisfy host-observed evidence gates."
+    },
+    "publication.marker-unreadable": {
+      "label": "A publication recovery marker cannot be read"
+    },
+    "publication.pending": {
+      "label": "A publication is unfinished"
+    },
+    "readiness.approvals-outstanding": {
+      "label": "Approvals"
+    },
+    "readiness.ast": {
+      "label": "Structural predicates"
+    },
+    "readiness.awaiting-a-human-decision": {
+      "label": "Waiting for a reviewer"
+    },
+    "readiness.blocked": {
+      "label": "{count} thing(s) are blocking this"
+    },
+    "readiness.capture-visuals": {
+      "label": "Capture required visual evidence"
+    },
+    "readiness.claim-changes": {
+      "label": "Record trace claims for the unclaimed changes"
+    },
+    "readiness.clarifications": {
+      "label": "Clarifications"
+    },
+    "readiness.external-build": {
+      "label": "External build status"
+    },
+    "readiness.inspect-ast": {
+      "label": "Inspect the required structural predicates"
+    },
+    "readiness.no-blockers-found": {
+      "label": "Nothing is blocking you"
+    },
+    "readiness.no-known-step": {
+      "label": "No step is known for this"
+    },
+    "readiness.partial-inputs": {
+      "label": "This answer does not cover everything",
+      "detail": "Not evaluated: {missing}."
+    },
+    "readiness.produce-the-artifact": {
+      "label": "Produce the artifact"
+    },
+    "readiness.publication-marker-unreadable": {
+      "label": "Publication recovery record"
+    },
+    "readiness.publication-pending": {
+      "label": "Publication"
+    },
+    "readiness.publish-artifacts": {
+      "label": "Publish the current required artifacts"
+    },
+    "readiness.published-artifacts": {
+      "label": "Published artifact bytes"
+    },
+    "readiness.reconcile-changes": {
+      "label": "Reconcile changed paths against the governed plan"
+    },
+    "readiness.reconciliation": {
+      "label": "Implementation reconciliation"
+    },
+    "readiness.record-external-build": {
+      "label": "Record the required external build checks"
+    },
+    "readiness.repair-publication-marker": {
+      "label": "Repair the publication recovery record"
+    },
+    "readiness.required-artifact-missing": {
+      "label": "Required artifact"
+    },
+    "readiness.resolve-clarifications": {
+      "label": "Resolve the recorded clarification markers"
+    },
+    "readiness.resume-publication": {
+      "label": "Finish publishing"
+    },
+    "readiness.revalidate-approvals": {
+      "label": "Revalidate approvals against the current artifact bytes"
+    },
+    "readiness.run-missing-checks": {
+      "label": "Run the missing or stale checks"
+    },
+    "readiness.stale-approvals": {
+      "label": "Approval freshness"
+    },
+    "readiness.tests": {
+      "label": "Tests"
+    },
+    "readiness.unclaimed-changes": {
+      "label": "Local changes"
+    },
+    "readiness.unrecognised-gate": {
+      "label": "{gate}",
+      "detail": "This build has no name for that gate."
+    },
+    "readiness.visual": {
+      "label": "Visual assurance"
+    },
+    "recovery.resume-publication": {
+      "label": "Finish the interrupted publication"
+    },
+    "repository.explore.bounded-facts": {
+      "label": "Repository shape from {files} tracked file(s)",
+      "detail": "Only bounded structural facts were returned for {path}; source bodies were not included."
+    },
+    "repository.explore.empty-scope": {
+      "label": "No tracked source was found under {path}"
+    },
+    "repository.explore.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "Repository exploration is read-only."
+    },
+    "repository.explore.wrong-repository": {
+      "label": "That repository is not the active repository"
+    },
+    "resolution.ambiguous": {
+      "label": "More than one thing matches"
+    },
+    "resolution.arguments.invalid": {
+      "label": "One of the values is not valid"
+    },
+    "resolution.arguments.missing": {
+      "label": "Something is missing",
+      "detail": "Supply {fields} and this can be resolved."
+    },
+    "resolution.denied-by-policy": {
+      "label": "Policy does not allow this"
+    },
+    "resolution.goal-alone-cannot-write": {
+      "label": "A goal alone cannot change anything",
+      "detail": "One candidate is still a candidate. Choose it and it will be resolved."
+    },
+    "resolution.goal.unknown": {
+      "label": "No such goal"
+    },
+    "resolution.matched.conversation": {
+      "label": "Understood as a developer request"
+    },
+    "resolution.matched.goal": {
+      "label": "Resolved from the goal"
+    },
+    "resolution.matched.phrase": {
+      "label": "Resolved from what you typed"
+    },
+    "resolution.matched.selection-handle": {
+      "label": "Resolved from your choice"
+    },
+    "resolution.no-match": {
+      "label": "Nothing matched that",
+      "detail": "Pick one of the goals below, or ask what SFlow can do."
+    },
+    "resolution.not-legal-now": {
+      "label": "Not available in this state"
+    },
+    "resolution.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "Your work is untouched."
+    },
+    "resolution.selection-handle.invalid": {
+      "label": "That choice is no longer current",
+      "detail": "The world moved since it was offered. Ask again and it will be recomputed."
+    },
+    "resolution.subject.unknown-kind": {
+      "label": "That is not something SFlow tracks"
+    },
+    "return.acknowledgement-boundary-unavailable": {
+      "label": "Showing the full interval",
+      "detail": "The acknowledgement is recorded, but it is not a Git baseline for this reconciliation."
+    },
+    "return.clean-worktree": {
+      "label": "Application tree committed",
+      "detail": "{uncommitted} uncommitted application path(s)."
+    },
+    "return.current-state": {
+      "label": "Current state",
+      "detail": "This covers the governed interval rather than claiming an acknowledgement-relative delta."
+    },
+    "return.local-changes-unread": {
+      "label": "Local changes were not read"
+    },
+    "return.no-open-interval": {
+      "label": "No governed work interval is open",
+      "detail": "Your local work is untouched; it is simply not attached to a governed interval."
+    },
+    "return.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "This is a read. Your work is untouched."
+    },
+    "return.planned": {
+      "label": "Changes match the plan",
+      "detail": "{planned} of {changed} changed path(s) were planned."
+    },
+    "return.protected": {
+      "label": "Protected paths untouched",
+      "detail": "{count} protected path(s) changed."
+    },
+    "return.reconcile-before-submitting": {
+      "label": "Reconcile before submitting"
+    },
+    "return.reconciled": {
+      "label": "{changed} path(s) changed, {unplanned} outside the plan"
+    },
+    "return.reconciliation-unavailable": {
+      "label": "No reconciliation for {work}",
+      "detail": "Nothing was compared, so nothing here is a verdict on your work."
+    },
+    "return.since-you-were-here": {
+      "label": "Since you were here"
+    },
+    "return.unplanned": {
+      "label": "Changes outside the plan"
+    },
+    "return.unrecognised-verdict": {
+      "label": "A verdict this build has no name for"
+    },
+    "work.all-phases-complete": {
+      "label": "Every step is decided"
+    },
+    "work.blocked.approvals-outstanding": {
+      "label": "Approvals are outstanding"
+    },
+    "work.blocked.publication-marker-unreadable": {
+      "label": "The publication recovery marker cannot be read",
+      "detail": "Repair the marker before attempting lifecycle changes."
+    },
+    "work.blocked.publication-pending": {
+      "label": "A publication is unfinished"
+    },
+    "work.blocked.required-artifact-missing": {
+      "label": "A required artifact is missing"
+    },
+    "work.blocked.unrecognised": {
+      "label": "Blocked by {blocker}",
+      "detail": "This build has no name for that blocker."
+    },
+    "work.check-readiness": {
+      "label": "Check whether this is ready"
+    },
+    "work.final-phase-approved": {
+      "label": "The final phase was approved"
+    },
+    "work.from-governed-records": {
+      "label": "From governed records"
+    },
+    "work.in-progress": {
+      "label": "In progress"
+    },
+    "work.legal-now": {
+      "label": "Available now"
+    },
+    "work.local-changes-present": {
+      "label": "You have uncommitted changes",
+      "detail": "{files} file(s) changed locally. They are preserved and were not used."
+    },
+    "work.no-current-phase": {
+      "label": "No phase is current"
+    },
+    "work.no-legal-action": {
+      "label": "Nothing is available to do here"
+    },
+    "work.not-in-this-repository": {
+      "label": "That work is not in this repository"
+    },
+    "work.nothing-was-carried-out": {
+      "label": "Nothing was carried out",
+      "detail": "Your work is untouched."
+    },
+    "work.reconstructed-from-records": {
+      "label": "Reconstructed from records",
+      "detail": "Phase {phase}, generation {generation}."
+    },
+    "work.resume-phase": {
+      "label": "Resume this phase"
+    },
+    "work.revision-unavailable": {
+      "label": "The exact repository revision could not be read",
+      "detail": "A handoff was not produced because it could not be bound to a commit."
+    },
+    "work.single-repository-scope": {
+      "label": "Only {repository} was read"
+    },
+    "workspace.bootstrap-available": {
+      "label": "A workspace setup can be continued",
+      "detail": "Review its preserved state before retrying the next operation."
+    },
+    "workspace.doctor-available": {
+      "label": "Run workspace diagnostics",
+      "detail": "Inspect machine, network, Git, and preserved setup evidence without changing state."
+    },
+    "workspace.evidence-gap": {
+      "label": "{field} was not read"
+    },
+    "workspace.explore-available": {
+      "label": "Explore saved workspaces",
+      "detail": "Choose only from workspaces registered on this machine."
+    },
+    "workspace.from-registry": {
+      "label": "From the workspace registry"
+    },
+    "workspace.open-available": {
+      "label": "Use an existing repository clone",
+      "detail": "Inspect it first; Git state and working-tree bytes are preserved."
+    },
+    "workspace.prepare-available": {
+      "label": "Create a governed workspace",
+      "detail": "Choose its capabilities, location, and identity in the guided setup."
+    },
+    "workspace.selectable": {
+      "label": "Switch to this workspace"
+    },
+    "world-model.authority-unavailable": {
+      "label": "The registered world model is unavailable",
+      "detail": "Select a governed repository, then inspect the world-model diagnosis before continuing."
+    },
+    "world-model.entity-identifier-required": {
+      "label": "Choose the world-model item to inspect",
+      "detail": "An identifier is required for this entity type."
+    },
+    "world-model.entity-unavailable": {
+      "label": "That world-model item is unavailable",
+      "detail": "It is not present in the verified registered authority."
+    },
+    "world-model.expansion-refused": {
+      "label": "The source expansion was refused",
+      "detail": "The requested expansion did not satisfy the registered scope, lease, or byte boundary."
+    },
+    "world-model.registered-authority": {
+      "label": "From the registered world model",
+      "detail": "The answer is bound to the verified published authority at {authority}; freshness is {fresh}."
+    }
+  }
+}

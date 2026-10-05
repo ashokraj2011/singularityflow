@@ -1,0 +1,515 @@
+{
+  "schemaVersion": 2,
+  "resultType": "sflow-result",
+  "kind": "read",
+  "operation": {
+    "id": "home.overview",
+    "classification": "read"
+  },
+  "subject": null,
+  "outcome": {
+    "status": "succeeded",
+    "messageId": "gateway.home",
+    "slots": {
+      "workspace": "none"
+    }
+  },
+  "effects": {
+    "contextChanged": false,
+    "stateChanged": false,
+    "filesChanged": false,
+    "gitRefsChanged": false,
+    "publicationCreated": false,
+    "externalSystemsChanged": false
+  },
+  "why": [
+    {
+      "code": "home.no-workspace-selected",
+      "source": "deterministic",
+      "reference": null,
+      "slots": {}
+    }
+  ],
+  "warnings": [],
+  "preserved": [],
+  "checklist": [],
+  "next": [
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:repository.open.guide",
+      "label": "Use an existing repository clone",
+      "rank": 0,
+      "kind": "read",
+      "reasonCode": "home.select-a-workspace-first",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "primary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "Use an existing repository clone",
+        "command": "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+        "skill": "/sf-workspace",
+        "copilotCommand": "/sf-workspace",
+        "copyable": false
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:workspace.prepare.guide",
+      "label": "Prepare a new workspace",
+      "rank": 1,
+      "kind": "read",
+      "reasonCode": "home.select-a-workspace-first",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "Prepare a new workspace",
+        "command": "singularity-flow workspace prepare",
+        "skill": "/sf-workspace-bootstrap",
+        "copilotCommand": "/sf-workspace-bootstrap",
+        "copyable": true
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:workspace.doctor.guide",
+      "label": "Run workspace diagnostics",
+      "rank": 2,
+      "kind": "read",
+      "reasonCode": "home.select-a-workspace-first",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "Run workspace diagnostics",
+        "command": "singularity-flow workspace doctor",
+        "skill": "/sf-workspace-bootstrap",
+        "copilotCommand": "/sf-workspace-bootstrap",
+        "copyable": true
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:workspace.explore.guide",
+      "label": "List workspaces",
+      "rank": 3,
+      "kind": "read",
+      "reasonCode": "home.select-a-workspace-first",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "List workspaces",
+        "command": "singularity-flow workspace list --table",
+        "skill": "/sf-workspaces",
+        "copilotCommand": "/sf-workspaces",
+        "copyable": true
+      }
+    }
+  ],
+  "restState": null,
+  "data": {
+    "rail": [],
+    "workspace": null,
+    "repository": null,
+    "counts": null,
+    "localChanges": null,
+    "currentWork": null,
+    "activeWork": null,
+    "attentionWork": null,
+    "actor": {
+      "id": "actor:<ID>",
+      "display": null
+    },
+    "lens": "developer",
+    "today": null,
+    "yesterday": null,
+    "journalAvailable": false,
+    "recent": [],
+    "latestReceipt": null,
+    "personalization": {
+      "schemaVersion": 1,
+      "source": "git-identity",
+      "displayName": null,
+      "replyName": null
+    },
+    "bootstrap": null,
+    "briefingAvailable": false,
+    "choiceSet": [
+      "repository.open.guide",
+      "workspace.prepare.guide",
+      "workspace.doctor.guide",
+      "workspace.explore.guide"
+    ],
+    "auto": null,
+    "homeProjection": {
+      "schemaVersion": 2,
+      "resultType": "my-work-home",
+      "asOf": "<TIME>",
+      "actor": {
+        "id": "actor:<ID>"
+      },
+      "context": {
+        "workspaceId": null,
+        "workspaceLabel": null,
+        "repositoryId": null,
+        "branch": null,
+        "head": null,
+        "worktreeFingerprint": null,
+        "activeWorkId": null
+      },
+      "lens": {
+        "id": "developer"
+      },
+      "prompt": {
+        "placeholderMessageId": "home.prompt-placeholder",
+        "goals": [
+          {
+            "id": "home:repository.open.guide",
+            "handle": "sel_<HANDLE>",
+            "label": "Use an existing repository clone",
+            "kind": "read",
+            "reasonCode": "home.select-a-workspace-first",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "primary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "Use an existing repository clone",
+              "command": "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+              "skill": "/sf-workspace",
+              "copilotCommand": "/sf-workspace",
+              "copyable": false
+            }
+          },
+          {
+            "id": "home:workspace.prepare.guide",
+            "handle": "sel_<HANDLE>",
+            "label": "Prepare a new workspace",
+            "kind": "read",
+            "reasonCode": "home.select-a-workspace-first",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "Prepare a new workspace",
+              "command": "singularity-flow workspace prepare",
+              "skill": "/sf-workspace-bootstrap",
+              "copilotCommand": "/sf-workspace-bootstrap",
+              "copyable": true
+            }
+          },
+          {
+            "id": "home:workspace.doctor.guide",
+            "handle": "sel_<HANDLE>",
+            "label": "Run workspace diagnostics",
+            "kind": "read",
+            "reasonCode": "home.select-a-workspace-first",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "Run workspace diagnostics",
+              "command": "singularity-flow workspace doctor",
+              "skill": "/sf-workspace-bootstrap",
+              "copilotCommand": "/sf-workspace-bootstrap",
+              "copyable": true
+            }
+          },
+          {
+            "id": "home:workspace.explore.guide",
+            "handle": "sel_<HANDLE>",
+            "label": "List workspaces",
+            "kind": "read",
+            "reasonCode": "home.select-a-workspace-first",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "List workspaces",
+              "command": "singularity-flow workspace list --table",
+              "skill": "/sf-workspaces",
+              "copilotCommand": "/sf-workspaces",
+              "copyable": true
+            }
+          }
+        ]
+      },
+      "needsUser": [],
+      "activeWork": null,
+      "governedGoal": null,
+      "now": {
+        "id": "home:repository.open.guide",
+        "handle": "sel_<HANDLE>",
+        "label": "Use an existing repository clone",
+        "kind": "read",
+        "reasonCode": "home.select-a-workspace-first",
+        "confirmation": "none",
+        "interaction": "navigation",
+        "emphasis": "primary",
+        "executable": false,
+        "slots": {},
+        "fallback": {
+          "label": "Use an existing repository clone",
+          "command": "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+          "skill": "/sf-workspace",
+          "copilotCommand": "/sf-workspace",
+          "copyable": false
+        }
+      },
+      "why": [
+        {
+          "code": "home.no-workspace-selected",
+          "source": "deterministic",
+          "reference": null,
+          "slots": {}
+        }
+      ],
+      "today": null,
+      "yesterday": null,
+      "worthChecking": [],
+      "recent": [],
+      "health": {
+        "status": "healthy",
+        "warnings": [],
+        "journal": "unavailable"
+      },
+      "subjectRevision": "<HASH>",
+      "sources": [
+        {
+          "id": "governed-records",
+          "freshness": "current-read",
+          "available": false
+        },
+        {
+          "id": "git-worktree",
+          "freshness": "not-checked",
+          "available": false
+        },
+        {
+          "id": "local-journal",
+          "freshness": "not-checked",
+          "available": false
+        }
+      ]
+    },
+    "home": {
+      "rail": [],
+      "workspace": null,
+      "repository": null,
+      "counts": null,
+      "localChanges": null,
+      "currentWork": null,
+      "activeWork": null,
+      "attentionWork": null,
+      "actor": {
+        "id": "actor:<ID>",
+        "display": null
+      },
+      "lens": "developer",
+      "today": null,
+      "yesterday": null,
+      "journalAvailable": false,
+      "recent": [],
+      "latestReceipt": null,
+      "personalization": {
+        "schemaVersion": 1,
+        "source": "git-identity",
+        "displayName": null,
+        "replyName": null
+      },
+      "bootstrap": null,
+      "briefingAvailable": false,
+      "choiceSet": [
+        "repository.open.guide",
+        "workspace.prepare.guide",
+        "workspace.doctor.guide",
+        "workspace.explore.guide"
+      ],
+      "auto": null,
+      "homeProjection": {
+        "schemaVersion": 2,
+        "resultType": "my-work-home",
+        "asOf": "<TIME>",
+        "actor": {
+          "id": "actor:<ID>"
+        },
+        "context": {
+          "workspaceId": null,
+          "workspaceLabel": null,
+          "repositoryId": null,
+          "branch": null,
+          "head": null,
+          "worktreeFingerprint": null,
+          "activeWorkId": null
+        },
+        "lens": {
+          "id": "developer"
+        },
+        "prompt": {
+          "placeholderMessageId": "home.prompt-placeholder",
+          "goals": [
+            {
+              "id": "home:repository.open.guide",
+              "handle": "sel_<HANDLE>",
+              "label": "Use an existing repository clone",
+              "kind": "read",
+              "reasonCode": "home.select-a-workspace-first",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "primary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "Use an existing repository clone",
+                "command": "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+                "skill": "/sf-workspace",
+                "copilotCommand": "/sf-workspace",
+                "copyable": false
+              }
+            },
+            {
+              "id": "home:workspace.prepare.guide",
+              "handle": "sel_<HANDLE>",
+              "label": "Prepare a new workspace",
+              "kind": "read",
+              "reasonCode": "home.select-a-workspace-first",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "Prepare a new workspace",
+                "command": "singularity-flow workspace prepare",
+                "skill": "/sf-workspace-bootstrap",
+                "copilotCommand": "/sf-workspace-bootstrap",
+                "copyable": true
+              }
+            },
+            {
+              "id": "home:workspace.doctor.guide",
+              "handle": "sel_<HANDLE>",
+              "label": "Run workspace diagnostics",
+              "kind": "read",
+              "reasonCode": "home.select-a-workspace-first",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "Run workspace diagnostics",
+                "command": "singularity-flow workspace doctor",
+                "skill": "/sf-workspace-bootstrap",
+                "copilotCommand": "/sf-workspace-bootstrap",
+                "copyable": true
+              }
+            },
+            {
+              "id": "home:workspace.explore.guide",
+              "handle": "sel_<HANDLE>",
+              "label": "List workspaces",
+              "kind": "read",
+              "reasonCode": "home.select-a-workspace-first",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "List workspaces",
+                "command": "singularity-flow workspace list --table",
+                "skill": "/sf-workspaces",
+                "copilotCommand": "/sf-workspaces",
+                "copyable": true
+              }
+            }
+          ]
+        },
+        "needsUser": [],
+        "activeWork": null,
+        "governedGoal": null,
+        "now": {
+          "id": "home:repository.open.guide",
+          "handle": "sel_<HANDLE>",
+          "label": "Use an existing repository clone",
+          "kind": "read",
+          "reasonCode": "home.select-a-workspace-first",
+          "confirmation": "none",
+          "interaction": "navigation",
+          "emphasis": "primary",
+          "executable": false,
+          "slots": {},
+          "fallback": {
+            "label": "Use an existing repository clone",
+            "command": "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+            "skill": "/sf-workspace",
+            "copilotCommand": "/sf-workspace",
+            "copyable": false
+          }
+        },
+        "why": [
+          {
+            "code": "home.no-workspace-selected",
+            "source": "deterministic",
+            "reference": null,
+            "slots": {}
+          }
+        ],
+        "today": null,
+        "yesterday": null,
+        "worthChecking": [],
+        "recent": [],
+        "health": {
+          "status": "healthy",
+          "warnings": [],
+          "journal": "unavailable"
+        },
+        "subjectRevision": "<HASH>",
+        "sources": [
+          {
+            "id": "governed-records",
+            "freshness": "current-read",
+            "available": false
+          },
+          {
+            "id": "git-worktree",
+            "freshness": "not-checked",
+            "available": false
+          },
+          {
+            "id": "local-journal",
+            "freshness": "not-checked",
+            "available": false
+          }
+        ]
+      }
+    },
+    "answer": null,
+    "selectedSubject": null
+  }
+}

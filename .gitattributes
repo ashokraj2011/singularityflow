@@ -1,1 +1,4 @@
 * text=auto eol=lf
+# Windows launchers must keep CRLF, and the Gradle wrapper jar is binary (apps/intellij).
+*.bat text eol=crlf
+*.jar binary

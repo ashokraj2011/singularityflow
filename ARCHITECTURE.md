@@ -26,13 +26,16 @@ knowledge requires approved artifact provenance plus explicit scope. See
 
 ## Product boundary
 
-Singularity Flow has one deterministic engine and two supported user surfaces.
+Singularity Flow has one deterministic engine, two supported user surfaces, and a read-only
+panel for JetBrains IDEs.
 
 ```mermaid
 flowchart TB
   H["People: product, architecture, engineering, QA"] --> V["VS Code extension"]
   H --> C["Copilot /sf-* skills"]
   H --> T["sflow CLI"]
+  H --> I["IntelliJ IDEA / Android Studio panel"]
+  I --> T
   V --> T
   C --> T
   T --> X["Approved sflow/config revision"]
@@ -322,6 +325,18 @@ The surfaces share durable records and the pure home/work projection, not an
 in-memory global store. VS Code recomputes its live binding on every gateway read;
 the CLI creates a fresh host session per invocation; Copilot obtains the same JSON
 envelope through the CLI and refreshes it after a selected guided flow.
+
+## JetBrains read-only panel
+
+`apps/intellij` is a limited client for IntelliJ IDEA and Android Studio 2025.3 or newer. It
+contains no engine code: it starts only `node --version`, `sflow --version` and
+`sflow home --json`, and renders the `home.overview` envelope. Gateway handles are bound to the
+CLI process that issued them, so the panel uses each action's `fallback.command`. A click runs
+that command only when it matches a home command template that `resolveOperation` classifies as
+a read; anything else is typed into the IDE terminal for the developer to review and run.
+`scripts/generate-intellij-resources.mjs` generates those templates, the message catalog and the
+command-quoting fixtures from the engine, and `test/intellij-home-contract.test.mjs` pins the
+fields the plugin reads. See [IntelliJ IDEA and Android Studio](docs/topics/jetbrains-ide.md).
 
 ## Local project workspace boundary
 

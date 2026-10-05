@@ -1,0 +1,1097 @@
+{
+  "schemaVersion": 2,
+  "resultType": "sflow-result",
+  "kind": "read",
+  "operation": {
+    "id": "home.overview",
+    "classification": "read"
+  },
+  "subject": {
+    "kind": null,
+    "id": null,
+    "revision": {
+      "sourceCommit": "<COMMIT>",
+      "worktreeHash": "<HASH>",
+      "worktreeAlgorithm": "sflow-worktree-v2",
+      "lifecycleHash": null,
+      "policyHash": "sha256:<HASH>",
+      "registryHash": "<HASH>"
+    }
+  },
+  "outcome": {
+    "status": "succeeded",
+    "messageId": "gateway.home",
+    "slots": {
+      "workspace": "payments",
+      "active": 1,
+      "decisions": 0
+    }
+  },
+  "effects": {
+    "contextChanged": false,
+    "stateChanged": false,
+    "filesChanged": false,
+    "gitRefsChanged": false,
+    "publicationCreated": false,
+    "externalSystemsChanged": false
+  },
+  "why": [
+    {
+      "code": "home.active-work-leads",
+      "source": "lifecycle",
+      "reference": "FIX-1",
+      "slots": {
+        "work": "FIX-1",
+        "phase": "intake",
+        "next": "work.continue"
+      }
+    }
+  ],
+  "warnings": [],
+  "preserved": [],
+  "checklist": [],
+  "next": [
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:work.continue",
+      "label": "Continue current work",
+      "rank": 0,
+      "kind": "read",
+      "reasonCode": "home.continue-active-work",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "primary",
+      "topic": null,
+      "effect": null,
+      "slots": {
+        "work": "FIX-1",
+        "title": "Fix the login error",
+        "repository": "payments",
+        "phase": "intake",
+        "nextAction": "work.continue"
+      },
+      "executable": false,
+      "fallback": {
+        "label": "Continue current work",
+        "command": "singularity-flow resume FIX-1",
+        "skill": "/sf-resume",
+        "copilotCommand": "/sf-resume",
+        "copyable": true
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:work.list",
+      "label": "See current work",
+      "rank": 1,
+      "kind": "read",
+      "reasonCode": "home.work-summary",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {
+        "active": "1",
+        "decisions": "0",
+        "work": "FIX-1",
+        "phase": "intake",
+        "group": "active"
+      },
+      "executable": false,
+      "fallback": {
+        "label": "Review FIX-1",
+        "command": "singularity-flow status",
+        "skill": "/sf-status",
+        "copilotCommand": "/sf-status",
+        "copyable": true
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:work.start.intake",
+      "label": "Start new work",
+      "rank": 2,
+      "kind": "read",
+      "reasonCode": "home.stable-choice",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "Start new work",
+        "command": "singularity-flow start <WORK-ID>",
+        "skill": "/sf-start",
+        "copilotCommand": "/sf-start",
+        "copyable": false
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:workspace.switch",
+      "label": "List workspaces",
+      "rank": 3,
+      "kind": "read",
+      "reasonCode": "home.stable-choice",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "List workspaces",
+        "command": "singularity-flow workspace list --table",
+        "skill": "/sf-workspaces",
+        "copilotCommand": "/sf-workspaces",
+        "copyable": true
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:impact.quick",
+      "label": "Run a quick impact analysis",
+      "rank": 4,
+      "kind": "read",
+      "reasonCode": "home.stable-choice",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "Run a quick impact analysis",
+        "command": "singularity-flow workspace impact",
+        "skill": "/sf-workspace-impact",
+        "copilotCommand": "/sf-workspace-impact",
+        "copyable": true
+      }
+    },
+    {
+      "handle": "sel_<HANDLE>",
+      "id": "home:repository.explore",
+      "label": "Explore repositories or investigate a problem",
+      "rank": 5,
+      "kind": "read",
+      "reasonCode": "home.stable-choice",
+      "confirmation": "none",
+      "interaction": "navigation",
+      "emphasis": "secondary",
+      "topic": null,
+      "effect": null,
+      "slots": {},
+      "executable": false,
+      "fallback": {
+        "label": "Explore repositories or investigate a problem",
+        "command": "singularity-flow status",
+        "skill": "/sf-status",
+        "copilotCommand": "/sf-status",
+        "copyable": true
+      }
+    }
+  ],
+  "restState": null,
+  "data": {
+    "rail": [
+      {
+        "id": "intake",
+        "label": "Scope and plan",
+        "state": "current",
+        "status": "in_progress"
+      },
+      {
+        "id": "implement",
+        "label": "Implement",
+        "state": "pending",
+        "status": "not_started"
+      },
+      {
+        "id": "verify",
+        "label": "Verify",
+        "state": "pending",
+        "status": "not_started"
+      }
+    ],
+    "actor": {
+      "id": "actor:<ID>",
+      "display": "Contract Tester"
+    },
+    "lens": "developer",
+    "today": {
+      "schemaVersion": 1,
+      "resultType": "local-work-journal-day",
+      "generatedAt": "<TIME>",
+      "date": "2026-10-05",
+      "timeZone": "Asia/Calcutta",
+      "privacy": {
+        "localOnly": true,
+        "remoteSync": "never",
+        "label": "Stored locally · Never pushed"
+      },
+      "capture": {
+        "mode": "workspace-facts",
+        "paused": false
+      },
+      "summaries": [
+        {
+          "id": "jrn_970e6f8909fbe69612eabe70",
+          "at": "<TIME>",
+          "kind": "work-started",
+          "workId": "FIX-1",
+          "text": "Governed work started"
+        }
+      ],
+      "attention": [],
+      "totalEvents": 1,
+      "malformedLines": []
+    },
+    "yesterday": null,
+    "journalAvailable": true,
+    "recent": [],
+    "personalization": {
+      "schemaVersion": 1,
+      "source": "git-identity",
+      "displayName": "Contract Tester",
+      "replyName": "Contract"
+    },
+    "workspace": {
+      "id": "local--payments",
+      "name": "payments"
+    },
+    "repository": {
+      "id": "payments",
+      "path": "<MACHINE>/payments",
+      "branch": "FIX-1",
+      "head": "<COMMIT>",
+      "resolvedFrom": "active-workspace"
+    },
+    "counts": {
+      "recovery-required": 0,
+      "waiting-on-you": 0,
+      "active": 1,
+      "waiting-on-others": 0,
+      "recently-completed": 0
+    },
+    "currentWork": {
+      "kind": "story",
+      "id": "FIX-1",
+      "title": "Fix the login error",
+      "phase": "intake",
+      "status": "in_progress",
+      "group": "active",
+      "repositoryId": "payments",
+      "branch": "FIX-1",
+      "nextAction": {
+        "operation": "work.continue",
+        "reasonCode": "work.resume-phase"
+      }
+    },
+    "activeWork": {
+      "kind": "story",
+      "id": "FIX-1",
+      "title": "Fix the login error",
+      "phase": "intake",
+      "status": "in_progress",
+      "group": "active",
+      "repositoryId": "payments",
+      "branch": "FIX-1",
+      "nextAction": {
+        "operation": "work.continue",
+        "reasonCode": "work.resume-phase"
+      }
+    },
+    "governedGoal": null,
+    "latestReceipt": null,
+    "auto": {
+      "availability": "available",
+      "total": 0,
+      "shown": 0,
+      "omitted": 0,
+      "selectedWorkId": "FIX-1",
+      "cards": []
+    },
+    "attentionWork": null,
+    "localChanges": {
+      "dirty": false,
+      "files": 0,
+      "worktreeHash": "<HASH>",
+      "worktreeAlgorithm": "sflow-worktree-v2",
+      "paths": [],
+      "hiddenChanges": [],
+      "diagnosticCodes": []
+    },
+    "faults": [],
+    "needsYourDecision": 0,
+    "briefingAvailable": false,
+    "crossWorkspace": {
+      "count": 0,
+      "lookup": "resolved",
+      "work": "not-checked"
+    },
+    "choiceSet": [
+      "work.continue",
+      "work.list",
+      "work.start.intake",
+      "workspace.switch",
+      "impact.quick",
+      "repository.explore"
+    ],
+    "homeProjection": {
+      "schemaVersion": 2,
+      "resultType": "my-work-home",
+      "asOf": "<TIME>",
+      "actor": {
+        "id": "actor:<ID>",
+        "display": "Contract Tester"
+      },
+      "context": {
+        "workspaceId": "local--payments",
+        "workspaceLabel": "payments",
+        "repositoryId": "payments",
+        "branch": "FIX-1",
+        "head": "<COMMIT>",
+        "worktreeFingerprint": "<HASH>",
+        "activeWorkId": "FIX-1"
+      },
+      "lens": {
+        "id": "developer"
+      },
+      "prompt": {
+        "placeholderMessageId": "home.prompt-placeholder",
+        "goals": [
+          {
+            "id": "home:work.continue",
+            "handle": "sel_<HANDLE>",
+            "label": "Continue current work",
+            "kind": "read",
+            "reasonCode": "home.continue-active-work",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "primary",
+            "executable": false,
+            "slots": {
+              "work": "FIX-1",
+              "title": "Fix the login error",
+              "repository": "payments",
+              "phase": "intake",
+              "nextAction": "work.continue"
+            },
+            "fallback": {
+              "label": "Continue current work",
+              "command": "singularity-flow resume FIX-1",
+              "skill": "/sf-resume",
+              "copilotCommand": "/sf-resume",
+              "copyable": true
+            }
+          },
+          {
+            "id": "home:work.list",
+            "handle": "sel_<HANDLE>",
+            "label": "See current work",
+            "kind": "read",
+            "reasonCode": "home.work-summary",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {
+              "active": "1",
+              "decisions": "0",
+              "work": "FIX-1",
+              "phase": "intake",
+              "group": "active"
+            },
+            "fallback": {
+              "label": "Review FIX-1",
+              "command": "singularity-flow status",
+              "skill": "/sf-status",
+              "copilotCommand": "/sf-status",
+              "copyable": true
+            }
+          },
+          {
+            "id": "home:work.start.intake",
+            "handle": "sel_<HANDLE>",
+            "label": "Start new work",
+            "kind": "read",
+            "reasonCode": "home.stable-choice",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "Start new work",
+              "command": "singularity-flow start <WORK-ID>",
+              "skill": "/sf-start",
+              "copilotCommand": "/sf-start",
+              "copyable": false
+            }
+          },
+          {
+            "id": "home:workspace.switch",
+            "handle": "sel_<HANDLE>",
+            "label": "List workspaces",
+            "kind": "read",
+            "reasonCode": "home.stable-choice",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "List workspaces",
+              "command": "singularity-flow workspace list --table",
+              "skill": "/sf-workspaces",
+              "copilotCommand": "/sf-workspaces",
+              "copyable": true
+            }
+          },
+          {
+            "id": "home:impact.quick",
+            "handle": "sel_<HANDLE>",
+            "label": "Run a quick impact analysis",
+            "kind": "read",
+            "reasonCode": "home.stable-choice",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "Run a quick impact analysis",
+              "command": "singularity-flow workspace impact",
+              "skill": "/sf-workspace-impact",
+              "copilotCommand": "/sf-workspace-impact",
+              "copyable": true
+            }
+          },
+          {
+            "id": "home:repository.explore",
+            "handle": "sel_<HANDLE>",
+            "label": "Explore repositories or investigate a problem",
+            "kind": "read",
+            "reasonCode": "home.stable-choice",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "secondary",
+            "executable": false,
+            "slots": {},
+            "fallback": {
+              "label": "Explore repositories or investigate a problem",
+              "command": "singularity-flow status",
+              "skill": "/sf-status",
+              "copilotCommand": "/sf-status",
+              "copyable": true
+            }
+          }
+        ]
+      },
+      "needsUser": [],
+      "activeWork": {
+        "id": "FIX-1",
+        "kind": "story",
+        "title": "Fix the login error",
+        "repositoryId": "payments",
+        "branch": "FIX-1",
+        "phase": "intake",
+        "status": "in_progress",
+        "group": "active",
+        "rail": [
+          {
+            "id": "intake",
+            "label": "Scope and plan",
+            "state": "current",
+            "status": "in_progress"
+          },
+          {
+            "id": "implement",
+            "label": "Implement",
+            "state": "pending",
+            "status": "not_started"
+          },
+          {
+            "id": "verify",
+            "label": "Verify",
+            "state": "pending",
+            "status": "not_started"
+          }
+        ],
+        "action": {
+          "id": "home:work.continue",
+          "handle": "sel_<HANDLE>",
+          "label": "Continue current work",
+          "kind": "read",
+          "reasonCode": "home.continue-active-work",
+          "confirmation": "none",
+          "interaction": "navigation",
+          "emphasis": "primary",
+          "executable": false,
+          "slots": {
+            "work": "FIX-1",
+            "title": "Fix the login error",
+            "repository": "payments",
+            "phase": "intake",
+            "nextAction": "work.continue"
+          },
+          "fallback": {
+            "label": "Continue current work",
+            "command": "singularity-flow resume FIX-1",
+            "skill": "/sf-resume",
+            "copilotCommand": "/sf-resume",
+            "copyable": true
+          }
+        }
+      },
+      "governedGoal": null,
+      "now": {
+        "id": "home:work.continue",
+        "handle": "sel_<HANDLE>",
+        "label": "Continue current work",
+        "kind": "read",
+        "reasonCode": "home.continue-active-work",
+        "confirmation": "none",
+        "interaction": "navigation",
+        "emphasis": "primary",
+        "executable": false,
+        "slots": {
+          "work": "FIX-1",
+          "title": "Fix the login error",
+          "repository": "payments",
+          "phase": "intake",
+          "nextAction": "work.continue"
+        },
+        "fallback": {
+          "label": "Continue current work",
+          "command": "singularity-flow resume FIX-1",
+          "skill": "/sf-resume",
+          "copilotCommand": "/sf-resume",
+          "copyable": true
+        }
+      },
+      "why": [
+        {
+          "code": "home.active-work-leads",
+          "source": "lifecycle",
+          "reference": "FIX-1",
+          "slots": {
+            "work": "FIX-1",
+            "phase": "intake",
+            "next": "work.continue"
+          }
+        }
+      ],
+      "today": {
+        "schemaVersion": 1,
+        "resultType": "local-work-journal-day",
+        "generatedAt": "<TIME>",
+        "date": "2026-10-05",
+        "timeZone": "Asia/Calcutta",
+        "privacy": {
+          "localOnly": true,
+          "remoteSync": "never",
+          "label": "Stored locally · Never pushed"
+        },
+        "capture": {
+          "mode": "workspace-facts",
+          "paused": false
+        },
+        "summaries": [
+          {
+            "id": "jrn_970e6f8909fbe69612eabe70",
+            "at": "<TIME>",
+            "kind": "work-started",
+            "workId": "FIX-1",
+            "text": "Governed work started"
+          }
+        ],
+        "attention": [],
+        "totalEvents": 1,
+        "malformedLines": []
+      },
+      "yesterday": null,
+      "worthChecking": [],
+      "recent": [],
+      "health": {
+        "status": "healthy",
+        "warnings": [],
+        "journal": "local-only"
+      },
+      "subjectRevision": "<HASH>",
+      "sources": [
+        {
+          "id": "governed-records",
+          "freshness": "current-read",
+          "available": true
+        },
+        {
+          "id": "git-worktree",
+          "freshness": "current-read",
+          "available": true
+        },
+        {
+          "id": "local-journal",
+          "freshness": "<TIME>",
+          "available": true
+        }
+      ]
+    },
+    "home": {
+      "rail": [
+        {
+          "id": "intake",
+          "label": "Scope and plan",
+          "state": "current",
+          "status": "in_progress"
+        },
+        {
+          "id": "implement",
+          "label": "Implement",
+          "state": "pending",
+          "status": "not_started"
+        },
+        {
+          "id": "verify",
+          "label": "Verify",
+          "state": "pending",
+          "status": "not_started"
+        }
+      ],
+      "actor": {
+        "id": "actor:<ID>",
+        "display": "Contract Tester"
+      },
+      "lens": "developer",
+      "today": {
+        "schemaVersion": 1,
+        "resultType": "local-work-journal-day",
+        "generatedAt": "<TIME>",
+        "date": "2026-10-05",
+        "timeZone": "Asia/Calcutta",
+        "privacy": {
+          "localOnly": true,
+          "remoteSync": "never",
+          "label": "Stored locally · Never pushed"
+        },
+        "capture": {
+          "mode": "workspace-facts",
+          "paused": false
+        },
+        "summaries": [
+          {
+            "id": "jrn_970e6f8909fbe69612eabe70",
+            "at": "<TIME>",
+            "kind": "work-started",
+            "workId": "FIX-1",
+            "text": "Governed work started"
+          }
+        ],
+        "attention": [],
+        "totalEvents": 1,
+        "malformedLines": []
+      },
+      "yesterday": null,
+      "journalAvailable": true,
+      "recent": [],
+      "personalization": {
+        "schemaVersion": 1,
+        "source": "git-identity",
+        "displayName": "Contract Tester",
+        "replyName": "Contract"
+      },
+      "workspace": {
+        "id": "local--payments",
+        "name": "payments"
+      },
+      "repository": {
+        "id": "payments",
+        "path": "<MACHINE>/payments",
+        "branch": "FIX-1",
+        "head": "<COMMIT>",
+        "resolvedFrom": "active-workspace"
+      },
+      "counts": {
+        "recovery-required": 0,
+        "waiting-on-you": 0,
+        "active": 1,
+        "waiting-on-others": 0,
+        "recently-completed": 0
+      },
+      "currentWork": {
+        "kind": "story",
+        "id": "FIX-1",
+        "title": "Fix the login error",
+        "phase": "intake",
+        "status": "in_progress",
+        "group": "active",
+        "repositoryId": "payments",
+        "branch": "FIX-1",
+        "nextAction": {
+          "operation": "work.continue",
+          "reasonCode": "work.resume-phase"
+        }
+      },
+      "activeWork": {
+        "kind": "story",
+        "id": "FIX-1",
+        "title": "Fix the login error",
+        "phase": "intake",
+        "status": "in_progress",
+        "group": "active",
+        "repositoryId": "payments",
+        "branch": "FIX-1",
+        "nextAction": {
+          "operation": "work.continue",
+          "reasonCode": "work.resume-phase"
+        }
+      },
+      "governedGoal": null,
+      "latestReceipt": null,
+      "auto": {
+        "availability": "available",
+        "total": 0,
+        "shown": 0,
+        "omitted": 0,
+        "selectedWorkId": "FIX-1",
+        "cards": []
+      },
+      "attentionWork": null,
+      "localChanges": {
+        "dirty": false,
+        "files": 0,
+        "worktreeHash": "<HASH>",
+        "worktreeAlgorithm": "sflow-worktree-v2",
+        "paths": [],
+        "hiddenChanges": [],
+        "diagnosticCodes": []
+      },
+      "faults": [],
+      "needsYourDecision": 0,
+      "briefingAvailable": false,
+      "crossWorkspace": {
+        "count": 0,
+        "lookup": "resolved",
+        "work": "not-checked"
+      },
+      "choiceSet": [
+        "work.continue",
+        "work.list",
+        "work.start.intake",
+        "workspace.switch",
+        "impact.quick",
+        "repository.explore"
+      ],
+      "homeProjection": {
+        "schemaVersion": 2,
+        "resultType": "my-work-home",
+        "asOf": "<TIME>",
+        "actor": {
+          "id": "actor:<ID>",
+          "display": "Contract Tester"
+        },
+        "context": {
+          "workspaceId": "local--payments",
+          "workspaceLabel": "payments",
+          "repositoryId": "payments",
+          "branch": "FIX-1",
+          "head": "<COMMIT>",
+          "worktreeFingerprint": "<HASH>",
+          "activeWorkId": "FIX-1"
+        },
+        "lens": {
+          "id": "developer"
+        },
+        "prompt": {
+          "placeholderMessageId": "home.prompt-placeholder",
+          "goals": [
+            {
+              "id": "home:work.continue",
+              "handle": "sel_<HANDLE>",
+              "label": "Continue current work",
+              "kind": "read",
+              "reasonCode": "home.continue-active-work",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "primary",
+              "executable": false,
+              "slots": {
+                "work": "FIX-1",
+                "title": "Fix the login error",
+                "repository": "payments",
+                "phase": "intake",
+                "nextAction": "work.continue"
+              },
+              "fallback": {
+                "label": "Continue current work",
+                "command": "singularity-flow resume FIX-1",
+                "skill": "/sf-resume",
+                "copilotCommand": "/sf-resume",
+                "copyable": true
+              }
+            },
+            {
+              "id": "home:work.list",
+              "handle": "sel_<HANDLE>",
+              "label": "See current work",
+              "kind": "read",
+              "reasonCode": "home.work-summary",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {
+                "active": "1",
+                "decisions": "0",
+                "work": "FIX-1",
+                "phase": "intake",
+                "group": "active"
+              },
+              "fallback": {
+                "label": "Review FIX-1",
+                "command": "singularity-flow status",
+                "skill": "/sf-status",
+                "copilotCommand": "/sf-status",
+                "copyable": true
+              }
+            },
+            {
+              "id": "home:work.start.intake",
+              "handle": "sel_<HANDLE>",
+              "label": "Start new work",
+              "kind": "read",
+              "reasonCode": "home.stable-choice",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "Start new work",
+                "command": "singularity-flow start <WORK-ID>",
+                "skill": "/sf-start",
+                "copilotCommand": "/sf-start",
+                "copyable": false
+              }
+            },
+            {
+              "id": "home:workspace.switch",
+              "handle": "sel_<HANDLE>",
+              "label": "List workspaces",
+              "kind": "read",
+              "reasonCode": "home.stable-choice",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "List workspaces",
+                "command": "singularity-flow workspace list --table",
+                "skill": "/sf-workspaces",
+                "copilotCommand": "/sf-workspaces",
+                "copyable": true
+              }
+            },
+            {
+              "id": "home:impact.quick",
+              "handle": "sel_<HANDLE>",
+              "label": "Run a quick impact analysis",
+              "kind": "read",
+              "reasonCode": "home.stable-choice",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "Run a quick impact analysis",
+                "command": "singularity-flow workspace impact",
+                "skill": "/sf-workspace-impact",
+                "copilotCommand": "/sf-workspace-impact",
+                "copyable": true
+              }
+            },
+            {
+              "id": "home:repository.explore",
+              "handle": "sel_<HANDLE>",
+              "label": "Explore repositories or investigate a problem",
+              "kind": "read",
+              "reasonCode": "home.stable-choice",
+              "confirmation": "none",
+              "interaction": "navigation",
+              "emphasis": "secondary",
+              "executable": false,
+              "slots": {},
+              "fallback": {
+                "label": "Explore repositories or investigate a problem",
+                "command": "singularity-flow status",
+                "skill": "/sf-status",
+                "copilotCommand": "/sf-status",
+                "copyable": true
+              }
+            }
+          ]
+        },
+        "needsUser": [],
+        "activeWork": {
+          "id": "FIX-1",
+          "kind": "story",
+          "title": "Fix the login error",
+          "repositoryId": "payments",
+          "branch": "FIX-1",
+          "phase": "intake",
+          "status": "in_progress",
+          "group": "active",
+          "rail": [
+            {
+              "id": "intake",
+              "label": "Scope and plan",
+              "state": "current",
+              "status": "in_progress"
+            },
+            {
+              "id": "implement",
+              "label": "Implement",
+              "state": "pending",
+              "status": "not_started"
+            },
+            {
+              "id": "verify",
+              "label": "Verify",
+              "state": "pending",
+              "status": "not_started"
+            }
+          ],
+          "action": {
+            "id": "home:work.continue",
+            "handle": "sel_<HANDLE>",
+            "label": "Continue current work",
+            "kind": "read",
+            "reasonCode": "home.continue-active-work",
+            "confirmation": "none",
+            "interaction": "navigation",
+            "emphasis": "primary",
+            "executable": false,
+            "slots": {
+              "work": "FIX-1",
+              "title": "Fix the login error",
+              "repository": "payments",
+              "phase": "intake",
+              "nextAction": "work.continue"
+            },
+            "fallback": {
+              "label": "Continue current work",
+              "command": "singularity-flow resume FIX-1",
+              "skill": "/sf-resume",
+              "copilotCommand": "/sf-resume",
+              "copyable": true
+            }
+          }
+        },
+        "governedGoal": null,
+        "now": {
+          "id": "home:work.continue",
+          "handle": "sel_<HANDLE>",
+          "label": "Continue current work",
+          "kind": "read",
+          "reasonCode": "home.continue-active-work",
+          "confirmation": "none",
+          "interaction": "navigation",
+          "emphasis": "primary",
+          "executable": false,
+          "slots": {
+            "work": "FIX-1",
+            "title": "Fix the login error",
+            "repository": "payments",
+            "phase": "intake",
+            "nextAction": "work.continue"
+          },
+          "fallback": {
+            "label": "Continue current work",
+            "command": "singularity-flow resume FIX-1",
+            "skill": "/sf-resume",
+            "copilotCommand": "/sf-resume",
+            "copyable": true
+          }
+        },
+        "why": [
+          {
+            "code": "home.active-work-leads",
+            "source": "lifecycle",
+            "reference": "FIX-1",
+            "slots": {
+              "work": "FIX-1",
+              "phase": "intake",
+              "next": "work.continue"
+            }
+          }
+        ],
+        "today": {
+          "schemaVersion": 1,
+          "resultType": "local-work-journal-day",
+          "generatedAt": "<TIME>",
+          "date": "2026-10-05",
+          "timeZone": "Asia/Calcutta",
+          "privacy": {
+            "localOnly": true,
+            "remoteSync": "never",
+            "label": "Stored locally · Never pushed"
+          },
+          "capture": {
+            "mode": "workspace-facts",
+            "paused": false
+          },
+          "summaries": [
+            {
+              "id": "jrn_970e6f8909fbe69612eabe70",
+              "at": "<TIME>",
+              "kind": "work-started",
+              "workId": "FIX-1",
+              "text": "Governed work started"
+            }
+          ],
+          "attention": [],
+          "totalEvents": 1,
+          "malformedLines": []
+        },
+        "yesterday": null,
+        "worthChecking": [],
+        "recent": [],
+        "health": {
+          "status": "healthy",
+          "warnings": [],
+          "journal": "local-only"
+        },
+        "subjectRevision": "<HASH>",
+        "sources": [
+          {
+            "id": "governed-records",
+            "freshness": "current-read",
+            "available": true
+          },
+          {
+            "id": "git-worktree",
+            "freshness": "current-read",
+            "available": true
+          },
+          {
+            "id": "local-journal",
+            "freshness": "<TIME>",
+            "available": true
+          }
+        ]
+      }
+    },
+    "answer": null,
+    "selectedSubject": {
+      "kind": "story",
+      "id": "FIX-1"
+    }
+  }
+}

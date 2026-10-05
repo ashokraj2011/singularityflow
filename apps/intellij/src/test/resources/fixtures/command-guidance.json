@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/generate-intellij-resources.mjs",
+  "validation": [
+    {
+      "command": "singularity-flow status",
+      "accepted": true,
+      "argv": [
+        "status"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "sflow status",
+      "accepted": true,
+      "argv": [
+        "status"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow --version",
+      "accepted": true,
+      "argv": [
+        "--version"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow story return FIX-1",
+      "accepted": true,
+      "argv": [
+        "story",
+        "return",
+        "FIX-1"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow story return 'A B'",
+      "accepted": true,
+      "argv": [
+        "story",
+        "return",
+        "A B"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow story return \"A B\"",
+      "accepted": true,
+      "argv": [
+        "story",
+        "return",
+        "A B"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow story return C:\\work\\repo",
+      "accepted": true,
+      "argv": [
+        "story",
+        "return",
+        "C:\\work\\repo"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow story return a\\ b",
+      "accepted": true,
+      "argv": [
+        "story",
+        "return",
+        "a b"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow session candidates --table",
+      "accepted": true,
+      "argv": [
+        "session",
+        "candidates",
+        "--table"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow fix FLT-1 --diagnose-only",
+      "accepted": true,
+      "argv": [
+        "fix",
+        "FLT-1",
+        "--diagnose-only"
+      ],
+      "copyable": true
+    },
+    {
+      "command": "singularity-flow resume <WORK-ID>",
+      "accepted": true,
+      "argv": [
+        "resume",
+        "<WORK-ID>"
+      ],
+      "copyable": false
+    },
+    {
+      "command": "singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run",
+      "accepted": true,
+      "argv": [
+        "workspace",
+        "adopt",
+        "<DIRECTORY>",
+        "--id",
+        "<ID>",
+        "--dry-run"
+      ],
+      "copyable": false
+    },
+    {
+      "command": "singularity-flow approve FIX-1 [--phase <PHASE>]",
+      "accepted": true,
+      "argv": [
+        "approve",
+        "FIX-1",
+        "[--phase",
+        "<PHASE>]"
+      ],
+      "copyable": false
+    },
+    {
+      "command": "singularity-flow approve FIX-1 --reason \"...\"",
+      "accepted": true,
+      "argv": [
+        "approve",
+        "FIX-1",
+        "--reason",
+        "..."
+      ],
+      "copyable": false
+    },
+    {
+      "command": "singularity-flow status; rm -rf ~",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow status && echo done",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow status | tee out",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow status $(whoami)",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow status `id`",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow story return \"$HOME\"",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow story return ~",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow --token abc status",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow login https://user:secret@example.invalid",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow status\nsflow resume FIX-1",
+      "accepted": false
+    },
+    {
+      "command": "singularity-flow story return 'unterminated",
+      "accepted": false
+    },
+    {
+      "command": "rm -rf ~",
+      "accepted": false
+    },
+    {
+      "command": "node singularity-flow status",
+      "accepted": false
+    },
+    {
+      "command": "",
+      "accepted": false
+    }
+  ],
+  "rendering": [
+    {
+      "argv": [
+        "singularity-flow",
+        "status"
+      ],
+      "posix": "'singularity-flow' 'status'",
+      "powershell": "& 'singularity-flow' 'status'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAnACAAJwBzAHQAYQB0AHUAcwAnAA=="
+    },
+    {
+      "argv": [
+        "singularity-flow",
+        "story",
+        "return",
+        "FIX-1"
+      ],
+      "posix": "'singularity-flow' 'story' 'return' 'FIX-1'",
+      "powershell": "& 'singularity-flow' 'story' 'return' 'FIX-1'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAnACAAJwBzAHQAbwByAHkAJwAgACcAcgBlAHQAdQByAG4AJwAgACcARgBJAFgALQAxACcA"
+    },
+    {
+      "argv": [
+        "singularity-flow",
+        "story",
+        "return",
+        "A B"
+      ],
+      "posix": "'singularity-flow' 'story' 'return' 'A B'",
+      "powershell": "& 'singularity-flow' 'story' 'return' 'A B'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAnACAAJwBzAHQAbwByAHkAJwAgACcAcgBlAHQAdQByAG4AJwAgACcAQQAgAEIAJwA="
+    },
+    {
+      "argv": [
+        "singularity-flow",
+        "story",
+        "return",
+        "it's"
+      ],
+      "posix": "'singularity-flow' 'story' 'return' 'it'\"'\"'s'",
+      "powershell": "& 'singularity-flow' 'story' 'return' 'it''s'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAnACAAJwBzAHQAbwByAHkAJwAgACcAcgBlAHQAdQByAG4AJwAgACcAaQB0ACcAJwBzACcA"
+    },
+    {
+      "argv": [
+        "singularity-flow",
+        "story",
+        "return",
+        "C:\\work\\repo"
+      ],
+      "posix": "'singularity-flow' 'story' 'return' 'C:\\work\\repo'",
+      "powershell": "& 'singularity-flow' 'story' 'return' 'C:\\work\\repo'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAnACAAJwBzAHQAbwByAHkAJwAgACcAcgBlAHQAdQByAG4AJwAgACcAQwA6AFwAdwBvAHIAawBcAHIAZQBwAG8AJwA="
+    },
+    {
+      "argv": [
+        "singularity-flow",
+        "story",
+        "return",
+        "$HOME"
+      ],
+      "posix": "'singularity-flow' 'story' 'return' '$HOME'",
+      "powershell": "& 'singularity-flow' 'story' 'return' '$HOME'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAnACAAJwBzAHQAbwByAHkAJwAgACcAcgBlAHQAdQByAG4AJwAgACcAJABIAE8ATQBFACcA"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/node",
+        "/opt/homebrew/lib/node_modules/singularity-flow/bin/singularity-flow.mjs",
+        "status"
+      ],
+      "posix": "'/opt/homebrew/bin/node' '/opt/homebrew/lib/node_modules/singularity-flow/bin/singularity-flow.mjs' 'status'",
+      "powershell": "& '/opt/homebrew/bin/node' '/opt/homebrew/lib/node_modules/singularity-flow/bin/singularity-flow.mjs' 'status'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcALwBvAHAAdAAvAGgAbwBtAGUAYgByAGUAdwAvAGIAaQBuAC8AbgBvAGQAZQAnACAAJwAvAG8AcAB0AC8AaABvAG0AZQBiAHIAZQB3AC8AbABpAGIALwBuAG8AZABlAF8AbQBvAGQAdQBsAGUAcwAvAHMAaQBuAGcAdQBsAGEAcgBpAHQAeQAtAGYAbABvAHcALwBiAGkAbgAvAHMAaQBuAGcAdQBsAGEAcgBpAHQAeQAtAGYAbABvAHcALgBtAGoAcwAnACAAJwBzAHQAYQB0AHUAcwAnAA=="
+    },
+    {
+      "argv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\singularity-flow\\bin\\singularity-flow.mjs",
+        "status"
+      ],
+      "posix": "'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\singularity-flow\\bin\\singularity-flow.mjs' 'status'",
+      "powershell": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\singularity-flow\\bin\\singularity-flow.mjs' 'status'",
+      "commandPrompt": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwBcAG4AbwBkAGUAagBzAFwAbgBvAGQAZQAuAGUAeABlACcAIAAnAEMAOgBcAFUAcwBlAHIAcwBcAGQAZQB2AFwAQQBwAHAARABhAHQAYQBcAFIAbwBhAG0AaQBuAGcAXABuAHAAbQBcAG4AbwBkAGUAXwBtAG8AZAB1AGwAZQBzAFwAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwBcAGIAaQBuAFwAcwBpAG4AZwB1AGwAYQByAGkAdAB5AC0AZgBsAG8AdwAuAG0AagBzACcAIAAnAHMAdABhAHQAdQBzACcA"
+    }
+  ],
+  "changeDirectory": [
+    {
+      "directory": "/work/repository",
+      "posix": "'cd' '--' '/work/repository'",
+      "powershell": "& 'Set-Location' '-LiteralPath' '/work/repository'"
+    },
+    {
+      "directory": "/work/my repository",
+      "posix": "'cd' '--' '/work/my repository'",
+      "powershell": "& 'Set-Location' '-LiteralPath' '/work/my repository'"
+    },
+    {
+      "directory": "/work/it's here",
+      "posix": "'cd' '--' '/work/it'\"'\"'s here'",
+      "powershell": "& 'Set-Location' '-LiteralPath' '/work/it''s here'"
+    },
+    {
+      "directory": "C:\\work\\repository",
+      "posix": "'cd' '--' 'C:\\work\\repository'",
+      "powershell": "& 'Set-Location' '-LiteralPath' 'C:\\work\\repository'"
+    }
+  ]
+}

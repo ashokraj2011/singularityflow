@@ -118,10 +118,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const workflowPath = path.join(seed, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.approvalSecurity = { profile: 'poc' };
-  // This scenario intentionally publishes one unimplemented requirement, then discovers it in
-  // convergence and sends it back for rework. Disable the source-witness gate for this fixture;
-  // sourceBindings=enforce correctly refuses such an incomplete implementation at publication.
-  workflow.codeDelivery.traceability.sourceBindings = 'off';
+  // The starter's clause-traceability contract stays on (codeDelivery.traceability.sourceBindings:
+  // enforce): every implementation generation carries `@clause:<id> <explanation>` for each planned
+  // requirement, in a planned source path that generation changes. The deliberately incomplete
+  // first generation below satisfies it too; see the implementation section.
   // This fixture intentionally approves a partial first implementation to exercise governed
   // convergence rework. The new spec-driven starter blocks that earlier at final code approval;
   // pin this one historical rework scenario to advisory clause coverage instead. The independent
@@ -283,25 +283,33 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.match(afterPlanning.phases.planning.claimMaps?.planned?.sha256 ?? '', /^[0-9a-f]{64}$/,
     'planning did not publish its exact planned-test claim map');
 
-  // ---- implementation: source and artifact, one requirement deliberately unclaimed --------------
+  // ---- implementation: source and artifact, one requirement deliberately incomplete -------------
+  // Publication refuses a generation whose changed source lacks a planned requirement's clause
+  // comment, so REQ-002 is tagged where its change will land while the append-only helper and its
+  // planned test are still missing. Its observed claim is `partial`, which convergence reports as
+  // absent trace evidence.
   sflow(root, ['prepare', 'implementation']);
   await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001 starts the first retry attempt\nexport function retry() { return { attempt: 1 }; }\n');
+  await write(root, 'src/payments/attempts.ts', '// @clause:E2E:REQ-002 attempts stay listed; the append-only helper is not delivered yet\nexport const attempts = [];\n');
+  // The specification states requirements, not acceptance criteria, and the plan binds each test to
+  // its requirement. An `@ac:` tag would name a criterion the specification does not hold, which
+  // submission refuses (WEL_WITNESS_MAPPING_STALE).
   await write(root, 'tests/payments-retry.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
     '',
-    '/** @ac:E2E:AC-001 */',
     "test('retry example remains deterministic', () => assert.deepEqual({ attempt: 1 }, { attempt: 1 }));",
     ''
   ].join('\n'));
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
     '## Agent brief', '',
-    'Added the retry handler. The append-only change to attempts is not done yet, so this generation',
-    'deliberately claims only one of the two requirements — the convergence iteration below is what',
-    'that omission is for.', '',
+    'Added the retry handler. The append-only change to attempts is not done yet: E2E:REQ-002 is only',
+    'marked where it will land and has no test, so this generation deliberately delivers one of the two',
+    'requirements — the convergence iteration below is what that gap is for.', '',
     '## Changed components and decisions', '',
-    '- `src/payments/retry.ts`: new retry handler serving E2E:REQ-001.', '',
+    '- `src/payments/retry.ts`: new retry handler serving E2E:REQ-001.',
+    '- `src/payments/attempts.ts`: marks where E2E:REQ-002 lands; the append-only helper is still missing.', '',
     '## Tests and operational notes', '',
     '`tests/payments-retry.test.mjs` verifies deterministic retry output; append-only coverage remains pending.', ''
   ].join('\n'));
@@ -388,12 +396,15 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- implementation, generation two ------------------------------------------------------------
   sflow(root, ['prepare', 'implementation']);
+  // A generation's change set starts at the previous generation, and the clause contract reads only
+  // the sources a generation changes, so the rework restates REQ-001 in the retry handler beside
+  // the append-only change it was sent back for.
+  await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001 starts a new attempt and leaves the failed one in place\nexport function retry() { return { attempt: 1 }; }\n');
   await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\n// @clause:E2E:REQ-002 appends each attempt to the history\nexport function append(attempt) { return [...attempts, attempt]; }\n');
   await write(root, 'tests/payments-attempts.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
     '',
-    '/** @ac:E2E:AC-002 */',
     "test('append preserves the original array', () => assert.deepEqual([1], [1]));",
     ''
   ].join('\n'));
@@ -522,7 +533,6 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     "import assert from 'node:assert/strict';",
     "import { readFileSync } from 'node:fs';",
     "import test from 'node:test';", '',
-    '/** @ac:E2E:AC-001 */',
     "test('operator-only retry contract is present', () => {",
     "  const source = readFileSync(new URL('../src/payments/retry.ts', import.meta.url), 'utf8');",
     "  assert.match(source, /payments operator required/);",

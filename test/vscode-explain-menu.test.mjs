@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 
 import { EXPLORER_SCRIPT, resolveExplorerFocus } from '../apps/vscode/src/views/change-explorer.ts';
+import { sidebarBody } from '../apps/vscode/src/views/sidebar-page.ts';
 import { menuResource, repositoryRelativePath } from '../apps/vscode/src/explain-target.ts';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import { createXpl2Fixture } from './helpers/xpl2-fixture.mjs';
@@ -79,13 +80,26 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.equal(commandTitles.get('singularityFlow.explainChangeAtCursor').title, 'Explain This Change');
   assert.equal(commandTitles.get('singularityFlow.explainFileChanges').title, 'Explain Changes in This File');
 
-  // The sidebar puts it in Work, where the change is, instead of at the bottom of Help.
+  // The sidebar keeps it with the work instead of at the bottom of Help. Work tools, a row on every
+  // sidebar, offers Understand changes, which leads with Explain changes; Help & diagnostics offers
+  // none of the explanations. Each group is read by its name, so a restructured sidebar fails here
+  // naming the group rather than matching against an empty slice.
+  const utilities = sidebarBody({ navigation: { workspace: null, next: null }, freshness: null, loading: false,
+    pending: null, active: null, favorites: [] }).match(/<footer aria-label="Utilities">([\s\S]*?)<\/footer>/)?.[1] ?? '';
+  assert.match(utilities, /data-action="work-tools"[^>]*>[\s\S]*?<span class="nav-label">Work tools<\/span>/);
   const sidebar = await readFile(path.join(root, 'apps/vscode/src/views/sidebar.ts'), 'utf8');
-  const work = sidebar.slice(sidebar.indexOf('  lifecycle: {'), sidebar.indexOf('  configuration: {'));
-  assert.match(work, /links: \[[^\]]*\{ id: 'change-explorer', label: 'Explain changes'/);
-  assert.match(work, /more: \[[^\]]*'code-explanation'[^\]]*'comprehension-center'/);
-  const help = sidebar.slice(sidebar.indexOf('  help: {'), sidebar.indexOf('  logs: {'));
-  assert.doesNotMatch(help, /change-explorer|comprehension-center/);
+  const tools = (group) => {
+    const declared = sidebar.match(new RegExp(`'${group}': \\{ title: '([^']+)', ids: \\[([^\\]]*)\\] \\}`));
+    assert.ok(declared, `the sidebar declares its ${group} group`);
+    return { title: declared[1], ids: [...declared[2].matchAll(/'([^']+)'/g)].map((match) => match[1]) };
+  };
+  assert.ok(tools('work-tools').ids.includes('understand-changes'), 'Work tools offer Understand changes');
+  assert.deepEqual(tools('understand-changes'), {
+    title: 'Understand changes', ids: ['change-explorer', 'code-explanation', 'comprehension-center']
+  }, 'Explain changes comes first and the deeper explanations follow it');
+  assert.match(sidebar, /if \(chosen\.id === 'understand-changes'\) return this\.openTools\(chosen\.id\)/,
+    'choosing Understand changes opens its own list');
+  assert.doesNotMatch(tools('help-tools').ids.join(' '), /understand-changes|change-explorer|code-explanation|comprehension-center/);
   assert.match(sidebar, /'code-explanation': 'singularityFlow\.openCodeExplanation'/);
   assert.match(sidebar, /\{ id: 'change-explorer', label: 'Explain changes', description: [^}]*command: ACTION_COMMANDS\['change-explorer'\]! \}/,
     'it can be pinned to Favorites');

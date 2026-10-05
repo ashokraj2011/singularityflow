@@ -260,7 +260,7 @@ body:has(#studio-root) .page-nav{margin:0;padding:5px 2px 7px;font-size:.72rem;g
 body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-current{min-height:0;padding:0;font-size:.72rem;font-weight:500}
 .board-head .studio-status{margin-left:auto;min-height:0}
 @media (max-width:900px){.board,.board.panel-hidden{grid-template-columns:minmax(0,1fr)}.splitter{display:none}}
-@media (max-width:900px){.studio,.studio.compact{grid-template-columns:minmax(0,1fr)}.studio-nav,.studio.compact .studio-nav{border-right:0;border-bottom:1px solid var(--sf-border-color);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr);height:auto}.canvas{height:420px}.inspector{position:static}}
+@media (max-width:900px){.studio,.studio.compact{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}.studio-nav,.studio.compact .studio-nav{border-right:0;border-bottom:1px solid var(--sf-border-color);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr);height:auto}.canvas{height:420px}.inspector{position:static}}
 `;
 
 /**
@@ -272,7 +272,7 @@ body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-cur
 export const PROPOSAL_BRANCH = /^sflow\/config-change\/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
 const MAX_LISTED_PROPOSALS = 100;
 /** The sections the page can be opened at, for screens that send a person to one. */
-export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
+export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'skills', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
 export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
 
 /** A configuration proposal as the Changes view lists it: names and counts, never file content. */
@@ -317,7 +317,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- The draft and the change set ---------------------------------------------------------
 
   function initialDraft(model) {
-    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {} };
+    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {}, skills: {} };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null,
@@ -342,7 +342,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       draft.artifactSets[set.id] = { id: set.id, primary: set.primary, members: clone(set.members || []), usedBy: (set.usedBy || []).slice(), isNew: false };
     });
     (model.agents || []).forEach(function (agent) {
-      draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null };
+      draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null, skills: clone(agent.skills || []) };
+    });
+    // The skill master: named skills any agent can attach.
+    (model.skills || []).forEach(function (skill) {
+      draft.skills[skill.id] = { id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, isNew: false };
     });
     (model.groups || []).forEach(function (group) {
       draft.groups[group.id] = { id: group.id, label: group.label, members: clone(group.members || []), status: group.status, isNew: false };
@@ -374,6 +378,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function withDraftDefaults(draft) {
     var fresh = initialDraft(state.model);
     Object.keys(fresh).forEach(function (key) { if (draft[key] === undefined) draft[key] = fresh[key]; });
+    // A draft saved before agents listed their skills keeps the skills they have, not none.
+    Object.keys(draft.agents || {}).forEach(function (id) {
+      if (draft.agents[id].skills === undefined) draft.agents[id].skills = fresh.agents[id] ? clone(fresh.agents[id].skills) : [];
+    });
     return draft;
   }
 
@@ -504,6 +512,26 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       ['label', 'description', 'instructions'].forEach(function (key) { if (before[key] !== agent[key]) patch[key] = agent[key]; });
       ['tools', 'views'].forEach(function (key) { if (!same(before[key], agent[key])) patch[key] = agent[key]; });
       if (Object.keys(patch).length > 2) changes.push(patch);
+    });
+    var skillsNow = draft.skills || {};
+    Object.keys(skillsNow).sort().forEach(function (id) {
+      var skill = skillsNow[id]; var prior = base.skills[id];
+      if (!prior) { changes.push({ op: 'skill.create', id: id, label: skill.label, description: skill.description, instructions: skill.instructions }); return; }
+      var edit = { op: 'skill.update', id: id };
+      ['label', 'description', 'instructions'].forEach(function (key) { if (prior[key] !== skill[key]) edit[key] = skill[key]; });
+      if (Object.keys(edit).length > 2) changes.push(edit);
+    });
+    Object.keys(base.skills).sort().forEach(function (id) { if (!skillsNow[id]) changes.push({ op: 'skill.remove', id: id }); });
+    Object.keys(draft.agents).sort().forEach(function (id) {
+      var now = draft.agents[id].skills || []; var then = (base.agents[id] && base.agents[id].skills) || [];
+      now.forEach(function (entry) {
+        var prior = then.find(function (item) { return item.id === entry.id; });
+        if (!prior || !same(prior.phases, entry.phases) || (prior.use || '') !== (entry.use || '')) changes.push({ op: 'skill.attach', skill: entry.id, agent: id, phases: entry.phases.slice(), use: entry.use || '' });
+      });
+      // A deleted skill is detached by its removal.
+      then.forEach(function (entry) {
+        if (skillsNow[entry.id] && !now.some(function (item) { return item.id === entry.id; })) changes.push({ op: 'skill.detach', skill: entry.id, agent: id });
+      });
     });
     var installs = {};
     Object.keys(draft.workflows).forEach(function (id) { var from = draft.workflows[id].installFrom; if (from && !installs[from]) { installs[from] = true; changes.push({ op: 'workflow.install', id: from }); } });
@@ -677,6 +705,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     function epicWorkflowName(id) { return draft.epics && draft.epics.workflows[id] ? draft.epics.workflows[id].label : id; }
     function epicStepName(id) { return draft.epics && draft.epics.steps[id] ? draft.epics.steps[id].label : id; }
     function agentName(id) { return (draft.agents[id] || {}).label || id; }
+    // A deleted skill is no longer in the draft; the loaded configuration still names it.
+    function skillName(id) { return ((draft.skills || {})[id] || ((state.model && state.model.skills) || []).find(function (skill) { return skill.id === id; }) || {}).label || id; }
     switch (change.op) {
       case 'workflow.create': return 'New workflow ' + change.label + (change.copyOf ? ', a copy of ' + ((draft.workflows[change.copyOf] || {}).label || change.copyOf) : '') + ': ' + change.phases.map(phaseName).join(' → ');
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
@@ -692,6 +722,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'epicOutput.remove': return epicStepName(change.step) + ': output ' + change.id + ' removed';
       case 'agent.create': return 'New agent ' + change.label;
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
+      case 'skill.create': return 'New skill ' + (change.label || change.id) + ' in the skill master';
+      case 'skill.update': return 'Skill ' + skillName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', instructions: 'instructions' }[key] || key; }).join(', ') + ' changed';
+      case 'skill.remove': return 'Delete skill ' + skillName(change.id) + ' from the skill master';
+      case 'skill.attach': return agentName(change.agent) + ' uses skill ' + skillName(change.skill) + (change.phases && change.phases.length ? ' in ' + change.phases.map(phaseName).join(', ') : ' in every step it drafts') + (change.use ? ': ' + change.use : '');
+      case 'skill.detach': return agentName(change.agent) + ' no longer uses skill ' + skillName(change.skill);
+      case 'import.librarySkill': return (change.replace ? 'Update skill ' : 'Skill ') + change.id + ' in the skill master, from ' + change.source;
       case 'group.create': return 'New approval group ' + change.label;
       case 'group.update': return ((draft.groups[change.id] || {}).label || change.id) + ': ' + (change.members ? 'people' : 'name') + ' changed';
       case 'import.skill': return (change.replace ? 'Update skill ' : 'Skill ') + change.id + ' for ' + agentName(change.agent) + (change.phases && change.phases.length ? ' in ' + change.phases.map(phaseName).join(', ') : '') + ', from ' + change.source;
@@ -1022,6 +1058,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       compact ? null : el('div', { class: 'brand', text: 'WORKFLOW STUDIO' }),
       item('home', 'Workflows', 'flow', Object.keys(state.draft.workflows).length, false),
       item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
+      item('skills', 'Skill master', 'spark', Object.keys(state.draft.skills || {}).length || null, false),
       item('artifacts', 'Artifacts', 'doc', null, false),
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
@@ -1854,7 +1891,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     panel: 'M3 4h18v16H3z M15 4v16',
     wrap: 'M4 6h16 M4 12h13a3 3 0 0 1 0 6h-5 M12 15l-3 3 3 3 M4 18h4',
     send: 'M21 3L10 14 M21 3l-6.5 18-4.5-7-7-4.5z',
-    plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4'
+    plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4',
+    spark: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z'
   };
 
   function svgEl(tag, attrs) {
@@ -3439,8 +3477,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('span', { class: 'muted', text: agent.description }),
         el('span', { style: 'font-size:12px', text: drafts.length ? 'Drafts: ' + drafts.join(', ') : 'Not the default for any step yet' }),
         el('div', { class: 'rail' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })),
-        agentResources(id).length ? el('span', { style: 'font-size:12px', text: 'Skills and sources: ' + agentResources(id).map(function (resource) { return resource.id; }).join(', ') }) : null,
-        button('Add a skill', function () { var lib = library(); lib.as = 'skill'; lib.pendingAgent = id; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'agents' }; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill to ' + agent.label }),
+        (agent.skills || []).length ? el('span', { style: 'font-size:12px', text: 'Skills: ' + agent.skills.map(function (entry) { return skillLabel(entry.id) + (entry.phases.length ? ' (' + entry.phases.map(stepLabel).join(', ') + ')' : ''); }).join(', ') }) : null,
+        agentResources(id).length ? el('span', { style: 'font-size:12px', text: 'Remote skills and sources: ' + agentResources(id).map(function (resource) { return resource.id; }).join(', ') }) : null,
+        button('Attach a skill', function () { openAttachForm(null, id); }, { class: 'secondary', 'aria-label': 'Attach a skill to ' + agent.label }),
+        button('Add a skill from a link', function () { var lib = library(); lib.as = 'skill'; lib.pendingAgent = id; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'agents' }; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill from a link to ' + agent.label }),
         button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label }),
         agent.isNew ? button('Remove', function () { askRemoveNewAgent(id); }, { class: 'secondary', 'aria-label': 'Remove ' + agent.label }) : null));
     });
@@ -3527,12 +3567,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- Library: skills, templates and agents from a link or a trusted marketplace ------------
 
   var IMPORT_KINDS = [
+    { value: 'library-skill', label: 'A skill for the skill master (any agent can attach it)' },
     { value: 'skill', label: 'A skill for one of your agents' },
     { value: 'template', label: 'A document template for steps' },
     { value: 'agent', label: 'A whole agent' },
     { value: 'mcp-server', label: 'An MCP server for your agents' }
   ];
-  var KIND_WORDS = { skill: 'Skill', template: 'Template', agent: 'Agent', generated: 'Generated artifact', workflow: 'Workflow', 'mcp-server': 'MCP server' };
+  var KIND_WORDS = { skill: 'Skill', 'library-skill': 'Skill for the skill master', template: 'Template', agent: 'Agent', generated: 'Generated artifact', workflow: 'Workflow', 'mcp-server': 'MCP server' };
 
   function library() {
     return state.library || (state.library = { reference: '', as: 'skill', preview: null, busy: null, error: null, target: null, market: null, entries: null, check: null, newMarket: null });
@@ -3560,7 +3601,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (reference.indexOf('market:') !== 0) { lib.reference = reference; lib.as = as; }
     lib.preview = null; lib.error = null; lib.busy = 'preview'; lib.target = target || null;
     render();
-    post({ type: 'studio.importPreview', reference: reference, as: as });
+    // A skill for the skill master is fetched and checked like any skill; only where it goes differs.
+    post({ type: 'studio.importPreview', reference: reference, as: as === 'library-skill' ? 'skill' : as });
   }
 
   function agentSteps(agentId) {
@@ -3605,7 +3647,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     (preview.warnings || []).forEach(function (warning) { card.appendChild(el('div', { class: 'callout wait', text: warning })); });
     card.appendChild(el('pre', { class: 'preview-text', 'aria-label': 'Exact content', text: preview.text + (preview.truncated ? '\n…' : '') }));
     card.appendChild(el('p', { class: 'muted', text: 'This exact content is what gets added. It is copied into your configuration, so Stories never fetch it again.' }));
-    if (preview.as === 'skill') {
+    if (preview.as === 'skill' && lib.as === 'library-skill') {
+      var plain = !/^\uFEFF?---\r?\n/.test(preview.text || '');
+      card.appendChild(el('div', { class: 'grid-2' },
+        field('import-id', 'Skill ID', textInput('import-id', target.id, function (value) { target.id = kebab(value); requestRender(); }), plain ? 'Its name in the skill master.' : 'Must match the name in its SKILL.md.'),
+        plain ? field('import-description', 'What it does and when to use it', textInput('import-description', target.description || '', function (value) { target.description = value; }, { placeholder: 'This file is plain Markdown; say what the skill is for.' })) : el('span')));
+    } else if (preview.as === 'skill') {
       var agents = Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
       var phaseIds = target.agent ? (agentSteps(target.agent).length ? agentSteps(target.agent) : Object.keys(state.draft.phases)) : [];
       card.appendChild(el('div', { class: 'grid-2' },
@@ -3640,7 +3687,15 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function addPreviewedImport() {
     var lib = library(); var preview = lib.preview; var target = lib.target;
     var replace = Boolean(lib.replace);
-    if (preview.as === 'skill') {
+    if (preview.as === 'skill' && lib.as === 'library-skill') {
+      if (!target.id) { setStatus('Give the skill an ID.'); return; }
+      var librarySkill = { op: 'import.librarySkill', id: target.id, source: preview.reference, sha256: preview.sha256, replace: replace };
+      if (!/^\uFEFF?---\r?\n/.test(preview.text || '')) {
+        if (!String(target.description || '').trim()) { setStatus('Say what the skill does and when to use it.'); return; }
+        librarySkill.description = String(target.description).trim();
+      }
+      queueImport(librarySkill, replace ? 'The update of skill ' + target.id + ' is in your changes.' : 'Skill ' + target.id + ' added to the skill master in your changes. Attach it to agents under Skill master.');
+    } else if (preview.as === 'skill') {
       if (!target.agent) { setStatus('Choose the agent that uses this skill.'); return; }
       if (!target.id) { setStatus('Give the skill an ID.'); return; }
       queueImport({ op: 'import.skill', agent: target.agent, id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), optional: target.optional, replace: replace },
@@ -3774,7 +3829,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (!match) return;
     var target = row.target || {};
     library().replace = true;
-    previewImport(match[1], row.kind, { agent: target.agent || '', id: target.id || '', phases: (target.phases || []).slice(), optional: false, label: '', withoutDefaults: false });
+    // A skill master skill from plain Markdown keeps its description unless the person changes it.
+    var description = row.kind === 'library-skill' ? ((state.draft.skills || {})[target.id] || {}).description || '' : '';
+    previewImport(match[1], row.kind, { agent: target.agent || '', id: target.id || '', phases: (target.phases || []).slice(), optional: false, label: '', withoutDefaults: false, description: description });
   }
 
   // ---- Library: from an approved MCP server -----------------------------------------------
@@ -4226,6 +4283,182 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     ], null, (current ? current.split('/').pop() : 'no template') + (set ? ' · ' + set.id : ''), true);
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Skill master
+
+  function skillsView() { return state.skillsView || (state.skillsView = { form: null, attach: null }); }
+  function skillLabel(id) { var skill = (state.draft.skills || {})[id]; return skill ? skill.label : id; }
+  /** Skills waiting to be imported into the skill master; they can be attached before publishing. */
+  function pendingLibrarySkills() {
+    return (state.draft.imports || []).filter(function (change) { return change.op === 'import.librarySkill' && !(state.draft.skills || {})[change.id]; }).map(function (change) { return change.id; });
+  }
+  function attachmentOf(agentId, skillId) {
+    var agent = state.draft.agents[agentId];
+    return agent ? (agent.skills || []).find(function (entry) { return entry.id === skillId; }) || null : null;
+  }
+  function skillUsers(skillId) {
+    return Object.keys(state.draft.agents).filter(function (agentId) { return Boolean(attachmentOf(agentId, skillId)); })
+      .sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
+  }
+
+  function renderSkills(main) {
+    var view = skillsView();
+    backLink(main);
+    main.appendChild(el('div', { class: 'studio-row spread' },
+      el('div', null, el('h1', { text: 'Skill master' }),
+        el('p', { class: 'studio-lede', text: 'Your collection of named skills. Attach a skill to any agent and say when to use it: the agent is told in its prompt to read the skill and carry it out then. Stories already running keep the skill text they started with.' })),
+      el('div', { class: 'studio-row' },
+        button('Add from a link', function () { var lib = library(); lib.as = 'library-skill'; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'skills' }; state.view = 'library'; render(); }, { class: 'secondary' }),
+        button('New skill', function () { openSkillForm(null); }, { class: 'primary' }))));
+    if (view.form) main.appendChild(renderSkillForm(view.form));
+    if (view.attach) main.appendChild(renderAttachForm(view.attach));
+    var ids = Object.keys(state.draft.skills || {}).sort(function (a, b) { return state.draft.skills[a].label.localeCompare(state.draft.skills[b].label); });
+    var pending = pendingLibrarySkills();
+    ((state.model && state.model.skillProblems) || []).forEach(function (problem) { main.appendChild(el('div', { class: 'callout bad', role: 'alert', text: problem.message })); });
+    if (!ids.length && !pending.length) {
+      main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'No skills yet' }, el('h2', { text: 'No skills yet' }),
+        el('p', { class: 'muted', text: 'Write one with New skill, or add one from a link or a marketplace your repository trusts.' })));
+      return;
+    }
+    var grid = el('div', { class: 'agents-grid' });
+    ids.forEach(function (id) { grid.appendChild(renderSkillCard(id)); });
+    pending.forEach(function (id) {
+      grid.appendChild(el('article', { class: 'studio-card', 'aria-label': 'Skill ' + id },
+        el('div', { class: 'studio-row spread' }, el('strong', { text: id }), el('span', { class: 'pill new', text: 'IMPORT' })),
+        el('span', { class: 'muted', text: 'Waiting to be imported with your changes.' }),
+        renderSkillUsers(id),
+        el('div', { class: 'studio-row' }, button('Attach to an agent', function () { openAttachForm(id, null); }, { class: 'secondary', 'aria-label': 'Attach ' + id + ' to an agent' }))));
+    });
+    main.appendChild(grid);
+  }
+
+  function renderSkillUsers(id) {
+    var users = skillUsers(id);
+    if (!users.length) return el('span', { style: 'font-size:12px', text: 'No agent uses it yet' });
+    return el('ul', { class: 'change-list', 'aria-label': 'Agents that use ' + skillLabel(id) }, users.map(function (agentId) {
+      var entry = attachmentOf(agentId, id);
+      return el('li', { class: 'studio-row spread' },
+        el('span', { style: 'font-size:12px', text: state.draft.agents[agentId].label + ' · ' + (entry.phases.length ? entry.phases.map(stepLabel).join(', ') : 'every step it drafts') + (entry.use ? ' · ' + entry.use : '') }),
+        el('span', { class: 'studio-row' },
+          button('Change', function () { openAttachForm(id, agentId); }, { class: 'secondary', 'aria-label': 'Change how ' + state.draft.agents[agentId].label + ' uses ' + skillLabel(id) }),
+          button('Detach', function () { detachSkill(agentId, id); }, { class: 'secondary', 'aria-label': 'Detach ' + skillLabel(id) + ' from ' + state.draft.agents[agentId].label })));
+    }));
+  }
+
+  function renderSkillCard(id) {
+    var skill = state.draft.skills[id];
+    return el('article', { class: 'studio-card', 'aria-label': 'Skill ' + skill.label },
+      el('div', { class: 'studio-row spread' }, el('strong', { text: skill.label }), el('span', { class: 'pill' + (skill.isNew ? ' new' : ''), title: id, text: skill.isNew ? 'NEW' : id })),
+      el('span', { class: 'muted', text: skill.description }),
+      renderSkillUsers(id),
+      el('div', { class: 'studio-row' },
+        button('Attach to an agent', function () { openAttachForm(id, null); }, { class: 'secondary', 'aria-label': 'Attach ' + skill.label + ' to an agent' }),
+        button('Edit', function () { openSkillForm(id); }, { class: 'secondary', 'aria-label': 'Edit ' + skill.label }),
+        button('Delete', function () { askRemoveSkill(id); }, { class: 'secondary', 'aria-label': 'Delete ' + skill.label })));
+  }
+
+  function openSkillForm(id) {
+    var skill = id ? state.draft.skills[id] : null;
+    var view = skillsView();
+    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '' };
+    view.attach = null; state.view = 'skills'; render();
+  }
+
+  function renderSkillForm(form) {
+    var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'Create a skill' : 'Edit skill' });
+    card.appendChild(el('h2', { text: form.mode === 'create' ? 'Create a skill' : 'Edit ' + form.label }));
+    var id = form.mode === 'create' ? kebab(form.label) : form.id;
+    card.appendChild(el('div', { class: 'grid-2' },
+      field('skill-name', 'Name', textInput('skill-name', form.label, function (value) { form.label = value; requestRender(); }, { placeholder: 'Security review' }),
+        form.mode === 'create' ? (id ? 'ID ' + id + (state.draft.skills[id] ? ' is already used' : '') : 'The ID is made from the name.') : 'ID ' + id),
+      field('skill-description', 'What it does and when to use it', textInput('skill-description', form.description, function (value) { form.description = value; }, { placeholder: 'Checks a change for common security mistakes before it is published.' }))));
+    card.appendChild(field('skill-instructions', 'Instructions', el('textarea', { id: 'skill-instructions', 'data-key': 'skill-instructions', rows: 12, onchange: function (event) { form.instructions = event.target.value; } }, form.instructions || ''),
+      'What the agent does when it uses this skill, step by step. Markdown.'));
+    card.appendChild(el('div', { class: 'studio-row' },
+      button(form.mode === 'create' ? 'Add skill to changes' : 'Keep changes', function () { saveSkillForm(); }, { class: 'primary' }),
+      button('Cancel', function () { skillsView().form = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function saveSkillForm() {
+    var form = skillsView().form;
+    var label = String(form.label || '').trim();
+    var description = String(form.description || '').replace(/\s+/g, ' ').trim();
+    var instructions = String(form.instructions || '').trim();
+    var id = form.mode === 'create' ? kebab(label) : form.id;
+    if (!label || !id) { setStatus('Give the skill a name.'); return; }
+    if (form.mode === 'create' && state.draft.skills[id]) { setStatus('A skill called ' + id + ' already exists.'); return; }
+    if (!description) { setStatus('Say what the skill does and when to use it.'); return; }
+    if (!instructions) { setStatus('Write the instructions the agent follows.'); return; }
+    var existing = state.draft.skills[id];
+    state.draft.skills[id] = { id: id, label: label, description: description, instructions: instructions, isNew: existing ? existing.isNew : true };
+    skillsView().form = null;
+    setStatus(form.mode === 'create' ? 'Skill ' + label + ' added to your changes.' : 'Skill ' + label + ' changed.');
+    changed();
+  }
+
+  function askRemoveSkill(id) {
+    var skill = state.draft.skills[id]; var users = skillUsers(id);
+    confirmAction('Delete the skill ' + skill.label + '?',
+      users.length ? 'It is detached from ' + users.map(function (agentId) { return state.draft.agents[agentId].label; }).join(', ') + ' too. Running Stories keep the text they started with.' : 'No agent uses it.',
+      'Delete skill', function () {
+        delete state.draft.skills[id];
+        users.forEach(function (agentId) { var agent = state.draft.agents[agentId]; agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== id; }); });
+        if (skillsView().form && skillsView().form.id === id) skillsView().form = null;
+        setStatus('Deleted the skill ' + skill.label + '.'); changed();
+      });
+  }
+
+  function openAttachForm(skillId, agentId) {
+    var view = skillsView();
+    var existing = skillId && agentId ? attachmentOf(agentId, skillId) : null;
+    view.attach = { skill: skillId || '', agent: agentId || '', phases: existing ? existing.phases.slice() : [], use: existing ? existing.use || '' : '' };
+    view.form = null; state.view = 'skills'; render();
+  }
+
+  function renderAttachForm(form) {
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Attach a skill' });
+    card.appendChild(el('h2', { text: 'Attach a skill to an agent' }));
+    var skills = Object.keys(state.draft.skills || {}).sort(function (a, b) { return skillLabel(a).localeCompare(skillLabel(b)); }).concat(pendingLibrarySkills());
+    var agents = Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
+    var reset = function () { var existing = form.skill && form.agent ? attachmentOf(form.agent, form.skill) : null; form.phases = existing ? existing.phases.slice() : []; form.use = existing ? existing.use || '' : ''; };
+    card.appendChild(el('div', { class: 'grid-2' },
+      field('attach-skill', 'Skill', select('attach-skill', [{ value: '', label: 'Choose a skill' }].concat(skills.map(function (id) { return { value: id, label: skillLabel(id) }; })), form.skill, function (value) { form.skill = value; reset(); render(); })),
+      field('attach-agent', 'Agent', select('attach-agent', [{ value: '', label: 'Choose an agent' }].concat(agents.map(function (id) { return { value: id, label: state.draft.agents[id].label }; })), form.agent, function (value) { form.agent = value; reset(); render(); }))));
+    if (form.agent) {
+      var phaseIds = agentSteps(form.agent).length ? agentSteps(form.agent) : Object.keys(state.draft.phases);
+      card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'In which of its steps (none chosen: every step it drafts)' }),
+        stepChecks('attach-step-', form.phases, phaseIds, function (phases) { form.phases = phases; })));
+    }
+    card.appendChild(field('attach-use', 'When to use it', textInput('attach-use', form.use, function (value) { form.use = value; }, { placeholder: 'After you write the code, before you publish it' }),
+      'Added to the prompt with the skill, so the agent knows when to carry it out. Leave it empty for whenever the step needs it.'));
+    card.appendChild(el('div', { class: 'studio-row' },
+      button('Attach', function () { saveAttach(); }, { class: 'primary' }),
+      button('Cancel', function () { skillsView().attach = null; render(); }, { class: 'secondary' })));
+    return card;
+  }
+
+  function saveAttach() {
+    var form = skillsView().attach;
+    if (!form.skill) { setStatus('Choose a skill.'); return; }
+    if (!form.agent) { setStatus('Choose the agent that uses it.'); return; }
+    var use = String(form.use || '').replace(/\s+/g, ' ').trim();
+    if (use.indexOf('|') >= 0) { setStatus('"When to use it" cannot contain "|".'); return; }
+    if (use.length > 300) { setStatus('"When to use it" must be at most 300 characters.'); return; }
+    var agent = state.draft.agents[form.agent];
+    agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== form.skill; }).concat([{ id: form.skill, phases: form.phases.slice(), use: use }]);
+    skillsView().attach = null;
+    setStatus(agent.label + ' uses ' + skillLabel(form.skill) + '.');
+    changed();
+  }
+
+  function detachSkill(agentId, skillId) {
+    var agent = state.draft.agents[agentId];
+    agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== skillId; });
+    setStatus(agent.label + ' no longer uses ' + skillLabel(skillId) + '.');
+    changed();
+  }
+
   function renderLibrary(main) {
     var lib = library();
     backLink(main);
@@ -4494,6 +4727,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     else if (state.view === 'agents') renderAgents(main);
     else if (state.view === 'artifacts') renderArtifacts(main);
     else if (state.view === 'epic') renderEpic(main);
+    else if (state.view === 'skills') renderSkills(main);
     else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'integrations') renderIntegrations(main);

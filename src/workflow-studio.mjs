@@ -19,7 +19,10 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies } from './agents.mjs';
+import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
+import {
+  librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, withoutAttachedSkills
+} from './skill-library.mjs';
 import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
   IMPORTS_LOCK_PATH, importLedgerKey, importedTemplateRelative, inspectImportContent, ledgerEntry,
@@ -320,7 +323,9 @@ function agentView(agent) {
     scope: agent.scope, phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
     tools: [...(agent.tools ?? [])], views: [...(agent.worldModelViews ?? [])],
     path: agent.scope === 'repository' ? agent.source : null,
-    instructions: agent.prompt ?? '',
+    // The skill master edits the Attached skills table, so the instructions shown leave it out.
+    instructions: withoutAttachedSkills(agent.prompt ?? '').trim(),
+    skills: (agent.librarySkills ?? []).map((entry) => ({ id: entry.id, phases: [...entry.phases], use: entry.use })),
     // Skills, templates and generated sources the agent's tables name, for the Library and its card.
     resources: (agent.dependencies ?? []).map((dependency) => ({
       id: dependency.id, type: dependency.type, url: dependency.url, optional: dependency.optional === true,
@@ -343,6 +348,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   try { definition = await loadDefinition(root); }
   catch (error) { problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: error.message }); }
   const discovered = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
+  const library = await loadSkillLibrary(configRoot);
   const security = normalizeApprovalSecurity(raw.approvalSecurity ?? {});
   const starter = await packagedDefinition();
   const bundled = await bundledAgents();
@@ -448,6 +454,12 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     security: { profile: security.profile, autoEnrollNewIdentities: security.autoEnrollNewIdentities },
     marketplaces: Object.values(safeMarketplaces(raw.marketplaces, problems)).map((marketplace) => ({ ...marketplace, allowedOrigins: [...marketplace.allowedOrigins] })),
     imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
+    skills: [...library.skills.values()].map((skill) => ({
+      id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, path: skill.path,
+      usedBy: discovered.flatMap((agent) => (agent.librarySkills ?? []).filter((entry) => entry.id === skill.id)
+        .map((entry) => ({ agent: agent.id, phases: [...entry.phases], use: entry.use })))
+    })),
+    skillProblems: library.problems,
     mcpSources: await importableMcpServers(root).catch(() => []),
     blueprintPhases: Object.fromEntries(Object.entries(starter.phases).filter(([id]) => !phases[id]).map(([id, phase]) => {
       const approval = approvalSummary(phase.approval);
@@ -563,7 +575,9 @@ const RANK = Object.freeze({
   'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
-  'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11,
+  'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
+  'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
+  'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
   'integration.target.remove': 11.5
 });
 
@@ -635,6 +649,11 @@ class StudioCandidate {
     this.untrusted = new Map();
     this.removedAgents = new Set();
     this.rendered = new Map();
+    // The skill master: skills by ID, and the SKILL.md files this change set writes (null removes one).
+    this.skills = new Map(sources.library?.skills ?? []);
+    this.skillFiles = new Map();
+    // Skills changed by this change set, by the index of their summary line (see finalize).
+    this.updatedSkills = new Map();
     // Steps the change set creates, and the step each copy among them copies (copy ID -> step ID).
     this.pendingPhases = new Set();
     this.copies = new Map();
@@ -802,6 +821,12 @@ class StudioCandidate {
       case 'import.generated': return this.importGenerated(change);
       case 'import.mcpServer': return this.importMcpServer(change);
       case 'import.remove': return this.removeImport(change);
+      case 'import.librarySkill': return this.importLibrarySkill(change);
+      case 'skill.create': return this.createSkill(change);
+      case 'skill.update': return this.updateSkill(change);
+      case 'skill.remove': return this.removeSkill(change);
+      case 'skill.attach': return this.attachSkill(change);
+      case 'skill.detach': return this.detachSkill(change);
       case 'template.create': return this.createTemplate(change);
       case 'template.update': return this.updateTemplate(change);
       case 'artifactSet.create': return this.createArtifactSet(change);
@@ -815,6 +840,118 @@ class StudioCandidate {
       case 'epicOutput.remove': return this.removeEpicOutput(change);
       default: throw new SingularityFlowError(`Unknown Studio change '${change?.op}'.`, { code: 'STUDIO_CHANGE_UNKNOWN' });
     }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Skill master
+
+  requireSkill(id) {
+    const skillId = requireId(id, 'A skill ID');
+    const skill = this.skills.get(skillId);
+    if (!skill) throw new SingularityFlowError(`There is no skill '${skillId}' in the skill master.`, { code: 'STUDIO_SKILL_UNKNOWN' });
+    return skill;
+  }
+
+  /** The skills an agent attaches now, from its table. */
+  attachedSkills(agent) {
+    return parseAttachedSkills(this.agentBody(agent), agent.relative ?? agent.id);
+  }
+
+  writeSkill(skillId, { label, description, instructions }) {
+    const text = librarySkillText({ id: skillId, label, description, instructions });
+    const skill = parseLibrarySkill(text, { id: skillId });
+    this.skills.set(skillId, skill);
+    this.skillFiles.set(librarySkillPath(skillId), text);
+    return skill;
+  }
+
+  createSkill({ id, label, description, instructions }) {
+    const skillId = requireId(id, 'A skill ID');
+    if (this.skills.has(skillId)) throw new SingularityFlowError(`The skill master already has a skill called '${skillId}'.`, { code: 'STUDIO_SKILL_EXISTS' });
+    const skill = this.writeSkill(skillId, { label, description, instructions });
+    this.summary.push(`New skill ${skill.label} in the skill master.`);
+  }
+
+  updateSkill({ id, label, description, instructions }) {
+    const current = this.requireSkill(id);
+    const skill = this.writeSkill(current.id, {
+      label: label ?? current.label, description: description ?? current.description,
+      instructions: instructions ?? current.instructions
+    });
+    // The agents that use the new text are known once every change is applied.
+    this.updatedSkills.set(skill.id, this.summary.push(`Skill ${skill.label} updated.`) - 1);
+  }
+
+  removeSkill({ id }) {
+    const skill = this.requireSkill(id);
+    const detached = [];
+    for (const agent of this.agents.values()) {
+      if (!this.attachedSkills(agent).some((entry) => entry.id === skill.id)) continue;
+      this.touch(agent);
+      agent.body = this.withoutSkill(agent, skill.id);
+      detached.push(agent.label);
+    }
+    this.skills.delete(skill.id);
+    this.skillFiles.set(librarySkillPath(skill.id), null);
+    this.forgetImport(`library-skill:${skill.id}`);
+    this.summary.push(`Skill ${skill.label} removed from the skill master${detached.length ? ` and from ${detached.join(', ')}` : ''}.`);
+  }
+
+  attachSkill({ skill: skillId, agent: agentId, phases = [], use = '' }) {
+    const skill = this.requireSkill(skillId);
+    const agent = this.touch(this.requireAgent(requireId(agentId, 'An agent ID')));
+    const steps = this.requirePhases(phases);
+    const when = normalizeSkillUse(use);
+    agent.body = upsertAgentTableRow(this.agentBody(agent), 'library',
+      [skill.id, steps.join(', ') || '*', when || '-'], { replace: true });
+    this.summary.push(`${agent.label} uses skill ${skill.label}${steps.length ? ` in ${steps.map((step) => this.phaseLabel(step)).join(', ')}` : ' in every step it drafts'}${when ? `: ${when}` : ''}.`);
+  }
+
+  /** The agent's text without one attached skill; without the section once it attaches none. */
+  withoutSkill(agent, skillId) {
+    const body = removeAgentTableRow(this.agentBody(agent), 'library', skillId);
+    if (body == null || parseAttachedSkills(body, agent.relative).length) return body;
+    return `${withoutAttachedSkills(body).replace(/\s+$/, '')}\n`;
+  }
+
+  detachSkill({ skill: skillId, agent: agentId }) {
+    const id = requireId(skillId, 'A skill ID');
+    const agent = this.requireAgent(requireId(agentId, 'An agent ID'));
+    const body = this.withoutSkill(agent, id);
+    if (body == null) throw new SingularityFlowError(`${agent.label} does not use skill '${id}'.`, { code: 'STUDIO_SKILL_NOT_ATTACHED' });
+    this.touch(agent).body = body;
+    this.summary.push(`${agent.label} no longer uses skill ${this.skills.get(id)?.label ?? id}.`);
+  }
+
+  /**
+   * A skill from a link, a marketplace or an MCP server, into the skill master. A SKILL.md keeps its
+   * exact bytes; plain Markdown becomes the instructions of a SKILL.md with the description given.
+   */
+  importLibrarySkill({ id, sha256, description = null, replace = false }) {
+    const skillId = requireId(id, 'A skill ID');
+    const staged = this.stagedContent(sha256, 'skill', { id: skillId });
+    const key = `library-skill:${skillId}`;
+    if (this.skills.has(skillId)) {
+      if (!replace) throw new SingularityFlowError(`The skill master already has a skill called '${skillId}'. Replace it deliberately, or choose another ID.`, { code: 'STUDIO_SKILL_EXISTS' });
+      if (!this.ledger.imports[key]) throw new SingularityFlowError(`Skill '${skillId}' was written in this repository, not imported; import under another ID.`, { code: 'STUDIO_SKILL_EXISTS' });
+    }
+    let text = staged.text; let extra = {};
+    let skill;
+    if (/^\ufeff?---\r?\n/.test(text)) skill = parseLibrarySkill(text, { id: skillId });
+    else {
+      // An update of plain Markdown keeps the skill's name and description unless new ones are given.
+      const current = replace ? this.skills.get(skillId) : null;
+      const what = String(description ?? current?.description ?? '').replace(/\s+/g, ' ').trim();
+      if (!what) throw new SingularityFlowError('This file is plain Markdown, so the skill needs a description of what it does and when to use it (--description on the command line).', { code: 'STUDIO_SKILL_INVALID' });
+      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text });
+      skill = parseLibrarySkill(text, { id: skillId });
+      extra = { transforms: ['wrapped-as-skill'], fileSha256: sha256Of(Buffer.from(text, 'utf8')) };
+    }
+    const updated = this.skills.has(skillId);
+    this.skills.set(skillId, skill);
+    this.skillFiles.set(librarySkillPath(skillId), text);
+    this.recordImport('library-skill', { id: skillId }, staged, { id: skillId, path: librarySkillPath(skillId) }, extra);
+    this.summary.push(updated ? `Skill ${skill.label} updated from ${sourceText(staged.source)}.` : `Skill ${skill.label} from ${sourceText(staged.source)} in the skill master.`);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1564,7 +1701,14 @@ class StudioCandidate {
     if (instructions != null) {
       const body = String(instructions).trim();
       if (!body) throw new SingularityFlowError(`${agent.label} needs instructions.`, { code: 'STUDIO_AGENT_INVALID' });
+      const attached = this.attachedSkills(agent);
       agent.body = body;
+      // Instructions edited here leave the skills the agent attaches as they were.
+      if (!parseAttachedSkills(body).length) {
+        for (const entry of attached) {
+          agent.body = upsertAgentTableRow(agent.body, 'library', [entry.id, entry.phases.join(', ') || '*', entry.use || '-'], { replace: true });
+        }
+      }
     }
     this.summary.push(`Agent ${agent.label} updated.`);
   }
@@ -2117,6 +2261,11 @@ class StudioCandidate {
   /** Pin planned claims, trim agents to existing steps, and check every step has one agent. */
   finalize(problems) {
     this.rewireCopies();
+    for (const [skillId, index] of this.updatedSkills) {
+      const skill = this.skills.get(skillId);
+      const users = skill ? [...this.agents.values()].filter((agent) => this.attachedSkills(agent).some((entry) => entry.id === skillId)) : [];
+      if (users.length) this.summary[index] = `Skill ${skill.label} updated; ${users.map((agent) => agent.label).join(', ')} use${users.length === 1 ? 's' : ''} the new text in Stories started from now on.`;
+    }
     for (const [workflowId, { newlyCreated }] of this.workflows) {
       try { pinAuthoredStoryPlannedClaims(this.document, STORES.story, workflowId, { newlyCreated }); }
       catch (error) { problems.push({ code: error?.code ?? 'STUDIO_PLANNED_CLAIMS', message: error.message, subject: { kind: 'workflow', id: workflowId } }); }
@@ -2165,6 +2314,11 @@ class StudioCandidate {
       const after = typeof content === 'string' ? content : content.copyFrom ? await readFile(content.copyFrom, 'utf8') : content.content;
       const before = content?.replace ? await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null) : null;
       files.push({ path: relative, before, after });
+    }
+    for (const [relative, text] of this.skillFiles) {
+      const before = await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null);
+      if (text == null && before == null) continue;
+      files.push({ path: relative, before, after: text });
     }
     for (const [relative, bytes] of this.vendored) {
       const before = await readFile(path.join(this.sources.configRoot, relative)).catch(() => null);
@@ -2352,6 +2506,7 @@ async function loadSources(root, options = {}) {
   return {
     root, configRoot, definitionText, raw, definition, agents, bundledAgents: await bundledAgents(),
     ledger: await loadImportsLedger(configRoot), ledgerText, agentLock, agentLockText,
+    library: await loadSkillLibrary(configRoot),
     agentShas: new Map(agents.map((agent) => [agent.id, agent.sha256])),
     imports: options.imports ?? new Map(),
     templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),

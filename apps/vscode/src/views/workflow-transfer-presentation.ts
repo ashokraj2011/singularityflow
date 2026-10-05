@@ -183,7 +183,7 @@ const NOUNS: Record<string, string> = {
   workflow: 'workflow', phase: 'step', template: 'template', 'artifact-set': 'artifact set',
   'approval-group': 'approval group', 'mcp-server': 'MCP server', 'initiative-workflow': 'Epic workflow',
   'initiative-phase': 'Epic step', 'initiative-approval-group': 'Epic approval group',
-  'applicability-policy': 'applicability policy', agent: 'agent', 'template-file': 'template file'
+  'applicability-policy': 'applicability policy', agent: 'agent', 'template-file': 'template file', skill: 'skill'
 };
 
 function noun(conflict: WorkflowImportConflict): string {

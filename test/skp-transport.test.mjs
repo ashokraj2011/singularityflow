@@ -139,8 +139,8 @@ test('export import / equivalent retained package and compiled binding with exac
   const value = await fixture(t);
   await rm(value.directory, { recursive: true, force: true });
   const bundle = await value.exportBundle();
-  assert.equal(bundle.schemaVersion, 4);
-  assert.equal(currentSchemaVersion('workflow-bundle'), 4);
+  assert.equal(bundle.schemaVersion, 5);
+  assert.equal(currentSchemaVersion('workflow-bundle'), 5);
   assert.deepEqual(bundle.skillPackages[0].manifest, value.capture.manifest);
   assert.equal(bundle.skillPackages[0].source.commit, value.approved.sourceCommit);
   assert.deepEqual(bundle.skillPackages[0].phaseBindings.map((entry) => entry.phaseId), ['threat-model']);

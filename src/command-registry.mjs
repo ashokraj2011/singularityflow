@@ -1,16 +1,19 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck', 'skill']);
+const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product', 'review-source']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
 ]);
 const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish']);
+// Skill packages are only inspected; the skill master also has edits, which --dry-run previews.
+const SKILL_READ_SUBCOMMANDS = Object.freeze(['inspect', 'approved', 'doctor', 'list', 'show']);
+const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 
 const LAZY_MODULES = Object.freeze({
@@ -1418,6 +1421,16 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never(`configuration.${positionals[1]}`, definition, 'read')
       : never('configuration.edit', definition, 'mutation');
   }
+  if (definition.name === 'skill') {
+    const action = positionals[1];
+    if (SKILL_READ_SUBCOMMANDS.includes(action)) return never(`skill.${action}`, definition, 'read');
+    if (!SKILL_MUTATION_SUBCOMMANDS.includes(action)) {
+      return unknownSubcommand('skill', action, [...SKILL_READ_SUBCOMMANDS, ...SKILL_MUTATION_SUBCOMMANDS]);
+    }
+    return optionBoolean(options, 'dry-run')
+      ? never(`skill.${action}.preview`, definition, 'read')
+      : never(`skill.${action}`, definition, 'mutation');
+  }
   if (definition.name === 'phase') {
     return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
       ? never(`phase.${positionals[1]}`, definition, 'read')
@@ -1664,6 +1677,10 @@ export function operationCatalog() {
   const modelFreeMixed = [
     never('phase', commandDefinition('phase'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
+    ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
+    ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
+      never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')
+    ]),
     ...['context', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
     ...['submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
     never('revise.preview', reviseDefinition, 'read'),

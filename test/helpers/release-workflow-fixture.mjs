@@ -3,7 +3,8 @@
  * catalog entry and template files, an artifact set, approval groups named by approval, a decision
  * and a specification-quality exception, an MCP server with its imported descriptor, a default
  * agent with an imported (vendored) skill and a generated artifact, a read-only source reviewer,
- * and the records of where the imported files came from.
+ * and the records of where the imported files came from. With `librarySkill`, the agent also
+ * attaches `store-review` from the skill master.
  *
  * The `local` variant has the same names with different content, for same-name conflicts.
  */
@@ -24,7 +25,20 @@ export function skillText(variant) {
   return `# Store checklist (${variant})\n\n- Screenshots\n- Privacy labels\n`;
 }
 
-function managerAgent(variant, { generated }) {
+export const LIBRARY_SKILL_PATH = 'singularity/skill-library/store-review/SKILL.md';
+
+/** The skill master's `store-review`, which the release manager attaches with `librarySkill`. */
+export function librarySkillText(variant) {
+  return `---
+name: store-review
+description: Reviews a store listing before it is submitted. Use it before a build goes to the store.
+---
+
+Check the screenshots, the privacy labels and the release notes (${variant}).
+`;
+}
+
+function managerAgent(variant, { generated, librarySkill }) {
   return `---
 name: release-manager
 description: Plans mobile releases and prepares store submissions.
@@ -49,6 +63,12 @@ ${generated ? `
 | ID | URL template | Phase | Target | Optional | Max bytes |
 |---|---|---|---|---|---|
 | release-notes | https://example.com/{workId}/notes.md | store-submission | artifacts/store-submission/generated-notes.md | true | 4096 |
+` : ''}${librarySkill ? `
+## Attached skills
+
+| Skill | Phases | When to use it |
+|---|---|---|
+| store-review | store-submission | Before you submit the build |
 ` : ''}`;
 }
 
@@ -68,7 +88,7 @@ Review the release plan against the repository (${variant}). Change nothing.
 }
 
 /** Write the workflow into an initialized repository at `root`. */
-export async function addReleaseWorkflow(root, variant = 'source', { descriptor = true, generated = true } = {}) {
+export async function addReleaseWorkflow(root, variant = 'source', { descriptor = true, generated = true, librarySkill = false } = {}) {
   const write = async (relative, text) => {
     await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
     await writeFile(path.join(root, relative), text);
@@ -134,8 +154,9 @@ export async function addReleaseWorkflow(root, variant = 'source', { descriptor 
   };
   await writeFile(file, YAML.stringify(configuration));
 
-  const manager = managerAgent(variant, { generated });
+  const manager = managerAgent(variant, { generated, librarySkill });
   const skill = skillText(variant);
+  if (librarySkill) await write(LIBRARY_SKILL_PATH, librarySkillText(variant));
   await write('.github/agents/release-manager.agent.md', manager);
   await write('.github/agents/release-reviewer.agent.md', reviewerAgent(variant));
   await write('singularity/imports/agents/release-manager/skill-store-checklist.md', skill);

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2e2b3ecc46d4b1eb5228efbbddb7a6ff7ed9d446",
-  "topicCount": 75,
-  "contentSha256": "28b7d25b5944678be52f1d151ac730e4887474d17dc7b3b29767373773f0e49b",
+  "sourceCommit": "38bf8ed5edffc64b1b253f415736a3f691068746",
+  "topicCount": 76,
+  "contentSha256": "721cb2c3f03d1105b5abbf72defdb9c2b4cabffaec5a55a0fe31a09b1332b6d3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,9 +32,9 @@
     {
       "id": "agents-and-routing",
       "title": "Governed agents, assignments, and model routing",
-      "version": 2,
-      "sha256": "b146da2d1562138bfc1f00f895bfecfa5c8f3b7167941c293f04e238e340a050",
-      "routingSha256": "28fa2dd519a4a0536308c7d73760b6fc82104245d582e074d8f28d9663e3b03f",
+      "version": 3,
+      "sha256": "f7021b4326a132b2e24c7113811e2abb3d86ad0a20dcd2bb6bee061d0bbe9804",
+      "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },
     {
@@ -272,9 +272,9 @@
     {
       "id": "importing-assets",
       "title": "Importing skills, templates, and agents",
-      "version": 3,
-      "sha256": "75dddfb6391f4249147bc972fbcd6d525ebf715c60edebc7b865dcf18b23884f",
-      "routingSha256": "c927cd630b7c5f17205b1f1d182dc1f3e494aee50b138ff2b95216c9111b5a24",
+      "version": 4,
+      "sha256": "5f4df0e9d249fb6cf82f92a8b4a60dd44bb0076c40e140e8bb77df1f473c184e",
+      "routingSha256": "aaf37214a54793f39448126ce20f7bea8d6e54c15a568bed8304b301d5f7fc2d",
       "file": "importing-assets.md"
     },
     {
@@ -486,6 +486,14 @@
       "file": "sgos-governed-execution.md"
     },
     {
+      "id": "skill-master",
+      "title": "Skill master and attached skills",
+      "version": 1,
+      "sha256": "adba87de8dab0c5205e1152514dca94656aac985f260b78e7aee06aeaf814965",
+      "routingSha256": "bc1817483131f05f9d27b26e33f427b315ae4d7f8f099994e67b90e33ecbae50",
+      "file": "skill-master.md"
+    },
+    {
       "id": "smart-initialization",
       "title": "Smart repository initialization",
       "version": 4,
@@ -576,8 +584,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 51,
-      "sha256": "2ffcdd8bcc00d6856525c70a91c4e979a2f05e45f60e06ff51b7b77ebbce7378",
+      "version": 52,
+      "sha256": "4ac216c4f9a131b274593a4868fff8a3f289dded62d0463e7d3ad661769f5847",
       "routingSha256": "dd92caf64bf98924287142b9cac08980610cc6fe5e982ecc79d2325ff3abb1bd",
       "file": "workflow-authoring.md"
     },

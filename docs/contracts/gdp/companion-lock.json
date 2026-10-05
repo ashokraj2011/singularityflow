@@ -4,12 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "2e2b3ecc46d4b1eb5228efbbddb7a6ff7ed9d446",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-WORKFLOW-BUNDLE-V4.md",
+    "reviewedAtCommit": "38bf8ed5edffc64b1b253f415736a3f691068746",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-SKILL-MASTER.md",
     "companionIds": [
-      "candidate-custody",
-      "migration-registry",
-      "workflow-configuration"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -101,7 +99,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:b5411b0bd0267af28e8545c3e82dd2ea39d2151d7e3b8a15a74d8dc7c9d45c14"
+      "sha256": "sha256:c54dcba9a46bc6386b4abfe7e8d32647354eccd96f8f659675e4f87dd0fcb8e7"
     },
     {
       "id": "smart-initialization-v1",

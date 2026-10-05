@@ -142,6 +142,27 @@ function dependenciesForAgent(closure, agentId, parsed) {
       { agentId, dependencyId: declaration.id, snapshotHash: closure.snapshotHash }
     );
   }
+  // Skills from the skill master that the saved agent attaches, retained under it when the Story
+  // started. One the snapshot did not keep (an older version took it) is not part of this Story.
+  for (const attachment of parsed.librarySkills ?? []) {
+    const key = `skill:${attachment.id}`;
+    const record = byDeclaration.get(key);
+    const common = { id: attachment.id, kind: 'skill', source: 'library', phases: [...attachment.phases], use: attachment.use };
+    const bytes = record?.inclusion === 'included' ? closure.assetBytes.get(record.assetLogicalId) : null;
+    if (!bytes || record.contentSha256 == null) {
+      dependencies.push({
+        ...common, logicalId: `agent:${agentId}:${key}`, optional: true, inclusion: 'omitted',
+        sha256: null, text: null, blobPath: null
+      });
+      continue;
+    }
+    dependencies.push({
+      ...common, logicalId: record.id, optional: false, inclusion: 'included',
+      sha256: hash(record.contentSha256, `Saved skill '${record.id}'`),
+      text: utf8(bytes, `Saved skill '${record.id}'`),
+      blobPath: closure.manifest.assets.find((entry) => entry.logicalId === record.assetLogicalId)?.blob?.path ?? null
+    });
+  }
   return dependencies.sort((left, right) => compareText(left.logicalId, right.logicalId));
 }
 

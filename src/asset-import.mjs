@@ -28,6 +28,7 @@ import {
   configuredMarketplaces, fetchMarketplaceIndex, requireMarketplace, selectMarketplaceEntry
 } from './marketplace.mjs';
 import { parseMcpServerDescriptor } from './mcp-descriptor.mjs';
+import { LIBRARY_SKILL_TABLE } from './skill-library.mjs';
 import { fetchMcpContent, parseMcpReference } from './mcp-import.mjs';
 import { scanText, secretRefusal } from './secrets.mjs';
 import { SingularityFlowError, nowIso, secureRepositoryPath, snapshot } from './util.mjs';
@@ -52,6 +53,8 @@ const GENERATED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generati
 
 /** The agent Markdown tables an import can add a row to, in the exact shape the parser reads. */
 export const AGENT_RESOURCE_TABLES = Object.freeze({
+  // Skills from the skill master an agent attaches; the library holds their text.
+  library: LIBRARY_SKILL_TABLE,
   skill: Object.freeze({ heading: 'Remote skills', columns: Object.freeze(['ID', 'URL', 'Phases', 'Optional', 'Max bytes']) }),
   template: Object.freeze({ heading: 'Remote artifact templates', columns: Object.freeze(['ID', 'URL', 'Phases', 'Optional', 'Max bytes']) }),
   generated: Object.freeze({ heading: 'Remote generated artifacts', columns: Object.freeze(['ID', 'URL template', 'Phase', 'Target', 'Optional', 'Max bytes']) })
@@ -332,7 +335,7 @@ export async function previewImport(root, value, {
 /** The import operations of a Studio change set, keyed by the content they name. */
 export function changeSetImportOperations(changeSet) {
   return (Array.isArray(changeSet?.changes) ? changeSet.changes : [])
-    .filter((change) => ['import.skill', 'import.template', 'import.agent', 'import.mcpServer'].includes(change?.op));
+    .filter((change) => ['import.skill', 'import.librarySkill', 'import.template', 'import.agent', 'import.mcpServer'].includes(change?.op));
 }
 
 /**
@@ -498,7 +501,8 @@ export async function importsStatus(root) {
 
 function updateCommand(key, entry, sha256, reference = entry.source.url) {
   const target = entry.target ?? {};
-  return ['singularity-flow import add', JSON.stringify(reference), `--as ${entry.kind}`,
+  // A skill in the skill master is imported again as a skill with no agent.
+  return ['singularity-flow import add', JSON.stringify(reference), `--as ${entry.kind === 'library-skill' ? 'skill' : entry.kind}`,
     entry.kind === 'skill' ? `--agent ${target.agent}` : null,
     entry.kind !== 'agent' ? `--id ${target.id}` : null,
     entry.kind === 'skill' && target.phases?.length ? `--phases ${target.phases.join(',')}` : null,

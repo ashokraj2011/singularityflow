@@ -317,6 +317,14 @@ Usage:
                                                         inspect a skill in verified approved configuration
   singularity-flow skill doctor <ID> --story WORK-ID --phase PHASE-ID [--source LOCAL-DIRECTORY] [--json]
                                                         inspect exact retained Story bytes; never adopts a newer source
+  singularity-flow skill list [--json]                  the skill master: named skills any agent can attach, and who uses them
+  singularity-flow skill show <ID> [--json]
+  singularity-flow skill create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow skill edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow skill attach <ID> --agent AGENT [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
+                                                        the agent reads and applies the skill in those steps (all steps by default)
+  singularity-flow skill detach <ID> --agent AGENT [--dry-run] [--propose] [--json]
+  singularity-flow skill remove <ID> [--dry-run] [--propose] [--json]    also detaches it from every agent
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
   singularity-flow workflow studio [show] [--json]
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
@@ -575,6 +583,8 @@ Usage:
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]|mcp:SERVER/prompt|resource|tool/NAME> [--as skill|template|agent|mcp-server] [--id ID] [--max-bytes N] [--launch] [--arg NAME=VALUE]... [--json]
   singularity-flow import add <LINK> --as skill --agent AGENT [--id ID] [--phases A,B] [--optional] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
+  singularity-flow import add <LINK> --as skill [--id ID] [--description TEXT] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
+                                                        into the skill master; plain Markdown needs --description
   singularity-flow import add <LINK> --as template [--id ID] [--label TEXT] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
   singularity-flow import add <LINK> --as agent [--without-defaults] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
   singularity-flow import add <LINK|market:ID/ENTRY> --as mcp-server [--agents A,B] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]

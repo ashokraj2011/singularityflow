@@ -28,7 +28,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 51
+version: 52
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1021,12 +1021,16 @@ applicability policies, exact remote-agent dependency locks, and declared World 
 A skill or template an agent's lock names as imported (vendored) travels as its exact bytes, with
 the record of where it came from, and so does an imported MCP server's descriptor: the destination
 never fetches them again, and the reader checks each copy against its lock's hash. Other locked
-remote dependencies are hash-verified when the destination fetches them. The bundle never embeds a
+remote dependencies are hash-verified when the destination fetches them. Every skill from the skill
+master that a carried agent attaches travels as its exact `SKILL.md`; a skill no carried agent
+attaches stays behind (`sflow explain skill-master`). The bundle never embeds a
 token or credential. Repository-wide policy and installed World Model view contracts are prerequisites:
 import validates them on the destination but never overwrites them. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
-New exports use bundle v4: v3's closure plus the imported copies and their records. Export refuses
+New exports use bundle v5: v4's closure plus the skill master skills the carried agents attach. v4
+added the imported copies and their records; the reader refuses a v5 bundle whose agents attach a
+skill it does not carry, or that carries one no agent attaches. Export refuses
 an imported copy that no longer matches its lock; check it with `singularity-flow imports check`
 and import it again first. MCP assignments reachable from selected phases or agents are included,
 including agent-only assignments with an unrestricted phase list. The entire assignment remains
@@ -1079,8 +1083,8 @@ singularity-flow workflow import ./workflow-bundle.json \
 
 An object in the bundle that exists here with different content is a conflict. Each conflict
 belongs to one subject: a workflow, step, template, artifact set, approval group, MCP server,
-agent (with its lock, imported copies and their records) or template file. The import stays
-blocked until every subject has a choice:
+agent (with its lock, imported copies and their records), template file or skill from the skill
+master. The import stays blocked until every subject has a choice:
 
 - `keep` leaves yours as it is. The imported workflow uses yours, and the subject's imported
   copies and records are not written.
@@ -1088,7 +1092,8 @@ blocked until every subject has a choice:
   (`Used here by`), because they change too.
 - `rename` imports theirs under a new name and rewrites every reference to it in the bundle:
   steps, workflows, decisions, send-back targets, source review, agent metadata and resource
-  tables, MCP assignments, template references, locks, imported copies and their records. A
+  tables (an agent's `## Attached skills` included), MCP assignments, template references, locks,
+  imported copies and their records. A
   renamed step's artifact moves to `artifacts/<new-name>/`, and renamed objects' labels gain
   "(imported)".
 

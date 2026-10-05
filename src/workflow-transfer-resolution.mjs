@@ -14,6 +14,7 @@ import { AUTHORING_SKILL_DECLARATION, authoringSkillDirectId } from './authoring
 import { EPIC_PHASES } from './initiative-phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
+import { librarySkillPath } from './skill-library.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -32,7 +33,7 @@ export const CATALOG_SUBJECTS = Object.freeze({
 });
 const NOUNS = Object.freeze({
   ...Object.fromEntries(Object.entries(CATALOG_SUBJECTS).map(([kind, [, , noun]]) => [kind, noun])),
-  agent: 'agent', 'template-file': 'template file', skill: 'skill package'
+  agent: 'agent', 'template-file': 'template file', skill: 'skill'
 });
 export const RESOLUTION_ACTIONS = Object.freeze(['keep', 'replace', 'rename']);
 export const RESOLVE_ALL_CHOICES = Object.freeze(['suggested', 'keep', 'replace', 'rename']);
@@ -53,8 +54,8 @@ export function parseSubject(subject) {
   const colon = text.indexOf(':');
   const kind = colon > 0 ? text.slice(0, colon) : '';
   const id = colon > 0 ? text.slice(colon + 1) : '';
-  if (!Object.hasOwn(NOUNS, kind) || kind === 'skill') {
-    fail(`'${text}' is not something an import can resolve. Use one of: ${Object.keys(NOUNS).filter((name) => name !== 'skill').join(', ')}, followed by ':' and its ID.`);
+  if (!Object.hasOwn(NOUNS, kind)) {
+    fail(`'${text}' is not something an import can resolve. Use one of: ${Object.keys(NOUNS).join(', ')}, followed by ':' and its ID.`);
   }
   if (kind === 'template-file' ? !/^[^\s:]+$/.test(id) || id.split('/').includes('..') : !ID.test(id)) {
     fail(`'${text}' does not name a ${subjectNoun(kind)} by its ${kind === 'template-file' ? 'path' : 'lower-case kebab-case ID'}.`);
@@ -62,9 +63,9 @@ export function parseSubject(subject) {
   return { kind, id };
 }
 
-/** What a person can choose for a subject. Skill packages, and conflicts with no subject, must match exactly. */
+/** What a person can choose for a subject. A conflict with no subject (a skill package, the merged configuration) has no choice. */
 export function subjectChoices(kind) {
-  return kind && kind !== 'skill' ? [...RESOLUTION_ACTIONS] : [];
+  return kind ? [...RESOLUTION_ACTIONS] : [];
 }
 
 /**
@@ -209,7 +210,7 @@ export function importPlanText(plan, file) {
     for (const reason of item.reasons) lines.push(`    ${reason}`);
     if (item.usedBy.length) lines.push(`    Used here by: ${item.usedBy.join(', ')}`);
     if (!item.choices.length) {
-      lines.push(`    ${item.kind === 'skill' ? 'A skill package must match exactly; update it here first.' : 'Change another choice, or the repository, so this passes.'}`);
+      lines.push(`    ${String(item.id).startsWith('skill-package') ? 'A skill package must match exactly; update it here first.' : 'Change another choice, or the repository, so this passes.'}`);
       continue;
     }
     const ordered = [item.suggested, ...item.choices.filter((action) => action !== item.suggested)];
@@ -592,6 +593,22 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
     asset.reference = rewriteReference(asset.governs, asset.reference);
   }
 
+  // Skills from the skill master: their file, the name in their front matter, and their label.
+  const skillMap = map('skill');
+  for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'skill' && skillMap.has(candidate.id))) {
+    const from = asset.id; const to = skillMap.get(from);
+    movedPaths.set(asset.path, librarySkillPath(to));
+    asset.id = to;
+    asset.path = librarySkillPath(to);
+    asset.content = rewriteAgent(asset.content, (document, body) => {
+      if (document.get('name') === from) document.set('name', to);
+      const label = document.getIn(['metadata', 'sflow-label']);
+      const named = typeof label === 'string' ? label : `${from.split('-').join(' ').replace(/^./, (letter) => letter.toUpperCase())}`;
+      if (!named.endsWith(IMPORTED_LABEL)) document.setIn(['metadata', 'sflow-label'], `${named}${IMPORTED_LABEL}`);
+      return body;
+    });
+  }
+
   // Agents: their files, locks, imported copies and what they draft.
   const renamedAgents = new Set(agentMap.values());
   const existsHere = (id) => !renamedAgents.has(id) && targetAgents.has(id);
@@ -614,18 +631,22 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
           if (YAML.isScalar(item) && typeof item.value === 'string') item.value = swapCompound(item.value, hostMap);
         }
       }
-      if (!phaseMap.size) return body;
+      const attached = (text) => (skillMap.size || phaseMap.size ? rewriteTable(text, 'Attached skills', (cells) => {
+        cells[0] = swapValue(cells[0], skillMap); cells[1] = phaseCell(cells[1], phaseMap); return cells;
+      }) : text);
       const setMetadata = (key, value) => {
         const node = document.getIn(['metadata', key], true);
         if (YAML.isScalar(node)) node.value = value;
       };
       const phases = phaseListText(document.getIn(['metadata', 'sflow-phases']));
-      if (phases) setMetadata('sflow-phases', withRenamed(phases, phaseMap).join(','));
+      if (phases && phaseMap.size) setMetadata('sflow-phases', withRenamed(phases, phaseMap).join(','));
+      // An agent under a new name drafts only steps new here, whether or not any step was renamed.
       const defaults = phaseListText(document.getIn(['metadata', 'sflow-default-for']));
-      if (defaults) {
+      if (defaults && (phaseMap.size || renamed)) {
         setMetadata('sflow-default-for', (existing ? withRenamed(defaults, phaseMap)
           : defaults.map((phase) => phaseMap.get(phase) ?? phase).filter((phase) => !renamed || !targetPhases.has(phase))).join(','));
       }
+      if (!phaseMap.size) return attached(body);
       let next = rewriteTable(body, 'Remote skills', (cells) => { cells[2] = phaseCell(cells[2], phaseMap); return cells; });
       next = rewriteTable(next, 'Remote artifact templates', (cells) => { cells[2] = phaseCell(cells[2], phaseMap); return cells; });
       if (!existing) {
@@ -635,7 +656,7 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
           return cells;
         });
       }
-      return next;
+      return attached(next);
     });
     const lock = bundle.agentLocks[from];
     for (const dependency of lock?.dependencies ?? []) {
@@ -695,6 +716,7 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
       if (record.kind === 'agent' && agentMap.has(target.id)) { target.id = agentMap.get(target.id); next = `agent:${target.id}`; }
       if (record.kind === 'mcp-server' && serverMap.has(target.id)) { target.id = serverMap.get(target.id); next = `mcp-server:${target.id}`; }
       if (record.kind === 'template' && templateMap.has(target.id)) { target.id = templateMap.get(target.id); next = `template:${target.id}`; }
+      if (record.kind === 'library-skill' && skillMap.has(target.id)) { target.id = skillMap.get(target.id); next = `library-skill:${target.id}`; }
       for (const [from, to] of movedPaths) if (target.path === from) { target.path = to; break; }
       if (Array.isArray(target.phases)) target.phases = withRenamed(target.phases, phaseMap);
       if (record.kind === 'generated' && !existsHere(target.agent)) Object.assign(target, generatedPlace(target.phase, target.path, phaseMap));

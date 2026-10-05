@@ -351,7 +351,7 @@ test('workflow bundle closure rejects self-rehashed missing transitive MCP phase
 test('v3 dependency closure never treats inherited constructor keys as retained declarations before target writes', async (t) => {
   const f = await mcpClosureFixture(t);
   const bundle = await exportWorkflowBundle(f.source, ['story:portable-mcp-feature']);
-  assert.equal(bundle.schemaVersion, 4);
+  assert.equal(bundle.schemaVersion, 5);
   for (const catalog of ['workTypes', 'phases', 'mcpServers', 'artifactSets', 'templates']) {
     assert.equal(Object.hasOwn(bundle.objects.story[catalog], 'constructor'), false);
     assert.equal(typeof bundle.objects.story[catalog].constructor, 'function', 'the ordinary object still has the inherited key');
@@ -503,7 +503,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   await writeWorkflowConfiguration(f.source, f.configuration);
   await loadDefinition(f.source);
   const complete = await exportWorkflowBundle(f.source, ['story:historical-mcp']);
-  assert.equal(complete.schemaVersion, 4);
+  assert.equal(complete.schemaVersion, 5);
   assert.ok(complete.objects.story.phases['unrelated-note']);
   assert.ok(complete.objects.story.mcpServers['unrelated-server']);
 

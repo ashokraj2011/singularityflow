@@ -8,6 +8,9 @@ import {
   DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES, fetchRemoteMarkdown, validatePublicHttpsUrl
 } from './remote-fetch.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import {
+  LIBRARY_SKILL_TABLE, librarySkillReference, normalizeSkillUse, parseLibrarySkill, readLibrarySkill, renderLibrarySkills
+} from './skill-library.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -120,6 +123,17 @@ function rowsForHeading(text, heading, expected) {
   return rows;
 }
 
+/** The skills an agent's `## Attached skills` table attaches: ID, steps (empty for all), when to use it. */
+export function parseAttachedSkills(text, source = 'agent.md') {
+  const seen = new Set();
+  return rowsForHeading(text, LIBRARY_SKILL_TABLE.heading, LIBRARY_SKILL_TABLE.columns).map((row) => {
+    if (!idPattern(row.Skill)) throw new SingularityFlowError(`Attached skill '${row.Skill}' in ${source} must be a lower-case kebab-case skill ID.`);
+    if (seen.has(row.Skill)) throw new SingularityFlowError(`Skill '${row.Skill}' is attached more than once in ${source}.`);
+    seen.add(row.Skill);
+    return Object.freeze({ id: row.Skill, phases: splitList(row.Phases), use: normalizeSkillUse(row['When to use it']) });
+  });
+}
+
 export function parseAgentDependencies(text, { source = 'agent.md', agentId = null } = {}) {
   const { frontmatter, body } = parseAgentDocument(text, source);
   const declaredName = frontmatter.name;
@@ -166,6 +180,12 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
   };
   const skills = skillRows.map((row) => ({ ...common(row, 'skill', 'URL'), phases: splitList(row.Phases) }));
   const templates = templateRows.map((row) => ({ ...common(row, 'template', 'URL'), phases: splitList(row.Phases) }));
+  // Skills from the skill master: one row per attached skill, never fetched, read from the library.
+  const librarySkills = parseAttachedSkills(text, source);
+  for (const attachment of librarySkills) {
+    if (seen.has(attachment.id)) throw new SingularityFlowError(`Skill '${attachment.id}' is attached to ${source} and is also the ID of one of its remote resources.`);
+    seen.add(attachment.id);
+  }
   const generated = generatedRows.map((row) => {
     const entry = { ...common(row, 'generated', 'URL template', true), phase: row.Phase };
     if (!idPattern(entry.phase)) throw new SingularityFlowError(`Generated artifact '${entry.id}' has invalid phase '${entry.phase}'.`);
@@ -189,7 +209,8 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     skills,
     templates,
     generated,
-    dependencies: [...skills, ...templates, ...generated]
+    dependencies: [...skills, ...templates, ...generated],
+    librarySkills
   };
 }
 
@@ -271,6 +292,16 @@ export function validateAgentCatalog(agents, definition) {
             details: { agentId: agent.id, phaseId: phase, source: agent.source ?? null }
           }
         );
+      }
+      for (const attachment of agent.librarySkills ?? []) {
+        for (const phase of attachment.phases) {
+          if (!phaseIds.has(phase)) throw new SingularityFlowError(
+            `Agent '${agent.id}' attaches skill '${attachment.id}' for unknown phase '${phase}'.`, {
+              code: 'AGENT_PHASE_UNKNOWN',
+              details: { agentId: agent.id, phaseId: phase, skillId: attachment.id, source: agent.source ?? null }
+            }
+          );
+        }
       }
     }
     for (const view of agent.worldModelViews) if (!viewIds.has(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
@@ -564,17 +595,19 @@ export async function renderAgentSkills(root, workflow, phase, session, {
 } = {}) {
   if (!session?.agent) return { text: '', skills: [], warnings: [] };
   const saved = executionContext?.identity?.mode === 'workflow-snapshot';
+  // Skills from the skill master have their own rendering and warning, below.
+  const remote = saved ? executionContext.dependencies.filter((entry) => entry.source !== 'library') : [];
   const synced = saved
     ? {
         agent: executionContext.agent,
-        dependencies: executionContext.dependencies.map((entry) => ({
+        dependencies: remote.map((entry) => ({
           ...entry, sha256: entry.sha256?.replace(/^sha256:/, '') ?? null,
           type: entry.kind, status: entry.inclusion === 'included' ? 'ready' : 'unavailable',
           content: entry.text, size: entry.text == null ? null : Buffer.byteLength(entry.text),
           path: entry.blobPath, warning: entry.inclusion === 'omitted'
             ? `Optional ${entry.kind} '${entry.id}' was omitted from the accepted Story snapshot.` : null
         })),
-        warnings: executionContext.dependencies
+        warnings: remote
           .filter((entry) => entry.inclusion === 'omitted')
           .map((entry) => `Optional ${entry.kind} '${entry.id}' was omitted from the accepted Story snapshot.`)
       }
@@ -589,9 +622,14 @@ export async function renderAgentSkills(root, workflow, phase, session, {
     const content = saved ? dependency.content : await readFile(dependency.path, 'utf8');
     selected.push({ ...dependency, content });
   }
-  const text = selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n');
+  const library = await attachedLibrarySkills(root, phase, saved ? executionContext : null, synced.agent, session.agent);
+  const text = [
+    selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n'),
+    renderLibrarySkills(session.agent, library.skills)
+  ].filter(Boolean).join('\n\n');
+  const warnings = [...synced.warnings, ...library.warnings];
   let audit = null;
-  if (record && workflow && itemDirectory && selected.length) {
+  if (record && workflow && itemDirectory && (selected.length || library.skills.length)) {
     const generation = nextPhaseGeneration(phase); const files = [];
     for (const entry of selected) {
       const target = saved ? null
@@ -603,10 +641,54 @@ export async function renderAgentSkills(root, workflow, phase, session, {
         path: saved ? entry.path : posix(path.relative(root, target))
       });
     }
+    // A skill from the skill master is recorded by the exact text the prompt used.
+    for (const entry of library.skills) {
+      const target = saved ? null
+        : path.join(itemDirectory, 'context/agent-snapshots', session.agent, `${entry.id}-${entry.sha256}.md`);
+      if (target && !(await exists(target))) await writeText(target, entry.text);
+      files.push({
+        id: entry.id, type: 'skill', url: saved ? null : librarySkillReference(entry.id),
+        sha256: entry.sha256, size: entry.bytes,
+        path: saved ? entry.path : posix(path.relative(root, target))
+      });
+    }
     audit = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
     await writeJson(path.join(itemDirectory, 'context', `agents-${phase.id}-gen${generation}.json`), audit);
   }
-  return { text, skills: selected, warnings: synced.warnings, audit };
+  return { text, skills: [...selected, ...library.skills], warnings, audit };
+}
+
+/**
+ * The skills from the skill master an agent applies in a step. In a Story snapshot they are the
+ * bytes retained when the Story started, attached by the saved agent; a later edit to a skill or to
+ * the agent does not change that Story. Live, they are read from the library, and an attached
+ * skill that is missing there stops the prompt.
+ */
+async function attachedLibrarySkills(root, phase, executionContext, agent, agentId) {
+  const skills = []; const warnings = [];
+  if (executionContext) {
+    for (const entry of executionContext.dependencies.filter((dependency) => dependency.source === 'library')) {
+      if (!matches(phase.id, entry.phases)) continue;
+      if (entry.inclusion !== 'included') {
+        warnings.push(`Skill '${entry.id}' is attached to ${agentId}, but this Story's snapshot did not keep it when the Story started, so this Story does not use it.`);
+        continue;
+      }
+      const parsed = parseLibrarySkill(entry.text, { id: entry.id });
+      skills.push({ ...parsed, sha256: parsed.sha256, use: entry.use ?? '', path: entry.blobPath ?? null });
+    }
+    return { skills, warnings };
+  }
+  for (const attachment of agent?.librarySkills ?? []) {
+    if (!matches(phase.id, attachment.phases)) continue;
+    const skill = await readLibrarySkill(configurationReadRoot(root), attachment.id);
+    if (!skill) {
+      throw new SingularityFlowError(`Skill '${attachment.id}' is attached to ${agentId} but is not in the skill master.`, {
+        code: 'SKILL_LIBRARY_MISSING', details: { agentId, skillId: attachment.id }
+      });
+    }
+    skills.push({ ...skill, use: attachment.use });
+  }
+  return { skills, warnings };
 }
 
 function expandUrl(template, workflow, phase) {

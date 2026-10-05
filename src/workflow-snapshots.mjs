@@ -10,6 +10,8 @@ import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
 import { syncAgent } from './agents.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { librarySkillPath, librarySkillReference, parseLibrarySkill } from './skill-library.mjs';
 import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
@@ -272,7 +274,49 @@ async function captureInstalledAgent(root, config, workId, agent) {
   };
 }
 
+/**
+ * A skill from the skill master is retained like a required agent skill, under the agent that
+ * attaches it: the Story keeps the exact SKILL.md bytes it started with. `availability` only says
+ * the skill is required; its reference names the library, which is never fetched. It is read from
+ * the configuration the agent file came from.
+ */
+async function captureAttachedLibrarySkills(root, config, workId, agent) {
+  const assets = []; const dependencies = [];
+  for (const attachment of agent.librarySkills ?? []) {
+    const logicalId = `agent:${agent.id}:skill:${attachment.id}`;
+    const label = `Skill '${attachment.id}' attached to governed agent '${agent.id}'`;
+    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(attachment.id), { label, type: 'file' });
+    if (!source.exists) fail(`${label} is not in the skill master.`, 'WFA_DEPENDENCY_UNAVAILABLE');
+    const captured = await stableFile(source.absolute, label);
+    try { parseLibrarySkill(captured.bytes.toString('utf8'), { id: attachment.id }); }
+    catch (error) { fail(`${label} is not a valid skill: ${error.message}`, 'WFA_DEPENDENCY_UNAVAILABLE'); }
+    const referenceSha256 = domainHash(
+      'wfa.dependency-reference.v1', `skill\0${attachment.id}\0${librarySkillReference(attachment.id)}`
+    );
+    const blob = await installBlob(root, config, workId, { ...captured, mediaType: 'text/markdown; charset=utf-8' });
+    assets.push({
+      logicalId, purpose: 'agent-skill', dependencies: [`agent:${agent.id}`], blob,
+      source: {
+        kind: 'reviewed-agent-dependency', agentId: agent.id,
+        dependencyId: attachment.id, referenceSha256, sha256: blob.sha256
+      }
+    });
+    dependencies.push({
+      id: logicalId, agentId: agent.id, dependencyId: attachment.id, kind: 'skill', optional: false,
+      availability: 'remote-required', inclusion: 'included', assetLogicalId: logicalId,
+      referenceSha256, contentSha256: blob.sha256, executable: false
+    });
+  }
+  return { assets, dependencies };
+}
+
 async function captureAgentExecutionDependencies(root, config, workId, agent) {
+  const library = await captureAttachedLibrarySkills(root, config, workId, agent);
+  const remote = await captureRemoteAgentDependencies(root, config, workId, agent);
+  return { assets: [...remote.assets, ...library.assets], dependencies: [...remote.dependencies, ...library.dependencies] };
+}
+
+async function captureRemoteAgentDependencies(root, config, workId, agent) {
   if (!(agent.dependencies ?? []).length) return { assets: [], dependencies: [] };
   let synchronized = null;
   try {

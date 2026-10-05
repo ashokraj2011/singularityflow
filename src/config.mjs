@@ -21,6 +21,7 @@ import { validateInjectionDefinition } from './inject.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { assertAttachedLibrarySkills } from './skill-library.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   discoverAgents,
@@ -1839,7 +1840,10 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
       }
       throw error;
     }
-    if (!storyBootstrap) validateAgentCatalog(agents, definition);
+    if (!storyBootstrap) {
+      validateAgentCatalog(agents, definition);
+      await assertAttachedLibrarySkills(definitionRoot, agents);
+    }
     const portfolio = await loadPortfolio(definitionRoot, { required: false });
     const governedRoots = [...new Set([
       ...GOVERNED_ROOTS,

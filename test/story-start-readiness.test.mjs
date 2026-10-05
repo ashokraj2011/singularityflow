@@ -13,7 +13,8 @@ test('explicit baseline deferral admits intake without turning missing or failin
   for (const evidence of [null, { repositories: { application: acceptedFailedTests() } }]) {
     const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: evidence, readinessBaseline: 'defer' }));
     assert.equal(result.ready, true, JSON.stringify(result.blockers));
-    assert.ok(result.warnings.some(entry => entry.code === 'STORY_TEST_BASELINE_DEFERRED'));
+    assert.ok(result.warnings.some(entry => entry.code === (evidence
+      ? 'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED' : 'STORY_TEST_BASELINE_DEFERRED')));
     assert.ok(!result.checks.some(entry => entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
     assert.equal(result.repositoryExecution.choice, 'defer');
     assert.notEqual(result.receipt.readinessSha256,
@@ -39,13 +40,16 @@ test('missing detection and baseline observation are advisory at intake, never i
     { status: 'failing-tests', sourceCommit: BASE_COMMIT, baselineSha256: `sha256:${'a'.repeat(64)}` },
     { status: 'readiness-failed', sourceCommit: BASE_COMMIT, commandResults: [{ purpose: 'test', status: 'failed' }] }
   ]) {
-    assert.equal(inspectStoryStartReadiness(facts(definition, {
+    const result = inspectStoryStartReadiness(facts(definition, {
       repositoryReadiness: { repositories: { application: receipt } }
-    })).ready, false, 'an observed or unexplained execution failure is not missing detection');
+    }));
+    assert.equal(result.ready, true, 'observed failures are context, not an intake admission gate');
+    assert.ok(result.warnings.some(entry => entry.code === 'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED'));
+    assert.ok(!result.checks.some(entry => entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
   }
 });
 
-test('baseline deferral cannot weaken strict, legacy, non-test or Git authority requirements', async () => {
+test('strict and legacy test-only policies are advisory; required non-test and Git proof survives', async () => {
   for (const policy of [
     { baselinePolicy: 'required' },
     { baselinePolicy: 'choice', dependencyHydration: 'required' },
@@ -53,8 +57,10 @@ test('baseline deferral cannot weaken strict, legacy, non-test or Git authority 
     { baselinePolicy: 'choice', applicationStart: 'required' }
   ]) {
     const definition = await shippedDefinition();
+    definition.repositoryReadiness.requiredBeforeStory = true;
     Object.assign(definition.repositoryReadiness, policy);
-    assert.equal(inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' })).ready, false);
+    assert.equal(inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' })).ready,
+      policy.baselinePolicy === 'required');
     if (policy.baselinePolicy === 'choice') {
       const purpose = policy.dependencyHydration ? 'dependency' : policy.build ? 'build' : 'start';
       const receipt = { status: 'failing-tests', sourceCommit: BASE_COMMIT,
@@ -73,16 +79,17 @@ test('baseline deferral cannot weaken strict, legacy, non-test or Git authority 
         structuredTestContract: { status: 'available' }
       } } };
       const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: passing, readinessBaseline: 'defer' }));
-      assert.equal(result.ready, false);
-      assert.ok(result.blockers.some(entry => entry.code === 'TEST_BASELINE_DEFER_NOT_ALLOWED'));
+      assert.equal(result.ready, true);
+      assert.equal(result.repositoryExecution.baselinePolicy, 'choice');
     }
   }
   const definition = await shippedDefinition();
   definition.repositoryReadiness.baselinePolicy = 'choice';
   definition.initialization = { proof: { preStory: { requiredBeforeStory: true } } };
   const legacy = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' }));
-  assert.equal(legacy.ready, false);
-  assert.equal(legacy.repositoryExecution.baselinePolicy, 'required', 'the UI must not offer legacy-forbidden deferral');
+  assert.equal(legacy.ready, true);
+  assert.equal(legacy.repositoryExecution.baselinePolicy, 'choice');
+  definition.repositoryReadiness.requiredBeforeStory = true;
   definition.initialization = { proof: { preStory: { requiredBeforeStory: false, build: 'required' } } };
   assert.equal(inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' })).ready, false);
   delete definition.initialization;
@@ -173,22 +180,24 @@ function acceptedFailedTests(baseCommit = BASE_COMMIT) {
   };
 }
 
-test('empty-plan preflight is not an execution receipt and cannot satisfy required test/build policy', async () => {
+test('empty-plan preview never claims tests ran and cannot satisfy required non-test proof', async () => {
   const definition = await shippedDefinition();
+  definition.repositoryReadiness.requiredBeforeStory = true;
   definition.repositoryReadiness.baselinePolicy = 'required';
   const preview = { status: 'no-commands-applicable', sourceCommit: BASE_COMMIT,
     scope: 'dependency-test', planId: `sha256:${'a'.repeat(64)}`, commandResults: [],
     structuredTestContract: { status: 'missing', satisfied: true, requiredForCode: false } };
   const input = facts(definition, { surface: 'vscode-preflight', repositoryReadiness: preview });
   assert.equal(inspectStoryStartReadiness(input).ready, true);
-  assert.equal(inspectStoryStartReadiness({ ...input, surface: 'shell' }).ready, false);
-  for (const key of ['dependencyHydration', 'build', 'applicationStart', 'structuredTests']) {
+  assert.equal(inspectStoryStartReadiness({ ...input, surface: 'shell' }).ready, true);
+  assert.ok(inspectStoryStartReadiness(input).warnings.some(row => row.code === 'STORY_TEST_CONFIGURATION_PENDING'));
+  for (const key of ['dependencyHydration', 'build', 'applicationStart']) {
     const strict = structuredClone(definition);
     strict.repositoryReadiness = { ...strict.repositoryReadiness, [key]: 'required' };
     assert.equal(inspectStoryStartReadiness({ ...input, definition: strict }).ready, false, key);
   }
   assert.equal(inspectStoryStartReadiness({ ...input,
-    repositoryReadiness: { ...preview, sourceCommit: 'c'.repeat(40) } }).ready, false);
+    repositoryReadiness: { ...preview, sourceCommit: 'c'.repeat(40) } }).ready, true);
 });
 
 test('Story-start readiness has a deterministic receipt for equivalent facts', async () => {
@@ -256,10 +265,10 @@ test('incomplete exact Git evidence blocks Story start', async () => {
   assert.ok(result.blockers.some((entry) => entry.code === 'STORY_GIT_PREFLIGHT_INCOMPLETE'));
 });
 
-test('an enforced pre-Story repository receipt must match the exact selected base', async () => {
+test('an enforced non-test receipt must match the exact selected base', async () => {
   const definition = await shippedDefinition();
   definition.initialization = {
-    proof: { preStory: { requiredBeforeStory: true } }
+    proof: { preStory: { requiredBeforeStory: true, build: 'required' } }
   };
   const missing = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null }));
   assert.equal(missing.ready, false);
@@ -277,12 +286,12 @@ test('an enforced pre-Story repository receipt must match the exact selected bas
   const ready = inspectStoryStartReadiness(facts(definition, {
     repositoryReadiness: {
       status: 'pass', sourceHead: BASE_COMMIT,
-      receiptSha256: `sha256:${'4'.repeat(64)}`
+      receiptSha256: `sha256:${'4'.repeat(64)}`, commandResults: [{ purpose: 'build', status: 'pass' }]
     }
   }));
   assert.equal(ready.ready, true);
-  assert.ok(ready.checks.some((entry) =>
-    entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
+  assert.ok(ready.warnings.some((entry) =>
+    entry.code === 'STORY_TEST_CONFIGURATION_PENDING'));
   assert.notEqual(ready.receipt.readinessSha256, missing.receipt.readinessSha256);
 });
 
@@ -299,7 +308,7 @@ test('an accepted exact-base failure permits Story start as a warning but cannot
   assert.equal(ready.ready, true);
   assert.equal(ready.status, 'ready-with-warnings');
   assert.equal(ready.checks.find((entry) => entry.id === 'repository-execution').code,
-    'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED');
+    'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED');
   assert.notEqual(ready.receipt.readinessSha256,
     inspectStoryStartReadiness(facts(definition, {
       repositoryReadiness: { ...accepted,
@@ -307,15 +316,17 @@ test('an accepted exact-base failure permits Story start as a warning but cannot
           acceptanceSha256: `sha256:${'7'.repeat(64)}` } }
     })).receipt.readinessSha256);
 
+  for (const allowed of [
+    { ...accepted, riskAcceptance: null },
+    { ...accepted, structuredTestContract: { status: 'missing', commands: [] } },
+    { ...accepted, testObservations: [] }
+  ]) assert.equal(inspectStoryStartReadiness(facts(definition, {
+    repositoryReadiness: allowed
+  })).ready, true, 'no test result or risk acceptance is required at creation');
   for (const rejected of [
     { ...accepted, sourceCommit: 'c'.repeat(40) },
-    { ...accepted, riskAcceptance: null },
     { ...accepted, commandResults: [{ id: 'unit', purpose: 'test', status: 'failed' }] },
-    { ...accepted, structuredTestContract: { status: 'missing', commands: [] } },
-    { ...accepted, structuredTestContract: { status: 'available', commands: [{
-      id: 'unit', adapter: 'junit-xml', minimumDiscovered: 3
-    }] } },
-    { ...accepted, testObservations: [] }
+    { ...accepted, prerequisitesCurrent: false }
   ]) assert.equal(inspectStoryStartReadiness(facts(definition, {
     repositoryReadiness: rejected
   })).ready, false);
@@ -385,7 +396,7 @@ test('legacy when-detected build policy retains full-scope readiness', async () 
 test('capability Story readiness requires an exact receipt for every repository', async () => {
   const definition = await shippedDefinition();
   definition.initialization = {
-    proof: { preStory: { requiredBeforeStory: true } }
+    proof: { preStory: { requiredBeforeStory: true, dependencyHydration: 'required' } }
   };
   const repositories = [
     { id: 'frontend', baseBranch: 'main', baseCommit: 'd'.repeat(40), destinationRef: 'refs/heads/STORY-READY' },
@@ -394,7 +405,7 @@ test('capability Story readiness requires an exact receipt for every repository'
   const partial = inspectStoryStartReadiness(facts(definition, {
     repositories,
     repositoryReadiness: { repositories: {
-      frontend: { status: 'pass', sourceHead: 'd'.repeat(40), receiptSha256: `sha256:${'5'.repeat(64)}` }
+      frontend: { status: 'pass', sourceHead: 'd'.repeat(40), receiptSha256: `sha256:${'5'.repeat(64)}`, commandResults: [{ purpose: 'dependency', status: 'pass' }] }
     } }
   }));
   assert.equal(partial.ready, false);
@@ -402,8 +413,8 @@ test('capability Story readiness requires an exact receipt for every repository'
   const complete = inspectStoryStartReadiness(facts(definition, {
     repositories,
     repositoryReadiness: { repositories: {
-      frontend: { status: 'pass', sourceHead: 'd'.repeat(40), receiptSha256: `sha256:${'5'.repeat(64)}` },
-      backend: { status: 'pass', sourceHead: 'e'.repeat(40), receiptSha256: `sha256:${'6'.repeat(64)}` }
+      frontend: { status: 'pass', sourceHead: 'd'.repeat(40), receiptSha256: `sha256:${'5'.repeat(64)}`, commandResults: [{ purpose: 'dependency', status: 'pass' }] },
+      backend: { status: 'pass', sourceHead: 'e'.repeat(40), receiptSha256: `sha256:${'6'.repeat(64)}`, commandResults: [{ purpose: 'dependency', status: 'pass' }] }
     } }
   }));
   assert.equal(complete.ready, true);

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { capabilityLines, repositoryTestCapability } from '../src/verification/capability.mjs';
-import { assertPlannedTestsRunnable, sealStoryTestPolicy } from '../src/verification/test-policy.mjs';
+import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from '../src/verification/test-policy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -56,21 +56,39 @@ test('the capability profile names every module with its runner, how finely it r
   assert.equal(ledger.ceiling, 'module-observed', 'a JUnit report from an unknown launcher only counts tests');
 });
 
-test('resolving base failures outside the Story needs the base observed, and refuses while it fails (D12, D13)', async (t) => {
+test('outside-Story baseline policy seals without inspection and is enforced only at coding', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-policy-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await files(root, { 'package.json': JSON.stringify({ private: true, scripts: { test: 'jest' } }) });
   spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
   const baseCommit = 'a'.repeat(40);
-  await assert.rejects(() => sealStoryTestPolicy(root, { workId: 'POL-1', baseCommit, baselineFailures: 'resolve-outside' }), (error) => error.code === 'TEST_BASELINE_UNKNOWN'
-    && /precheck --run --scope dependency-test/.test(error.message));
+  const outside = await sealStoryTestPolicy(root, { workId: 'POL-1', baseCommit, baselineFailures: 'resolve-outside' });
+  assert.equal(outside.record.baselineFailures, 'resolve-outside');
+  await files(root, { 'singularity/work-items/POL-1/context/test-policy.json': JSON.stringify(outside.record) });
+  await assert.rejects(() => assertStoryBaselineDisposition(root, {}, {
+    workItem: { id: 'POL-1' }, testPolicy: { path: outside.relativePath, sha256: outside.sha256 }
+  }), (error) => error.code === 'TEST_BASELINE_UNKNOWN' && /precheck --run --scope dependency-test/.test(error.message));
   await assert.rejects(() => sealStoryTestPolicy(root, { workId: 'POL-1', baselineFailures: 'accept-pre-existing' }), (error) => error.code === 'TEST_POLICY_INVALID');
   const sealed = await sealStoryTestPolicy(root, { workId: 'POL-1', env: { PATH: '' } });
   assert.equal(sealed.record.baselineFailures, 'repair-in-story');
   assert.equal(sealed.record.executionScope, 'affected');
   assert.equal(sealed.record.witnessDefault, 'automated-test');
   assert.match(sealed.sha256, /^sha256:[a-f0-9]{64}$/);
-  assert.deepEqual(sealed.record.capability.modules.map((entry) => entry.root), ['.']);
+  assert.equal(sealed.record.capability.status, 'not-checked');
+  assert.deepEqual(sealed.record.capability.modules, []);
+});
+
+test('intake seals testing intent without requiring a checkout, manifests, launchers, or a receipt', async () => {
+  const sealed = await sealStoryTestPolicy('/nonexistent-sflow-test-checkout', {
+    workId: 'PENDING-TOOLS', baseCommit: 'a'.repeat(40), executionMode: 'all-configured',
+    baselineChoice: 'defer', baselinePending: true, env: { PATH: '' }
+  });
+  assert.equal(sealed.record.executionScope, 'full');
+  assert.equal(sealed.record.baselineObservation, 'deferred-not-verified');
+  assert.equal(sealed.record.capability.status, 'not-checked');
+  assert.deepEqual(sealed.record.capability.modules, []);
+  assert.match(sealed.record.capability.guidance, /Copilot: \/sf-test-setup; Shell:/);
+  assert.match(sealed.sha256, /^sha256:[a-f0-9]{64}$/u);
 });
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
@@ -134,13 +152,13 @@ test('an undetected runner is disclosed at intake and planning without blocking 
   const started = cli('start', workId, '--from-branch', 'main', '--work-type', 'classic-delivery',
     '--title', 'Ledger total', '--description', 'Total the ledger.');
   assert.match(started.stdout, /Test capability \(sealed with the Story/);
-  assert.match(started.stdout, /crates\/ledger \(rust\): unsupported — Rust module 'crates\/ledger' requires an explicit argv-form test command/);
-  assert.match(started.stdout, /\. \(node\): .*reads each test case; criteria tested here can reach exact-local-observed/);
+  assert.match(started.stdout, /Copilot: \/sf-test-setup/);
   const item = path.join(root, 'singularity/work-items', workId);
   const sealed = JSON.parse(await readFile(path.join(item, 'context/test-policy.json'), 'utf8'));
   assert.equal(sealed.baselineFailures, 'repair-in-story');
   const shown = JSON.parse(cli('story', 'test-policy', 'show', workId, '--json').stdout);
-  assert.equal(shown.sealed.record.capability.modules.find((entry) => entry.root === 'crates/ledger').status, 'unsupported');
+  assert.equal(shown.sealed.record.capability.status, 'not-checked');
+  assert.deepEqual(shown.sealed.record.capability.modules, [], 'intake must not scan a monorepo');
 
   cli('prepare', 'intake');
   await writeFile(path.join(item, 'artifacts/intake/intake.md'), [
@@ -192,19 +210,16 @@ test('planning can proceed with a missing runner but publication still requires 
   }), { code: 'TEST_CAPABILITY_UNSUPPORTED' }, 'missing configuration does not waive the stated proof contract');
 });
 
-test('D13 through a real Story: resolving base failures outside the Story refuses creation and names them', async (t) => {
+test('explicit outside-Story repair is recorded at intake, not used to refuse Story creation', async (t) => {
   const workId = 'CAP-2';
   const { root, cli } = await governedRepository(t, {
     ...JEST_REPOSITORY('expect(value).toBe(2);'),
     'tools/jest-shim.mjs': await readFile(SHIM, 'utf8')
   }, { configure: (config) => { config.repositoryReadiness = { ...(config.repositoryReadiness ?? {}), requiredBeforeStory: false }; } });
-  const refused = run(process.execPath, [CLI, '--no-model', 'start', workId, '--from-branch', 'main', '--work-type', 'classic-delivery',
+  const admitted = run(process.execPath, [CLI, '--no-model', 'start', workId, '--from-branch', 'main', '--work-type', 'classic-delivery',
     '--title', 'Value', '--description', 'Change the value.', '--baseline-failures', 'resolve-outside'], root, { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /resolves the base's failing tests outside itself, and the base still fails:\n- baseline value/);
-  assert.match(refused.stdout + refused.stderr, /No Story was created/);
-  assert.equal(run('git', ['branch', '--list', workId], root).stdout.trim(), '', 'no Story branch was created');
-  cli('start', workId, '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Value', '--description', 'Change the value.');
+  assert.equal(admitted.status, 0, admitted.stdout + admitted.stderr);
+  assert.match(run('git', ['branch', '--list', workId], root).stdout.trim(), /CAP-2/, 'the Story exists before baseline repair');
   const sealed = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'context/test-policy.json'), 'utf8'));
-  assert.equal(sealed.baselineFailures, 'repair-in-story', 'repairing in the Story is the default');
+  assert.equal(sealed.baselineFailures, 'resolve-outside', 'the explicit choice remains sealed for code admission');
 });

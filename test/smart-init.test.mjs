@@ -88,6 +88,10 @@ test('smart initialization installs every packaged starter pack file', async () 
   });
   const snapshot = await captureSmartInitSnapshot(root);
   const rendered = await buildSmartInitProposal(snapshot, runSmartInitDetectors(snapshot));
+  const definition = YAML.parse(rendered.files.find(entry => entry.path === 'singularity/workflow.yml').bytes.toString('utf8'));
+  assert.equal(definition.repositoryReadiness.requiredBeforeStory, false);
+  assert.equal(definition.initialization.proof.preStory.requiredBeforeStory, false,
+    'detected test commands must not reinstate a legacy intake readiness gate');
   for (const [relative, bytes] of expected) {
     const planned = rendered.files.find((entry) => entry.path === relative);
     assert.ok(planned, `${relative} is included in the exact smart init proposal`);

@@ -58,7 +58,8 @@ test('Jira-backed workflow writes a readable user-story snapshot', async () => {
     id: 'PAY-142',
     title: source.title,
     source,
-    baseBranch: 'main'
+    baseBranch: 'main',
+    readinessBaseline: 'defer'
   });
 
   const story = await readFile(path.join(root, 'singularity', 'work-items', 'PAY-142', 'USER-STORY.md'), 'utf8');
@@ -70,4 +71,8 @@ test('Jira-backed workflow writes a readable user-story snapshot', async () => {
 
   const readme = await readFile(path.join(root, 'singularity', 'work-items', 'PAY-142', 'README.md'), 'utf8');
   assert.match(readme, /USER-STORY\.md/);
+  const policy = JSON.parse(await readFile(path.join(root, 'singularity', 'work-items', 'PAY-142',
+    'context/test-policy.json'), 'utf8'));
+  assert.equal(policy.baselineObservation, 'deferred-not-verified');
+  assert.equal(policy.capability.status, 'not-checked');
 });

@@ -207,15 +207,18 @@ test('every clone path that had a hard-coded default branch now accepts the capa
   const siblingPreparation = story.indexOf('const prepared = await prepareCapabilityRepositories');
   assert.ok(capabilityPreflight >= 0 && siblingPreparation > capabilityPreflight,
     'story fetch moves sibling repositories before validating the fetched capability catalog');
-  const failedBaselineGuard = story.indexOf('loadRepositoryTestBaseline(target, { commit: parentBase, scope })');
-  assert.ok(failedBaselineGuard >= 0 && failedBaselineGuard < siblingPreparation,
-    'story fetch moves sibling repositories before refusing an off-checkout failed baseline');
+  const prerequisiteGuard = story.indexOf('if (creatingWorkflow && readinessRequired) await inspectSeedPrerequisites()');
+  assert.ok(prerequisiteGuard >= 0 && prerequisiteGuard < siblingPreparation,
+    'story fetch moves siblings before checking explicitly required non-test prerequisites');
   assert.match(story, /capabilityId: capabilityPreflight\.capabilityId[\s\S]*capabilityMapSha256: capabilityPreflight\.capabilityMapSha256/,
     'story fetch drops the selected capability or exact map digest before lifecycle creation');
-  const acceptedRiskGuard = story.indexOf("=== 'accepted-known-failures'");
   const workflowCreation = story.indexOf('workflow = await createWorkflow');
-  assert.ok(acceptedRiskGuard >= 0 && acceptedRiskGuard < workflowCreation,
-    'story fetch must reject off-checkout accepted test risk before creating governed state');
+  const finalPrerequisiteGuard = story.indexOf('await inspectSeedPrerequisites();', siblingPreparation);
+  assert.ok(finalPrerequisiteGuard >= 0 && finalPrerequisiteGuard < workflowCreation,
+    'story fetch must check non-test prerequisites before creating governed state');
+  assert.doesNotMatch(story, /loadRepositoryTestBaseline\(target|cannot recheck its accepted failing-test baseline/,
+    'failed or accepted test results must not become a Jira fetch admission gate');
+  assert.match(story, /advisory: !readinessRequired/);
 
   const initiative = await source('src/initiative-repositories.mjs');
   assert.match(initiative, /capabilityBase\?\.repositories\?\.\[repository\.id\]\?\.branch \?\? repository\.defaultBranch/,

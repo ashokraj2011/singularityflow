@@ -394,6 +394,9 @@ export function confirmTestRecoveryIntake(preview, confirmation, options = {}) {
 
 /** Only substitutes the baseline-test readiness finding; transport/configuration checks survive. */
 export function applyTestRecoveryAdmission(readiness, preview) {
+  // Modern intake has no test baseline blocker to substitute. Its remaining repository
+  // execution blocker is an explicit non-test prerequisite, never a test-risk exception.
+  if (readiness?.repositoryExecution?.testing === 'advisory-at-intake') return readiness;
   if (!preview?.enabled || !preview.ready || !['fix', 'accept-known-failures'].includes(preview.choices.baselineDisposition)) return readiness;
   const checks = readiness.checks.map(check => check.code === 'STORY_REPOSITORY_READINESS_REQUIRED'
     ? { ...check, status: 'warning', code: 'TRP_READINESS_REPAIR_REQUIRED',

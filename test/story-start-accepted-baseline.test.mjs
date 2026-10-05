@@ -7,6 +7,7 @@ import test from 'node:test';
 import YAML from 'yaml';
 
 import { loadRepositoryTestBaseline } from '../src/initialization/runtime-readiness.mjs';
+import { assessPreStoryTestBaseline } from '../src/test-baseline-risk.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
 
 const bin = path.resolve('bin/singularity-flow.mjs');
@@ -87,9 +88,15 @@ test('CLI starts an isolated Story on an exact accepted failing baseline and pub
     '--work-type', 'feature', '--title', 'Repair existing test in Story',
     '--description', 'Continue with one explicitly accepted pre-existing unit failure.'
   ];
-  const withoutDecision = flow(root, storyArgs, { allowFailure: true });
-  assert.notEqual(withoutDecision.status, 0, 'a failed baseline alone cannot start the Story');
-  assert.equal(git(root, 'branch', '--list', 'STORY-KNOWN-FAIL').stdout.trim(), '');
+  const beforeDecisionArgs = storyArgs.map(arg => arg === 'STORY-KNOWN-FAIL' ? 'STORY-OBSERVED-FAIL' : arg);
+  const withoutDecision = JSON.parse(flow(root, beforeDecisionArgs).stdout).data;
+  assert.equal(withoutDecision.readiness.ready, true, 'a failed baseline does not prevent starting a repair Story');
+  assert.ok(withoutDecision.readiness.warnings.some(row => row.code === 'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED'));
+  const beforeDocument = JSON.parse(await readFile(path.join(withoutDecision.repositoryPath,
+    'singularity/work-items/STORY-OBSERVED-FAIL/context/repository-test-readiness.json'), 'utf8'));
+  assert.equal(beforeDocument.repositories[0].status, 'failing-tests');
+  assert.equal(beforeDocument.repositories[0].riskAcceptance, null);
+  git(root, 'switch', 'main');
   const accepted = flow(root, [
     'precheck', '--accept-test-risk', '--reason',
     'This unit case failed before coding and will be repaired during the Story.',
@@ -138,4 +145,38 @@ test('CLI starts an isolated Story on an exact accepted failing baseline and pub
   assert.equal(desktopDocument.repositories[0].status, 'accepted-known-failures');
   assert.equal(desktopDocument.repositories[0].riskAcceptance.baselineSha256,
     loaded.baseline.baselineSha256);
+
+  // Full-scope failures are ineligible for the narrow pre-Story test-risk exception. That must
+  // not erase independently passing dependency/build prerequisites. Intake does not rerun the
+  // failed tests, accept their risk, or call the failed baseline passing.
+  git(root, 'switch', 'main');
+  definition.repositoryReadiness.build = 'required';
+  await writeFile(workflowFile, YAML.stringify(definition));
+  const packageFile = path.join(root, 'package.json');
+  const packageManifest = JSON.parse(await readFile(packageFile, 'utf8'));
+  packageManifest.scripts.build = 'node --version';
+  await writeFile(packageFile, `${JSON.stringify(packageManifest, null, 2)}\n`);
+  await writeFile(path.join(root, 'test', 'existing.test.mjs'), 'process.exit(1);\n');
+  git(root, 'add', 'test/existing.test.mjs', 'package.json', 'singularity/workflow.yml');
+  git(root, 'commit', '-m', 'Record a base with required build proof and failing tests');
+  git(root, 'push', 'origin', 'main');
+  const unobservedPlan = JSON.parse(flow(root, [
+    'precheck', '--run', '--scope', 'full', '--json'
+  ]).stdout).data.plan;
+  const unobservedRun = flow(root, [
+    'precheck', '--run', '--scope', 'full',
+    '--confirm-plan', unobservedPlan.planId, '--json'
+  ], { allowFailure: true });
+  assert.notEqual(unobservedRun.status, 0);
+  const fullBaseline = await loadRepositoryTestBaseline(root, { scope: 'full' });
+  assert.equal(assessPreStoryTestBaseline(fullBaseline.baseline).eligible, false);
+  const unobservedStory = JSON.parse(flow(root, storyArgs.map(arg => arg === 'STORY-KNOWN-FAIL'
+    ? 'STORY-UNOBSERVED-FAIL' : arg)).stdout).data;
+  assert.equal(unobservedStory.readiness.ready, true,
+    'test report availability is independent of passed non-test prerequisites');
+  assert.ok(unobservedStory.readiness.warnings.some(row => row.code === 'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED'));
+  const unobservedDocument = JSON.parse(await readFile(path.join(unobservedStory.repositoryPath,
+    'singularity/work-items/STORY-UNOBSERVED-FAIL/context/repository-test-readiness.json'), 'utf8'));
+  assert.ok(['readiness-failed', 'failing-tests'].includes(unobservedDocument.repositories[0].status));
+  assert.equal(unobservedDocument.repositories[0].riskAcceptance, null);
 });

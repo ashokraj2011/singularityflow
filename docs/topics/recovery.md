@@ -20,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 13
+version: 14
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. When the push was refused because another clone published to the same Story first, sync says so; if the retained commit is a document upload, `sflow sync --replay` (preview with `--dry-run`) adds the same documents again on top of the published Story, where they take the next free IDs, and keeps the retained commit under `refs/sflow-replayed/<WORK-ID>/`. An upload refused before it committed, because this checkout was behind, names `sflow refresh-branch`. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -30,7 +30,7 @@ Use this topic when the current goal matches **recovery**. Start in a governed c
 
 ## Use it from each surface
 
-- **Shell:** `sflow recover [WORK-ID] --phase <phase> --json` inspects without writing. An automatic action requires `--apply --confirm <planId>`. `sflow sync`, `sflow doctor`, and `sflow refresh-branch` remain available for their narrower roles.
+- **Shell:** `sflow recover [WORK-ID] --json` inspects the active phase, including before its first publication. Use `--phase <phase>` for an explicit phase. An automatic action requires `--apply --confirm <planId>`. `sflow sync`, `sflow doctor`, and `sflow refresh-branch` remain available for their narrower roles.
 - **Copilot:** `/sf-recover`, `/sf-doctor`, `/sf-refresh-branch`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
@@ -40,7 +40,7 @@ Use this topic when the current goal matches **recovery**. Start in a governed c
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
 3. Inspect the plan. Each blocker names its stable code, category, phase/generation, evidence path and line, and one bounded action.
 4. Follow the action's owning route when it is guided. Recovery never fabricates a requirement, implementation, test, clarification, or approval.
-5. For an automatic action, confirm the exact `planId`. The command recomputes repository HEAD and the worktree fingerprint and refuses a stale plan.
+5. Only when the plan contains automatic actions, confirm the exact `planId` and use its returned `applyCommand`, retaining phase/fetch/no-model flags. The command recomputes repository HEAD and the worktree fingerprint and refuses a stale plan. A guided/manual plan is not an automatic failure: follow its owning action instead. If `--apply` was used anyway, the refusal retains those actions and manual instructions on every surface.
 6. Re-read recovery once after completion. Retry only after evidence shows the diagnosed blocking condition changed. For a missing interpreter or dependency, that evidence is the repaired runtime in the same command/cwd, not an unrelated edit to source just to change a hash.
 
 Every phase refusal uses the same containment rule. The current phase remains the repair boundary;
@@ -105,6 +105,14 @@ the explicit path for it. Set `SINGULARITY_FLOW_TRANSITION_REPAIR=off` to switch
 `/sf-code` authors and publishes a generation; `/sf-submit` revalidates the published generation.
 These are separate gates. `draft-check: ready` and `prepublish: ready` only mean the currently
 inspectable conditions passed; neither claims that required tests have run successfully.
+
+Recovery must not end at a red toast or repeat the same failed command indefinitely. Each refusal
+offers a diagnostic, guided repair, explicit human review, or external prerequisite. Commandless
+human instructions remain visible in VS Code and Copilot. If recovery inspection itself fails,
+diagnose its repository/configuration prerequisite rather than recursively running the same
+inspection. A missing phase ID routes to the actual Story phase list, not a guessed workflow name.
+An unavailable host, missing authority, or integrity failure may require an authorized owner; a
+recovery route is not a promise that a model can automatically fix or waive every blocker.
 
 For an unpublished generation, recovery and prepublish share the publication dependency checks:
 approved input bytes and hashes, required integration receipts, grounding, generation-bound human
@@ -174,7 +182,7 @@ keep their original arguments and remain the configuration owner's responsibilit
 | Test process changes source | Preserve and review changes; tests must be observational. Repair the runner/source, using rollover if the generation was already consumed. Do not rerun repeatedly over mutated bytes. |
 | Nonzero exit with passing report | Inspect current run's stderr and remaining runner stages. Do not treat report counts as authority to waive the failed process. |
 | Missing/invalid/zero-test report | Correct the repository-owned reporter or runner declaration when in scope, then retry. Never fabricate a report or lower minimums to manufacture a pass. |
-| Malformed pinned test command | Configuration owner must repair the approved policy for future Stories. Refresh does not change this Story's pin. This build has no general same-Story test-policy amendment; preserve work and escalate explicitly rather than looping or claiming it is repaired. |
+| Malformed pinned test command | Configuration owner repairs the approved policy; refresh alone does not change this Story's pin. Preview `singularity-flow story test-policy amend <WORK-ID> --reason "<reason>" --json` for the engine's reviewed command-only amendment route. Follow its eligibility, live human confirmation, and fresh-validation requirements; retain historical evidence and never hand-edit the pin. |
 | Divergence, protected/unowned paths, unverifiable publication | Preserve bytes and follow the exact diagnostic/owner action. These are not eligible for a blanket “accept risk” bypass. |
 
 Runtime repair can legitimately leave the code and artifact fingerprints unchanged. Skills compare

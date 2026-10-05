@@ -50,3 +50,15 @@ test('Story preflight never calls a failed or unobserved tool green', () => {
   assert.equal(stale.disposition, 'not-verified');
   assert.equal(stale.tools.length, 0, 'a stale base must not display tools as current');
 });
+
+test('an exact failed process without a report retains its baseline identity, never a passing disposition', () => {
+  const baseCommit = 'a'.repeat(40);
+  const projected = preflightTestReadiness([{ id: 'app', baseCommit }], { repositories: { app: {
+    status: 'readiness-failed', sourceCommit: baseCommit, baselineSha256: `sha256:${'b'.repeat(64)}`,
+    structuredTestContract: { status: 'unavailable', commands: [] }, testObservations: []
+  } } }).repositories[0];
+  assert.equal(projected.disposition, 'pre-existing-readiness-failure');
+  assert.equal(projected.testToolStatus, 'unavailable');
+  assert.equal(projected.baselineSha256, `sha256:${'b'.repeat(64)}`);
+  assert.equal(projected.riskAcceptanceSha256, null);
+});

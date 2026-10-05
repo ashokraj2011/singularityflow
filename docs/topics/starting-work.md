@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 21
+version: 22
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -71,27 +71,32 @@ are not interpreted during enhancement. The equivalent shell form is:
 singularity-flow story enhance-description --draft-stdin --json < story-draft.json
 ```
 
-## Built-in Story-start readiness
+## Testing is advisory at Story start
 
-Before the first Story, run `singularity-flow precheck --quick --json` to inspect `testTools`.
-This reads repository manifests and reports each discovered test command, the readiness scopes that
-select it, its structured result adapter, and host launcher availability without executing tests. Then preview
-`singularity-flow precheck --run --scope dependency-test --json` and confirm its exact `planId` to
-restore locked dependencies and run the existing unit suite. `--scope full` adds the broader
-build, quality, verification, and application start checks when the workflow requires them. A
-newly initialized repository offers explicit `reuse`, reviewed `run`, and `defer` choices
-(`repositoryReadiness.baselinePolicy: choice`). Pass `--readiness-baseline <CHOICE>` to both
-preflight and start. Reuse uses a compatible exact-base receipt when available. With the normal
-choice policy, missing detection or observation is recorded as pending, not failed, and does not
-block Story creation or planning. Configure the test command later, before its required execution.
-Selecting run never executes
-commands implicitly. In VS Code, choose **Review baseline commands**, review the commands/runtime,
-then confirm the run. `--readiness-baseline defer` records unverified baseline observation in the
-Story's test-policy/readiness documents and lets intake proceed; it does not accept observed
-failures, skip mandatory later tests, or waive dependency/build/start prerequisites. Omitted baseline
-policy defaults to `choice`. An explicitly approved `baselinePolicy: required`, or the legacy
-explicit pre-Story gate, retains its strict behavior; its owner can review a policy change in
-`sflow/config`. Configuration bytes and existing Story pins are never silently rewritten.
+Create the Story before proving its tests pass. Missing test detection, an unknown/stale baseline,
+and observed test failures never require a test-readiness receipt at intake. Older test-only
+`baselinePolicy: required` and pre-Story settings do not turn tests into an admission ticket.
+Configuration bytes and existing Story pins are not silently rewritten. Explicit non-test
+dependency/build/start prerequisites remain separately enforced when approved policy requires them.
+
+Intake records independent baseline (`reuse`, optional reviewed `run`, `defer`) and execution-scope
+choices. Pass `--readiness-baseline <CHOICE>` to preflight and start. Reuse displays existing exact-base
+observations if available; absence remains pending. Defer records unverified observation. Neither
+marks tests passed nor accepts failure risk. Story start does not scan the module tree, install
+dependencies, execute tests, or manufacture an empty passing receipt.
+
+Copilot `/sf-test-setup` (Shell: `singularity-flow capability test-setup --json`) inspects selected
+application directories, suggests exact structured commands, and guides reviewed configuration.
+Copilot then runs the chosen checks during coding/verification. SFlow validates fresh candidate-bound
+results before publication; an assertion that tests passed is not evidence. Existing failures are
+repaired in the Story or handled by an eligible, explicit human risk decision, never silently skipped.
+
+An optional baseline helps distinguish regressions from existing failures. Only if requested, inspect
+`singularity-flow precheck --quick --json`, then preview `singularity-flow precheck --run --scope
+dependency-test --json` and confirm its exact plan. In VS Code choose **Review baseline commands**,
+review the commands/runtime, then confirm. Selecting `run` alone executes nothing. `--scope full`
+adds the approved broader build/quality/start checks. A failed optional run remains a failure but does
+not prevent Story creation; choose reuse/defer to continue, without granting a later gate exception.
 
 For an active code phase with a pinned configuration, adding the command to today's YAML does not
 change the Story's pin. Review the command-only change on `sflow/config`, then preview
@@ -118,7 +123,7 @@ Approved test-only runtime settings live alongside that policy:
 
 ```yaml
 repositoryReadiness:
-  requiredBeforeStory: true
+  requiredBeforeStory: false
   baselinePolicy: choice
   testRuntime:
     nodeOptions: [--no-experimental-webstorage]

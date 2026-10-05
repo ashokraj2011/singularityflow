@@ -11,6 +11,73 @@ import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.m
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
+test('manual recovery instructions survive the bounded refusal plan and diagnostics cannot displace them', () => {
+  const error = Object.assign(new Error('No automatic action'), {
+    code: 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE', details: { workId: 'WORK-1', phase: 'custom-build', actions: [
+      { command: 'singularity-flow phase show custom-build --json', detail: 'Inspect the current phase evidence.' },
+      { command: 'singularity-flow status --json', detail: 'Read status.' },
+      { command: 'singularity-flow logs --tail 20', detail: 'Read logs.' },
+      { command: null, detail: 'Review owned README changes with the repository owner. Preserve them; do not discard.' }
+    ] }
+  });
+  const plan = refusalRemediationPlan(error, ['recover', 'WORK-1', '--apply']);
+  assert.equal(plan.steps.length, 3);
+  assert.equal(plan.steps[0].label, 'Inspect the current phase evidence.');
+  assert.equal(plan.steps[1].command, null);
+  assert.match(plan.steps[1].label, /repository owner.*do not discard/);
+  assert.match(renderRefusalPlan(plan), /Review owned README changes/);
+  assert.ok(!plan.steps.some(entry => entry.command?.startsWith('singularity-flow recover')));
+  assert.ok(plan.steps.every(entry => entry.execution === 'user-reviewed'));
+});
+
+test('producer recovery text is redacted and unsafe commands never become actions', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Manual repair'), { details: { actions: [
+    { command: 'singularity-flow status --json; touch escaped', detail: 'Unsafe diagnostic.' },
+    { command: 'singularity-flow status --json', detail: 'Inspect https://person:office-secret@example.test/repo.git.' },
+    { command: null, detail: 'Repair https://person:office-secret@example.test/repo.git with its authorized owner.' }
+  ] } }), ['recover']);
+  assert.equal(plan.steps[0].command, 'singularity-flow status --json');
+  assert.equal(plan.steps[1].command, null);
+  assert.doesNotMatch(JSON.stringify(plan), /office-secret|touch escaped/);
+  assert.match(plan.steps[1].label, /REDACTED/);
+});
+
+test('failure inside recovery diagnoses its prerequisite instead of recommending the identical recovery again', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Pinned policy unreadable'), {
+    code: 'FUTURE_INSPECTION_FAILED', details: { workId: 'WORK-1', phase: 'custom-build' }
+  }), ['recover', 'WORK-1', '--phase', 'custom-build', '--json']);
+  assert.equal(plan.steps[0].command, 'singularity-flow doctor --json');
+  assert.equal(plan.steps[1].command, null);
+  assert.match(plan.steps[1].label, /responsible repository or configuration owner/);
+  assert.ok(!plan.steps.some(entry => entry.command?.startsWith('singularity-flow recover')));
+  const unknown = refusalRemediationPlan(Object.assign(new Error('No phase'), {
+    code: 'RECOVERY_PHASE_UNKNOWN', details: { phaseId: 'no-such-phase' }
+  }), ['recover', '--phase', 'no-such-phase']);
+  assert.equal(unknown.steps[0].command, 'singularity-flow status --json');
+  assert.match(unknown.steps[1].label, /exact phase ID/);
+  assert.doesNotMatch(JSON.stringify(unknown.steps), /show no-such-phase|recover.*no-such-phase/);
+});
+
+test('every phase lifecycle verb retains recovery for a custom workflow phase', () => {
+  for (const argv of [
+    ...['begin', 'rollover', 'draft-check', 'prepublish', 'show', 'publish', 'submit', 'approve']
+      .map(operation => ['phase', operation, 'team-custom-step']),
+    ...['prepare', 'inputs', 'submit', 'approve', 'reject'].map(operation => [operation, 'team-custom-step'])
+  ]) {
+    const plan = refusalRemediationPlan(Object.assign(new Error('Future validator refused'), {
+      code: 'FUTURE_PHASE_VALIDATOR', details: { workId: 'WORK-1' }
+    }), argv);
+    assert.equal(plan.steps[0].command, 'singularity-flow recover WORK-1 --phase team-custom-step --json', argv.join(' '));
+    assert.equal(plan.retry.automatic, false);
+    assert.ok(plan.steps.every(entry => entry.execution === 'user-reviewed'));
+    assert.doesNotMatch(JSON.stringify(plan.steps), /--skip|--force|accept-risk|phase publish/);
+    if (argv.includes('approve')) {
+      assert.ok(plan.steps.some(entry => entry.id === 'leave-approval-turn'));
+      assert.equal(plan.retry.command, null);
+    }
+  }
+});
+
 test('unavailable-runner refusal names exact risk inspection without accepting or retrying it', () => {
   const error = Object.assign(new Error('Required runner unavailable'), { code: 'TRP_PHASE_GATE_BLOCKED',
     details: { workId: 'Story-1', phase: 'implementation', operation: 'submit' } });

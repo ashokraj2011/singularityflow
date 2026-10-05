@@ -321,7 +321,8 @@ export interface PreflightTestReadiness {
     scope: string | null;
     testToolStatus: string;
     disposition: 'no-observed-pre-story-failures' | 'no-test-tool-selected' | 'not-verified'
-      | 'accepted-pre-existing-test-failures' | 'pre-existing-test-failures-require-decision';
+      | 'accepted-pre-existing-test-failures' | 'pre-existing-test-failures-require-decision'
+      | 'pre-existing-readiness-failure';
     baselineSha256?: string | null;
     riskAcceptanceSha256?: string | null;
     tools: Array<{
@@ -346,7 +347,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null, baseBranchOrphans: [],
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
-  readinessBaseline: 'reuse', baselinePolicy: 'required', baselineScope: 'dependency-test',
+  readinessBaseline: 'reuse', baselinePolicy: 'choice', baselineScope: 'dependency-test',
   baselineRunning: false, baselineMessage: null, baselineRunCommit: null,
   workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
   jiraConfigured: false, jiraReason: null,
@@ -874,10 +875,12 @@ function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): s
         : repository.disposition === 'accepted-pre-existing-test-failures'
           ? 'Accepted pre-existing test failures — observed tests remain failed. This pre-Story decision does not by itself authorize later Story transitions.'
         : repository.disposition === 'pre-existing-test-failures-require-decision'
-          ? 'Observed pre-existing test failures require repair or an eligible, authorized decision.'
+          ? 'Observed pre-existing test failures do not prevent starting. Repair them during the Story or request an eligible, authorized risk decision before publication.'
+        : repository.disposition === 'pre-existing-readiness-failure'
+          ? 'An earlier readiness command failed without complete verified test results. Keep that failure recorded; review setup and repair during the Story. This is not passing evidence or risk acceptance.'
         : repository.disposition === 'no-test-tool-selected'
           ? 'Test command not detected. Continue the Story and configure it before required test execution; existing tests are not verified.'
-          : 'Baseline not checked. With the normal choice policy, continue the Story and provide the test command later. This is not a test failure or passing evidence.';
+          : 'Existing failures unknown: baseline not checked. Start the Story; Copilot can inspect test tools and run the selected tests later. This is not a test failure or passing evidence.';
       return `<div class="readiness-repository"><p><strong>${escape(repository.repository)}</strong>
         · receipt ${escape(repository.status)} · test tool ${escape(repository.testToolStatus)}
         · base ${escape(repository.baseCommit?.slice(0, 12) ?? 'unknown')}</p>
@@ -964,10 +967,10 @@ function baseBranchHtml(form: IntakeForm): string {
     </div>` : ''}
     ${preflightTestReadinessHtml(form.baseTestReadiness)}
     ${form.baseBranch ? `<fieldset ${form.baselineRunning ? 'disabled' : ''}><legend>Existing-test baseline</legend>
-      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> ${form.baselinePolicy === 'required' ? 'Reuse a compatible exact-base baseline' : 'Reuse a baseline if available; otherwise configure tests later'}</label>
-      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="run" ${form.readinessBaseline === 'run' ? 'checked' : ''}> Review and run baseline now</label>
-      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="defer" ${form.readinessBaseline === 'defer' ? 'checked' : ''} ${form.baselinePolicy !== 'choice' ? 'disabled' : ''}> Defer baseline — not verified</label>
-      <p class="meta">${form.baselinePolicy === 'required' ? 'This repository explicitly requires a baseline before starting. Change that policy through Configuration Center to allow deferral.' : 'Missing test detection does not block starting. Configure tests before required execution; observed failures and required non-test prerequisites still need review.'}</p>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> Use existing results if available; configure tests later</label>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="run" ${form.readinessBaseline === 'run' ? 'checked' : ''}> Optional: review and run a baseline now</label>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="defer" ${form.readinessBaseline === 'defer' ? 'checked' : ''}> Configure and run tests later with Copilot — not verified</label>
+      <p class="meta">Test setup, missing results and existing failures do not block Story creation. Intake never installs dependencies or runs tests automatically. Publication still needs fresh required evidence or an eligible human risk decision. Explicit non-test prerequisites remain separate.</p>
       ${form.readinessBaseline === 'run' ? `<button type="button" class="secondary" data-baseline-run ${form.baselineRunning ? 'disabled' : ''}>${form.baselineRunning ? 'Running reviewed baseline…' : 'Review baseline commands'}</button>` : ''}
       ${form.baselineMessage ? `<p role="status">${escape(form.baselineMessage)}</p>` : ''}
     </fieldset>

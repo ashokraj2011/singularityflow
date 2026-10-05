@@ -66,7 +66,7 @@ function publicFailedBaseline(baseline, assessment, acceptance = null, planCurre
     planId: baseline.planId,
     baselineSha256: baseline.baselineSha256,
     receiptSha256: null,
-    prerequisitesCurrent: runtimeCurrent,
+    prerequisitesCurrent: runtimeCurrent && planCurrent,
     structuredTestContract: Object.freeze({
       status: assessment.eligible ? 'available' : 'unavailable',
       commands: Object.freeze((Array.isArray(baseline.testTools) ? baseline.testTools : [])
@@ -111,9 +111,9 @@ function publicFailedBaseline(baseline, assessment, acceptance = null, planCurre
 }
 
 export async function collectRepositoryReadinessEvidence(repositories = [], {
-  scope = 'dependency-test', recordEmpty = false, previewEmpty = false, testRuntime = {}
+  scope = 'dependency-test', recordEmpty = false, previewEmpty = false, testRuntime = {}, advisory = false
 } = {}) {
-  const pairs = await Promise.all(repositories.map(async (entry) => {
+  const collectEntry = async (entry) => {
     const selectedScope = entry.scope ?? scope;
     let inspection = await inspectRepositoryReadinessReceipt(entry.root, {
       commit: entry.baseCommit,
@@ -135,7 +135,7 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     const loaded = candidates.find(Boolean);
     // Only Story start opts in. Preview/status remain read-only, failed baselines are preserved,
     // and no command can run implicitly. Cross-branch no-ops require proven detector equivalence.
-    if (recordEmpty && !loaded && inspection.status !== 'pass') {
+    if (!advisory && recordEmpty && !loaded && inspection.status !== 'pass') {
       try {
         const recorded = await recordEmptyRepositoryReadiness(entry.root, {
           scope: selectedScope, commit: entry.baseCommit, testRuntime
@@ -148,7 +148,7 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     if (!loaded && inspection.status === 'pass') {
       return [entry.id ?? entry.repository, publicReceipt(inspection)];
     }
-    if (previewEmpty && !loaded) {
+    if (!advisory && previewEmpty && !loaded) {
       try {
         const plan = await buildEmptyRepositoryReadinessPlan(entry.root, {
           scope: selectedScope, commit: entry.baseCommit, testRuntime
@@ -167,22 +167,26 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     if (!loaded) return [entry.id ?? entry.repository, publicReceipt(inspection)];
     const assessment = assessPreStoryTestBaseline(loaded.baseline);
     const runtimeCurrent = loaded.baseline.testRuntime?.sha256 === testRuntimeIdentity(testRuntime).sha256;
-    // Unlike an old passing receipt, a locally accepted failure is a narrow exception. Rebuild
-    // its deterministic plan whenever the selected base is checked out: an unchanged Git commit
-    // can still be evaluated by a newer runner or detector.
+    // Intake consumes existing observations, not a new manifest scan, plan, or risk decision.
+    // Keep actual failures visible. Only an explicit risk-review path can authenticate a decision.
+    if (advisory) return [entry.id ?? entry.repository,
+      publicFailedBaseline(loaded.baseline, assessment, null, false, runtimeCurrent)];
+    // Required non-test prerequisites remain exact-plan proof independently of whether the test
+    // result is eligible for risk acceptance. An unavailable test report must not erase passing
+    // dependency/build/start results. Rebuild only when a caller explicitly requires that proof.
     let currentPlan = null;
     const selectedBaseCheckedOut = head(entry.root) === entry.baseCommit;
-    if (assessment.eligible && selectedBaseCheckedOut) {
+    if (selectedBaseCheckedOut) {
       try {
         currentPlan = await buildRepositoryReadinessPlan(entry.root, {
-          scope: 'dependency-test', testRuntime
+          scope: loaded.baseline.scope, testRuntime
         });
       } catch { /* Preserve the failing evidence, but never activate a stale exception. */ }
     }
     // Remote base selection can happen from another checkout. In that provisional preflight the
     // sealed exact-commit baseline is the available proof; the Story checkout must recompute the
     // plan on the selected base before it writes governed Story state.
-    const planCurrent = assessment.eligible && runtimeCurrent && (selectedBaseCheckedOut
+    const planCurrent = runtimeCurrent && (selectedBaseCheckedOut
       ? currentPlan?.status === 'ready'
         && currentPlan.planId === loaded.baseline.planId
         && currentPlan.sourceCommit === loaded.baseline.sourceCommit
@@ -195,6 +199,15 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     ).accepted)?.acceptance ?? null;
     return [entry.id ?? entry.repository,
       publicFailedBaseline(loaded.baseline, assessment, accepted, planCurrent, runtimeCurrent)];
+  };
+  const pairs = await Promise.all(repositories.map(async (entry) => {
+    try {
+      return await collectEntry(entry);
+    } catch (error) {
+      if (!advisory) throw error;
+      return [entry.id ?? entry.repository, publicReceipt({ status: 'missing',
+        reasons: ['readiness-evidence-unavailable'] })];
+    }
   }));
   return Object.freeze({ repositories: Object.freeze(Object.fromEntries(pairs)) });
 }
@@ -211,7 +224,7 @@ export function preflightTestReadiness(repositories = [], evidence = null) {
     repositories: Object.freeze(repositories.map((entry) => {
       const id = entry.id ?? entry.repository;
       const receipt = receipts[id] ?? null;
-      const current = ['pass', 'failing-tests', 'accepted-known-failures', 'no-commands-applicable'].includes(receipt?.status)
+      const current = ['pass', 'failing-tests', 'accepted-known-failures', 'readiness-failed', 'no-commands-applicable'].includes(receipt?.status)
         && receipt.sourceCommit === entry.baseCommit;
       // An old or stale receipt may describe a different test runner. Do not label its commands
       // as tools checked for this selected base merely because the receipt file was discoverable.
@@ -251,6 +264,8 @@ export function preflightTestReadiness(repositories = [], evidence = null) {
             ? 'accepted-pre-existing-test-failures'
             : current && receipt.status === 'failing-tests'
               ? 'pre-existing-test-failures-require-decision'
+            : current && receipt.status === 'readiness-failed'
+              ? 'pre-existing-readiness-failure'
           : current && !tools.length ? 'no-test-tool-selected'
             : 'not-verified'
       });

@@ -192,7 +192,8 @@ test('preview shows selected cohort, tools, later requirements, unknowns and rea
 test('accepted failures and observed unaccepted failures are not rendered as passing or unknown', () => {
   for (const [disposition, expected] of [
     ['accepted-pre-existing-test-failures', /Accepted pre-existing test failures — observed tests remain failed/],
-    ['pre-existing-test-failures-require-decision', /Observed pre-existing test failures require repair/],
+    ['pre-existing-test-failures-require-decision', /Observed pre-existing test failures do not prevent starting/],
+    ['pre-existing-readiness-failure', /An earlier readiness command failed without complete verified test results/],
     ['not-verified', /Existing failures unknown/]
   ]) {
     const html = intakeHtml(story({ baseTestReadiness: { schemaVersion: 1, repositories: [{

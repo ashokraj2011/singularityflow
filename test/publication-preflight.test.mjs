@@ -1046,6 +1046,27 @@ test('preparation baselines only a template the kernel creates, across every pre
   assert.ok(phase.authoringBaseline.bytes >= phase.requiredArtifact.minimumBytes);
 });
 
+test('CLI recovery inspects the accepted active phase without requiring --phase', async t => {
+  const { root, config, workflow, phase, target } = await fixture('active-cli-recovery');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(target, '# Intake\n\nTODO complete the accepted scope.\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'Accept Story and unfinished draft');
+  const expected = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
+  const result = JSON.parse(flow(root, ['recover', 'PREFLIGHT-1', '--json']).stdout);
+  assert.equal(result.phaseId, phase.id);
+  assert.ok(result.blockers.some(entry => entry.code === 'artifact.placeholder.unresolved'));
+  assert.ok(result.actions.some(entry => entry.id === expected.actions[0].id));
+  assert.ok(!result.actions.some(entry => entry.id === 'none'));
+  const apply = flow(root, ['recover', 'PREFLIGHT-1', '--apply', '--confirm', result.planId, '--json'], { allowFailure: true });
+  assert.equal(apply.status, 1);
+  const refusal = JSON.parse(apply.stdout);
+  assert.equal(refusal.error.code, 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE');
+  assert.ok(refusal.remediationPlan.steps.some(entry => entry.command === expected.actions[0].command),
+    JSON.stringify({ expected: expected.actions[0], steps: refusal.remediationPlan.steps }));
+  assert.equal(git(root, 'status', '--porcelain'), '', 'inspection and mistaken apply must not change authored bytes');
+});
+
 test('recovery exposes the same authored-byte findings and a bounded Copilot retry contract', async () => {
   const { root, config, workflow, phase } = await fixture('recovery-authoring');
   const findings = await inspectRequiredArtifactContent(root, config, workflow, phase);
@@ -1059,7 +1080,9 @@ test('recovery exposes the same authored-byte findings and a bounded Copilot ret
     beforeRetry: 'singularity-flow recover PREFLIGHT-1 --phase intake --json',
     command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
   });
-  assert.equal(action.skill, '/sf-phase');
+  assert.equal(action.skill, '/sf-phase-documents');
+  assert.equal(action.authoringSkill, '/sf-phase');
+  assert.ok(safeCommandGuidance(action), 'document inspection must not assert an authoring skill for a read-only command');
 });
 
 test('recovery routes exact current-phase draft and preparation changes to reviewed authoring', async () => {

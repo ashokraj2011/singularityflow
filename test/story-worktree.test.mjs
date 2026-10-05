@@ -596,11 +596,12 @@ test('isolated Story start fetches the configured remote before pinning its base
     'the exact base observation must avoid repeating the source all-heads fetch in the child');
 });
 
-test('required repository readiness refuses before an isolated Story worktree is created', async (t) => {
+test('explicit required non-test readiness refuses before an isolated Story worktree is created', async (t) => {
   const { root } = await repository(t);
   const definitionFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.repositoryReadiness.requiredBeforeStory = true;
+  definition.repositoryReadiness.build = 'required';
   await writeFile(definitionFile, YAML.stringify(definition));
   // A repository with no detected commands legitimately records its empty receipt inline. This
   // refusal fixture needs an actual, unexecuted command or it no longer exercises missing proof.
@@ -619,8 +620,8 @@ test('required repository readiness refuses before an isolated Story worktree is
   ], root, { allowFailure: true });
 
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stdout, /Repository readiness must pass.*before a Story worktree is created/su);
-  assert.match(failed.stdout, /singularity-flow precheck --run --scope dependency-test --json/u);
+  assert.match(failed.stdout, /Required non-test prerequisites lack current exact-base proof/su);
+  assert.match(failed.stdout, /singularity-flow precheck --run --base-commit [a-f0-9]+ --scope full --json/u);
   assert.match(failed.stdout, /\/sf-ready/u);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
   assert.equal(run('git', [
@@ -628,7 +629,7 @@ test('required repository readiness refuses before an isolated Story worktree is
   ], root, { allowFailure: true }).status, 1);
 });
 
-test('a receipt-authorized Story worktree hydrates its locked local dependencies before lifecycle start', async (t) => {
+test('Story start retains historical readiness but never replays dependency installation', async (t) => {
   const { root } = await repository(t);
   const definitionFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
@@ -667,15 +668,15 @@ test('a receipt-authorized Story worktree hydrates its locked local dependencies
   ], root);
   const result = JSON.parse(started.stdout);
 
-  assert.equal(await readFile(path.join(
+  await assert.rejects(readFile(path.join(
     result.data.repositoryPath, 'node_modules', 'readiness-hydrated'
-  ), 'utf8'), 'ok');
+  ), 'utf8'), { code: 'ENOENT' });
   const testReadiness = JSON.parse(await readFile(path.join(
     result.data.repositoryPath,
     'singularity/work-items/ISO-HYDRATED-1/context/repository-test-readiness.json'
   ), 'utf8'));
   assert.equal(testReadiness.kind, 'story-test-readiness');
-  assert.equal(testReadiness.required, true);
+  assert.equal(testReadiness.required, false);
   assert.equal(testReadiness.repositories[0].status, 'pass');
   assert.equal(testReadiness.repositories[0].testTools[0].adapter, 'node-tap');
   assert.equal(testReadiness.repositories[0].existingFailureDisposition, 'no-observed-pre-story-failures');

@@ -283,6 +283,34 @@ test('a deterministic refusal plan becomes safe reviewable VS Code actions', () 
   assert.match(fidelityNote(fidelity), /never run them automatically/);
 });
 
+test('manual recovery instructions render without crowding safe actions out of the VS Code card', () => {
+  const planned = {
+    schemaVersion: 1, resultType: 'sflow-refusal-plan', status: 'failed',
+    error: { code: 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE' }, remediationPlan: { steps: [
+      { id: 'manual', label: 'Have the repository owner review the preserved README changes.', command: null },
+      { id: 'unsafe', label: 'Unsafe command.', command: 'singularity-flow status; touch escaped' },
+      { id: 'read-status', label: 'Read status.', command: 'singularity-flow status --json' },
+      { id: 'read-phase', label: 'Inspect the phase.', command: 'singularity-flow phase show implementation --json' },
+      { id: 'read-logs', label: 'Read logs.', command: 'singularity-flow logs --tail 20' }
+    ] }
+  };
+  const { view: card } = refusalFor(cliError('No automatic action', JSON.stringify(planned)));
+  assert.equal(card.actions.length, 3);
+  assert.equal(card.actions[0].emphasis, 'primary');
+  assert.ok(card.actions.every(entry => entry.executable === false));
+  assert.deepEqual(card.warnings, [{ label: planned.remediationPlan.steps[0].label }]);
+  assert.match(resultCardHtml(card), /repository owner review the preserved README/);
+  assert.doesNotMatch(JSON.stringify(card), /touch escaped/);
+  assert.deepEqual(card.preserved, [], 'guidance is not an effects receipt');
+  planned.remediationPlan.steps = [planned.remediationPlan.steps[0]];
+  const manual = refusalFor(cliError('Human review needed', JSON.stringify(planned))).view;
+  assert.equal(manual.actions.length, 0);
+  assert.match(resultCardHtml(manual), /repository owner review the preserved README/,
+    'no executable command does not mean no recovery instruction');
+  planned.remediationPlan.steps.push(null);
+  assert.doesNotThrow(() => refusalFor(cliError('Human review needed', JSON.stringify(planned))));
+});
+
 test('VS Code derives paired shell and Copilot routes without exposing credential-shaped commands', () => {
   assert.deepEqual(commandGuidance('singularity-flow workspace doctor --network --json'),
     expectedGuidance(

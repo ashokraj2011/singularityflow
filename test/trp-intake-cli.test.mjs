@@ -73,7 +73,7 @@ function assertRepairPreview(preflight, baseCommit, baselineStatus) {
   assert.equal(preflight.passed, true, JSON.stringify(preflight.readiness));
   assert.equal(preflight.readiness.ready, true);
   assert.ok(preflight.readiness.warnings.some(row => row.code === (pending
-    ? 'STORY_TEST_CONFIGURATION_PENDING' : 'TRP_READINESS_REPAIR_REQUIRED')));
+    ? 'STORY_TEST_CONFIGURATION_PENDING' : 'STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED')));
   assert.ok(!preflight.readiness.blockers.some(row => row.code === 'STORY_REPOSITORY_READINESS_REQUIRED'));
   const policy = preflight.testRecovery;
   assert.equal(policy.enabled, true);
@@ -137,12 +137,12 @@ test('disabled TRP still permits unobserved test setup under the normal choice p
   f.assertUnchanged();
 });
 
-test('disabled TRP preserves an explicitly required exact-base baseline gate', async t => {
+test('an old required-baseline policy does not gate intake even without TRP', async t => {
   const f = await fixture(t, { enabled: false, baselinePolicy: 'required' });
   const result = f.preview();
-  assert.equal(result.passed, false);
-  assert.equal(result.readiness.ready, false);
-  assert.ok(result.readiness.blockers.some(row => row.code === 'STORY_REPOSITORY_READINESS_REQUIRED'));
+  assert.equal(result.passed, true);
+  assert.equal(result.readiness.ready, true);
+  assert.ok(!result.readiness.blockers.some(row => row.code === 'STORY_REPOSITORY_READINESS_REQUIRED'));
   assert.ok(!result.readiness.warnings.some(row => row.code === 'TRP_READINESS_REPAIR_REQUIRED'));
   assert.deepEqual(result.testRecovery, { schemaVersion: 1, enabled: false });
   await assert.rejects(access(f.marker), { code: 'ENOENT' });

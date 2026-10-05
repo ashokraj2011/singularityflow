@@ -154,7 +154,7 @@ export function watchText(item) {
   return `${item.workId} — ${item.title}\nPhase: ${phase}\nAssignment: ${item.assignment?.assignee ?? 'unassigned'}${item.reminder ? `\n! Approval reminder: waiting ${item.reminder.waitingHours}h (threshold ${item.reminder.thresholdHours}h)` : ''}\nLast event: ${item.lastEvent?.event ?? 'none'}${item.lastEvent?.detail ? ` — ${item.lastEvent.detail}` : ''}\nUpdated: ${item.updatedAt}\n`;
 }
 
-export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, modelEnabled = true } = {}) {
+export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, inspectActivePhase = false, modelEnabled = true } = {}) {
   const actions = [];
   const blockers = [];
   const pending = await inspectPendingPublication(root, {
@@ -196,10 +196,9 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   const activePhase = activePhaseId ? workflow.phases?.[activePhaseId] ?? null : null;
   const consumedGeneration = activePhase?.generationIntent?.status === 'consumed'
     && Number(activePhase.generationIntent.generation) === Number(activePhase.generation);
-  // Preserve the established repository/transport-only default. Phase publication inspection is
-  // explicit, except for a consumed generation where ordinary next-step selection would otherwise
-  // retry or submit bytes that no longer match their lifecycle receipt.
-  const requestedPhase = phaseId ?? (consumedGeneration ? activePhaseId : null);
+  // Explicit recovery inspects the active phase even before its first publication. Lightweight
+  // status/next-step consumers keep their transport-only default except at consumed generations.
+  const requestedPhase = phaseId ?? (inspectActivePhase || consumedGeneration ? activePhaseId : null);
   const phase = requestedPhase ? workflow.phases?.[requestedPhase] ?? null : null;
   if (phaseId && !phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId}'. Provide a phase ID.`, {
     code: 'RECOVERY_PHASE_UNKNOWN', details: { phaseId }
@@ -256,6 +255,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     revision,
     blockers,
     phaseRepairRequired: phaseRecovery.blockers.length > 0,
+    ...(modelEnabled === false ? { modelEnabled: false } : {}),
     testExecution: phaseRecovery.testExecution ?? { status: 'not-required', commands: [] },
     containment: phase ? {
       scope: 'phase',
@@ -277,14 +277,22 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
       || phaseRecovery.requiresLifecycleRecovery
       || Boolean(terminalGate?.errors.length)
   };
-  return { ...core, planId: `sha256:${recordSha256(core)}` };
+  const plan = { ...core, planId: `sha256:${recordSha256(core)}` };
+  return { ...plan, applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
+}
+
+function recoveryApplyCommand(plan) {
+  return `singularity-flow recover ${plan.workId}${plan.phaseId ? ` --phase ${plan.phaseId}` : ''} --apply --confirm ${plan.planId}${plan.actions.some(item => item.id === 'fast-forward') ? ' --fetch' : ''}${plan.modelEnabled === false ? ' --no-model' : ''}`;
 }
 
 export async function applyRecovery(root, config, workflow, plan, { confirm = null } = {}) {
   const automatic = plan.actions.filter((item) => item.automatic);
   if (!automatic.length) throw new SingularityFlowError(
     'This recovery plan has no automatic action. Complete its guided or human-authority step, then inspect again.',
-    { code: 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE', details: { planId: plan.planId } }
+    { code: 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE', details: {
+      planId: plan.planId, workId: plan.workId, phase: plan.phaseId,
+      actions: plan.actions.filter(item => item.id !== 'none' && !item.automatic)
+    } }
   );
   if (!confirm || confirm !== plan.planId) throw new SingularityFlowError(
     `Recovery application requires the exact reviewed plan hash. Re-run with --confirm ${plan.planId}.`,
@@ -362,7 +370,7 @@ export function recoveryText(plan) {
     }
   }
   if (!plan.applied && plan.actions.some((item) => item.automatic)) {
-    const command = `singularity-flow recover ${plan.workId} --apply --confirm ${plan.planId}${plan.actions.some((item) => item.id === 'fast-forward') ? ' --fetch' : ''}`;
+    const command = plan.applyCommand ?? recoveryApplyCommand(plan);
     const guidance = safeCommandGuidance({ command, skill: '/sf-recover' });
     lines.push('', 'Apply safe actions:');
     if (guidance) {

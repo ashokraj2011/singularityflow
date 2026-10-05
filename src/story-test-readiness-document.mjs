@@ -9,7 +9,7 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
   const receipts = evidence?.repositories ?? {};
   const records = [...repositories].map((repository) => {
     const receipt = receipts[repository.id] ?? null;
-    const current = ['pass', 'failing-tests', 'accepted-known-failures'].includes(receipt?.status)
+    const current = ['pass', 'failing-tests', 'accepted-known-failures', 'readiness-failed'].includes(receipt?.status)
       && receipt.sourceCommit === repository.baseCommit;
     const contract = current ? receipt.structuredTestContract ?? null : null;
     const tools = contract?.commands ?? [];
@@ -62,6 +62,8 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
           ? 'accepted-pre-existing-test-failures'
           : current && receipt.status === 'failing-tests'
             ? 'pre-existing-test-failures-require-decision'
+          : current && receipt.status === 'readiness-failed'
+            ? 'pre-existing-readiness-failure'
         : current && !tools.length
           ? 'no-test-tool-selected'
           : 'test-configuration-pending'
@@ -78,6 +80,6 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
         ? receipts[record.repository] : null))
         ? 'pending-not-verified' : 'receipt-only',
     repositories: records,
-    guidance: 'Missing test detection or baseline observation is pending setup, not a failed run. Continue the Story and configure a test command before required execution. Observed failures require repair or a verified risk decision; missing setup never creates a pass or waives publication, approval, or protected-path checks.'
+    guidance: 'Test setup and baseline results are advisory at Story creation, including observed failures. Copilot: /sf-test-setup; Shell: singularity-flow capability test-setup --json. Inspect the selected module, configure and run the chosen tests during coding/verification. Repair failures or obtain an eligible human risk decision before publication. Intake never installs dependencies, runs tests, creates a pass, or waives publication, approval, or protected-path checks.'
   };
 }

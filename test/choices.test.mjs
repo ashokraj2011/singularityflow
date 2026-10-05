@@ -62,7 +62,7 @@ async function repository() {
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
   // Keep readiness enforced: this documentation-only base needs an inline no-command receipt.
-  assert.equal(config.repositoryReadiness.requiredBeforeStory, true);
+  assert.equal(config.repositoryReadiness.requiredBeforeStory, false);
   // This fixture intentionally exercises the self-approval warning. The shipped normal profile is
   // team-safe; make the test's POC authority explicit instead of weakening production defaults.
   config.approvalSecurity = { profile: 'poc' };

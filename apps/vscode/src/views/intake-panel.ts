@@ -669,8 +669,7 @@ export class IntakePanel {
     readinessBaseline: (message) => {
       if (this.form.busy || this.form.baselineRunning) return;
       const value = stringField(message, 'value');
-      if (!['reuse', 'run', 'defer'].includes(value ?? '')
-          || (value === 'defer' && this.form.baselinePolicy !== 'choice')) return;
+      if (!['reuse', 'run', 'defer'].includes(value ?? '')) return;
       this.update({ readinessBaseline: value as IntakeForm['readinessBaseline'], baselineMessage: null, baselineRunCommit: null });
       return this.preflightBaseBranch();
     },
@@ -1169,7 +1168,7 @@ export class IntakePanel {
         return this.preflightBaseBranch();
       }
       const readiness = result.preflight?.readiness;
-      this.update({ baselinePolicy: readiness?.repositoryExecution?.baselinePolicy ?? 'required',
+      this.update({ baselinePolicy: 'choice',
         baselineScope: readiness?.repositoryExecution?.scope ?? 'dependency-test' }, { background: true });
       if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = base;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace

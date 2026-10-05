@@ -91,9 +91,8 @@ import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabi
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { collectRepositoryReadinessEvidence } from '../repository-readiness-evidence.mjs';
-import { loadRepositoryTestBaseline } from '../initialization/runtime-readiness.mjs';
 import {
-  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
+  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired
 } from '../story-start-readiness.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { recordSha256 } from '../records.mjs';
@@ -577,28 +576,36 @@ export async function storyFetchCommand(positionals, options) {
     capabilityId: optionString(options, 'capability') ?? capabilityBase?.capability ?? null
   });
   const config = await loadConfig(target);
-  if (capabilityBase) {
-    const readinessRequired = config.repositoryReadiness?.requiredBeforeStory === true
-      || config.initialization?.proof?.preStory?.requiredBeforeStory === true;
-    const parentBase = seed.story.baseCommit;
-    const creatingWorkflow = !await exists(path.join(workDir(target, config, storyKey), 'workflow.json'));
-    if (creatingWorkflow && readinessRequired && /^[a-f0-9]{40,64}$/u.test(parentBase ?? '')
-        && head(target) !== parentBase) {
-      // A published Story seed is normally ahead of its parent base. Refuse a local failed
-      // baseline before moving sibling checkouts: that checkout cannot recompute the base plan.
-      const scopes = requiredRepositoryReadinessScope(config) === 'full'
-        ? ['full', 'dependency-test'] : ['dependency-test'];
-      for (const scope of scopes) {
-        if (await loadRepositoryTestBaseline(target, { commit: parentBase, scope })) {
-          throw new SingularityFlowError(
-            'The fetched Story seed cannot verify failed pre-Story tests on its parent base. '
-            + 'No sibling repository was selected. Repair the base tests and refresh the Story seed, '
-            + 'or use Story start from a checkout that can recheck the exact base.',
-            { code: 'STORY_REPOSITORY_READINESS_REQUIRED' }
-          );
-        }
-      }
+  const readinessBase = seed.story.baseCommit;
+  const readinessRequired = repositoryReadinessRequired(config);
+  const readinessRepositories = readinessBase ? [{
+    id: 'lifecycle', baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
+    baseCommit: readinessBase, destinationRef: `refs/heads/${storyKey}`,
+    publishRequired: true
+  }] : [];
+  let repositoryReadiness;
+  const inspectSeedPrerequisites = async () => {
+    if (readinessRequired && !/^[a-f0-9]{40,64}$/u.test(readinessBase ?? '')) {
+      throw new SingularityFlowError('Governed Jira Story seed has no exact base commit for required non-test prerequisites.', {
+        code: 'STORY_REPOSITORY_READINESS_REQUIRED'
+      });
     }
+    if (repositoryReadiness === undefined) repositoryReadiness = readinessBase
+      ? await collectRepositoryReadinessEvidence([{
+        id: 'lifecycle', root: target, baseCommit: readinessBase
+      }], { scope: requiredRepositoryReadinessScope(config), advisory: !readinessRequired }) : null;
+    if (readinessRequired) assertStoryStartReady(inspectStoryStartReadiness({
+      workId: storyKey, definition: config, workType: seed.story.suggestedWorkType,
+      baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
+      repositories: readinessRepositories, repositoryReadiness,
+      surface: 'shell'
+    }));
+  };
+  const creatingWorkflow = !await exists(path.join(workDir(target, config, storyKey), 'workflow.json'));
+  // Check explicitly required non-test proof before moving siblings. Test results are baseline
+  // context, not a fetch gate; the fetched seed need not be checked out at its parent revision.
+  if (creatingWorkflow && readinessRequired) await inspectSeedPrerequisites();
+  if (capabilityBase) {
     // Validate the seed and exact pinned capability catalog after fetching the delivery branch but
     // before moving any sibling repository. An unknown/stale workspace ID therefore cannot leave a
     // partially attached multi-repository Story behind.
@@ -617,41 +624,7 @@ export async function storyFetchCommand(positionals, options) {
       throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
     }
     const resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
-    const readinessBase = seed.story.baseCommit;
-    const readinessRequired = config.repositoryReadiness?.requiredBeforeStory === true
-      || config.initialization?.proof?.preStory?.requiredBeforeStory === true;
-    if (readinessRequired && !/^[a-f0-9]{40,64}$/u.test(readinessBase ?? '')) {
-      throw new SingularityFlowError('Governed Jira Story seed has no exact base commit for test readiness.', {
-        code: 'STORY_REPOSITORY_READINESS_REQUIRED'
-      });
-    }
-    const readinessRepositories = readinessBase ? [{
-      id: 'lifecycle', baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
-      baseCommit: readinessBase, destinationRef: `refs/heads/${storyKey}`,
-      publishRequired: true
-    }] : [];
-    const repositoryReadiness = readinessBase ? await collectRepositoryReadinessEvidence([{
-      id: 'lifecycle', root: target, baseCommit: readinessBase
-    }], { scope: requiredRepositoryReadinessScope(config) }) : null;
-    // `story fetch` is already checked out at the published Story seed, not its parent base.
-    // A local accepted failure needs a fresh plan check on that exact base before Story state is
-    // created. Normal Story start performs that recheck after checkout; this route cannot, so
-    // refuse the narrow exception rather than treating provisional evidence as final.
-    if (readinessRequired && repositoryReadiness?.repositories?.lifecycle?.status
-        === 'accepted-known-failures' && head(target) !== readinessBase) {
-      throw new SingularityFlowError(
-        'This fetched Story seed cannot recheck its accepted failing-test baseline on the exact parent base. '
-        + 'No workflow was created. Repair the base tests and refresh the Story seed, or use Story start '
-        + 'from a verified base checkout that can recheck the acceptance before creating Story state.',
-        { code: 'STORY_REPOSITORY_READINESS_REQUIRED' }
-      );
-    }
-    if (readinessRequired) assertStoryStartReady(inspectStoryStartReadiness({
-      workId: storyKey, definition: config, workType,
-      baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
-      repositories: readinessRepositories, repositoryReadiness,
-      surface: 'shell'
-    }));
+    await inspectSeedPrerequisites();
     const agent = await activatePhaseAgent(
       target, config, storyKey, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
     );

@@ -24,6 +24,7 @@ function explicitCommands(error) {
     details?.recoveryCommand,
     details?.retry,
     ...(Array.isArray(details?.recoveryCommands) ? details.recoveryCommands : []),
+    ...(Array.isArray(details?.actions) ? details.actions : []),
     // A gate refusal's own actions, so the recovery plan every surface renders is the gate's
     // [E2G-024, criterion 16].
     ...(Array.isArray(details?.gate?.actions) ? details.gate.actions.map((entry) => entry?.command) : [])
@@ -32,7 +33,10 @@ function explicitCommands(error) {
   return values.map((value) => {
     if (typeof value === 'string') return safeCommandGuidance({ command: value });
     if (!value?.command) return null;
-    return safeCommandGuidance(value);
+    const guidance = safeCommandGuidance(value);
+    const label = value.label ?? value.detail;
+    return guidance ? { ...guidance, ...(typeof label === 'string' && label.trim()
+      ? { label: redactDiagnosticText(label).slice(0, 2000) } : {}) } : null;
   }).filter((guidance) => guidance && !seen.has(guidance.command) && seen.add(guidance.command));
 }
 
@@ -49,6 +53,15 @@ function step(id, label, command = null, kind = 'diagnostic', skill = null) {
     platformCommands: guidance?.platformCommands ?? null,
     kind, execution: 'user-reviewed'
   });
+}
+
+function explicitInstructions(error) {
+  // Some real repairs require ownership/authority review rather than an executable command.
+  // Keep those instructions; diagnostics alone must not masquerade as the way out of the block.
+  return (Array.isArray(error?.details?.actions) ? error.details.actions : []).slice(0, 20)
+    .filter(entry => entry && !entry.command && typeof (entry.label ?? entry.detail) === 'string')
+    .map((entry, index) => step(`producer-review-${index + 1}`,
+      redactDiagnosticText(entry.label ?? entry.detail).slice(0, 2000), null, 'remediation'));
 }
 
 function optionValue(argv, name) {
@@ -140,6 +153,16 @@ function optionValueRaw(argv, name) {
 
 function phaseContainmentSteps(context) {
   if (!context) return [];
+  // If inspection itself failed, sending the reader to the identical recover command is a loop,
+  // not a repair. Diagnose its prerequisite without replaying the failed inspection.
+  if (context.operation === 'recover') return [
+    step('diagnose-recovery-prerequisite',
+      'Recovery inspection could not complete. Inspect the reported repository or configuration prerequisite before retrying recovery.',
+      'singularity-flow doctor --json', 'diagnostic'),
+    step('repair-recovery-prerequisite',
+      'Keep authored work and retained evidence. Have the responsible repository or configuration owner repair the reported prerequisite; do not repeat an unchanged recovery command or discard work.',
+      null, 'remediation')
+  ];
   const recover = step(
     'inspect-current-phase',
     `Inspect and repair only phase '${context.phaseId}'; prior publications and authored work remain preserved.`,
@@ -310,6 +333,12 @@ export const UPGRADE_GUIDED_CODES = Object.freeze(Object.keys(UPGRADE_KNOWN));
 
 const KNOWN = Object.freeze({
   ...UPGRADE_KNOWN,
+  RECOVERY_PHASE_UNKNOWN: () => [
+    step('inspect-available-phases', 'Read the current Story and its actual phase IDs; do not guess a packaged phase name.',
+      'singularity-flow status --json'),
+    step('select-recovery-phase', 'Run recovery without --phase to inspect the active phase, or select an exact phase ID returned by status. No Story state needs rewriting.',
+      null, 'remediation')
+  ],
   AUTO_DISABLED: (argv) => [
     step('review-auto-policy',
       'Open VS Code → Singularity Flow → Configuration Center → Auto mode; enable the repository and one work type, then review capability limits.',
@@ -607,6 +636,7 @@ export function refusalRemediationPlan(error, argv = []) {
     'TRP_PUBLICATION_PENDING', 'TRP_RISK_ADAPTER_UNAVAILABLE', 'TRP_AUTHORITY_REQUIRED'].includes(code);
   // A soft gate names its own way through; generic help and diagnostics only bury it.
   const softGateBlocked = code === 'SEQUENCE_CONFIRMATION_REQUIRED';
+  const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
     && error?.details?.configurationDependency === true;
   const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
@@ -619,9 +649,13 @@ export function refusalRemediationPlan(error, argv = []) {
     : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
-    `producer-${index + 1}`, 'Follow the recovery action supplied by the refusing operation.', command.command,
+    `producer-${index + 1}`, command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command,
     index === 0 ? 'remediation' : 'diagnostic', command.skill
   ));
+  // Reserve a place for the actual human repair, even when several diagnostics precede it.
+  // The bounded presentation must not reduce "needs ownership review" to three read-only reads.
+  const instructions = explicitInstructions(error);
+  explicit = [...explicit.slice(0, 1), ...instructions.slice(0, 1), ...explicit.slice(1), ...instructions.slice(1)];
   if (phaseContext?.turn === 'new-turn') {
     // The approval surface is evidence-only. A producer emitted by an older refusal may still name
     // `approve` as its retry, but following it would contradict the new-turn boundary and can loop
@@ -641,7 +675,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+  const ordered = repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -780,7 +814,7 @@ export function renderRefusalPlan(plan) {
       plan.context.strategy === 'external-host-prerequisite'
         ? `  Scope: phase ${plan.context.phaseId} — external host prerequisite; do not rewrite Story evidence or bypass the gate.`
         : plan.context.strategy === 'pinned-test-policy-prerequisite'
-          ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a test-command amendment before first publication, or stop until a supported reviewed recovery is available.`
+          ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a reviewed test-command amendment for the active phase, then follow its preparation or fresh-validation route.`
         : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
     );
     if (plan.context.turn === 'new-turn') {

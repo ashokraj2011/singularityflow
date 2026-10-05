@@ -113,6 +113,9 @@ test('repair admission substitutes only readiness and leaves all independent sec
   assert.deepEqual(result.warnings.map(check => check.code), ['TRP_READINESS_REPAIR_REQUIRED']);
   assert.equal(readiness.checks[0].status, 'block');
   assert.equal(applyTestRecoveryAdmission(readiness, null), readiness);
+  const modern = { ...readiness, repositoryExecution: { testing: 'advisory-at-intake', required: true } };
+  assert.equal(applyTestRecoveryAdmission(modern, preview), modern,
+    'test repair agreement must not waive a separately required non-test prerequisite');
 });
 
 test('initial agreement is sealed, has no risk decisions, and records independent execution mode', () => {

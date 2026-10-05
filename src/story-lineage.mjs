@@ -171,6 +171,8 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
     for (const witness of receipt.traceability?.witnesses ?? []) {
       if (!witness.identity || (witness.gaps ?? []).length) continue;
       const clause = clauses.get(witness.clauseId);
+      // Publication refuses such a tag first (unknownCriterionTags in delivery-evidence); this stays as
+      // defence in depth for a generation published before that rule or a specification revised since.
       if (!clause?.bodySha256) {
         throw new SingularityFlowError(`The test witnessing '${witness.clauseId}' names a criterion the active specification does not hold.`, { code: 'WEL_WITNESS_MAPPING_STALE' });
       }

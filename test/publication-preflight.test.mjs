@@ -2159,6 +2159,14 @@ test('prepublish keeps a complete code draft red when its repository test contra
 test('prepublish previews the inferred Maven command and report without claiming execution', async (t) => {
   const context = await codeFixture('maven-prepublish-plan', { testProfile: 'maven' });
   t.after(() => rm(context.root, { recursive: true, force: true }));
+  // An exactly read JUnit test can witness only a criterion the specification index defines, so index
+  // the requirements as their publication does; without an index the tag is refused.
+  const itemRelative = 'singularity/work-items/DELIVERY-1';
+  await buildSpecIndex(context.root, `${itemRelative}/artifacts/requirements/requirements.md`, {
+    workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+    outputPath: `${itemRelative}/context/spec-indexes/requirements-gen1.json`,
+    policy: { mode: 'enforce', coverage: 'enforce', acceptance: 'presence' }
+  });
   const source = path.join(context.root, 'module', 'src', 'main', 'java', 'App.java');
   const testSource = path.join(context.root, 'module', 'src', 'test', 'java', 'AppTest.java');
   await mkdir(path.dirname(source), { recursive: true });

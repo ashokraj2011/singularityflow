@@ -306,3 +306,48 @@ test('a verification contract through a real Story: an inspection-only criterion
   assert.equal(changed['AC-002'].obligations.find((entry) => entry.responsibility === 'verify').status, 'missing');
   assert.ok(changed['AC-002'].findings.some((entry) => /changed after its inspection/.test(entry.message)));
 });
+
+test('a tag naming a criterion the specification does not hold is refused at publication, before submission', async (t) => {
+  const workId = 'EXACT-4';
+  const { root, cli } = await governedRepository(t, workId, {
+    'package.json': JSON.stringify({ type: 'module', private: true, scripts: { test: 'node tools/jest-shim.mjs --runner jest' } }),
+    '.gitignore': '.sflow/\n',
+    'tools/jest-shim.mjs': await readFile(SHIM, 'utf8'),
+    'src/value.js': 'export const value = 1;\n',
+    'test/value.test.js': "import { value } from '../src/value.js';\ntest('baseline value', () => { expect(value).toBe(1); });\n"
+  });
+  const item = await intake(root, cli, workId, [['AC-001', 'The exported value equals 2.']],
+    [['AC-001', '`src/value.js`', '`test/value.test.js`']]);
+  await writeFile(path.join(root, 'src/value.js'), `// @clause:${workId}:AC-001 returns the approved value two\nexport const value = 2;\n`);
+  const tests = (...tags) => writeFile(path.join(root, 'test/value.test.js'), [
+    "import { value } from '../src/value.js';", '',
+    ...tags.flatMap((tag, index) => [`// @ac:${tag}`, `test('value read ${index + 1}', () => { expect(value).toBe(2); });`, ''])
+  ].join('\n'));
+  // AC-002 is in this Story's namespace, but its specification defines no such criterion. OTHER-9's
+  // tag sits on an exactly read Jest test, whose witness submission would refuse.
+  await tests(`${workId}:AC-001`, `${workId}:AC-002`, 'OTHER-9:AC-001');
+  await completeSummary(item);
+  const publish = ['phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'];
+  const refused = run(process.execPath, [CLI, '--no-model', ...publish, '--json'], root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  const { error } = JSON.parse(refused.stdout);
+  assert.equal(error.code, 'EVIDENCE_CRITERION_UNKNOWN');
+  assert.deepEqual(error.details.paths, ['test/value.test.js']);
+  assert.deepEqual(error.details.findings.map((finding) => finding.message), [
+    `@ac:${workId}:AC-002 at test/value.test.js:6 names a criterion the active specification does not hold.`,
+    '@ac:OTHER-9:AC-001 at test/value.test.js:9 names a criterion the active specification does not hold.'
+  ]);
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation.generation, 0,
+    'the refusal spent no generation');
+  const draft = JSON.parse(cli('phase', 'draft-check', 'implementation', '--json').stdout);
+  assert.deepEqual(draft.findings.filter((finding) => finding.code === 'code.delivery.criterion-tag-unknown')
+    .map((finding) => [finding.path, finding.line, finding.value]),
+  [['test/value.test.js', 6, `${workId}:AC-002`], ['test/value.test.js', 9, 'OTHER-9:AC-001']]);
+
+  // Corrected, the generation publishes and submission proposes its one exact witness for review.
+  await tests(`${workId}:AC-001`);
+  cli(...publish);
+  cli('submit', 'implementation');
+  const review = JSON.parse(cli('phase', 'show', 'implementation', '--json').stdout);
+  assert.deepEqual(review.witnessReview.mappings.map((mapping) => mapping.clauseId), [`${workId}:AC-001`]);
+});

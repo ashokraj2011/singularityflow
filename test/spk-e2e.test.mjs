@@ -293,7 +293,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   await write(root, 'src/payments/attempts.ts', '// @clause:E2E:REQ-002 attempts stay listed; the append-only helper is not delivered yet\nexport const attempts = [];\n');
   // The specification states requirements, not acceptance criteria, and the plan binds each test to
   // its requirement. An `@ac:` tag would name a criterion the specification does not hold, which
-  // submission refuses (WEL_WITNESS_MAPPING_STALE).
+  // publication refuses (EVIDENCE_CRITERION_UNKNOWN).
   await write(root, 'tests/payments-retry.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",

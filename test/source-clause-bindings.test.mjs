@@ -19,7 +19,7 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-async function fixture(claims) {
+async function fixture(claims, { clauses = [] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-clause-bindings-'));
   const workId = 'BIND-1';
   const relative = `singularity/work-items/${workId}/context/claims/planning-gen1-planned.json`;
@@ -30,6 +30,17 @@ async function fixture(claims) {
   await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, relative), canonicalJson(record));
+  // The specification index that defines every planned clause, as approving the plan's
+  // specification step writes it; publication judges clause and criterion tags against it.
+  const index = `singularity/work-items/${workId}/context/spec-indexes/planning-gen1.json`;
+  await mkdir(path.dirname(path.join(root, index)), { recursive: true });
+  await writeFile(path.join(root, index), canonicalJson({
+    schemaVersion: 1, kind: 'specification-index', workId, phase: 'planning', generation: 1,
+    clauses: [...new Set([...Object.keys(claims), ...clauses])].sort().map((id) => ({
+      id, type: id.split(':').at(-1).split('-')[0], body: `${id} is approved.`,
+      bodySha256: createHash('sha256').update(`${id} is approved.`).digest('hex'), source: { path: 'plan.md', line: 1 }
+    }))
+  }));
   const planning = {
     id: 'planning', generation: 1, claimMaps: { planned: {
       path: relative, generation: 1,
@@ -162,17 +173,16 @@ test('the source gate reads only the exact approved planning pointer', async (t)
   );
 });
 
-test('code-delivery preflight refuses missing source tags before a generation is published', async (t) => {
-  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
-  t.after(() => rm(item.root, { recursive: true, force: true }));
-  git(item.root, 'init', '-b', 'main');
-  git(item.root, 'config', 'user.name', 'Source Binding Test');
-  git(item.root, 'config', 'user.email', 'source-binding@example.invalid');
-  await writeFile(path.join(item.root, 'src/payment.js'), 'export const payment = false;\n');
-  git(item.root, 'add', '.');
-  git(item.root, 'commit', '-m', 'approved planning baseline');
-  git(item.root, 'switch', '-c', 'BIND-1');
-  const { phase, workflow, config } = item;
+/** A committed planning baseline with the code step's generation open on the Story branch. */
+async function openCodeGeneration(item) {
+  const { root, phase, workflow, config } = item;
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Source Binding Test');
+  git(root, 'config', 'user.email', 'source-binding@example.invalid');
+  await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'approved planning baseline');
+  git(root, 'switch', '-c', 'BIND-1');
   Object.assign(phase, {
     generation: 0, status: 'in_progress', writeScope: 'source-and-artifact',
     generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' }
@@ -188,19 +198,16 @@ test('code-delivery preflight refuses missing source tags before a generation is
   });
   config.governance = { requireAcceptanceCriteriaTags: false };
   config.workTypes = { feature: {} };
-  const itemDirectory = path.join(item.root, 'singularity/work-items/BIND-1');
-  await ensureWorkIntervalBaseline(item.root, config, workflow, {
-    phaseId: phase.id, itemDirectory, itemRelative: 'singularity/work-items/BIND-1'
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory: path.join(root, 'singularity/work-items/BIND-1'),
+    itemRelative: 'singularity/work-items/BIND-1'
   });
-  await mkdir(path.join(item.root, 'tests'), { recursive: true });
-  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'test("payment", () => {});\n');
-  await writeFile(path.join(item.root, 'src/payment.js'), 'export const payment = true;\n');
-  await assert.rejects(
-    evaluateCodeDeliveryPreflight(item.root, config, workflow, phase),
-    (error) => error.code === 'CODE_DELIVERY_EVIDENCE_REQUIRED'
-      && error.details?.sourceBindingsMissing?.[0]?.clauseId === 'BIND-1:REQ-001'
-      && /@clause:BIND-1:REQ-001/.test(error.message)
-  );
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+}
+
+/** What phase draft-check reads before the code delivery: an open intent and a finished summary. */
+async function readyForDraftCheck(item) {
+  const { root, phase } = item;
   phase.generationIntent = { status: 'open', id: 'intent-source-binding' };
   phase.generationPolicy = {
     task: 'code', defaultProducer: 'governed-agent', allowedProducers: ['governed-agent']
@@ -210,12 +217,31 @@ test('code-delivery preflight refuses missing source tags before a generation is
     kind: 'implementation-summary', minimumBytes: 20,
     validation: { requiredHeadings: ['Implementation'], forbiddenPlaceholders: [] }
   };
+  const itemDirectory = path.join(root, 'singularity/work-items/BIND-1');
   await mkdir(path.join(itemDirectory, 'artifacts/implementation'), { recursive: true });
   await writeFile(path.join(itemDirectory, phase.requiredArtifact.path),
     '# Implementation\n\nThe approved payment rule is implemented and covered by tests.\n');
-  const draft = await phaseDraftCheck(item.root, config, workflow, phase, {
-    session: { workId: 'BIND-1', phaseId: phase.id, agent: 'developer' }
-  });
+}
+
+const draftCheck = (item) => phaseDraftCheck(item.root, item.config, item.workflow, item.phase, {
+  session: { workId: 'BIND-1', phaseId: item.phase.id, agent: 'developer' }
+});
+
+test('code-delivery preflight refuses missing source tags before a generation is published', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await openCodeGeneration(item);
+  const { phase, workflow, config } = item;
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'test("payment", () => {});\n');
+  await writeFile(path.join(item.root, 'src/payment.js'), 'export const payment = true;\n');
+  await assert.rejects(
+    evaluateCodeDeliveryPreflight(item.root, config, workflow, phase),
+    (error) => error.code === 'CODE_DELIVERY_EVIDENCE_REQUIRED'
+      && error.details?.sourceBindingsMissing?.[0]?.clauseId === 'BIND-1:REQ-001'
+      && /@clause:BIND-1:REQ-001/.test(error.message)
+  );
+  await readyForDraftCheck(item);
+  const draft = await draftCheck(item);
   assert.equal(draft.status, 'correction-required');
   assert.equal(draft.findings.some((finding) =>
     finding.code === 'code.delivery.source-clause-tag-missing'
@@ -229,9 +255,7 @@ test('code-delivery preflight refuses missing source tags before a generation is
       && error.details?.explanationsMissing?.[0]?.clauseId === 'BIND-1:REQ-001'
       && /needs an explanation of how the change meets it, after its @clause tag in src\/payment.js:1/.test(error.message)
   );
-  const unexplained = await phaseDraftCheck(item.root, config, workflow, phase, {
-    session: { workId: 'BIND-1', phaseId: phase.id, agent: 'developer' }
-  });
+  const unexplained = await draftCheck(item);
   assert.equal(unexplained.findings.some((finding) => finding.code === 'code.delivery.clause-explanation-missing'
     && finding.value === 'BIND-1:REQ-001' && finding.path === 'src/payment.js' && finding.line === 1), true);
   await writeFile(path.join(item.root, 'src/payment.js'),
@@ -244,13 +268,55 @@ test('code-delivery preflight refuses missing source tags before a generation is
     clauseId: 'BIND-1:REQ-001', sourcePath: 'src/payment.js', line: 1, tag: 'clause'
   }]);
   await truncate(path.join(item.root, 'src/payment.js'), 16 * 1024 * 1024);
-  const oversizedDraft = await phaseDraftCheck(item.root, config, workflow, phase, {
-    session: { workId: 'BIND-1', phaseId: phase.id, agent: 'developer' }
-  });
+  const oversizedDraft = await draftCheck(item);
   assert.equal(oversizedDraft.status, 'correction-required');
   assert.equal(oversizedDraft.findings.some((finding) =>
     finding.code === 'code.delivery.source-binding-too-large'
       && finding.path === 'src/payment.js'), true);
+});
+
+test('a tag naming a criterion or clause the specification does not hold is refused before publication, at its line', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) }, { clauses: ['BIND-1:AC-001'] });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await openCodeGeneration(item);
+  const { root, phase, workflow, config } = item;
+  const source = (...lines) => writeFile(path.join(root, 'src/payment.js'),
+    ['// @clause:BIND-1:REQ-001 marks an accepted payment as paid', ...lines, 'export const payment = true;', ''].join('\n'));
+  const tests = (tag) => writeFile(path.join(root, 'tests/payment.test.js'), [
+    '// @ac:BIND-1:AC-001', 'test("pays", () => {});', '',
+    `// @ac:${tag}`, 'test("retries", () => {});', '',
+    // Another Story's tag binds nothing here: this module's runner only counts tests.
+    '// @ac:OTHER-2:AC-001', 'test("history", () => {});', ''
+  ].join('\n'));
+  await source();
+  await tests('BIND-1:AC-007');
+  await assert.rejects(evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.equal(error.code, 'EVIDENCE_CRITERION_UNKNOWN');
+    assert.deepEqual(error.details.findings.map((finding) => [finding.path, finding.line, finding.clauseId]),
+      [['tests/payment.test.js', 4, 'BIND-1:AC-007']]);
+    assert.deepEqual(error.details.paths, ['tests/payment.test.js']);
+    assert.deepEqual(error.details.recoveryCommands, ['singularity-flow phase prepublish implementation --json']);
+    assert.match(error.message, /tests name criteria the active specification does not hold: @ac:BIND-1:AC-007 at tests\/payment\.test\.js:4\n/);
+    assert.match(error.message, /Correct each @ac tag to a criterion the specification holds, or remove it/);
+    return true;
+  });
+  await readyForDraftCheck(item);
+  const draft = await draftCheck(item);
+  assert.equal(draft.status, 'correction-required');
+  assert.equal(draft.commands.publish, null);
+  const criterion = draft.findings.find((finding) => finding.code === 'code.delivery.criterion-tag-unknown');
+  assert.deepEqual([criterion?.path, criterion?.line, criterion?.value], ['tests/payment.test.js', 4, 'BIND-1:AC-007']);
+  assert.equal(criterion.message, '@ac:BIND-1:AC-007 at tests/payment.test.js:4 names a criterion the active specification does not hold.');
+
+  // Its source twin, a clause the Story never approved, is shown at its line the same way.
+  await tests('BIND-1:AC-001');
+  await source('// @clause:BIND-1:REQ-009 retries a declined payment');
+  const unapproved = (await draftCheck(item)).findings.find((finding) => finding.code === 'code.delivery.source-clause-tag-unapproved');
+  assert.deepEqual([unapproved?.path, unapproved?.line, unapproved?.value], ['src/payment.js', 2, 'BIND-1:REQ-009']);
+
+  await source();
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(evidence.acceptanceCriteria.tagged, ['BIND-1:AC-001', 'OTHER-2:AC-001']);
 });
 
 test('committed receipt replay verifies exact comment witnesses and planned deletions', async (t) => {

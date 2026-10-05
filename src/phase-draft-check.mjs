@@ -162,6 +162,18 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
           fingerprint: null
         });
       }
+      // A tag naming a clause or criterion the specification does not hold, at its exact line.
+      const tagCodes = {
+        EVIDENCE_CRITERION_UNKNOWN: 'code.delivery.criterion-tag-unknown',
+        EVIDENCE_CLAUSE_UNAPPROVED: 'code.delivery.source-clause-tag-unapproved'
+      };
+      for (const finding of tagCodes[error.code] ? error.details?.findings ?? [] : []) {
+        findings.push({
+          code: tagCodes[error.code], category: 'traceability',
+          path: finding.path ?? finding.sourcePath ?? null, line: finding.line ?? null, value: finding.clauseId,
+          message: finding.message, fingerprint: null
+        });
+      }
     }
   }
 

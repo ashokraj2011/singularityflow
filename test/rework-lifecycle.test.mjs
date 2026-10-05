@@ -33,10 +33,12 @@ async function fixture(t, id, { code = false, minimum = 1 } = {}) {
   await writeFile(path.join(root, 'README.md'), '# Local lifecycle fixture\n');
   await mkdir(path.join(root, 'src'));
   await writeFile(path.join(root, 'src/example.mjs'), 'export const value = 1;\n');
+  // POC Lite defines no criteria, so its tests carry no @ac tag: publication refuses one that sits on
+  // an exactly read test (EVIDENCE_CRITERION_UNKNOWN), as submission would.
   const changeSource = async (value) => {
     await writeFile(path.join(root, 'src/example.mjs'), `export const value = ${value};\n`);
     await writeFile(path.join(root, 'tests/example.test.mjs'),
-      `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/example.mjs';\n// @ac:${id}:AC-001\ntest('exact value', () => assert.equal(value, ${value}));\n`);
+      `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/example.mjs';\ntest('exact value', () => assert.equal(value, ${value}));\n`);
   };
   if (code) {
     await mkdir(path.join(root, 'tests'));
@@ -224,9 +226,10 @@ test('governed repairs and later Code publications are not stale evidence; out-o
   const git = (...args) => execute('git', args).stdout.trim();
   const flow = (args, allowFailure = false) => execute(process.execPath, [bin, ...args, '--no-model'], allowFailure);
   const write = (relative, text) => writeFile(path.join(root, relative), text);
+  // The chain defines no criteria (scope and plan are omitted), so its tests carry no @ac tag.
   const module = async (name, value) => {
     await write(`src/${name}.mjs`, `export const ${name} = ${value};\n`);
-    await write(`tests/${name}.test.mjs`, `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { ${name} } from '../src/${name}.mjs';\n// @ac:CHAIN-1:AC-001\ntest('${name}', () => assert.equal(${name}, ${value}));\n`);
+    await write(`tests/${name}.test.mjs`, `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { ${name} } from '../src/${name}.mjs';\ntest('${name}', () => assert.equal(${name}, ${value}));\n`);
   };
   git('init', '-b', 'main'); git('config', 'user.name', 'Rework Tester'); git('config', 'user.email', 'rework@example.test');
   await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'tests'));

@@ -320,7 +320,9 @@ export async function acceptanceIds(root, config, workflow, phase) {
   const indexed = predecessorSpecClauses(records, workflow, phase.id)
     .filter((clause) => clause.type === 'AC' || /:AC-\d+$/.test(clause.id ?? ''))
     .map((clause) => clause.id);
-  if (indexed.length) {
+  // A Story with a specification index owes only criteria it defines, possibly none. A criterion
+  // named only in prose is not one: publication refuses its tag (unknownCriterionTags).
+  if (specificationCriteria(records, workflow, config)) {
     // A criterion the plan allocates to other code steps is owed by those steps only; with no
     // allocation every code step owes it [E2G-009, §12 #5].
     const planned = mergePlannedClaimRecords(records.planned ?? []);
@@ -369,6 +371,7 @@ export async function acceptanceIds(root, config, workflow, phase) {
  */
 export async function taggedAcceptanceIds(root, testPaths) {
   const sources = new Map();
+  const locations = [];
   for (const relative of testPaths) {
     const secured = await secureRepositoryPath(root, relative, {
       label: 'Acceptance test source', type: 'file'
@@ -378,14 +381,79 @@ export async function taggedAcceptanceIds(root, testPaths) {
     for (const item of scanSourceClauseTags(text).filter((entry) => entry.tag === 'ac')) {
       if (!sources.has(item.clauseId)) sources.set(item.clauseId, new Set());
       sources.get(item.clauseId).add(relative);
+      locations.push({ clauseId: item.clauseId, testSource: relative, line: item.line });
     }
   }
   const bindings = [...sources.entries()].flatMap(([clauseId, files]) =>
     [...files].map((testSource) => ({ clauseId, testSource, bindingAssurance: 'namespace-qualified' })));
   return {
     ids: [...sources.keys()].sort(), inferred: [], ambiguous: [],
-    bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
+    bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource)),
+    // Each tag's own line, so a refusal can say exactly what to correct. Never part of the receipt.
+    locations: locations.sort((left, right) => left.testSource.localeCompare(right.testSource) || left.line - right.line)
   };
+}
+
+/**
+ * The criteria a test tag can name [E2G-015]: the clauses of the Story's active specification
+ * indexes, the same set submission binds each witness to (story-lineage witnessReviewSnapshot).
+ * `namespaces` are the Story's own: its Work ID, the configured specification namespace and every
+ * namespace its specification uses. Null for a Story without a specification index: one created
+ * before indexes existed, one whose specification mode is off, or a route that omits scope.
+ */
+export function specificationCriteria(records, workflow, config = {}) {
+  if (!(records?.indexes ?? []).length) return null;
+  const clauses = records.indexes.flatMap((index) => index.clauses ?? []);
+  return {
+    held: new Set(clauses.filter((clause) => clause?.bodySha256).map((clause) => String(clause.id).toUpperCase())),
+    namespaces: new Set([workflow?.workItem?.id, (workflow?.resolution?.spec ?? config.spec)?.namespace,
+      ...clauses.map((clause) => String(clause?.id ?? '').split(':')[0])]
+      .filter(Boolean).map((value) => String(value).toUpperCase()))
+  };
+}
+
+/**
+ * Test tags naming a criterion the specification does not hold, each with the file and line to
+ * correct [E2G-015]. Submission refuses such a tag once it sits on an exactly identified test
+ * (WEL_WITNESS_MAPPING_STALE), so publication refuses it first, in any namespace, and in a Story
+ * without a specification index too: that Story holds no criterion for a test to witness. With an
+ * index, a tag in one of the Story's own namespaces is refused wherever it sits, so a mistyped
+ * criterion cannot hide in a module whose runner only counts tests. Another Story's tag that sits on
+ * no exact test binds nothing here and stays, as do a legacy Story's tags its runner only counts.
+ * `owed` are the criteria the step must tag; without an index they come from its earlier artifacts'
+ * text (acceptanceIds), and their message says that removing the tag cannot help.
+ */
+export function unknownCriterionTags(criteria, { locations = [], witnesses = [], unattachedTags = [], owed = [] } = {}) {
+  const key = (testSource, clauseId) => JSON.stringify([testSource, String(clauseId ?? '').toUpperCase()]);
+  // Exactly the witnesses submission reviews: an identified test with no gaps.
+  const exact = new Set(witnesses.filter((witness) => witness.identity && !(witness.gaps ?? []).length)
+    .map((witness) => key(witness.testSource, witness.clauseId)));
+  const tagged = new Set(locations.map((location) => key(location.testSource, location.clauseId)));
+  const occurrences = [
+    ...locations,
+    ...unattachedTags.flatMap((tag) => (tag.clauseIds ?? []).map((clauseId) => ({ clauseId, testSource: tag.testSource, line: tag.line }))),
+    // A tag only the module's adapter reads still becomes a witness; name its test's line.
+    ...witnesses.filter((witness) => !tagged.has(key(witness.testSource, witness.clauseId)))
+      .map((witness) => ({ clauseId: witness.clauseId, testSource: witness.testSource, line: witness.line }))
+  ];
+  const findings = new Map();
+  for (const { clauseId: rawClauseId, testSource, line } of occurrences) {
+    const clauseId = String(rawClauseId ?? '').toUpperCase();
+    if (!clauseId || criteria?.held.has(clauseId)) continue;
+    const namespace = clauseId.slice(0, clauseId.lastIndexOf(':'));
+    if (!exact.has(key(testSource, clauseId)) && !criteria?.namespaces.has(namespace)) continue;
+    const where = `${testSource}${line ? `:${line}` : ''}`;
+    findings.set(JSON.stringify([testSource, line ?? null, clauseId]), {
+      code: 'EVIDENCE_CRITERION_UNKNOWN', clauseId, path: testSource, line: line ?? null,
+      message: criteria
+        ? `@ac:${clauseId} at ${where} names a criterion the active specification does not hold.`
+        : owed.includes(clauseId)
+          ? `@ac:${clauseId} at ${where} names a criterion this step owes, but this Story has no specification index, so submission cannot review the test that witnesses it.`
+          : `@ac:${clauseId} at ${where} names a criterion, but this Story has no specification index, so no test can witness one.`
+    });
+  }
+  return [...findings.values()].sort((left, right) => left.path.localeCompare(right.path)
+    || (left.line ?? 0) - (right.line ?? 0) || left.clauseId.localeCompare(right.clauseId));
 }
 
 function witnessIdentity(declaration) {
@@ -609,7 +677,8 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
   const storyPrefix = `${workflow.workItem.id.toUpperCase()}:`;
   const unapproved = [...tagsByPath].flatMap(([sourcePath, tags]) => tags
     .filter((tag) => tag.clauseId.startsWith(storyPrefix) && !approved.has(tag.clauseId))
-    .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath, line: tag.line })));
+    .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath, line: tag.line,
+      message: `@clause:${tag.clauseId} at ${sourcePath}:${tag.line} names a clause this Story has not approved.` })));
   if (unapproved.length) throw new SingularityFlowError(
     `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the governed specification before publishing.`,
     { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
@@ -980,6 +1049,18 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings
   });
   errors.push(...witnessDiscovery.errors);
+  // A tag naming a criterion the specification does not hold is refused while this generation is
+  // still editable, not at submission once it has been spent [E2G-015].
+  const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
+  const unknownCriteria = unknownCriterionTags(criteria, {
+    locations: tags.locations, witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
+    owed: requiredAcIds
+  });
+  if (unknownCriteria.length) {
+    const named = unknownCriteria.map((finding) => `@ac:${finding.clauseId} at ${finding.path}${finding.line ? `:${finding.line}` : ''}`).join('; ');
+    errors.unshift(criteria ? `tests name criteria the active specification does not hold: ${named}`
+      : `tests name criteria, but this Story has no specification index, so no test can witness one: ${named}`);
+  }
   const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
     deletedSourcePaths
   });
@@ -993,12 +1074,29 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       .map(({ clauseId, expectedPaths }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}`).join('; ')}`);
   }
   if (errors.length) {
+    const unknown = unknownCriteria.length > 0;
+    // Without an index, a criterion the step owes is named only by an earlier artifact's text, so no
+    // tag edit can make its exactly read test reviewable.
+    const owedUnknown = [...new Set(unknownCriteria.map((finding) => finding.clauseId))].filter((id) => requiredAcIds.includes(id));
+    const correction = criteria
+      ? `Correct each @ac tag to a criterion the specification holds${requiredAcIds.length ? ` (this step owes ${requiredAcIds.join(', ')})` : ''}, or remove it; a criterion it lacks needs a revised governed specification first.`
+      : owedUnknown.length
+        ? `${unknownCriteria.some((finding) => !owedUnknown.includes(finding.clauseId)) ? 'Remove each @ac tag the step does not owe. ' : ''}`
+          + `A criterion the step owes but no specification index defines (${owedUnknown.join(', ')}) cannot be witnessed by an exactly read test; the Story needs an indexed specification first (singularity-flow explain governance-rebuild).`
+        : 'Remove each @ac tag: this Story defines no criteria for a test to witness.';
     throw new SingularityFlowError(
       `Phase ${phase.id} has no publishable code delivery:\n- ${errors.join('\n- ')}\n`
-      + 'Implement the approved behavior, add acceptance-mapped tests, and publish again.',
+      + (!unknown ? 'Implement the approved behavior, add acceptance-mapped tests, and publish again.'
+        : `${correction}${errors.length > 1 ? ' Resolve the other findings too, then publish again.' : ' Then publish again.'}`),
       {
-        code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
-        details: { sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [] }
+        code: unknown ? 'EVIDENCE_CRITERION_UNKNOWN' : 'CODE_DELIVERY_EVIDENCE_REQUIRED',
+        details: {
+          ...(unknown ? {
+            phase: phase.id, findings: unknownCriteria, paths: [...new Set(unknownCriteria.map((finding) => finding.path))],
+            recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
+          } : {}),
+          sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? []
+        }
       }
     );
   }

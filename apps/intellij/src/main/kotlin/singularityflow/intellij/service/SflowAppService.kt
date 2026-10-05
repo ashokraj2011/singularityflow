@@ -2,10 +2,9 @@ package singularityflow.intellij.service
 
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.cl.PluginAwareClassLoader
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.EnvironmentUtil
 import kotlinx.coroutines.sync.Mutex
@@ -69,11 +68,10 @@ class SflowAppService {
     }
 
     companion object {
-        // The verifier refuses plugin IDs containing "intellij", so the ID names the CLI instead.
-        const val PLUGIN_ID = "singularityflow.sflow"
-
         fun get(): SflowAppService = service()
 
-        fun pluginVersion(): String? = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version
+        /** This plugin's own version, from its descriptor (PluginManagerCore.getPlugin is internal from 262). */
+        fun pluginVersion(): String? =
+            (SflowAppService::class.java.classLoader as? PluginAwareClassLoader)?.pluginDescriptor?.version
     }
 }

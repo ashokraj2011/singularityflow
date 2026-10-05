@@ -15,6 +15,8 @@ version = providers.gradleProperty("pluginVersion").get()
 // Optional: an installed IDE to build, verify and run against instead of downloading one, e.g.
 // -PsflowLocalIde="/Applications/IntelliJ IDEA.app". It must be IntelliJ 2025.3 (build 253) or newer.
 val localIde = providers.gradleProperty("sflowLocalIde")
+// Optional: comma-separated installed or cached IDEs to verify against, instead of downloading the matrix.
+val verifyIdes = providers.gradleProperty("sflowVerifyIdes")
 
 kotlin {
     jvmToolchain(21)
@@ -49,7 +51,9 @@ intellijPlatform {
     }
     pluginVerification {
         ides {
-            if (localIde.isPresent) {
+            if (verifyIdes.isPresent) {
+                verifyIdes.get().split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { local(file(it)) }
+            } else if (localIde.isPresent) {
                 local(file(localIde.get()))
             } else {
                 create(IntelliJPlatformType.IntellijIdea, "2025.3.6.1")

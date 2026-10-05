@@ -6,12 +6,18 @@
  * uses the existing `extractClauses` parser. It never searches the repository, follows a caller-
  * supplied path, or repairs a malformed artifact. An unreadable or malformed artifact is reported
  * with its own state so a missing clause is never mistaken for a clause that does not exist.
+ *
+ * Each clause keeps the clauses its text cites (`dependsOn`), the links between clauses an
+ * explanation shows. A later phase's specification cites clauses an earlier artifact declares, so
+ * the reader accepts every cited ID as known: whether a citation resolves was checked when the
+ * artifact was published, against sources this reader does not see, and one it cannot resolve here
+ * shows as a clause not declared here rather than turning a valid artifact into a corrupt one.
  */
 import { stepResponsibilities } from '../../phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-import { extractClauses } from '../../specifications.mjs';
+import { clauseReferences, extractClauses } from '../../specifications.mjs';
 import { secureRepositoryPath } from '../../util.mjs';
 
 export const XPL2_CLAUSE_SOURCE_LIMITS = Object.freeze({
@@ -68,7 +74,8 @@ export async function readStoryClauseSources(root, workflow) {
     const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
     let parsed;
     try {
-      parsed = extractClauses(bytes.toString('utf8'), { sourcePath: candidate.path });
+      const text = bytes.toString('utf8');
+      parsed = extractClauses(text, { sourcePath: candidate.path, externalClauseIds: clauseReferences(text) });
     } catch {
       artifacts.push({ ...candidate, status: 'invalid', reason: 'integrity-failed', digest, clauses: [] });
       continue;
@@ -79,7 +86,8 @@ export async function readStoryClauseSources(root, workflow) {
       type: clause.type,
       line: clause.source?.line ?? null,
       body: clause.body,
-      bodySha256: clause.bodySha256
+      bodySha256: clause.bodySha256,
+      dependsOn: clause.dependsOn ?? []
     }));
     clauseCount += clauses.length;
     artifacts.push({

@@ -27,12 +27,30 @@ import {
   type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol
 } from './code-explainer-model.ts';
 import { CODE_EXPLAINER_SCRIPT, codeExplainerBody } from './code-explainer-page.ts';
+import { commandData } from './surface-adapters.ts';
 import { enumField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { navigateTo } from './navigate.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 
 /** A file and, from the editor, the line the person asked about. */
 export interface CodeExplainerFocus { path: string; line: number | null }
+
+/** The parts of an `explain code --repository` result the host resolves page requests against. */
+interface RepositoryExplanationView {
+  entries?: Array<{ path: string }>;
+  files?: Array<{ path: string; symbols?: Array<{ line: number }> }>;
+}
+
+/**
+ * A repository-relative folder or file the page may ask about: forward slashes, no `..`, no leading
+ * slash, no glob or control characters. Null for anything else; the CLI checks it again.
+ */
+export function repositoryScope(value: string | null): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().replace(/^\.\//u, '').replace(/\/+$/u, '');
+  if (!text || text.length > 512 || text.startsWith('/') || /[\\*?[\]{}]|[\u0000-\u001f\u007f]/u.test(text)) return null;
+  return text.split('/').some((part) => !part || part === '.' || part === '..') ? null : text;
+}
 
 /** The readiness gate count the status bar already shows for the selected Story. */
 export type GateCount = { met: number; total: number; unmet: number; outstanding: number };
@@ -112,6 +130,9 @@ export class CodeExplainerPanel {
   private generation = 0;
   private depth = 1;
   private request = 0;
+  private repositoryRequest = 0;
+  /** The repository explanation the page is showing; page requests resolve against it. */
+  private repositoryView: { scope: string | null; explanation: RepositoryExplanationView | null } | null = null;
   private lease: SliceLease | null = null;
   private renewal: ReturnType<typeof setInterval> | null = null;
   private storeSubscription: { dispose(): void } | null = null;
@@ -202,6 +223,27 @@ export class CodeExplainerPanel {
     'cx.changeExplorer': (message) => {
       if (this.accept(message, { allowStale: true })) void this.openChangeExplorer(stringField(message, 'symbol'), stringField(message, 'module'));
     },
+    'cx.repository': (message) => {
+      if (!this.accept(message, { allowStale: true })) return;
+      const to = enumField(message, 'to', ['root', 'up', 'refresh', 'entry'] as const);
+      const scope = this.repositoryView?.scope ?? null;
+      if (to === 'root') void this.loadRepository(null);
+      else if (to === 'refresh') void this.loadRepository(scope);
+      else if (to === 'up') void this.loadRepository(scope && scope.includes('/') ? scope.slice(0, scope.lastIndexOf('/')) : null);
+      else if (to === 'entry') {
+        // An entry of the explanation this host read, never a path the page names.
+        const entry = this.repositoryView?.explanation?.entries?.[integerField(message, 'index') ?? -1];
+        const target = repositoryScope(entry?.path ?? null);
+        if (target) void this.loadRepository(target);
+      }
+    },
+    'cx.repoOpen': (message) => {
+      if (!this.accept(message, { allowStale: true })) return;
+      const file = this.repositoryView?.explanation?.files?.[integerField(message, 'index') ?? -1];
+      const line = integerField(message, 'line');
+      const target = repositoryScope(file?.path ?? null);
+      if (target && line !== null && file?.symbols?.some((symbol) => symbol.line === line)) this.applyFocus({ path: target, line });
+    },
     'cx.story': (message) => {
       if (!this.accept(message, { allowStale: true })) return;
       const to = enumField(message, 'to', ['journey', 'approvals'] as const);
@@ -244,6 +286,26 @@ export class CodeExplainerPanel {
     if (symbol && symbol.callStatus === 'complete') { this.post({ type: 'cx.focus', symbol: symbol.id }); return; }
     this.focusPending = true;
     void this.build();
+  }
+
+  /**
+   * What the repository holds, from `explain code --repository`: the whole repository when its
+   * code fits the AST budget, otherwise one folder or file at a time, as the reader drills in.
+   */
+  private async loadRepository(scope: string | null): Promise<void> {
+    const request = ++this.repositoryRequest;
+    this.repositoryView = { scope, explanation: null };
+    this.post({ type: 'cx.repository', path: scope, loading: true });
+    try {
+      const result = await this.client.run<unknown>(['explain', 'code', '--repository', '--json', ...(scope ? ['--path', scope] : [])]);
+      if (request !== this.repositoryRequest) return;
+      const explanation = commandData<{ repository?: RepositoryExplanationView }>(result)?.repository ?? null;
+      this.repositoryView = { scope, explanation };
+      this.post({ type: 'cx.repository', path: scope, explanation });
+    } catch (error) {
+      if (request !== this.repositoryRequest) return;
+      this.post({ type: 'cx.repository', path: scope, error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   private renewLease(): void {

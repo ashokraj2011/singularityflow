@@ -244,6 +244,21 @@ export const CX_STYLE = `
   .cx-empty p { margin: 0; max-width: 34rem; }
 
   .cx-trace { overflow: auto; position: relative; min-height: 0; }
+  .cx-repo { overflow: auto; min-height: 0; padding: .8rem 1rem 2rem; display: grid; gap: 1rem; align-content: start; }
+  .cx-repo-summary { display: grid; gap: .25rem; font-size: 12px; color: var(--cx-dim); }
+  .cx-repo-summary strong { color: var(--cx-text); }
+  .cx-repo h3 { margin: 0 0 .4rem; font-family: var(--cx-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--cx-dim); }
+  .cx-repo-entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; }
+  #cx-root .cx-repo-entry { text-align: left; display: grid; justify-content: stretch; gap: .15rem; padding: .5rem .65rem; border: 1px solid var(--cx-line); border-radius: 6px; background: transparent; color: var(--cx-text); cursor: pointer; }
+  #cx-root .cx-repo-entry:hover, #cx-root .cx-repo-entry:focus-visible { border-color: var(--cx-changed); }
+  .cx-repo-entry small { color: var(--cx-dim); font-size: 11px; }
+  .cx-repo-file { display: grid; gap: .2rem; padding: .45rem 0; border-top: 1px solid var(--cx-line); }
+  .cx-repo-file .head { display: flex; gap: .5rem; align-items: baseline; font-family: var(--cx-mono); font-size: 12px; }
+  .cx-repo-file .head small { color: var(--cx-dim); font-family: inherit; }
+  .cx-repo-syms { display: flex; flex-wrap: wrap; gap: .3rem; }
+  #cx-root .cx-repo-sym { font-family: var(--cx-mono); font-size: 11.5px; border: 1px solid var(--cx-line); border-radius: 4px; padding: .1rem .45rem; background: transparent; color: var(--cx-text); cursor: pointer; }
+  #cx-root .cx-repo-sym:hover, #cx-root .cx-repo-sym:focus-visible { border-color: var(--cx-changed); }
+  .cx-repo-tag { font-size: 11.5px; color: var(--cx-dim); }
   .cx-trace-summary { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; align-items: center; padding: .55rem .9rem; border-bottom: 1px solid var(--cx-line); font-family: var(--cx-mono); font-size: 11.5px; color: var(--cx-dim); }
   .cx-trace-summary strong { color: var(--cx-text); }
   .cx-trace-grid { position: relative; display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 0 44px; padding: 1rem 1rem 2rem; min-width: 860px; }
@@ -261,6 +276,7 @@ export const CX_STYLE = `
   .cx-trace-links path { fill: none; stroke: var(--cx-edge); stroke-width: 1.4; }
   .cx-trace-links path.tag { stroke: var(--cx-test); }
   .cx-trace-links path.region { stroke: var(--cx-caller); stroke-dasharray: 4 3; }
+  .cx-trace-links path.declared { stroke: var(--cx-test); stroke-dasharray: 1.5 3; }
   .cx-trace-links path.reference { stroke: var(--cx-callee); }
   .cx-trace-links path.lit { stroke-width: 2.4; }
   .cx-trace-links path.dim { opacity: .12; }
@@ -331,6 +347,7 @@ export function codeExplainerBody(token: string): string {
       <button class="cx-tab" type="button" role="tab" id="cx-tab-graph" data-tab="graph" aria-selected="true" aria-controls="cx-view-graph">Dependency graph <span class="cx-count" id="cx-count-graph">0</span></button>
       <button class="cx-tab" type="button" role="tab" id="cx-tab-trace" data-tab="trace" aria-selected="false" aria-controls="cx-view-trace" tabindex="-1">Requirement → test trace <span class="cx-count" id="cx-count-trace">0</span></button>
       <button class="cx-tab" type="button" role="tab" id="cx-tab-walk" data-tab="walk" aria-selected="false" aria-controls="cx-view-walk" tabindex="-1">Walkthrough <span class="cx-count" id="cx-count-walk">0</span></button>
+      <button class="cx-tab" type="button" role="tab" id="cx-tab-repo" data-tab="repo" aria-selected="false" aria-controls="cx-view-repo" tabindex="-1">Repository <span class="cx-count" id="cx-count-repo"></span></button>
       <div class="cx-legend" aria-hidden="true"><span><i class="cx-dot changed"></i>Changed</span><span><i class="cx-dot caller"></i>Caller</span><span><i class="cx-dot callee"></i>Callee</span><span><i class="cx-dot test"></i>Test</span><span><i class="cx-dot external"></i>External</span></div>
     </nav>
     <div class="cx-main" id="cx-main">
@@ -370,6 +387,12 @@ export function codeExplainerBody(token: string): string {
         <section class="cx-view" id="cx-view-walk" role="tabpanel" aria-labelledby="cx-tab-walk" hidden>
           <div class="cx-toolbar"><span class="cx-label">Read the change in call order · <b>J</b>/<b>K</b> or ←/→ to move</span></div>
           <div class="cx-walk" id="cx-walk"></div>
+        </section>
+        <section class="cx-view" id="cx-view-repo" role="tabpanel" aria-labelledby="cx-tab-repo" hidden>
+          <div class="cx-toolbar"><span class="cx-label" id="cx-repo-scope">What the repository holds</span><span class="cx-spacer"></span>
+            <button class="cx-filter" type="button" data-action="repo-up" title="Back to the enclosing folder">Up</button>
+            <button class="cx-filter" type="button" data-action="repo-refresh" title="Explain this scope again">Refresh</button></div>
+          <div class="cx-repo" id="cx-repo"></div>
         </section>
       </div>
       <div class="cx-splitter" id="cx-splitter" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0"></div>
@@ -1040,7 +1063,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         row.appendChild(el('span', 'nm', symbol.qualifiedName + (symbol.kind === 'function' || symbol.kind === 'method' || symbol.kind === 'constructor' ? '()' : '')));
         const meta = el('span', 'meta');
         if (symbol.tests.length) { const tag = el('span', 'cx-tag t-test', 'TEST ' + symbol.tests.length); tag.title = 'Test files that refer to it'; meta.appendChild(tag); }
-        if (symbol.clauses.length && symbol.status !== 'unchanged') { const tag = el('span', 'cx-tag t-req', 'REQ'); tag.title = 'Requirement associated with this file\'s change'; meta.appendChild(tag); }
+        if (symbol.tags.length) { const tag = el('span', 'cx-tag t-req', 'REQ'); tag.title = 'Its @clause comment names ' + symbol.tags.map(function (entry) { return entry.clause; }).join(', '); meta.appendChild(tag); }
+        else if (symbol.clauses.length && symbol.status !== 'unchanged') { const tag = el('span', 'cx-tag t-req', 'REQ'); tag.title = 'Requirement associated with this file\'s change'; meta.appendChild(tag); }
         if (symbol.status === 'added') meta.appendChild(el('span', 'cx-tag t-new', 'NEW'));
         if (symbol.status === 'removed') meta.appendChild(el('span', 'cx-tag t-gone', 'GONE'));
         if (symbol.added || symbol.removed) meta.appendChild(delta(symbol.added, symbol.removed));
@@ -1372,6 +1396,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (symbol.status === 'removed') badges.appendChild(chip('Removed', 'bad'));
     if (symbol.status === 'unchanged') badges.appendChild(chip('Unchanged', 'dim'));
     if (symbol.tests.length) badges.appendChild(chip(symbol.tests.length + ' test reference' + (symbol.tests.length === 1 ? '' : 's'), 'warn'));
+    symbol.tags.forEach(function (tag) { badges.appendChild(chip('@clause ' + tag.clause, 'ok')); });
     symbol.clauses.forEach(function (clause) { badges.appendChild(chip(clause, 'info')); });
     inspector.appendChild(badges);
     inspector.appendChild(actionsFor(symbol));
@@ -1442,6 +1467,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     badges.appendChild(chip(module.language, 'dim'));
     badges.appendChild(chip(module.status, module.status === 'added' ? 'ok' : module.status === 'deleted' ? 'bad' : module.status === 'modified' ? 'warn' : 'dim'));
     if (module.added || module.removed) badges.appendChild(chip('+' + module.added + ' −' + module.removed, 'warn'));
+    module.tagged.forEach(function (clause) { badges.appendChild(chip('@clause ' + clause, 'ok')); });
     module.clauses.forEach(function (clause) { badges.appendChild(chip(clause, 'info')); });
     inspector.appendChild(badges);
     const actions = el('div', 'cx-ins-actions');
@@ -1499,6 +1525,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const summary = el('div', 'cx-trace-summary');
     const add = function (value, label) { const span = el('span'); span.appendChild(el('strong', '', value)); span.appendChild(document.createTextNode(' ' + label)); summary.appendChild(span); };
     add(trace.counts.requirements, 'requirements');
+    add(trace.counts.declared, 'named by @clause tags');
     add(trace.counts.tagged, 'tagged by tests');
     add(trace.counts.gaps, 'without a test tag');
     add(trace.code.length, 'changed files');
@@ -1561,9 +1588,12 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         id.appendChild(chip(requirement.status === 'tagged' ? 'tagged' : requirement.gap ? 'gap' : 'declared', requirement.status === 'tagged' ? 'ok' : requirement.gap ? 'warn' : 'dim'));
         node.appendChild(id);
         if (requirement.text) node.appendChild(el('span', 'tx', requirement.text));
+        requirement.notes.forEach(function (entry) { node.appendChild(el('span', 'sym', '✎ ' + entry.path + ':' + entry.line + ' — ' + entry.note)); });
+        requirement.cites.forEach(function (id) { node.appendChild(el('span', 'sym', 'cites ' + id)); });
+        requirement.citedBy.forEach(function (id) { node.appendChild(el('span', 'sym', 'cited by ' + id)); });
         if (requirement.gap) node.appendChild(el('span', 'tx', '⚠ ' + requirement.gap));
       });
-      requirement.modules.forEach(function (m) { links.push({ from: 'r:' + requirement.id, to: 'c:' + m, kind: 'region' }); });
+      requirement.modules.forEach(function (m) { links.push({ from: 'r:' + requirement.id, to: 'c:' + m, kind: requirement.declaredIn.indexOf(m) >= 0 ? 'declared' : 'region' }); });
     });
     if (!requirements.length) reqCol.appendChild(el('p', 'cx-muted', trace.available ? (gapsOnly ? 'No requirement gaps.' : 'No requirement clauses were read for this change.') : (trace.reason || 'Unavailable.')));
     const codeCol = column('Changed code', trace.code.length);
@@ -1605,7 +1635,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     });
     if (!trace.runs.length) runCol.appendChild(el('p', 'cx-muted', 'No test run is recorded for this phase generation.'));
     holder.appendChild(grid);
-    holder.appendChild(el('p', 'cx-trace-note', 'Requirement → file is the change region\'s association (file level). Requirement → test is a declared tag. File → test means a test file refers to a changed function. None of these is proof of coverage.'));
+    holder.appendChild(el('p', 'cx-trace-note', 'Requirement → file is a @clause comment in the file (dotted) or the change region\'s recorded association (dashed), both at file level. Requirement → test is a declared @ac tag. File → test means a test file refers to a changed function. "cites" is the specification text of one requirement naming another. None of these is proof of coverage.'));
     requestAnimationFrame(function () {
       const origin = grid.getBoundingClientRect();
       linksSvg.setAttribute('width', String(grid.scrollWidth));
@@ -1621,6 +1651,121 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         linksSvg.appendChild(svg('path', { d: edgePath(x1, y1, x2, y2), class: link.kind + (lit ? (on ? ' lit' : ' dim') : '') }));
       });
     });
+  }
+
+  // ---- Repository --------------------------------------------------------------------------
+  // What the repository holds (explain code --repository): one scope at a time, the whole
+  // repository when it fits the AST budget, otherwise a folder or file the reader picks.
+  const repo = { path: null, explanation: null, loading: false, error: null };
+  // The host resolves every request against the explanation it read: an entry by its index, never
+  // a path named here.
+  function askRepository(to, index) {
+    repo.error = null;
+    // Requests carry the model they were made from; until the first view arrives, wait for it.
+    repo.loading = Boolean(model);
+    if (model) post('cx.repository', index === undefined ? { to: to } : { to: to, index: index });
+    renderRepo();
+  }
+  function sizeLabel(bytes) {
+    if (typeof bytes !== 'number') return '';
+    return bytes < 1024 ? bytes + ' B' : bytes < 1048576 ? (bytes / 1024).toFixed(1) + ' KiB' : (bytes / 1048576).toFixed(1) + ' MiB';
+  }
+  function renderRepo() {
+    const holder = $('cx-repo');
+    holder.replaceChildren();
+    $('cx-repo-scope').textContent = repo.path ? 'Scope: ' + repo.path : 'What the repository holds';
+    const up = root.querySelector('[data-action="repo-up"]');
+    if (up) up.disabled = !repo.path;
+    if (repo.loading) { holder.appendChild(el('p', 'cx-muted', 'Reading the repository…')); return; }
+    if (repo.error) {
+      const empty = el('div', 'cx-empty');
+      empty.appendChild(el('h2', '', 'The repository could not be explained'));
+      empty.appendChild(el('p', '', repo.error));
+      holder.appendChild(empty);
+      return;
+    }
+    const data = repo.explanation;
+    if (!data) { holder.appendChild(el('p', 'cx-muted', 'Nothing has been read yet.')); return; }
+    $('cx-count-repo').textContent = data.counts && data.counts.files != null ? String(data.counts.files) : '';
+    const summary = el('div', 'cx-repo-summary');
+    const budget = data.budget;
+    const line = function (strong, rest) { const p = el('div'); p.appendChild(el('strong', '', strong)); p.appendChild(document.createTextNode(' ' + rest)); summary.appendChild(p); };
+    if (budget.status === 'over-budget') {
+      line((budget.files == null ? 'More' : budget.files) + ' application files', 'exceed the AST budget of ' + budget.maxFiles + ' files and ' + sizeLabel(budget.maxBytes) + ', so this scope is explained a folder or file at a time. Pick one below; nothing is indexed until you do.');
+    } else {
+      line(budget.files + ' application file' + (budget.files === 1 ? '' : 's'), sizeLabel(budget.bytes) + ', within the AST budget of ' + budget.maxFiles + ' files and ' + sizeLabel(budget.maxBytes) + '.');
+      const index = data.index || {};
+      if (index.status === 'disabled') line('Declarations', 'are not listed: structural intelligence (AST) is off.');
+      else if (index.counts) line(index.counts.symbols + ' declaration' + (index.counts.symbols === 1 ? '' : 's'),
+        'from ' + index.counts.indexedFiles + ' indexed file(s)' + (index.counts.workingTreeFiles ? ' and ' + index.counts.workingTreeFiles + ' read from the working tree' : '')
+        + (index.counts.notIndexedFiles ? '; ' + index.counts.notIndexedFiles + ' not indexed' : '')
+        + (index.warm && index.warm.mode === 'background' && index.warm.status === 'complete' ? '; indexed in the background when the workspace was set up' : '') + '.');
+    }
+    if (data.hiddenSingularityFiles) line(String(data.hiddenSingularityFiles), 'Singularity Flow files are not code and are not shown.');
+    holder.appendChild(summary);
+    if (data.entries.length) {
+      const section = el('section');
+      section.appendChild(el('h3', '', data.scope.kind === 'repository' ? 'Folders and files' : 'Inside ' + data.scope.path));
+      const grid = el('div', 'cx-repo-entries');
+      data.entries.forEach(function (entry, entryIndex) {
+        const button = el('button', 'cx-repo-entry');
+        button.type = 'button';
+        button.dataset.action = 'repo-scope';
+        button.dataset.index = String(entryIndex);
+        button.appendChild(el('strong', '', entry.path + (entry.kind === 'folder' ? '/' : '')));
+        button.appendChild(el('small', '', (entry.kind === 'folder' ? entry.files + ' file' + (entry.files === 1 ? '' : 's') + ' · ' : '')
+          + entry.languages.map(function (item) { return item.language + ' ' + item.files; }).join(' · ') + (entry.tests ? ' · ' + entry.tests + ' test' : '')));
+        button.title = 'Explain ' + entry.path;
+        grid.appendChild(button);
+      });
+      section.appendChild(grid);
+      if (data.entriesTotal > data.entries.length) section.appendChild(el('p', 'cx-muted', (data.entriesTotal - data.entries.length) + ' more entries are counted, not shown.'));
+      holder.appendChild(section);
+    }
+    const described = (data.files || []).map(function (file, fileIndex) { return { file: file, index: fileIndex }; })
+      .filter(function (item) { return item.file.symbols.length || item.file.tags.length; });
+    if (described.length) {
+      const section = el('section');
+      section.appendChild(el('h3', '', 'Code'));
+      described.slice(0, 200).forEach(function (item) {
+        const file = item.file;
+        const row = el('div', 'cx-repo-file');
+        const head = el('div', 'head');
+        head.appendChild(el('span', '', file.path));
+        head.appendChild(el('small', '', file.language + ' · ' + sizeLabel(file.bytes) + (file.test ? ' · test' : '')));
+        row.appendChild(head);
+        if (file.symbols.length) {
+          const syms = el('div', 'cx-repo-syms');
+          file.symbols.forEach(function (symbol) {
+            const chipButton = el('button', 'cx-repo-sym', symbol.kind + ' ' + symbol.name);
+            chipButton.type = 'button';
+            chipButton.dataset.action = 'repo-open';
+            chipButton.dataset.index = String(item.index);
+            chipButton.dataset.line = String(symbol.line);
+            chipButton.title = 'Explain ' + symbol.name + ' (line ' + symbol.line + '): its callers, what it calls and its tests';
+            syms.appendChild(chipButton);
+          });
+          if (file.symbolCount > file.symbols.length) syms.appendChild(el('span', 'cx-repo-tag', (file.symbolCount - file.symbols.length) + ' more'));
+          row.appendChild(syms);
+        }
+        file.tags.forEach(function (tag) {
+          row.appendChild(el('span', 'cx-repo-tag', '@' + tag.tag + ' ' + tag.clauseId + ' at line ' + tag.line + (tag.note ? ': “' + tag.note + '”' : '')));
+        });
+        section.appendChild(row);
+      });
+      holder.appendChild(section);
+    }
+    if ((data.clauses || []).length) {
+      const section = el('section');
+      section.appendChild(el('h3', '', 'Clauses tagged in code and tests'));
+      data.clauses.forEach(function (clause) {
+        const code = clause.code.map(function (entry) { return entry.path + ':' + entry.line; }).join(', ') || 'no code';
+        const tests = clause.tests.map(function (entry) { return entry.path + ':' + entry.line; }).join(', ') || 'no test';
+        section.appendChild(el('p', 'cx-repo-tag', clause.clauseId + ' — code: ' + code + ' · tests: ' + tests));
+      });
+      holder.appendChild(section);
+    }
+    holder.appendChild(el('p', 'cx-muted', 'A declaration is what the AST index records; a tag is the author\'s declaration. Neither shows behavior or coverage.'));
   }
 
   // ---- Walkthrough -------------------------------------------------------------------------
@@ -1713,12 +1858,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     $('cx-main').classList.toggle('walk-mode', tab === 'walk');
     if (tab === 'walk' && model && model.walkthrough.indexOf(view.selected) >= 0) view.walk = model.walkthrough.indexOf(view.selected);
     save();
-    ['graph', 'trace', 'walk'].forEach(function (name) {
+    ['graph', 'trace', 'walk', 'repo'].forEach(function (name) {
       $('cx-view-' + name).hidden = name !== tab;
       const tabButton = $('cx-tab-' + name);
       tabButton.setAttribute('aria-selected', String(name === tab));
       tabButton.tabIndex = name === tab ? 0 : -1;
     });
+    if (tab === 'repo') { if (!repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root'); else renderRepo(); }
     if (!model) return;
     if (tab === 'graph') { renderGraph(false); }
     if (tab === 'trace') renderTrace();
@@ -1761,6 +1907,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       if (message.focus && model.byId[message.focus]) { view.selected = message.focus; view.selectedModule = null; view.selectedEdge = null; }
       else if (!view.selected && !view.selectedModule && model.focus) view.selected = model.focus;
       render(fresh);
+      // With no change to explain, the repository itself is what there is to read.
+      if (fresh && model.change.status === 'empty' && !model.focus && view.tab !== 'repo') setTab('repo');
+      else if (view.tab === 'repo' && !repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root');
       if (message.focus && model.byId[message.focus]) { const symbol = model.byId[message.focus]; const rows = moduleRows(model, model.moduleById[symbol.moduleId], view).rows; centreOn(symbol.moduleId, rows.findIndex(function (row) { return row.id === symbol.id; })); }
       save();
     } else if (message.type === 'cx.progress') {
@@ -1775,6 +1924,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       showNotice(String(message.text || ''), message.tone);
     } else if (message.type === 'cx.focus') {
       if (model && model.byId[message.symbol]) { setTab('graph'); select(message.symbol, true); }
+    } else if (message.type === 'cx.repository') {
+      // The host names the scope it is reading; the page only shows it.
+      repo.path = message.path || null;
+      repo.loading = message.loading === true;
+      repo.explanation = repo.loading ? null : message.explanation || null;
+      repo.error = repo.loading ? null : message.error || null;
+      if (view.tab === 'repo') renderRepo();
     } else if (message.type === 'cx.empty') {
       root.dataset.loading = 'false';
       const context = $('cx-context');
@@ -1945,6 +2101,10 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       case 'minimap': view.minimap = !view.minimap; action.setAttribute('aria-pressed', String(view.minimap)); save(); renderMinimap(); break;
       case 'outline': view.outline = !view.outline; $('cx-main').classList.toggle('no-outline', !view.outline); action.setAttribute('aria-pressed', String(view.outline)); save(); break;
       case 'gaps': view.gapsOnly = !view.gapsOnly; action.setAttribute('aria-pressed', String(view.gapsOnly)); save(); renderTrace(); break;
+      case 'repo-up': if (repo.path) askRepository('up'); break;
+      case 'repo-refresh': askRepository('refresh'); break;
+      case 'repo-scope': askRepository('entry', Number(action.dataset.index)); break;
+      case 'repo-open': setTab('graph'); post('cx.repoOpen', { index: Number(action.dataset.index), line: Number(action.dataset.line) }); break;
     }
   });
 
@@ -1973,8 +2133,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const key = event.key;
     if (key === '/') { search.focus(); search.select(); event.preventDefault(); return; }
     if (event.target.closest('[role="tab"]') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
-      const order = ['graph', 'trace', 'walk'];
-      const next = order[(order.indexOf(view.tab) + (key === 'ArrowRight' ? 1 : 2)) % 3];
+      const order = ['graph', 'trace', 'walk', 'repo'];
+      const next = order[(order.indexOf(view.tab) + (key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
       setTab(next);
       $('cx-tab-' + next).focus();
       event.preventDefault();

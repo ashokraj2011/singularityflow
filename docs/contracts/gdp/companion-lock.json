@@ -4,11 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "2e2b3ecc46d4b1eb5228efbbddb7a6ff7ed9d446",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-WORKFLOW-BUNDLE-V4.md",
+    "reviewedAtCommit": "27298580e6149fd008d23298ee6770e88fae9a5f",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-SKILL-MASTER.md",
     "companionIds": [
-      "candidate-custody",
       "migration-registry",
+      "smart-initialization-v1",
       "workflow-configuration"
     ]
   },
@@ -16,7 +16,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:e5b3f3c84c06b2b0312eb38e1f97672a7c572516acc1314ac028fba5a506ac44"
+      "sha256": "sha256:dd5b183194d047e60a02268e66d6e75640ca88bf1a1b661711056647dd983794"
     },
     {
       "id": "sgos-portable-schema",
@@ -101,12 +101,12 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:b5411b0bd0267af28e8545c3e82dd2ea39d2151d7e3b8a15a74d8dc7c9d45c14"
+      "sha256": "sha256:c54dcba9a46bc6386b4abfe7e8d32647354eccd96f8f659675e4f87dd0fcb8e7"
     },
     {
       "id": "smart-initialization-v1",
       "path": "src/initialization/proposal.mjs",
-      "sha256": "sha256:ba9b3bb95a0974a42bf42161c26f78f4389a3f2a43343bffb7091af9e868f3a6"
+      "sha256": "sha256:1701ccd4b2c0bae3543916d594d640402a7d14d504d01867ed631a66cb0da208"
     }
   ]
 }

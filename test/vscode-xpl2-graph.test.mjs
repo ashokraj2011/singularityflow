@@ -185,7 +185,7 @@ test('XPL2-AC-050 First release without WEL, PE, AST cache or causes still suppo
   const html = renderExplorer(view, { patch: slice.diff.patch, patchFiles: slice.diff.files, timeline: slice.replay?.events ?? null });
   // Inventory: every changed resource, with no intent invented for it.
   for (const file of view.inventory.files) assert.ok(html.includes(`<strong>${shown(file.path)}</strong>`), file.path);
-  assert.match(html, /No clause is named by a recorded association or delivery record\./u);
+  assert.match(html, /No clause is named by a tag in the changed files, a recorded association or a delivery record\./u);
   assert.match(html, /Also changed \(3\)/u);
   // Diff: the first text hunk has an exact before/after preview and the native diff action.
   const first = view.inventory.units.find((unit) => unit.hunk);

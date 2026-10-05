@@ -83,7 +83,7 @@ async function releaseBundle(t, options = {}) {
 
 test('export carries every dependent object, including groups and reviewers only a decision, exception or source review names', async (t) => {
   const { source, bundle } = await releaseBundle(t);
-  assert.equal(bundle.schemaVersion, 4);
+  assert.equal(bundle.schemaVersion, 5);
   assert.deepEqual(Object.keys(bundle.objects.story.approvalAuthorities).sort(),
     ['architecture-reviewers', 'product-approvers', 'release-leads', 'release-managers']);
   assert.deepEqual(bundle.assets.filter((asset) => asset.kind === 'agent').map((asset) => asset.id).sort(),

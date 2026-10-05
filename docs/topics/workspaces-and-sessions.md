@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 9
+version: 10
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -153,6 +153,8 @@ with `session candidates --json --diagnostics`. Progress absent from durable evi
 is reported as unavailable, not estimated by chat.
 
 To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
+
+Once a repository is in place, creation, adoption and repair queue a background index of its application code when that code fits the AST budget, so `sflow explain code --repository` can explain the whole repository from the start; the JSON result reports it as `codeIndex`. A larger repository is explained one folder at a time on request. The index never delays or fails the workspace operation.
 
 `sflow workspace doctor` checks local prerequisites and unfinished setup records without contacting remotes. `--network` explicitly enables remote checks. Enterprise proxy and CA diagnostics expose configuration source names only, never URLs, paths, or credential material. If pre-Story initialization creates a local commit whose push is interrupted, inspect it with `sflow push status` and retry with `sflow push retry <INTENT-ID>`; retry first reads the destination ref and never force-pushes.
 

@@ -24,7 +24,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 5
+version: 8
 ---
 ## Purpose and prerequisites
 
@@ -35,10 +35,16 @@ command once, and relays its result without reading or summarizing source files 
 Run it from a selected Git repository. A ready Story session improves the available grounding but
 the computed layer remains explicit about every unavailable join.
 
+Explanations cover application code only. Singularity Flow's own files (`singularity/`,
+`.github/agents/`, every root `singularity/workflow.yml` configures, and `.singularity-flow/`
+state such as Story worktrees) are never shown as changes. They are counted instead: the headline
+says how many were left out, and the JSON reports them under `scope`.
+
 ## Use it from each surface
 
 - **Shell:** `singularity-flow explain code --json`, optionally with one exact `--hunk`, `--symbol`,
-  `--clause`, or `--since` selector.
+  `--clause`, or `--since` selector. `singularity-flow explain code --repository [--path DIR] --json`
+  explains what the repository, or one folder or file of it, holds.
 - **Copilot:** `/sf-explain-code` resolves the governed repository boundary and relays the same
   computed result. Model narration is separate and optional.
 - **VS Code:** the extension renders the engine result and does not manufacture missing impact or
@@ -90,6 +96,20 @@ lineage.
 Review the computed records first. Request narration only when an advisory reader-facing summary is
 useful, and keep the computed IDs visible so every accepted sentence remains traceable.
 
+## Explain the whole repository
+
+`singularity-flow explain code --repository` lists the application code a repository holds:
+- its folders, with file counts, languages and test files;
+- each file's declarations from the AST index;
+- every `@clause` and `@ac` tag, and the clauses those tags name.
+
+When a workspace clones, adopts or repairs a repository whose code fits the AST budget
+(`ast.budgets`, 500 files and 20 MiB by default), it indexes that code in the background, so the
+explanation is ready from the start. A larger repository is explained one folder or file at a time:
+the answer lists its folders, and `--path <folder>` explains and indexes just that scope on request.
+Files that differ from HEAD are read from the working tree. Only the local, disposable AST cache is
+ever written.
+
 ## Ask one exact question with `--subject`
 
 ```text
@@ -105,7 +125,15 @@ Each subject view is built from the same leased capture as `explain code`. Every
 registered template over typed arguments and cites admitted sources or the read observation that
 found something absent; `not recorded`, `disabled`, `unavailable` and `not applicable` stay
 distinct. A region-level association is never shown as hunk-level, a declared test tag is a mapping,
-not coverage, and no test-to-clause-to-code join is inferred. `--for reviewer|auditor|developer`
+not coverage, and no test-to-clause-to-code join is inferred.
+
+The change and clause views show how a change links to the Story's clauses as soon as the code is
+written: a `@clause:NS:REQ-001` comment in changed code (the text after the ID is the author's note
+on how the code meets it), an `@ac:NS:AC-001` comment in a changed test, and a clause whose
+specification text names another clause. Each tag says whether this change wrote it. Ask
+`--subject clause --id NS:REQ-001` to see the clause's text, the clauses it cites and that cite it,
+and the code and tests that tag it. A tag is the author's declaration, not proof that the code
+meets the clause. `--for reviewer|auditor|developer`
 reorders and folds statements without changing the set or its hashes. Output is bounded to 64 KiB by
 default; a bounded page says so and keeps the full counts. Unknown subjects are refused, never sent
 to the documentation search. `--narrate` is not offered for subjects in this release.
@@ -140,6 +168,9 @@ security, privacy, and the deferred authority prerequisites.
 - If the Change Explorer says the snapshot changed, refresh it; it never mixes two captures.
 - If right-click menus have no **Singularity Flow** entry, no governed repository is selected in
   this window yet. Open the Singularity Flow sidebar or choose a workspace, and the menus appear.
+- If `--repository` says the code is over the AST budget, ask about one folder with `--path`, or raise
+  `ast.budgets` in `singularity/workflow.yml` when indexing the whole repository is acceptable.
+- If `--repository` lists no declarations, check that AST is not `off` (`sflow wm ast doctor`).
 
 ## Related topics
 

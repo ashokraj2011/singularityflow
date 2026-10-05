@@ -646,7 +646,7 @@ async function runMain(argv) {
   // without an explicit Story and phase cannot accidentally select an active workspace first.
   if (definition.name === 'skill') {
     const { validateSkillRequest } = await import('./commands/skill.mjs');
-    validateSkillRequest({ positionals, options });
+    await validateSkillRequest({ positionals, options });
   }
   if (definition.name === 'workflow' && positionals[1] === 'author') {
     const { validateWorkflowAuthorRequest } = await import('./commands/workflow-author.mjs');

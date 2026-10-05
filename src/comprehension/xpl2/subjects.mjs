@@ -101,8 +101,8 @@ function presentationFor(model, selection) {
       .sort((left, right) => (unitOrder.get(left.about) ?? 0) - (unitOrder.get(right.about) ?? 0))
       .map((entry) => entry.id)
   ];
-  const intent = byKind(['clause-declared', 'clause-required', 'clause-untagged', 'region-association']);
-  const checks = byKind(['test-tag', 'test-result', 'gap-observed', 'no-complete-evaluation']);
+  const intent = byKind(['clause-declared', 'clause-cites', 'clause-required', 'clause-untagged', 'clause-tag', 'region-association']);
+  const checks = byKind(['test-tag', 'acceptance-tag', 'test-result', 'gap-observed', 'no-complete-evaluation']);
   const limits = byKind(['admission-unavailable', 'feature-state', 'source-state', 'cause-not-recorded', 'provenance-unavailable']);
   const history = byKind(['generation-recorded']);
   const unique = (ids) => [...new Set(ids)];
@@ -118,11 +118,11 @@ function presentationFor(model, selection) {
     // The deterministic "Read this change" tour [XPL2 13.1]: purpose, changed units, links,
     // recorded checks, then blockers and unknowns. No model is involved.
     walkthrough: unique([
-      ...byKind(['clause-declared']),
+      ...byKind(['clause-declared', 'clause-cites']),
       ...byKind(['change-inventory']),
       ...byKind(['hunk', 'opaque-unit']).slice(0, 12),
       ...byKind(['file-type', 'mode-change']),
-      ...byKind(['region-association', 'test-tag']),
+      ...byKind(['clause-tag', 'region-association', 'acceptance-tag', 'test-tag']),
       ...byKind(['test-result']),
       ...attentionStatements
     ])

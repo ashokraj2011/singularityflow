@@ -37,6 +37,7 @@ import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
 import { mcpDescriptorPath } from './mcp-descriptor.mjs';
+import { librarySkillPath, loadSkillLibrary, parseLibrarySkill } from './skill-library.mjs';
 import {
   CATALOG_SUBJECTS, RESOLVE_ALL_CHOICES, catalogSubjectKind, nameCandidates, normalizeResolutions, parseSubject,
   pickResolution, renameBundleSubjects, renameRefusal, subjectChoices, subjectNoun, suggestedAction
@@ -719,6 +720,7 @@ function summarizeBundle(bundle) {
     agentLocks: Object.keys(bundle.agentLocks ?? {}).length,
     templates: bundle.assets.filter((asset) => asset.kind === 'template').length,
     vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').length,
+    skills: bundle.assets.filter((asset) => asset.kind === 'skill').length,
     importRecords: Object.keys(bundle.imports ?? {}).length,
     assets: bundle.assets.length,
     skillPackages: bundle.skillPackages?.length ?? 0,
@@ -741,6 +743,7 @@ function dependencyInventory(bundle) {
     agents: bundle.assets.filter((asset) => asset.kind === 'agent').map((asset) => asset.id).sort(),
     agentLocks: Object.keys(bundle.agentLocks ?? {}).sort(),
     vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').map((asset) => asset.path).sort(),
+    skills: bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id).sort(),
     importRecords: Object.keys(bundle.imports ?? {}).sort(),
     approvalAuthorities: [
       ...objectIds('story', 'approvalAuthorities').map((id) => `story:${id}`),
@@ -1017,6 +1020,25 @@ function validateVendoredCopies(bundle, storedVersion) {
       fail(`Workflow bundle import record '${key}' does not describe a file the bundle carries.`,
         'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
     }
+  }
+}
+
+/**
+ * Every skill a carried agent attaches travels with it, and no other skill does. A bundle older
+ * than v5 carries no skills, so its agents' attachments must already be in the target.
+ */
+function validateCarriedSkills(bundle, agents, storedVersion) {
+  if (storedVersion < 5) return;
+  const carried = new Set(bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id));
+  const attached = new Set();
+  for (const agent of agents.values()) {
+    for (const entry of agent.librarySkills ?? []) {
+      attached.add(entry.id);
+      if (!carried.has(entry.id)) fail(`Workflow bundle agent '${agent.id}' attaches skill '${entry.id}', which the bundle does not carry.`, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+    }
+  }
+  for (const id of carried) {
+    if (!attached.has(id)) fail(`Workflow bundle carries skill '${id}', which no carried agent attaches.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
   }
 }
 
@@ -1316,6 +1338,20 @@ async function buildBundle(root, workflowIds) {
       pushAsset(vendoredAsset(relative, bytes, { kind: 'agent', id: agentId }));
     }
   }
+  // Skills from the skill master travel with the agents that attach them, once each.
+  const attachedSkillIds = new Set(discovered.filter((agent) => dependencies.agents.has(agent.id))
+    .flatMap((agent) => (agent.librarySkills ?? []).map((entry) => entry.id)));
+  for (const skillId of [...attachedSkillIds].sort()) {
+    const relative = librarySkillPath(skillId);
+    const secured = await secureRepositoryPath(sourceRoot, relative, { label: `Skill '${skillId}'`, type: 'file' });
+    if (!secured.exists) fail(`An exported agent attaches skill '${skillId}', which is not in the skill master.`, 'WORKFLOW_DEPENDENCY_MISSING');
+    const content = await readFile(secured.absolute, 'utf8');
+    parseLibrarySkill(content, { id: skillId });
+    pushAsset({
+      kind: 'skill', id: skillId, path: relative, mediaType: 'text/markdown; charset=utf-8',
+      size: Buffer.byteLength(content, 'utf8'), sha256: digest(content), content
+    });
+  }
   for (const serverId of Object.keys(objects.story.mcpServers)) {
     const relative = mcpDescriptorPath(serverId);
     const secured = await secureRepositoryPath(sourceRoot, relative, {
@@ -1444,7 +1480,8 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   let total = 0;
   const identities = new Set();
   const agents = new Map();
-  const assetKinds = storedVersion > 3 ? ['template', 'agent', 'vendored'] : ['template', 'agent'];
+  const assetKinds = storedVersion > 4 ? ['template', 'agent', 'vendored', 'skill']
+    : storedVersion > 3 ? ['template', 'agent', 'vendored'] : ['template', 'agent'];
   for (const asset of raw.assets) {
     if (!plainObject(asset) || !assetKinds.includes(asset.kind)
         || typeof asset.content !== 'string' || typeof asset.sha256 !== 'string'
@@ -1460,6 +1497,13 @@ async function validateBundle(raw, { importedHere = null } = {}) {
     if (asset.kind === 'agent' && (!ID.test(asset.id ?? '')
         || asset.path !== `.github/agents/${asset.id}.agent.md`)) {
       fail(`Workflow bundle agent path is not canonical: ${asset.path}`);
+    }
+    if (asset.kind === 'skill') {
+      if (!ID.test(asset.id ?? '') || asset.path !== librarySkillPath(asset.id)) {
+        fail(`Workflow bundle skill path is not canonical: ${asset.path}`);
+      }
+      try { parseLibrarySkill(asset.content, { id: asset.id }); }
+      catch (error) { fail(`Workflow bundle skill '${asset.id}' is not a valid skill: ${error.message}`); }
     }
     if (asset.kind === 'template') {
       if (!['story', 'initiative'].includes(asset.governs)
@@ -1512,6 +1556,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   }
   validateBundleClosure(raw, agents, storedVersion, importedHere);
   validateVendoredCopies(raw, storedVersion);
+  validateCarriedSkills(raw, agents, storedVersion);
   validateSkillPackages(raw, storedVersion);
 
   const workflowIdentities = new Set();
@@ -1604,7 +1649,7 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (['agent', 'vendored', 'skill-package-file'].includes(asset.kind)) return asset.path;
+  if (['agent', 'vendored', 'skill', 'skill-package-file'].includes(asset.kind)) return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -1871,6 +1916,7 @@ function assetSubject(asset, relative) {
   if (asset.kind === 'agent') return subjectRef('agent', asset.id);
   if (asset.kind === 'template') return subjectRef('template-file', relative);
   if (asset.kind === 'vendored') return subjectRef(asset.owner.kind, asset.owner.id);
+  if (asset.kind === 'skill') return subjectRef('skill', asset.id);
   return null;
 }
 
@@ -1881,6 +1927,7 @@ function importRecordSubject(record) {
   if (record.kind === 'agent') return subjectRef('agent', target.id);
   if (record.kind === 'mcp-server') return subjectRef('mcp-server', target.id);
   if (record.kind === 'template') return subjectRef('template-file', target.path);
+  if (record.kind === 'library-skill') return subjectRef('skill', target.id);
   return null;
 }
 
@@ -1959,9 +2006,11 @@ async function importNaming(target, bundle, values, agents) {
     take('workflow', id); take('initiative-workflow', id);
   }
   for (const agent of agents) take('agent', agent.id);
+  for (const id of (await loadSkillLibrary(target.root)).skills.keys()) take('skill', id);
   const templateRoots = new Map();
   for (const asset of bundle.assets) {
     if (asset.kind === 'agent') take('agent', asset.id);
+    if (asset.kind === 'skill') take('skill', asset.id);
     if (asset.kind === 'template') {
       const relative = targetTemplatePath(asset, values.story, values.initiative);
       take('template-file', relative);
@@ -1973,7 +2022,8 @@ async function importNaming(target, bundle, values, agents) {
   const occupied = async (kind, id) => {
     if (taken.get(kind)?.has(id)) return true;
     const relative = kind === 'agent' ? `.github/agents/${id}.agent.md`
-      : kind === 'mcp-server' ? mcpDescriptorPath(id) : kind === 'template-file' ? id : null;
+      : kind === 'mcp-server' ? mcpDescriptorPath(id) : kind === 'skill' ? librarySkillPath(id)
+        : kind === 'template-file' ? id : null;
     return relative != null && (await portableTargetState(target.root, relative)).exists;
   };
   return {
@@ -1982,7 +2032,7 @@ async function importNaming(target, bundle, values, agents) {
         const [governs, catalog] = CATALOG_SUBJECTS[kind];
         return Object.hasOwn(bundle.objects[governs][catalog] ?? {}, id);
       }
-      if (kind === 'agent') return bundle.assets.some((asset) => asset.kind === 'agent' && asset.id === id);
+      if (kind === 'agent' || kind === 'skill') return bundle.assets.some((asset) => asset.kind === kind && asset.id === id);
       return kind === 'template-file' && templateRoots.has(id);
     },
     async free(kind, id) {
@@ -2240,7 +2290,7 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind === 'agent-lock')) changedPaths.add(AGENT_LOCK_PATH);
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
   for (const item of writes) {
-    if (['agent', 'template', 'vendored', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
+    if (['agent', 'template', 'vendored', 'skill', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
   // What is still open, one entry per subject: why, which of the repository's workflows use it,
   // and the choices, with a free new name ready for rename.

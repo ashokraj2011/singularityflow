@@ -12,7 +12,7 @@ import { open } from 'node:fs/promises';
 
 import { branch, repoRoot } from '../git.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
-import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
+import { buildComprehensionChangeSet } from '../comprehension/code-scope.mjs';
 import { resolveComprehensionBaseline } from '../comprehension/context.mjs';
 import {
   buildChangeRegionManifest, evaluateComprehensionCoverage
@@ -289,7 +289,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       })
       : null;
     const context = { ...await resolveBaseline(root, options), repository: root };
-    const changeSet = await buildRepositoryChangeSet(root, {
+    const { changeSet } = await buildComprehensionChangeSet(root, {
       baseCommit: context.base,
       subject: {
         kind: 'comprehension-observation', workId: context.workId, phase: context.phase
@@ -354,7 +354,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     const proposalLocation = await secureRepositoryPath(root, positionals[3], {
       label: 'Comprehension historical backfill proposal', mustExist: true, type: 'file'
     });
-    const changeSet = await buildRepositoryChangeSet(root, {
+    const { changeSet } = await buildComprehensionChangeSet(root, {
       baseCommit: context.base,
       subject: { kind: 'comprehension-observation', workId: context.workId, phase: context.phase }
     });
@@ -390,7 +390,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     }), { json, restStateWhenIdle: 'informational' });
   }
   const context = { ...await resolveBaseline(root, options), repository: root };
-  const changeSet = await buildRepositoryChangeSet(root, {
+  const { changeSet } = await buildComprehensionChangeSet(root, {
     baseCommit: context.base,
     subject: {
       kind: 'comprehension-observation',

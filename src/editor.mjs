@@ -1,3 +1,4 @@
+import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
@@ -2105,7 +2106,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
       WORKFLOW_PATH, PORTFOLIO_PATH, CAPABILITIES_PATH, IMPACT_CONFIG_PATH, AGENT_MAPPING_PATH,
       ENVIRONMENT_DECLARATION_PATH,
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
-      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents'
+      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents', SKILL_LIBRARY_ROOT
     ].filter(Boolean).map(posix));
     for (const { path: relative, content } of candidates) {
       if (relative !== WORKFLOW_PATH && relative !== PORTFOLIO_PATH) continue;

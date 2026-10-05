@@ -78,7 +78,8 @@ test('XPL2-AC-052 Themes and narrow layouts keep readable labels, focus and equi
   const { html } = await prototypeView(t);
   assert.match(html, /<strong>Reason not recorded<\/strong>/u);
   assert.match(html, /<span class="xpl-eyebrow">Observation gap<\/span>/u);
-  for (const words of ['Recorded region association', 'Declared test tag', 'Exact path identity', 'Observation gap', 'No test-to-hunk coverage is inferred.']) {
+  for (const words of ['Recorded region association', 'Declared tag (@clause in code, @ac in tests)', 'Clause cites clause',
+    'Exact path identity', 'Observation gap', 'No test-to-hunk coverage is inferred.']) {
     assert.ok(html.includes(words), `legend explains ${words}`);
   }
   // Equivalent controls: every action is a button, and diff stepping has named controls.

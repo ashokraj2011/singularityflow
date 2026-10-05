@@ -8600,7 +8600,10 @@ async function importCommand(positionals, options) {
     }
     const id = optionString(options, 'id') ?? (['agent', 'mcp-server'].includes(as) ? null : importIdFromLink(reference));
     if (!['agent', 'mcp-server'].includes(as) && !id) throw new SingularityFlowError('Name the import with --id <kebab-case-id>.', { code: 'IMPORT_ID_INVALID' });
-    change = as === 'skill'
+    // A skill without --agent goes to the skill master, where any agent can attach it.
+    change = as === 'skill' && !optionString(options, 'agent')
+      ? { op: 'import.librarySkill', id, source: reference, sha256, description: optionString(options, 'description') ?? undefined, replace: optionBoolean(options, 'replace') }
+      : as === 'skill'
       ? { op: 'import.skill', agent: optionString(options, 'agent'), id, source: reference, sha256, phases, optional: optionBoolean(options, 'optional'), replace: optionBoolean(options, 'replace') }
       : as === 'template'
         ? { op: 'import.template', id, label: optionString(options, 'label') ?? undefined, source: reference, sha256, phases, replace: optionBoolean(options, 'replace') }
@@ -18706,7 +18709,7 @@ async function dispatch(command, positionals, options) {
     'review-source': () => reviewSourceCommand(positionals, options),
     receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
-    skill: async () => (await import('./commands/skill.mjs')).run(argv, { positionals, options }),
+    skill: async () => (await import('./commands/skill.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyImportChangeSet(root, changeSet, options, meta), printResult: printImportResult }),
     assign: () => assignCommand(positionals),
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),

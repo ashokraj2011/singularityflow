@@ -678,7 +678,19 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'code-explanation.reported': {
-    headline: (s) => `Code explanation projected ${slot(s.units, '0')} change unit(s); ${slot(s.unexplained, '0')} remain unexplained.`,
+    headline: (s) => `Code explanation projected ${slot(s.units, '0')} change unit(s); ${slot(s.unexplained, '0')} remain unexplained.`
+      + (Number(s.hidden) > 0 ? ` ${s.hidden} Singularity Flow file change(s) are not code and are not shown.` : ''),
+    preserves: true
+  },
+  'code-explanation.repository-reported': {
+    headline: (s) => `Explained ${slot(s.scope, 'the repository')}: ${slot(s.files, '0')} application file(s), `
+      + `${slot(s.symbols, '0')} indexed declaration(s), ${slot(s.clauses, '0')} tagged clause(s).`
+      + (s.indexed === 'yes' ? ' The local AST index was filled for this scope (derived, disposable).' : ''),
+    preserves: true
+  },
+  'code-explanation.repository-over-budget': {
+    headline: (s) => `${slot(s.scope, 'The repository')} holds ${slot(s.files, 'more')} application files, more than the AST budget `
+      + `(${slot(s.maxFiles, '500')} files, ${slot(s.maxMiB, '20')} MiB), so it is explained one folder or file at a time. Nothing was indexed.`,
     preserves: true
   },
   'explanation.subject-reported': {

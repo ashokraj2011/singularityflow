@@ -13,7 +13,8 @@ related:
   - world-model
   - model-independence
   - assignments-and-watchlists
-version: 2
+  - skill-master
+version: 3
 ---
 Phase activation selects a governed agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -22,6 +23,10 @@ concrete model for each isolated ACP invocation. SFlow still owns the task mappi
 budgets, and audit receipt. A repository may govern a concrete model in
 `singularity/modelTiers.yml`, and an explicit command override remains available where documented;
 both are recorded and fail closed if the provider substitutes another model.
+
+An agent can attach skills from the skill master, each for some of its steps and with a line on
+when to use it; in those steps the skills' instructions are part of its prompt
+(`sflow explain skill-master`).
 
 ## Purpose and prerequisites
 

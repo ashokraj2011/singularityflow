@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "27298580e6149fd008d23298ee6770e88fae9a5f",
-  "topicCount": 75,
-  "contentSha256": "56ff86d4fabf903f4ab3b48d22c2366906b1f79570d1dc962fd7f286d322c044",
+  "sourceCommit": "cd198ea944d1053929ef88548f3f98ecdf7169be",
+  "topicCount": 76,
+  "contentSha256": "df54d7bc6b0bb12b81d7ddd64ea166fb31fa98a69cb1976a6775bff362998cca",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,9 +32,9 @@
     {
       "id": "agents-and-routing",
       "title": "Governed agents, assignments, and model routing",
-      "version": 2,
-      "sha256": "b146da2d1562138bfc1f00f895bfecfa5c8f3b7167941c293f04e238e340a050",
-      "routingSha256": "28fa2dd519a4a0536308c7d73760b6fc82104245d582e074d8f28d9663e3b03f",
+      "version": 3,
+      "sha256": "f7021b4326a132b2e24c7113811e2abb3d86ad0a20dcd2bb6bee061d0bbe9804",
+      "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },
     {
@@ -64,8 +64,8 @@
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 4,
-      "sha256": "3183df9a9edeb460fd864f420cc85d3ad7aae79304a714e489974dd32eb3d3df",
+      "version": 5,
+      "sha256": "9e40cd30fbbcef05b45e0ddb97e05bac2ebba428d31b6082932b4e2e9c765d2c",
       "routingSha256": "1671f988a2f09eeb1af1cef10389c698c3e3a813a6caf2a362c9c3509bf23847",
       "file": "ast-intelligence.md"
     },
@@ -104,8 +104,8 @@
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 5,
-      "sha256": "0ba77894fe94ab1fd2e9f866fa4b8589d35a972481dc92f3cf985ec1dc4a0ebc",
+      "version": 8,
+      "sha256": "b560f5c341961816106ac36d55d6751839b31eb05ef103346eb70c6f5895cb81",
       "routingSha256": "850900458031734fd5a411202347b68652e528c290aeaa6dce22d6e7cfc910e2",
       "file": "code-explanation.md"
     },
@@ -272,9 +272,9 @@
     {
       "id": "importing-assets",
       "title": "Importing skills, templates, and agents",
-      "version": 3,
-      "sha256": "75dddfb6391f4249147bc972fbcd6d525ebf715c60edebc7b865dcf18b23884f",
-      "routingSha256": "c927cd630b7c5f17205b1f1d182dc1f3e494aee50b138ff2b95216c9111b5a24",
+      "version": 4,
+      "sha256": "5f4df0e9d249fb6cf82f92a8b4a60dd44bb0076c40e140e8bb77df1f473c184e",
+      "routingSha256": "aaf37214a54793f39448126ce20f7bea8d6e54c15a568bed8304b301d5f7fc2d",
       "file": "importing-assets.md"
     },
     {
@@ -486,6 +486,14 @@
       "file": "sgos-governed-execution.md"
     },
     {
+      "id": "skill-master",
+      "title": "Skill master and attached skills",
+      "version": 1,
+      "sha256": "adba87de8dab0c5205e1152514dca94656aac985f260b78e7aee06aeaf814965",
+      "routingSha256": "bc1817483131f05f9d27b26e33f427b315ae4d7f8f099994e67b90e33ecbae50",
+      "file": "skill-master.md"
+    },
+    {
       "id": "smart-initialization",
       "title": "Smart repository initialization",
       "version": 4,
@@ -576,8 +584,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 51,
-      "sha256": "2ffcdd8bcc00d6856525c70a91c4e979a2f05e45f60e06ff51b7b77ebbce7378",
+      "version": 52,
+      "sha256": "4ac216c4f9a131b274593a4868fff8a3f289dded62d0463e7d3ad661769f5847",
       "routingSha256": "dd92caf64bf98924287142b9cac08980610cc6fe5e982ecc79d2325ff3abb1bd",
       "file": "workflow-authoring.md"
     },
@@ -592,8 +600,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 9,
-      "sha256": "2679cde43297cfb981c5f8e5a8a0b91054677cde88b66c5cb134f56762855b6d",
+      "version": 10,
+      "sha256": "4926888a3ba4bca88d3ae6d828aef4aa08576a2fae98b667dde57e561a4d13cb",
       "routingSha256": "4d60343e291e638a0267e6605861c798f629b641c57cf4a98ab6ce87633647b6",
       "file": "workspaces-and-sessions.md"
     },

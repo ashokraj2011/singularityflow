@@ -40,6 +40,8 @@ export interface Xpl2Statement {
   limitations: string[];
   authority: 'none';
   text: string;
+  /** The template's typed arguments (`path`, `line`, `clauseId`, …), already display-sanitized. */
+  arguments?: Record<string, unknown>;
 }
 
 export interface Xpl2Node {
@@ -179,7 +181,8 @@ const STYLE_LABELS: Record<string, string> = {
   exact: 'exact path',
   diagnostic: 'observation gap',
   containment: 'contains',
-  navigation: 'navigation hint'
+  navigation: 'navigation hint',
+  citation: 'cites'
 };
 
 const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
@@ -314,7 +317,7 @@ function graphColumns(view: Xpl2Explanation): { intent: Column; code: Column; re
   const nodes = view.nodes;
   const linked = new Set<string>();
   for (const edge of view.relationships) {
-    if (['region-associated-with-clause', 'test-source-in-change'].includes(edge.type)) {
+    if (['region-associated-with-clause', 'source-tags-clause', 'test-source-in-change'].includes(edge.type)) {
       linked.add(edge.from); linked.add(edge.to);
     }
   }
@@ -353,9 +356,9 @@ function nodeSubtitle(view: Xpl2Explanation, node: Xpl2Node): string {
   if (node.kind === 'clause') {
     return node.status === 'declared' ? 'Declared requirement'
       : node.status === 'conflicting-declarations' ? 'Conflicting declarations — all shown'
-        : 'Named by a record; text not read here';
+        : 'Named here; no specification read here declares it';
   }
-  if (node.kind === 'test') return 'Test source with a declared tag';
+  if (node.kind === 'test') return 'Test source with a declared @ac tag';
   if (node.kind === 'run') return `Local delivery record · ${node.status ?? 'unknown'}`;
   if (node.kind === 'diagnostic') {
     return node.status === 'owner-reported-gap' ? 'Reported by its owner · not a failed test'
@@ -390,9 +393,25 @@ function columnHtml(view: Xpl2Explanation, key: string, column: Column): string 
     ? `<details class="xpl-cluster"><summary>${hidden.length} more in ${escape(column.title.toLowerCase())} — counted, not hidden</summary>${hidden.map((node, index) => nodeButton(view, node, key, EXPLORER_COLUMN_LIMIT + index)).join('')}</details>`
     : '';
   const empty = column.nodes.length ? '' : `<p class="xpl-empty">${key === 'intent'
-    ? 'No clause is named by a recorded association or delivery record.'
+    ? 'No clause is named by a tag in the changed files, a recorded association or a delivery record.'
     : key === 'results' ? 'No recorded test result or observation gap.' : 'No changed file has a recorded relationship.'}</p>`;
   return `<div class="xpl-column" data-column-key="${key}" role="list" aria-label="${escape(column.title)}"><h3>${escape(column.title)}</h3>${visible.map((node, index) => nodeButton(view, node, key, index)).join('')}${cluster}${empty}</div>`;
+}
+
+/**
+ * The clauses a changed file declares itself: its own `@clause` comments, or, for a changed test,
+ * its `@ac` tags. Null when it declares none. Shown in place of "reason not recorded".
+ */
+function declaredTags(view: Xpl2Explanation, fileId: string): string | null {
+  const label = (id: string) => view.nodes.find((node) => node.id === id)?.label ?? id;
+  const list = (kind: string, ids: string[]) => {
+    const unique = [...new Set(ids.map(label))];
+    return unique.length ? `${kind} ${unique.slice(0, 2).join(', ')}${unique.length > 2 ? ` +${unique.length - 2}` : ''}` : null;
+  };
+  const clauses = view.relationships.filter((edge) => edge.type === 'source-tags-clause' && edge.from === fileId).map((edge) => edge.to);
+  const tests = view.relationships.filter((edge) => edge.type === 'test-source-in-change' && edge.to === fileId).map((edge) => edge.from);
+  const criteria = view.relationships.filter((edge) => edge.type === 'test-source-tags-clause' && tests.includes(edge.from)).map((edge) => edge.to);
+  return list('@clause', clauses) ?? list('@ac', criteria);
 }
 
 function relationshipSentence(view: Xpl2Explanation, edge: Xpl2Relationship): string {
@@ -432,7 +451,7 @@ function mapHtml(view: Xpl2Explanation): string {
   </div>
   <p class="xpl-note" id="xpl-edge-note" hidden></p>
   <ul class="xpl-sr-edges" aria-label="Relationships shown on the map">${drawn.map((edge) => `<li>${escape(relationshipSentence(view, edge))} (${escape(edge.scope)})</li>`).join('')}</ul>
-  <p class="xpl-legend"><span class="xpl-key xpl-key-region"></span> Recorded region association <span class="xpl-key xpl-key-proposed"></span> Declared test tag <span class="xpl-key xpl-key-exact"></span> Exact path identity <span class="xpl-key xpl-key-diagnostic"></span> Observation gap · <strong>No test-to-hunk coverage is inferred.</strong></p>`;
+  <p class="xpl-legend"><span class="xpl-key xpl-key-region"></span> Recorded region association <span class="xpl-key xpl-key-proposed"></span> Declared tag (@clause in code, @ac in tests) <span class="xpl-key xpl-key-citation"></span> Clause cites clause <span class="xpl-key xpl-key-exact"></span> Exact path identity <span class="xpl-key xpl-key-diagnostic"></span> Observation gap · <strong>No test-to-hunk coverage is inferred.</strong></p>`;
 }
 
 function relationshipsTable(view: Xpl2Explanation): string {
@@ -523,9 +542,10 @@ function inventoryRail(view: Xpl2Explanation, audience: ExplorerAudience): strin
     <label class="xpl-search-label" for="xpl-search">Find a changed file</label>
     <input id="xpl-search" type="search" placeholder="Search captured files…" autocomplete="off" spellcheck="false">
     <ul class="xpl-files" id="xpl-files">${files.map((file) => {
-      const status = file.opaque && !file.hunks ? 'opaque resource'
+      const shape = file.opaque && !file.hunks ? 'opaque resource'
         : view.relationships.some((edge) => edge.type === 'region-associated-with-clause' && edge.to === file.fileId) ? 'region association'
-          : 'reason not recorded';
+          : null;
+      const status = [shape, declaredTags(view, file.fileId)].filter(Boolean).join(' · ') || 'reason not recorded';
       return `<li data-path="${escape(file.path.toLowerCase())}"><button type="button" class="xpl-file" data-node="${escape(file.fileId)}"><span class="xpl-op" aria-label="${escape(file.operation)}">${escape(file.operation.slice(0, 1).toUpperCase())}</span><span><strong>${escape(file.path)}</strong><span class="xpl-sub">${fileKindLabels(file).map((label) => `${escape(label)} · `).join('')}${file.hunks ? `${file.hunks} text hunk${file.hunks === 1 ? '' : 's'}` : ''}${file.hunks && file.opaque ? ' · ' : ''}${file.opaque ? `${file.opaque} opaque` : ''} · ${escape(status)}</span></span></button></li>`;
     }).join('')}</ul>
     <p class="xpl-note" id="xpl-filter-note" hidden>Filtering changes this list, not the evidence set.</p>
@@ -762,6 +782,7 @@ export const EXPLORER_STYLE = `
   .xpl-edges .xpl-edge-region { stroke-dasharray:6 4; }
   .xpl-edges .xpl-edge-proposed { stroke-dasharray:2 3; }
   .xpl-edges .xpl-edge-diagnostic { stroke-dasharray:4 4; stroke: var(--vscode-editorWarning-foreground, currentColor); }
+  .xpl-edges .xpl-edge-citation { stroke: var(--vscode-textLink-foreground, currentColor); }
   .xpl-edges .xpl-edge-active { stroke: var(--vscode-focusBorder); stroke-width:2.5; }
   .xpl-edge-labels { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:2; overflow:visible; }
   .xpl-edge-labels rect { fill: var(--vscode-editor-background); stroke: var(--vscode-focusBorder); stroke-width:1; }
@@ -777,6 +798,7 @@ export const EXPLORER_STYLE = `
   .xpl-key-region { border-top-style:dashed; }
   .xpl-key-proposed { border-top-style:dotted; }
   .xpl-key-diagnostic { border-top-style:dashed; border-top-color: var(--vscode-editorWarning-foreground, currentColor); }
+  .xpl-key-citation { border-top-color: var(--vscode-textLink-foreground, currentColor); }
   .xpl-sr-edges, .xpl-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   .xpl-diff-actions { display:flex; gap:6px; flex-wrap:wrap; }
   .xpl-diff-head { display:flex; justify-content:space-between; margin:8px 0; }
@@ -869,10 +891,13 @@ export const EXPLORER_SCRIPT = `
         if (drawn >= limit) { skipped += 1; continue; }
         drawn += 1;
         const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+        // Two cards of one column (a clause citing a clause) are joined by an arc along their right
+        // edges, so the line never crosses either card.
+        const sameColumn = Math.abs(a.left - b.left) < 2;
         const leftFirst = a.left <= b.left;
-        const x1 = (leftFirst ? a.right : a.left) - base.left, y1 = a.top + a.height / 2 - base.top;
-        const x2 = (leftFirst ? b.left : b.right) - base.left, y2 = b.top + b.height / 2 - base.top;
-        const mid = (x1 + x2) / 2;
+        const x1 = (sameColumn || leftFirst ? a.right : a.left) - base.left, y1 = a.top + a.height / 2 - base.top;
+        const x2 = (leftFirst && !sameColumn ? b.left : b.right) - base.left, y2 = b.top + b.height / 2 - base.top;
+        const mid = sameColumn ? Math.max(x1, x2) + 28 : (x1 + x2) / 2;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + mid + ' ' + y1 + ', ' + mid + ' ' + y2 + ', ' + x2 + ' ' + y2);
         path.setAttribute('class', 'xpl-edge-' + edge.style + (selected && (edge.fromNode === selected || edge.toNode === selected) ? ' xpl-edge-active' : ''));

@@ -79,6 +79,11 @@ A skill is the command-oriented playbook the user invokes. An agent is the
 phase-specific execution contract injected into the authored prompt. For example,
 `/sf-submit` is a skill; `implementation.agent.md` can be the active agent.
 
+A skill in the **skill master** is different: a named set of instructions kept once in
+`singularity/skill-library/<id>/SKILL.md`. Any number of agents attach it in their
+`## Attached skills` table, for some of their steps; in those steps its instructions are part
+of the agent's prompt. See `sflow explain skill-master`.
+
 ### Prompt versus world model
 
 A prompt tells Copilot how to reason or format work. A world model records what is

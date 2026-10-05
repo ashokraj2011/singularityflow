@@ -228,15 +228,22 @@ test('the VS Code logs surface is top-level and legacy log commands route to sou
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   const panel = await readFile(new URL('../apps/vscode/src/views/workspace-logs.ts', import.meta.url), 'utf8');
   /**
-   * Logs is its own top-level section rather than a drawer inside another one. Its position moved:
-   * the sections now read inbox, workspaces, lifecycle, configuration, help, logs — what you owe
-   * someone, where you are, what you are doing, how it is set up, how to ask, and what happened.
-   * Logs is last because it is the one you go looking for, not the one you are handed.
+   * Logs have a top-level row of their own rather than a drawer inside another one. Below the five
+   * destinations, the sidebar's utility rows read Work tools, Help & diagnostics, Activity & logs:
+   * what you are doing, how to ask, and what happened. Logs are last because they are what you go
+   * looking for, not what you are handed, and their row leads with the combined workspace timeline.
    */
-  const order = ['inbox', 'workspaces', 'lifecycle', 'configuration', 'help', 'logs']
-    .map((section) => sidebar.indexOf(`  ${section}: {`));
-  assert.ok(order.every((at) => at > 0), 'every section is declared');
-  assert.deepEqual([...order].sort((left, right) => left - right), order, 'sections are declared in render order');
+  const { sidebarBody } = await import('../apps/vscode/src/views/sidebar-page.ts');
+  const utilities = sidebarBody({ navigation: { workspace: null, next: null }, freshness: null, loading: false,
+    pending: null, active: null, favorites: [] }).match(/<footer aria-label="Utilities">([\s\S]*?)<\/footer>/)?.[1] ?? '';
+  assert.deepEqual([...utilities.matchAll(/data-action="([^"]+)"[^>]*>[\s\S]*?<span class="nav-label">([^<]+)<\/span>/g)]
+    .map((row) => [row[1], row[2]]),
+  [['work-tools', 'Work tools'], ['help-tools', 'Help &amp; diagnostics'], ['activity-tools', 'Activity &amp; logs']],
+  'logs are the last utility row');
+  const group = (id) => sidebar.match(new RegExp(`'${id}': \\{ title: '[^']+', ids: \\[([^\\]]*)\\] \\}`))?.[1];
+  assert.match(group('activity-tools') ?? '', /^'logs-open'/, 'the logs row leads with the workspace timeline');
+  assert.notEqual(group('help-tools'), undefined, 'the sidebar declares its help-tools group');
+  assert.doesNotMatch(group('help-tools'), /logs-open/, 'the workspace logs are not a drawer inside Help');
   assert.match(extension, /WorkspaceLogsPanel\.show\(context, client, 'prompt'\)/);
   assert.match(extension, /WorkspaceLogsPanel\.show\(context, client, 'activity'\)/);
   assert.match(panel, /Prompt bodies stay hidden from the combined timeline/);

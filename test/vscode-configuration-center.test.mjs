@@ -1149,8 +1149,10 @@ test('the Center renders whether or not an Epic is checked out', () => {
  * of the shipped extension shows.
  */
 test('the sidebar header shows the brand mark, not the old tile', async () => {
-  const sidebar = await readFile(source('sidebar.ts'), 'utf8');
-  assert.match(sidebar, /\$\{brandSymbol\(30\)\}/, 'the header does not render the brand mark');
+  // sidebar-page.ts renders the sidebar's markup and style; sidebar.ts only assembles the document.
+  // Both are read, so the tile cannot come back through either.
+  const sidebar = (await Promise.all(['sidebar.ts', 'sidebar-page.ts'].map((name) => readFile(source(name), 'utf8')))).join('\n');
+  assert.match(sidebar, /<header class="brand">\$\{brandSymbol\(\d+\)\}/, 'the header does not render the brand mark');
   assert.doesNotMatch(sidebar, /brand-mark[^\n]*linear-gradient\(145deg/, 'the placeholder tile is still styled');
   assert.doesNotMatch(sidebar, /class="brand-mark">\$\{icon\('workflow'/, 'the header still reverses a generic glyph out of a tile');
 

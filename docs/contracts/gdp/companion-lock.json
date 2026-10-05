@@ -4,17 +4,19 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "d1dd5cc87a9d41316971bb03fbaa4298dfff1e54",
+    "reviewedAtCommit": "2e2b3ecc46d4b1eb5228efbbddb7a6ff7ed9d446",
     "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-WORKFLOW-BUNDLE-V4.md",
     "companionIds": [
-      "migration-registry"
+      "candidate-custody",
+      "migration-registry",
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:fad3cf5c603f02e51e0a832b1c1e79692f1190afa20ed8254aad4a3c96940da3"
+      "sha256": "sha256:e5b3f3c84c06b2b0312eb38e1f97672a7c572516acc1314ac028fba5a506ac44"
     },
     {
       "id": "sgos-portable-schema",
@@ -84,7 +86,7 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:564bdc9ec2cd0fb11c8ff73b2c9649d5e845f2eaf0259c3dd1e3eb28f694eb7c"
+      "sha256": "sha256:3fd036ef47c490f1842eee10ea527b15e30ea839b40aa1d2bef894448b49e8e2"
     },
     {
       "id": "publication-unit-of-work",

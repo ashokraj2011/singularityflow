@@ -1217,7 +1217,9 @@ test('code-phase recovery keeps a prepared untouched implementation summary in a
   assert.deepEqual(workingTree?.unexpectedPaths, []);
   assert.equal(workingTree?.safe, false);
   assert.equal(authoring?.mode, 'guided');
-  assert.equal(authoring?.skill, '/sf-code');
+  assert.equal(authoring?.skill, '/sf-phase-documents');
+  assert.equal(authoring?.authoringSkill, '/sf-code');
+  assert.equal(authoring?.command, 'singularity-flow phase show implementation --show-artifact');
   assert.ok(plan.blockers.some((entry) => entry.code === 'artifact.placeholder.unresolved'));
   assert.equal(plan.requiresRecovery, false);
 });

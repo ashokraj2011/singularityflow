@@ -287,7 +287,7 @@ test('Node aliases and Dockerfile variants are detected without copying script b
   assert.doesNotMatch(JSON.stringify(proposal.commands), /never-copy-this/);
 });
 
-test('unsafe manifest encodings, XML entities, and symlinks fail before proposal creation', async () => {
+test('unsafe manifest encodings, XML entities, and escaping symlinks fail before proposal creation', async () => {
   const invalidUtf8 = await repository({ 'package.json': Buffer.from([0xff, 0xfe, 0xfd]) });
   const invalid = flow(invalidUtf8, ['init', '--smart-detect', '--dry-run'], { allowFailure: true });
   assert.notEqual(invalid.status, 0);
@@ -299,12 +299,13 @@ test('unsafe manifest encodings, XML entities, and symlinks fail before proposal
   assert.match(entity.stderr, /forbidden entity declaration/);
 
   const linked = await repository({ 'manifest-source.json': '{"scripts":{}}\n' });
-  await symlink('manifest-source.json', path.join(linked, 'package.json'));
+  // A reviewed in-repository link is allowed; an outside link remains a refusal.
+  await symlink(path.join(invalidUtf8, 'package.json'), path.join(linked, 'package.json'));
   git(linked, ['add', 'package.json']);
   git(linked, ['commit', '-qm', 'linked manifest']);
   const unsafe = flow(linked, ['init', '--smart-detect', '--dry-run'], { allowFailure: true });
   assert.notEqual(unsafe.status, 0);
-  assert.match(unsafe.stderr, /regular non-symlink file/);
+  assert.match(unsafe.stderr, /link target escapes the repository/);
 });
 
 test('credential-bearing remotes and executable PATH do not enter or execute a proposal', async () => {

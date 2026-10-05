@@ -17,6 +17,8 @@ import { inferModuleTestCommand } from '../code-delivery-tests.mjs';
 import { normalizeExternalCommand } from '../external-command-policy.mjs';
 import { posix } from '../util.mjs';
 import { profileCeiling, profileForCommand, profileIsExact } from './profiles.mjs';
+import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';
+import { repositoryManifestExists } from '../repository-manifest.mjs';
 
 const MANIFESTS = Object.freeze({
   'pom.xml': 'maven',
@@ -40,10 +42,20 @@ async function scanModules(root) {
     if (++visited > MAX_DIRECTORIES) { truncated = true; return; }
     let entries;
     try { entries = await readdir(path.join(root, relative || '.'), { withFileTypes: true }); } catch { return; }
-    const manifests = entries.filter((entry) => entry.isFile() && (MANIFESTS[entry.name] || /\.(?:sln|csproj)$/iu.test(entry.name)))
-      .map((entry) => ({ name: entry.name, system: MANIFESTS[entry.name] ?? 'dotnet' }));
+    const manifests = [];
+    for (const entry of entries) {
+      if (!(MANIFESTS[entry.name] || isDotnetManifest(entry.name))) continue;
+      if (await repositoryManifestExists(root, posix(path.join(relative, entry.name)))) {
+        manifests.push({ name: entry.name, system: MANIFESTS[entry.name] ?? 'dotnet' });
+      }
+    }
     if (manifests.length) {
-      found.push({ root: relative || '.', systems: [...new Set(manifests.map((entry) => entry.system))].sort(), manifest: manifests[0].name });
+      let manifest = manifests[0].name;
+      let ambiguity = null;
+      try {
+        if (manifests.every((entry) => entry.system === 'dotnet')) manifest = selectDotnetManifest(manifests.map((entry) => entry.name));
+      } catch (error) { ambiguity = { code: error.code, reason: error.message }; }
+      found.push({ root: relative || '.', systems: [...new Set(manifests.map((entry) => entry.system))].sort(), manifest, ambiguity });
     }
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (entry.isDirectory() && !entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name)) {
@@ -105,14 +117,15 @@ export async function repositoryTestCapability(root, { configuredCommands = [], 
     let command = configuredCover(configured, module.root);
     const source = command ? 'configured' : 'inferred';
     let failure = null;
-    if (!command) {
+    if (!command && module.ambiguity) failure = module.ambiguity;
+    else if (!command) {
       try {
         command = await inferModuleTestCommand(root, { root: module.root, system: module.systems[0], manifest: module.manifest }, { platform });
       } catch (error) { failure = error; }
     }
     if (!command) {
       modules.push({ ...base, status: 'unsupported', code: failure?.code ?? 'TEST_RUNNER_UNSUPPORTED',
-        reason: failure?.message ?? 'no supported test runner or test script was found for it',
+        reason: failure?.message ?? failure?.reason ?? 'no supported test runner or test script was found for it',
         commandId: null, source: null, profile: null, granularity: null, ceiling: 'none', launcher: null });
       continue;
     }

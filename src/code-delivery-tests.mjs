@@ -9,6 +9,9 @@ import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
+import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
+import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
   '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
@@ -24,8 +27,8 @@ const TEST_SOURCE_NAMES = [
   /(?:^|_)tests?\.rs$/i
 ];
 const TEST_SOURCE_EXTENSIONS = new Set([
-  '.c', '.cc', '.cpp', '.cs', '.cxx', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
-  '.mjs', '.mts', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx'
+  '.c', '.cc', '.cpp', '.cs', '.cxx', '.fs', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
+  '.mjs', '.mts', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx', '.vb'
 ]);
 const MAX_RESULT_FILES = 1_000;
 const MAX_RESULT_DEPTH = 8;
@@ -107,7 +110,7 @@ async function manifestsAt(root, directory) {
   try {
     const { readdir } = await import('node:fs/promises');
     for (const name of await readdir(path.join(root, directory || '.'))) {
-      if (/\.(?:sln|csproj)$/i.test(name)) dotnet.push({ name, system: 'dotnet' });
+      if (isDotnetManifest(name)) dotnet.push({ name, system: 'dotnet' });
     }
   } catch { /* Missing directory is handled by the caller's changed-path validation. */ }
   return [...found, ...dotnet];
@@ -130,7 +133,8 @@ export async function resolveAffectedModule(root, candidate, { overrides = {} } 
         { code: 'TEST_MODULE_AMBIGUOUS' }
       );
     }
-    return { root: directory || '.', system: systems[0], manifest: manifests[0].name, configured: false };
+    return { root: directory || '.', system: systems[0],
+      manifest: systems[0] === 'dotnet' ? selectDotnetManifest(manifests.map((entry) => entry.name)) : manifests[0].name, configured: false };
   }
   throw new SingularityFlowError(`No supported build manifest owns changed path '${relative}'.`, { code: 'TEST_MODULE_UNCOVERED' });
 }
@@ -326,7 +330,7 @@ export async function inferModuleTestCommand(root, module, {
   unitOnly = false
 } = {}) {
   const cwd = module.root === '.' ? '' : module.root;
-  const at = (name) => exists(path.join(root, cwd, name));
+  const at = (name) => repositoryManifestExists(root, path.posix.join(cwd, name));
   const resultBase = `.sflow/results/${module.system}-tests`;
   switch (module.system) {
     case 'maven': {
@@ -339,6 +343,13 @@ export async function inferModuleTestCommand(root, module, {
       };
     }
     case 'gradle': {
+      for (const name of ['build.gradle', 'build.gradle.kts']) {
+        if (!await at(name)) continue;
+        const manifest = await readRepositoryManifest(root, path.posix.join(cwd, name));
+        if (gradleBuildKind(manifest.bytes.toString('utf8')).requiresTestTarget) throw new SingularityFlowError(
+          GRADLE_TEST_TARGET_REASON, { code: 'GRADLE_TEST_TARGET_REQUIRED', details: { root: module.root, manifest: name } }
+        );
+      }
       const wrapper = await at(platform === 'win32' ? 'gradlew.bat' : 'gradlew');
       return {
         id: `${module.root}-gradle-tests`, kind: 'test',
@@ -348,7 +359,7 @@ export async function inferModuleTestCommand(root, module, {
       };
     }
     case 'node': {
-      const manifest = JSON.parse(await readFile(path.join(root, cwd, 'package.json'), 'utf8'));
+      const manifest = JSON.parse((await readRepositoryManifest(root, path.posix.join(cwd, 'package.json'))).bytes.toString('utf8'));
       const script = String(manifest.scripts?.[nodeScript] ?? '');
       if (unitOnly && !safeUnitNodeScript(script)) return null;
       const manager = await nodePackageManager(root, module.root, manifest);
@@ -422,11 +433,16 @@ export async function inferModuleTestCommand(root, module, {
       `Rust module '${module.root}' requires an explicit argv-form test command with a structured result adapter; stable cargo test output does not provide testcase counts.`,
       { code: 'RUST_TEST_ADAPTER_REQUIRED' }
     );
-    case 'dotnet': return {
-      id: `${module.root}-dotnet-tests`, kind: 'test', argv: ['dotnet', 'test', '--logger', 'trx'], workingDirectory: module.root,
-      affectedRoots: [module.root], modelPolicy: 'never',
-      result: { adapter: 'dotnet-trx', path: 'TestResults', minimumDiscovered: 1 }
-    };
+    case 'dotnet': {
+      if (module.manifest && !await at(module.manifest)) throw new SingularityFlowError(
+        `The selected .NET build manifest is missing: ${module.manifest}.`, { code: 'TEST_MODULE_UNCOVERED' }
+      );
+      return {
+        id: `${module.root}-dotnet-tests`, kind: 'test', argv: ['dotnet', 'test', ...(module.manifest ? [module.manifest] : []), '--logger', 'trx', '--results-directory', 'TestResults'], workingDirectory: module.root,
+        affectedRoots: [module.root], modelPolicy: 'never',
+        result: { adapter: 'dotnet-trx', path: 'TestResults', minimumDiscovered: 1 }
+      };
+    }
     case 'swift': return {
       id: `${module.root}-swift-tests`, kind: 'test',
       argv: ['swift', 'test', `--xunit-output=${resultBase}.xml`], workingDirectory: module.root,

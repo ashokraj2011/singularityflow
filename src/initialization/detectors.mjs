@@ -1,13 +1,15 @@
 import path from 'node:path';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';
+import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from '../gradle-manifests.mjs';
 
-const VERSION = '1.0.0';
-const IMPLEMENTATION = 'sflow-smart-init-detectors-v1';
+const VERSION = '1.1.0';
+const IMPLEMENTATION = 'sflow-smart-init-detectors-v1.1';
 
 export const BUILTIN_DETECTORS = Object.freeze([
   ['node', 100], ['go', 90], ['maven', 80], ['gradle', 70], ['python', 60],
-  ['rust', 50], ['make', 40], ['docker', 30]
+  ['dotnet', 65], ['rust', 50], ['make', 40], ['docker', 30]
 ].map(([id, priority]) => Object.freeze({
   id, version: VERSION, priority,
   implementationSha256: `sha256:${recordSha256({ id, version: VERSION, implementation: IMPLEMENTATION })}`
@@ -260,7 +262,7 @@ function detectGo(snapshot, files) {
 }
 
 function detectMaven(snapshot, files) {
-  return conventionalStack(files, 'pom.xml', 'maven', 'java-maven', (directory) => {
+  const result = conventionalStack(files, 'pom.xml', 'maven', 'java-maven', (directory) => {
     const wrapper = atDirectory(files, directory, 'mvnw') || atDirectory(files, directory, 'mvnw.cmd');
     const launcher = wrapper ? 'maven-wrapper' : 'mvn';
     const precedence = wrapper ? 20 : 10;
@@ -269,23 +271,72 @@ function detectMaven(snapshot, files) {
       { purpose: 'build', launcher, args: ['-q', 'package'], precedence }
     ];
   });
+  result.facts = result.facts.map((entry) => {
+    const source = files.get(entry.source.path);
+    return /<artifactId>\s*kotlin-maven-plugin\s*<\/artifactId>/u.test(source.content)
+      ? fact(snapshot, 'maven', source, '#', { ...entry.claim, value: 'kotlin-maven' }) : entry;
+  });
+  // Keep command evidence joined to the new language-specific stack fact.
+  result.commands.forEach((entry) => {
+    entry.evidence = result.facts.filter((item) => item.claim.module === entry.workingDirectory).map((item) => item.id);
+  });
+  return result;
 }
 
 function detectGradle(snapshot, files) {
   const buildNames = new Set(['build.gradle', 'build.gradle.kts']);
   const roots = [...files.values()].filter((entry) => buildNames.has(path.posix.basename(entry.path).toLowerCase()));
-  const facts = []; const commands = [];
+  const facts = []; const commands = []; const ambiguities = [];
   for (const source of roots) {
     const directory = moduleDirectory(source.path);
-    const stackFact = fact(snapshot, 'gradle', source, '#', { kind: 'stack', value: 'java-gradle', module: directory });
+    const { stack, requiresTestTarget } = gradleBuildKind(source.content);
+    const stackFact = fact(snapshot, 'gradle', source, '#', { kind: 'stack',
+      value: stack, module: directory });
     facts.push(stackFact);
     const wrapper = atDirectory(files, directory, 'gradlew') || atDirectory(files, directory, 'gradlew.bat');
     const launcher = wrapper ? 'gradle-wrapper' : 'gradle';
     const precedence = wrapper ? 20 : 10;
-    commands.push(command(`verify-gradle-${safeId(directory)}`, 'verify', launcher, ['test'], directory, [stackFact.id], { precedence }));
+    if (requiresTestTarget) ambiguities.push({
+      id: `gradle-test-target:${directory}`, purpose: 'verify', scope: directory,
+      candidates: [], reason: GRADLE_TEST_TARGET_REASON
+    });
+    else commands.push(command(`verify-gradle-${safeId(directory)}`, 'verify', launcher, ['test'], directory, [stackFact.id], { precedence }));
     commands.push(command(`build-gradle-${safeId(directory)}`, 'build', launcher, ['build'], directory, [stackFact.id], { precedence }));
   }
-  return { facts, commands, ambiguities: [] };
+  return { facts, commands, ambiguities };
+}
+
+function detectDotnet(snapshot, files) {
+  const directories = new Map();
+  for (const source of files.values()) {
+    if (!isDotnetManifest(source.path)) continue;
+    const directory = moduleDirectory(source.path);
+    if (!directories.has(directory)) directories.set(directory, []);
+    directories.get(directory).push(path.posix.basename(source.path));
+  }
+  const facts = []; const commands = []; const ambiguities = [];
+  for (const [directory, names] of directories) {
+    let selected;
+    try { selected = selectDotnetManifest(names); }
+    catch (error) {
+      ambiguities.push({ id: `dotnet-entry-point:${directory}`, purpose: 'verify', scope: directory,
+        candidates: error.details.manifests, reason: error.message });
+      // Still disclose the stack; an ambiguous code repository cannot get an empty receipt.
+      facts.push(fact(snapshot, 'dotnet', atDirectory(files, directory, names.sort()[0]), '#',
+        { kind: 'stack', value: 'dotnet', module: directory }));
+      continue;
+    }
+    const source = atDirectory(files, directory, selected);
+    const stackFact = fact(snapshot, 'dotnet', source, '#', { kind: 'stack', value: 'dotnet', module: directory });
+    facts.push(stackFact);
+    const locked = Boolean(atDirectory(files, directory, 'packages.lock.json'));
+    commands.push(command(`dependency-dotnet-${safeId(directory)}`, 'dependency', 'dotnet',
+      ['restore', selected, ...(locked ? ['--locked-mode'] : [])], directory, [stackFact.id], { confidence: 'declared' }));
+    commands.push(command(`build-dotnet-${safeId(directory)}`, 'build', 'dotnet', ['build', selected], directory, [stackFact.id]));
+    commands.push(command(`verify-dotnet-${safeId(directory)}`, 'verify', 'dotnet',
+      ['test', selected, '--logger', 'trx', '--results-directory', 'TestResults'], directory, [stackFact.id]));
+  }
+  return { facts, commands, ambiguities };
 }
 
 function detectPython(snapshot, files) {
@@ -379,7 +430,7 @@ export function runSmartInitDetectors(snapshot, { maxModules = 200, maxCommands 
   const files = sourceMap(snapshot);
   const results = [
     detectNode(snapshot, files), detectGo(snapshot, files), detectMaven(snapshot, files),
-    detectGradle(snapshot, files), detectPython(snapshot, files), detectRust(snapshot, files),
+    detectGradle(snapshot, files), detectDotnet(snapshot, files), detectPython(snapshot, files), detectRust(snapshot, files),
     detectMake(snapshot, files), detectDocker(snapshot, files)
   ];
   const facts = results.flatMap((entry) => entry.facts).sort((a, b) => a.id.localeCompare(b.id, 'en'));

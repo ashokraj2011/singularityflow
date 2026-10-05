@@ -9,16 +9,18 @@ import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
 import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
+import { resolveRepositoryManifest } from '../repository-manifest.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 import { readLatestSmartInitActivation } from './recovery.mjs';
 
 function sha(bytes) { return `sha256:${createHash('sha256').update(bytes).digest('hex')}`; }
 
-async function regularFile(file, { executable = false } = {}) {
+async function regularFile(file, { executable = false, root = null } = {}) {
   try {
-    const info = await lstat(file);
+    const resolved = root ? await resolveRepositoryManifest(root, path.relative(root, file)) : null;
+    const info = resolved?.info ?? await lstat(file);
     if (!info.isFile() || info.isSymbolicLink()) return false;
-    if (executable && process.platform !== 'win32') await access(file, fsConstants.X_OK);
+    if (executable && process.platform !== 'win32') await access(resolved?.absolute ?? file, fsConstants.X_OK);
     return true;
   } catch { return false; }
 }
@@ -52,12 +54,12 @@ async function commandAvailability(root, command) {
   if (launcher === 'maven-wrapper') {
     const candidates = process.platform === 'win32' ? ['mvnw.cmd', 'mvnw'] : ['mvnw', 'mvnw.cmd'];
     const selected = candidates.map((name) => path.join(cwd, name));
-    const available = (await Promise.all(selected.map((file) => regularFile(file, { executable: process.platform !== 'win32' })))).some(Boolean);
+    const available = (await Promise.all(selected.map((file) => regularFile(file, { root, executable: process.platform !== 'win32' })))).some(Boolean);
     return { status: available ? 'pass' : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
   }
   if (launcher === 'gradle-wrapper') {
     const candidates = process.platform === 'win32' ? ['gradlew.bat', 'gradlew'] : ['gradlew', 'gradlew.bat'];
-    const available = (await Promise.all(candidates.map((name) => regularFile(path.join(cwd, name), { executable: process.platform !== 'win32' })))).some(Boolean);
+    const available = (await Promise.all(candidates.map((name) => regularFile(path.join(cwd, name), { root, executable: process.platform !== 'win32' })))).some(Boolean);
     return { status: available ? 'pass' : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
   }
   return { status: await pathExecutable(launcher, process.env, cwd) ? 'pass' : 'unavailable', reason: 'path-metadata' };

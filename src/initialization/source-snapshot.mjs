@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError, posix, run } from '../util.mjs';
+import { readRepositoryManifest } from '../repository-manifest.mjs';
 
 export const SMART_INIT_BOUNDS = Object.freeze({
   maxFiles: 2_000,
@@ -21,7 +22,9 @@ const MANIFEST_NAMES = new Set([
   'build.gradle', 'build.gradle.kts', 'gradlew', 'gradlew.bat', 'mvnw', 'mvnw.cmd',
   'pyproject.toml', 'pytest.ini', 'setup.cfg', 'tox.ini', 'poetry.lock', 'uv.lock',
   'pipfile.lock', 'cargo.toml', 'cargo.lock', 'makefile', 'gnumakefile',
-  'dockerfile'
+  'dockerfile', 'global.json', 'nuget.config', 'packages.lock.json', 'directory.build.props',
+  'directory.build.targets', 'directory.packages.props', 'gradle.properties',
+  'gradle-wrapper.properties', 'libs.versions.toml'
 ]);
 
 function isRequirements(name) {
@@ -35,7 +38,7 @@ function candidateKind(relative) {
   if (normalized.startsWith('singularity/') || normalized.startsWith('.github/agents/')) return null;
   const name = path.posix.basename(normalized).toLowerCase();
   if (name === 'bun.lockb') return 'binary-manifest';
-  if (MANIFEST_NAMES.has(name) || isRequirements(name)) return 'manifest';
+  if (MANIFEST_NAMES.has(name) || isRequirements(name) || /\.(?:slnx?|csproj|fsproj|vbproj)$/u.test(name)) return 'manifest';
   if (/(?:^|\/)\.env[^/]*$/i.test(normalized) || /(?:^|\/)secrets?[^/]*$/i.test(normalized)) {
     return 'sensitive-path';
   }
@@ -132,30 +135,27 @@ export async function captureSmartInitSnapshot(root, { bounds = SMART_INIT_BOUND
         code: 'INI_MANIFEST_UNREADABLE', cause: error, details: { path: candidate.relative }
       });
     });
-    if (info.isSymbolicLink() || (!info.isFile() && ['manifest', 'binary-manifest'].includes(candidate.kind))) {
+    if (info.isSymbolicLink() && !['manifest', 'binary-manifest'].includes(candidate.kind)) {
       throw new SingularityFlowError(`Initialization manifest must be a regular non-symlink file: ${candidate.relative}`, {
         code: 'INI_MANIFEST_UNSAFE', details: { path: candidate.relative }
       });
     }
-    if (!info.isFile()) continue;
     // Sensitive/protection signals bind only the path and byte metadata. Their content is neither
     // needed nor read, so an env or secrets file cannot leak through a proposal or diagnostic.
     if (!['manifest', 'binary-manifest'].includes(candidate.kind)) {
+      if (!info.isFile()) continue;
       entries.push({ path: candidate.relative, kind: candidate.kind, mode: modes.get(candidate.relative) ?? '100644', bytes: info.size, sha256: null });
       continue;
     }
-    if (info.size > bounds.maxFileBytes) throw new SingularityFlowError(
-      `Initialization manifest exceeds the ${bounds.maxFileBytes}-byte file bound: ${candidate.relative}`,
-      { code: 'INI_DETECTION_BOUND_EXCEEDED', details: { path: candidate.relative, bound: 'maxFileBytes', observed: info.size } }
-    );
-    totalBytes += info.size;
+    const { bytes, links, resolvedPath } = await readRepositoryManifest(root, candidate.relative, { maxBytes: bounds.maxFileBytes });
+    totalBytes += bytes.length;
     if (totalBytes > bounds.maxBytes) throw new SingularityFlowError(
       `Initialization manifests exceed the ${bounds.maxBytes}-byte total bound.`,
       { code: 'INI_DETECTION_BOUND_EXCEEDED', details: { bound: 'maxBytes', observed: totalBytes } }
     );
-    const bytes = await readFile(absolute);
     const content = candidate.kind === 'binary-manifest' ? null : utf8(bytes, candidate.relative);
-    if (/\.xml$/i.test(candidate.relative) && /<!DOCTYPE|<!ENTITY/i.test(content)) {
+    if ((/\.(?:xml|slnx|csproj|fsproj|vbproj|props|targets)$/i.test(candidate.relative)
+        || /(?:^|\/)nuget\.config$/i.test(candidate.relative)) && /<!DOCTYPE|<!ENTITY/i.test(content)) {
       throw new SingularityFlowError(`Initialization XML contains a forbidden entity declaration: ${candidate.relative}`, {
         code: 'INI_MANIFEST_UNSAFE', details: { path: candidate.relative }
       });
@@ -166,6 +166,7 @@ export async function captureSmartInitSnapshot(root, { bounds = SMART_INIT_BOUND
       mode: modes.get(candidate.relative) ?? '100644',
       bytes: bytes.length,
       sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      ...(links ? { links, resolvedPath } : {}),
       content
     });
   }

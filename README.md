@@ -319,6 +319,23 @@ repository does not need `singularity/capabilities.yml`. An identical rerun repo
 an existing non-smart configuration is never overwritten. In Copilot, `/sf-init` provides the same
 proposal-first journey. See `sflow explain smart-initialization` for the complete safety model.
 
+Build manifests may be symbolic links to regular files **inside the same repository**. Detection
+binds both the link chain and the target bytes into its source hash, so changing either invalidates
+the readiness receipt. External, dangling, cyclic, directory and oversized targets remain refused
+as unsafe; do not disable the path guard to work around them.
+
+Kotlin JVM plugins in Maven or Gradle use the existing structured JUnit test route. A `.gradle.kts`
+file alone denotes Kotlin DSL, not Kotlin application code. Kotlin Android and multiplatform builds
+need an explicit test target instead of a guessed JVM `test` task. .NET detection covers C#, F# and
+VB projects and `.sln`/`.slnx` solutions, prefers one solution over its same-directory projects, and
+reports ambiguous peer entry points. It also hashes SDK, NuGet and shared build configuration.
+The .NET route uses `dotnet test` with fresh TRX results; its current proof ceiling is module-level
+observation, not exact acceptance-criterion proof. Required SDKs are not installed automatically.
+
+For large monorepos, `precheck --scope dependency-test` narrows the **command types**, not the
+repository directories. Module-scoped readiness and exact Kotlin/.NET criterion adapters remain
+follow-up work; this manifest-link fix does not claim either or a 300 GB performance qualification.
+
 Repair copies only missing packaged files and never overwrites repository
 customizations. It therefore does **not** convert or overwrite a version-1
 `workflow.yml`. That YAML configuration format is separate from durable JSON record migration.

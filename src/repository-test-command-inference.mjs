@@ -1,14 +1,12 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readdir } from 'node:fs/promises';
 
 import { inferModuleTestCommand } from './code-delivery-tests.mjs';
-import { secureRepositoryPath } from './util.mjs';
+import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
+import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
 export async function inferRepositoryTestCommands(root, { unitOnly = false, platform = process.platform } = {}) {
-  const regular = async (relative) => (await secureRepositoryPath(root, relative, {
-    label: 'Repository test manifest', type: 'file'
-  })).exists;
+  const regular = (relative) => repositoryManifestExists(root, relative);
   const inferred = async (system, manifest, options = {}) => {
     const command = await inferModuleTestCommand(root, { root: '.', system, manifest }, {
       unitOnly,
@@ -17,7 +15,7 @@ export async function inferRepositoryTestCommands(root, { unitOnly = false, plat
     });
     const legacyRootIds = {
       maven: 'maven-tests', gradle: 'gradle-tests', go: 'go-tests', rust: 'cargo-tests',
-      python: 'python-tests', node: 'node-tests'
+      python: 'python-tests', node: 'node-tests', dotnet: 'dotnet-tests'
     };
     return command ? [{
       ...command,
@@ -35,7 +33,7 @@ export async function inferRepositoryTestCommands(root, { unitOnly = false, plat
     return inferred('python', await regular('pyproject.toml') ? 'pyproject.toml' : 'pytest.ini');
   }
   if (await regular('package.json')) {
-    const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+    const manifest = JSON.parse((await readRepositoryManifest(root, 'package.json')).bytes.toString('utf8'));
     const candidates = unitOnly ? ['test:unit', 'unit', 'test']
       : ['test', 'test:e2e', 'test:playwright', 'e2e'];
     const commands = [];
@@ -52,5 +50,10 @@ export async function inferRepositoryTestCommands(root, { unitOnly = false, plat
     }
     if (commands.length) return commands;
   }
+  const dotnet = (await readdir(root)).filter(isDotnetManifest);
+  // Validate all candidates before selecting; a dangling/escaping peer cannot be guessed away.
+  for (const name of dotnet) await regular(name);
+  const selected = selectDotnetManifest(dotnet);
+  if (selected) return inferred('dotnet', selected);
   return [];
 }

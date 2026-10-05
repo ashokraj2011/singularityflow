@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 22
+version: 23
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -108,7 +108,7 @@ Approved inspection evidence must cite an exact qualified criterion identity. `O
 
 Each row delivered by new or modified source is bound to what the delivery changed for it: the exact changed hunks of its planned paths, the public declarations those hunks touch (best effort, labelled heuristic, never proof) and its author's explanation, written after the clause's tag on the same comment line, for example `// @clause:ORDER:REQ-001 rejects an expired card`. The explanation must be 10 to 300 characters, and publishing refuses a row without one. The tag associates the row with the code; the explanation says how the change meets it; a person decides.
 
-A current-Story `@clause` tag naming a clause absent from the approved specification is refused with `EVIDENCE_CLAUSE_UNAPPROVED`, including the file and line. Foreign-Story historical tags do not satisfy this Story's clauses.
+A `@clause` tag in one of the Story's own namespaces (its Work ID, the configured namespace or one its specification uses) that names a clause absent from the approved specification is refused with `EVIDENCE_CLAUSE_UNAPPROVED`, including the file and line. A tag in the Work ID is refused wherever it sits. Other Stories can use the other namespaces too: a configured namespace is the same for every Story of its work type. There, only a tag the generation adds is refused. A tag the changed files already carried at its baseline stays, even one that moved with its code, because it may be an earlier Story's. A tag in another Story's Work ID binds nothing and never satisfies this Story's clauses.
 
 Approving the step accepts every binding it submitted, as a batch over their exact digest. To accept one with a stated exception, approve with `--binding <clause>=exception --binding-reason TEXT`; that row then reads satisfied with an exception. To send a binding back for correction, reject the step. The matrix shows each row's explanation, regions and decision.
 

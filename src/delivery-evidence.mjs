@@ -18,7 +18,7 @@ import {
   validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
-import { exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor } from './git.mjs';
+import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -398,18 +398,54 @@ export async function taggedAcceptanceIds(root, testPaths) {
  * The criteria a test tag can name [E2G-015]: the clauses of the Story's active specification
  * indexes, the same set submission binds each witness to (story-lineage witnessReviewSnapshot).
  * `namespaces` are the Story's own: its Work ID, the configured specification namespace and every
- * namespace its specification uses. Null for a Story without a specification index: one created
- * before indexes existed, one whose specification mode is off, or a route that omits scope.
+ * namespace its specification uses. Every one but the Work ID is in `sharedNamespaces`: a configured
+ * namespace is the same for every Story of its work type, and two specifications may choose the
+ * same one, so a file can already carry another Story's tag there. Null for a Story without a
+ * specification index: one created before indexes existed, one whose specification mode is off,
+ * or a route that omits scope.
  */
 export function specificationCriteria(records, workflow, config = {}) {
   if (!(records?.indexes ?? []).length) return null;
   const clauses = records.indexes.flatMap((index) => index.clauses ?? []);
+  const story = String(workflow?.workItem?.id ?? '').toUpperCase();
+  const namespaces = new Set([story, (workflow?.resolution?.spec ?? config.spec)?.namespace,
+    ...clauses.map((clause) => namespaceOf(clause?.id))]
+    .filter(Boolean).map((value) => String(value).toUpperCase()));
   return {
     held: new Set(clauses.filter((clause) => clause?.bodySha256).map((clause) => String(clause.id).toUpperCase())),
-    namespaces: new Set([workflow?.workItem?.id, (workflow?.resolution?.spec ?? config.spec)?.namespace,
-      ...clauses.map((clause) => String(clause?.id ?? '').split(':')[0])]
-      .filter(Boolean).map((value) => String(value).toUpperCase()))
+    namespaces,
+    sharedNamespaces: new Set([...namespaces].filter((namespace) => namespace !== story))
   };
+}
+
+/** The namespace of a qualified clause or criterion ID: everything before its colon. */
+function namespaceOf(clauseId) {
+  return String(clauseId ?? '').split(':')[0];
+}
+
+/**
+ * The tags of one kind (`clause` or `ac`) that the generation's files already carried at its
+ * baseline [E2G-011, E2G-015]: every tag in a file it left unchanged, and every tag in the baseline
+ * version of each file it changed, renamed, copied or deleted, so a tag that moves with its code is
+ * carried too. `occurrences` are the tags read now, each with its `path`; `reads` picks the changed
+ * paths worth reading. Without a change set, no tag is known to be carried.
+ */
+function carriedTags(root, changeSet, occurrences, kind, reads) {
+  if (!changeSet?.base?.commit) return new Set();
+  const entries = changeSet.entries ?? [];
+  const changed = new Set(entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean));
+  const carried = new Set(occurrences.filter((tag) => !changed.has(tag.path)).map((tag) => tag.clauseId));
+  const earlier = committedFilesAtRevisions(root, entries
+    .filter((entry) => entry.oldPath && /^100/u.test(entry.oldMode ?? '') && reads(entry.oldPath))
+    .map((entry) => ({ key: entry.oldPath, ref: changeSet.base.commit, path: entry.oldPath })), {
+    maximumObjectBytes: MAX_BOUND_SOURCE_BYTES, maximumBytes: 4 * MAX_BOUND_SOURCE_BYTES
+  });
+  for (const bytes of earlier.values()) {
+    for (const tag of scanSourceClauseTags(bytes.toString('utf8'))) {
+      if (tag.tag === kind) carried.add(tag.clauseId);
+    }
+  }
+  return carried;
 }
 
 /**
@@ -612,7 +648,7 @@ async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths
 }
 
 export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
-  deletedSourcePaths = []
+  deletedSourcePaths = [], changeSet = null
 } = {}) {
   if (workflow.resolution?.codeDelivery?.traceability?.sourceBindings !== 'enforce'
       || phase.sourceBoundary === 'test-automation'
@@ -674,11 +710,22 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
       .filter((tag) => tag.tag === 'clause' && normalizeQualifiedClauseId(tag.clauseId)));
   }
   const approved = new Set(clauseIds.map(normalizeQualifiedClauseId));
-  const storyPrefix = `${workflow.workItem.id.toUpperCase()}:`;
-  const unapproved = [...tagsByPath].flatMap(([sourcePath, tags]) => tags
-    .filter((tag) => tag.clauseId.startsWith(storyPrefix) && !approved.has(tag.clauseId))
-    .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath, line: tag.line,
-      message: `@clause:${tag.clauseId} at ${sourcePath}:${tag.line} names a clause this Story has not approved.` })));
+  // A tag in one of the Story's own namespaces, the ones its test tags are held to, must name a
+  // clause it approved [E2G-011]. A tag in its Work ID is the Story's wherever it sits. In a
+  // namespace other Stories share, a changed file may carry an older Story's tag, which stays; only
+  // a tag this generation adds there is the Story's to correct.
+  const criteria = specificationCriteria(active, workflow, config);
+  const namespaces = criteria?.namespaces ?? new Set([workflow.workItem.id.toUpperCase()]);
+  const shared = (tag) => Boolean(criteria?.sharedNamespaces.has(namespaceOf(tag.clauseId)));
+  const named = [...tagsByPath].flatMap(([sourcePath, tags]) => tags.map((tag) => ({ ...tag, path: sourcePath })));
+  const suspect = named.filter((tag) => namespaces.has(namespaceOf(tag.clauseId)) && !approved.has(tag.clauseId));
+  const carried = suspect.some(shared)
+    ? carriedTags(root, changeSet, named, 'clause', (candidate) =>
+      !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate))
+    : new Set();
+  const unapproved = suspect.filter((tag) => !(shared(tag) && carried.has(tag.clauseId)))
+    .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath: tag.path, line: tag.line,
+      message: `@clause:${tag.clauseId} at ${tag.path}:${tag.line} names a clause this Story has not approved.` }));
   if (unapproved.length) throw new SingularityFlowError(
     `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the governed specification before publishing.`,
     { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
@@ -1062,7 +1109,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       : `tests name criteria, but this Story has no specification index, so no test can witness one: ${named}`);
   }
   const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
-    deletedSourcePaths
+    deletedSourcePaths, changeSet: applicationChangeSet
   });
   // Each obligation delivered in source is bound to its changed hunks and its explanation [E2G-011].
   const bound = sourceBindings.mode === 'enforce' && sourceBindings.required.length

@@ -1851,7 +1851,7 @@ argument-hint: &quot;&lt;PATH&gt; --approver &lt;GROUP&gt;&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1162 body tokens</span>
+          <span class="pill">~1163 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1884,9 +1884,9 @@ argument-hint: &quot;[code-generation focus]&quot;
 5. `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`: use `localPath`; refuse invalid/dirty. Check `singularity-flow revision status --json`. Before authoring require an open intent; if absent run `singularity-flow phase begin &lt;phase&gt; --json`, honoring adoption/confirmation. Consumed intent requires `/sf-recover`.
 6. Implement code/tests, not README. Doc-comment APIs; tags are not docs. Exclude fixtures/docs/deletions/symlinks. In the planned product-source path: `// @clause:ORDER:REQ-001 how this change meets it` (`REQ|BEH|IFC|AC|CON`); executable tests: `// @ac:ORDER:AC-001` above its test. Honor pinned test-only planned-claims opt-outs.
 7. Compare `testExecution.commands` argv/cwd/adapter/report with manual tests. Python inference prefers `.venv`; pins remain unchanged. Repair runtime/dependencies with authorization. Run tests; no skip/list/dry-run/no-tests. Never edit protected configuration, disable hooks or fabricate results. In-scope declarations may repair inference. For `resolve-code-delivery-test-policy` or unavailable inference, use `/sf-recover` for reviewed runner adoption. Refresh never changes this Story&#39;s pin; do not approve amendments here.
-8. Run `singularity-flow phase draft-check &lt;phase&gt; --json` and `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct every structured agent authoring finding in this Copilot turn; at most three changed fingerprints. Initial template is baseline; stop on an unchanged fingerprint only after correction. If blocking finding code and source code remain unchanged, stop this attempt despite other changes. Honor `correction.class`/`sameTurn`; never blindly delete markers, invent facts, use padding, invoke a nested model, or overwrite another producer. `prepublish: ready` does not mean tests passed.
+8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`, then `singularity-flow phase prepublish &lt;phase&gt; --json`. Obey `correction.class`/`sameTurn`, `traceabilityRepair.actions`: verify behavior/assertions and target hashes; repair owned tags without per-tag confirmation. Missing behavior needs implementation; ambiguity needs clarification. Rerun affected tests. Repair other agent findings. Three changed fingerprints maximum; stop after correction on unchanged finding/action fingerprints despite unrelated edits. Never invent, pad, delete markers blindly, nest models or overwrite producers. `ready` is not test success.
 9. Publish once with configured producer/channel only when prepublish is `ready`. On refusal report `requiredTestExecution`: command ID (not shell command), argv/cwd, exit, bounded stderr and guidance. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes. Source mutation requires review/rollover when consumed. Pre-mutation failure retains intent. No blind retries; at most three repairs. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
-10. `singularity-flow phase show &lt;phase&gt; --json` reviews the artifact and handoff, including optional document view; stop. Never submit/approve.
+10. `singularity-flow phase show &lt;phase&gt; --json` reviews artifact, handoff and document view; stop. Never submit/approve.
 
 TRP: `singularity-flow explain test-recovery`; risks → `/sf-recover`; no auto-waiver or false passes.
 </code></pre>
@@ -6616,7 +6616,7 @@ description: Show ordered next actions from the current workflow state.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~880 body tokens</span>
+          <span class="pill">~881 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -6651,7 +6651,7 @@ Stop on `Out of sequence`; never bypass a gate.
 5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`; read returned `localPath`. Run exact `singularity-flow prepare &lt;phase&gt;` action. Stop on placeholders, templates, padding.
 6. Preserve qualified `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]` through conformance; plan paths. `/sf-code` puts `@clause:WORK-ID:REQ-001` in product source and `@ac:WORK-ID:AC-001` in executable tests.
 7. Read `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; follow current-phase actions. Stop for human confirmation, protected config, or other producer.
-8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`, then `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct every agent finding in this Copilot turn from approved evidence; recheck at most three changed fingerprints, stop on an unchanged fingerprint. Obey `correction.class`/`sameTurn`; route non-agent work to its owner. Never invent facts, add padding, delete markers blindly, invoke nested models or overwrite another producer.
+8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`, then `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct agent findings now from approved evidence; at most three changed fingerprints. Stop on unchanged finding/action fingerprints despite unrelated edits. Obey `correction.class`/`sameTurn`; route non-agent work to its owner and code repair to `/sf-code`. Never invent, pad, delete markers blindly, nest models or overwrite producers.
 9. Publish only when prepublish `status` is `ready`, with configured producer/channel. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once; retry once if ready. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit/approve.
 10. Run `singularity-flow phase show &lt;phase&gt; --json`; report evidence, commit/push, model, cost, bounded preview and hash-bound references. When its `handoff` starts with `/sf-review-source`, run `singularity-flow review-source status &lt;phase&gt; --json`; if required but not `ready`, say **Published generation &lt;N&gt; — source review required**. Otherwise say **Published generation &lt;N&gt; — ready to submit**. next: Copilot `/sf-…` and Shell `singularity-flow …` from each `handoff` entry&#39;s `copilotCommand` and `command`. Never submit or approve here.
 

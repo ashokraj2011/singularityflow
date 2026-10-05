@@ -1292,7 +1292,36 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             phase: phase.id, findings: unknownCriteria, paths: [...new Set(unknownCriteria.map((finding) => finding.path))],
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
-          sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? []
+          sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+          // Read-only repair input, derived from the verified planning pointer and candidate.
+          // Do not select a test/function by guessing from a file name or invent its meaning.
+          traceabilityRepair: {
+            plan: workflow.phases?.[workflow.resolution?.plannedClaims?.owners?.[phase.id]]?.claimMaps?.planned ?? null,
+            sourcePaths, testPaths,
+            actions: [
+              ...sourceBindings.missing.map((missing) => ({
+                kind: 'source-tag', clauseId: missing.clauseId, approved: true,
+                expectedPaths: missing.expectedPaths,
+                regions: bound?.bindings.find((binding) => binding.clauseId === missing.clauseId)?.regions ?? []
+              })),
+              ...(bound?.explanationsMissing ?? []).filter((missing) => missing.path).map((missing) => ({
+                kind: 'clause-explanation', clauseId: missing.clauseId, approved: true,
+                expectedPaths: [missing.path], line: missing.line,
+                regions: bound?.bindings.find((binding) => binding.clauseId === missing.clauseId)?.regions ?? []
+              })),
+              ...missingAcIds.map((clauseId) => ({
+                kind: 'acceptance-tag', clauseId, approved: Boolean(criteria?.held.has(clauseId)),
+                expectedPaths: obligations?.find((obligation) => obligation.clauseId === clauseId)?.tests ?? []
+              })),
+              ...witnessDiscovery.unattachedTags.flatMap((tag) => tag.clauseIds
+                .filter((clauseId) => requiredAcIds.includes(clauseId)).map((clauseId) => ({
+                  kind: 'acceptance-attachment', clauseId, approved: Boolean(criteria?.held.has(clauseId)),
+                  expectedPaths: obligations?.find((obligation) => obligation.clauseId === clauseId)?.tests
+                    .filter((candidate) => candidate === tag.testSource) ?? [],
+                  line: tag.line
+                })))
+            ]
+          }
         }
       }
     );

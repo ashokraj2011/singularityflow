@@ -78,6 +78,12 @@ export function phasePrepublishDecision(
     const repeated = details.findIndex((detail) => guidance.startsWith(detail));
     if (repeated >= 0) details[repeated] = guidance; else details.push(guidance);
   }
+  const repair = record(projection.traceabilityRepair);
+  if (repair?.status === 'producer-repair' && repair.sameTurn === true
+      && record(projection.correction)?.sameTurn === true && Array.isArray(repair.actions)
+      && repair.actions.some((action) => record(action)?.sameTurn === true)) {
+    details.push('Missing traceability annotations can be repaired in the current producer loop; ambiguous mappings need clarification. No separate tag approval is required; behavior and test gates still apply.');
+  }
   const skill = line(record(projection.correction)?.skill, 80);
   const exactSkill = skill && /^\/sf-[a-z0-9-]+$/u.test(skill) ? skill : null;
   if (exactSkill) details.push(`Next in Copilot: ${exactSkill}`);

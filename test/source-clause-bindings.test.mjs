@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,9 +10,11 @@ import {
   evaluateCodeDeliveryPreflight, plannedSourceClauseBindings, verifyCodeDeliveryReceipt
 } from '../src/delivery-evidence.mjs';
 import { phaseDraftCheck } from '../src/phase-draft-check.mjs';
+import { phasePrepublish } from '../src/phase-prepublish.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { ensureWorkIntervalBaseline } from '../src/work-intervals.mjs';
+import { beginCodeGeneration } from '../src/generation-boundary.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -210,13 +212,13 @@ async function openCodeGeneration(item, files = {}) {
     phaseId: phase.id, itemDirectory: path.join(root, 'singularity/work-items/BIND-1'),
     itemRelative: 'singularity/work-items/BIND-1'
   });
+  await beginCodeGeneration(root, config, workflow, phase, { agent: 'developer' });
   await mkdir(path.join(root, 'tests'), { recursive: true });
 }
 
 /** What phase draft-check reads before the code delivery: an open intent and a finished summary. */
 async function readyForDraftCheck(item) {
   const { root, phase } = item;
-  phase.generationIntent = { status: 'open', id: 'intent-source-binding' };
   phase.generationPolicy = {
     task: 'code', defaultProducer: 'governed-agent', allowedProducers: ['governed-agent']
   };
@@ -233,6 +235,136 @@ async function readyForDraftCheck(item) {
 
 const draftCheck = (item) => phaseDraftCheck(item.root, item.config, item.workflow, item.phase, {
   session: { workId: 'BIND-1', phaseId: item.phase.id, agent: 'developer' }
+});
+
+test('the existing repair loop surfaces missing and unattached acceptance tags with exact planned test paths', async (t) => {
+  const item = await fixture({
+    'BIND-1:REQ-001': planned(['src/payment.js']),
+    'BIND-1:AC-001': planned([])
+  });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  item.phase.qualityCommands = [{ id: 'node-tests', kind: 'test', argv: ['node', '--test'],
+    affectedRoots: ['.'], workingDirectory: '.', modelPolicy: 'never',
+    result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 } }];
+  await openCodeGeneration(item);
+  await readyForDraftCheck(item);
+  item.config.governance.requireAcceptanceCriteriaTags = true;
+  await writeFile(path.join(item.root, 'src/payment.js'),
+    '// @clause:BIND-1:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
+  const testPath = path.join(item.root, 'tests/payment.test.js');
+  const body = 'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+    + 'import { payment } from "../src/payment.js";\ntest("pays", () => { assert.equal(payment, true); });\n';
+  await writeFile(testPath, body);
+  await assert.rejects(evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase), (error) => {
+    assert.equal(error.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED', error.message);
+    assert.equal(error.details.traceabilityRepair.actions.some((action) => action.kind === 'acceptance-tag'), true);
+    return true;
+  });
+  const missing = await draftCheck(item);
+  assert.equal(missing.status, 'correction-required');
+  assert.equal(missing.commands.publish, null);
+  assert.equal(missing.correction.sameTurn, true);
+  const action = missing.traceabilityRepair.actions.find((entry) => entry.kind === 'acceptance-tag');
+  assert.equal(action.clauseId, 'BIND-1:AC-001');
+  assert.equal(action.sameTurn, true);
+  assert.equal(action.requiresSemanticVerification, true);
+  assert.deepEqual(action.paths.map((entry) => entry.path), ['tests/payment.test.js']);
+  assert.ok(missing.findings.some((finding) => finding.code === 'code.delivery.acceptance-tag-missing'
+    && finding.fingerprint === action.fingerprint));
+  assert.equal(await readFile(testPath, 'utf8'), body, 'draft-check must not apply its own suggestions');
+
+  await writeFile(testPath, `// @ac:BIND-1:AC-001\n\n${body}`);
+  const unattached = await draftCheck(item);
+  assert.equal(unattached.status, 'correction-required');
+  assert.ok(unattached.findings.some((finding) => finding.code === 'code.delivery.acceptance-tag-unattached'));
+  assert.notEqual(unattached.draftFingerprint, missing.draftFingerprint);
+  await writeFile(testPath, body.replace('test("pays"', '// @ac:BIND-1:AC-001\ntest("pays"'));
+  const repaired = await draftCheck(item);
+  assert.equal(repaired.status, 'ready');
+  assert.equal(repaired.traceabilityRepair, null, 'static repair readiness is not a passing execution receipt');
+});
+
+test('a custom test-only code phase repairs @ac without enabling product-source tagging', async (t) => {
+  const item = await fixture({ 'BIND-1:AC-001': planned([]) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  item.phase.id = 'custom-tests';
+  item.workflow.phaseOrder = ['planning', 'custom-tests'];
+  item.workflow.phases = { planning: item.workflow.phases.planning, 'custom-tests': item.phase };
+  item.workflow.resolution.plannedClaims.owners = { 'custom-tests': 'planning' };
+  item.phase.sourceBoundary = 'test-automation';
+  await openCodeGeneration(item);
+  await readyForDraftCheck(item);
+  item.workflow.resolution.codeDelivery.traceability.sourceBindings = 'off';
+  item.config.governance.requireAcceptanceCriteriaTags = true;
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'test("pays", () => {});\n');
+  const missing = await draftCheck(item);
+  assert.equal(missing.status, 'correction-required');
+  assert.deepEqual(missing.traceabilityRepair.actions.map((entry) => entry.kind), ['acceptance-tag']);
+  assert.equal(missing.correction.skill, '/sf-code');
+  assert.equal(missing.traceabilityRepair.actions[0].sameTurn, true);
+  assert.equal(missing.phase, 'custom-tests');
+});
+
+test('routine annotation repair never opens unowned or spent generations', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await openCodeGeneration(item);
+  await readyForDraftCheck(item);
+  await writeFile(path.join(item.root, 'src/payment.js'), 'export const payment = true;\n');
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'test("pays", () => {});\n');
+  const unowned = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase);
+  assert.equal(unowned.correction.sameTurn, false);
+  assert.equal(unowned.traceabilityRepair.status, 'owner-review');
+  assert.ok(unowned.traceabilityRepair.actions.every((action) => !action.sameTurn));
+  const receiptPath = path.join(item.root, item.phase.generationIntent.path);
+  const receipt = await readFile(receiptPath, 'utf8');
+  await writeFile(receiptPath, '{invalid receipt');
+  const unverified = await draftCheck(item);
+  assert.equal(unverified.status, 'correction-required');
+  assert.equal(unverified.correction.sameTurn, false);
+  assert.equal(unverified.correction.skill, '/sf-recover');
+  assert.equal(unverified.traceabilityRepair, null);
+  assert.ok(unverified.findings.some((finding) => finding.code === 'code.generation.intent-unverified'));
+  await writeFile(receiptPath, receipt);
+  item.phase.generationIntent.status = 'consumed';
+  const spent = await draftCheck(item);
+  assert.equal(spent.correction.sameTurn, false);
+  assert.equal(spent.traceabilityRepair, null);
+  assert.equal(item.phase.generationIntent.status, 'consumed');
+});
+
+test('prepublish shares the repair plan but withdraws annotation permission behind lifecycle and grounding gates', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await openCodeGeneration(item);
+  await readyForDraftCheck(item);
+  await writeFile(path.join(item.root, 'src/payment.js'), 'export const payment = true;\n');
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'test("pays", () => {});\n');
+  const preview = () => phasePrepublish(item.root, item.config, item.workflow, item.phase, {
+    session: { workId: 'BIND-1', phaseId: item.phase.id, agent: 'developer' }
+  });
+  const draft = await draftCheck(item);
+  const result = await preview();
+  assert.equal(result.status, 'correction-required');
+  assert.equal(result.commands.publish, null);
+  assert.equal(result.traceabilityRepair.fingerprint, draft.traceabilityRepair.fingerprint);
+  assert.equal(result.traceabilityRepair.actions[0].fingerprint, draft.traceabilityRepair.actions[0].fingerprint);
+  assert.equal(result.mutates, false);
+  assert.equal(result.modelInvocations, 0);
+
+  const pending = path.join(item.root, 'singularity/work-items/BIND-1/publication-pending.json');
+  await writeFile(pending, '{unreadable publication');
+  const blocked = await preview();
+  assert.equal(blocked.correction.sameTurn, false);
+  assert.equal(blocked.traceabilityRepair.sameTurn, false);
+  assert.ok(blocked.traceabilityRepair.actions.every((action) => !action.sameTurn));
+  assert.equal(await readFile(pending, 'utf8'), '{unreadable publication');
+  await rm(pending);
+  item.workflow.resolution.worldModelGrounding = 'enforce';
+  const grounding = await preview();
+  assert.equal(grounding.correction.sameTurn, false);
+  assert.equal(grounding.traceabilityRepair.sameTurn, false);
+  assert.ok(grounding.traceabilityRepair.actions.every((action) => !action.sameTurn));
 });
 
 test('code-delivery preflight refuses missing source tags before a generation is published', async (t) => {
@@ -254,6 +386,20 @@ test('code-delivery preflight refuses missing source tags before a generation is
   assert.equal(draft.findings.some((finding) =>
     finding.code === 'code.delivery.source-clause-tag-missing'
       && finding.value === 'BIND-1:REQ-001'), true);
+  assert.equal(draft.traceabilityRepair.status, 'producer-repair');
+  assert.equal(draft.traceabilityRepair.actions[0].kind, 'source-tag');
+  assert.equal(draft.traceabilityRepair.actions[0].sameTurn, true);
+  assert.equal(draft.traceabilityRepair.actions[0].regions[0].path, 'src/payment.js');
+  assert.ok(draft.traceabilityRepair.actions[0].regions[0].hunks.length > 0);
+  assert.equal(draft.traceabilityRepair.actions[0].regions[0].symbolAssurance, 'heuristic');
+  assert.equal(draft.traceabilityRepair.plan.sha256, workflow.phases.planning.claimMaps.planned.sha256);
+  const originalSummary = await readFile(path.join(item.root,
+    'singularity/work-items/BIND-1/artifacts/implementation/implementation-summary.md'), 'utf8');
+  await writeFile(path.join(item.root, 'README.md'), '# Separate work remains uncommitted\n');
+  const unrelated = await draftCheck(item);
+  assert.equal(unrelated.draftFingerprint, draft.draftFingerprint);
+  assert.equal(unrelated.findings.find((finding) => finding.code === 'code.delivery.source-clause-tag-missing').fingerprint,
+    draft.findings.find((finding) => finding.code === 'code.delivery.source-clause-tag-missing').fingerprint);
   // A bare tag associates the clause but explains nothing [E2G-011].
   await writeFile(path.join(item.root, 'src/payment.js'),
     '// @clause:BIND-1:REQ-001\nexport const payment = true;\n');
@@ -264,11 +410,18 @@ test('code-delivery preflight refuses missing source tags before a generation is
       && /needs an explanation of how the change meets it, after its @clause tag in src\/payment.js:1/.test(error.message)
   );
   const unexplained = await draftCheck(item);
+  assert.notEqual(unexplained.draftFingerprint, draft.draftFingerprint, 'a tag-only edit is real repair progress');
   assert.equal(unexplained.findings.some((finding) => finding.code === 'code.delivery.clause-explanation-missing'
     && finding.value === 'BIND-1:REQ-001' && finding.path === 'src/payment.js' && finding.line === 1), true);
   await writeFile(path.join(item.root, 'src/payment.js'),
     '// @clause:BIND-1:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
   const evidence = await evaluateCodeDeliveryPreflight(item.root, config, workflow, phase);
+  const repaired = await draftCheck(item);
+  assert.equal(repaired.status, 'ready');
+  assert.equal(repaired.traceabilityRepair, null);
+  assert.equal(await readFile(path.join(item.root,
+    'singularity/work-items/BIND-1/artifacts/implementation/implementation-summary.md'), 'utf8'), originalSummary);
+  assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Separate work remains uncommitted\n');
   assert.deepEqual(evidence.sourceBindings.missing, []);
   assert.deepEqual(evidence.implementationBindings.bindings.map((binding) => [binding.clauseId, binding.explanation]),
     [['BIND-1:REQ-001', { text: 'marks an accepted payment as paid', path: 'src/payment.js', line: 1 }]]);

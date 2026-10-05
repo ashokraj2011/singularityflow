@@ -17,6 +17,8 @@ import {
 } from './publication-preflight.mjs';
 import { inspectCodeDocumentation } from './code-documentation-inspection.mjs';
 import { inspectUnclaimedChangedPaths } from './spec-coverage-preview.mjs';
+import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { traceabilityDraftFingerprint, traceabilityRepairProjection } from './traceability-repair.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -96,6 +98,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let findings = [];
   let convergenceReview = null;
   let codeEvidenceRepair = null;
+  let traceabilityRepair = null;
+  let verifiedCodeIntent = false;
+  const editableCode = workflow.currentPhase === phase.id && phase.status === 'in_progress'
+    && phase.generationIntent?.status === 'open';
 
   if (isConvergencePhase(phase)) {
     try {
@@ -133,14 +139,32 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     })));
   }
 
-  // Surface the exact missing source witness while the code generation is still editable. The
+  // Surface the exact missing source/test witness while the code generation is still editable. The
   // preflight is read-only; other code-delivery failures remain owned by the recovery projection.
   if (!findings.length && phaseRequiresCodeDelivery(phase)
-      && phase.generationIntent?.status === 'open'
-      && workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce') {
+      && editableCode && (workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce'
+        || config.governance?.requireAcceptanceCriteriaTags)) {
     try {
+      verifiedCodeIntent = Boolean(await verifyOpenGenerationIntent(root, workflow, phase));
       await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
     } catch (error) {
+      if (error.code === 'GENERATION_INTENT_REQUIRED') {
+        codeEvidenceRepair = { class: 'phase-recovery', guidance: error.message,
+          command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+          skill: '/sf-recover' };
+        findings.push({ code: 'code.generation.intent-unverified', category: 'lifecycle',
+          path: phase.generationIntent?.path ?? null, line: null, value: null,
+          message: error.message, fingerprint: null });
+      }
+      traceabilityRepair = await traceabilityRepairProjection(root, error.details?.traceabilityRepair, {
+        workId: workflow.workItem.id, phase,
+        sameTurn: verifiedCodeIntent && ownership.proven && producer === 'governed-agent'
+      });
+      if (traceabilityRepair?.status === 'manual-review') findings.push({
+        code: 'code.delivery.traceability-repair-unavailable', category: 'traceability',
+        path: null, line: null, value: null, message: traceabilityRepair.guidance,
+        fingerprint: traceabilityRepair.fingerprint
+      });
       if (error.code === 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE') {
         findings.push({
           code: 'code.delivery.source-binding-too-large', category: 'traceability',
@@ -163,6 +187,25 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
           message: `Planned clause ${missing.clauseId} needs @clause:${missing.clauseId} in an exact planned product source path: ${missing.expectedPaths.join(', ')}${otherStoryTagsNote(missing.otherStoryTags)}.`,
           fingerprint: null
         });
+      }
+      for (const action of traceabilityRepair?.actions ?? []) {
+        if (!action.kind.startsWith('acceptance-')) continue;
+        findings.push({
+          code: action.kind === 'acceptance-tag' ? 'code.delivery.acceptance-tag-missing'
+            : 'code.delivery.acceptance-tag-unattached',
+          category: 'traceability', path: action.paths[0]?.path ?? null,
+          line: action.line, value: action.clauseId, fingerprint: action.fingerprint,
+          message: `${action.tag} ${action.kind === 'acceptance-tag' ? 'is missing' : 'is not attached to an exact executable test'}. `
+            + (action.disposition === 'clarify-mapping' ? 'Resolve its approved test mapping; do not guess a declaration.'
+              : `Verify the assertion in its planned test path(s): ${action.paths.map((target) => target.path).join(', ')}; place the tag directly above the test, not at file scope. Missing assertions need test implementation, not tags.`)
+        });
+      }
+      for (const finding of findings) {
+        const kind = finding.code === 'code.delivery.source-clause-tag-missing' ? 'source-tag'
+          : finding.code === 'code.delivery.clause-explanation-missing' ? 'clause-explanation' : null;
+        const action = traceabilityRepair?.actions.find((candidate) => candidate.kind === kind
+          && candidate.clauseId === finding.value);
+        if (action) finding.fingerprint = action.fingerprint;
       }
       // A tag naming a clause or criterion the specification does not hold, at its exact line.
       const tagCodes = {
@@ -215,7 +258,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     configuredProducer,
     producer,
     ownership,
-    draftFingerprint: reviewDraft.fingerprint,
+    draftFingerprint: traceabilityDraftFingerprint(reviewDraft.fingerprint, traceabilityRepair),
     artifact,
     artifacts: reviewDraft.artifacts,
     findings: Object.freeze(findings.map((finding) => Object.freeze({
@@ -225,13 +268,17 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     advisories: Object.freeze([...advisories, ...coverageAdvisories]),
     documentation,
     coverage,
+    traceabilityRepair,
     correction: Object.freeze({
       class: repairClass,
       automatic: false,
-      sameTurn: repairClass === 'agent-authoring' && !awaitingApproval,
+      sameTurn: repairClass === 'agent-authoring' && !awaitingApproval
+        && (!phaseRequiresCodeDelivery(phase) || editableCode)
+        && traceabilityRepair?.status !== 'manual-review',
       requiresNewGeneration: awaitingApproval && !clean,
       maximumChangedFingerprints: 3,
-      guidance: clean ? null : route?.guidance ?? correctionGuidance(repairClass, phase),
+      guidance: clean ? null : route?.guidance
+        ?? (traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase)),
       skill: route ? route.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands,

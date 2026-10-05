@@ -55,11 +55,12 @@ success or advertise exact proof. Qualification must record the actual toolchain
    Testing suite/function identities. Join only exact retained runner identities. Display names
    alone, unsupported parameter instances, conditional declarations, dynamic enablement and
    missing/ambiguous results must remain gaps. Skips cannot satisfy exact clause evidence.
-3. **Reviewed tagging assistance.** Offer a mapping-and-diff plan through one service used by
-   CLI, Copilot and the IDE. Suggestions may use only approved clause IDs. Require reviewed
-   mappings and confirmation bound to Story, phase, generation and original file hashes; refuse
-   drift, preserve unrelated edits, apply idempotently, and invalidate old evidence after edits.
-   Inserting a tag must never grant approval or assert that a test proves the business criterion.
+3. **Swift-specific annotation qualification.** The shared producer repair loop now exposes
+   approved clause/path mappings and file-bound progress for CLI, Copilot and IDE handoff, without
+   a separate per-tag approval. It requires the producer to verify the existing behavior/assertion,
+   and leaves ambiguous mappings to clarification. Swift-specific declaration attachment and
+   exact runner matching still need the catalog/profiles above; routine tag repair cannot elevate
+   Swift's current module-observed ceiling or turn tags into proof of test execution.
 4. **Xcode and platform qualification.** Add an explicitly selected scheme/destination route
    with retained result-bundle parsing separately from SwiftPM. Qualify native macOS and supported
    Linux/Windows SwiftPM cells and installed CLI/IDE behavior. Do not treat simulator destinations
@@ -67,10 +68,8 @@ success or advertise exact proof. Qualification must record the actual toolchain
 
 These are pending work, not enabled or completed functionality.
 
-## Primary references
+## Reference material
 
-- [SwiftPM test CLI](https://github.com/swiftlang/swift-package-manager/blob/main/Sources/PackageManagerDocs/Documentation.docc/SwiftTest.md).
-- [SwiftSyntax](https://github.com/swiftlang/swift-syntax).
-- [Swift Testing](https://github.com/swiftlang/swift-testing).
-- [XCTest XML reporting issue](https://github.com/swiftlang/swift-package-manager/issues/9961)
-  and [companion output discussion](https://github.com/swiftlang/swift-package-manager/issues/8000).
+Consult the SwiftPM test CLI documentation, SwiftSyntax parser documentation, Swift Testing
+documentation and XCTest reporting notes for the approved toolchain. Retain native toolchain
+and report evidence during qualification; documentation alone is not execution qualification.

@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 10
+version: 11
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -160,6 +160,30 @@ When a later non-code review phase changes source, tests or build inputs, it can
 Preserve owned drafts and published generations. Recovery now lists `applicationPaths` only after verifying the current open-generation baseline or exact prior publication and enforcing source/protected-path boundaries. Review that diff and authorship before following the returned prepublish or confirmed rollover command. A dirty README, test or source file is not automatically an unknown-worktree dead end. A supported post-publication repair creates a successor generation; a permitted policy-only amendment preserves content and advances its validation requirements. Missing scope proof, unrelated changes, removals, renames, conflicts and symlinks still need manual review. Recovery never commits, stashes, discards or executes these application edits. Unfinished required artifacts and failing tests still block publication until their actual obligations are resolved.
 
 Never use blanket reset, clean, stash, deletion or a commit of unrelated paths as recovery. An unchanged failure stops automatic retries. Verified runtime repair can justify a bounded retry without a source edit. Budget exhaustion opens a human decision and never accepts risk automatically.
+
+### Traceability annotation repair in the producer loop
+
+`phase draft-check <PHASE> --json` and `phase prepublish <PHASE> --json` now return
+`traceabilityRepair` for missing approved source tags, explanations and missing or unattached
+acceptance tags. The shared projection names the verified planning pointer, exact planned paths,
+current file hashes and scoped action/finding fingerprints. It writes nothing and runs no model
+or test. Only an owned, current, open generation with a verified start receipt can offer routine
+same-turn annotation repair. Pinned test-only/source-binding opt-outs remain respected.
+
+`/sf-code` consumes those instructions in its existing bounded repair loop, including when routed
+from VS Code's **Fix in Copilot**. It verifies the clause against the source hunk or test assertion,
+checks target hashes again, and corrects annotations without a separate per-tag approval. A plan
+file path alone does not identify a function or prove a test's meaning. Ambiguous mappings need
+clarification; missing behavior or assertions need actual implementation. A test tag belongs
+directly above an executable declaration, not at file scope. Tags never count as passing tests.
+
+Tag-only corrections now move the source/test repair fingerprint even when the implementation
+summary stays unchanged. Unrelated document edits cannot mask an unchanged tag finding. Recheck
+and rerun configured affected tests; at most three distinct changed repairs are permitted.
+Published/consumed generations retain their reviewed rollover route. Unsafe targets, unavailable
+scope, protected paths and unknown clause identities receive no automatic annotation authority.
+Approval, risk acceptance and publication/test gates remain separate. Shell checks show the same
+repair instructions; they do not themselves apply a source patch.
 
 A recorded commit awaiting push remains publication-pending. Resume that exact transport transaction; do not manufacture a second approval, decision or generation. A failed screen refresh after a committed change is a presentation warning, so re-read authoritative state.
 

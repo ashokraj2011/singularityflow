@@ -395,7 +395,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   const briefOnly = recovery.actions.length > 0
     && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);
   const hardBlocker = [...blockers, ...recovery.blockers].some((entry) =>
-    ['lifecycle', 'host'].includes(entry.category));
+    ['lifecycle', 'host', 'collaboration'].includes(entry.category)
+      || entry.code === 'phase.generation-intent.required');
   const authoringRepairOnly = blockers.length > 0
     && blockers.every((entry) => ['artifact-set', 'specification-quality',
       'specification-index', 'planning-table'].includes(entry.category))
@@ -433,6 +434,15 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     advisories: draft.advisories,
     documentation: draft.documentation,
     coverage: draft.coverage,
+    traceabilityRepair: draft.traceabilityRepair ? Object.freeze({
+      ...draft.traceabilityRepair,
+      sameTurn: lifecycleReady && !hardBlocker && !dependencies.blockers.length
+        && draft.correction.sameTurn && draft.traceabilityRepair.sameTurn,
+      actions: Object.freeze(draft.traceabilityRepair.actions.map((entry) => Object.freeze({
+        ...entry, sameTurn: lifecycleReady && !hardBlocker && !dependencies.blockers.length
+          && draft.correction.sameTurn && entry.sameTurn
+      })))
+    }) : null,
     grounding: Object.freeze(dependencies.grounding),
     warnings: Object.freeze(dependencies.warnings),
     readiness: Object.freeze({

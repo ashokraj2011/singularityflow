@@ -87,6 +87,22 @@ test('a correction names the current phase, bounded findings, and the owner skil
   assert.equal(phaseGenerationChatPrefill(unsupported.skill), null);
 });
 
+test('the IDE offers the shared annotation repair loop without bypassing publication or owner gates', () => {
+  const projection = { ...ready, status: 'correction-required',
+    findings: [{ message: '@ac:STORY-1:AC-001 is missing.' }],
+    commands: { publish: null }, correction: { skill: '/sf-code', sameTurn: true },
+    traceabilityRepair: { status: 'producer-repair', sameTurn: true, actions: [{ sameTurn: true }] } };
+  const result = phasePrepublishDecision(projection, expected);
+  assert.equal(result.ready, false);
+  assert.equal(result.skill, '/sf-code');
+  assert.match(result.details.join('\n'), /current producer loop.*No separate tag approval/);
+  for (const blocked of [
+    { ...projection, correction: { sameTurn: false } },
+    { ...projection, traceabilityRepair: { ...projection.traceabilityRepair, sameTurn: false } },
+    { ...projection, traceabilityRepair: { ...projection.traceabilityRepair, actions: [] } }
+  ]) assert.doesNotMatch(phasePrepublishDecision(blocked, expected).details.join('\n'), /No separate tag approval/);
+});
+
 test('the VS Code Publish route checks after saved buffers and before any mutation', async () => {
   const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
   const start = extension.indexOf("if (argv[0] === 'phase' && argv[1] === 'publish')");

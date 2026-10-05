@@ -350,6 +350,14 @@ Requirements has one approval over requirements, traceability, and impact
 analysis. Planning has one approval over the editable Story list, parent
 specification, and every per-Story specification.
 
+A copied Epic planning profile must retain the four shared stage IDs in order:
+`epic-intake`, `epic-requirements`, `epic-planning`, `epic-publish`. Labels and supported
+profile overrides may change; renamed, missing or reordered deterministic stages
+are refused before an Initiative is created. Requirements publication verifies
+pinned source citations and records the `requirements-traceable` machine receipt
+before human approval. Existing accepted Story decisions use their saved phase,
+template and agent contracts, not the current repository's authoring catalog.
+
 There is **one navigation for every contributor**. The VS Code activity-bar view
 uses these stable sections:
 

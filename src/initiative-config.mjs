@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { isEpicPlanningPhase, isEpicRequirementsPhase, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
+import { assertEpicPlanningTopology, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { isInitiativeGenerator } from './initiative-generators.mjs';
@@ -754,6 +754,7 @@ function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, work
   return {
     ...phase,
     ...override,
+    id: phaseId,
     label: override.label ?? phase.label,
     worldModelViews: workflowDefinition
       ? effectiveWorldModelAssignmentViews(
@@ -776,15 +777,11 @@ export function resolveInitiativeProfile(portfolio, profileId, {
 } = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);
-  for (const id of profile.phases) {
-    const phase = portfolio.initiativePhases[id];
-    if ((isEpicPlanningPhase(phase) && id !== 'epic-planning')
-        || (isEpicRequirementsPhase(phase) && id !== 'epic-requirements')) {
-      throw new SingularityFlowError(`Epic producer step '${id}' uses a contract whose storage and materialization require the canonical Epic step ID. Copy the profile with its shared steps instead of renaming the producer.`,
-        { code: 'INITIATIVE_EPIC_PRODUCER_ID_UNSUPPORTED', details: { profile: profileId, phase: id } });
-    }
-  }
   if (workflowDefinition) validatePortfolioWorldModelViews(portfolio, workflowDefinition);
+  const phases = profile.phases.map((id, order) => (
+    resolveProfilePhase(portfolio, profileId, profile, id, order, workflowDefinition)
+  ));
+  assertEpicPlanningTopology({ id: profileId, phases });
   const authority = idAuthority ?? portfolio.identity.authority;
   if (!ID_AUTHORITIES.has(authority)) throw new SingularityFlowError(`Unsupported initiative identity authority '${authority}'.`);
   if (!portfolio.identity.configurablePerEpic && authority !== portfolio.identity.authority) {
@@ -797,9 +794,7 @@ export function resolveInitiativeProfile(portfolio, profileId, {
     id: profileId,
     label: profile.label,
     lifecycleMode: profile.lifecycleMode,
-    phases: profile.phases.map((id, order) => (
-      resolveProfilePhase(portfolio, profileId, profile, id, order, workflowDefinition)
-    )),
+    phases,
     packs: structuredClone(profile.packs ?? []),
     // Pinned for the same reason as phases and packs: a conditional check is only meaningful
     // alongside the question that was asked. Reading the live portfolio meant the wording someone

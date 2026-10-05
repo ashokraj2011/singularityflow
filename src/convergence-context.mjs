@@ -543,6 +543,9 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
  * all call this same service, preventing a source from changing after one surface approved it.
  */
 export async function assertConvergencePublicationReady(root, config, workflow, phase = null) {
+  // Private accepted-role bindings do not survive structuredClone. Authenticate/rebind the
+  // saved policy before checking the cloned phase, just as the projection reader does.
+  if (workflow.workflowSnapshot) config = await resolveStoryExecutionDefinition(root, config, workflow);
   const selected = phase ?? convergencePhaseOf(workflow);
   if (!isConvergencePhase(selected)) {
     throw new SingularityFlowError('Deterministic convergence publication requires the convergence phase.', {

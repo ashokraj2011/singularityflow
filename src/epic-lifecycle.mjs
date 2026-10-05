@@ -1,4 +1,4 @@
-import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
+import { assertEpicPlanningTopology, EPIC_PHASES, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -14,12 +14,7 @@ import {
   nowIso, SingularityFlowError, snapshot, writeText
 } from './util.mjs';
 
-export const EPIC_PHASES = Object.freeze({
-  intake: 'epic-intake',
-  requirements: 'epic-requirements',
-  planning: 'epic-planning',
-  publish: 'epic-publish'
-});
+export { EPIC_PHASES };
 
 function render(text, values) {
   return text.replace(/\{\{([A-Za-z0-9_-]+)\}\}/g, (_match, key) => values[key] ?? '');
@@ -38,6 +33,7 @@ function planningOutput(initiative, id) {
  */
 export async function completeEpicIntake(root, initiativeId, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  assertEpicPlanningTopology(initiative.resolution);
   if (!usesEpicPlanningLifecycle(initiative.resolution)) {
     throw new SingularityFlowError('Automatic Intake completion is available only for the Epic planning profile.');
   }
@@ -511,6 +507,7 @@ function publicationReport(initiative, breakdown, attempt, jiraPlan) {
  */
 export async function completeEpicPublication(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  assertEpicPlanningTopology(initiative.resolution);
   if (!usesEpicPlanningLifecycle(initiative.resolution)) {
     return { portfolio, initiative, completed: false, reason: 'not-epic-planning' };
   }

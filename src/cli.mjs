@@ -115,6 +115,7 @@ import {
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from './phase-prepublish.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
+import { loadStoryDecisionExecution } from './story-decision-context.mjs';
 import { assertWorkTypeStartable, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
@@ -7459,45 +7460,6 @@ function selectedPhaseArgument(positionals, options, command) {
   return flagged ?? positional;
 }
 
-function configuredStoryPhaseIds(config) {
-  const phases = new Set(Object.keys(config.phases ?? {}));
-  for (const workType of Object.values(config.workTypes ?? {})) {
-    for (const phase of workType.phases ?? []) {
-      const id = typeof phase === 'string' ? phase : phase?.id ?? phase?.phase;
-      if (id) phases.add(id);
-    }
-  }
-  return phases;
-}
-
-function decisionArguments(config, positionals, options, action) {
-  const positional = positionals[1];
-  const explicitWorkId = optionString(options, 'work-id');
-  const flaggedPhase = optionString(options, 'phase');
-  if (!positional) return { requestedId: explicitWorkId, requestedPhase: flaggedPhase, implicitLegacyWorkId: false };
-
-  if (explicitWorkId) {
-    return {
-      requestedId: explicitWorkId,
-      requestedPhase: selectedPhaseArgument(positionals, options, action),
-      implicitLegacyWorkId: false
-    };
-  }
-
-  const phaseIds = configuredStoryPhaseIds(config);
-  if (phaseIds.has(positional)) {
-    return {
-      requestedId: undefined,
-      requestedPhase: selectedPhaseArgument(positionals, options, action),
-      implicitLegacyWorkId: false
-    };
-  }
-
-  // Compatibility for the former `approve WORK-ID --phase PHASE` grammar. New calls should use
-  // `approve PHASE --work-id WORK-ID`, which cannot confuse a phase with a branch name.
-  return { requestedId: positional, requestedPhase: flaggedPhase, implicitLegacyWorkId: true };
-}
-
 async function runSubmitCommand(positionals, options, submitContext) {
   const convergenceConfirmation = submitContext?.convergenceConfirmation ?? null;
   const root = repoRoot();
@@ -8089,26 +8051,7 @@ async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
   const receiptToken = optionString(options, 'selection-receipt');
   if (receiptToken) assertClean(root);
-  let config = await loadConfig(root);
-  const { requestedId, requestedPhase, implicitLegacyWorkId } = decisionArguments(config, positionals, options, action);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    try {
-      await checkout(root, requestedId, {
-        base: config.defaultBaseBranch,
-        fetch: optionBoolean(options, 'fetch'),
-        existingOnly: true,
-        remote: config.git?.remote ?? 'origin'
-      });
-    } catch (error) {
-      if (implicitLegacyWorkId && /Branch .* does not exist/.test(error?.message ?? '')) {
-        throw new SingularityFlowError(`'${requestedId}' is not a configured phase or an available Work ID. Use '${action} <PHASE>' for the current Story, or '${action} <PHASE> --work-id <WORK-ID>' for another Story.`);
-      }
-      throw error;
-    }
-  }
-  const accepted = await loadAcceptedStoryExecution(root, requestedId);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
+  const { requestedPhase, definition: config, workflow } = await loadStoryDecisionExecution(root, positionals, options, action);
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);

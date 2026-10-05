@@ -347,6 +347,12 @@ export const STYLE = `
   .choice-detail { grid-column: 2; color: var(--sf-dim); font-size: .92em; }
   .choice-detail.phases { margin-top: .25rem; }
   label { display: inline-flex; align-items: center; gap: .5rem; }
+  .base-branch-filter { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+  .base-branch-filter label { display: grid; flex: 1 1 16rem; gap: .4rem; }
+  .base-branch-filter input { width: 100%; box-sizing: border-box; }
+  .base-branch-choices { max-height: 24rem; overflow-y: auto; overscroll-behavior: contain; padding: .25rem; }
+  /* Choice layout must not override the browser's hidden attribute during branch filtering. */
+  .base-branch-choices > [hidden] { display: none !important; }
 
   /* Configuration follows the same calm list-detail pattern as GitHub settings: persistent local
      navigation, one task surface, and accent colour only for the current location. */

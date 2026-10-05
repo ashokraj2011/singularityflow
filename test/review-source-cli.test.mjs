@@ -202,6 +202,15 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   // Submission rewrites the specification's managed metadata (status, commits). The review was bound
   // to what the author wrote, so it still describes the artifact and approval can proceed.
   cli(root, 'agent', '--agent', authorAgent);
+  // A repository refresh changes today's authoring resources, not this Story's accepted ones.
+  const file = path.join(root, 'singularity/workflow.yml');
+  const current = YAML.parse(await readFile(file, 'utf8'));
+  current.phases.specification.template = 'unavailable-new-spec.md';
+  current.workTypes['spec-driven-standard'].templateOverrides.specification = 'unavailable-new-spec.md';
+  await writeFile(file, YAML.stringify(current));
+  await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-m', 'Refresh live authoring resources before Story submission');
   cli(root, 'submit', 'specification', '--skip-checks');
   const approval = spawnSync(process.execPath, [executable, 'approve', 'specification', '--yes'], {
     cwd: root, encoding: 'utf8', timeout: 30000
@@ -210,7 +219,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
 });
 
-test('a specification copied in Workflow Studio is reviewed for what it does, so its review is accepted [E2G-001]', async (t) => {
+test('a copied specification is reviewed and rejected using its accepted contract after live resources change [E2G-001]', async (t) => {
   const { root, phaseId, authorAgent } = await publishedSpecificationStory(t, { copied: true });
   assert.equal(phaseId, 'specification-spec-driven-standard');
   const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
@@ -228,6 +237,16 @@ test('a specification copied in Workflow Studio is reviewed for what it does, so
   const decided = JSON.parse(cli(root, 'review-source', 'decide', phaseId,
     '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
   assert.equal(decided.status, 'ready');
+  const file = path.join(root, 'singularity/workflow.yml');
+  const current = YAML.parse(await readFile(file, 'utf8'));
+  current.phases[phaseId].defaultTemplate = 'unavailable-copy.md';
+  current.workTypes['spec-driven-standard'].templateOverrides[phaseId] = 'unavailable-copy.md';
+  await writeFile(file, YAML.stringify(current));
+  await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-m', 'Refresh live copied-step resources before submission');
+  cli(root, 'submit', phaseId, '--skip-checks');
+  cli(root, 'reject', phaseId, '--to', phaseId, '--reason', 'Revise the agreed specification.');
 });
 
 test('legacy/off-policy Story status does not demand a reviewer or published generation', async (t) => {

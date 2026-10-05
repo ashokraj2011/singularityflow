@@ -7,7 +7,7 @@ import test from 'node:test';
 import YAML from 'yaml';
 import { assertWorkTypeStartable, resolveWorkType } from '../src/config.mjs';
 import { generationSkillForPhase } from '../src/code-delivery-policy.mjs';
-import { currentConvergenceContext, missingConvergenceProjectionError } from '../src/convergence-context.mjs';
+import { assertConvergencePublicationReady, currentConvergenceContext, missingConvergenceProjectionError } from '../src/convergence-context.mjs';
 import { phaseHandoff, workflowGuide } from '../src/guide.mjs';
 import { assertWorkflowReadinessChanges } from '../src/editor.mjs';
 import { conformancePhaseOf, isConvergencePhase, sourceReviewKind, stepResponsibilities,
@@ -116,6 +116,21 @@ test('template customization or an unknown interpretation is refused instead of 
     await assert.rejects(resolveStoryExecutionCatalog(value.root, value.config, value.workflow),
       (error) => error.code === (options.profile ? 'WFA_RUNTIME_INCOMPATIBLE' : 'WFA_PHASE_SEMANTICS_UNSUPPORTED'));
   }
+});
+
+test('approval stability clones rebind historical Convergence before validating its publication', async (t) => {
+  const value = await acceptedLegacy(t);
+  const catalog = await resolveStoryExecutionCatalog(value.root, value.config, value.workflow);
+  const clone = structuredClone(value.workflow);
+  const phase = clone.phases['closure-review'];
+  assert.equal(isConvergencePhase(phase), false, 'the private role binding must not be serialized');
+  const before = JSON.stringify(clone);
+  await assert.rejects(assertConvergencePublicationReady(value.root, catalog.effectiveDefinition, clone, phase),
+    (error) => /reconciliation record.*none exists yet/s.test(error.message)
+      && error.code !== 'CONVERGENCE_PHASE_REQUIRED');
+  assert.equal(isConvergencePhase(phase), true);
+  assert.equal(JSON.stringify(clone), before);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: value.root }).stdout, '');
 });
 
 test('a mutable phase name or role flag cannot confer Convergence', () => {

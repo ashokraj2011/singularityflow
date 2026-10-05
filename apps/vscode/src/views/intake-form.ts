@@ -909,14 +909,27 @@ function baseBranchHtml(form: IntakeForm): string {
       and only the Story branch is published.</p>
     ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
       branches and workflows. Checking the remote for changes…</p>` : ''}
-    <div class="choices">
+    ${form.baseBranchChoices.length ? `<div class="base-branch-filter">
+      <label for="story-base-branch-search">Search branches
+        <input type="search" id="story-base-branch-search" data-base-branch-search
+          placeholder="Branch name or Story title" autocomplete="off" spellcheck="false"
+          aria-controls="story-base-branch-choices" aria-describedby="story-base-branch-count">
+      </label>
+      <button type="button" class="secondary" data-base-branch-clear disabled>Clear search</button>
+    </div>
+    <p class="meta" id="story-base-branch-count" data-base-branch-count role="status" aria-live="polite">
+      ${form.baseBranchChoices.length} of ${form.baseBranchChoices.length} branches</p>` : ''}
+    <div class="choices base-branch-choices" id="story-base-branch-choices" role="radiogroup" aria-label="Story base branch">
       ${form.baseBranchChoices.map((choice) => `
-      <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
+      <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}" data-base-branch-choice
+        data-base-branch-search-text="${escape([choice.branch, choice.story?.workId, choice.story?.title].filter(Boolean).join(' '))}">
         <input type="radio" name="baseBranch" value="${escape(choice.branch)}" data-base-branch="${escape(choice.branch)}"${choice.branch === form.baseBranch ? ' checked' : ''}>
         <span class="choice-label">${escape(choice.branch)}</span>
         <span class="choice-detail">${choice.story ? `Story ${escape(choice.story.workId)}: ${escape(choice.story.title)} · ` : ''}${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
+    ${form.baseBranchChoices.length ? `<p class="meta" data-base-branch-empty hidden>No matching branches. Try another name or clear the search.</p>
+    <p class="meta" data-base-branch-selected>${form.baseBranch ? `Selected base: ${escape(form.baseBranch)}.` : 'No base selected.'}</p>` : ''}
     ${baseStoryNoteHtml(form)}
     ${form.baseBranchOrphans.length ? `<p class="meta">Not offered: ${form.baseBranchOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${form.baseBranchOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${form.baseBranchOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
@@ -1289,7 +1302,43 @@ function numberedSections(html: string, first: number): string {
 /** The page reports intent; every value is re-validated before it reaches the CLI. */
 export const INTAKE_SCRIPT = `
   const vscode = window.__sfVscode;
+  // Search only the already-offered catalog. It never selects a base or asks the host/Git to read.
+  const branchSearch = document.querySelector('[data-base-branch-search]');
+  const branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
+    row, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
+  }));
+  const filterBaseBranches = () => {
+    if (!branchSearch) return;
+    const query = branchSearch.value.trim().normalize('NFC').toLowerCase();
+    let visible = 0;
+    branchRows.forEach(({ row, text }) => {
+      row.hidden = !text.includes(query);
+      if (!row.hidden) visible += 1;
+    });
+    const count = document.querySelector('[data-base-branch-count]');
+    if (count) count.textContent = visible + ' of ' + branchRows.length + ' branches';
+    const empty = document.querySelector('[data-base-branch-empty]');
+    if (empty) empty.hidden = visible !== 0;
+    const clear = document.querySelector('[data-base-branch-clear]');
+    if (clear) clear.disabled = !branchSearch.value;
+    const selected = document.querySelector('input[data-base-branch]:checked');
+    const selection = document.querySelector('[data-base-branch-selected]');
+    if (selection) selection.textContent = selected
+      ? 'Selected base: ' + selected.value + '.' + (selected.closest('[data-base-branch-choice]').hidden
+        ? ' This selection is hidden by the search.' : '')
+      : 'No base selected.';
+  };
+  const savedBranchSearch = vscode.getState ? (vscode.getState() || {}).intakeView?.branchSearch : null;
+  if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
+  filterBaseBranches();
   document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-base-branch-clear]')) {
+      branchSearch.value = '';
+      filterBaseBranches();
+      branchSearch.focus({ preventScroll: true });
+      saveIntakeView();
+      return;
+    }
     const copyCommand = event.target.closest('[data-copy-command]');
     if (copyCommand) return navigator.clipboard.writeText(copyCommand.dataset.copyCommand || '').catch(() => {});
     const addReference = event.target.closest('[data-reference-add]');
@@ -1331,7 +1380,10 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
     if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });
     if (el.dataset?.workType) return vscode.postMessage({ type: 'workType', value: el.dataset.workType });
-    if (el.dataset?.baseBranch) return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
+    if (el.dataset?.baseBranch) {
+      filterBaseBranches();
+      return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
+    }
     if (el.dataset?.referenceField) return vscode.postMessage({ type: 'referenceField',
       index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
     if (el.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentName',
@@ -1345,6 +1397,7 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {
+    if (event.target.hasAttribute('data-base-branch-search')) return filterBaseBranches();
     if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
       index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
       value: event.target.value });
@@ -1368,7 +1421,8 @@ export const INTAKE_SCRIPT = `
   let intakeUnloading = false;
   window.addEventListener('pagehide', () => { intakeUnloading = true; });
   const intakeFocusKey = (el) => !el || !el.dataset ? null
-    : el.dataset.field ? 'field:' + el.dataset.field
+    : el.hasAttribute('data-base-branch-search') ? 'base-branch-search'
+      : el.dataset.field ? 'field:' + el.dataset.field
       : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
         : el.dataset.attachmentName !== undefined ? 'attachment:' + el.dataset.attachmentName
           : null;
@@ -1379,6 +1433,7 @@ export const INTAKE_SCRIPT = `
     const state = (vscode.getState && vscode.getState()) || {};
     state.intakeView = {
       key: key,
+      branchSearch: branchSearch ? branchSearch.value : (state.intakeView?.branchSearch || ''),
       start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
       end: key && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
       fieldScroll: key ? el.scrollTop : 0,
@@ -1395,7 +1450,8 @@ export const INTAKE_SCRIPT = `
     if (typeof saved.scroll === 'number') window.scrollTo(0, saved.scroll);
     if (!saved.key) return;
     const parts = String(saved.key).split(':');
-    const selector = parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
+    const selector = saved.key === 'base-branch-search' ? '[data-base-branch-search]'
+      : parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
       : parts[0] === 'attachment' ? '[data-attachment-name="' + parts[1] + '"]'
         : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
     const el = document.querySelector(selector);

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { testRuntimeEnvironment, testRuntimeIdentity } from '../test-runtime.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
@@ -404,7 +405,7 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   assertCleanTrackedTree(root);
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
-  const snapshot = options.snapshot ?? await captureSmartInitSnapshot(root);
+  const snapshot = options.snapshot ?? await captureSmartInitSnapshot(root, { allowDetached: true });
   const detectorOutput = options.detectorOutput ?? runSmartInitDetectors(snapshot);
   let inferredTests = [];
   let testInferenceError = null;
@@ -484,6 +485,9 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
       || !['build', 'quality', 'start'].includes(ambiguity.purpose))
     .sort((left, right) => String(left.id ?? '').localeCompare(String(right.id ?? ''), 'en'));
   const blockers = [
+    ...(commands.some(command => command.purpose === 'test')
+      && (options.testRuntime?.nodeOptions ?? []).some(flag => !process.allowedNodeEnvironmentFlags.has(flag))
+      ? [{ code: 'TEST_RUNTIME_UNSUPPORTED', subject: 'approved-test-runtime' }] : []),
     ...ambiguities.map((ambiguity) => ({
       code: 'REPOSITORY_READINESS_DETECTION_AMBIGUOUS',
       subject: ambiguity.id ?? 'detector-ambiguity'
@@ -514,6 +518,13 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
     arch,
     commands,
     executionPolicy,
+    testRuntime: testRuntimeIdentity(options.testRuntime, options.environment),
+    advisories: Number(process.versions.node.split('.')[0]) >= 25
+      && !options.testRuntime?.nodeOptions?.includes('--no-experimental-webstorage')
+      && snapshot.entries.some(entry => /(?:^|\/)package\.json$/u.test(entry.path)
+        && /"jsdom"/u.test(entry.content ?? ''))
+      ? [{ code: 'TEST_RUNTIME_NODE_WEBSTORAGE',
+          message: 'Node Web Storage can conflict with jsdom. Review repositoryReadiness.testRuntime.nodeOptions: [--no-experimental-webstorage] in approved configuration, or use a compatible Node runtime. No flag is applied automatically.' }] : [],
     structuredTestContract,
     ambiguities,
     blockers,
@@ -1061,6 +1072,7 @@ function repositoryReadinessReceipt(plan, results, testObservations, completedAt
     platform: plan.platform,
     arch: plan.arch,
     planId: plan.planId,
+    testRuntime: plan.testRuntime,
     executionPolicy: plan.executionPolicy,
     structuredTestContract: plan.structuredTestContract,
     testObservations,
@@ -1082,7 +1094,7 @@ export async function executeRepositoryReadinessPlan(root, {
   emptyOnly = false,
   ...planOptions
 } = {}) {
-  const plan = await buildRepositoryReadinessPlan(root, { ...planOptions, emptyOnly });
+  const plan = await buildRepositoryReadinessPlan(root, { ...planOptions, emptyOnly, environment });
   if (emptyOnly && !isEmptyRepositoryReadinessPlan(plan)) throw new SingularityFlowError(
     'Repository readiness now requires a reviewed execution plan; no command was run.',
     { code: 'REPOSITORY_READINESS_STALE_PLAN' }
@@ -1126,6 +1138,7 @@ export async function executeRepositoryReadinessPlan(root, {
       platform: plan.platform,
       arch: plan.arch,
       planId: plan.planId,
+      testRuntime: plan.testRuntime,
       workingTree: baseline.untracked,
       testTools: plan.structuredTestContract.commands,
       commandResults: results,
@@ -1172,7 +1185,9 @@ export async function executeRepositoryReadinessPlan(root, {
     const startedAt = new Date(now()).toISOString();
     try {
       result = await runCommand(command, {
-        root, signal: controller.signal, environment, platform: plan.platform,
+        root, signal: controller.signal,
+        environment: command.purpose === 'test' ? testRuntimeEnvironment(plan.testRuntime?.profile, environment) : environment,
+        platform: plan.platform,
         setTimeoutFn, clearTimeoutFn, now
       });
     } catch (error) {
@@ -1282,7 +1297,8 @@ export async function loadRepositoryReadinessReceipt(root, {
 /** Validate a Git-private receipt for the exact checked-out base commit and current source manifest. */
 export async function inspectRepositoryReadinessReceipt(root, {
   commit = head(root), sourceManifestSha256 = null, platform = process.platform, arch = process.arch,
-  recompute = sourceManifestSha256 === null, scope = 'full', allowFullFallback = true
+  recompute = sourceManifestSha256 === null, scope = 'full', allowFullFallback = true,
+  testRuntime = {}, environment = process.env
 } = {}) {
   const requestedScope = readinessScope(scope);
   const loaded = await loadRepositoryReadinessReceipt(root, {
@@ -1295,6 +1311,7 @@ export async function inspectRepositoryReadinessReceipt(root, {
   if (receipt.status !== 'pass') reasons.push('receipt-not-passing');
   if (receipt.sourceCommit !== commit) reasons.push('commit-mismatch');
   if (receipt.platform !== platform || receipt.arch !== arch) reasons.push('runtime-mismatch');
+  if (receipt.testRuntime?.sha256 !== testRuntimeIdentity(testRuntime, environment).sha256) reasons.push('test-runtime-mismatch');
   if (await loadSupersedingTestBaseline(root, {
     commit, platform, arch, scope: requestedScope
   })) reasons.push('failed-baseline-supersedes-receipt');
@@ -1308,6 +1325,7 @@ export async function inspectRepositoryReadinessReceipt(root, {
           platform,
           arch,
           scope: receiptScope,
+          testRuntime, environment,
           timeouts: receipt.executionPolicy?.timeoutsMs,
           startSurvivalMs: receipt.executionPolicy?.startSurvivalMs
         });

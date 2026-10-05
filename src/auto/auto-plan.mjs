@@ -571,7 +571,8 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     ? [] : resolution.phases.slice(0, endpointPhaseIndex + 1);
   const phaseVerification = await Promise.all(reachablePhases.map(async (phase) => {
     const required = phaseRequiresCodeDelivery(phase);
-    const commands = required ? await resolveDeliveryQualityCommands(root, phase) : [];
+    const commands = required ? await resolveDeliveryQualityCommands(root, phase,
+      { executionMode: resolution.testExecutionMode }) : [];
     return { phase: phase.id, required, commands };
   }));
   const missingVerificationPhases = phaseVerification

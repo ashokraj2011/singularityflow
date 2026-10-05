@@ -1724,9 +1724,11 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           worktree, candidate, applicationPathContext(definition, workflow)
         );
         assertAutoCandidateMatches(candidate, candidateObservation);
-        const commands = await resolveDeliveryQualityCommands(worktree, phase);
+        const commands = await resolveDeliveryQualityCommands(worktree, phase,
+          { executionMode: workflow.resolution?.testExecutionMode });
         candidateVerification = await verifyAutoCandidate(worktree, candidate, {
-          commands, pathContext: applicationPathContext(definition, workflow)
+          commands, pathContext: applicationPathContext(definition, workflow),
+          testRuntime: workflow.resolution?.testRuntime
         });
         const verificationActiveMilliseconds = Date.now() - activeAccountedAt;
         activeAccountedAt = Date.now();

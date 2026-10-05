@@ -30,7 +30,7 @@ async function treeDigest(root) {
   return sha(JSON.stringify(manifest));
 }
 
-async function fixture(t) {
+async function fixture(t, { testRuntime = null } = {}) {
   const parent = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-isolated-baseline-preview-')));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const root = path.join(parent, 'repo'); await mkdir(root);
@@ -39,10 +39,14 @@ async function fixture(t) {
   await initializeDefinition(root); await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'test'));
   await writeFile(path.join(root, '.gitignore'), '.sflow/results/\n');
   await writeFile(path.join(root, 'src/service.mjs'), 'export const value = 1;\n');
-  await writeFile(path.join(root, 'test/service.test.mjs'), "import test from 'node:test'; import assert from 'node:assert/strict'; test('baseline assertion',()=>assert.equal(2,3)); test('smoke',()=>assert.equal(1,1));\n");
+  const smokeAssertion = testRuntime
+    ? "assert.ok(process.env.NODE_OPTIONS?.includes('--no-experimental-webstorage'))"
+    : 'assert.equal(1,1)';
+  await writeFile(path.join(root, 'test/service.test.mjs'), `import test from 'node:test'; import assert from 'node:assert/strict'; test('baseline assertion',()=>assert.equal(2,3)); test('smoke',()=>${smokeAssertion});\n`);
   const filename = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(filename, 'utf8'));
   definition.git.publish = 'off';
+  if (testRuntime) definition.repositoryReadiness.testRuntime = testRuntime;
   definition.approvalAuthorities['risk-reviewers'] = { label: 'Exact reviewers', allowAnyGitIdentity: false,
     members: [{ name: 'Baseline Reviewer', email: 'baseline@example.invalid', githubLogin: null }] };
   definition.testRecovery = { enabled: true, riskAuthorities: ['risk-reviewers'], enabledRiskCategories: ['known-test-failure'],
@@ -105,4 +109,15 @@ test('isolated baseline preview authenticates target-native evidence with the id
   const moved = await prepareTestRecoveryIntake(value.root, value.args(value.config, captured.recordSha256, true));
   assert.equal(moved.ready, false); assert.ok(moved.blockers.some(message => /exact requested pre-feature base/u.test(message)), JSON.stringify(moved.blockers));
   assert.equal(await treeDigest(value.parent), before, 'moved-target preview cannot reset or recapture anything');
+});
+
+test('native baseline capture uses the pinned test-only runtime profile', {
+  skip: !process.allowedNodeEnvironmentFlags.has('--no-experimental-webstorage')
+}, async t => {
+  const ambient = process.env.NODE_OPTIONS;
+  const value = await fixture(t, { testRuntime: { nodeOptions: ['--no-experimental-webstorage'] } });
+  assert.equal(value.sourceBaseline.observedOutcome, 'failed');
+  assert.equal(value.sourceBaseline.counts.failed, 1, 'only the genuine baseline assertion fails');
+  assert.equal(value.sourceBaseline.counts.passed, 1, 'the smoke test observed the approved runtime flag');
+  assert.equal(process.env.NODE_OPTIONS, ambient, 'the caller environment remains unchanged');
 });

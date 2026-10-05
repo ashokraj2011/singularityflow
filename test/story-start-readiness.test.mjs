@@ -7,6 +7,67 @@ import {
   assertStoryStartReady, inspectStoryStartReadiness
 } from '../src/story-start-readiness.mjs';
 
+test('explicit baseline deferral admits intake without turning missing or failing tests into passing evidence', async () => {
+  const definition = await shippedDefinition();
+  definition.repositoryReadiness.baselinePolicy = 'choice';
+  for (const evidence of [null, { repositories: { application: acceptedFailedTests() } }]) {
+    const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: evidence, readinessBaseline: 'defer' }));
+    assert.equal(result.ready, true, JSON.stringify(result.blockers));
+    assert.ok(result.warnings.some(entry => entry.code === 'STORY_TEST_BASELINE_DEFERRED'));
+    assert.ok(!result.checks.some(entry => entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
+    assert.equal(result.repositoryExecution.choice, 'defer');
+    assert.notEqual(result.receipt.readinessSha256,
+      inspectStoryStartReadiness(facts(definition, { repositoryReadiness: evidence, readinessBaseline: 'reuse' })).receipt.readinessSha256);
+  }
+});
+
+test('baseline deferral cannot weaken strict, legacy, non-test or Git authority requirements', async () => {
+  for (const policy of [
+    { baselinePolicy: 'required' },
+    { baselinePolicy: 'choice', dependencyHydration: 'required' },
+    { baselinePolicy: 'choice', build: 'required' },
+    { baselinePolicy: 'choice', applicationStart: 'required' }
+  ]) {
+    const definition = await shippedDefinition();
+    Object.assign(definition.repositoryReadiness, policy);
+    assert.equal(inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' })).ready, false);
+    if (policy.baselinePolicy === 'choice') {
+      const purpose = policy.dependencyHydration ? 'dependency' : policy.build ? 'build' : 'start';
+      const receipt = { status: 'failing-tests', sourceCommit: BASE_COMMIT,
+        prerequisitesCurrent: true, commandResults: [{ purpose, status: 'pass' }] };
+      const inspect = value => inspectStoryStartReadiness(facts(definition, {
+        repositoryReadiness: { repositories: { application: value } }, readinessBaseline: 'defer'
+      }));
+      assert.equal(inspect(receipt).ready, true, 'current non-test proof survives a deferred failing test');
+      assert.equal(inspect({ ...receipt, status: 'stale' }).ready, false);
+      assert.equal(inspect({ ...receipt, prerequisitesCurrent: false }).ready, false);
+      assert.equal(inspect({ ...receipt, sourceCommit: 'c'.repeat(40) }).ready, false);
+    }
+    if (policy.baselinePolicy === 'required') {
+      const passing = { repositories: { application: {
+        status: 'pass', sourceCommit: BASE_COMMIT, commandResults: [],
+        structuredTestContract: { status: 'available' }
+      } } };
+      const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: passing, readinessBaseline: 'defer' }));
+      assert.equal(result.ready, false);
+      assert.ok(result.blockers.some(entry => entry.code === 'TEST_BASELINE_DEFER_NOT_ALLOWED'));
+    }
+  }
+  const definition = await shippedDefinition();
+  definition.repositoryReadiness.baselinePolicy = 'choice';
+  definition.initialization = { proof: { preStory: { requiredBeforeStory: true } } };
+  const legacy = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' }));
+  assert.equal(legacy.ready, false);
+  assert.equal(legacy.repositoryExecution.baselinePolicy, 'required', 'the UI must not offer legacy-forbidden deferral');
+  definition.initialization = { proof: { preStory: { requiredBeforeStory: false, build: 'required' } } };
+  assert.equal(inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null, readinessBaseline: 'defer' })).ready, false);
+  delete definition.initialization;
+  const invalid = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null,
+    readinessBaseline: 'defer', repositories: [{ id: 'application', baseCommit: null }] }));
+  assert.equal(invalid.ready, false);
+  assert.throws(() => inspectStoryStartReadiness(facts(definition, { readinessBaseline: 'skip-all' })), /reuse, run, or defer/);
+});
+
 const CONFIG_COMMIT = 'a'.repeat(40);
 const BASE_COMMIT = 'b'.repeat(40);
 
@@ -255,7 +316,7 @@ test('repository readiness remediation selects full scope for enabled build or s
   assert.throws(() => assertStoryStartReady(result), (error) => {
     assert.equal(error.details?.nextSkill, '/sf-ready --full');
     assert.equal(error.details?.nextAction,
-      'singularity-flow precheck --run --scope full --json');
+      `singularity-flow precheck --run --base-commit ${BASE_COMMIT} --scope full --json`);
     return true;
   });
 });

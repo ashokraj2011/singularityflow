@@ -7,6 +7,7 @@
  * can never authorize an upgrade, enrollment, checkout, commit, or push.
  */
 import { createHash } from 'node:crypto';
+import { baselineChoiceAllowed, baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
 
 import { BUILD_INFO } from './build-info.mjs';
 import { assertWorkTypeStartable, resolveWorkType } from './config.mjs';
@@ -132,10 +133,12 @@ export function inspectStoryStartReadiness({
   baseBranch = null,
   repositories = [],
   repositoryReadiness = null,
+  readinessBaseline = 'reuse',
   publicationRequired = true,
   surface = 'shell'
 } = {}) {
   const checks = [];
+  intakeBaselineChoice(readinessBaseline);
   const configuration = configurationIdentity(configurationSnapshot);
 
   if (configuration?.commit && configuration?.filesSha256) {
@@ -221,15 +224,26 @@ export function inspectStoryStartReadiness({
   // A legacy block must not silently turn off an explicit canonical requirement (or vice versa).
   const repositoryReadinessRequired = definition?.repositoryReadiness?.requiredBeforeStory === true
     || definition?.initialization?.proof?.preStory?.requiredBeforeStory === true;
+  const baselinePolicy = baselineChoiceAllowed(definition, 'defer') ? 'choice' : 'required';
   const readinessScope = requiredRepositoryReadinessScope(definition);
+  if (!baselineChoiceAllowed(definition, readinessBaseline)) checks.push(check(
+    'baseline-choice', 'block', 'TEST_BASELINE_DEFER_NOT_ALLOWED',
+    'The approved policy requires baseline verification. Choose reuse or a reviewed run; deferral is not permitted.'
+  ));
   if (repositoryReadinessRequired) {
     const receipts = repositoryReadiness?.repositories
       ?? (normalizedRepositories.length === 1 && repositoryReadiness
         ? { [normalizedRepositories[0].id]: repositoryReadiness } : {});
     const acceptedKnownFailures = [];
     const emptyPlans = [];
+    const deferred = [];
     const invalid = normalizedRepositories.find((entry) => {
       const receipt = receipts[entry.id];
+      const exactReceipt = receipt?.sourceCommit === entry.baseCommit ? receipt : null;
+      if (baselineDeferralAllowed(definition, readinessBaseline, exactReceipt)) {
+        deferred.push(entry.id);
+        return false;
+      }
       const emptyPreview = surface === 'vscode-preflight' && receipt?.status === 'no-commands-applicable'
         && receipt.scope === readinessScope && /^sha256:[a-f0-9]{64}$/u.test(receipt.planId ?? '')
         && receipt.structuredTestContract?.satisfied === true
@@ -260,7 +274,10 @@ export function inspectStoryStartReadiness({
       return false;
     });
     const complete = normalizedRepositories.length > 0 && !invalid;
-    checks.push(complete && acceptedKnownFailures.length
+    checks.push(complete && deferred.length
+      ? check('repository-execution', 'warning', 'STORY_TEST_BASELINE_DEFERRED',
+          'Baseline checking explicitly deferred: unobserved tests stay unknown. Deferral creates no passing evidence or risk acceptance for observed failures; later required tests and publication gates remain enforced.')
+      : complete && acceptedKnownFailures.length
       ? check(
           'repository-execution', 'warning', 'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED',
           `Known failing tests were accepted for Story creation in ${acceptedKnownFailures.length} exact-base repository/repositories; later test and publication gates remain required.`
@@ -275,7 +292,11 @@ export function inspectStoryStartReadiness({
         )
       : check(
           'repository-execution', 'block', 'STORY_REPOSITORY_READINESS_REQUIRED',
-          'The selected base lacks a current policy-complete repository-readiness receipt. Run the pre-Story readiness plan before creating a Story worktree.'
+          baselinePolicy === 'choice'
+            ? readinessBaseline === 'defer'
+              ? 'Baseline tests are deferred, but required dependency/build/start prerequisites lack current exact-base passing results. Run the selected-base readiness plan or review the approved prerequisite policy.'
+              : 'No compatible baseline is available. Review and run the selected-base readiness plan, or explicitly defer baseline tests. Required non-test prerequisites cannot be deferred.'
+            : 'The selected base lacks a current policy-complete repository-readiness receipt. The approved policy requires a reviewed pre-Story run; it does not allow deferral.'
         ));
   }
 
@@ -290,6 +311,7 @@ export function inspectStoryStartReadiness({
   const authority = configuration ?? Object.freeze({ branch: null, commit: null, filesSha256: null });
   const receiptFacts = {
     workId: String(workId ?? ''), workType, capabilityId, baseBranch,
+    readinessBaseline,
     configurationCommit: authority.commit,
     repositoryReadinessSha256: repositoryReadiness?.repositories
       ? Object.fromEntries(Object.entries(repositoryReadiness.repositories)
@@ -320,7 +342,9 @@ export function inspectStoryStartReadiness({
     runtime: runtimeIdentity(),
     repositoryExecution: Object.freeze({
       required: repositoryReadinessRequired,
-      scope: readinessScope
+      scope: readinessScope,
+      baselinePolicy,
+      choice: readinessBaseline
     }),
     checks: Object.freeze(checks),
     blockers: Object.freeze(blocking),
@@ -350,6 +374,10 @@ export function assertStoryStartReady(readiness) {
   const repositoryRepair = first?.id === 'repository-execution';
   const repositoryScope = readiness?.repositoryExecution?.scope ?? 'dependency-test';
   const repositorySkill = repositoryScope === 'full' ? '/sf-ready --full' : '/sf-ready';
+  const bases = Object.values(readiness?.receipt?.baseCommits ?? {});
+  const selectedBase = bases.length === 1 && /^[a-f0-9]{40,64}$/u.test(bases[0] ?? '')
+    ? ` --base-commit ${bases[0]}` : '';
+  const repositoryCommand = `singularity-flow precheck --run${selectedBase} --scope ${repositoryScope} --json`;
   throw new SingularityFlowError(first?.message ?? 'Story-start readiness failed.', {
     code: first?.code ?? 'STORY_START_NOT_READY',
     details: {
@@ -359,9 +387,9 @@ export function assertStoryStartReady(readiness) {
         nextSkill: readiness.upgrade?.copilot ?? null,
         recoveryCommands: [readiness.upgrade?.shell].filter(Boolean)
       } : repositoryRepair ? {
-        nextAction: `singularity-flow precheck --run --scope ${repositoryScope} --json`,
+        nextAction: repositoryCommand,
         nextSkill: repositorySkill,
-        recoveryCommands: [`singularity-flow precheck --run --scope ${repositoryScope} --json`]
+        recoveryCommands: [repositoryCommand]
       } : {})
     }
   });

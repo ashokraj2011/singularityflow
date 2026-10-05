@@ -20,6 +20,37 @@ const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin',
 const posix = { skip: process.platform === 'win32' ? 'Story intake receipts are POSIX-only.' : false };
 const EMAIL = 'story.publisher@example.com';
 
+test('intake records explicit deferred baseline and test scope without running tests or bypassing strict policy', posix, async t => {
+  const { root } = await repository(t);
+  git(root, 'fetch', '-q', 'origin');
+  git(root, 'merge', '--ff-only', 'origin/sflow/config');
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.repositoryReadiness.requiredBeforeStory = true;
+  definition.repositoryReadiness.baselinePolicy = 'choice';
+  await writeFile(file, YAML.stringify(definition));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'intake-baseline', private: true,
+    scripts: { test: 'node --test' } }));
+  await writeFile(path.join(root, 'failing.test.mjs'), 'import test from "node:test"; test("pre-existing failure", () => { throw Error("known"); });\n');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Baseline choice policy and existing test');
+  git(root, 'push', '-q', 'origin', 'main', 'main:refs/heads/sflow/config');
+  const refusal = start(root, 'BASELINE-REQUIRED', [], { allowFailure: true });
+  assert.notEqual(refusal.status, 0);
+  assert.match(refusal.stdout + refusal.stderr, /STORY_REPOSITORY_READINESS_REQUIRED/);
+  const started = data(start(root, 'BASELINE-DEFERRED', ['--readiness-baseline', 'defer', '--test-execution-mode', 'all-configured']));
+  const item = path.join(started.repositoryPath, 'singularity/work-items/BASELINE-DEFERRED');
+  const readiness = JSON.parse(await readFile(path.join(item, 'context/repository-test-readiness.json'), 'utf8'));
+  const testPolicy = JSON.parse(await readFile(path.join(item, 'context/test-policy.json'), 'utf8'));
+  assert.equal(readiness.baselineChoice, 'defer');
+  assert.equal(readiness.baselineObservation, 'deferred-not-verified');
+  assert.ok(readiness.repositories.every(entry => entry.status !== 'pass'));
+  assert.equal(testPolicy.executionScope, 'full');
+  assert.equal(testPolicy.baselineFailures, 'repair-in-story');
+  assert.equal(git(root, 'branch', '--show-current'), 'main');
+  assert.equal(git(root, 'status', '--porcelain'), '');
+  assert.equal(git(root, 'worktree', 'list', '--porcelain').includes('BASELINE-REQUIRED'), false);
+});
+
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',

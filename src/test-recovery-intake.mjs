@@ -367,10 +367,13 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
 }
 
 export function confirmTestRecoveryIntake(preview, confirmation, options = {}) {
-  const provided = ['test-baseline-disposition', 'test-execution-mode', 'test-baseline-scope', 'test-policy-confirm']
-    .some(key => Object.hasOwn(options, key));
   if (!preview.enabled) {
-    if (provided) fail('This workflow does not enable Story test policy. No Story was created.', 'TRP_NOT_ENABLED');
+    const riskOptions = ['test-baseline-disposition', 'test-baseline-scope', 'test-policy-confirm']
+      .some(key => Object.hasOwn(options, key));
+    if (riskOptions) fail('This workflow does not enable Story test policy. No Story was created.', 'TRP_NOT_ENABLED');
+    if (Object.hasOwn(options, 'test-execution-mode') && !MODES.includes(options['test-execution-mode'])) {
+      fail('Test execution mode must be changed-and-affected or all-configured.', 'TEST_POLICY_INVALID');
+    }
     return null;
   }
   if (!preview.ready || confirmation !== preview.planDigest

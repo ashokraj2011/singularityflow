@@ -11,6 +11,8 @@ import {
 
 const DEFAULT_POLICY = Object.freeze({
   requiredBeforeStory: false,
+  baselinePolicy: 'required',
+  testRuntime: { nodeOptions: [] },
   dependencyHydration: 'when-detected',
   build: 'off',
   structuredTests: 'required-for-code',
@@ -27,7 +29,7 @@ test('repositories can require pre-Story readiness while omitted policy remains 
 
   assert.deepEqual(normalizeRepositoryReadinessPolicy(), DEFAULT_POLICY);
   assert.deepEqual(definition.repositoryReadiness, {
-    ...DEFAULT_POLICY, requiredBeforeStory: true
+    ...DEFAULT_POLICY, requiredBeforeStory: true, baselinePolicy: 'choice'
   });
 
   delete definition.repositoryReadiness;
@@ -54,6 +56,7 @@ test('repository readiness accepts every supported execution mode', () => {
     receiptScope: 'git-private-exact-base'
   }), {
     requiredBeforeStory: true,
+    baselinePolicy: 'required', testRuntime: { nodeOptions: [] },
     dependencyHydration: 'required',
     build: 'off',
     structuredTests: 'when-detected',

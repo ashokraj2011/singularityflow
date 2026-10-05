@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import {
-  EMPTY_INTAKE_FORM, INTAKE_SCRIPT, intakeHtml, intakeProblems
+  EMPTY_INTAKE_FORM, INTAKE_SCRIPT, intakeHtml, intakeProblems, intakeCommand, storyPreflightCommand
 } from '../apps/vscode/src/views/intake-form.ts';
 
 const choice = (branch, story) => ({ branch, story, present: 1, total: 1, everywhere: true, missingFrom: [] });
@@ -209,4 +209,32 @@ test('filtered rows stay hidden despite the shared choice layout and long catalo
   const styles = await readFile(new URL('../apps/vscode/src/views/webview.ts', import.meta.url), 'utf8');
   assert.match(styles, /\.base-branch-choices > \[hidden\] \{ display: none !important; \}/);
   assert.match(styles, /\.base-branch-choices \{ max-height: 24rem; overflow-y: auto;/);
+});
+
+test('baseline and ongoing scope are independent explicit choices, not implied risk acceptance', () => {
+  const intake = form({ baseBranch: 'main', baselinePolicy: 'choice', readinessBaseline: 'defer',
+    testExecutionMode: 'all-configured' });
+  const view = mount(intake);
+  assert.match(view.html, /Existing-test baseline/);
+  assert.match(view.html, /value="defer" checked\s*>/);
+  assert.match(view.html, /All configured tests/);
+  assert.doesNotMatch(view.html, /data-baseline-run/);
+  for (const args of [intakeCommand(intake), storyPreflightCommand(intake)]) {
+    assert.equal(args[args.indexOf('--readiness-baseline') + 1], 'defer');
+    assert.equal(args[args.indexOf('--test-execution-mode') + 1], 'all-configured');
+    assert.ok(!args.includes('--accept-test-risk') && !args.includes('--test-baseline-disposition'));
+  }
+  const strict = intakeHtml({ ...intake, baselinePolicy: 'required', readinessBaseline: 'reuse' });
+  assert.match(strict, /data-readiness-baseline value="defer"\s+disabled/);
+  assert.match(intakeHtml({ ...intake, readinessBaseline: 'run' }), /Review baseline commands/);
+});
+
+test('reviewed-run choice waits for the exact selected base and never starts while baseline runs', () => {
+  const intake = form({ baseBranch: 'main', readinessBaseline: 'run', baselineRunCommit: null,
+    baseTestReadiness: { repositories: [{ id: 'application', baseCommit: 'a'.repeat(40) }] } });
+  const baselineProblem = value => intakeProblems(value).some(problem => /Review and run the selected baseline/.test(problem));
+  assert.equal(baselineProblem(intake), true);
+  assert.equal(baselineProblem({ ...intake, baselineRunCommit: 'a'.repeat(40) }), false);
+  assert.equal(baselineProblem({ ...intake, baselineRunCommit: 'b'.repeat(40) }), true);
+  assert.ok(intakeProblems({ ...intake, baselineRunning: true }).some(problem => /Wait for the reviewed baseline/.test(problem)));
 });

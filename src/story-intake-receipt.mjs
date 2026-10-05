@@ -43,7 +43,8 @@ export function storyIntakeReceiptsDisabled(env = process.env) {
  * a start that differs in any of these runs the full path.
  */
 export function storyIntakeInputsDigest({
-  workId, workType, baseBranch, remote, capabilityId = null, references = []
+  workId, workType, baseBranch, remote, capabilityId = null, references = [], readinessBaseline = 'reuse',
+  testExecutionMode = 'changed-and-affected'
 }) {
   return `sha256:${recordSha256({
     workId: String(workId ?? ''),
@@ -51,6 +52,8 @@ export function storyIntakeInputsDigest({
     baseBranch: String(baseBranch ?? ''),
     remote: String(remote ?? ''),
     capabilityId: capabilityId ?? null,
+    readinessBaseline,
+    testExecutionMode,
     references: [...references]
       .map((entry) => ({ id: String(entry.id), url: String(entry.url), branch: String(entry.branch) }))
       .sort((left, right) => left.id.localeCompare(right.id))

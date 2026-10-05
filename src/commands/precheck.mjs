@@ -1,4 +1,10 @@
 import { repoRoot, resolveGitCommitIdentity } from '../git.mjs';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { loadDefinition } from '../config.mjs';
+import { fosStoryConfigurationAuthority } from '../onboard.mjs';
+import { loadStoryConfigurationSnapshot } from '../configuration-branch.mjs';
+import { withReadinessBase } from '../readiness-base.mjs';
 import { smartInitPrecheck } from '../initialization/precheck.mjs';
 import {
   buildRepositoryReadinessPlan, executeRepositoryReadinessPlan, loadRepositoryTestBaseline,
@@ -13,6 +19,13 @@ import {
   listPreStoryTestRiskAcceptances, storePreStoryTestRiskAcceptance
 } from '../test-baseline-risk.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+
+async function approvedTestRuntime(root) {
+  const authority = await fosStoryConfigurationAuthority(root);
+  const definition = authority ? (await loadStoryConfigurationSnapshot(authority)).definition
+    : existsSync(path.join(root, 'singularity/workflow.yml')) ? await loadDefinition(root) : null;
+  return definition?.repositoryReadiness?.testRuntime ?? {};
+}
 
 export async function run(argv, { options } = {}) {
   const quick = optionBoolean(options, 'quick');
@@ -39,7 +52,9 @@ export async function run(argv, { options } = {}) {
         code: 'PRE_STORY_TEST_RISK_INELIGIBLE'
       }
     );
-    const currentPlan = loaded ? await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' }) : null;
+    const currentPlan = loaded ? await buildRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', testRuntime: await approvedTestRuntime(root)
+    }) : null;
     const current = Boolean(loaded && currentPlan.planId === loaded.baseline.planId
       && currentPlan.sourceCommit === loaded.baseline.sourceCommit
       && currentPlan.sourceManifestSha256 === loaded.baseline.sourceManifestSha256);
@@ -89,45 +104,51 @@ export async function run(argv, { options } = {}) {
   if (execute) {
     const scope = optionString(options, 'scope', 'dependency-test');
     const confirmation = optionString(options, 'confirm-plan');
-    if (!confirmation) {
-      const plan = await buildRepositoryReadinessPlan(root, { scope });
-      if (isEmptyRepositoryReadinessPlan(plan)) {
-        const result = await executeRepositoryReadinessPlan(root, {
-          scope, confirmation: plan.planId, emptyOnly: true
-        });
-        return emitExecution(result, options);
-      }
-      const command = `singularity-flow precheck --run --scope ${plan.scope} --confirm-plan ${plan.planId} --json`;
-      const blockedNext = plan.blockers.length ? [action({
-        id: 'precheck-repair-test-setup',
-        label: plan.blockers.some((blocker) => blocker.code === 'REPOSITORY_READINESS_STRUCTURED_TEST_REQUIRED')
-          ? 'Inspect the repository test setup, then add or repair a supported structured unit-test reporter before planning again. Do not confirm this blocked plan.'
-          : 'Inspect ambiguous repository setup and choose one supported package manager or test command before planning again. Do not confirm this blocked plan.',
-        command: 'singularity-flow precheck --quick --json',
-        skill: '/sf-ready',
-        kind: 'remediation'
-      })] : [];
-      return emitCommandResult(commandResult({
-        operation: { id: 'precheck.run.plan', classification: 'read' },
-        outcome: succeeded(plan.blockers.length ? 'precheck.run-blocked' : 'precheck.run-planned', {
-          commands: plan.commands.length, blockers: plan.blockers.length
-        }),
-        effects: noEffects(),
-        next: plan.blockers.length ? blockedNext : [action({
-          id: 'precheck-run-confirm',
-          label: plan.scope === 'dependency-test'
-            ? 'Run the exact reviewed locked-dependency and existing-unit-test plan.'
-            : 'Run the exact reviewed dependency, build, test, and application-start plan.',
-          command,
+    const baseCommit = optionString(options, 'base-commit');
+    const testRuntime = await approvedTestRuntime(root);
+    return withReadinessBase(root, baseCommit, async executionRoot => {
+      if (!confirmation) {
+        const plan = await buildRepositoryReadinessPlan(executionRoot, { scope, testRuntime });
+        if (isEmptyRepositoryReadinessPlan(plan)) {
+          const result = await executeRepositoryReadinessPlan(executionRoot, {
+            scope, testRuntime, confirmation: plan.planId, emptyOnly: true
+          });
+          return emitExecution(result, options);
+        }
+        const command = `singularity-flow precheck --run${baseCommit ? ` --base-commit ${baseCommit}` : ''} --scope ${plan.scope} --confirm-plan ${plan.planId} --json`;
+        const blockedNext = plan.blockers.length ? [action({
+          id: 'precheck-repair-test-setup',
+          label: plan.blockers.some((blocker) => blocker.code === 'TEST_RUNTIME_UNSUPPORTED')
+            ? 'Use a Node runtime compatible with the approved test-only settings, or review that configuration before planning again. Do not confirm this blocked plan.'
+            : plan.blockers.some((blocker) => blocker.code === 'REPOSITORY_READINESS_STRUCTURED_TEST_REQUIRED')
+              ? 'Inspect the repository test setup, then add or repair a supported structured unit-test reporter before planning again. Do not confirm this blocked plan.'
+              : 'Inspect ambiguous repository setup and choose one supported package manager or test command before planning again. Do not confirm this blocked plan.',
+          command: 'singularity-flow precheck --quick --json',
           skill: '/sf-ready',
-          kind: 'review'
-        })],
-        restState: 'informational',
-        data: { plan }
-      }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
-    }
-    const result = await executeRepositoryReadinessPlan(root, { confirmation, scope });
-    return emitExecution(result, options);
+          kind: 'remediation'
+        })] : [];
+        return emitCommandResult(commandResult({
+          operation: { id: 'precheck.run.plan', classification: 'read' },
+          outcome: succeeded(plan.blockers.length ? 'precheck.run-blocked' : 'precheck.run-planned', {
+            commands: plan.commands.length, blockers: plan.blockers.length
+          }),
+          effects: noEffects(),
+          next: plan.blockers.length ? blockedNext : [action({
+            id: 'precheck-run-confirm',
+            label: plan.scope === 'dependency-test'
+              ? 'Run the exact reviewed locked-dependency and existing-unit-test plan.'
+              : 'Run the exact reviewed dependency, build, test, and application-start plan.',
+            command,
+            skill: '/sf-ready',
+            kind: 'review'
+          })],
+          restState: 'informational',
+          data: { plan }
+        }), { json: optionBoolean(options, 'json'), restStateWhenIdle: null });
+      }
+      const result = await executeRepositoryReadinessPlan(executionRoot, { confirmation, scope, testRuntime });
+      return emitExecution(result, options);
+    });
   }
   const precheck = await smartInitPrecheck(root);
   const [unitBaseline, fullBaseline] = await Promise.all([

@@ -6,6 +6,24 @@
   "required": ["version", "git", "templatesRoot", "workTypes", "phases"],
   "properties": {
     "version": { "enum": [2, 3] },
+    "repositoryReadiness": {
+      "type": "object",
+      "properties": {
+        "requiredBeforeStory": { "type": "boolean", "default": false },
+        "baselinePolicy": { "enum": ["required", "choice"], "default": "required" },
+        "dependencyHydration": { "enum": ["off", "when-detected", "required"] },
+        "build": { "enum": ["off", "when-detected", "required"] },
+        "applicationStart": { "enum": ["off", "when-detected", "required"] },
+        "structuredTests": { "enum": ["off", "when-detected", "required-for-code", "required"] },
+        "receiptScope": { "const": "git-private-exact-base" },
+        "testRuntime": {
+          "type": "object",
+          "properties": { "nodeOptions": { "type": "array", "uniqueItems": true, "items": { "const": "--no-experimental-webstorage" }, "default": [] } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "auto": { "$ref": "#/$defs/autoPolicy" },
     "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
     "noModel": {

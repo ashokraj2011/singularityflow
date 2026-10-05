@@ -71,6 +71,30 @@ async function repository(t) {
   return root;
 }
 
+test('selected-base CLI plans and executes exact tests without using dirty open-Story input', async (t) => {
+  const root = await repository(t);
+  const git = (...args) => run('git', args, { cwd: root }).stdout.trim();
+  const base = git('rev-parse', 'HEAD');
+  git('switch', '-q', '-c', 'open-story');
+  await writeFile(path.join(root, 'sample.test.mjs'), 'throw new Error("dirty Story test must not run");\n');
+  const runBaseline = args => {
+    const result = spawnSync(process.execPath, [cli, 'precheck', '--run', '--base-commit', base,
+      '--scope', 'dependency-test', '--json', ...args], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const preview = runBaseline([]);
+  assert.equal(preview.operation.classification, 'read');
+  assert.equal(preview.data.plan.sourceCommit, base);
+  assert.ok(preview.next.some(action => action.command.includes(`--base-commit ${base}`)));
+  const result = runBaseline(['--confirm-plan', preview.data.plan.planId]);
+  assert.equal(result.data.receipt.status, 'pass');
+  assert.equal(result.data.receipt.sourceCommit, base);
+  assert.equal(git('branch', '--show-current'), 'open-story');
+  assert.match(await readFile(path.join(root, 'sample.test.mjs'), 'utf8'), /dirty Story/);
+  assert.equal(git('worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith('worktree ')).length, 1);
+});
+
 test('no-command readiness binds the selected base across governance-only changes, never changed code', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-selected-base-'));
   t.after(() => rm(root, { recursive: true, force: true }));

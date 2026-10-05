@@ -7181,11 +7181,11 @@ access, and no model is invoked.
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~829 body tokens</span>
+          <span class="pill">~817 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-ready</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[--repair] [--full]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[--base-commit &lt;OID&gt;] [--repair] [--full]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-ready/SKILL.md</code></dd></div>
         </dl>
@@ -7197,7 +7197,7 @@ access, and no model is invoked.
 name: sflow-ready
 description: Prove locked packages, installation health, test-framework setup, and existing unit tests before a Story worktree; optionally repair only reviewed dependency/test setup.
 disable-model-invocation: true
-argument-hint: &quot;[--repair] [--full]&quot;
+argument-hint: &quot;[--base-commit &lt;OID&gt;] [--repair] [--full]&quot;
 
 ---
 # Make a repository ready before Story work
@@ -7207,25 +7207,24 @@ argument-hint: &quot;[--repair] [--full]&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Setup only: Never change product behavior, weaken tests, skip checks, upgrade versions, install
-global tools, record secrets, or enter a Story worktree. Build, quality, application-start,
-end-to-end are forbidden unless `--full` and approved policy permit them.
+Setup only: Never change product behavior, weaken tests, upgrade versions, install global tools,
+record secrets, or edit a Story checkout. Build/start/end-to-end need `--full` and approved policy.
 
-1. Require exact Git root/clean tree. Run `singularity-flow init --check --json`, then `singularity-flow precheck --quick --json`.
+1. Require Git root; without a selected base, require a clean tree. Run `singularity-flow init --check --json`, then `singularity-flow precheck --quick --json`.
    Report test tools, adapters, and launcher availability.
 2. Select `dependency-test` unless `--full` is requested. Run
-   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --json` once for its plan only. Show base,
-   manifest digest, locked dependencies or frozen restore, test commands, structured test adapter,
-   timeouts, omissions, and `planId`. For blockers, do not confirm or repeat
-   the plan. Use `singularity-flow precheck --quick --json` to identify the native script,
-   package-manager ambiguity, or missing reporter; offer the smallest reviewed setup repair.
+   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --json` once for its plan. Retain any selected
+   `--base-commit &lt;OID&gt;` in preview and execution; the CLI owns temporary checkout/cleanup. Show base,
+   digest, commands, adapters, timeouts, omissions, runtime flags/advisories, and `planId`.
+   For blockers, do not confirm/repeat; use quick precheck and offer a reviewed setup repair.
 3. Use `ask_user` to confirm the exact `planId`; otherwise stop with Copilot `/sf-ready` and Shell
-   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --confirm-plan &lt;PLAN-ID&gt; --json`. Execute once.
+   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --confirm-plan &lt;PLAN-ID&gt; --json` (retain base). Execute once.
+   Runtime repair needs approved `repositoryReadiness.testRuntime`, not shell-wide `NODE_OPTIONS`.
 4. Report receipt or failed baseline: exact base/plan, exit, report hash, failing testcase IDs.
    Missing reports remain unavailable. Never commit local dependency directories, build output,
    test reports, or receipts.
-5. Classify cache, setup, or existing failures. Use advertised TRP repair admission; feature coding
-   waits for every required repository. Otherwise an existing unit failure needs a separate Bug-fix Story if not setup.
+5. Classify setup/existing failures. Use advertised TRP repair admission; required prerequisites remain.
+   Otherwise a product failure needs a Bug-fix Story.
    For eligible JUnit/Jest/Vitest/Node TAP baselines, inspect with
    `singularity-flow precheck --risk-status --json`. Only on explicit choice record digest,
    reason, and expiry (at most 30 days) via `singularity-flow precheck --accept-test-risk
@@ -9177,13 +9176,13 @@ argument-hint: &quot;&lt;WORK-ID&gt; [--jira | manual story details] [documents 
 
 1. Require WORK-ID. Read `singularity-flow workspace current --json`. If the selected repository is `missing`/`empty`, run `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt; --level readiness --json`. Re-read; use ready `repositoryPath`, else opened Git root. Run `singularity-flow version` and `git status --short`; stop on failure or dirt.
 2. Run `singularity-flow workspace branches --json --intake --work-id &lt;WORK-ID&gt;`. Unless `existingWork.status` is `new`, run `singularity-flow session candidates --json`; an existing ID routes to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`; never restart it.
-3. Require its `repositories`. Check `singularity-flow workspace status &lt;WORKSPACE-PATH&gt; --level readiness --json`; repair required `missing`/`empty` members before preflight. On authority failure show Shell `singularity-flow workspace reinitialize --dry-run --json` and Copilot `/sf-admin`; never run `init` for an absent local workflow file.
+3. Check `singularity-flow workspace status &lt;WORKSPACE-PATH&gt; --level readiness --json`; repair missing required members. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
 4. Never preselect. Choose `&lt;BASE&gt;`. Unless `intake.workflowCatalogScope` is `approved-configuration`, run step 6&#39;s command without `--work-type`. Choose `&lt;WORKFLOW&gt;` from its exact-base `intake.storyWorkflows`.
-5. With `ask_user`, collect Jira/manual outcome, acceptance criteria, scope, risks, uniquely named documents. Read-only references need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Never search for inputs. Pass `--jira`/`--story-file`; pair `--document`/`--document-url` with `--document-name`/`--document-url-name`.
-6. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt`. World Model, AST, model, telemetry, and Copilot availability are advisory. On missing/stale readiness, stop and show `/sf-ready` plus `singularity-flow precheck --run --scope dependency-test --json`. Never apply a persistent configuration upgrade here.
-7. Start with the same base/workflow; never change the workflow choice. Start recomputes readiness before mutation. Add `--intake-receipt &lt;preflight.intakeReceipt.id&gt;` when issued. `poc-workflow` needs `--target-url`; the phase-default agent is automatic. If `ask_user` is unavailable, use step 8 or stop.
+5. Ask for Jira/manual outcome, acceptance criteria, scope, risks, named documents. References need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Pass `--jira`/`--story-file`; pair document inputs with their name flags. Never search for inputs.
+6. Ask separately for baseline (`reuse`, reviewed `run`, `defer`) and tests (`changed-and-affected`, `all-configured`). Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt;`. Deferral needs approved `baselinePolicy: choice`; unknowns/failures never pass or waive later gates. Missing/stale reuse/run: Copilot `/sf-ready --base-commit &lt;BASE-COMMIT&gt;`; Shell `singularity-flow precheck --run --base-commit &lt;BASE-COMMIT&gt; --scope &lt;RETURNED-SCOPE&gt; --json`. Require plan review. World Model/AST/models/telemetry remain advisory. Never upgrade configuration here.
+7. Start with the same base/workflow and baseline/test-mode flags; add returned `--intake-receipt`. `poc-workflow` needs `--target-url`. Without `ask_user`, use step 8 or stop.
 8. Without `ask_user`, require pinned configuration: `singularity-flow choices begin start &lt;WORK-ID&gt; --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, then pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
-9. After preflight passes, report readiness/base/receipt; offer `/sf-next`.
+9. Show readiness/base/receipt; `/sf-next`.
 
 TRP: read `singularity-flow explain test-recovery`. Separate baseline disposition from test scope. Known failures require native evidence and delegated live review; never answer approval cards. Returned actions only.
 </code></pre>

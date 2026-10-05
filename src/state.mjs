@@ -6,6 +6,8 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
@@ -988,6 +990,8 @@ export async function createWorkflow(root, config, {
   capabilityMapSha256 = null,
   referenceRepositories = [],
   repositoryReadiness = null,
+  readinessBaseline = 'reuse',
+  testExecutionMode = 'changed-and-affected',
   readinessRepositories = [],
   testRecoveryPlan = null,
   executionOrigin = null,
@@ -996,6 +1000,7 @@ export async function createWorkflow(root, config, {
   baselineFailures = null
 } = {}) {
   validateId(config, id);
+  intakeBaselineChoice(readinessBaseline);
   // Prove the configured storage boundary before any capability materialization or generated
   // artifact can create files beneath it. A symlinked Story root is never a repository namespace.
   await secureRepositoryPath(root, config.workItemRoot ?? 'singularity/work-items', {
@@ -1027,9 +1032,19 @@ export async function createWorkflow(root, config, {
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
   );
+  if (!['changed-and-affected', 'all-configured'].includes(testExecutionMode)) throw new SingularityFlowError(
+    'Test execution mode must be changed-and-affected or all-configured.', { code: 'TEST_POLICY_INVALID' });
+  resolution.testExecutionMode = testRecoveryPlan?.choices?.executionMode ?? testExecutionMode;
   // Caller-supplied preview JSON cannot enable TRP or weaken the approved Story policy.
   // Rebuild its exact base/workflow/receipt binding before any Story files are written.
   const trpDefinition = approvedConfigurationSnapshot?.definition ?? config;
+  if (readinessBaseline === 'defer' && (!readinessRepositories.length
+      || readinessRepositories.some(repository => !baselineDeferralAllowed(trpDefinition, readinessBaseline,
+        repositoryReadiness?.repositories?.[repository.id]?.sourceCommit === repository.baseCommit
+          ? repositoryReadiness.repositories[repository.id] : null)))) {
+    throw new SingularityFlowError('Approved policy or required non-test prerequisites do not permit baseline deferral.',
+      { code: 'STORY_REPOSITORY_READINESS_REQUIRED' });
+  }
   const trpPolicy = normalizeTestRecoveryPolicy(trpDefinition.testRecovery);
   if (trpPolicy) resolution.testRecovery = structuredClone(trpPolicy);
   else delete resolution.testRecovery;
@@ -1048,7 +1063,9 @@ export async function createWorkflow(root, config, {
   // written; a base whose failures must be resolved outside this Story refuses creation [E2G-019, D13].
   const sealedTestPolicy = await sealStoryTestPolicy(root, {
     workId: id, baseCommit, phases: resolution.phases ?? [], baselineFailures,
-    trpChoices: freshTrpPlan.enabled ? freshTrpPlan.choices : null
+    trpChoices: freshTrpPlan.enabled ? freshTrpPlan.choices : null,
+    executionMode: resolution.testExecutionMode, baselineChoice: readinessBaseline,
+    testRuntime: resolution.testRuntime
   });
   const initialTrpRows = [];
   const originalTrpBaselines = [];
@@ -1061,7 +1078,8 @@ export async function createWorkflow(root, config, {
         // This rollout can qualify this checkout only. Multi-repository proof requires
         // each repository's resolved host boundary, never another repository's receipt.
         const inspected = readinessRepositories.length === 1 ? await inspectRepositoryReadinessReceipt(root, {
-          commit: selectedRepository.baseCommit, scope: supplied.scope ?? 'dependency-test', recompute: false
+          commit: selectedRepository.baseCommit, scope: supplied.scope ?? 'dependency-test', recompute: false,
+          testRuntime: resolution.testRuntime
         }) : null;
         if (inspected?.status !== 'pass' || inspected.receipt.receiptSha256 !== supplied.receiptSha256) {
           throw new SingularityFlowError('Passing intake evidence is not qualified for this exact base and execution host. Refresh the readiness preview.',
@@ -1342,7 +1360,8 @@ export async function createWorkflow(root, config, {
       path.join(workDir(root, config, id), 'context/repository-test-readiness.json'),
       storyTestReadinessDocument(id, readinessRepositories, repositoryReadiness, {
         required: config.repositoryReadiness?.requiredBeforeStory === true
-          || config.initialization?.proof?.preStory?.requiredBeforeStory === true
+          || config.initialization?.proof?.preStory?.requiredBeforeStory === true,
+        baselineChoice: readinessBaseline
       })
     );
   }
@@ -3190,8 +3209,15 @@ export async function testInputTreeHash(root, ...governanceSources) {
   const workflow = governanceSources[1];
   const policy = sourcePathPolicy(workflow?.resolution?.capability?.sourceScope
     ?? workflow?.resolution?.worldModelSourceScope);
-  if (!policy.sourceHashExcludedRoots.length && !policy.testConfigurationPaths.length) return null;
-  return sourceTreeHash(root, ...governanceSources, TEST_INPUT_SELECTION);
+  const hasInputs = policy.sourceHashExcludedRoots.length || policy.testConfigurationPaths.length;
+  const runtimeProfile = workflow?.resolution?.testRuntime;
+  if (!hasInputs && !runtimeProfile) return null;
+  const files = hasInputs ? await sourceTreeHash(root, ...governanceSources, TEST_INPUT_SELECTION) : null;
+  // A Story predating runtime profiles retains its original test-input identity. Only new
+  // resolutions that explicitly pin a profile acquire the additional profile binding.
+  if (!runtimeProfile) return files;
+  return `sha256:${createHash('sha256').update(canonicalJson({ files,
+    runtimeProfile: normalizeTestRuntime(runtimeProfile) })).digest('hex')}`;
 }
 
 export async function generationResultDigest(root, config, workflow, phase, bindings = null) {
@@ -3543,7 +3569,8 @@ export async function publishGeneration(root, config, workflow, {
     // preflight change set or retains hashes for bytes the test command changed.
     deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
     if (testedSelection) {
-      const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight });
+      const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight },
+        { executionMode: workflow.resolution?.testExecutionMode });
       const refreshed = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryPreflight, commands,
         { previewOnly: true });
       // The selector owns the semantic source/command binding. Its own generated
@@ -4665,6 +4692,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
     const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
     let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
+    if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(workflow?.resolution?.testRuntime, commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
       commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
     }
@@ -4720,6 +4748,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+      ...(policy.kind === 'test' ? { testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) } : {}),
       startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
       ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
@@ -4764,7 +4793,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
 }
 
 async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
-  let commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence }))
+  let commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence },
+    { executionMode: workflow.resolution?.testExecutionMode }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
     .map((command, index) => ({
       ...normalizeRequiredTestCommand(command, index),
@@ -5026,7 +5056,8 @@ async function submitPhaseTransition(root, config, workflow, {
   // submission because normal repository file access is the permanent fallback.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
   const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
-  let deliveryCommands = await resolveDeliveryQualityCommands(root, phase);
+  let deliveryCommands = await resolveDeliveryQualityCommands(root, phase,
+    { executionMode: workflow.resolution?.testExecutionMode });
   let trpSelection = null;
   let requiredTestCommands = [];
   if (codeDeliveryRequired) {
@@ -5368,6 +5399,7 @@ async function submitPhaseTransition(root, config, workflow, {
         command: externalCommandText(command, index)
       })),
       checks: phase.checks.map((check) => ({ id: check.id, status: check.status,
+        ...(check.testRuntime ? { testRuntime: check.testRuntime } : {}),
         sourceTreeSha256: check.sourceTreeSha256,
         ...(check.testInputSha256 ? { testInputSha256: check.testInputSha256 } : {}) })),
       status: failed.length ? 'failed' : unavailableRequired.length ? 'unavailable' : 'passed',

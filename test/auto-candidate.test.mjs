@@ -389,6 +389,38 @@ test('isolated Candidate verification allows disposable result output and is cra
     first.verificationReceiptSha256);
 });
 
+test('isolated Candidate applies the approved runtime flag to tests, not quality commands', {
+  skip: !process.allowedNodeEnvironmentFlags.has('--no-experimental-webstorage')
+}, async (t) => {
+  const ambient = process.env.NODE_OPTIONS;
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(root, 'src', 'app.mjs'), 'export const value = 4;\n');
+  const flightId = `AFL-${'E'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  const verified = await verifyAutoCandidate(root, candidate, {
+    testRuntime: { nodeOptions: ['--no-experimental-webstorage'] },
+    commands: [{
+      id: 'profile-test', kind: 'test', workingDirectory: '.',
+      argv: [process.execPath, '-e',
+        "require('node:assert/strict').ok(process.env.NODE_OPTIONS?.includes('--no-experimental-webstorage'))"]
+    }, {
+      id: 'quality-no-profile', kind: 'quality', workingDirectory: '.',
+      argv: [process.execPath, '-e',
+        "require('node:assert/strict').equal(process.env.NODE_OPTIONS, undefined)"]
+    }]
+  });
+  assert.equal(verified.status, 'passed');
+  assert.equal(verified.candidateTreeUnchanged, true);
+  assert.equal(process.env.NODE_OPTIONS, ambient);
+});
+
 test('isolated Candidate captures bounded Karma failure output as scoped repair evidence', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));

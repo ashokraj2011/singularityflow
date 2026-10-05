@@ -144,6 +144,23 @@ test('configured structured tests suppress duplicate inference for their covered
   }), [configured]);
 });
 
+test('explicit all-configured scope includes the repository suite without dropping identical argv in an affected module', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-test-scope-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  for (const module of ['web']) {
+    await mkdir(path.join(root, module), { recursive: true });
+    await writeFile(path.join(root, module, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  }
+  const phase = { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' },
+    requiredArtifact: { kind: 'implementation-summary' }, qualityCommands: [],
+    deliveryEvidence: { sourcePaths: ['web/src/app.mjs'], testPaths: ['web/test/app.test.mjs'] } };
+  assert.deepEqual((await resolveDeliveryQualityCommands(root, phase)).map(command => command.workingDirectory), ['web']);
+  const full = await resolveDeliveryQualityCommands(root, phase, { executionMode: 'all-configured' });
+  assert.deepEqual(full.map(command => command.workingDirectory).sort(), ['.', 'web']);
+  assert.equal(new Set(full.map(command => command.id)).size, full.length);
+});
+
 test('acceptance tags are required from every predecessor artifact kind', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cross-workflow-acceptance-'));
   const relative = 'singularity/work-items/POC-1/artifacts/poc-intake/intake.md';

@@ -75,6 +75,7 @@ export async function readSealedStoryTestPolicy(root, config, workflow) {
 /** Build the sealed policy for a Story about to be created; refuses (D13) before anything is written. */
 export async function sealStoryTestPolicy(root, {
   workId, baseCommit = null, phases = [], baselineFailures = null, trpChoices = null,
+  executionMode = 'changed-and-affected', baselineChoice = 'reuse', testRuntime = {},
   env = process.env, platform = process.platform, arch = process.arch
 } = {}) {
   const disposition = baselineFailures
@@ -90,7 +91,9 @@ export async function sealStoryTestPolicy(root, {
   const capability = await repositoryTestCapability(root, { configuredCommands, env, platform });
   const record = {
     schemaVersion: 1, kind: 'story-test-policy', workId, baseCommit, host: { platform, arch },
-    executionScope: trpChoices?.executionMode === 'all-configured' ? 'full' : 'affected',
+    executionScope: (trpChoices?.executionMode ?? executionMode) === 'all-configured' ? 'full' : 'affected',
+    baselineChoice, baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified' : 'receipt-only',
+    testRuntime,
     baselineFailures: disposition,
     witnessDefault: 'automated-test',
     riskCategories: [...RISK_CATEGORIES], maximumRiskDays: MAX_RISK_DAYS,
@@ -122,7 +125,7 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
     try {
       commands = (await resolveDeliveryQualityCommands(root, {
         ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths: [], testPaths: [...new Set(slots.map((entry) => entry.testPath))] }
-      })).flatMap((command, index) => {
+      }, { executionMode: workflow.resolution?.testExecutionMode })).flatMap((command, index) => {
         try { return [normalizeExternalCommand(command, index)]; } catch { return []; }
       }).filter((command) => command.kind === 'test');
     } catch (error) {

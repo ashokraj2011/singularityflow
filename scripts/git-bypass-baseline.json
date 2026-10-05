@@ -850,14 +850,20 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "7264a30567663fefb07e45039100c038d3ed1a4cb47aceb9d92bcf8a7bb87ff9"
+      "digest": "73cd9d1191378deef8ad3bc46faf434381ff9d2a4a506e7ba855766b626e2ec2"
     },
     "src/initialization/source-snapshot.mjs": {
       "counts": {
         "command-git": 3,
         "command-run": 4
       },
-      "digest": "c27d8f21fe35447d6ef41c748053d797c62eccb07b8db1ff84f1f224899980e6"
+      "digest": "cd924c570fa6c4b58cab3023ca8b69a818c4c4d63468695b5b6b7168021c9808"
+    },
+    "src/readiness-base.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "3485ce2edf6a230c80492b3796bd6af98fb72676c12539e3f3d1ba0e4d98ea15"
     },
     "src/initiative-context.mjs": {
       "counts": {

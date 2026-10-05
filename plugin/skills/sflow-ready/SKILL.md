@@ -2,7 +2,7 @@
 name: sflow-ready
 description: Prove locked packages, installation health, test-framework setup, and existing unit tests before a Story worktree; optionally repair only reviewed dependency/test setup.
 disable-model-invocation: true
-argument-hint: "[--repair] [--full]"
+argument-hint: "[--base-commit <OID>] [--repair] [--full]"
 
 ---
 # Make a repository ready before Story work
@@ -12,25 +12,24 @@ argument-hint: "[--repair] [--full]"
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Setup only: Never change product behavior, weaken tests, skip checks, upgrade versions, install
-global tools, record secrets, or enter a Story worktree. Build, quality, application-start,
-end-to-end are forbidden unless `--full` and approved policy permit them.
+Setup only: Never change product behavior, weaken tests, upgrade versions, install global tools,
+record secrets, or edit a Story checkout. Build/start/end-to-end need `--full` and approved policy.
 
-1. Require exact Git root/clean tree. Run `singularity-flow init --check --json`, then `singularity-flow precheck --quick --json`.
+1. Require Git root; without a selected base, require a clean tree. Run `singularity-flow init --check --json`, then `singularity-flow precheck --quick --json`.
    Report test tools, adapters, and launcher availability.
 2. Select `dependency-test` unless `--full` is requested. Run
-   `singularity-flow precheck --run --scope <SCOPE> --json` once for its plan only. Show base,
-   manifest digest, locked dependencies or frozen restore, test commands, structured test adapter,
-   timeouts, omissions, and `planId`. For blockers, do not confirm or repeat
-   the plan. Use `singularity-flow precheck --quick --json` to identify the native script,
-   package-manager ambiguity, or missing reporter; offer the smallest reviewed setup repair.
+   `singularity-flow precheck --run --scope <SCOPE> --json` once for its plan. Retain any selected
+   `--base-commit <OID>` in preview and execution; the CLI owns temporary checkout/cleanup. Show base,
+   digest, commands, adapters, timeouts, omissions, runtime flags/advisories, and `planId`.
+   For blockers, do not confirm/repeat; use quick precheck and offer a reviewed setup repair.
 3. Use `ask_user` to confirm the exact `planId`; otherwise stop with Copilot `/sf-ready` and Shell
-   `singularity-flow precheck --run --scope <SCOPE> --confirm-plan <PLAN-ID> --json`. Execute once.
+   `singularity-flow precheck --run --scope <SCOPE> --confirm-plan <PLAN-ID> --json` (retain base). Execute once.
+   Runtime repair needs approved `repositoryReadiness.testRuntime`, not shell-wide `NODE_OPTIONS`.
 4. Report receipt or failed baseline: exact base/plan, exit, report hash, failing testcase IDs.
    Missing reports remain unavailable. Never commit local dependency directories, build output,
    test reports, or receipts.
-5. Classify cache, setup, or existing failures. Use advertised TRP repair admission; feature coding
-   waits for every required repository. Otherwise an existing unit failure needs a separate Bug-fix Story if not setup.
+5. Classify setup/existing failures. Use advertised TRP repair admission; required prerequisites remain.
+   Otherwise a product failure needs a Bug-fix Story.
    For eligible JUnit/Jest/Vitest/Node TAP baselines, inspect with
    `singularity-flow precheck --risk-status --json`. Only on explicit choice record digest,
    reason, and expiry (at most 30 days) via `singularity-flow precheck --accept-test-risk

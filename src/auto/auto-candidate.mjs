@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { testRuntimeEnvironment } from '../test-runtime.mjs';
 
 import {
   admitExactProspectiveTree, gitCommonDir, governedCommitIdentity
@@ -1036,7 +1037,7 @@ async function secureCandidateVerificationPath(workspace, candidate, {
   }
 }
 
-async function runVerificationCommand(command, workspace, signal) {
+async function runVerificationCommand(command, workspace, signal, testRuntime) {
   const securedCwd = await secureCandidateVerificationPath(
     workspace, command.workingDirectory, {
       label: 'Candidate verifier working directory', mustExist: true, type: 'directory'
@@ -1048,11 +1049,12 @@ async function runVerificationCommand(command, workspace, signal) {
       'PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'ComSpec',
       'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'CI', 'JAVA_HOME', 'M2_HOME'
     ];
-    const childEnvironment = {
+    let childEnvironment = {
       ...Object.fromEntries(allowedEnvironment.filter((key) => process.env[key] != null)
         .map((key) => [key, process.env[key]])),
       GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
     };
+    if (command.kind === 'test') childEnvironment = testRuntimeEnvironment(testRuntime, childEnvironment);
     let launch;
     try {
       launch = resolvePlatformProcess(command.argv[0], command.argv.slice(1), {
@@ -1292,7 +1294,7 @@ export function validateAutoCandidateVerification(record) {
 }
 
 export async function verifyAutoCandidate(root, binding, {
-  commands, signal = null, verifiedAt = new Date().toISOString(), pathContext = null
+  commands, signal = null, verifiedAt = new Date().toISOString(), pathContext = null, testRuntime = {}
 } = {}) {
   const retained = await readAutoCandidateBinding(root, {
     flightId: binding?.flightId, candidateId: binding?.candidateId
@@ -1377,7 +1379,7 @@ export async function verifyAutoCandidate(root, binding, {
     }
     for (const [commandIndex, command] of normalized.entries()) {
       if (signal?.aborted) fail('Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
-      const execution = await runVerificationCommand(command, workspace, signal);
+      const execution = await runVerificationCommand(command, workspace, signal, testRuntime);
       results.push(execution.record);
       if (command.resultPath) {
         // Re-prove containment after the command. Candidate tests may create the result, but they

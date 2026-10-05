@@ -16,6 +16,7 @@ import { readTrpCaseInventory, matchTrpReports, snapshotTrpDeclaredRuntime, trpC
 import { assertTestReportTargetEmpty, parseTestResult } from './code-delivery-tests.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
+import { testRuntimeEnvironment } from './test-runtime.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const unsupported = (message, details = {}) => new SingularityFlowError(message, { code: 'TRP_RISK_ADAPTER_UNAVAILABLE', details });
@@ -169,7 +170,8 @@ async function candidateContext(root, config, workflow, selection) {
   const sourceManifestSha256 = await sourceTreeHash(root, config, workflow);
   const phase = workflow.phases[selection.subject.phaseId];
   const { resolveDeliveryQualityCommands } = await import('./delivery-evidence.mjs');
-  const commands = (await resolveDeliveryQualityCommands(root, phase)).filter(command => command?.kind === 'test');
+  const commands = (await resolveDeliveryQualityCommands(root, phase,
+    { executionMode: workflow.resolution?.testExecutionMode })).filter(command => command?.kind === 'test');
   const exactCases = selection.selectedTestIds.length > 0;
   const declaration = commands.length === 1 ? trpCaseInventoryDeclaration(workflow, phase, commands[0]) : null;
   const adapter = declaration?.adapter ?? 'node-test-junit-v1';
@@ -250,9 +252,11 @@ async function candidateContext(root, config, workflow, selection) {
     }
   }
   const resolutionKeys = new Set(['PATH', 'PATHEXT', 'COMSPEC', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'NODE_OPTIONS']);
+  const testEnvironment = testRuntimeEnvironment(workflow.resolution?.testRuntime);
   const runtimeSha256 = trpDigest({ executable: process.execPath, version: process.version,
-    environment: exactCases ? trpExecutionEnvironment(declaration, process.env, { cwd: await realpath(path.resolve(root, commands[0].workingDirectory ?? '.')) })
-      : Object.fromEntries(Object.entries(process.env).filter(([key]) => resolutionKeys.has(key.toUpperCase())).sort()), resolution });
+    environment: exactCases ? testRuntimeEnvironment(workflow.resolution?.testRuntime,
+      trpExecutionEnvironment(declaration, process.env, { cwd: await realpath(path.resolve(root, commands[0].workingDirectory ?? '.')) }))
+      : Object.fromEntries(Object.entries(testEnvironment).filter(([key]) => resolutionKeys.has(key.toUpperCase())).sort()), resolution });
   const environment = { hostId: os.hostname(), platform: process.platform, arch: process.arch, runtimeSha256,
     dependencySha256: localDependenciesSha256 ?? sourceManifestSha256, runnerSha256: selection.commandSha256,
     adapterSha256: trpDigest(exactCases ? `trp-${adapter}` : 'trp-unavailable-runner-v1'), configurationSha256: selection.commandInventorySha256,
@@ -314,6 +318,7 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   const witness = Object.freeze({});
   const cwd = await realpath(path.resolve(root, tests[0].workingDirectory ?? '.'));
   let environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, process.env, { cwd }) : { ...process.env };
+  environment = testRuntimeEnvironment(workflow.resolution?.testRuntime, environment);
   if (tests[0].result?.adapter === 'node-tap') environment = nodeTestReporterEnvironment(environment, root, { argv: tests[0].argv, cwd });
   delete environment.NODE_TEST_CONTEXT;
   if (tests[0].result?.adapter === 'playwright-json') {
@@ -614,7 +619,8 @@ async function baselineWorkflow(definition, { workId, phaseId, workType = null }
   return { workItem: { id: workId }, currentPhase: phaseId, phases: { [phaseId]: { ...phase, id: phaseId } },
     resolution: { ...resolved, phases: resolved?.phases ?? Object.entries(definition.phases ?? {}).map(([id, value]) => ({ ...value, id })), testRecovery: policy,
       codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
-      approvalAuthorities: definition.approvalAuthorities, workItemRoot: definition.workItemRoot },
+      approvalAuthorities: definition.approvalAuthorities, workItemRoot: definition.workItemRoot,
+      testRuntime: resolved?.testRuntime ?? definition.repositoryReadiness?.testRuntime },
     testRecovery: { policyAuthoritySha256: trpDigest({ policy, authorities: definition.approvalAuthorities ?? {} }) } };
 }
 
@@ -668,7 +674,8 @@ export async function captureTrpIntakeBaseline(root, definition, { workId, workT
     sourceCommit: baseCommit, sourceTreeSha256: before.sourceManifestSha256, startedAt: nowIso() });
   if (environmentBlock) throw unsupported('The baseline requires its approved isolated environment runner; no command was executed.', { errorCode: environmentBlock.errorCode });
   const cwd = await realpath(path.resolve(root, command.workingDirectory));
-  const environment = trpExecutionEnvironment(inventory.declaration, process.env, { cwd });
+  const environment = testRuntimeEnvironment(workflow.resolution?.testRuntime,
+    trpExecutionEnvironment(inventory.declaration, process.env, { cwd }));
   const stdoutFile = inventory.adapter === 'node-test-junit-v1' ? path.resolve(cwd, command.result.path) : null;
   const reportCapture = trpNativeReportCapture(root, command, inventory.declaration);
   const result = await runQualityCommand(command.argv[0], command.argv.slice(1), {

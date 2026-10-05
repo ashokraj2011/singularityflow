@@ -10,6 +10,7 @@ import {
   recordEmptyRepositoryReadiness, buildEmptyRepositoryReadinessPlan
 } from './initialization/runtime-readiness.mjs';
 import { head } from './git.mjs';
+import { testRuntimeIdentity } from './test-runtime.mjs';
 import {
   assessPreStoryRiskForStoryStart, assessPreStoryTestBaseline,
   listPreStoryTestRiskAcceptances
@@ -29,6 +30,8 @@ function publicReceipt(inspection) {
     scope: receipt?.scope ?? 'full',
     sourceCommit: receipt?.sourceCommit ?? null,
     receiptSha256: receipt?.receiptSha256 ?? null,
+    testRuntime: receipt?.testRuntime ?? null,
+    prerequisitesCurrent: inspection?.status === 'pass',
     structuredTestContract: receipt?.structuredTestContract ?? null,
     testObservations: Object.freeze((receipt?.testObservations ?? []).map((entry) => Object.freeze({
       commandId: entry.commandId,
@@ -45,7 +48,7 @@ function publicReceipt(inspection) {
   });
 }
 
-function publicFailedBaseline(baseline, assessment, acceptance = null, planCurrent = false) {
+function publicFailedBaseline(baseline, assessment, acceptance = null, planCurrent = false, runtimeCurrent = false) {
   const accepted = Boolean(acceptance);
   const observedFailure = baseline.status === 'failing-tests'
     && (Array.isArray(baseline.testObservations) ? baseline.testObservations : [])
@@ -63,6 +66,7 @@ function publicFailedBaseline(baseline, assessment, acceptance = null, planCurre
     planId: baseline.planId,
     baselineSha256: baseline.baselineSha256,
     receiptSha256: null,
+    prerequisitesCurrent: runtimeCurrent,
     structuredTestContract: Object.freeze({
       status: assessment.eligible ? 'available' : 'unavailable',
       commands: Object.freeze((Array.isArray(baseline.testTools) ? baseline.testTools : [])
@@ -107,13 +111,14 @@ function publicFailedBaseline(baseline, assessment, acceptance = null, planCurre
 }
 
 export async function collectRepositoryReadinessEvidence(repositories = [], {
-  scope = 'dependency-test', recordEmpty = false, previewEmpty = false
+  scope = 'dependency-test', recordEmpty = false, previewEmpty = false, testRuntime = {}
 } = {}) {
   const pairs = await Promise.all(repositories.map(async (entry) => {
     const selectedScope = entry.scope ?? scope;
     let inspection = await inspectRepositoryReadinessReceipt(entry.root, {
       commit: entry.baseCommit,
       scope: selectedScope,
+      testRuntime,
       // A selected remote base need not be the current checkout. The immutable receipt already
       // seals its source-manifest and plan; exact commit/platform/architecture lookup is enough.
       recompute: false
@@ -133,10 +138,10 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     if (recordEmpty && !loaded && inspection.status !== 'pass') {
       try {
         const recorded = await recordEmptyRepositoryReadiness(entry.root, {
-          scope: selectedScope, commit: entry.baseCommit
+          scope: selectedScope, commit: entry.baseCommit, testRuntime
         });
         if (recorded) inspection = await inspectRepositoryReadinessReceipt(entry.root, {
-          commit: entry.baseCommit, scope: selectedScope, recompute: false
+          commit: entry.baseCommit, scope: selectedScope, recompute: false, testRuntime
         });
       } catch { /* Dirty, ambiguous or changed inputs retain the explicit readiness repair route. */ }
     }
@@ -146,7 +151,7 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     if (previewEmpty && !loaded) {
       try {
         const plan = await buildEmptyRepositoryReadinessPlan(entry.root, {
-          scope: selectedScope, commit: entry.baseCommit
+          scope: selectedScope, commit: entry.baseCommit, testRuntime
         });
         if (plan) return [entry.id ?? entry.repository, Object.freeze({
           status: 'no-commands-applicable', sourceCommit: plan.sourceCommit,
@@ -161,6 +166,7 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     // become an accepted Story-start risk.
     if (!loaded) return [entry.id ?? entry.repository, publicReceipt(inspection)];
     const assessment = assessPreStoryTestBaseline(loaded.baseline);
+    const runtimeCurrent = loaded.baseline.testRuntime?.sha256 === testRuntimeIdentity(testRuntime).sha256;
     // Unlike an old passing receipt, a locally accepted failure is a narrow exception. Rebuild
     // its deterministic plan whenever the selected base is checked out: an unchanged Git commit
     // can still be evaluated by a newer runner or detector.
@@ -169,14 +175,14 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
     if (assessment.eligible && selectedBaseCheckedOut) {
       try {
         currentPlan = await buildRepositoryReadinessPlan(entry.root, {
-          scope: 'dependency-test'
+          scope: 'dependency-test', testRuntime
         });
       } catch { /* Preserve the failing evidence, but never activate a stale exception. */ }
     }
     // Remote base selection can happen from another checkout. In that provisional preflight the
     // sealed exact-commit baseline is the available proof; the Story checkout must recompute the
     // plan on the selected base before it writes governed Story state.
-    const planCurrent = assessment.eligible && (selectedBaseCheckedOut
+    const planCurrent = assessment.eligible && runtimeCurrent && (selectedBaseCheckedOut
       ? currentPlan?.status === 'ready'
         && currentPlan.planId === loaded.baseline.planId
         && currentPlan.sourceCommit === loaded.baseline.sourceCommit
@@ -188,7 +194,7 @@ export async function collectRepositoryReadinessEvidence(repositories = [], {
       acceptance, loaded.baseline, { baseCommit: entry.baseCommit }
     ).accepted)?.acceptance ?? null;
     return [entry.id ?? entry.repository,
-      publicFailedBaseline(loaded.baseline, assessment, accepted, planCurrent)];
+      publicFailedBaseline(loaded.baseline, assessment, accepted, planCurrent, runtimeCurrent)];
   }));
   return Object.freeze({ repositories: Object.freeze(Object.fromEntries(pairs)) });
 }

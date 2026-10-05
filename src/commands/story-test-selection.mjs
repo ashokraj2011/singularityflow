@@ -41,7 +41,8 @@ async function resolvePlan(root, config, workflow, { phaseId = null, confirmatio
     && published.sourceTreeSha256 === await sourceTreeHash(root, config, workflow)
     && phase.generationIntent?.status !== 'open') evidence = published;
   else evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
-  const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: evidence });
+  const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: evidence },
+    { executionMode: workflow.resolution?.testExecutionMode });
   const selection = await resolveTrpDeliverySelection(root, config, workflow, phase, evidence, commands,
     { previewOnly: true, confirmation, ...(createdAt ? { createdAt } : {}) });
   if (!selection.preview) fail('No structured test commands are available for this phase.', 'TRP_TEST_SELECTION_COMMAND_REQUIRED');

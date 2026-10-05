@@ -58,6 +58,31 @@ async function repository() {
   return root;
 }
 
+test('approved test profile is applied only to tests and binds reusable exact-base evidence', async () => {
+  if (!process.allowedNodeEnvironmentFlags.has('--no-experimental-webstorage')) return;
+  await withRepository(async root => {
+    const testRuntime = { nodeOptions: ['--no-experimental-webstorage'] };
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test', testRuntime });
+    const observed = [];
+    const result = await executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', testRuntime, confirmation: plan.planId,
+      runCommand: async (command, options) => {
+        observed.push([command.purpose, options.environment.NODE_OPTIONS ?? '']);
+        return passingResult();
+      }
+    });
+    assert.match(observed.find(([purpose]) => purpose === 'test')[1], /--no-experimental-webstorage/);
+    assert.equal(observed.find(([purpose]) => purpose === 'dependency')[1], process.env.NODE_OPTIONS ?? '');
+    assert.equal(result.receipt.testRuntime.sha256, plan.testRuntime.sha256);
+    assert.equal((await inspectRepositoryReadinessReceipt(root, { scope: 'dependency-test', testRuntime, recompute: false })).status, 'pass');
+    const stale = await inspectRepositoryReadinessReceipt(root, { scope: 'dependency-test', recompute: false });
+    assert.equal(stale.status, 'stale');
+    assert.ok(stale.reasons.includes('test-runtime-mismatch'));
+    assert.equal((await collectRepositoryReadinessEvidence([{ id: 'app', root, baseCommit: plan.sourceCommit }],
+      { scope: 'dependency-test', testRuntime })).repositories.app.status, 'pass');
+  });
+});
+
 async function withRepository(callback) {
   const root = await repository();
   try { return await callback(root); }

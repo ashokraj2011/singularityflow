@@ -85,6 +85,7 @@ interface StoryStartReadinessCheck {
 
 interface StoryStartReadinessResult {
   ready?: boolean;
+  repositoryExecution?: { baselinePolicy?: 'required' | 'choice'; scope?: 'dependency-test' | 'full' };
   checks?: StoryStartReadinessCheck[];
   blockers?: StoryStartReadinessCheck[];
   warnings?: StoryStartReadinessCheck[];
@@ -665,6 +666,22 @@ export class IntakePanel {
    * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
    */
   private router = registerMessageRouter('singularityFlow.intake', {
+    readinessBaseline: (message) => {
+      if (this.form.busy || this.form.baselineRunning) return;
+      const value = stringField(message, 'value');
+      if (!['reuse', 'run', 'defer'].includes(value ?? '')
+          || (value === 'defer' && this.form.baselinePolicy !== 'choice')) return;
+      this.update({ readinessBaseline: value as IntakeForm['readinessBaseline'], baselineMessage: null, baselineRunCommit: null });
+      return this.preflightBaseBranch();
+    },
+    storyTestScope: (message) => {
+      if (this.form.busy || this.form.baselineRunning) return;
+      const value = stringField(message, 'value');
+      if (!['changed-and-affected', 'all-configured'].includes(value ?? '')) return;
+      this.update({ testExecutionMode: value as IntakeForm['testExecutionMode'] });
+      return this.preflightBaseBranch();
+    },
+    baselineRun: () => this.runBaseline(),
     // Cancel closes Start Work; typed or attached input is thrown away only after a yes.
     cancel: async () => {
       if (this.form.busy || this.disposed) return;
@@ -1152,6 +1169,8 @@ export class IntakePanel {
         return this.preflightBaseBranch();
       }
       const readiness = result.preflight?.readiness;
+      this.update({ baselinePolicy: readiness?.repositoryExecution?.baselinePolicy ?? 'required',
+        baselineScope: readiness?.repositoryExecution?.scope ?? 'dependency-test' }, { background: true });
       if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = base;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
       // the choices with the exact-base response before interpreting readiness. If the previous
@@ -1221,9 +1240,56 @@ export class IntakePanel {
     }
   }
 
+  private async runBaseline(): Promise<void> {
+    if (this.form.busy || this.form.baselineRunning || this.form.basePreflightChecking
+        || this.form.readinessBaseline !== 'run') return;
+    const targetRepository = this.form.targetRepository;
+    if (this.client.repository !== targetRepository) {
+      this.update({ baselineMessage: 'The active repository changed. Reopen intake for the selected repository; no tests were run.' });
+      return;
+    }
+    const repositories = this.form.baseTestReadiness?.repositories ?? [];
+    if (repositories.length !== 1 || !/^[a-f0-9]{40,64}$/u.test(repositories[0]?.baseCommit ?? '')) {
+      this.update({ baselineMessage: 'For multiple repositories, run /sf-ready in each mapped repository at its selected base, then choose Reuse and refresh intake. No tests were run.' });
+      return;
+    }
+    const base = repositories[0]!.baseCommit!;
+    const scope = this.form.baselineScope;
+    const key = JSON.stringify(storyPreflightCommand(this.form));
+    this.update({ baselineRunning: true, baselineMessage: 'Reading selected-base commands; no tests have run.' });
+    try {
+      const args = ['precheck', '--run', '--base-commit', base, '--scope', scope, '--json'];
+      type BaselinePlan = { planId?: string; status?: string; commands?: Array<{ argv: string[]; purpose: string; workingDirectory: string }>; testRuntime?: { profile?: { nodeOptions?: string[] } }; advisories?: Array<{ message: string }> };
+      const response = await this.client.run<{ data?: { plan?: BaselinePlan; execution?: string }; plan?: BaselinePlan }>(args);
+      const plan = response.data?.plan ?? response.plan;
+      if (response.data?.execution === 'no-commands-applicable') {
+        this.update({ baselineMessage: 'No baseline commands apply; no tests ran.', baselineRunCommit: base });
+        return;
+      }
+      if (plan?.status !== 'ready' || !/^sha256:[a-f0-9]{64}$/u.test(plan.planId ?? '')) {
+        this.update({ baselineMessage: 'The baseline plan needs test-tool/configuration repair. Inspect /sf-ready before retrying; no tests were run.' });
+        return;
+      }
+      const confirmed = await vscode.window.showWarningMessage('Run this exact existing-test baseline?', {
+        modal: true,
+        detail: `Base ${base}\n${(plan.commands ?? []).map(command => `${command.purpose} · ${command.workingDirectory} · ${command.argv.join(' ')}`).join('\n')}\nTest-only Node flags: ${(plan.testRuntime?.profile?.nodeOptions ?? []).join(' ') || 'none'}\n${(plan.advisories ?? []).map(entry => entry.message).join('\n')}\nThis may install locked dependencies. It does not accept failures or start a Story.`
+      }, 'Run reviewed baseline');
+      if (confirmed !== 'Run reviewed baseline' || key !== JSON.stringify(storyPreflightCommand(this.form))
+          || this.client.repository !== targetRepository) return;
+      this.update({ baselineMessage: 'Running the reviewed baseline…' });
+      await this.client.run([...args, '--confirm-plan', plan.planId!]);
+      if (key === JSON.stringify(storyPreflightCommand(this.form))) this.update({ baselineMessage: 'Baseline completed. Refreshing exact-base evidence…', baselineRunCommit: base });
+    } catch (error) {
+      this.update({ baselineMessage: `Baseline did not pass: ${(error as Error).message}. No failure was accepted; inspect the observed baseline or choose explicit deferral if policy permits.` });
+    } finally {
+      this.update({ baselineRunning: false });
+      await this.preflightBaseBranch();
+    }
+  }
+
   private async start(): Promise<void> {
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
-    if (intakeProblems(this.form).length || this.form.busy || this.form.enhancing) return;
+    if (intakeProblems(this.form).length || this.form.busy || this.form.enhancing || this.form.baselineRunning) return;
     if (this.client.repository !== this.form.targetRepository) {
       this.update({
         error: `The active repository changed to ${this.client.repository}. Close this form and start again so the target is explicit.`

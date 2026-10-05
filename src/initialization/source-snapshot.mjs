@@ -100,10 +100,10 @@ function trackedModes(root) {
 }
 
 /** Capture only registered detector sources and path-only protection signals. No command runs. */
-export async function captureSmartInitSnapshot(root, { bounds = SMART_INIT_BOUNDS } = {}) {
+export async function captureSmartInitSnapshot(root, { bounds = SMART_INIT_BOUNDS, allowDetached = false } = {}) {
   const baseCommit = git(root, ['rev-parse', '--verify', 'HEAD^{commit}'],
     'INI_BASE_COMMIT_REQUIRED', 'Smart initialization requires one reviewed base commit.');
-  const checkedOutRef = git(root, ['symbolic-ref', '--quiet', 'HEAD'],
+  const checkedOutRef = git(root, allowDetached ? ['rev-parse', '--symbolic-full-name', 'HEAD'] : ['symbolic-ref', '--quiet', 'HEAD'],
     'INI_BASE_COMMIT_REQUIRED', 'Smart initialization requires a checked-out branch.');
   const tree = git(root, ['rev-parse', 'HEAD^{tree}'],
     'INI_BASE_COMMIT_REQUIRED', 'Smart initialization requires one reviewed base commit.');

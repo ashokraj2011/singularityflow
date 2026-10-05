@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 19
+version: 20
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -79,10 +79,48 @@ select it, its structured result adapter, and host launcher availability without
 `singularity-flow precheck --run --scope dependency-test --json` and confirm its exact `planId` to
 restore locked dependencies and run the existing unit suite. `--scope full` adds the broader
 build, quality, verification, and application start checks when the workflow requires them. A
-newly initialized repository requires an exact-base readiness receipt before Story start by
-default (`repositoryReadiness.requiredBeforeStory: true`). Older approved policies that omit the
-setting remain compatible and are not silently changed; their owners can opt in through a
-reviewed configuration change.
+newly initialized repository offers explicit `reuse`, reviewed `run`, and `defer` choices
+(`repositoryReadiness.baselinePolicy: choice`). Pass `--readiness-baseline <CHOICE>` to both
+preflight and start. Reuse/run need a compatible exact-base receipt; selecting run never executes
+commands implicitly. In VS Code, choose **Review baseline commands**, review the commands/runtime,
+then confirm the run. `--readiness-baseline defer` records unverified baseline observation in the
+Story's test-policy/readiness documents and lets intake proceed; it does not accept observed
+failures, skip mandatory later tests, or waive dependency/build/start prerequisites. Older approved
+policies default to `baselinePolicy: required`, retain their strict gate, and are never rewritten.
+Their owner can explicitly approve `baselinePolicy: choice` in `sflow/config`.
+
+Ongoing scope is a separate `--test-execution-mode changed-and-affected|all-configured` choice,
+sealed with the Story. Affected mode infers runners for affected modules; configured required
+commands remain required and may themselves run a full suite. All-configured mode adds the
+repository-native suite to configured commands and affected-module runners; it does not recursively
+scan a large monorepo to guess extra commands. Configure additional suites explicitly. Existing failures default to repair in the Story; accepting them uses
+the separately authorized test-risk flow, not deferral or scope selection.
+
+To run a selected base while another Story is open, use
+`singularity-flow precheck --run --base-commit <EXACT-OID> --scope dependency-test --json`, then
+confirm the returned plan with the same base/scope and `--confirm-plan <PLAN-ID>`. The CLI reuses
+Git objects in a temporary detached checkout (retaining sparse selection); it does not clone,
+switch, clean, or rewrite the open Story. Temporary cleanup failure never turns completed evidence
+into a failed test; retained checkout paths are reported for cleanup.
+
+Approved test-only runtime settings live alongside that policy:
+
+```yaml
+repositoryReadiness:
+  requiredBeforeStory: true
+  baselinePolicy: choice
+  testRuntime:
+    nodeOptions: [--no-experimental-webstorage]
+```
+
+The optional flag is a reviewed Node/jsdom compatibility setting, not a global default. It applies
+only to readiness and later test commands, never dependencies, source files, or the parent shell.
+Readiness receipts bind the CLI host's Node version, platform, architecture and effective Node-options hash; a
+changed runtime/profile makes a receipt stale. Stories pin the approved profile; publication binds
+it in the separate test-input hash and records CLI host runtime identity with each test result. This
+does not change the application-source hash or require an approver's laptop to use the execution
+host's Node version. Unsupported flags require a compatible runtime or a reviewed configuration
+repair. No arbitrary environment variables or Node injection flags are accepted by this profile.
 
 A confirmed run that encounters an existing failure writes a Git-private
 `repository-test-baseline` record. The record contains the exact base commit, manifest and plan

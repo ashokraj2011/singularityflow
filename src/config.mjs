@@ -67,6 +67,7 @@ import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './so
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
+import { normalizeTestRuntime } from './test-runtime.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
   assertCodeDeliveryConfiguration, compiledSkillStep, deterministicOnlyGeneration, normalizeCodeDeliveryPolicy,
@@ -927,7 +928,7 @@ export function normalizeSessionPolicy(value = {}) {
 export function normalizeRepositoryReadinessPolicy(value = {}) {
   assertKnownKeys(value, new Set([
     'requiredBeforeStory', 'dependencyHydration', 'build', 'structuredTests',
-    'applicationStart', 'receiptScope'
+    'applicationStart', 'receiptScope', 'baselinePolicy', 'testRuntime'
   ]), 'repositoryReadiness');
 
   if (Object.hasOwn(value, 'requiredBeforeStory')
@@ -954,8 +955,13 @@ export function normalizeRepositoryReadinessPolicy(value = {}) {
     );
   }
 
+  if (Object.hasOwn(value, 'baselinePolicy') && !['required', 'choice'].includes(value.baselinePolicy)) {
+    throw new SingularityFlowError('repositoryReadiness.baselinePolicy must be required or choice.');
+  }
   return {
     requiredBeforeStory: value.requiredBeforeStory ?? false,
+    baselinePolicy: value.baselinePolicy ?? 'required',
+    testRuntime: normalizeTestRuntime(value.testRuntime),
     dependencyHydration: value.dependencyHydration ?? 'when-detected',
     build: value.build ?? 'off',
     structuredTests: value.structuredTests ?? 'required-for-code',
@@ -2355,6 +2361,7 @@ export function resolveWorkType(definition, workTypeId) {
     sourceReview,
     plannedClaims,
     codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
+    testRuntime: normalizeTestRuntime(definition.repositoryReadiness?.testRuntime),
     ...(definition.testRecovery ? { testRecovery: normalizeTestRecoveryPolicy(definition.testRecovery) } : {}),
     // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
     // acquire more authority merely because shared configuration changed later.

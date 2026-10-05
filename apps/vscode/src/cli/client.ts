@@ -796,6 +796,8 @@ export class SingularityFlowClient {
         ? CLI_TIMEOUT_MS : FACTORY_RESET_TRANSACTION_TIMEOUT_MS;
     }
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
+    // Baseline execution already has bounded per-command timeouts; do not kill it at the read UI budget.
+    if (args[0] === 'precheck' && enabledBooleanOption(args, 'run') && hasOption(args, 'confirm-plan')) return 30 * 60_000;
     // Alignment reinstalls product surfaces from retained bytes; npm resolves the CLI's dependencies.
     if (args[0] === 'product' && (args[1] === 'align' || args[1] === 'reviews')) return WORKSPACE_MUTATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;

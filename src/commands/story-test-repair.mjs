@@ -69,7 +69,8 @@ async function inspect(context, repositoryId, dependencies) {
   let preview;
   try {
     preview = await dependencies.previewTrpReadinessRepair(root, {
-      agreement, repositoryId: selected, baseCommit: original.baseCommit, repairCommit
+      agreement, repositoryId: selected, baseCommit: original.baseCommit, repairCommit,
+      planOptions: { testRuntime: workflow.resolution?.testRuntime }
     });
   } catch (error) {
     if (!['REPOSITORY_READINESS_DIRTY', 'REPOSITORY_READINESS_TRACKED_DIRTY', 'REPOSITORY_READINESS_SOURCE_NOT_TRACKED',
@@ -123,7 +124,8 @@ export async function repairStoryTestReadiness({ root, workId = null, repository
     // The existing runner rechecks the exact source/command plan and preserves reports on failure.
     // It writes only its bounded local execution evidence; it never advances the Story itself.
     const execution = await dependencies.executeRepositoryReadinessPlan(root, {
-      confirmation: plan.readinessPlanId, scope: 'dependency-test'
+      confirmation: plan.readinessPlanId, scope: 'dependency-test',
+      testRuntime: workflow.resolution?.testRuntime
     });
     const originalBaseline = plan.originalBaselineSha256
       ? await dependencies.readTrpOriginalBaseline(workRoot, plan.originalBaselineSha256) : null;

@@ -321,7 +321,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           : await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
         testCommands = (await resolveDeliveryQualityCommands(root, {
           ...phase, deliveryEvidence
-        })).filter((command) => command && typeof command === 'object'
+        }, { executionMode: workflow.resolution?.testExecutionMode })).filter((command) => command && typeof command === 'object'
           && !Array.isArray(command) && command.kind === 'test');
         const normalized = testCommands.map((command, index) =>
           normalizeRequiredTestCommand(command, index));

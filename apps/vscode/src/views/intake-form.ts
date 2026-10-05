@@ -270,6 +270,12 @@ export interface IntakeForm extends TestRecoveryDraft {
   basePreflightWarnings: string[];
   /** Display-only test tools/results from the exact selected-base preflight. */
   baseTestReadiness: PreflightTestReadiness | null;
+  readinessBaseline: 'reuse' | 'run' | 'defer';
+  baselinePolicy: 'required' | 'choice';
+  baselineScope: 'dependency-test' | 'full';
+  baselineRunning: boolean;
+  baselineMessage: string | null;
+  baselineRunCommit: string | null;
   /** Whether the readiness result points at repository configuration as the repair surface. */
   basePreflightRefreshRecommended: boolean;
   inFlight: InFlight[];
@@ -340,6 +346,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null, baseBranchOrphans: [],
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
+  readinessBaseline: 'reuse', baselinePolicy: 'required', baselineScope: 'dependency-test',
+  baselineRunning: false, baselineMessage: null, baselineRunCommit: null,
   workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
@@ -410,7 +418,7 @@ export function intakePlanInputKey(form: IntakeForm): string {
   return JSON.stringify([
     form.targetWorkspace, form.targetRepository, form.targetBranch, form.shape, form.tracker,
     form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
-    form.targetUrl, form.profile, form.workType, form.baseBranch,
+    form.targetUrl, form.profile, form.workType, form.baseBranch, form.readinessBaseline,
     form.referenceRepositories.map(({ id, repository, branch }) => [id, repository, branch]),
     form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope,
     form.testBaselineRecords, form.testBaselineReason, form.testBaselineOwner,
@@ -425,6 +433,12 @@ export function intakePlanInputKey(form: IntakeForm): string {
  */
 export function intakeProblems(form: IntakeForm): string[] {
   const problems: string[] = [];
+  if (form.shape === 'story' && form.baselineRunning) problems.push('Wait for the reviewed baseline run to finish.');
+  if (form.shape === 'story' && form.readinessBaseline === 'run'
+      && (!form.baselineRunCommit || form.baseTestReadiness?.repositories?.length !== 1
+        || form.baselineRunCommit !== form.baseTestReadiness.repositories[0]?.baseCommit)) {
+    problems.push('Review and run the selected baseline, or choose reuse/defer explicitly.');
+  }
   const identifier = intakeIdentifier(form);
 
   if (form.tracker === 'jira') {
@@ -571,7 +585,9 @@ export function intakeCommand(form: IntakeForm): string[] {
     ...(selected.some((entry) => storyAttachmentPhases(form, entry).phases?.length)
       ? selected.flatMap((entry) => ['--document-phases', storyAttachmentPhases(form, entry).phases?.join(',') ?? 'all']) : [])
   ];
-  const isolated = ['--isolated-worktree', ...testRecoveryArguments(form, true)];
+  const isolated = ['--isolated-worktree', '--readiness-baseline', form.readinessBaseline,
+    ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
+    ...testRecoveryArguments(form, true)];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
     ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
   if (form.tracker === 'github') {
@@ -608,6 +624,8 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
   return [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier, '--isolated-worktree',
     '--from-branch', form.baseBranch, '--selected-base-only',
+    '--readiness-baseline', form.readinessBaseline,
+    ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
     ...references,
     ...testRecoveryArguments(form)
@@ -945,6 +963,19 @@ function baseBranchHtml(form: IntakeForm): string {
       <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>
     </div>` : ''}
     ${preflightTestReadinessHtml(form.baseTestReadiness)}
+    ${form.baseBranch ? `<fieldset ${form.baselineRunning ? 'disabled' : ''}><legend>Existing-test baseline</legend>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> Reuse a compatible exact-base baseline</label>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="run" ${form.readinessBaseline === 'run' ? 'checked' : ''}> Review and run baseline now</label>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="defer" ${form.readinessBaseline === 'defer' ? 'checked' : ''} ${form.baselinePolicy !== 'choice' ? 'disabled' : ''}> Defer baseline — not verified</label>
+      <p class="meta">${form.baselinePolicy === 'required' ? 'Approved policy requires a baseline before starting. Change that policy through Configuration Center to allow deferral.' : 'Deferral does not accept failures or skip later required testing, publication or approval checks.'}</p>
+      ${form.readinessBaseline === 'run' ? `<button type="button" class="secondary" data-baseline-run ${form.baselineRunning ? 'disabled' : ''}>${form.baselineRunning ? 'Running reviewed baseline…' : 'Review baseline commands'}</button>` : ''}
+      ${form.baselineMessage ? `<p role="status">${escape(form.baselineMessage)}</p>` : ''}
+    </fieldset>
+    ${!form.testRecovery?.enabled ? `<fieldset><legend>Testing for this Story</legend>
+      <label><input type="radio" name="story-test-scope" data-story-test-scope value="changed-and-affected" ${form.testExecutionMode === 'changed-and-affected' ? 'checked' : ''}> Changed and affected tests</label>
+      <label><input type="radio" name="story-test-scope" data-story-test-scope value="all-configured" ${form.testExecutionMode === 'all-configured' ? 'checked' : ''}> All configured tests</label>
+      <p class="meta">Existing failures are repaired in this Story by default. Accepting known failures requires an exact observed baseline and an authorized risk decision; deferral is not acceptance.</p>
+    </fieldset>` : ''}` : ''}
     ${form.basePreflightRefreshRecommended ? `<p><button type="button" class="secondary" data-workflow-refresh>
       Refresh or reinitialize repository configuration</button></p>` : ''}
   </section>`;
@@ -1332,6 +1363,7 @@ export const INTAKE_SCRIPT = `
   if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
   filterBaseBranches();
   document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
     if (event.target.closest('[data-base-branch-clear]')) {
       branchSearch.value = '';
       filterBaseBranches();
@@ -1374,6 +1406,8 @@ export const INTAKE_SCRIPT = `
    */
   document.addEventListener('change', (event) => {
     const el = event.target;
+    if (el.hasAttribute('data-readiness-baseline')) return vscode.postMessage({ type: 'readinessBaseline', value: el.value });
+    if (el.hasAttribute('data-story-test-scope')) return vscode.postMessage({ type: 'storyTestScope', value: el.value });
     if (el.dataset?.testRecoveryField) return vscode.postMessage({ type: 'testRecoveryChoice', field: el.dataset.testRecoveryField, value: el.value });
     if (el.hasAttribute('data-test-recovery-confirm')) return vscode.postMessage({ type: 'testRecoveryConfirm', confirmed: el.checked, planDigest: el.dataset.testRecoveryConfirm });
     if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });

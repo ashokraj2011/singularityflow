@@ -56,7 +56,8 @@ async function boundedRecord(root, relative, evidenceCommit = null) {
 }
 
 async function expectedEpochCommands(root, config, workflow, phase, requirement) {
-  let commands = (await resolveDeliveryQualityCommands(root, phase)).map((command, index) => {
+  let commands = (await resolveDeliveryQualityCommands(root, phase,
+    { executionMode: workflow.resolution?.testExecutionMode })).map((command, index) => {
     if (command?.kind !== 'test') return command;
     const normalized = normalizeRequiredTestCommand(command, index);
     return { ...normalized, result: { ...normalized.result,

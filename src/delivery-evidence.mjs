@@ -616,12 +616,13 @@ function witnessIdentity(declaration) {
  * carries is an earlier Story's, which witnesses nothing here.
  */
 export async function discoverAcceptanceWitnesses(root, phase, {
-  testPaths, sourcePaths = [], requiredAcIds = [], bindings = [], othersTag = () => false
+  testPaths, sourcePaths = [], requiredAcIds = [], bindings = [], othersTag = () => false,
+  executionMode = 'changed-and-affected'
 } = {}) {
   const commands = [];
   for (const [index, command] of (await resolveDeliveryQualityCommands(root, {
     ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths, testPaths }
-  }).catch(() => [])).entries()) {
+  }, { executionMode }).catch(() => [])).entries()) {
     if (!command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test') continue;
     try { commands.push(normalizeExternalCommand(command, index)); } catch { /* the test preflight reports it */ }
   }
@@ -1243,7 +1244,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       .map((candidate) => candidate.line)));
   const witnessDiscovery = await discoverAcceptanceWitnesses(root, phase, {
     testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings,
-    othersTag
+    othersTag, executionMode: workflow.resolution?.testExecutionMode
   });
   errors.push(...witnessDiscovery.errors);
   // A tag naming a criterion the specification does not hold is refused while this generation is
@@ -1424,7 +1425,7 @@ export function isTestQualityCommand(command) {
   return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executable);
 }
 
-export async function resolveDeliveryQualityCommands(root, phase) {
+export async function resolveDeliveryQualityCommands(root, phase, { executionMode = 'changed-and-affected' } = {}) {
   const configured = [...(phase.qualityCommands ?? [])];
   if (!phaseRequiresCodeDelivery(phase)) return configured;
   const configuredTests = configured.filter((command) =>
@@ -1435,6 +1436,12 @@ export async function resolveDeliveryQualityCommands(root, phase) {
       return root === '.' || moduleRoot === root || moduleRoot.startsWith(`${root}/`);
     }));
   const inferred = [];
+  if (executionMode === 'all-configured') {
+    // Explicit broad scope: include the repository-native suite as well as affected modules.
+    // Do not recursively scan an arbitrarily large monorepo to guess additional runners.
+    inferred.push(...(await inferRepositoryTestCommands(root)).filter(command =>
+      !moduleCoveredByConfiguredTest(command.workingDirectory ?? '.')));
+  }
   const deliveryPaths = [...new Set([
     ...(phase.deliveryEvidence?.sourcePaths ?? []),
     ...(phase.deliveryEvidence?.testPaths ?? [])
@@ -1479,8 +1486,13 @@ export async function resolveDeliveryQualityCommands(root, phase) {
       });
     }
   }
-  const seen = new Set(configured.map(commandText));
-  return [...configured, ...inferred.filter((command) => command && !seen.has(commandText(command)))];
+  const commandKey = command => JSON.stringify([commandText(command), command?.workingDirectory ?? '.']);
+  const seen = new Set(configured.map(commandKey));
+  return [...configured, ...inferred.filter((command) => {
+    if (!command || seen.has(commandKey(command))) return false;
+    seen.add(commandKey(command));
+    return true;
+  })];
 }
 
 function receiptDigest(record) {
@@ -1744,7 +1756,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           throw new Error('the risk observation is not bound to this exact committed delivery');
         }
         const phase = testRecovery.workflow.phases?.[receipt.phase];
-        const commands = await resolveDeliveryQualityCommands(root, phase);
+        const commands = await resolveDeliveryQualityCommands(root, phase,
+          { executionMode: testRecovery.workflow.resolution?.testExecutionMode });
         const command = commands.find(item => item?.kind === 'test' && item.id === execution.commandId);
         if (!command || canonicalJson(command.affectedRoots) !== canonicalJson(execution.affectedRoots)) {
           throw new Error('risk observation command coverage differs from the approved command contract');

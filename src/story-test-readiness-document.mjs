@@ -3,7 +3,7 @@
  * creation. This is a snapshot of a completed read-only preflight, not a substitute for a test
  * receipt or an instruction to skip checks later in the workflow.
  */
-export function storyTestReadinessDocument(workId, repositories, evidence, { required = false } = {}) {
+export function storyTestReadinessDocument(workId, repositories, evidence, { required = false, baselineChoice = 'reuse' } = {}) {
   const receipts = evidence?.repositories ?? {};
   const records = [...repositories].map((repository) => {
     const receipt = receipts[repository.id] ?? null;
@@ -70,6 +70,8 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
     kind: 'story-test-readiness',
     workId,
     required,
+    baselineChoice,
+    baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified' : 'receipt-only',
     repositories: records,
     guidance: 'A verified exact-base risk decision permits Story creation with known failing tests only. It never turns those tests green or waives later test, publication, approval, or protected-path checks.'
   };

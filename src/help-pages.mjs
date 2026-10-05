@@ -1099,6 +1099,8 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--work-type ID', 'Which workflow to run. Required when the terminal is not interactive.'],
+      ['--readiness-baseline reuse|run|defer', 'Reuse exact-base evidence, request a reviewed run, or explicitly record unverified baseline observation when approved baselinePolicy is choice. Deferral never accepts failures or waives later gates.'],
+      ['--test-execution-mode changed-and-affected|all-configured', 'Pin ongoing test scope independently from baseline observation. Configured required commands remain enforced in either mode.'],
       ['--title TEXT', 'Story title, when there is no tracker to read it from.'],
       ['--jira', 'Read the Story from Jira instead of the command line.'],
       ['--story-file FILE', 'Read the Story from a YAML file.'],
@@ -1994,6 +1996,7 @@ const PAGES = Object.freeze({
       ['--quick', 'Run metadata-only readiness inspection. Incompatible with --run.'],
       ['--run', 'Preview repository commands, or execute them with the exact --confirm-plan digest.'],
       ['--scope dependency-test|full', 'Default: dependency-test, for locked packages and existing unit tests only. Full also includes build, quality, and startup when approved policy requires them.'],
+      ['--base-commit OID', 'With --run, preview and execute the exact locally available selected base without switching or cleaning an open Story. Retain this OID when confirming the plan.'],
       ['--confirm-plan SHA256', 'Execute only the freshly recomputed readiness plan with this exact digest.'],
       ['--risk-status', 'Show the exact current failed-test baseline and existing Git-private risk decisions.'],
       ['--accept-test-risk', 'Record an eligible exact-base decision; Story start rechecks it, while later test and publication gates remain enforced.'],

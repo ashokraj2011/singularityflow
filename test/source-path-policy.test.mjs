@@ -4,7 +4,9 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { normalizeSourceHashExcludedRoots, normalizeTestConfigurationPaths } from '../src/source-path-policy.mjs';
+import { createHash } from 'node:crypto';
+import { canonicalJson } from '../src/records.mjs';
+import { normalizeSourceHashExcludedRoots, normalizeTestConfigurationPaths, sourcePathPolicy } from '../src/source-path-policy.mjs';
 import { sourceTreeHash, testInputTreeHash } from '../src/state.mjs';
 import { sourcePathIncluded } from '../src/source-scope.mjs';
 import { resolveCapabilitySourceScope, validateCapabilities } from '../src/capabilities.mjs';
@@ -20,6 +22,23 @@ test('capability path controls refuse unsafe and nonportable exclusions', () => 
     assert.throws(() => normalizeSourceHashExcludedRoots([invalid]));
     assert.throws(() => normalizeTestConfigurationPaths([invalid]));
   }
+});
+
+test('approved test runtime changes test-input hash without changing application source hash', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sf-runtime-input-'));
+  try {
+    git(root, 'init', '-q');
+    git(root, 'config', 'user.name', 'Test');
+    git(root, 'config', 'user.email', 'test@example.invalid');
+    await writeFile(path.join(root, 'app.js'), 'export const value = 1;\n');
+    git(root, 'add', '.'); git(root, 'commit', '-qm', 'base');
+    const workflow = { resolution: { testRuntime: { nodeOptions: [] } } };
+    const source = await sourceTreeHash(root, {}, workflow);
+    const inputs = await testInputTreeHash(root, {}, workflow);
+    workflow.resolution.testRuntime = { nodeOptions: ['--no-experimental-webstorage'] };
+    assert.equal(await sourceTreeHash(root, {}, workflow), source);
+    assert.notEqual(await testInputTreeHash(root, {}, workflow), inputs);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('source hash and separately bound test inputs change independently', async () => {
@@ -41,6 +60,16 @@ test('source hash and separately bound test inputs change independently', async 
     } } } };
     const source = await sourceTreeHash(root, {}, workflow);
     const inputs = await testInputTreeHash(root, {}, workflow);
+    const manifest = [];
+    for (const relative of ['generated/fixture.txt', 'src/test/resources/application-test.yml']) {
+      const bytes = await readFile(path.join(root, relative));
+      manifest.push({ path: relative, mode: '100644', kind: 'git-object',
+        object: createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex') });
+    }
+    const historical = `sha256:${createHash('sha256').update(canonicalJson({
+      policy: sourcePathPolicy(workflow.resolution.capability.sourceScope), manifest
+    })).digest('hex')}`;
+    assert.equal(inputs, historical, 'a legacy Story retains its pre-profile test-input hash');
     await assert.rejects(testInputTreeHash(root, {}, { resolution: { capability: { sourceScope: {
       testConfigurationPaths: ['src/test/resources/missing.yml']
     } } } }), { code: 'TEST_CONFIGURATION_PATH_UNAVAILABLE' });

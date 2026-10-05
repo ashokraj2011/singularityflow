@@ -649,12 +649,17 @@ test('changing what a step produces drops a skill of its own that cannot draft t
   const model = await buildStudioModel(root);
   assert.equal(model.phases.find((phase) => phase.id === 'brief').authoringSkill, null);
 
-  // A sign-off-only step names no skill at all, and a workflow taking the step up later is valid.
-  const none = await publish([{ op: 'phase.update', id: 'notes', output: 'none' }]);
-  assert.ok(none.summary.includes('Notes now drafts nothing, so it no longer names /sf-design.'), none.summary.join('\n'));
+  // The editor can describe a no-output choice, but runtime needs a review publication receipt.
+  // Refuse its activation now rather than allowing a Story to hit that dead end at submission.
+  const before = await readFile(workflowFile, 'utf8');
+  const none = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1',
+    changes: [{ op: 'phase.update', id: 'notes', output: 'none' }] });
+  assert.equal(none.valid, false);
+  assert.equal(none.problems[0].code, 'WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED');
+  assert.equal(await readFile(workflowFile, 'utf8'), before);
   await publish([{ op: 'workflow.create', id: 'brief-three', label: 'Brief three', phases: ['brief-input', 'brief', 'notes'] }]);
   saved = YAML.parse(await readFile(workflowFile, 'utf8'));
-  assert.equal(Object.hasOwn(saved.phases.notes, 'authoringSkill'), false);
+  assert.equal(saved.phases.notes.authoringSkill, 'sf-design');
 });
 
 test('a change leaves a null list as it is and refuses a list that is not one', async () => {

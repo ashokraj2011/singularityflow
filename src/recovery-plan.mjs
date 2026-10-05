@@ -416,8 +416,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                   : null
               : `singularity-flow phase show ${phase.id} --json`,
             skill: configurationDependency
-              ? missingRepositoryRunner ? '/sf-code' : null
-              : '/sf-code'
+              ? missingRepositoryRunner ? '/sf-phase-documents' : null
+              : '/sf-phase-documents'
           }));
         }
       }

@@ -196,7 +196,7 @@ import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
 import { phaseDisplayBinding, phaseDocumentVersionMatches } from './review-display.mjs';
 import { answerSelectionReceipt, approvalReviewBinding, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
-import { loadPortfolio } from './initiative-config.mjs';
+import { loadPortfolio, usesEpicPlanningLifecycle } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
 import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
 import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
@@ -14325,7 +14325,7 @@ async function initiativeCommand(positionals, options) {
           agent: selectedAgent.agent,
           capabilityId: optionString(options, 'capability')
         });
-        if (profile === 'epic-planning' && source.type === 'jira') {
+        if (usesEpicPlanningLifecycle(created.initiative.resolution) && source.type === 'jira') {
           await registerInitiativeEvidence(root, {
             initiativeId,
             phaseId: 'epic-intake',
@@ -14356,7 +14356,7 @@ async function initiativeCommand(positionals, options) {
     // failure or any refusal burned the one-shot receipt and a new one was needed to retry.
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     let current = started;
-    if (profile === 'epic-planning') {
+    if (usesEpicPlanningLifecycle(started.initiative.resolution)) {
       const completed = await completeEpicIntake(root, initiativeId, { agent: selectedAgent.agent });
       if (completed.advanced) {
         await commitInitiativeChange(root, completed.portfolio, completed.initiative, { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId: 'epic-intake' }, `[${initiativeId}][epic:intake] sources accepted`);
@@ -14376,7 +14376,7 @@ async function initiativeCommand(positionals, options) {
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
     printCommandRoutes('singularity-flow epic requirements prepare', { label: 'Prepare requirements' });
-    if (profile === 'epic-planning') console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
+    if (usesEpicPlanningLifecycle(started.initiative.resolution)) console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
     return;
   }
   if (subcommand === 'resume') {
@@ -15172,7 +15172,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
           observedState: `${result.attempt.stories.length} canonical Story branches and governed seeds published`
         }
       });
-      if (before.initiative.resolution.profile === 'epic-planning') {
+      if (usesEpicPlanningLifecycle(before.initiative.resolution)) {
         result.completion = await completeEpicPublication(root, initiativeId);
       }
     }

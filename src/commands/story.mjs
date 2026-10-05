@@ -40,8 +40,9 @@ import {
 } from '../convergence.mjs';
 import {
   assertConvergencePublicationReady, assertConvergenceSources, assertLegacyConvergenceSourceIdentity,
-  currentConvergenceContext, loadVerifiedConvergenceProjection
+  currentConvergenceContext, loadVerifiedConvergenceProjection, missingConvergenceProjectionError
 } from '../convergence-context.mjs';
+import { convergenceReviewRoute } from '../convergence-review-route.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import {
   admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
@@ -831,8 +832,7 @@ export async function storyCommand(positionals, options) {
       return storyTestSelectionCommand(positionals, options);
     }
     if (action !== 'show') throw new SingularityFlowError(`Unsupported test-policy action '${action}'.`);
-    const config = await loadConfig(root);
-    const workflow = await loadStoryAggregate(root, config, positionals[3] ?? optionString(options, 'work-id'));
+    const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[3] ?? optionString(options, 'work-id'));
     const { loadStoryTestRecoveryAgreement } = await import('../state.mjs');
     const agreement = await loadStoryTestRecoveryAgreement(root, config, workflow);
     // The policy and test capability sealed with the Story [E2G-019]; never recomputed by this read.
@@ -902,7 +902,19 @@ export async function storyCommand(positionals, options) {
     console.log('Story start resolves every branch again and records the final immutable pins.');
     return;
   }
-  const config = await loadConfig(root);
+  // Dispatch accepted-Story operations before touching today's mutable agent/root configuration.
+  if (subcommand === 'converge') return storyConvergeCommand(positionals, options);
+  if (subcommand === 'adjudicate') return storyAdjudicateCommand(positionals, options);
+  if (subcommand === 'intent-amendment') return storyIntentAmendmentCommand(positionals, options);
+  if (subcommand === 'rework') return storyReworkCommand(positionals, options);
+  if (subcommand === 'advance') return storyAdvanceCommand(positionals, options);
+  if (subcommand === 'status') return (await router()).statusCommand([positionals[0], positionals[2]], options);
+  if (subcommand === 'submit') return (await router()).submitCommand(['submit', positionals[2]], options);
+  if (subcommand === 'finalize') return (await router()).finalizeCommand(options);
+  const config = ['references', 'workflow', 'interval', 'checks'].includes(subcommand)
+    ? (await loadAcceptedStoryExecution(root, ['references', 'workflow'].includes(subcommand)
+      ? positionals[3] ?? optionString(options, 'work-id') : optionString(options, 'parent'))).config
+    : await loadConfig(root);
   if (subcommand === 'references') {
     const action = positionals[2] ?? 'list';
     const workId = positionals[3] ?? optionString(options, 'work-id');
@@ -1124,8 +1136,6 @@ export async function storyCommand(positionals, options) {
     console.log(`Current: ${status.currentBranch} (${status.kind}) · Canonical: ${status.canonicalBranch}`);
     return;
   }
-  if (subcommand === 'submit') return (await router()).submitCommand(['submit', positionals[2]], options);
-  if (subcommand === 'finalize') return (await router()).finalizeCommand(options);
   if (subcommand === 'checks') {
     const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
     const result = await runAndRecordStoryChecks(root, config, workflow, {
@@ -1143,12 +1153,6 @@ export async function storyCommand(positionals, options) {
     if (!result.evidence.ready) process.exitCode = 2;
     return;
   }
-  if (subcommand === 'converge') return storyConvergeCommand(positionals, options);
-  if (subcommand === 'adjudicate') return storyAdjudicateCommand(positionals, options);
-  if (subcommand === 'intent-amendment') return storyIntentAmendmentCommand(positionals, options);
-  if (subcommand === 'rework') return storyReworkCommand(positionals, options);
-  if (subcommand === 'advance') return storyAdvanceCommand(positionals, options);
-  if (subcommand === 'status') return (await router()).statusCommand([positionals[0], positionals[2]], options);
   throw new SingularityFlowError(`Unknown Story subcommand '${subcommand}'.`);
 }
 
@@ -1624,7 +1628,7 @@ export async function storyConvergeCommand(positionals, options) {
  */
 export async function storyAdjudicateCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
+  const { config } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const itemIds = [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
   const result = await withConvergenceDraft(
     root,
@@ -2087,8 +2091,7 @@ async function acknowledgeApprovedIntentAmendment(root, config, workflow, propos
 
 export async function storyIntentAmendmentCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const action = positionals[2] ?? 'status';
   if (action === 'status') {
     const amendments = workflow.intentAmendments ?? [];
@@ -2169,8 +2172,7 @@ export async function storyReworkCommand(positionals, options) {
   if (positionals[2] === 'roll-forward') return storyReworkRollForwardCommand(positionals, options);
   if (positionals[2]) throw new SingularityFlowError(`Unknown Story rework action '${positionals[2]}'. Allowed: roll-forward.`);
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const subject = await convergenceSubject(root, config, workflow);
   const verified = await loadVerifiedConvergenceProjection(root, config, workflow);
   const projection = verified.projection;
@@ -2281,8 +2283,7 @@ export async function storyReworkCommand(positionals, options) {
  */
 export async function storyReworkRollForwardCommand(_positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const changeRequestId = optionString(options, 'change-request');
   const preview = await previewReworkRollForward(root, config, workflow, { changeRequestId });
   const confirmation = optionString(options, 'confirm');
@@ -2386,12 +2387,12 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
  */
 export async function storyAdvanceCommand(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const selected = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const { config, workflow: selected } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   return withSubjectLock(root, { kind: 'story', id: selected.workItem.id }, async () => {
     const workflow = await loadStoryAggregate(root, config, selected.workItem.id);
     const subject = await convergenceSubject(root, config, workflow);
     const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+    if (!projection) throw missingConvergenceProjectionError(workflow, subject);
     if (projection) {
       const { bindings, facts } = currentConvergenceProjectionInputs(workflow, subject);
       assertConvergenceIntegrity(projection, {
@@ -2405,7 +2406,18 @@ export async function storyAdvanceCommand(positionals, options) {
     const blocked = advancementBlocked(projection);
     if (blocked.length) {
       const following = workflow.phaseOrder[workflow.phaseOrder.indexOf(subject.phase.id) + 1] ?? null;
-      throw new SingularityFlowError(`Convergence cannot advance${following ? ` to ${following}` : ''}:\n- ${blocked.join('\n- ')}`);
+      const disposed = new Set((projection.findings ?? []).map((finding) => finding.itemId));
+      const error = new SingularityFlowError(`Convergence cannot advance${following ? ` to ${following}` : ''}:\n- ${blocked.join('\n- ')}`, {
+        code: 'CONVERGENCE_REVIEW_REQUIRED', details: {
+          workId: workflow.workItem.id, phase: subject.phase.id, iteration: subject.iteration,
+          allowedNext: projection.allowedNext ?? [], unresolvedBlockers: projection.unresolvedBlockers ?? [],
+          undisposedItemIds: [...(projection.facts ?? []), ...(projection.candidates ?? [])]
+            .filter((item) => !disposed.has(item.id)).map((item) => item.id)
+        }
+      });
+      const route = convergenceReviewRoute(error, workflow);
+      error.details.recoveryCommand = { command: route.command, skill: route.skill };
+      throw error;
     }
     const reviewed = await assertConvergencePublicationReady(root, config, workflow, subject.phase);
     const confirmation = optionString(options, 'confirm');

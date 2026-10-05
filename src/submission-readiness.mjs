@@ -1,4 +1,4 @@
-import { isConvergencePhase } from './phase-roles.mjs';
+import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
@@ -245,6 +245,10 @@ export function submissionReadinessSnapshot(workflow, {
 
   const publication = currentPublication(phase);
   const publicationRecorded = publicationIsRecorded(publication);
+  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
+  if (convergenceRoute) return result(workflow, phase, {
+    ...draft, ...convergenceRoute, nextSkill: directCopilotSkill(convergenceRoute.skill)
+  });
   if (phaseNeedsGeneration(workflow, phase)) return result(workflow, phase, {
     ...draft,
     ...(sequenceGateMode(workflow, 'freshGeneration') === 'soft'
@@ -289,15 +293,6 @@ export function submissionReadinessSnapshot(workflow, {
             ? 'PHASE_GENERATION_COMMIT_REQUIRED'
             : 'PHASE_PUBLICATION_RECORD_MISSING'
         })
-  });
-
-  if (isConvergencePhase(phase)) return result(workflow, phase, {
-    ...draft,
-    classification: 'convergence-advance-required',
-    lifecycleReady: true,
-    command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
-    nextSkill: '/sf-submit',
-    reasonCode: 'CONVERGENCE_ADVANCE_REQUIRED'
   });
 
   if (sourceReviewRequired(workflow, phase.id) && sourceReviewEvidence?.status !== 'ready') {

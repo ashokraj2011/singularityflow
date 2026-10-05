@@ -436,7 +436,8 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   ), ['phase', 'publish', 'implementation']);
   assert.equal(missing.steps[0].command,
     'singularity-flow phase show implementation --json');
-  assert.equal(missing.steps[0].skill, '/sf-code');
+  assert.equal(missing.steps[0].skill, '/sf-phase-documents');
+  assert.equal(missing.steps[0].copilotCommand, '/sf-phase-documents implementation');
   assert.equal(missing.steps[1].command, null);
   assert.match(missing.steps[1].label, /in-scope test script or runner declaration/);
   assert.match(missing.steps[1].label, /story test-policy amend --reason TEXT/);

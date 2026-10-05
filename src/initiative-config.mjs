@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isEpicPlanningPhase, isEpicRequirementsPhase, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { isInitiativeGenerator } from './initiative-generators.mjs';
@@ -10,6 +11,8 @@ import { normalizeContextPolicy } from './context-policy.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
 import { effectiveWorldModelAssignmentViews } from './world-model-views.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
+
+export { usesEpicPlanningLifecycle };
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
@@ -548,7 +551,7 @@ export function validatePortfolio(value) {
       if (!portfolio.initiativePhases[phaseId]) throw new SingularityFlowError(`Initiative profile '${id}' references unknown phase '${phaseId}'.`);
     });
     profile.label ??= id.replaceAll('-', ' ');
-    profile.lifecycleMode ??= id === 'epic-planning' ? 'planning-only' : 'full-delivery';
+    profile.lifecycleMode ??= usesEpicPlanningLifecycle({ phases: profile.phases.map((phaseId) => normalizedPhases[phaseId]) }) ? 'planning-only' : 'full-delivery';
     if (!['planning-only', 'full-delivery'].includes(profile.lifecycleMode)) throw new SingularityFlowError(`Initiative profile '${id}' lifecycleMode must be planning-only or full-delivery.`);
 
     const position = new Map(profile.phases.map((phaseId, index) => [phaseId, index]));
@@ -773,6 +776,14 @@ export function resolveInitiativeProfile(portfolio, profileId, {
 } = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);
+  for (const id of profile.phases) {
+    const phase = portfolio.initiativePhases[id];
+    if ((isEpicPlanningPhase(phase) && id !== 'epic-planning')
+        || (isEpicRequirementsPhase(phase) && id !== 'epic-requirements')) {
+      throw new SingularityFlowError(`Epic producer step '${id}' uses a contract whose storage and materialization require the canonical Epic step ID. Copy the profile with its shared steps instead of renaming the producer.`,
+        { code: 'INITIATIVE_EPIC_PRODUCER_ID_UNSUPPORTED', details: { profile: profileId, phase: id } });
+    }
+  }
   if (workflowDefinition) validatePortfolioWorldModelViews(portfolio, workflowDefinition);
   const authority = idAuthority ?? portfolio.identity.authority;
   if (!ID_AUTHORITIES.has(authority)) throw new SingularityFlowError(`Unsupported initiative identity authority '${authority}'.`);

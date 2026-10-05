@@ -1052,6 +1052,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
       policyReaderMinimum: selectedSkills.length ? 9 : 5,
       agentDocumentParser: 'sflow-agent-document-v1',
       promptComposer: 'story-snapshot-agent-v1',
+      ...(workflow.resolution.phaseSemantics ? { phaseSemantics: workflow.resolution.phaseSemantics.profile } : {}),
       ...(selectedSkills.length ? {
         skillPackageReader: SKP_PACKAGE_FORMAT,
         skillTextParser: SKP_PARSER_PROFILE,

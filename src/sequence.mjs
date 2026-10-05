@@ -1,4 +1,5 @@
 import { isConvergencePhase } from './phase-roles.mjs';
+import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { readFile } from 'node:fs/promises';
@@ -80,13 +81,8 @@ export function sequenceGuidance(workflow) {
       ])
     ]
   };
-  if (phase.status === 'in_progress' && isConvergencePhase(phase)) return {
-    summary: "Review the published deterministic convergence result, then explicitly confirm advancement before submission.",
-    actions: [copilotAction({
-      skill: '/sflow-submit',
-      command: `singularity-flow story advance --work-id ${workId}`
-    })]
-  };
+  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
+  if (convergenceRoute) return { summary: convergenceRoute.reason, actions: [copilotAction(convergenceRoute)] };
   if (phase.status === 'in_progress') return {
     summary: phase.approvalPolicy?.mode === 'none'
       ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`

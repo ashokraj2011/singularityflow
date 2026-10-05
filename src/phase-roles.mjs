@@ -20,6 +20,22 @@ export const CONFORMANCE_ARTIFACT_KIND = 'conformance-report';
 export const VISUAL_EVIDENCE_ARTIFACT_KIND = 'visual-test-evidence';
 
 const TEST_EVIDENCE_KINDS = new Set(['test-evidence', VISUAL_EVIDENCE_ARTIFACT_KIND]);
+// Read-side interpretation, installed only after the accepted closure has been verified. It is
+// deliberately not serialized into a Story, copied into a pin, or read from caller-provided flags.
+const acceptedKinds = new WeakMap();
+const acceptedResponsibilities = new WeakMap();
+
+/** Internal boundary used by the verified execution-catalog reader. */
+export function bindAcceptedPhaseInterpretation(workflow, kinds, responsibilities) {
+  for (const [id, kind] of Object.entries(kinds)) {
+    if (workflow.phases?.[id]) acceptedKinds.set(workflow.phases[id], kind);
+  }
+  acceptedResponsibilities.set(workflow, responsibilities);
+}
+
+function interpretedKind(phase) {
+  return phase && acceptedKinds.has(phase) ? acceptedKinds.get(phase) : artifactKindOf(phase);
+}
 
 /** The kind of a step's required artifact, from Story state, a resolved definition or configuration. */
 export function artifactKindOf(phase) {
@@ -31,7 +47,7 @@ export function artifactKindOf(phase) {
  * into one report, and only an explicit human advancement and approval move the Story past it.
  */
 export function isConvergencePhase(phase) {
-  return artifactKindOf(phase) === CONVERGENCE_ARTIFACT_KIND;
+  return interpretedKind(phase) === CONVERGENCE_ARTIFACT_KIND;
 }
 
 /** A Story's convergence step: the active one when it is a convergence step, otherwise the first. */
@@ -46,7 +62,8 @@ export function convergencePhaseOf(workflow) {
 
 /** The responsibilities one step of a Story holds, as the obligation graph pinned at its start says. */
 export function stepResponsibilities(workflow, phaseId) {
-  return workflow?.resolution?.obligationGraph?.nodes?.find((node) => node.id === phaseId)?.responsibilities ?? [];
+  return acceptedResponsibilities.get(workflow)?.[phaseId]
+    ?? workflow?.resolution?.obligationGraph?.nodes?.find((node) => node.id === phaseId)?.responsibilities ?? [];
 }
 
 /** The latest step before `phaseId` in the Story's order that passes `test`, or null. */
@@ -98,7 +115,7 @@ export function loopAmendmentSource(workflow, phaseId) {
 
 /** A step whose output is a conformance report, whatever it is called. */
 export function isConformancePhase(phase) {
-  return artifactKindOf(phase) === CONFORMANCE_ARTIFACT_KIND;
+  return interpretedKind(phase) === CONFORMANCE_ARTIFACT_KIND;
 }
 
 /** Every conformance step of a Story, in order. */
@@ -108,23 +125,24 @@ export function conformancePhasesOf(workflow) {
 
 /** A Story's final conformance step: the last one in order. */
 export function conformancePhaseOf(workflow) {
-  return conformancePhasesOf(workflow).at(-1) ?? null;
+  return conformancePhasesOf(workflow).filter((phase) => phase.status !== 'skipped').at(-1) ?? null;
 }
 
 /** A step that verifies screens against declared profiles, whatever it is called. */
 export function isVisualVerificationPhase(phase) {
-  return artifactKindOf(phase) === VISUAL_EVIDENCE_ARTIFACT_KIND;
+  return interpretedKind(phase) === VISUAL_EVIDENCE_ARTIFACT_KIND;
 }
 
 /** A Story's visual verification step, or null. */
-export function visualVerificationPhaseOf(workflow) {
-  for (const id of workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {})) {
-    if (isVisualVerificationPhase(workflow.phases?.[id])) return workflow.phases[id];
-  }
-  return null;
+export function visualVerificationPhaseOf(workflow, phaseId = workflow?.currentPhase) {
+  if (phaseId && isVisualVerificationPhase(workflow.phases?.[phaseId])) return workflow.phases[phaseId];
+  const phases = (workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {}))
+    .map((id) => workflow.phases?.[id]).filter((phase) => isVisualVerificationPhase(phase) && phase.status !== 'skipped');
+  // Older pins may have multiple stages. Never silently borrow one stage's evidence for another.
+  return phases.length === 1 ? phases[0] : null;
 }
 
 /** A step whose output is test evidence, the record that the change was verified. */
 export function isTestEvidencePhase(phase) {
-  return TEST_EVIDENCE_KINDS.has(artifactKindOf(phase));
+  return TEST_EVIDENCE_KINDS.has(interpretedKind(phase));
 }

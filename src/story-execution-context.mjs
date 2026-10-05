@@ -5,6 +5,7 @@ import {
   hasRetainedWorkflowSnapshotDraft, verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { installAcceptedPhaseInterpretation } from './phase-semantics.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const AGENT_PARSER = 'sflow-agent-document-v1';
@@ -252,7 +253,11 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   const retained = definition && typeof definition === 'object'
     ? VERIFIED_CATALOG_BY_DEFINITION.get(definition)
     : null;
-  if (retained) return verifiedCatalogFor(root, workflow, retained);
+  if (retained) {
+    const catalog = verifiedCatalogFor(root, workflow, retained);
+    installAcceptedPhaseInterpretation(workflow, catalog.policy, catalog.phaseTemplates, catalog.manifest.semantics);
+    return catalog;
+  }
   if (!workflow?.workflowSnapshot) {
     const effectiveDefinition = Object.create(
       Object.getPrototypeOf(definition), Object.getOwnPropertyDescriptors(definition)
@@ -288,6 +293,7 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   });
   const parsed = parsedSnapshotAgents(closure);
   const phaseTemplates = parsedSnapshotTemplates(closure);
+  installAcceptedPhaseInterpretation(workflow, closure.policy, phaseTemplates, closure.manifest.semantics);
   const planningPrompt = parsedPlanningPrompt(closure);
   const skillPackages = Object.freeze((closure.manifest.skillPackages ?? []).map((entry) =>
     Object.freeze({
@@ -435,7 +441,7 @@ export async function resolveStoryExecutionDefinition(root, definition, workflow
   const retained = definition && typeof definition === 'object'
     ? VERIFIED_CATALOG_BY_DEFINITION.get(definition)
     : null;
-  if (retained) return verifiedCatalogFor(root, workflow, retained).effectiveDefinition;
+  if (retained) return (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;
   if (resolved?.mode === 'legacy-live'
       && !workflow?.workflowSnapshot
       && resolved.workId === (workflow?.workItem?.id ?? null)) return definition;

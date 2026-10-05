@@ -72,7 +72,8 @@ function flow(root, args, { allowFailure = false } = {}) {
   return result;
 }
 
-async function fixture(name, { qualityCommands = [], ignoredReportPath = null } = {}) {
+async function fixture(name, { qualityCommands = [], ignoredReportPath = null,
+  artifactSets = null, artifactSet = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-publication-preflight-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
@@ -86,13 +87,15 @@ async function fixture(name, { qualityCommands = [], ignoredReportPath = null } 
 
   const config = await loadConfig(root);
   config.git.publish = 'off';
+  if (artifactSets) config.artifactSets = artifactSets;
   const resolved = resolveWorkType(config, 'feature');
   resolved.phases = [{
     ...resolved.phases[0],
     order: 0,
     clarification: { ...resolved.phases[0].clarification, mode: 'off' },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] },
-    qualityCommands
+    qualityCommands,
+    ...(artifactSet ? { artifactSet } : {})
   }];
   await setAgentSession(root, config, ACTOR, 'product-owner', 'PREFLIGHT-1', { phaseId: 'intake', source: 'test' });
   const workflow = await createWorkflow(root, config, {
@@ -849,10 +852,8 @@ test('qualified ADD clause tags survive prepublish, recovery and actual publicat
   });
 });
 
-test('only governed supporting Markdown is placeholder-checked without scanning advisory or arbitrary evidence', async () => {
-  const context = await fixture('supporting-review-artifact');
-  context.phase.artifactSet = 'review-bundle';
-  context.workflow.resolution.artifactSets = {
+test('only governed supporting Markdown is placeholder-checked without scanning advisory or arbitrary evidence', async (t) => {
+  const context = await fixture('supporting-review-artifact', { artifactSet: 'review-bundle', artifactSets: {
     'review-bundle': {
       primary: 'intake.md',
       members: [
@@ -862,7 +863,8 @@ test('only governed supporting Markdown is placeholder-checked without scanning 
         { path: 'evidence/', role: 'machine-evidence', required: false }
       ]
     }
-  };
+  } });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
   await writeFile(context.target, [
     '# Intake', '',
     '## Requested outcome', '', 'Review all authored phase documents before approval.', '',
@@ -2096,8 +2098,8 @@ test('recovery reports an unsupported native test runner before publication is a
     entry.id === 'repair-repository-test-runner:implementation');
   assert.equal(action?.mode, 'guided');
   assert.equal(action?.command, 'singularity-flow phase show implementation --json');
-  assert.equal(action?.skill, '/sf-code');
-  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-code');
+  assert.equal(action?.skill, '/sf-phase-documents');
+  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-phase-documents implementation');
   assert.match(action.detail, /repository-owned test script/);
   assert.match(action.detail, /authorized reviewer can preview story test-policy amend/);
   assert.match(action.detail, /original configuration authority/);
@@ -2150,7 +2152,7 @@ test('prepublish keeps a complete code draft red when its repository test contra
   assert.equal(checked.readiness.knownRecoveryBlockers, false);
   assert.equal(checked.commands.publish, null);
   assert.ok(checked.findings.some((finding) => finding.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'));
-  assert.equal(checked.correction.skill, '/sf-code');
+  assert.equal(checked.correction.skill, '/sf-phase-documents');
   assert.equal(checked.commands.next, 'singularity-flow phase show implementation --json');
   assert.equal(checked.correction.sameTurn, false);
   assert.equal(checked.mutates, false);
@@ -2580,7 +2582,7 @@ test('a passing quality command cannot mutate unregistered application source', 
       phaseId: 'implementation', runChecks: true, persist: false
     }),
     (error) => error.code === 'QUALITY_COMMAND_SOURCE_MUTATION'
-      && /changed application source or tests/.test(error.message)
+      && /changed application source or separately hashed test inputs/.test(error.message)
   ));
   assert.equal(context.phase.status, 'in_progress');
   assert.equal(context.phase.submittedAt, null);

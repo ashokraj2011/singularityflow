@@ -1,3 +1,4 @@
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -118,7 +119,7 @@ function isTextualMime(mimeType) {
  * does not count as added.
  */
 async function epicSourceDrift(root, portfolio, initiative, record) {
-  if (initiative.resolution.profile !== 'epic-planning') return null;
+  if (!usesEpicPlanningLifecycle(initiative.resolution)) return null;
   const active = await activeEpicSourceIdentities(root, portfolio, initiative);
   const given = new Map((record?.epicSources ?? []).map((source) => [source.sourceId, source.sha256 ?? null]));
   const reported = (sourceId) => (record?.warnings ?? []).some((warning) => String(warning).startsWith(`Epic source ${sourceId} is `));
@@ -130,7 +131,7 @@ async function epicSourceDrift(root, portfolio, initiative, record) {
 }
 
 async function epicSourceSections(root, initiative, phase) {
-  if (initiative.resolution.profile !== 'epic-planning') return { sections: [], warnings: [] };
+  if (!usesEpicPlanningLifecycle(initiative.resolution)) return { sections: [], warnings: [] };
   const result = await verifyEpicSources(root, initiative.initiative.id, { materialize: true });
   const required = ['epic-requirements', 'epic-planning'].includes(phase.id);
   const failures = result.results.filter((entry) => entry.status !== 'verified');

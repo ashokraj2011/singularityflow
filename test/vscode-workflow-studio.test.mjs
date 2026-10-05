@@ -834,7 +834,9 @@ test('a workflow that sets what a step produces keeps it when the step\'s own ou
   assert.deepEqual([page.stepOutput('own-b', 'own-step-own-b'), page.stepOutput('own-c', 'own-step-own-c')], ['none', 'analysis']);
   page.chooseAuthoringSkill('own-a', 'own-step', 'sf-design');
   const plan = check(root, page.changeSetFrom(model, state.draft));
-  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.equal(plan.valid, false, 'copying an existing unexecutable no-output step cannot activate another dead end');
+  assert.equal(plan.problems[0].code, 'WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED');
+  assert.match(plan.problems[0].message, /own-step-own-b/);
 });
 
 test('Drafted with shows each skill\'s description as its tooltip', async () => {

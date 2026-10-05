@@ -700,7 +700,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
 
   // Every conformance report is governed alike, whatever its step is called [E2G-001]: its rows,
   // its disclosure of self-approval, its verdicts and its freshness against the tree it compared.
-  for (const phase of conformancePhasesOf(workflow).filter((candidate) => candidate.generation > 0)) {
+  for (const phase of conformancePhasesOf(workflow).filter((candidate) => candidate.status !== 'skipped' && candidate.generation > 0)) {
     const reportPath = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
     const expected = new Set();
     // The stronger row contract is pinned into new Stories. Historical Story snapshots retain

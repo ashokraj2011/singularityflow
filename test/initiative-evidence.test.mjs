@@ -238,7 +238,7 @@ test('Epic story-spec generation stays behind the authored-output publication pr
   const source = await readFile(new URL('../src/initiative-evidence.mjs', import.meta.url), 'utf8');
   const publish = source.slice(source.indexOf('export async function publishInitiativePhase'));
   const authoredPreflight = publish.indexOf('const authoringFindings = await initiativeOutputPlaceholderFindings');
-  const storySpecificationGenerator = publish.indexOf("if (phaseId === 'epic-planning')");
+  const storySpecificationGenerator = publish.indexOf('if (isEpicPlanningPhase(phaseDefinition(initiative, phaseId)))');
   assert.ok(authoredPreflight >= 0 && storySpecificationGenerator >= 0);
   assert.ok(authoredPreflight < storySpecificationGenerator,
     'a placeholder refusal could generate or rewrite Epic story specifications before stopping');

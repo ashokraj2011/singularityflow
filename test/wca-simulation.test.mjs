@@ -42,14 +42,12 @@ test('structural lifecycle report is deterministic, immutable, bounded and exact
   assert.equal(JSON.stringify(report).includes('reviewer@example.test'), false);
 });
 
-test('generation zero needs publication even when approval or generation requirements are none', () => {
+test('no-output steps cannot simulate successful publication without a supported review receipt', () => {
   const resolved = fixture((value) => { value.phases.intake.generation.requirement = 'none'; });
   const report = simulateResolvedWorkflowLifecycle(resolved);
-  assert.equal(report.status, 'complete-for-profile');
-  const initial = find(report, 'publication-required:intake');
-  assert.equal(initial.approvalMode, 'none'); assert.equal(initial.generationRequirement, 'none');
-  assert.equal(initial.events[0].disposition, 'refused'); assert.equal(initial.events[1].to, 'generation-not-required');
-  assert.ok(find(report, 'happy-path').events.some((event) => event.action === 'publish-assumed-output'));
+  assert.equal(report.status, 'invalid');
+  assert.equal(report.findings[0].code, 'WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED');
+  assert.deepEqual(report.scenarios, []);
 });
 
 test('required review is a valid human wait and partial approval cannot advance', () => {
@@ -274,11 +272,12 @@ test('all normalized legacy rejection edges are covered without inventing budget
   assert.deepEqual(resolved, before);
 });
 
-test('generation none preserves the owner policy after rework while old output approvals remain invalidated', () => {
+test('rework cannot make an unsupported no-output review executable', () => {
   const resolved = fixture((value) => { value.phases.intake.generation.requirement = 'none'; value.phases.analysis.approval.rejectTo = ['intake']; });
-  const item = find(simulateResolvedWorkflowLifecycle(resolved), 'rejection-edge:analysis:intake');
-  assert.equal(item.generation, 'owner-generation-policy-preserved');
-  assert.equal(item.events.at(-1).disposition, 'not-current-approved-input');
+  const report = simulateResolvedWorkflowLifecycle(resolved);
+  assert.equal(report.status, 'invalid');
+  assert.equal(report.findings[0].code, 'WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED');
+  assert.deepEqual(report.scenarios, []);
 });
 
 test('a return to the repair reset phase is not fabricated as an exhausted attempt or observed new generation', () => {
@@ -420,12 +419,9 @@ test('dependency-proven amendment still refuses an affected phase with no publis
   resolved.phases[2].inputs = [{ phase: 'analysis', optional: false }];
   resolved.phases[2].generation.requirement = 'none';
   const report = simulateResolvedWorkflowLifecycle(resolved);
-  assert.equal(report.status, 'complete-for-profile', JSON.stringify(report.findings));
-  const amendment = find(report, 'package-amendment:analysis-skill');
-  assert.equal(amendment.dependencyProof, 'ready'); assert.equal(amendment.outcome, 'expected-refusal');
-  assert.deepEqual(amendment.affectedPhases, ['analysis', 'conformance']);
-  assert.equal(amendment.events[0].disposition, 'refused-generation-unavailable');
-  assert.equal(amendment.actualAmendment, 'not-created');
+  assert.equal(report.status, 'invalid', JSON.stringify(report.findings));
+  assert.equal(report.findings[0].code, 'WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED');
+  assert.deepEqual(report.scenarios, []);
 });
 
 test('unconfirmed skill proposal is incomplete and never receives an invented runtime binding', () => {
@@ -440,6 +436,8 @@ test('unconfirmed skill proposal is incomplete and never receives an invented ru
 
 test('convergence requires deterministic publication and its separate exact human advancement', () => {
   const resolved = fixture(); const phase = resolved.phases[1]; phase.id = 'convergence'; phase.artifact.path = 'artifacts/convergence/result.md'; phase.artifact.kind = 'convergence-report';
+  // Convergence consumes an actual code-delivery predecessor, not an arbitrary document stage.
+  resolved.phases[0].generation.task = 'code'; resolved.phases[0].writeScope = 'source-and-artifact';
   phase.generation = normalizeGenerationPolicy({ requirement: 'required', defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }, 'convergence');
   const report = simulateResolvedWorkflowLifecycle(resolved);
   assert.equal(report.status, 'complete-for-profile'); assert.equal(find(report, 'convergence-human-advance').events[0].disposition, 'refused-human-advance-required');

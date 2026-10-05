@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -13,6 +13,8 @@ import {
   createInitiative, initiativeProgress, initiativeStartPreflight, loadInitiative, prepareInitiativePhase
 } from '../src/initiative-state.mjs';
 import { publishInitiativePhase } from '../src/initiative-evidence.mjs';
+import { completeEpicIntake } from '../src/epic-lifecycle.mjs';
+import { usesEpicPlanningLifecycle } from '../src/initiative-phase-roles.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository() {
@@ -87,6 +89,32 @@ test('starter portfolio resolves Epic planning and pins storage and repository d
   assert.equal(epic.repositories.mobile.branchCompletionPolicy, 'either');
   assert.deepEqual(epic.repositories.mobile.requiredChecks, ['build', 'security']);
   assert.equal(epic.storage.providers['corporate-artifacts'].type, 'artifactory');
+});
+
+test('a copied Epic profile retains deterministic intake and delivery tracking without name-selected behavior', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const value = YAML.parse(await readFile(file, 'utf8'));
+  value.initiativeProfiles['copied-epic'] = structuredClone(value.initiativeProfiles['epic-planning']);
+  delete value.initiativeProfiles['copied-epic'].lifecycleMode;
+  await writeFile(file, YAML.stringify(value));
+  const portfolio = await loadPortfolio(root);
+  const resolved = resolveInitiativeProfile(portfolio, 'copied-epic');
+  assert.equal(resolved.lifecycleMode, 'planning-only');
+  assert.equal(usesEpicPlanningLifecycle(resolved), true);
+  run('git', ['checkout', '-q', '-b', 'COPIED-EPIC-1'], { cwd: root });
+  const created = await createInitiative(root, { id: 'COPIED-EPIC-1', title: 'Copied Epic journey', profile: 'copied-epic' });
+  assert.equal(created.initiative.delivery.status, 'tracking');
+  const completed = await completeEpicIntake(root, 'COPIED-EPIC-1');
+  assert.equal(completed.advanced, true);
+  assert.equal(completed.initiative.currentPhase, 'epic-requirements');
+  assert.equal(completed.initiative.phases['epic-intake'].status, 'approved');
+  const renamed = structuredClone(portfolio);
+  renamed.initiativePhases['custom-plan'] = structuredClone(renamed.initiativePhases['epic-planning']);
+  renamed.initiativeProfiles['renamed-epic'] = { phases: ['epic-intake', 'epic-requirements', 'custom-plan', 'epic-publish'] };
+  assert.throws(() => resolveInitiativeProfile(renamed, 'renamed-epic'),
+    (error) => error.code === 'INITIATIVE_EPIC_PRODUCER_ID_UNSUPPORTED');
 });
 
 test('portfolio loading rejects a symlinked governance file', async () => {

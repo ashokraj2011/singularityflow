@@ -441,7 +441,7 @@ const KNOWN = Object.freeze({
   CODE_DELIVERY_TEST_COMMAND_REQUIRED: (argv, error) => [
     step('inspect-current-phase',
       'Inspect the current phase and approved source scope before repairing a repository-owned test runner declaration.',
-      `singularity-flow phase show${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code'),
+      `singularity-flow phase show${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-phase-documents'),
     step('repair-in-scope-repository-runner',
       'If the affected module has an in-scope test script or runner declaration, repair it without changing the pinned workflow or suppressing tests. Otherwise, an authorized reviewer can preview story test-policy amend --reason TEXT after the configuration authority approves an explicit runner. The engine determines current-Story eligibility; refresh alone does not change its pin. A newer runtime may also add native support.',
       null, 'remediation'),

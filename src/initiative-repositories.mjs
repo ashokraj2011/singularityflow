@@ -1,4 +1,5 @@
 import { conformancePhaseOf, isConformancePhase, isTestEvidencePhase, stepResponsibilities } from './phase-roles.mjs';
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -596,7 +597,7 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
   // profiles keep using their existing seed contract and must not be forced through
   // Epic-specific artifact lookup.
   if (
-    initiative.resolution.profile !== 'epic-planning'
+    !usesEpicPlanningLifecycle(initiative.resolution)
     || !initiative.phases['epic-planning']
     || !initiative.phases['epic-requirements']
   ) return { records: [], writes: [], changed: false };

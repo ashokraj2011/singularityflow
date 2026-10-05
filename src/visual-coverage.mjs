@@ -17,11 +17,11 @@ function expectedGeneration(phase) {
   return Math.max(1, Number(phase.generation ?? 0));
 }
 
-export async function evaluateVisualCoverage(root, workflow, { itemDirectory = null } = {}) {
+export async function evaluateVisualCoverage(root, workflow, { itemDirectory = null, phaseId = workflow.currentPhase } = {}) {
   const configured = policy(workflow);
   const profiles = configured.profiles ?? [];
-  if (!profiles.length) return { schemaVersion: 1, status: 'not-configured', mode: configured.coverage ?? 'warn', phase: visualVerificationPhaseOf(workflow)?.id ?? null, generation: null, profiles: [], covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
-  const phase = visualVerificationPhaseOf(workflow);
+  if (!profiles.length) return { schemaVersion: 1, status: 'not-configured', mode: configured.coverage ?? 'warn', phase: visualVerificationPhaseOf(workflow, phaseId)?.id ?? null, generation: null, profiles: [], covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
+  const phase = visualVerificationPhaseOf(workflow, phaseId);
   if (!phase) throw new SingularityFlowError('Verification profiles require a visual verification step (an artifact of kind visual-test-evidence).', { code: 'VISUAL_PHASE_MISSING' });
   const generation = expectedGeneration(phase), integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const candidates = integrity.records.filter((record) => record.kind === 'visual-artifact' && record.phase === phase.id);

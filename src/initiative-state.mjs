@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
@@ -185,7 +186,7 @@ function validateInitiativeRuntimeState(initiative, expectedId = initiative?.ini
     throw new SingularityFlowError(`Initiative '${expectedId}' current phase '${initiative.currentPhase}' is not in its immutable resolution.`);
   }
   initiative.delivery ??= {
-    status: initiative.resolution.profile === 'epic-planning' ? 'tracking' : 'not_applicable',
+    status: usesEpicPlanningLifecycle(initiative.resolution) ? 'tracking' : 'not_applicable',
     completion: null
   };
   for (const definition of initiative.resolution.phases) {
@@ -288,7 +289,7 @@ export function initiativeStatusMarkdown(initiative) {
     `- Branch: \`${initiative.initiative.branch}\``,
     `- Status: **${initiative.status}**`,
     `- Current phase: **${initiative.currentPhase ?? 'complete'}**`,
-    ...(initiative.resolution.profile === 'epic-planning'
+    ...(usesEpicPlanningLifecycle(initiative.resolution)
       ? [`- Delivery tracking: **${initiative.delivery?.status ?? 'tracking'}**`]
       : []),
     `- Identity assurance: **configured-local**`, '',
@@ -364,7 +365,7 @@ export async function createInitiative(root, {
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.capability = capability;
   resolution.worldModelSourceScope = structuredClone(resolved.worldModelSourceScope ?? null);
-  resolution.worldModelTiming = profile === 'epic-planning' ? 'story-intake' : 'initiative';
+  resolution.worldModelTiming = usesEpicPlanningLifecycle(resolved) ? 'story-intake' : 'initiative';
   resolution.worldModelGrounding = capabilityWorldModelGrounding(
     resolution.worldModelTiming === 'story-intake' ? 'off' : groundingMode(definition),
     capability
@@ -439,7 +440,7 @@ export async function createInitiative(root, {
     phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
     materialization: { status: 'not_started', attempts: [] },
     delivery: {
-      status: resolved.id === 'epic-planning' ? 'tracking' : 'not_applicable',
+      status: usesEpicPlanningLifecycle(resolved) ? 'tracking' : 'not_applicable',
       completion: null
     },
     childStories: {},
@@ -486,7 +487,7 @@ export async function createInitiative(root, {
     }
   }));
   await writeText(breakdownPath.absolute, YAML.stringify({
-    version: resolved.id === 'epic-planning' ? 2 : 1,
+    version: usesEpicPlanningLifecycle(resolved) ? 2 : 1,
     initiativeId: id,
     epics: []
   }));
@@ -759,7 +760,7 @@ export async function restartInitiative(root, id = branch(root), { reason = null
   });
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
-  resolution.worldModelTiming = initiative.initiative.profile === 'epic-planning' ? 'story-intake' : 'initiative';
+  resolution.worldModelTiming = usesEpicPlanningLifecycle(resolved) ? 'story-intake' : 'initiative';
   resolution.worldModelGrounding = resolution.worldModelTiming === 'story-intake'
     ? 'off'
     : groundingMode(definition);

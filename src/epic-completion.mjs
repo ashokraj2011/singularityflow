@@ -1,3 +1,4 @@
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { identity } from './git.mjs';
@@ -74,7 +75,7 @@ export async function assertEpicCompletionAuthorized(root, initiativeId, {
   initiative: suppliedInitiative = null
 } = {}) {
   const initiative = suppliedInitiative ?? (await loadInitiative(root, initiativeId)).initiative;
-  if (initiative.resolution.profile !== 'epic-planning') {
+  if (!usesEpicPlanningLifecycle(initiative.resolution)) {
     throw new SingularityFlowError('Epic delivery completion is available only for the epic-planning profile.', {
       code: 'EPIC_COMPLETION_PROFILE_REQUIRED',
       details: { initiativeId, profile: initiative.resolution.profile }
@@ -191,7 +192,7 @@ export async function epicDeliveryReadiness(root, initiativeId, {
     ? { portfolio: suppliedPortfolio, initiative: suppliedInitiative }
     : await loadInitiative(root, initiativeId, suppliedPortfolio);
   const { portfolio, initiative } = loaded;
-  if (initiative.resolution.profile !== 'epic-planning') {
+  if (!usesEpicPlanningLifecycle(initiative.resolution)) {
     throw new SingularityFlowError('Epic delivery completion is available only for the epic-planning profile.', {
       code: 'EPIC_COMPLETION_PROFILE_REQUIRED',
       details: { initiativeId, profile: initiative.resolution.profile }

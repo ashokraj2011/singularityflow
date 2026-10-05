@@ -291,6 +291,7 @@ export function workflowAuthoringRoutes(workflow) {
  */
 export function generationSkillForPhase(phase, workflow = null) {
   const route = authoringRoute(phase, workflow);
+  if (stepOutputKind(phase) === 'none') return null;
   if (route.effectiveAuthoringSkill === '/sf-converge') return '/sflow-converge';
   if (route.authoringSkillSource === 'configured') return `/${authoringSkillSourceId(route.authoringSkill)}`;
   return phaseRequiresCodeDelivery(phase) ? '/sflow-code' : '/sflow-phase';

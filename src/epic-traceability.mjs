@@ -1,3 +1,4 @@
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
@@ -50,7 +51,7 @@ export async function verifyEpicTraceability(root, portfolio, initiative) {
   const errors = [];
   const warnings = [];
   const passes = [];
-  if (initiative.resolution.profile !== 'epic-planning') return { errors, warnings, passes };
+  if (!usesEpicPlanningLifecycle(initiative.resolution)) return { errors, warnings, passes };
   const sources = await listEpicSources(root, initiative.initiative.id);
   const knownSources = new Set(sources.manifest.sources.map((entry) => entry.sourceId));
   const jiraSnapshot = jiraSnapshotSource(initiative);

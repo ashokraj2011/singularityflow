@@ -1,3 +1,4 @@
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { branch, head } from './git.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { evaluateInitiativePhase, readInitiativeRecords } from './initiative-evidence.mjs';
@@ -17,7 +18,7 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
   if (branch(root) !== initiative.initiative.branch) errors.push(`current branch ${branch(root)} does not match initiative branch ${initiative.initiative.branch}`);
   if (initiative.resolution.profile !== initiative.initiative.profile) errors.push('initiative profile differs from immutable resolution');
   if (!initiative.resolution.portfolioSha256 || !initiative.resolution.resolutionSha256) errors.push('initiative immutable configuration hashes are missing');
-  if (initiative.resolution.profile === 'epic-planning') {
+  if (usesEpicPlanningLifecycle(initiative.resolution)) {
     const sources = await verifyEpicSources(root, initiativeId, { materialize: true });
     for (const source of sources.results) {
       if (source.status !== 'verified') errors.push(`Epic source ${source.sourceId} is ${source.status}${source.error ? `: ${source.error}` : ''}`);

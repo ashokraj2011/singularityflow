@@ -1,4 +1,5 @@
 import { isConvergencePhase } from './phase-roles.mjs';
+import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -28,13 +29,8 @@ export function phaseHandoff(workflow, phase, {
   }) : null;
   const withView = (actions) => view ? [...actions, view] : actions;
   const noApproval = phase.approvalPolicy?.mode === 'none';
-  if (isConvergencePhase(phase)) return withView([
-    copilotAction({
-      skill: '/sflow-submit',
-      command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
-      reason: 'Review the exact deterministic convergence result, then explicitly confirm advancement before it can be submitted for human approval.'
-    })
-  ]);
+  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
+  if (convergenceRoute) return withView([copilotAction(convergenceRoute)]);
   const submit = copilotAction({
     skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
     reason: noApproval

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { EPIC_TRACEABILITY_CHECKS, isEpicPlanningPhase, isEpicRequirementsPhase } from './initiative-phase-roles.mjs';
 import YAML from 'yaml';
 import { loadDefinition } from './config.mjs';
 import {
@@ -724,7 +725,7 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
       })).sort((left, right) => left.id.localeCompare(right.id))
     : [];
   const planningIndex = phase.outputs?.['story-specification-index'];
-  const planningPackage = phaseId === 'epic-planning' && planningIndex?.sha256
+  const planningPackage = isEpicPlanningPhase(phaseDefinition(initiative, phaseId)) && planningIndex?.sha256
     ? await (await import('./epic-lifecycle.mjs')).verifyEpicPlanningPackage(root, portfolio, initiative)
     : null;
   const value = {
@@ -1054,18 +1055,6 @@ function declaresCheck(initiative, phaseId, checkId) {
   return phaseDefinition(initiative, phaseId).checklist.some((check) => check.id === checkId);
 }
 
-const TRACEABLE_PHASES = ['epic-requirements', 'epic-planning'];
-const MACHINE_CHECKS = Object.freeze({
-  'epic-requirements': ['requirements-traceable'],
-  'epic-planning': [
-    'stories-traceable',
-    'repositories-resolved',
-    'dependencies-acyclic',
-    'story-specifications-complete',
-    'acceptance-criteria-covered'
-  ]
-});
-
 export async function publishInitiativePhase(root, initiativeId, phaseId, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`);
@@ -1101,7 +1090,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
   }
   // Author-owned inputs are validated before this generator is allowed to write story
   // specifications. A refused publication must not leave a partially regenerated Epic behind.
-  if (phaseId === 'epic-planning') {
+  if (isEpicPlanningPhase(phaseDefinition(initiative, phaseId))) {
     await (await import('./epic-lifecycle.mjs')).prepareEpicStorySpecifications(root, initiativeId);
   }
   const actor = identity(root);
@@ -1138,13 +1127,13 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
   // command, so publishing from the desktop skipped both the check and the evidence it produces —
   // leaving blocking gates permanently unsatisfied and the phase impossible to approve. Verifying
   // here means every surface behaves the same way.
-  const traceability = initiative.resolution.profile === 'epic-planning' && TRACEABLE_PHASES.includes(phaseId)
+  const traceability = isEpicRequirementsPhase(phaseDefinition(initiative, phaseId)) || isEpicPlanningPhase(phaseDefinition(initiative, phaseId))
     ? await verifyEpicTraceability(root, portfolio, initiative)
     : null;
   if (traceability?.errors.length) {
     throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`);
   }
-  const planningPackage = phaseId === 'epic-planning'
+  const planningPackage = isEpicPlanningPhase(phaseDefinition(initiative, phaseId))
     ? await (await import('./epic-lifecycle.mjs')).verifyEpicPlanningPackage(root, portfolio, initiative)
     : null;
   if (planningPackage && !planningPackage.valid) {
@@ -1160,7 +1149,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
   // Evidence is recorded after the publication is saved: registerInitiativeEvidence reloads state
   // from disk, so registering first would read a pre-publish copy and write it back over this one.
   const machineChecks = [
-    ...(traceability ? (MACHINE_CHECKS[phaseId] ?? []).filter((id) => declaresCheck(initiative, phaseId, id)) : []),
+    ...(traceability ? EPIC_TRACEABILITY_CHECKS.filter((id) => declaresCheck(initiative, phaseId, id)) : []),
     // The impact map was just validated above; recording that result is what allows the phase to be
     // approved at all. Without it the gate stays missing however many times the phase is published.
     // Driven by the phase's own checklist rather than a phase name, so a custom profile that

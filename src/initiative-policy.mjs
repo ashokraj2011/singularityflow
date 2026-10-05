@@ -5,8 +5,9 @@
  * narrative intake outputs are enrichment. This also keeps Epics created with
  * an older pinned resolution from being stranded with three required files.
  */
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 export function epicIntakeAllowsEmptyArtifacts(initiative, phaseId) {
-  return initiative?.resolution?.profile === 'epic-planning' && phaseId === 'epic-intake';
+  return usesEpicPlanningLifecycle(initiative?.resolution) && phaseId === 'epic-intake';
 }
 
 /**

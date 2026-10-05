@@ -46,6 +46,7 @@ import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
 import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
+import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
@@ -565,6 +566,7 @@ export function normalizePlannedClaimsPolicy(value, {
  * contract, or routes that would end a Story without one of its responsibilities [E2G-005].
  */
 export function assertWorkTypeStartable(resolved) {
+  assertPhaseTopology(resolved);
   assertPlannedClaimsReady(resolved);
   const errors = (resolved?.obligationGraph?.findings ?? []).filter((entry) => entry.severity === 'error');
   if (!errors.length) return resolved;
@@ -2316,6 +2318,7 @@ export function resolveWorkType(definition, workTypeId) {
     definition.agentCatalog, { workTypeId });
   return {
     id: workTypeId,
+    phaseSemantics: { profile: PHASE_SEMANTICS_PROFILE },
     obligationGraph,
     label: workType.label,
     ...(reworkLoops.length ? { reworkLoops } : {}),
@@ -2434,6 +2437,7 @@ export async function snapshotResolution(root, definition, resolved) {
     // The compiled responsibilities of every route, pinned so the evaluator judges this Story by the
     // routes it started with [E2G-005].
     ...(resolved.obligationGraph ? { obligationGraph: pinnedObligationGraph(resolved.obligationGraph) } : {}),
+    ...(resolved.phaseSemantics ? { phaseSemantics: structuredClone(resolved.phaseSemantics) } : {}),
     ...(resolved.reworkLoops?.length ? { reworkLoops: structuredClone(resolved.reworkLoops) } : {}),
     // Only when a workflow declares decisions, so every existing Story resolution and its policy
     // digest stay byte-identical.

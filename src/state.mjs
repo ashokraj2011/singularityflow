@@ -252,6 +252,7 @@ import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext, storyExecutionVerified
 } from './story-execution-context.mjs';
 import { resolveStorySkillPackage } from './story-execution-context.mjs';
+import { needsAcceptedPhaseInterpretation } from './phase-semantics.mjs';
 import {
   verifySkillPhaseApproval, verifySkillPhasePublication
 } from './skp-phase-evidence.mjs';
@@ -1478,6 +1479,7 @@ export async function loadWorkflow(root, config, id = undefined) {
     await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
   }
   verifyRejectedSkillVersionReviews(root, config, workflow);
+  if (needsAcceptedPhaseInterpretation(workflow)) await resolveStoryExecutionCatalog(root, config, workflow);
   return workflow;
 }
 
@@ -1488,6 +1490,7 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   const indexed = resolveContext(index, { reference: requested, kind: 'story', required: false });
   if (indexed) {
     const workflow = attachLegacyGovernedRoots(normalizeCurrentWorkflow(indexed.state), config);
+    if (needsAcceptedPhaseInterpretation(workflow)) await resolveStoryExecutionCatalog(root, config, workflow);
     return {
       workId: workflow.workItem.id,
       branch: indexed.canonicalBranch,
@@ -2115,6 +2118,7 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
 
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
+  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   const result = await preparePhaseInputs(root, config, workflow, requested);
   return result.path;
 }
@@ -3420,6 +3424,7 @@ export async function publishGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
   architectureCandidateSnapshot = null
 } = {}) {
+  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
@@ -4896,6 +4901,7 @@ async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
   architectureCandidateSnapshot = null, actor = null, agent = undefined, decisionValues = null
 } = {}) {
+  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
@@ -5607,6 +5613,7 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
   confirmation, phaseId = null, runChecks = true, persist = true,
   architectureCandidateSnapshot = null, actor = identity(root), agent = null
 } = {}) {
+  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   const phase = phaseId == null ? convergencePhaseOf(workflow) : workflow.phases?.[phaseId] ?? null;
   if (!isConvergencePhase(phase)) throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
   await assertConvergenceConfirmation(root, config, workflow, phase, confirmation);
@@ -5643,6 +5650,7 @@ export async function approvePhase(root, config, workflow, {
   agent: decisionAgent = undefined,
   persist = true
 } = {}) {
+  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
@@ -6951,6 +6959,7 @@ export async function rejectPhase(root, config, workflow, {
   testingRepairConfirm = null, testingRepairPlan = null, channel = 'terminal', actionContext = null,
   actor = null, agent = undefined
 } = {}) {
+  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const testingRepair = testingRepairConfirm
     ? currentTestingRepairPlan(root, workflow, testingRepairPlan, {

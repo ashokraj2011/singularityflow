@@ -8,6 +8,7 @@ git:
   publish: required
 
 templatesRoot: singularity/templates
+spec: { mode: record, coverage: record, acceptance: presence }
 
 documents:
   allowedPhases: [intake, design, implementation-spec]
@@ -24,6 +25,10 @@ workTypes:
   feature:
     label: Feature
     phases: [intake, design, implementation-spec, implementation, verification, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [implementation-spec]
+      owners: { implementation: implementation-spec }
     templateOverrides:
       intake: feature/intake.md
       implementation-spec: feature/implementation-spec.md

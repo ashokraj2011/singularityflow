@@ -1,5 +1,6 @@
 /** Deterministic structural scenarios only. No receipts, permissions or runtime effects are minted. */
 import { isConvergencePhase } from './phase-roles.mjs';
+import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { recordSha256 } from './records.mjs';
 import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
@@ -138,6 +139,7 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
     if (!ordinary(captured) || !validId(captured.id) || !Array.isArray(captured.phases)
         || !captured.phases.length) throw failure('WCA_SIMULATION_INVALID');
     workflowId = captured.id;
+    for (const entry of phaseTopologyFindings(captured)) finding(entry.code, entry.phaseId);
     // The lifecycle profile is about publication, review and rework mechanics. Whether every route
     // keeps its responsibilities is the obligation compiler's finding, reported with the candidate.
     try { assertPlannedClaimsReady(captured); }

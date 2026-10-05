@@ -1,3 +1,5 @@
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
+import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -644,7 +646,7 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
     sources,
     detachedSources,
     jiraDrift: initiative.jiraDrift ?? null,
-    delivery: initiative.resolution.profile === 'epic-planning'
+    delivery: usesEpicPlanningLifecycle(initiative.resolution)
       ? await epicDeliveryReadiness(root, initiativeId)
       : null,
     documents
@@ -2047,9 +2049,20 @@ function plannedClaimsReadinessShape(resolved) {
 export function assertWorkflowReadinessChanges(previousDefinition, candidateDefinition) {
   for (const workTypeId of Object.keys(candidateDefinition.workTypes)) {
     const candidate = resolveWorkType(candidateDefinition, workTypeId);
-    if (candidate.plannedClaims.mode !== 'migration-required') continue;
     const previousWorkType = previousDefinition.workTypes?.[workTypeId];
     const previous = previousWorkType ? resolveWorkType(previousDefinition, workTypeId) : null;
+    if (phaseTopologyFindings(candidate).length) {
+      const topology = (resolved) => (resolved?.phases ?? []).map((phase) => ({
+        id: phase.id, kind: phase.artifact?.kind, task: phase.generation?.task,
+        requirement: phase.generation?.requirement, writeScope: phase.writeScope
+      }));
+      // Existing incomplete drafts may be relabelled and repaired. They may not be copied or
+      // materially reshaped into another accepted-but-unexecutable workflow.
+      if (!previous || JSON.stringify(topology(previous)) !== JSON.stringify(topology(candidate))) {
+        assertPhaseTopology(candidate);
+      }
+    }
+    if (candidate.plannedClaims.mode !== 'migration-required') continue;
     const unchangedLegacy = previous?.plannedClaims.mode === 'migration-required'
       && JSON.stringify(plannedClaimsReadinessShape(previous))
         === JSON.stringify(plannedClaimsReadinessShape(candidate));

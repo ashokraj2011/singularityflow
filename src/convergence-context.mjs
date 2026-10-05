@@ -8,6 +8,7 @@ import {
 } from './convergence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { convergencePhaseOf, isConvergencePhase, latestStepBefore, stepResponsibilities } from './phase-roles.mjs';
+import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { authoredArtifactFingerprint, authoredArtifactText, requiredArtifactRepoPath } from './publication-preflight.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
@@ -174,8 +175,14 @@ async function assertReconciliationTargetCurrent(root, config, workflow, reconci
  * after the specification, claims, acceptance evidence, or reconciliation has moved.
  */
 export async function currentConvergenceContext(root, config, workflow) {
+  if (workflow.workflowSnapshot) config = await resolveStoryExecutionDefinition(root, config, workflow);
+  if ((workflow.phaseOrder ?? []).filter((id) => isConvergencePhase(workflow.phases?.[id])).length > 1) {
+    throw new SingularityFlowError('This accepted workflow has multiple Convergence stages sharing one iteration namespace. It cannot reuse one stage\'s review for another. Configure a single Convergence stage for a new Story; the accepted history remains preserved.',
+      { code: 'WORKFLOW_CONVERGENCE_MULTIPLE_UNSUPPORTED', details: { workId: workflow.workItem.id } });
+  }
   const phase = convergencePhaseOf(workflow);
-  if (!phase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase.`);
+  if (!phase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase. Review its accepted workflow contract; do not retry ordinary submission as a substitute.`,
+    { code: 'CONVERGENCE_PHASE_MISSING', details: { workType: workflow.workItem.workType } });
   // The steps it reconciles are found by what they do: the code step before it, and the steps that
   // define the scope and plan the claims, whatever each is called.
   const implementation = latestStepBefore(workflow, phase.id, phaseRequiresCodeDelivery);
@@ -478,6 +485,21 @@ function convergenceProjectionRelative(current) {
   ));
 }
 
+/** A published report alone cannot replace the sealed projection; offer its actual producer. */
+export function missingConvergenceProjectionError(workflow, current, cause = undefined) {
+  const command = `singularity-flow story converge --work-id ${workflow.workItem.id}`;
+  return new SingularityFlowError(
+    `Convergence iteration ${current.iteration} has no valid deterministic projection. `
+    + `Run ${command}, review its findings, then publish and preview advancement again. `
+    + 'Existing publications and approvals remain preserved.', {
+      code: 'CONVERGENCE_PROJECTION_REQUIRED',
+      details: { workId: workflow.workItem.id, phase: current.phase.id,
+        iteration: current.iteration, path: convergenceProjectionRelative(current),
+        recoveryCommand: { command, skill: '/sf-converge' } }, cause
+    }
+  );
+}
+
 /** Load and verify the current projection without requiring its review to be complete. */
 export async function loadVerifiedConvergenceProjection(root, config, workflow) {
   const current = await currentConvergenceContext(root, config, workflow);
@@ -488,14 +510,7 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
       label: 'Convergence projection', mustExist: true, type: 'file'
     });
   } catch (error) {
-    throw new SingularityFlowError(
-      `Convergence iteration ${current.iteration} has no valid deterministic projection. `
-      + `Run singularity-flow prepare ${current.phase.id} before continuing.`,
-      {
-        code: 'CONVERGENCE_PROJECTION_REQUIRED',
-        details: { iteration: current.iteration, path: projectionRelative }, cause: error
-      }
-    );
+    throw missingConvergenceProjectionError(workflow, current, error);
   }
   const projection = decodeConvergenceRecord(await readFile(projectionPath.absolute), {
     workId: workflow.workItem.id,

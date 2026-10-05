@@ -11,6 +11,8 @@
  * written — in one review proposal, or in a local authority's working tree.
  */
 import { isConvergencePhase } from './phase-roles.mjs';
+import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
+import { phaseTopologyFindings } from './phase-semantics.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -189,7 +191,7 @@ function epicModel(portfolio, templatesRoot) {
     templatesRoot: posix(portfolio.templatesRoot ?? templatesRoot),
     workflows: Object.entries(profiles).map(([id, profile]) => ({
       id, label: profile?.label ?? id, description: profile?.description ?? '',
-      lifecycleMode: profile?.lifecycleMode ?? (id === 'epic-planning' ? 'planning-only' : 'full-delivery'),
+      lifecycleMode: profile?.lifecycleMode ?? (usesEpicPlanningLifecycle({ phases: (profile?.phases ?? []).map((phaseId) => phases[phaseId]) }) ? 'planning-only' : 'full-delivery'),
       phases: [...(profile?.phases ?? [])], packs: (profile?.packs ?? []).length
     })),
     steps: Object.entries(phases).map(([id, phase]) => {
@@ -2463,9 +2465,9 @@ function obligationFindings(files, touched) {
   const warnings = [];
   for (const id of touched) {
     if (!definition.workTypes?.[id]) continue;
-    let compiled;
-    try { compiled = resolveWorkType(definition, id).obligationGraph; } catch { continue; }
-    for (const entry of compiled?.findings ?? []) {
+    let resolved;
+    try { resolved = resolveWorkType(definition, id); } catch { continue; }
+    for (const entry of [...(resolved.obligationGraph?.findings ?? []), ...phaseTopologyFindings(resolved)]) {
       warnings.push({
         code: entry.code,
         message: entry.severity === 'error' ? `Stories cannot start from this workflow yet: ${entry.message}` : entry.message,

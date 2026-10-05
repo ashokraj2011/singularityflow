@@ -7,7 +7,7 @@ import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, w
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
-import { baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
+import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoice } from './intake-baseline.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
@@ -1065,6 +1065,11 @@ export async function createWorkflow(root, config, {
     workId: id, baseCommit, phases: resolution.phases ?? [], baselineFailures,
     trpChoices: freshTrpPlan.enabled ? freshTrpPlan.choices : null,
     executionMode: resolution.testExecutionMode, baselineChoice: readinessBaseline,
+    baselinePending: readinessRepositories.some(repository => {
+      const receipt = repositoryReadiness?.repositories?.[repository.id];
+      const exact = receipt?.sourceCommit === repository.baseCommit ? receipt : null;
+      return baselineObservationPending(exact) && baselineDeferralAllowed(trpDefinition, readinessBaseline, exact);
+    }),
     testRuntime: resolution.testRuntime
   });
   const initialTrpRows = [];
@@ -1073,7 +1078,9 @@ export async function createWorkflow(root, config, {
     for (const selectedRepository of readinessRepositories) {
       const repositoryId = selectedRepository.id ?? selectedRepository.repository;
       const supplied = repositoryReadiness?.repositories?.[repositoryId];
-      let status = supplied?.sourceCommit === selectedRepository.baseCommit ? supplied.status : 'unknown';
+      const exactBase = supplied?.sourceCommit === selectedRepository.baseCommit;
+      const testConfigurationPending = freshTrpPlan.repositories.find(row => row.repository === repositoryId)?.testConfigurationPending === true;
+      let status = exactBase ? supplied.status : 'unknown';
       if (status === 'pass') {
         // This rollout can qualify this checkout only. Multi-repository proof requires
         // each repository's resolved host boundary, never another repository's receipt.
@@ -1086,6 +1093,9 @@ export async function createWorkflow(root, config, {
             { code: 'TRP_INTAKE_EVIDENCE_STALE', details: { repositoryId, baseCommit: selectedRepository.baseCommit } });
         }
       }
+      // A no-op/prerequisite receipt is not a test pass. Keep unobserved test admission
+      // portable without making later phases depend on this host's no-test receipt.
+      if (status === 'pass' && testConfigurationPending) status = 'not-checked';
       if (status === 'accepted-known-failures') status = 'failing-tests';
       if (freshTrpPlan.choices.baselineDisposition === 'accept-known-failures') status = 'failing-tests';
       if (readinessRepositories.length === 1 && supplied?.baselineSha256) {
@@ -1095,7 +1105,9 @@ export async function createWorkflow(root, config, {
         if (loaded?.baseline?.baselineSha256 === supplied.baselineSha256) originalTrpBaselines.push(loaded.baseline);
       }
       initialTrpRows.push({ repositoryId, baseCommit: selectedRepository.baseCommit, status,
-        receiptSha256: supplied?.receiptSha256 ?? null, baselineSha256: supplied?.baselineSha256 ?? null,
+        receiptSha256: exactBase ? supplied?.receiptSha256 ?? null : null,
+        baselineSha256: exactBase ? supplied?.baselineSha256 ?? null : null,
+        testConfigurationPending,
         scope: supplied?.scope ?? 'dependency-test' });
     }
   }
@@ -1290,7 +1302,7 @@ export async function createWorkflow(root, config, {
     workflow.testRecovery = { schemaVersion: 1, ...pin, validationEpoch: 1,
       confirmedPlanSha256: freshTrpPlan.planDigest, readiness: structuredClone(readiness), readinessHistory: [],
       route: freshTrpPlan.choices.baselineDisposition === 'accept-known-failures' ? 'baseline-risk-publication'
-        : initialTrpRows.every((row) => row.status === 'pass') ? 'feature-coding' : 'readiness-repair' };
+        : initialTrpRows.every((row) => row.status === 'pass' || row.testConfigurationPending) ? 'feature-coding' : 'readiness-repair' };
     const intakeReview = await authorizeTrpIntake(root, workflow, agreement, freshTrpPlan);
     // Review cannot turn a changed source, runtime or policy into the approved intake.
     if (intakeReview) {

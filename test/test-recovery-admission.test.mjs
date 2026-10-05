@@ -11,6 +11,7 @@ import { createWorkflow, loadConfig, workDir, preparePhase, beginPhaseGeneration
 import { trpDigest } from '../src/test-recovery-policy.mjs';
 import { appendTrpRepairEvidence, appendTrpReadinessCheckpoint } from '../src/test-recovery-store.mjs';
 import { applyCapabilityPolicyToWorkResolution, resolveLifecycleCapability } from '../src/capability-context.mjs';
+import { recordEmptyRepositoryReadiness } from '../src/initialization/runtime-readiness.mjs';
 
 function git(root, ...args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim(); }
 async function fixture(t, { enabled = true, baselineStatus = 'failing-tests', id = 'TRP-REPAIR' } = {}) {
@@ -79,6 +80,33 @@ test('claimed passing readiness must match authenticated host-local receipt befo
   const value = await fixture(t, { baselineStatus: 'pass' });
   await assert.rejects(createWorkflow(value.root, value.config, value.options), { code: 'TRP_INTAKE_EVIDENCE_STALE' });
   await assert.rejects(access(path.join(value.item, 'workflow.json')), { code: 'ENOENT' });
+});
+
+test('unobserved test setup admits the first code phase without host-local passing evidence', async (t) => {
+  for (const noOpReceipt of [false, true]) {
+    const value = await fixture(t, { id: noOpReceipt ? 'TRP-NO-TESTS' : 'TRP-TESTS-LATER' });
+    const empty = noOpReceipt ? await recordEmptyRepositoryReadiness(value.root, {
+      commit: value.options.baseCommit, scope: 'dependency-test'
+    }) : null;
+    if (noOpReceipt) assert.ok(empty, 'the repository has no commands to execute');
+    value.options.repositoryReadiness = { repositories: { lifecycle: empty?.receipt ?? null } };
+    value.options.testRecoveryPlan = previewTestRecoveryIntake({ definition: value.config,
+      workId: value.options.id, workType: 'feature', repositories: value.options.readinessRepositories,
+      repositoryReadiness: value.options.repositoryReadiness, choices: value.plan.choices,
+      phaseDefinitions: applyCapabilityPolicyToWorkResolution(value.options.resolved,
+        await resolveLifecycleCapability(value.root)).phases });
+    const workflow = await createWorkflow(value.root, value.config, value.options);
+    assert.equal(workflow.testRecovery.route, 'feature-coding');
+    const [row] = workflow.testRecovery.readiness.repositories;
+    assert.equal(row.testConfigurationPending, true);
+    assert.notEqual(row.status, 'pass', 'no observed tests means no test pass');
+    if (empty) await rm(empty.file);
+    const admission = await assertStoryTestRecoveryFeatureAdmission(value.root, value.config,
+      workflow, workflow.phases.implementation);
+    assert.equal(admission.featureCodingAllowed, true);
+    assert.equal(admission.testEvidence, 'not-verified');
+    assert.equal(workflow.phases.implementation.generationIntent.generation, 1);
+  }
 });
 
 test('editing mutable readiness and agreement references cannot unlock feature coding', async (t) => {

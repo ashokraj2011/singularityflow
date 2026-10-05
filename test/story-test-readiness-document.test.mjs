@@ -28,7 +28,8 @@ test('Story test-readiness document binds exact repositories and an explicit fai
   assert.deepEqual(document.repositories.map((entry) => entry.repository), ['a', 'b']);
   assert.equal(document.repositories[0].testTools[0].adapter, 'junit-xml');
   assert.equal(document.repositories[0].existingFailureDisposition, 'no-observed-pre-story-failures');
-  assert.equal(document.repositories[1].existingFailureDisposition, 'repair-or-verify-before-code');
+  assert.equal(document.repositories[1].existingFailureDisposition, 'test-configuration-pending');
+  assert.equal(document.baselineObservation, 'pending-not-verified');
   assert.equal(document.repositories[1].status, 'not-checked');
 });
 
@@ -44,7 +45,7 @@ test('Story readiness does not present a stale receipt as test evidence for the 
   });
   assert.equal(stale.repositories[0].receiptSourceCommit, 'b'.repeat(40));
   assert.deepEqual(stale.repositories[0].testTools, []);
-  assert.equal(stale.repositories[0].existingFailureDisposition, 'repair-or-verify-before-code');
+  assert.equal(stale.repositories[0].existingFailureDisposition, 'test-configuration-pending');
 });
 
 test('Story document preserves accepted existing failures and decision instead of calling them green', () => {

@@ -960,7 +960,7 @@ export function normalizeRepositoryReadinessPolicy(value = {}) {
   }
   return {
     requiredBeforeStory: value.requiredBeforeStory ?? false,
-    baselinePolicy: value.baselinePolicy ?? 'required',
+    baselinePolicy: value.baselinePolicy ?? 'choice',
     testRuntime: normalizeTestRuntime(value.testRuntime),
     dependencyHydration: value.dependencyHydration ?? 'when-detected',
     build: value.build ?? 'off',

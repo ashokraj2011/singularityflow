@@ -424,7 +424,7 @@ test('world-model save rejects malformed retained-webview payloads without deref
 test('configuration center serializes every configuration mutation through one host gate', async () => {
   const host = await readFile(source('configuration-center.ts'), 'utf8');
   assert.match(host,
-    /\['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model'\]/);
+    /\['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup'\]/);
   assert.match(host, /\['delete-authority', 'delete-mcp'\]/);
   assert.match(host, /if \(mutation && this\.saving\)/);
   assert.match(host, /try \{ await this\.receiveReady\(message\); \}\s*finally \{[\s\S]{0,300}this\.saving = false;[\s\S]{0,300}this\.storeChanged\(\);/);

@@ -9,12 +9,24 @@ export function intakeBaselineChoice(value = 'reuse') {
 
 export function baselineChoiceAllowed(definition = {}, choice = 'reuse') {
   intakeBaselineChoice(choice);
-  return choice !== 'defer' || (definition.repositoryReadiness?.baselinePolicy === 'choice'
+  return choice !== 'defer' || ((definition.repositoryReadiness?.baselinePolicy ?? 'choice') === 'choice'
     && definition.initialization?.proof?.preStory?.requiredBeforeStory !== true);
 }
 
+/** Missing detection/observation is setup still to do, not a failing test run. */
+export function baselineObservationPending(receipt = null) {
+  if (!receipt) return true;
+  // Never implicitly defer a failed execution, even when its report was unreadable.
+  if (receipt.baselineSha256 || ['failing-tests', 'accepted-known-failures', 'readiness-failed'].includes(receipt.status)
+      || (receipt.commandResults ?? []).some(entry => entry.purpose === 'test' && entry.status !== 'pass')
+      || (receipt.testObservations ?? []).length) return false;
+  return ['missing', 'stale', 'not-checked', 'no-commands-applicable'].includes(receipt.status)
+    || receipt.structuredTestContract?.status !== 'available';
+}
+
 export function baselineDeferralAllowed(definition = {}, choice = 'reuse', receipt = null) {
-  if (choice !== 'defer' || !baselineChoiceAllowed(definition, choice)) return false;
+  if (!baselineChoiceAllowed(definition, 'defer')
+      || (choice !== 'defer' && !(choice === 'reuse' && baselineObservationPending(receipt)))) return false;
   if (definition.repositoryReadiness?.requiredBeforeStory !== true
       && definition.initialization?.proof?.preStory?.requiredBeforeStory !== true) return true;
   // Choice only defers test observation, never a required dependency/build/start prerequisite.

@@ -4,6 +4,8 @@ import {
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 import { PROFILE_PERSONAS } from './profile-personas.ts';
+import { testSetupHtml, TEST_SETUP_SCRIPT } from './test-setup-page.ts';
+import type { TestSetupView } from './test-setup-model.ts';
 import {
   BUILTIN_VIEW_IDS, BUILTIN_VIEW_REFERENCES
 } from '../../../../src/world-model/registry/views.mjs';
@@ -23,6 +25,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Refresh to the new version', glyph: 'configuration', action: 'capability-refresh' },
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
+    { label: 'Test setup', glyph: 'phase', tab: 'tests' },
     { label: 'Workflow Studio', glyph: 'workflow', action: 'workflow-studio' },
     { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
     { label: 'World model', glyph: 'worldModel', tab: 'world-model' },
@@ -536,7 +539,8 @@ export function configurationCenterHtml(
   selectedMcp: McpServerView | null,
   notice: string | null,
   errors: string[],
-  pendingProposal: { branch: string; baseBranch: string } | null = null
+  pendingProposal: { branch: string; baseBranch: string } | null = null,
+  testSetup: TestSetupView = { targets: [], selected: null, inspection: null }
 ): string {
   const candidate = view.configurationState.candidate;
   const candidateNotice = candidate?.status === 'invalid'
@@ -545,7 +549,7 @@ export function configurationCenterHtml(
       ? `<div class="notice warning"><strong>Validated local configuration candidate.</strong> These editable values are not effective authority until configuration is reviewed and published.</div>`
       : '';
   const content = `${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
-      ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+      ${tab === 'overview' ? overview(view) : tab === 'tests' ? testSetupHtml(testSetup) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
   const guardedContent = pendingProposal
     ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(pendingProposal.branch)}</code> and are not approved yet. Merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
     : content;
@@ -633,6 +637,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     savingForm = true;
     form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = true; });
     const data = new FormData(form);
+    if (form.id === 'test-setup-form') return submitTestSetup(form);
     if (form.id === 'profile-form') vscode.postMessage({ type: 'save-profile', name: data.get('name'), role: data.get('role') });
     if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), allowSelfApproval: data.get('allowSelfApproval') === 'on', autoEnrollNewIdentities: data.get('autoEnrollNewIdentities') === 'on' });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
@@ -673,4 +678,5 @@ export const CONFIGURATION_CENTER_SCRIPT = `
         showRuntime('CALM requires Registered v4. The form staged exact v4 contracts and the explicit legacy-assignment migration bridge; review and save to create a governed configuration change.', false);
       }
     }
-  });`;
+  });
+  ${TEST_SETUP_SCRIPT}`;

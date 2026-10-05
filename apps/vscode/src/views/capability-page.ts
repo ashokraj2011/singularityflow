@@ -26,6 +26,13 @@ function fieldInfo(label: string, explanation: string): string {
     aria-label="${escape(`${label}: ${explanation}`)}" data-help="${escape(explanation)}">${icon('info', { size: 14 })}</span>`;
 }
 
+function testSetupMenu(id = ''): string {
+  return `<section class="plain"><h2>${icon('phase')}Tests &amp; validation</h2>
+    <p class="muted">Set up the test runner now or later. Missing detection stays pending; it never means tests passed.</p>
+    <button type="button" class="secondary" data-test-setup="${escape(id)}">Test setup</button>
+    <p class="remedy">Inspect this capability's local repository, review suggested commands, and save workflow test settings. Existing Stories require reviewed runner adoption.</p></section>`;
+}
+
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
     <label class="field"><span>Key</span><input type="text" data-metadata-key value="${escape(key)}"
@@ -133,6 +140,7 @@ function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): s
       <button type="button" class="secondary" data-progressive-protect>${icon('approval')}Protect a path</button>
     </div>
   </section>
+  ${testSetupMenu(detail?.id)}
   ${detail ? `<section class="editor-card">
     <div class="card-head"><div><p class="eyebrow">Optional capability policy</p><h3>${escape(detail.name)}</h3></div></div>
     ${autoPolicyEditor(detail, true)}
@@ -160,6 +168,7 @@ function managedCapabilityHtml(
       <button type="button" class="secondary" data-progressive-why>${icon('search')}Explain current ownership</button>
     </div>
   </section>
+  ${testSetupMenu(detail?.id)}
   <section class="editor-card">${detail
     ? `<div class="card-head"><div><p class="eyebrow">Capability policy</p><h3>${escape(detail.name)}</h3></div>
          <span class="grow"></span><span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span></div>
@@ -371,6 +380,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
        <p class="remedy">Policy is written in <code>singularity/capabilities.yml</code>.</p>`}
 
   ${autoPolicyEditor(detail)}
+  ${testSetupMenu(detail.id)}
 
   ${detail.ships.length ? `
   <h2>${icon('repository')}Ships from</h2>
@@ -473,11 +483,12 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'autoEligibility') synchronizeAuto();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-discard],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-discard],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team],[data-test-setup]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
-    if (data.onboardTeam !== undefined) vscode.postMessage({ type: 'onboard-team' });
+    if (data.testSetup !== undefined) vscode.postMessage({ type: 'test-setup', id: data.testSetup });
+    else if (data.onboardTeam !== undefined) vscode.postMessage({ type: 'onboard-team' });
     else if (data.openAutoSettings !== undefined) vscode.postMessage({ type: 'open-auto-settings' });
     else if (data.progressiveStart !== undefined) vscode.postMessage({ type: 'progressive-start' });
     else if (data.progressiveAdd !== undefined) vscode.postMessage({ type: 'progressive-add' });

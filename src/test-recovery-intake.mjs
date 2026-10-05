@@ -6,6 +6,7 @@ import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
 import path from 'node:path';
 import { normalizeDocumentObligations } from './trp-document-policy.mjs';
+import { baselineDeferralAllowed, baselineObservationPending } from './intake-baseline.mjs';
 
 const MODES = ['changed-and-affected', 'all-configured'];
 const fail = (message, code = 'TRP_POLICY_INVALID') => { throw new SingularityFlowError(message, { code }); };
@@ -264,12 +265,16 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
     const repositoryId = repo.id ?? repo.repository;
     const receipt = repositoryReadiness?.repositories?.[repositoryId];
     const valid = receipt?.sourceCommit === repo.baseCommit;
+    const exactReceipt = valid ? receipt : null;
+    const testConfigurationPending = !accepting && baselineObservationPending(exactReceipt)
+      && baselineDeferralAllowed(definition, 'reuse', exactReceipt);
     const tools = valid ? receipt?.structuredTestContract?.commands ?? [] : [];
     const baselines = baselineEvidence.filter(record => record.subject.workId === workId
       && record.subject.repositoryId === repositoryId && record.preFeatureBase === repo.baseCommit);
     return {
       repository: repositoryId, baseCommit: repo.baseCommit,
       baselineStatus: valid ? receipt.status : 'unknown',
+      testConfigurationPending,
       baselineDigest: valid ? receipt.baselineSha256 ?? receipt.receiptSha256 ?? null : null,
       baselineScope: valid ? receipt.scope : 'unknown',
       failures: (valid ? receipt.testObservations ?? [] : []).flatMap(observation =>
@@ -277,7 +282,8 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
       tools: tools.map(tool => ({ id: tool.id, runner: tool.launcher, cwd: tool.workingDirectory,
         adapter: tool.adapter, reportPath: tool.reportPath, source: 'exact-base-readiness' })),
       requestedScope: selected.executionMode, effectiveScope: 'planned at the candidate boundary',
-      unknowns: valid && receipt.status === 'pass' ? [] : ['Feature coding requires baseline repair or a separately authorized decision.'],
+      unknowns: testConfigurationPending ? ['Test configuration pending. Continue authoring; supply the command before required test execution. No baseline pass is claimed.']
+        : valid && receipt.status === 'pass' ? [] : ['Feature coding requires baseline repair or a separately authorized decision.'],
       commands: [], selectedTests: [], exclusions: [], reasons: [],
       ...(baselines.length ? { baselineRecords: baselines } : {})
     };
@@ -341,6 +347,7 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
   const core = { schemaVersion: 1, workId, workType, policy, policyAuthoritySha256, choices: selected,
     repositories: rows.map(row => ({ repository: row.repository, baseCommit: row.baseCommit,
       baselineStatus: row.baselineStatus, baselineDigest: row.baselineDigest, tools: row.tools,
+      testConfigurationPending: row.testConfigurationPending,
       baselineRecordRefs: (row.baselineRecords ?? []).map(record => record.recordSha256) })),
     phaseContractSha256: trpDigest(phaseContract) };
   if (requiredPurposes.length) core.nonTestReadiness = nonTestReadiness;
@@ -353,7 +360,7 @@ export function previewTestRecoveryIntake({ definition, workId, workType, reposi
     unavailableReasons: { 'accept-known-failures': accepting && !blockers.length ? null : 'Requires explicitly delegated known-failure policy and authenticated exact baseline records. Local precheck acknowledgement is not authority.' },
     maturity: 'repair-selection-pilot',
     summary: 'Repair/selection pilot: record a bounded repair agreement. This does not run tests, waive a gate, or accept a risk.',
-    route: accepting ? 'baseline-risk-publication' : rows.some(row => row.baselineStatus !== 'pass') ? 'readiness-repair' : 'feature-coding',
+    route: accepting ? 'baseline-risk-publication' : rows.some(row => row.baselineStatus !== 'pass' && !row.testConfigurationPending) ? 'readiness-repair' : 'feature-coding',
     mandatoryChecks: ['Source and evidence integrity', 'Normal phase approvals'],
     legalActions: policy.enabledRiskCategories.includes('known-test-failure') && rows.length === 1
       ? phases.filter(phase => phaseRequiresCodeDelivery(phase) && phase.qualityCommands?.some(isTestQualityCommand)).map(phase => ({

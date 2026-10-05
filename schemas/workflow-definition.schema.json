@@ -10,7 +10,7 @@
       "type": "object",
       "properties": {
         "requiredBeforeStory": { "type": "boolean", "default": false },
-        "baselinePolicy": { "enum": ["required", "choice"], "default": "required" },
+        "baselinePolicy": { "enum": ["required", "choice"], "default": "choice" },
         "dependencyHydration": { "enum": ["off", "when-detected", "required"] },
         "build": { "enum": ["off", "when-detected", "required"] },
         "applicationStart": { "enum": ["off", "when-detected", "required"] },

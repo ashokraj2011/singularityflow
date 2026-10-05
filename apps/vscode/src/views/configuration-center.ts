@@ -20,6 +20,7 @@ import {
 } from './configuration-save.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
+import { testSetupTargetsFromYaml, updateTestSetupYaml, type TestSetupInspection } from './test-setup-model.ts';
 
 export type ConfigurationCenterMessage =
   | ({ type: 'save'; path: string; content: string } & ConfigurationSavePlan)
@@ -29,6 +30,7 @@ export type ConfigurationCenterMessage =
       allowSelfApproval: boolean; autoEnrollNewIdentities: boolean;
     }
   | { type: 'action'; action: string }
+  | { type: 'inspect-test-setup'; sourceRoots: string[] }
   | { type: 'proposal-status'; branch: string; proposalCommit: string }
   /**
    * Open a repository file the Center listed. Carries the path rather than an action name because
@@ -47,6 +49,9 @@ export type ConfigurationCenterReply = string | null | {
 } | {
   error: string | null;
   proposalStatus: ConfigurationProposalObservation & { branchStatus: string };
+} | {
+  error: string | null;
+  inspection: TestSetupInspection;
 };
 
 type ConfigurationSaveOutcome = {
@@ -60,6 +65,9 @@ const emptyMcp = (): McpServerView => ({ id: '', label: '', hostReference: '', a
 export class ConfigurationCenterPanel {
   private static current: ConfigurationCenterPanel | null = null;
   private tab: ConfigurationTab = 'overview';
+  private testTarget: string | null = null;
+  private testInspection: TestSetupInspection | null = null;
+  private inspectingTests = false;
   private authorityKey: string | null = null;
   private mcpId: string | null = null;
   private newAuthority = false;
@@ -357,10 +365,10 @@ export class ConfigurationCenterPanel {
       await vscode.commands.executeCommand('singularityFlow.explainError', 'configuration');
       return;
     }
-    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model']
+    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup']
       .includes(String(message.type))
       || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
-    const authorityMutation = ['add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model']
+    const authorityMutation = ['add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup']
       .includes(String(message.type))
       || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
     if (authorityMutation && this.pendingProposal) {
@@ -442,9 +450,44 @@ export class ConfigurationCenterPanel {
     if (message.type === 'keep-dirty') return;
     // Moving to another tab, authority or MCP server redraws the form: unsaved edits are thrown away
     // only after a yes.
-    const leaving = message.type === 'tab' || message.type === 'select-authority' || message.type === 'select-mcp';
+    const leaving = message.type === 'tab' || message.type === 'select-authority' || message.type === 'select-mcp' || message.type === 'select-test-target';
     if (leaving && this.dirty && !await this.discardEdits()) return;
     if (message.type === 'tab' && (CONFIGURATION_TABS as readonly string[]).includes(String(message.tab))) { this.newAuthority = false; this.newMcp = false; return this.selectTab(message.tab as ConfigurationTab); }
+    if (message.type === 'select-test-target') { this.testTarget = String(message.id ?? ''); return this.render(); }
+    if (message.type === 'inspect-test-setup') {
+      if (this.inspectingTests) return;
+      const roots = message.sourceRoots;
+      if (!Array.isArray(roots) || roots.some(value => typeof value !== 'string')) {
+        void this.panel.webview.postMessage({ type: 'test-setup-inspection-error', error: 'Choose exact repository-relative module directories.' });
+        return;
+      }
+      this.inspectingTests = true;
+      const repository = this.store.current.snapshot?.repository?.root;
+      try {
+        const reply = await this.onMessage({ type: 'inspect-test-setup', sourceRoots: roots });
+        const error = ConfigurationCenterPanel.replyError(reply);
+        if (error) { void this.panel.webview.postMessage({ type: 'test-setup-inspection-error', error }); return; }
+        if (repository !== this.store.current.snapshot?.repository?.root) return;
+        if (reply && typeof reply === 'object' && 'inspection' in reply) this.testInspection = reply.inspection;
+        void this.panel.webview.postMessage({ type: 'test-setup-inspected', inspection: this.testInspection });
+      } catch (error) {
+        void this.panel.webview.postMessage({ type: 'test-setup-inspection-error', error: (error as Error).message });
+      } finally { this.inspectingTests = false; }
+      return;
+    }
+    if (message.type === 'save-test-setup') {
+      try {
+        const snapshot = this.store.current.snapshot!;
+        const text = this.renderedTexts.definitionText;
+        const content = updateTestSetupYaml(text, String(message.target ?? ''), message.commands);
+        const outcome = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', content, text);
+        if (outcome.error) return this.showErrors([outcome.error]);
+        this.dirty = false;
+        this.notice = this.savedNotice('Test configuration saved. Existing Stories retain their pin; use /sf-test-setup for reviewed current-code-phase adoption and fresh test evidence.', outcome.disposition);
+        if (outcome.disposition?.kind === 'proposal') return;
+      } catch (error) { return this.showErrors([(error as Error).message]); }
+      return this.render();
+    }
     if (message.type === 'select-authority' && typeof message.key === 'string') { this.authorityKey = message.key; this.newAuthority = false; return this.render(); }
     if (message.type === 'select-mcp' && typeof message.id === 'string') { this.mcpId = message.id; this.newMcp = false; return this.render(); }
     if (message.type === 'save-profile') {
@@ -656,7 +699,9 @@ export class ConfigurationCenterPanel {
     this.panel.webview.html = page(
       'Configuration Center',
       configurationCenterHtml(
-        view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors, this.pendingProposal
+        view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors, this.pendingProposal,
+        { targets: testSetupTargetsFromYaml(this.renderedTexts.definitionText), selected: this.testTarget,
+          inspection: this.testInspection?.repositoryPath === this.store.current.snapshot?.repository?.root ? this.testInspection : null }
       ),
       contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT,
       { nav: 'configuration' }

@@ -12,7 +12,7 @@ let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
   'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
-  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository'
+  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository', 'test-setup'
 ]);
 
 /**
@@ -771,6 +771,26 @@ function capabilityAutoOptions(options) {
 
 export async function run(argv, context = {}) {
   const subcommand = context.positionals?.[1] ?? 'show';
+  if (subcommand === 'test-setup') {
+    const options = context.options ?? {};
+    if ((context.positionals?.length ?? 0) > 2 || Object.keys(options).some(key => !['source-root', 'json'].includes(key))) {
+      throw new SingularityFlowError('Use capability test-setup [--source-root <DIRECTORY>]... [--json]. Inspection does not execute or save commands.');
+    }
+    const [{ repoRoot }, { inspectRepositoryTestSetup }] = await Promise.all([
+      import('../git.mjs'), import('../repository-test-setup.mjs')
+    ]);
+    const selected = optionStrings(options, 'source-root');
+    const result = await inspectRepositoryTestSetup(repoRoot(), { sourceRoots: selected.length ? selected : ['.'] });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Test setup: ${result.status} (${result.repositoryPath})`);
+      for (const command of result.suggestions) console.log(`  ${JSON.stringify(command.argv)} · cwd=${command.workingDirectory} · ${command.result.adapter} · ${command.result.path}`);
+      for (const diagnostic of result.diagnostics) console.log(`  ${diagnostic.path}: ${diagnostic.message}`);
+      console.log('Suggestions only. No tests ran; the existing-failure baseline is unverified.');
+      console.log('Copilot: /sf-test-setup');
+    }
+    return result;
+  }
   if (subcommand === 'inspect-repository') return runInspectRepository(context);
   if (subcommand === 'onboard') return runOnboard(context);
   if (['setup-proposals', 'setup-proposal', 'setup-activate'].includes(subcommand)) {

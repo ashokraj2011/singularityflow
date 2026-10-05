@@ -176,6 +176,7 @@ skills:
   sflow-revision-checks: { class: interactive, executionBoundary: machine }
   sflow-revise: { class: mutation }
   sflow-ready: { class: interactive, executionBoundary: repository }
+  sflow-test-setup: { class: interactive, executionBoundary: repository }
   sflow-finalize: { class: mutation }
   sflow-fix: { class: interactive }
   sflow-gate: { class: mutation }

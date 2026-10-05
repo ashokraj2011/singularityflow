@@ -247,6 +247,9 @@ function cacheableRead(args: string[]): boolean {
     // Publication uses current authored bytes. A 250 ms cached preflight could approve a draft
     // that changed after the previous check; the kernel will still recheck inside publication.
     && !(args[0] === 'phase' && args[1] === 'prepublish')
+    // An explicit test-setup inspection must reread the selected module manifests, including
+    // edits made since the previous click; suggestions are not a cached readiness receipt.
+    && !(args[0] === 'capability' && args[1] === 'test-setup')
     // Revocation can arrive from another process; the chat status command must see the store now.
     && !(args[0] === 'revision' && args[1] === 'attachments' && args[2] === 'status')
     // Candidate selection, interval progress, and recovery may change in another Copilot/CLI host.
@@ -365,7 +368,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     }
     return ['tree', 'show', 'of', 'proposals', 'proposal', 'setup-proposals', 'setup-proposal',
       'fsck', 'world-model', 'organisation',
-      'leads', 'inspect-repository']
+      'leads', 'inspect-repository', 'test-setup']
       .includes(args[1] ?? 'tree') ? 'read' : 'mutation';
   }
   if (args[0] === 'session') {

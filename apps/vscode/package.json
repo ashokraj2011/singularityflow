@@ -407,6 +407,11 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "singularityFlow.configureTests",
+        "title": "Singularity Flow: Capability Test Setup",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "singularityFlow.configureAuto",
         "title": "Singularity Flow: Auto Mode Settings",
         "icon": "$(run-all)"

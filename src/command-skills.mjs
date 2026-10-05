@@ -167,7 +167,7 @@ const entries = {
   knowledge: ['sf-knowledge'],
   capability: [
     'sf-capability-map', 'sf-capabilities', 'sf-capability-doctor',
-    'sf-capability-add', 'sf-capability-protect', 'sf-capability-depend'
+    'sf-capability-add', 'sf-capability-protect', 'sf-capability-depend', 'sf-test-setup'
   ],
   why: ['sf-capabilities'],
   hook: ['sf-hook'],
@@ -253,6 +253,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   }),
   revise: route('sf-revise'),
   capability: route('sf-capability-map', {
+    'test-setup': 'sf-test-setup',
     onboard: 'sf-capability-map',
     add: 'sf-capability-add',
     protect: 'sf-capability-protect',

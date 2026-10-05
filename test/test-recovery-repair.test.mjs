@@ -84,6 +84,29 @@ test('an authenticated initial pass admits features only; it is not candidate te
   assert.throws(() => assertTrpFeatureAdmission(f.workflow, 'implementation', { agreement: f.agreement }), { code: 'TRP_FEATURE_ADMISSION_BLOCKED' });
 });
 
+test('pinned unobserved test setup admits coding without passing evidence or waiving known failures', () => {
+  const f = fixture();
+  const agreement = sealTrpRecord({ ...f.agreement, repositories: f.agreement.repositories.map(repository => ({
+    ...repository, baselineRefs: []
+  })) });
+  f.workflow.testRecovery.agreementSha256 = agreement.recordSha256;
+  const row = f.workflow.testRecovery.readiness.repositories[0];
+  Object.assign(row, { status: 'unknown', receiptSha256: null, testConfigurationPending: true });
+  const result = assertTrpFeatureAdmission(f.workflow, 'implementation', { agreement });
+  assert.equal(result.featureCodingAllowed, true);
+  assert.equal(result.testEvidence, 'not-verified');
+  assert.deepEqual(result.testConfigurationPending, ['service']);
+  for (const changes of [{ status: 'failing-tests' }, { baselineSha256: hash('observed-failure') },
+    { baseCommit: 'main' }, { testConfigurationPending: false }]) {
+    const modified = structuredClone(f.workflow);
+    Object.assign(modified.testRecovery.readiness.repositories[0], changes);
+    assert.throws(() => assertTrpFeatureAdmission(modified, 'implementation', { agreement }),
+      { code: 'TRP_FEATURE_ADMISSION_BLOCKED' });
+  }
+  assert.throws(() => assertTrpFeatureAdmission(f.workflow, 'implementation', { agreement: f.agreement }),
+    { code: 'TRP_AGREEMENT_REQUIRED' }, 'pending setup cannot replace the approved agreement');
+});
+
 test('every required code repository blocks independently; optional references add no obligation', () => {
   const f = fixture({ multi: true });
   f.workflow.testRecovery.readiness.repositories[0].status = 'pass';

@@ -88,6 +88,7 @@ test('dynamic read routes and unknown commands retain explicit read versus conse
     ['adhoc', 'status'], ['impact', 'status'], ['impact', 'doctor'], ['goal', 'inspect', 'GOAL-1'],
     ['jira', 'status'], ['prompt-log', 'list'], ['prompt-log', 'status'], ['prompt-log', 'view', 'latest'],
     ['workspace', 'bootstrap', 'status'], ['configuration', 'read', 'singularity/workflow.yml'],
+    ['capability', 'test-setup', '--source-root', 'apps/client', '--json'],
     ['configuration', 'validate'], ['factory-reset', '--dry-run'],
     ['integrations', 'list'], ['integrations', 'status'], ['integrations', 'test', 'team-events', '--send-test']
   ];

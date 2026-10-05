@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 2
+version: 3
 commands:
   - configuration
   - workflow
@@ -36,6 +36,27 @@ Use this topic when the current goal matches **configuration**. Start in a gover
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
 ## State and safety
+
+### Test setup
+
+Open **Capabilities → Test setup**, **Configuration Center → Test setup**, or the command palette's
+**Singularity Flow: Capability Test Setup**. Inspect exact module directories, then explicitly choose
+the workflow and phase. Review inferred commands before adding them to the draft, or enter an exact
+argv array, module directory, result adapter/report path, affected directories and timeout.
+Saving uses the ordinary reviewed `sflow/config` proposal; non-test commands and other workflows
+are preserved. Shared-phase edits affect every workflow that inherits that phase.
+
+Copilot `/sf-test-setup` reads bounded repository manifests and reporter configuration, explains
+the evidence behind its suggestions, and asks before configuration changes or test execution.
+Shell `singularity-flow capability test-setup --source-root apps/client --json` provides deterministic
+suggestions without executing tests, cloning, or scanning a monorepo recursively. Without a scope
+it inspects only the repository root. Missing detection remains pending, not a test failure.
+
+Existing Stories retain their configuration pin. An approved command-only revision can be reviewed
+for adoption in the **current code phase** through `singularity-flow story test-policy amend <WORK-ID>
+--phase <PHASE> --reason "Configure the previously undetected test runner" --json` and `/sf-recover`.
+Authored code/documents are preserved; fresh execution evidence is required. Inspection alone
+does not establish the pre-code failure baseline, accept failures, or alter intake's test-scope choice.
 
 These commands can mutate governed or machine-local state: `configuration`, `workflow`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 

@@ -81,7 +81,8 @@ test('missing/stale baseline is honestly unknown and cannot activate known-failu
   const input = fixture(); input.repositoryReadiness.repositories.service.sourceCommit = 'e'.repeat(40);
   const preview = previewTestRecoveryIntake(input);
   assert.equal(preview.repositories[0].baselineStatus, 'unknown');
-  assert.equal(preview.route, 'readiness-repair');
+  assert.equal(preview.route, 'feature-coding');
+  assert.equal(preview.repositories[0].testConfigurationPending, true);
   assert.equal(preview.repositories[0].tools.length, 0);
   assert.equal(preview.acceptKnownFailuresEligible, false);
   const known = previewTestRecoveryIntake(fixture({ choices: { baselineDisposition: 'accept-known-failures' } }));

@@ -3,6 +3,8 @@
  * creation. This is a snapshot of a completed read-only preflight, not a substitute for a test
  * receipt or an instruction to skip checks later in the workflow.
  */
+import { baselineObservationPending } from './intake-baseline.mjs';
+
 export function storyTestReadinessDocument(workId, repositories, evidence, { required = false, baselineChoice = 'reuse' } = {}) {
   const receipts = evidence?.repositories ?? {};
   const records = [...repositories].map((repository) => {
@@ -62,7 +64,7 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
             ? 'pre-existing-test-failures-require-decision'
         : current && !tools.length
           ? 'no-test-tool-selected'
-          : 'repair-or-verify-before-code'
+          : 'test-configuration-pending'
     };
   }).sort((left, right) => left.repository.localeCompare(right.repository));
   return {
@@ -71,8 +73,11 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
     workId,
     required,
     baselineChoice,
-    baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified' : 'receipt-only',
+    baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified'
+      : records.some(record => baselineObservationPending(receipts[record.repository]?.sourceCommit === record.sourceCommit
+        ? receipts[record.repository] : null))
+        ? 'pending-not-verified' : 'receipt-only',
     repositories: records,
-    guidance: 'A verified exact-base risk decision permits Story creation with known failing tests only. It never turns those tests green or waives later test, publication, approval, or protected-path checks.'
+    guidance: 'Missing test detection or baseline observation is pending setup, not a failed run. Continue the Story and configure a test command before required execution. Observed failures require repair or a verified risk decision; missing setup never creates a pass or waives publication, approval, or protected-path checks.'
   };
 }

@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 21
+version: 22
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -49,6 +49,15 @@ An ordinary initialized repository needs no map: it resolves as the deterministi
 it never changes existing Story pins. See `docs/PROGRESSIVE-CAPABILITIES.md`.
 
 ## Purpose and prerequisites
+
+### Configure a capability's tests
+
+The capability screen's **Tests & validation → Test setup** menu opens the selected repository's
+guided workflow test settings. Select the capability's repository in Workspaces first when it differs
+from the currently opened repository; the menu never edits a different repository silently.
+Use **Read repository & suggest** for bounded manifest-based suggestions or **Ask Copilot for
+suggestions** (`/sf-test-setup`) for an explanation based on manifests and reporter configuration.
+No tests, clones or dependency installs run during inspection. See [Test setup](configuration.md).
 
 Use this topic when the current goal matches **capability management**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 

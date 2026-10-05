@@ -11,7 +11,7 @@ import {
 
 const DEFAULT_POLICY = Object.freeze({
   requiredBeforeStory: false,
-  baselinePolicy: 'required',
+  baselinePolicy: 'choice',
   testRuntime: { nodeOptions: [] },
   dependencyHydration: 'when-detected',
   build: 'off',
@@ -56,7 +56,7 @@ test('repository readiness accepts every supported execution mode', () => {
     receiptScope: 'git-private-exact-base'
   }), {
     requiredBeforeStory: true,
-    baselinePolicy: 'required', testRuntime: { nodeOptions: [] },
+    baselinePolicy: 'choice', testRuntime: { nodeOptions: [] },
     dependencyHydration: 'required',
     build: 'off',
     structuredTests: 'when-detected',

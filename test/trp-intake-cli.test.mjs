@@ -9,7 +9,7 @@ import YAML from 'yaml';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
-async function fixture(t, { enabled = true } = {}) {
+async function fixture(t, { enabled = true, baselinePolicy = 'choice' } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-trp-cli-intake-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'checkout');
@@ -46,7 +46,7 @@ async function fixture(t, { enabled = true } = {}) {
   const definitionFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.git.publish = 'off';
-  definition.repositoryReadiness = { ...definition.repositoryReadiness, requiredBeforeStory: true };
+  definition.repositoryReadiness = { ...definition.repositoryReadiness, requiredBeforeStory: true, baselinePolicy };
   definition.testRecovery = { enabled };
   await writeFile(definitionFile, YAML.stringify(definition));
   git('add', '.'); git('commit', '-qm', 'Exact-base intake fixture');
@@ -69,14 +69,17 @@ async function fixture(t, { enabled = true } = {}) {
 }
 
 function assertRepairPreview(preflight, baseCommit, baselineStatus) {
+  const pending = baselineStatus === 'unknown';
   assert.equal(preflight.passed, true, JSON.stringify(preflight.readiness));
   assert.equal(preflight.readiness.ready, true);
-  assert.ok(preflight.readiness.warnings.some(row => row.code === 'TRP_READINESS_REPAIR_REQUIRED'));
+  assert.ok(preflight.readiness.warnings.some(row => row.code === (pending
+    ? 'STORY_TEST_CONFIGURATION_PENDING' : 'TRP_READINESS_REPAIR_REQUIRED')));
   assert.ok(!preflight.readiness.blockers.some(row => row.code === 'STORY_REPOSITORY_READINESS_REQUIRED'));
   const policy = preflight.testRecovery;
   assert.equal(policy.enabled, true);
   assert.equal(policy.ready, true);
-  assert.equal(policy.route, 'readiness-repair');
+  assert.equal(policy.route, pending ? 'feature-coding' : 'readiness-repair');
+  assert.equal(policy.repositories[0].testConfigurationPending, pending);
   assert.match(policy.planDigest, /^sha256:[a-f0-9]{64}$/u);
   assert.deepEqual(policy.supportedBaselineDispositions, ['fix']);
   assert.deepEqual(policy.supportedExecutionModes, ['changed-and-affected', 'all-configured']);
@@ -87,7 +90,7 @@ function assertRepairPreview(preflight, baseCommit, baselineStatus) {
   assert.deepEqual(policy.repositories[0].commands, [], 'preview must not imply it executed test commands');
 }
 
-test('real CLI promotes missing baseline only to bounded repair warning; independent modes have exact distinct digests and preview runs no test', async t => {
+test('real CLI leaves missing baseline pending; independent modes have exact distinct digests and preview runs no test', async t => {
   const f = await fixture(t);
   const affected = f.preview('changed-and-affected');
   const all = f.preview('all-configured');
@@ -123,8 +126,19 @@ test('real CLI preserves an actual failed baseline while advertising repair admi
   f.assertUnchanged();
 });
 
-test('disabled TRP leaves the existing exact-base readiness blocker and no test-policy controls', async t => {
+test('disabled TRP still permits unobserved test setup under the normal choice policy', async t => {
   const f = await fixture(t, { enabled: false });
+  const result = f.preview();
+  assert.equal(result.passed, true);
+  assert.equal(result.readiness.ready, true);
+  assert.ok(result.readiness.warnings.some(row => row.code === 'STORY_TEST_CONFIGURATION_PENDING'));
+  assert.deepEqual(result.testRecovery, { schemaVersion: 1, enabled: false });
+  await assert.rejects(access(f.marker), { code: 'ENOENT' });
+  f.assertUnchanged();
+});
+
+test('disabled TRP preserves an explicitly required exact-base baseline gate', async t => {
+  const f = await fixture(t, { enabled: false, baselinePolicy: 'required' });
   const result = f.preview();
   assert.equal(result.passed, false);
   assert.equal(result.readiness.ready, false);

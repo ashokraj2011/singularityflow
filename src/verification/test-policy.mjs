@@ -75,7 +75,7 @@ export async function readSealedStoryTestPolicy(root, config, workflow) {
 /** Build the sealed policy for a Story about to be created; refuses (D13) before anything is written. */
 export async function sealStoryTestPolicy(root, {
   workId, baseCommit = null, phases = [], baselineFailures = null, trpChoices = null,
-  executionMode = 'changed-and-affected', baselineChoice = 'reuse', testRuntime = {},
+  executionMode = 'changed-and-affected', baselineChoice = 'reuse', baselinePending = false, testRuntime = {},
   env = process.env, platform = process.platform, arch = process.arch
 } = {}) {
   const disposition = baselineFailures
@@ -92,7 +92,8 @@ export async function sealStoryTestPolicy(root, {
   const record = {
     schemaVersion: 1, kind: 'story-test-policy', workId, baseCommit, host: { platform, arch },
     executionScope: (trpChoices?.executionMode ?? executionMode) === 'all-configured' ? 'full' : 'affected',
-    baselineChoice, baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified' : 'receipt-only',
+    baselineChoice, baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified'
+      : baselinePending ? 'pending-not-verified' : 'receipt-only',
     testRuntime,
     baselineFailures: disposition,
     witnessDefault: 'automated-test',
@@ -104,14 +105,15 @@ export async function sealStoryTestPolicy(root, {
 }
 
 /**
- * Refuse a plan whose planned tests could not run here, before any code is written [§12 #18]. Each
+ * Disclose missing test setup during planning without preventing authoring. Each
  * code step's planned test slots are resolved with the same function publication uses, so a module
  * with no supported runner, two build systems, or no command covering a planned test is named at
- * planning instead of at publication. A test slot that requires more assurance than its runner can
+ * planning instead of first appearing at publication. A test slot that requires more assurance than its runner can
  * reach is refused too; a missing launcher is disclosed as a warning, since it can be installed.
  */
 export async function assertPlannedTestsRunnable(root, workflow, { subject, codeSteps = [], claims = {}, contracts = new Map(), warn = console.warn } = {}) {
   const problems = [];
+  const pending = [];
   for (const step of codeSteps) {
     const phase = workflow.phases?.[step];
     if (!phase) continue;
@@ -129,13 +131,15 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
         try { return [normalizeExternalCommand(command, index)]; } catch { return []; }
       }).filter((command) => command.kind === 'test');
     } catch (error) {
-      problems.push(`${step}: ${error.message}`);
+      const setupMissing = ['CODE_TEST_RESULT_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED',
+        'GRADLE_TEST_TARGET_REQUIRED', 'TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS'].includes(error?.code);
+      (setupMissing ? pending : problems).push(`${step}: ${error.message}`);
       continue;
     }
     const reported = new Set();
     for (const { id, slot, testPath } of slots) {
       const command = commandCovering(commands, testPath);
-      if (!command) { problems.push(`${id}: no test command of ${step} can run ${testPath}`); continue; }
+      if (!command) { pending.push(`${id}: no test command of ${step} can run ${testPath}`); continue; }
       const ceiling = profileCeiling(profileForCommand(command));
       if (slot.requiredAssurance && ASSURANCE.indexOf(slot.requiredAssurance) > ASSURANCE.indexOf(ceiling)) {
         problems.push(`${id}: ${testPath} runs under ${command.id}, which reaches ${ceiling}, but its contract requires ${slot.requiredAssurance}`);
@@ -147,6 +151,9 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
       }
     }
   }
+  if (pending.length) warn(`Test configuration pending:\n- ${pending.join('\n- ')}\n`
+    + 'Continue authoring; configure the required test command before code publication. '
+    + 'Use Configuration Center, then story test-policy amend for an active pinned code phase. No tests are marked passed.');
   if (problems.length) {
     throw new SingularityFlowError(
       `${subject} because some planned tests cannot run in this repository:\n- ${problems.join('\n- ')}\n`
@@ -154,4 +161,5 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
       { code: 'TEST_CAPABILITY_UNSUPPORTED', details: { problems } }
     );
   }
+  return { status: pending.length ? 'configuration-pending' : 'ready', pending };
 }

@@ -982,6 +982,8 @@ Usage:
     (review and activate an exact repository setup proposal; the source plan and target ref are
      rechecked, and direct push requires explicit acknowledgement. Protected refs use external review.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
+  singularity-flow capability test-setup [--source-root <MODULE>]... [--json]
+                                                           read-only test runner suggestions; Copilot /sf-test-setup
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal
      enumeration are explicit because they can add remote Git requests)

@@ -368,7 +368,7 @@ const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'open
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
 const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads',
-  'inspect-repository', 'setup-proposals', 'setup-proposal'
+  'inspect-repository', 'setup-proposals', 'setup-proposal', 'test-setup'
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',

@@ -275,8 +275,9 @@ export function inspectStoryStartReadiness({
     });
     const complete = normalizedRepositories.length > 0 && !invalid;
     checks.push(complete && deferred.length
-      ? check('repository-execution', 'warning', 'STORY_TEST_BASELINE_DEFERRED',
-          'Baseline checking explicitly deferred: unobserved tests stay unknown. Deferral creates no passing evidence or risk acceptance for observed failures; later required tests and publication gates remain enforced.')
+      ? check('repository-execution', 'warning', readinessBaseline === 'defer'
+          ? 'STORY_TEST_BASELINE_DEFERRED' : 'STORY_TEST_CONFIGURATION_PENDING',
+          'Test setup or baseline observation is pending, not failed. The Story can proceed and a test command can be configured later, before required test execution. No passing evidence or failure-risk acceptance is created; required publication checks remain enforced.')
       : complete && acceptedKnownFailures.length
       ? check(
           'repository-execution', 'warning', 'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED',

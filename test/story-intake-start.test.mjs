@@ -27,7 +27,7 @@ test('intake records explicit deferred baseline and test scope without running t
   const file = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(file, 'utf8'));
   definition.repositoryReadiness.requiredBeforeStory = true;
-  definition.repositoryReadiness.baselinePolicy = 'choice';
+  definition.repositoryReadiness.baselinePolicy = 'required';
   await writeFile(file, YAML.stringify(definition));
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'intake-baseline', private: true,
     scripts: { test: 'node --test' } }));
@@ -37,6 +37,10 @@ test('intake records explicit deferred baseline and test scope without running t
   const refusal = start(root, 'BASELINE-REQUIRED', [], { allowFailure: true });
   assert.notEqual(refusal.status, 0);
   assert.match(refusal.stdout + refusal.stderr, /STORY_REPOSITORY_READINESS_REQUIRED/);
+  definition.repositoryReadiness.baselinePolicy = 'choice';
+  await writeFile(file, YAML.stringify(definition));
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Allow deferred test observation');
+  git(root, 'push', '-q', 'origin', 'main', 'main:refs/heads/sflow/config');
   const started = data(start(root, 'BASELINE-DEFERRED', ['--readiness-baseline', 'defer', '--test-execution-mode', 'all-configured']));
   const item = path.join(started.repositoryPath, 'singularity/work-items/BASELINE-DEFERRED');
   const readiness = JSON.parse(await readFile(path.join(item, 'context/repository-test-readiness.json'), 'utf8'));
@@ -49,6 +53,33 @@ test('intake records explicit deferred baseline and test scope without running t
   assert.equal(git(root, 'branch', '--show-current'), 'main');
   assert.equal(git(root, 'status', '--porcelain'), '');
   assert.equal(git(root, 'worktree', 'list', '--porcelain').includes('BASELINE-REQUIRED'), false);
+});
+
+test('nested Angular with no root test detection starts without a receipt or implicit test execution', posix, async t => {
+  const { root } = await repository(t);
+  git(root, 'fetch', '-q', 'origin');
+  git(root, 'merge', '--ff-only', 'origin/sflow/config');
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.repositoryReadiness.requiredBeforeStory = true;
+  delete definition.repositoryReadiness.baselinePolicy;
+  await writeFile(file, YAML.stringify(definition));
+  await mkdir(path.join(root, 'apps/client'), { recursive: true });
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ private: true }));
+  await writeFile(path.join(root, 'apps/client/package.json'), JSON.stringify({ private: true,
+    scripts: { test: 'ng test' }, devDependencies: { karma: '^6.0.0' } }));
+  await writeFile(path.join(root, 'apps/client/angular.json'), '{"projects":{}}\n');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Nested Angular without an intake test runner');
+  git(root, 'push', '-q', 'origin', 'main', 'main:refs/heads/sflow/config');
+  const receipt = preflight(root, 'ANGULAR-LATER');
+  const started = data(start(root, 'ANGULAR-LATER', ['--intake-receipt', receipt.id]));
+  const item = path.join(started.repositoryPath, 'singularity/work-items/ANGULAR-LATER');
+  const readiness = JSON.parse(await readFile(path.join(item, 'context/repository-test-readiness.json'), 'utf8'));
+  const policy = JSON.parse(await readFile(path.join(item, 'context/test-policy.json'), 'utf8'));
+  assert.equal(readiness.baselineObservation, 'pending-not-verified');
+  assert.equal(policy.baselineObservation, 'pending-not-verified');
+  assert.ok(readiness.repositories.every(row => row.status !== 'pass' && !row.testResults.length));
+  assert.equal(git(root, 'status', '--porcelain'), '', 'metadata-only detection leaves the checkout untouched');
 });
 
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {

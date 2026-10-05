@@ -77,9 +77,19 @@ export function assertTrpFeatureAdmission(workflow, phase, {
   const rows = repositoryRows(pin.readiness);
   const phaseId = typeof phase === 'string' ? phase : phase?.id ?? workflow.currentPhase;
   const blockers = [];
+  const pending = [];
   for (const repository of required) {
     const matching = rows.filter(row => row.repositoryId === repository.repositoryId);
     const row = matching.length === 1 ? matching[0] : null;
+    // This is a pinned intake disposition, never a pass or a failure-risk decision. The runtime
+    // caller verifies these initial rows against the immutable Story snapshot before admission.
+    if (row?.testConfigurationPending === true && COMMIT.test(row.baseCommit ?? '')
+        && ['unknown', 'missing', 'stale', 'not-checked', 'no-commands-applicable'].includes(row.status)
+        && !row.baselineSha256
+        && repository.baselineDisposition === 'fix' && !repository.baselineRefs.length) {
+      pending.push(repository.repositoryId);
+      continue;
+    }
     if (row?.status === 'pass' && COMMIT.test(row.baseCommit ?? '') && SHA256.test(row.receiptSha256 ?? '')) continue;
     const accepted = matching.length <= 1 && typeof verifyDecision === 'function' && verifiedDecisions.some(decision => {
       try {
@@ -106,6 +116,7 @@ export function assertTrpFeatureAdmission(workflow, phase, {
     'TRP_FEATURE_ADMISSION_BLOCKED', { workId: agreement.subject.workId, phaseId,
       agreementSha256: agreement.recordSha256, blockers, supportedNextActions: blockers.map(blocker => blocker.nextAction) });
   return { enabled: true, applicable: true, featureCodingAllowed: true, evidencePurpose: 'baseline-admission-only',
+    ...(pending.length ? { testConfigurationPending: pending, testEvidence: 'not-verified' } : {}),
     agreementSha256: agreement.recordSha256, repositories: required.map(repository => repository.repositoryId) };
 }
 

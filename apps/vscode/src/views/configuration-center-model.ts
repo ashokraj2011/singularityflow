@@ -20,7 +20,7 @@ export {
  * rendered tab whose own strip button was silently dropped. Deriving the type from the list makes
  * adding a tab and accepting it the same edit.
  */
-export const CONFIGURATION_TABS = ['overview', 'auto', 'world-model', 'models', 'people', 'mcp'] as const;
+export const CONFIGURATION_TABS = ['overview', 'tests', 'auto', 'world-model', 'models', 'people', 'mcp'] as const;
 
 export type ConfigurationTab = (typeof CONFIGURATION_TABS)[number];
 

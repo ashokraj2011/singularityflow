@@ -21,6 +21,30 @@ test('explicit baseline deferral admits intake without turning missing or failin
   }
 });
 
+test('missing detection and baseline observation are advisory at intake, never implicit failure acceptance', async () => {
+  const definition = await shippedDefinition();
+  delete definition.repositoryReadiness.baselinePolicy;
+  for (const receipt of [null, { status: 'missing' }, {
+    status: 'no-commands-applicable', sourceCommit: BASE_COMMIT,
+    structuredTestContract: { status: 'missing', commands: [] }
+  }]) {
+    const result = inspectStoryStartReadiness(facts(definition, {
+      repositoryReadiness: { repositories: { application: receipt } }
+    }));
+    assert.equal(result.ready, true, JSON.stringify(result.blockers));
+    assert.ok(result.warnings.some(entry => entry.code === 'STORY_TEST_CONFIGURATION_PENDING'));
+    assert.ok(!result.checks.some(entry => entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
+  }
+  for (const receipt of [
+    { status: 'failing-tests', sourceCommit: BASE_COMMIT, baselineSha256: `sha256:${'a'.repeat(64)}` },
+    { status: 'readiness-failed', sourceCommit: BASE_COMMIT, commandResults: [{ purpose: 'test', status: 'failed' }] }
+  ]) {
+    assert.equal(inspectStoryStartReadiness(facts(definition, {
+      repositoryReadiness: { repositories: { application: receipt } }
+    })).ready, false, 'an observed or unexplained execution failure is not missing detection');
+  }
+});
+
 test('baseline deferral cannot weaken strict, legacy, non-test or Git authority requirements', async () => {
   for (const policy of [
     { baselinePolicy: 'required' },
@@ -151,6 +175,7 @@ function acceptedFailedTests(baseCommit = BASE_COMMIT) {
 
 test('empty-plan preflight is not an execution receipt and cannot satisfy required test/build policy', async () => {
   const definition = await shippedDefinition();
+  definition.repositoryReadiness.baselinePolicy = 'required';
   const preview = { status: 'no-commands-applicable', sourceCommit: BASE_COMMIT,
     scope: 'dependency-test', planId: `sha256:${'a'.repeat(64)}`, commandResults: [],
     structuredTestContract: { status: 'missing', satisfied: true, requiredForCode: false } };

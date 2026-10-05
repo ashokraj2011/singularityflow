@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 20
+version: 21
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -81,13 +81,24 @@ restore locked dependencies and run the existing unit suite. `--scope full` adds
 build, quality, verification, and application start checks when the workflow requires them. A
 newly initialized repository offers explicit `reuse`, reviewed `run`, and `defer` choices
 (`repositoryReadiness.baselinePolicy: choice`). Pass `--readiness-baseline <CHOICE>` to both
-preflight and start. Reuse/run need a compatible exact-base receipt; selecting run never executes
+preflight and start. Reuse uses a compatible exact-base receipt when available. With the normal
+choice policy, missing detection or observation is recorded as pending, not failed, and does not
+block Story creation or planning. Configure the test command later, before its required execution.
+Selecting run never executes
 commands implicitly. In VS Code, choose **Review baseline commands**, review the commands/runtime,
 then confirm the run. `--readiness-baseline defer` records unverified baseline observation in the
 Story's test-policy/readiness documents and lets intake proceed; it does not accept observed
-failures, skip mandatory later tests, or waive dependency/build/start prerequisites. Older approved
-policies default to `baselinePolicy: required`, retain their strict gate, and are never rewritten.
-Their owner can explicitly approve `baselinePolicy: choice` in `sflow/config`.
+failures, skip mandatory later tests, or waive dependency/build/start prerequisites. Omitted baseline
+policy defaults to `choice`. An explicitly approved `baselinePolicy: required`, or the legacy
+explicit pre-Story gate, retains its strict behavior; its owner can review a policy change in
+`sflow/config`. Configuration bytes and existing Story pins are never silently rewritten.
+
+For an active code phase with a pinned configuration, adding the command to today's YAML does not
+change the Story's pin. Review the command-only change on `sflow/config`, then preview
+`singularity-flow story test-policy amend <WORK-ID> --phase <CODE-PHASE> --reason "Configure the previously undetected test runner" --json`
+and follow its human-confirmed apply action. This preserves authored code and documents and requires
+fresh test evidence. Missing commands remain a repairable test-configuration gate at code publication,
+not a reason to refuse specification/planning or claim tests passed.
 
 Ongoing scope is a separate `--test-execution-mode changed-and-affected|all-configured` choice,
 sealed with the Story. Affected mode infers runners for affected modules; configured required

@@ -876,8 +876,8 @@ function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): s
         : repository.disposition === 'pre-existing-test-failures-require-decision'
           ? 'Observed pre-existing test failures require repair or an eligible, authorized decision.'
         : repository.disposition === 'no-test-tool-selected'
-          ? 'No structured test tool was selected; existing tests are not verified.'
-          : 'Existing failures unknown. Existing test failures are not verified. Run /sf-ready, repair failures, or review an exact failure baseline before coding.';
+          ? 'Test command not detected. Continue the Story and configure it before required test execution; existing tests are not verified.'
+          : 'Baseline not checked. With the normal choice policy, continue the Story and provide the test command later. This is not a test failure or passing evidence.';
       return `<div class="readiness-repository"><p><strong>${escape(repository.repository)}</strong>
         · receipt ${escape(repository.status)} · test tool ${escape(repository.testToolStatus)}
         · base ${escape(repository.baseCommit?.slice(0, 12) ?? 'unknown')}</p>
@@ -886,7 +886,7 @@ function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): s
           ${tool.counts ? `· ${escape(tool.counts.passed ?? '?')} passed, ${escape(tool.counts.failed ?? '?')} failed,
             ${escape(tool.counts.skipped ?? '?')} skipped of ${escape(tool.counts.discovered ?? '?')} discovered`
             : `· ${escape(tool.status === 'not-observed' ? 'not run or no current observation' : tool.status)}`}
-        </li>`).join('')}</ul>` : '<p class="meta">No test tool is verified for this base.</p>'}
+        </li>`).join('')}</ul>` : '<p class="meta">Test configuration pending — no tool verified for this base.</p>'}
         <p class="meta">${escape(disposition)}</p></div>`;
     }).join('')}
   </div>`;
@@ -964,10 +964,10 @@ function baseBranchHtml(form: IntakeForm): string {
     </div>` : ''}
     ${preflightTestReadinessHtml(form.baseTestReadiness)}
     ${form.baseBranch ? `<fieldset ${form.baselineRunning ? 'disabled' : ''}><legend>Existing-test baseline</legend>
-      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> Reuse a compatible exact-base baseline</label>
+      <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> ${form.baselinePolicy === 'required' ? 'Reuse a compatible exact-base baseline' : 'Reuse a baseline if available; otherwise configure tests later'}</label>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="run" ${form.readinessBaseline === 'run' ? 'checked' : ''}> Review and run baseline now</label>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="defer" ${form.readinessBaseline === 'defer' ? 'checked' : ''} ${form.baselinePolicy !== 'choice' ? 'disabled' : ''}> Defer baseline — not verified</label>
-      <p class="meta">${form.baselinePolicy === 'required' ? 'Approved policy requires a baseline before starting. Change that policy through Configuration Center to allow deferral.' : 'Deferral does not accept failures or skip later required testing, publication or approval checks.'}</p>
+      <p class="meta">${form.baselinePolicy === 'required' ? 'This repository explicitly requires a baseline before starting. Change that policy through Configuration Center to allow deferral.' : 'Missing test detection does not block starting. Configure tests before required execution; observed failures and required non-test prerequisites still need review.'}</p>
       ${form.readinessBaseline === 'run' ? `<button type="button" class="secondary" data-baseline-run ${form.baselineRunning ? 'disabled' : ''}>${form.baselineRunning ? 'Running reviewed baseline…' : 'Review baseline commands'}</button>` : ''}
       ${form.baselineMessage ? `<p role="status">${escape(form.baselineMessage)}</p>` : ''}
     </fieldset>

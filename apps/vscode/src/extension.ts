@@ -26,7 +26,7 @@ import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import { BackgroundWorkGovernor } from './background-governor.ts';
-import type { DecisionInputSpec, RepositorySnapshot, StoryDecisionView } from './cli/snapshot.ts';
+import type { CapabilityNode, DecisionInputSpec, RepositorySnapshot, StoryDecisionView } from './cli/snapshot.ts';
 import {
   decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, submitArgvWithDecisionValues
 } from './decisions.ts';
@@ -922,7 +922,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.openVisualAssurance',
-    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
+    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureTests', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
     'singularityFlow.buildWorldModel', 'singularityFlow.rebuildWorldModel', 'singularityFlow.configureAstIntelligence',
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
@@ -6698,6 +6698,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand('singularityFlow.configureAuto');
       return;
     }
+    if (message.type === 'test-setup') {
+      const active = activeRepositoryContext();
+      const find = (nodes: CapabilityNode[]): CapabilityNode | undefined => {
+        for (const node of nodes) { if (node.id === message.id) return node; const child = find(node.children ?? []); if (child) return child; }
+        return undefined;
+      };
+      const capability = message.id ? find(store.current.snapshot?.capabilityMap?.capabilities ?? []) : null;
+      if (message.id && !capability) { panel.report('The capability changed. Refresh Capabilities and select it again.'); return; }
+      const repositories = capability?.repositories?.length ? capability.repositories : capability?.repository ? [capability.repository] : [];
+      if (repositories.length && (!active?.repositoryId || !repositories.includes(active.repositoryId))) {
+        panel.report('Select this capability’s repository in Workspaces before opening Test setup. No other repository configuration was opened or changed.');
+        return;
+      }
+      await vscode.commands.executeCommand('singularityFlow.configureTests');
+      return;
+    }
     if (message.type === 'progressive-start') {
       await vscode.commands.executeCommand('singularityFlow.startWork');
       return;
@@ -6940,6 +6956,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const configurationMessage = async (message: ConfigurationCenterMessage): Promise<ConfigurationCenterReply> => {
+    if (message.type === 'inspect-test-setup') {
+      const root = client.repository;
+      try {
+        const inspection = await client.run<import('./views/test-setup-model.ts').TestSetupInspection>([
+          'capability', 'test-setup', ...message.sourceRoots.flatMap(directory => ['--source-root', directory]), '--json'
+        ]);
+        if (client.repository !== root || !sameStoryAttachPath(inspection.repositoryPath, root)) return 'The repository changed during inspection. Reopen Test setup.';
+        return { error: null, inspection };
+      } catch (error) { return (error as Error).message; }
+    }
     if (message.type === 'save') {
       if (!message.writable) return message.blockedReason ?? 'The approved configuration authority is read-only.';
       const args = [
@@ -7183,6 +7209,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'open-specification-trace') await vscode.commands.executeCommand('singularityFlow.openSpecificationTrace');
     else if (message.action === 'open-flow-impact') await vscode.commands.executeCommand('singularityFlow.openFlowImpact');
     else if (message.action === 'open-copilot') await vscode.commands.executeCommand('singularityFlow.openCopilot');
+    else if (message.action === 'test-setup-copilot') {
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: '/sf-test-setup Inspect the selected repository and suggest its test commands and reporters. Ask before changing configuration or running tests.',
+        isPartialQuery: true
+      });
+      return null;
+    }
     else if (message.action === 'open-prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
     else if (message.action === 'inspect-composition-cache') await vscode.commands.executeCommand('singularityFlow.inspectCompositionCache');
     else if (message.action === 'check-ledger-deployment') await vscode.commands.executeCommand('singularityFlow.checkLedgerDeployment');
@@ -8173,6 +8206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
+    'singularityFlow.configureTests': () => openConfigurationCenter('tests'),
     'singularityFlow.configureAuto': () => openConfigurationCenter('auto'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
     'singularityFlow.rebuildWorldModel': (request?: { capabilityId?: string }) => vscode.commands.executeCommand(

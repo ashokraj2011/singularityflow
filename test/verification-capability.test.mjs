@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { capabilityLines, repositoryTestCapability } from '../src/verification/capability.mjs';
-import { sealStoryTestPolicy } from '../src/verification/test-policy.mjs';
+import { assertPlannedTestsRunnable, sealStoryTestPolicy } from '../src/verification/test-policy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -123,7 +123,7 @@ const JEST_REPOSITORY = (testBody) => ({
   'test/value.test.js': `import { value } from '../src/value.js';\ntest('baseline value', () => { ${testBody} });\n`
 });
 
-test('§12 #18 through a real Story: an unsupported module is disclosed at start and its planned test refused before coding', async (t) => {
+test('an undetected runner is disclosed at intake and planning without blocking document publication', async (t) => {
   const workId = 'CAP-1';
   const { root, cli } = await governedRepository(t, {
     ...JEST_REPOSITORY('expect(value).toBe(1);'),
@@ -153,11 +153,43 @@ test('§12 #18 through a real Story: an unsupported module is disclosed at start
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
   cli('clarification', 'record', 'intake', '--question', 'Is the total 2?', '--answer', 'Yes.');
-  const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /some planned tests cannot run in this repository/);
-  assert.match(refused.stdout + refused.stderr, /Rust module 'crates\/ledger' requires an explicit argv-form test command/);
-  assert.match(refused.stdout + refused.stderr, /Before any code is written/);
+  const published = cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  assert.match(published.stdout + published.stderr, /Test configuration pending/);
+  assert.match(published.stdout + published.stderr, /Rust module 'crates\/ledger' requires an explicit argv-form test command/);
+  const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.intake.generation, 1, 'the authored document is published, not blocked by detection');
+});
+
+test('planning can proceed with a missing runner but publication still requires one', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pending-tests-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await files(root, { 'Cargo.toml': '[package]\nname = "pending"\nversion = "0.1.0"\n',
+    'src/lib.rs': 'pub fn value() -> u32 { 1 }\n' });
+  const phase = { id: 'custom-code', generationPolicy: { task: 'code' }, qualityCommands: [] };
+  const warnings = [];
+  const result = await assertPlannedTestsRunnable(root, { phases: { 'custom-code': phase } }, {
+    subject: 'Plan', codeSteps: ['custom-code'],
+    claims: { 'PENDING:AC-001': { tests: ['tests/value.rs'] } },
+    warn: message => warnings.push(message)
+  });
+  assert.equal(result.status, 'configuration-pending');
+  assert.match(warnings[0], /configure the required test command before code publication/);
+  const { resolveDeliveryQualityCommands } = await import('../src/delivery-evidence.mjs');
+  await assert.rejects(resolveDeliveryQualityCommands(root, {
+    ...phase, deliveryEvidence: { sourcePaths: ['src/lib.rs'], testPaths: ['tests/value.rs'] }
+  }), { code: 'RUST_TEST_ADAPTER_REQUIRED' });
+  const configured = { ...phase, qualityCommands: [{ id: 'rust-tests', kind: 'test',
+    argv: ['rust-tests'], workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+    result: { adapter: 'junit-xml', path: '.sflow/results/rust.xml', minimumDiscovered: 1 } }] };
+  const repaired = await assertPlannedTestsRunnable(root, { phases: { 'custom-code': configured } }, {
+    codeSteps: ['custom-code'], claims: { 'PENDING:AC-001': { tests: ['tests/value.rs'] } }, warn: () => {}
+  });
+  assert.equal(repaired.status, 'ready', 'a command supplied later resolves the missing configuration');
+  await assert.rejects(assertPlannedTestsRunnable(root, { phases: { 'custom-code': configured } }, {
+    subject: 'Plan', codeSteps: ['custom-code'], claims: { 'PENDING:AC-001': {} },
+    contracts: new Map([['PENDING:AC-001', { slots: [{ method: 'test', role: 'primary',
+      witness: { path: 'tests/value.rs' }, requiredAssurance: 'exact-local-observed' }] }]]), warn: () => {}
+  }), { code: 'TEST_CAPABILITY_UNSUPPORTED' }, 'missing configuration does not waive the stated proof contract');
 });
 
 test('D13 through a real Story: resolving base failures outside the Story refuses creation and names them', async (t) => {

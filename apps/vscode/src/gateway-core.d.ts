@@ -311,6 +311,11 @@ declare module '*/world-model/registry/views.mjs' {
   }>;
 }
 
+declare module '*/external-command-policy.mjs' {
+  export const TEST_RESULT_ADAPTERS: readonly string[];
+  export function normalizeExternalCommand(value: unknown, index?: number): { id: string; [key: string]: unknown };
+}
+
 declare module '*/world-model-views.mjs' {
   export const LEGACY_WORLD_MODEL_VIEW_IDS: readonly string[];
   export function worldModelViewIdentity(definition: any, value: string): Readonly<{

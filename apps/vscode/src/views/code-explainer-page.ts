@@ -16,7 +16,7 @@ export const CX_STYLE = `
   body:has(#cx-root) > .page-nav { margin: 0; padding: .35rem 1rem; border-top: 1px solid var(--sf-border-color); }
   #cx-root {
     --cx-changed: var(--sf-accent, #3d8e10); --cx-caller: #4f8fd8; --cx-callee: #a578e0; --cx-test: #d4a72c;
-    --cx-external: #7d8c83; --cx-other: #8b978f; --cx-focus: #2bb3a3;
+    --cx-external: #7d8c83; --cx-other: #8b978f; --cx-focus: #2bb3a3; --cx-repository: #7fa3c4;
     --cx-added: #3fb950; --cx-modified: #d29922; --cx-removed: #f85149;
     --cx-card: var(--sf-surface, var(--vscode-editorWidget-background)); --cx-card-head: var(--sf-surface-raised, var(--vscode-editorWidget-background));
     --cx-line: var(--sf-border-color, var(--vscode-panel-border)); --cx-line-strong: var(--sf-border-strong, var(--vscode-panel-border));
@@ -27,7 +27,7 @@ export const CX_STYLE = `
     display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: calc(100vh - var(--cx-footer, 38px));
     color: var(--cx-text); background: var(--sf-bg, var(--vscode-editor-background)); font-size: 13px; min-width: 0;
   }
-  body.vscode-light #cx-root { --cx-caller: #2f6fbf; --cx-callee: #7a4fc0; --cx-test: #9a6700; --cx-added: #1a7f37; --cx-modified: #9a6700; --cx-removed: #cf222e; --cx-focus: #12877a; }
+  body.vscode-light #cx-root { --cx-caller: #2f6fbf; --cx-callee: #7a4fc0; --cx-test: #9a6700; --cx-added: #1a7f37; --cx-modified: #9a6700; --cx-removed: #cf222e; --cx-focus: #12877a; --cx-repository: #46698a; }
   body.vscode-high-contrast #cx-root { --cx-edge: var(--vscode-contrastBorder, CanvasText); --cx-grid: transparent; }
   #cx-root *, #cx-root *::before, #cx-root *::after { box-sizing: border-box; }
   #cx-root button { min-height: 0; padding: 0; margin: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit;
@@ -63,6 +63,7 @@ export const CX_STYLE = `
   .cx-depth { display: inline-flex; align-items: center; height: 28px; border: 1px solid var(--cx-line-strong); border-radius: 4px; overflow: hidden; font-family: var(--cx-mono); font-size: 11.5px; }
   .cx-depth > span { padding: 0 .55rem; color: var(--cx-dim); }
   #cx-root .cx-depth button { width: 26px; height: 26px; justify-content: center; border-left: 1px solid var(--cx-line); }
+  #cx-root .cx-view-mode button { width: auto; padding: 0 .6rem; }
   #cx-root .cx-depth button[aria-pressed="true"] { background: color-mix(in srgb, var(--cx-changed) 22%, transparent); color: var(--cx-changed); font-weight: 700; }
 
   .cx-tabs { display: flex; align-items: stretch; gap: .25rem; padding: 0 1rem; border-bottom: 1px solid var(--cx-line); min-width: 0; overflow-x: auto; }
@@ -74,7 +75,7 @@ export const CX_STYLE = `
   .cx-legend span { display: inline-flex; align-items: center; gap: .35rem; }
   .cx-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--cx-other); }
   .cx-dot.changed { background: var(--cx-changed); } .cx-dot.caller { background: var(--cx-caller); } .cx-dot.callee { background: var(--cx-callee); }
-  .cx-dot.test { background: var(--cx-test); } .cx-dot.external { background: var(--cx-external); } .cx-dot.focus { background: var(--cx-focus); } .cx-dot.context { background: var(--cx-faint); }
+  .cx-dot.test { background: var(--cx-test); } .cx-dot.external { background: var(--cx-external); } .cx-dot.focus { background: var(--cx-focus); } .cx-dot.repository { background: var(--cx-repository); } .cx-dot.context { background: var(--cx-faint); }
 
   .cx-main { display: grid; grid-template-columns: var(--cx-outline-w) minmax(0, 1fr) 6px var(--cx-inspector-w); min-height: 0; min-width: 0; }
   .cx-main.no-outline { grid-template-columns: 0 minmax(0, 1fr) 6px var(--cx-inspector-w); }
@@ -144,6 +145,7 @@ export const CX_STYLE = `
   .cx-node.dragging { transition: none; z-index: 5; }
   .cx-node.changed { border-color: color-mix(in srgb, var(--cx-changed) 70%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--cx-changed) 35%, transparent), 0 0 30px -10px color-mix(in srgb, var(--cx-changed) 55%, transparent); }
   .cx-node.focus { border-color: var(--cx-focus); }
+  .cx-node.repository { border-color: color-mix(in srgb, var(--cx-repository) 60%, transparent); }
   .cx-node.dim { opacity: .28; }
   .cx-node.selected-module { border-color: var(--cx-changed); box-shadow: 0 0 0 2px color-mix(in srgb, var(--cx-changed) 45%, transparent); }
   .cx-node-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: .45rem; padding: .5rem .55rem .45rem .6rem;
@@ -153,7 +155,7 @@ export const CX_STYLE = `
   .cx-node-head .file small { display: block; font-family: var(--cx-mono); font-size: 10px; color: var(--cx-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cx-role { height: 18px; padding: 0 .4rem; display: inline-flex; align-items: center; border-radius: 3px; font-family: var(--cx-mono); font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #0b0e0c; background: var(--cx-other); }
   .cx-role.changed { background: var(--cx-changed); } .cx-role.caller { background: var(--cx-caller); } .cx-role.callee { background: var(--cx-callee); }
-  .cx-role.test { background: var(--cx-test); } .cx-role.external { background: var(--cx-external); } .cx-role.focus { background: var(--cx-focus); } .cx-role.context { background: var(--cx-faint); }
+  .cx-role.test { background: var(--cx-test); } .cx-role.external { background: var(--cx-external); } .cx-role.focus { background: var(--cx-focus); } .cx-role.repository { background: var(--cx-repository); } .cx-role.context { background: var(--cx-faint); }
   .cx-delta { font-family: var(--cx-mono); font-size: 10.5px; white-space: nowrap; }
   .cx-delta .add { color: var(--cx-added); } .cx-delta .del { color: var(--cx-removed); }
   #cx-root .cx-collapse { width: 20px; height: 20px; justify-content: center; color: var(--cx-dim); border-radius: 3px; }
@@ -340,6 +342,10 @@ export function codeExplainerBody(token: string): string {
           <button type="button" data-depth="2" aria-pressed="false" title="Two calls away">2</button>
           <button type="button" data-depth="3" aria-pressed="false" title="Three calls away">3</button>
         </div>
+        <div class="cx-depth cx-view-mode" role="group" aria-label="Graph view"><span>View</span>
+          <button type="button" data-view="delta" aria-pressed="true" title="What this Story changed, and the code it calls or is called by">Delta</button>
+          <button type="button" data-view="full" aria-pressed="false" title="Every function in the current worktree's code, and how they call each other">Full</button>
+        </div>
         <button class="cx-btn" type="button" data-action="reindex" title="Read the change and ask the language services again">${icon('refresh', { size: 14 })}<span>Re-index</span></button>
       </div>
     </header>
@@ -411,8 +417,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   const vscode = window.__sfVscode;
   const SVG = 'http://www.w3.org/2000/svg';
   const CARD_W = 300, HEAD_H = 47, ROW_H = 26, MORE_H = 22, FOOT_H = 0, PAD = 9, GAP_X = 120, GAP_Y = 34, READABLE = 0.62;
-  const ROLE_ORDER = { changed: 0, focus: 0, caller: 1, test: 2, callee: 3, external: 4, context: 5, other: 6 };
-  const ROLE_LABEL = { changed: 'Changed', focus: 'Focus', caller: 'Caller', callee: 'Callee', test: 'Test', external: 'External', context: 'Context', other: 'Other files' };
+  const ROLE_ORDER = { changed: 0, focus: 0, repository: 0, caller: 1, test: 2, callee: 3, external: 4, context: 5, other: 6 };
+  const ROLE_LABEL = { changed: 'Changed', focus: 'Focus', repository: 'Repository', caller: 'Caller', callee: 'Callee', test: 'Test', external: 'External', context: 'Context', other: 'Other files' };
   const KIND_MARK = { function: 'ƒ', method: 'm', constructor: 'c', class: 'C', variable: 'v', 'module-scope': '§', removed: '×', file: '▤' };
 
   // ---- Pure helpers (exposed for tests) ---------------------------------------------------
@@ -618,15 +624,20 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   // ---- State -------------------------------------------------------------------------------
   const root = document.getElementById('cx-root');
   const saved = (vscode.getState && vscode.getState()) || {};
+  const DEFAULT_FILTERS = { changed: true, focus: true, repository: true, caller: true, callee: true, test: true, external: false, context: true, other: true };
   const view = Object.assign({
     tab: 'graph', zoom: 1, x: 40, y: 40, selected: null, selectedModule: null, selectedEdge: null, manual: {},
-    collapsed: {}, expanded: {}, filters: { changed: true, focus: true, caller: true, callee: true, test: true, external: false, context: true, other: true },
+    collapsed: {}, expanded: {}, filters: Object.assign({}, DEFAULT_FILTERS),
     isolate: false, outline: null, minimap: true, inspectorWidth: null, gapsOnly: false, walk: 0, fitted: false, modelId: null, query: ''
   }, saved.view || {});
+  // Saved filters predate any role added since; a new role starts at its default instead of hidden.
+  view.filters = Object.assign({}, DEFAULT_FILTERS, view.filters || {});
   // First open: the outline and a wide inspector only when the panel has room for them.
   if (view.outline === null) view.outline = window.innerWidth >= 1280;
   if (view.inspectorWidth === null) view.inspectorWidth = window.innerWidth >= 1400 ? 380 : 320;
   let model = null;
+  // Set once a person picks Delta or Full; from then on the page stays where they asked to look.
+  let viewChosen = false;
   let positions = {};
   let progress = null;
   let stale = false;
@@ -724,7 +735,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const text = languages.some(function (entry) { return entry.symbols === 'text'; });
     badges.appendChild(chip(live ? 'Live language service' : text ? 'Text outline' : 'File level', live ? 'ok' : 'dim'));
     if (model.story) badges.appendChild(chip('Story ' + model.story.workId, 'info'));
-    if (model.mode === 'source') badges.appendChild(chip('Source', 'dim'));
+    if (model.view === 'full') badges.appendChild(chip('Full worktree', 'info'));
+    else if (model.mode === 'source') badges.appendChild(chip('Source', 'dim'));
     if (model.intelligence.status === 'pending') badges.appendChild(chip('Indexing…', 'warn'));
     const context = $('cx-context');
     context.replaceChildren();
@@ -753,6 +765,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (model.change.status === 'available') item('', '', model.change.codeFiles + ' code files of ' + model.change.files + ' changed · ' + model.change.symbols + ' changed symbols');
     $('cx-ask').hidden = !model.modelEnabled;
     root.querySelectorAll('[data-depth]').forEach(function (node) { node.setAttribute('aria-pressed', String(Number(node.dataset.depth) === model.intelligence.depth)); });
+    root.querySelectorAll('[data-view]').forEach(function (node) { node.setAttribute('aria-pressed', String(node.dataset.view === model.view)); });
     $('cx-count-graph').textContent = String(model.modules.filter(function (module) { return module.role !== 'context' || module.symbolIds.length; }).length);
     $('cx-count-trace').textContent = String(model.trace.counts.requirements || model.trace.code.length);
     $('cx-count-walk').textContent = String(model.walkthrough.length);
@@ -889,7 +902,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     holder.replaceChildren();
     const counts = {};
     model.modules.forEach(function (module) { counts[module.role] = (counts[module.role] || 0) + 1; });
-    ['changed', 'focus', 'caller', 'callee', 'test', 'external', 'other', 'context'].forEach(function (role) {
+    ['changed', 'focus', 'repository', 'caller', 'callee', 'test', 'external', 'other', 'context'].forEach(function (role) {
       if (!counts[role]) return;
       const chipButton = button('cx-filter', '', function () {
         view.filters[role] = !view.filters[role];
@@ -1186,8 +1199,12 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const modules = visibleModules();
     const anyCalls = model.intelligence.languages.some(function (entry) { return entry.calls === 'available'; });
     const lines = [];
-    if (!modules.length) lines.push(model.change.status === 'unavailable' && model.mode === 'source' ? 'Open a file and choose “Explain This Code” to see a function, its callers and what it calls.' : 'Nothing to draw with the current filters.');
-    else if (!model.edges.length && model.intelligence.status !== 'pending') lines.push(anyCalls ? 'No calls connect the changed code to the rest of the workspace at this depth.' : 'No call hierarchy is available for these languages, so the cards show what changed without call edges. Install a language extension that provides “Call Hierarchy” to see callers and callees.');
+    if (!modules.length) {
+      if (model.view === 'full') lines.push("No functions were found in the current worktree's code files.");
+      else if (!model.change.codeFiles && !model.focus) lines.push('This Story has not changed any code yet. Choose Full to map every function in the current worktree, or click a function under Repository to see its callers and what it calls.');
+      else lines.push('Nothing to draw with the current filters.');
+    }
+    else if (!model.edges.length && model.intelligence.status !== 'pending') lines.push(anyCalls ? (model.view === 'full' ? 'The language service found no calls between these functions.' : 'No calls connect the changed code to the rest of the workspace at this depth.') : 'No call hierarchy is available for these languages, so the cards show what changed without call edges. Install a language extension that provides “Call Hierarchy” to see callers and callees.');
     if (model.intelligence.truncated.length) lines.push('Bounded: ' + model.intelligence.truncated.join('; ') + '.');
     note.hidden = !lines.length;
     note.textContent = lines.join(' ');
@@ -1907,8 +1924,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       if (message.focus && model.byId[message.focus]) { view.selected = message.focus; view.selectedModule = null; view.selectedEdge = null; }
       else if (!view.selected && !view.selectedModule && model.focus) view.selected = model.focus;
       render(fresh);
-      // With no change to explain, the repository itself is what there is to read.
-      if (fresh && model.change.status === 'empty' && !model.focus && view.tab !== 'repo') setTab('repo');
+      // With no change to explain, the repository itself is what there is to read; the full view is its map.
+      if (fresh && !viewChosen && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo') setTab('repo');
       else if (view.tab === 'repo' && !repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root');
       if (message.focus && model.byId[message.focus]) { const symbol = model.byId[message.focus]; const rows = moduleRows(model, model.moduleById[symbol.moduleId], view).rows; centreOn(symbol.moduleId, rows.findIndex(function (row) { return row.id === symbol.id; })); }
       save();
@@ -2079,8 +2096,16 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   root.addEventListener('click', function (event) {
     const action = event.target.closest('[data-action]');
     const depth = event.target.closest('[data-depth]');
+    const viewButton = event.target.closest('[data-view]');
     const tab = event.target.closest('[data-tab]');
     if (tab) { setTab(tab.dataset.tab); return; }
+    if (viewButton && model) {
+      if (viewButton.dataset.view !== model.view) post('cx.view', { view: viewButton.dataset.view });
+      viewChosen = true;
+      // Choosing a view is asking to see the graph.
+      if (view.tab !== 'graph') setTab('graph');
+      return;
+    }
     if (depth && model) {
       const value = Number(depth.dataset.depth);
       if (value !== model.intelligence.depth) post('cx.depth', { depth: value });

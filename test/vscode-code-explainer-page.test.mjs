@@ -105,10 +105,10 @@ test('the host accepts a closed set of messages, each naming ids, never a path, 
   const source = codeOnly(await readFile(path.join(root, 'apps/vscode/src/views/code-explainer.ts'), 'utf8'));
   const router = source.slice(source.indexOf("registerMessageRouter('singularityFlow.codeExplainer'"), source.indexOf('private accept('));
   const accepted = [...router.matchAll(/'(cx\.[A-Za-z]+)':/g)].map((match) => match[1]);
-  assert.deepEqual(accepted, ['cx.ready', 'cx.reindex', 'cx.depth', 'cx.open', 'cx.openModule', 'cx.openTest', 'cx.openSite',
+  assert.deepEqual(accepted, ['cx.ready', 'cx.reindex', 'cx.depth', 'cx.view', 'cx.open', 'cx.openModule', 'cx.openTest', 'cx.openSite',
     'cx.diff', 'cx.ask', 'cx.copy', 'cx.export', 'cx.changeExplorer', 'cx.repository', 'cx.repoOpen', 'cx.story']);
   const fields = [...router.matchAll(/(?:string|integer|enum)Field\(message, '([a-z]+)'/g)].map((match) => match[1]);
-  assert.deepEqual([...new Set(fields)].sort(), ['depth', 'edge', 'index', 'line', 'module', 'symbol', 'to']);
+  assert.deepEqual([...new Set(fields)].sort(), ['depth', 'edge', 'index', 'line', 'module', 'symbol', 'to', 'view']);
   assert.match(source, /navigationTarget\(raw\)/, 'the footer navigation is handled');
   assert.match(source, /retainContextWhenHidden: true/);
   // Every action that opens something resolves it from the host's own harvest.
@@ -117,4 +117,25 @@ test('the host accepts a closed set of messages, each naming ids, never a path, 
   const page = codeOnly(await readFile(path.join(root, 'apps/vscode/src/views/code-explainer-page.ts'), 'utf8'));
   const posted = [...page.matchAll(/post\('(cx\.[A-Za-z]+)'/g)].map((match) => match[1]);
   for (const type of new Set(posted)) assert.ok(accepted.includes(type), `the page only sends what the host accepts: ${type}`);
+});
+
+test('the graph offers a delta and a full view, and the page asks the host for the other one', async () => {
+  const body = codeExplainerBody('nonce');
+  assert.match(body, /<div class="cx-depth cx-view-mode" role="group" aria-label="Graph view"><span>View<\/span>/);
+  assert.match(body, /data-view="delta" aria-pressed="true"[^>]*>Delta<\/button>/);
+  assert.match(body, /data-view="full" aria-pressed="false"[^>]*>Full<\/button>/);
+  // Only a different view is asked for, and the pressed state follows the model the host built.
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(viewButton\.dataset\.view !== model\.view\) post\('cx\.view', \{ view: viewButton\.dataset\.view \}\);/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /node\.setAttribute\('aria-pressed', String\(node\.dataset\.view === model\.view\)\)/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /Choose Full to map every function in the current worktree/, 'an empty delta says where the map is');
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !viewChosen && model\.view !== 'full' && model\.change\.status === 'empty'/, 'the full view stays on its map instead of jumping to Repository');
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.tab !== 'graph'\) setTab\('graph'\);/, 'choosing a view shows the graph');
+  assert.match(CODE_EXPLAINER_SCRIPT, /view\.filters = Object\.assign\(\{\}, DEFAULT_FILTERS, view\.filters \|\| \{\}\);/, 'a role added after state was saved is not hidden');
+  assert.match(CODE_EXPLAINER_SCRIPT, /repository: 'Repository'/);
+  assert.match(CX_STYLE, /\.cx-dot\.repository \{ background: var\(--cx-repository\); \}/);
+  const host = codeOnly(await readFile(path.join(root, 'apps/vscode/src/views/code-explainer.ts'), 'utf8'));
+  assert.match(host, /const graphView: CxView = this\.view \?\? \(targets\.length \? 'delta' : 'full'\);/,
+    'a Story that has not changed code opens on the full view');
+  assert.match(host, /\['explain', 'code', '--repository', '--json'\]/, 'the full view reads the worktree at every build, so Re-index sees it as it is');
+  assert.match(host, /hasScriptProject\(root\)/, 'a project-less JavaScript service is given the rest of the code before callers are asked for');
 });

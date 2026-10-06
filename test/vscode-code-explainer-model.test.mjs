@@ -429,3 +429,39 @@ test('a @clause comment names a requirement for the function below it, and the t
   assert.equal(requirement('FIX-1:AC-001').status, 'tagged');
   assert.equal(model.trace.counts.declared, 1);
 });
+
+test('the full view maps every function of the worktree, and delta stays as it was', () => {
+  const files = [
+    { path: 'src/App.jsx', language: 'javascriptreact', lines: ['import { evaluate } from "./evaluator";', 'export function App() {', '  return evaluate("1+1");', '}'],
+      symbols: [symbol('App', SYMBOL_KIND.Function, 2, 4)] },
+    { path: 'src/evaluator.js', language: 'javascript', lines: ['export function evaluate(text) {', '  return format(Number(text));', '}', 'export function format(value) {', '  return String(value);', '}', 'export const UNITS = ["m", "ft"];'],
+      symbols: [symbol('evaluate', SYMBOL_KIND.Function, 1, 3), symbol('format', SYMBOL_KIND.Function, 4, 6), symbol('UNITS', SYMBOL_KIND.Constant, 7, 7)] },
+    { path: 'src/evaluator.test.js', language: 'javascript', lines: ['test("adds", () => { evaluate("1+1"); });'], symbols: [] }
+  ];
+  const calls = [
+    { from: callEnd('src/App.jsx', 'App', 2, 4), to: callEnd('src/evaluator.js', 'evaluate', 1, 3), sites: [3] },
+    { from: callEnd('src/evaluator.js', 'evaluate', 1, 3), to: callEnd('src/evaluator.js', 'format', 4, 6), sites: [2] },
+    { from: callEnd('src/evaluator.test.js', 'adds', 1, 1), to: callEnd('src/evaluator.js', 'evaluate', 1, 3), sites: [1] }
+  ];
+  const full = buildCodeExplainerModel(baseInput({ files, calls, view: 'full' }), 'cx-full');
+  assert.equal(full.view, 'full');
+  const role = (name) => full.symbols.find((entry) => entry.qualifiedName === name)?.role;
+  assert.equal(role('App'), 'repository');
+  assert.equal(role('evaluate'), 'repository');
+  assert.equal(role('format'), 'repository');
+  assert.equal(role('UNITS'), undefined, 'a constant that is not a function is not part of the map');
+  assert.equal(role("test('adds')"), 'test', 'a test in the map is drawn because it calls the code');
+  const moduleRole = (file) => full.modules.find((entry) => entry.path === file)?.role;
+  assert.equal(moduleRole('src/App.jsx'), 'repository');
+  assert.equal(moduleRole('src/evaluator.test.js'), 'test');
+  const evaluate = full.symbols.find((entry) => entry.qualifiedName === 'evaluate');
+  assert.equal(evaluate.callers.length, 2, 'App and the test both call it');
+  assert.match(explanationText(full, evaluate.id), /It is part of the full map of the current worktree\./);
+  assert.match(explanationText(full, evaluate.id), /It is called from 2 places/);
+
+  // The same facts in delta, with nothing changed: no centre, so nothing is drawn as a role.
+  const delta = buildCodeExplainerModel(baseInput({ files, calls }), 'cx-delta');
+  assert.equal(delta.view, 'delta');
+  assert.ok(delta.symbols.every((entry) => entry.role !== 'repository'), 'delta never uses the full-map role');
+  assert.equal(delta.symbols.find((entry) => entry.qualifiedName === 'evaluate').role, 'context');
+});

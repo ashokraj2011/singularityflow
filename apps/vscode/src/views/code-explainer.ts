@@ -12,6 +12,7 @@
  * resolves those against its own model and the locations it recorded while harvesting; it never
  * opens a path, runs a command or follows a URL that came from the page.
  */
+import { access } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import * as vscode from 'vscode';
@@ -24,7 +25,8 @@ import { containedWorkingPath, readExactSource } from './change-explorer-source.
 import {
   buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, CX_LIMITS, explanationText, exportDocument, externalLabel, hoverParts,
   isCodeLanguage, isTestPath, languageOf, symbolKey, workingDiff,
-  type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol
+  type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
+  type CxView
 } from './code-explainer-model.ts';
 import { CODE_EXPLAINER_SCRIPT, codeExplainerBody } from './code-explainer-page.ts';
 import { commandData } from './surface-adapters.ts';
@@ -38,7 +40,26 @@ export interface CodeExplainerFocus { path: string; line: number | null }
 /** The parts of an `explain code --repository` result the host resolves page requests against. */
 interface RepositoryExplanationView {
   entries?: Array<{ path: string }>;
-  files?: Array<{ path: string; symbols?: Array<{ line: number }> }>;
+  files?: Array<{ path: string; test?: boolean; symbols?: Array<{ line: number }> }>;
+}
+
+const SCRIPT_LANGUAGES = new Set(['javascript', 'javascriptreact', 'typescript', 'typescriptreact']);
+
+/** JavaScript and TypeScript answer callers only from the files their language service has loaded. */
+function isScriptPath(relative: string): boolean {
+  return SCRIPT_LANGUAGES.has(languageOf(relative));
+}
+
+/**
+ * Whether the repository names its JavaScript or TypeScript project. Without a jsconfig.json or
+ * tsconfig.json the language service knows only the files that are open, so a caller in a file
+ * nobody opened is invisible to it.
+ */
+async function hasScriptProject(root: string): Promise<boolean> {
+  for (const name of ['tsconfig.json', 'jsconfig.json']) {
+    try { await access(path.join(root, name)); return true; } catch { /* absent */ }
+  }
+  return false;
 }
 
 /**
@@ -129,6 +150,8 @@ export class CodeExplainerPanel {
   private builtRevision: string | null = null;
   private generation = 0;
   private depth = 1;
+  /** Chosen on the page; until then a Story that changed code opens on delta, one that has not on full. */
+  private view: CxView | null = null;
   private request = 0;
   private repositoryRequest = 0;
   /** The repository explanation the page is showing; page requests resolve against it. */
@@ -210,6 +233,13 @@ export class CodeExplainerPanel {
       const depth = integerField(message, 'depth');
       if (depth === null || depth < 1 || depth > CX_LIMITS.maxDepth) return;
       this.depth = depth;
+      void this.build();
+    },
+    'cx.view': (message) => {
+      if (!this.accept(message, { allowStale: true })) return;
+      const view = enumField(message, 'view', ['delta', 'full'] as const);
+      if (!view) return;
+      this.view = view;
       void this.build();
     },
     'cx.open': (message) => { if (this.accept(message)) void this.openSymbol(stringField(message, 'symbol')); },
@@ -308,6 +338,23 @@ export class CodeExplainerPanel {
     }
   }
 
+  /** The worktree's application code files, from `explain code --repository`; empty when it cannot say. */
+  private async repositoryCodeFiles(notes: string[]): Promise<Array<{ path: string; test: boolean }>> {
+    try {
+      const result = await this.client.run<unknown>(['explain', 'code', '--repository', '--json']);
+      const files = commandData<{ repository?: RepositoryExplanationView }>(result)?.repository?.files;
+      if (!Array.isArray(files)) {
+        notes.push('The worktree is larger than the budget for listing every code file, so the full view maps only the code already in this graph; open a folder under Repository to read it in parts.');
+        return [];
+      }
+      return files.filter((entry) => typeof entry?.path === 'string' && isCodeLanguage(languageOf(entry.path)))
+        .map((entry) => ({ path: entry.path, test: entry.test === true || isTestPath(entry.path) }));
+    } catch (error) {
+      notes.push(`The worktree's code files could not be listed: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  }
+
   private renewLease(): void {
     if (this.lease) {
       try { this.lease.renew(DEFAULT_COMPREHENSION_SLICE_LEASE_MS); return; } catch { this.lease = null; }
@@ -386,6 +433,17 @@ export class CodeExplainerPanel {
     const focus = this.focus;
     if (focus && !targets.includes(focus.path)) targets.push(focus.path);
     for (const file of changed) locations.modules.set(`m:${file.path}`, path.join(root, file.path));
+    const graphView: CxView = this.view ?? (targets.length ? 'delta' : 'full');
+    const scriptProject = await hasScriptProject(root);
+    const repositoryFiles = graphView === 'full' || (!scriptProject && targets.some(isScriptPath))
+      ? (this.progress('Listing the worktree\'s code files…'), await this.repositoryCodeFiles(notes)) : [];
+    if (!current()) return;
+    if (graphView === 'full') {
+      const code = repositoryFiles.filter((file) => !file.test).map((file) => file.path);
+      const mapped = code.slice(0, CX_LIMITS.fullFiles);
+      if (code.length > mapped.length) truncated.push(`the full view mapped the first ${mapped.length} of ${code.length} code files`);
+      for (const relative of mapped) if (!targets.includes(relative)) targets.push(relative);
+    }
 
     // Stage 1: symbols of every changed code file (and the focused one).
     let firstRequest = true;
@@ -491,6 +549,7 @@ export class CodeExplainerPanel {
       hovers: {},
       focus,
       depth: this.depth,
+      view: graphView,
       modelEnabled: vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') !== 'disabled',
       notes,
       truncated,
@@ -508,11 +567,29 @@ export class CodeExplainerPanel {
     };
     publish(true, 'Tracing calls…');
 
-    // Stage 2: call hierarchy from each changed (or focused) callable, out to the chosen depth.
+    if (!scriptProject) {
+      const others = repositoryFiles.map((file) => file.path).filter((relative) => isScriptPath(relative) && !files.has(relative));
+      const loaded = others.slice(0, CX_LIMITS.otherFiles);
+      if (loaded.length) {
+        this.progress(`Loading ${loaded.length} more code files for the language service…`);
+        await mapLimit(loaded, 6, async (relative) => {
+          await withTimeout(vscode.workspace.openTextDocument(vscode.Uri.file(path.join(root, relative))), REQUEST_MS);
+        });
+        if (!current()) return;
+        notes.push(`This repository has no jsconfig.json or tsconfig.json, so ${loaded.length} more code files were opened in the background for the language service to find callers and tests.`);
+        if (others.length > loaded.length) truncated.push(`callers were looked for in ${loaded.length} of ${others.length} other code files`);
+      }
+    }
+
+    // Stage 2: call hierarchy from each changed, focused or (in the full view) mapped callable, out to the chosen depth.
     const seedModel = this.model!;
-    const seeds = seedModel.symbols.filter((symbol) => (symbol.role === 'changed' || symbol.role === 'focus')
+    let seeds = seedModel.symbols.filter((symbol) => (symbol.role === 'changed' || symbol.role === 'focus' || symbol.role === 'repository')
       && symbol.start !== null && ['function', 'method', 'constructor', 'class'].includes(symbol.kind)
       && (symbol.kind !== 'class' || symbol.role === 'focus'));
+    if (graphView === 'full' && seeds.length > CX_LIMITS.fullSeeds) {
+      truncated.push(`calls were traced from the first ${CX_LIMITS.fullSeeds} of ${seeds.length} functions`);
+      seeds = seeds.slice(0, CX_LIMITS.fullSeeds);
+    }
     const rawByKey = new Map<string, { relative: string; raw: CxRawSymbol }>();
     const visitRaw = (relative: string, entries: CxRawSymbol[]) => {
       for (const entry of entries) {
@@ -522,7 +599,8 @@ export class CodeExplainerPanel {
     };
     for (const file of files.values()) if (file.symbols) visitRaw(file.path, file.symbols);
     let requests = 0;
-    const budget = () => requests < CX_LIMITS.callRequests;
+    const requestLimit = graphView === 'full' ? CX_LIMITS.fullCallRequests : CX_LIMITS.callRequests;
+    const budget = () => requests < requestLimit;
     const endFor = async (item: vscode.CallHierarchyItem): Promise<CxCallEnd> => {
       const relative = item.uri.scheme === 'file' ? await repositoryRelativePath(root, item.uri.fsPath) : null;
       const external = !relative || relative.split('/').includes('node_modules');
@@ -630,7 +708,7 @@ export class CodeExplainerPanel {
       frontier = next;
     }
     if (bounded) truncated.push(`the call graph stopped growing at ${CX_LIMITS.symbols} functions`);
-    if (!budget()) truncated.push(`call tracing stopped after ${CX_LIMITS.callRequests} language-service requests`);
+    if (!budget()) truncated.push(`call tracing stopped after ${requestLimit} language-service requests`);
     const described = (label: string, stats: ServiceStats) => `${label}: ${stats.asked} asked, ${stats.answered} answered`
       + (stats.empty ? `, ${stats.empty} empty` : '') + (stats.failed ? `, ${stats.failed} failed` : '')
       + (stats.timedOut ? `, ${stats.timedOut} timed out` : '') + (stats.errors.length ? ` (${stats.errors.join('; ')})` : '');
@@ -641,7 +719,7 @@ export class CodeExplainerPanel {
     publish(false, 'Finding tests and signatures…');
 
     // Stage 3: test references and signatures for what changed (and the focus).
-    const detailed = this.model!.symbols.filter((symbol) => (symbol.role === 'changed' || symbol.role === 'focus')
+    const detailed = this.model!.symbols.filter((symbol) => (symbol.role === 'changed' || symbol.role === 'focus' || symbol.role === 'repository')
       && rawByKey.has(symbol.key) && ['function', 'method', 'constructor', 'class'].includes(symbol.kind));
     const referenceTargets = detailed.slice(0, CX_LIMITS.referenceRequests);
     if (detailed.length > referenceTargets.length) truncated.push(`test references were looked up for the first ${referenceTargets.length} changed symbols`);

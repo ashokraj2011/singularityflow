@@ -25,7 +25,12 @@ export const CX_LIMITS = Object.freeze({
   referenceRequests: 40,
   hoverRequests: 40,
   maxDepth: 3,
-  otherFiles: 60
+  otherFiles: 60,
+  // The full view maps the worktree's own code, so it reads more files and asks more questions;
+  // still bounded, and every bound that is reached is named on the canvas.
+  fullFiles: 60,
+  fullSeeds: 100,
+  fullCallRequests: 360
 });
 
 /** VS Code's SymbolKind numbers, which the language services answer with. */
@@ -44,7 +49,10 @@ const CONTAINER_KINDS = new Set<number>([
 /** Variables, constants and properties count as callables only when their text defines a function. */
 const MAYBE_CALLABLE_KINDS = new Set<number>([SYMBOL_KIND.Variable, SYMBOL_KIND.Constant, SYMBOL_KIND.Property, SYMBOL_KIND.Field]);
 
-export type CxRole = 'changed' | 'focus' | 'caller' | 'callee' | 'test' | 'context' | 'external' | 'other';
+export type CxRole = 'changed' | 'focus' | 'repository' | 'caller' | 'callee' | 'test' | 'context' | 'external' | 'other';
+
+/** Delta draws what the Story changed and what it touches; full maps the current worktree's code. */
+export type CxView = 'delta' | 'full';
 export type CxStatus = 'added' | 'modified' | 'removed' | 'unchanged';
 export type CxSymbolKind = 'function' | 'method' | 'constructor' | 'class' | 'variable' | 'module-scope' | 'removed' | 'file';
 
@@ -143,6 +151,8 @@ export interface CxBuildInput {
   hovers: Record<string, { signature: string | null; doc: string | null }>;
   focus: { path: string; line: number | null } | null;
   depth: number;
+  /** Absent means delta, the view this explainer always drew. */
+  view?: CxView;
   modelEnabled: boolean;
   notes?: string[];
   truncated?: string[];
@@ -255,6 +265,7 @@ export interface CxModel {
   schema: number;
   id: string;
   mode: 'change' | 'source';
+  view: CxView;
   repository: { name: string; branch: string | null; head: string | null; base: string | null };
   story: null | {
     workId: string; title: string | null; phase: string | null; phaseLabel: string | null; phaseStatus: string | null;
@@ -1380,6 +1391,9 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
   };
   const downstream = distance(true);
   const upstream = distance(false);
+  const full = input.view === 'full';
+  const mapped = (symbol: CxSymbol) => ['function', 'method', 'constructor', 'class'].includes(symbol.kind)
+    || symbol.callers.length > 0 || symbol.callees.length > 0;
   for (const symbol of symbols.values()) {
     const module = modules.get(symbol.moduleId)!;
     const up = upstream.get(symbol.id);
@@ -1388,7 +1402,9 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     if (symbol.status !== 'unchanged') { symbol.role = 'changed'; symbol.depth = 0; }
     else if (focusSymbol && symbol.id === focusSymbol.id) { symbol.role = 'focus'; symbol.depth = 0; }
     else if (module.external) { symbol.role = 'external'; symbol.depth = down ?? up ?? null; }
-    else if (isTestPath(module.path) && up !== undefined) { symbol.role = 'test'; symbol.depth = up; }
+    // A test in the full map is drawn when it calls the code; near a change, when it reaches it.
+    else if (isTestPath(module.path) && (full ? symbol.callees.length > 0 : up !== undefined)) { symbol.role = 'test'; symbol.depth = full ? 1 : up!; }
+    else if (full && !isTestPath(module.path) && mapped(symbol)) { symbol.role = 'repository'; symbol.depth = 0; }
     else if (up !== undefined && (down === undefined || up <= down)) { symbol.role = 'caller'; symbol.depth = up; }
     else if (down !== undefined) { symbol.role = 'callee'; symbol.depth = down; }
     else symbol.role = 'context';
@@ -1403,6 +1419,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
       : isTestPath(module.path) && (changes.has(module.path) || has('changed') || has('test') || has('caller')) ? 'test'
         : changes.has(module.path) || has('changed') ? 'changed'
           : has('focus') ? 'focus'
+            : has('repository') ? 'repository'
             : has('caller') && !has('callee') ? 'caller'
               : has('callee') && !has('caller') ? 'callee'
                 : has('caller') ? 'caller' : 'context';
@@ -1461,6 +1478,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     else if (symbol.role === 'caller' || symbol.role === 'test') sentences.push([{ t: `It is unchanged. It is shown because it calls changed code${symbol.depth && symbol.depth > 1 ? `, ${symbol.depth} calls away` : ''}.` }]);
     else if (symbol.role === 'callee') sentences.push([{ t: `It is unchanged. It is shown because changed code calls it${symbol.depth && symbol.depth > 1 ? `, ${symbol.depth} calls away` : ''}.` }]);
     else if (symbol.role === 'focus') sentences.push([{ t: 'It is the code you asked about; this change does not edit it.' }]);
+    else if (symbol.role === 'repository') sentences.push([{ t: `It is part of the full map of the current worktree${input.story ? '; this Story does not change it' : ''}.` }]);
     if (symbol.kind !== 'file' && symbol.kind !== 'module-scope' && symbol.kind !== 'removed' && !module.external) {
       if (symbol.callers.length) sentences.push([{ t: `It is called from ${plural(symbol.callers.length, 'place')}: ` }, ...list(symbol.callers, module.id), { t: '.' }]);
       else if (symbol.callStatus === 'complete') sentences.push([{ t: 'The language service found no callers in this workspace.' }]);
@@ -1553,6 +1571,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     schema: CX_SCHEMA,
     id,
     mode: view || input.change.patch ? 'change' : 'source',
+    view: input.view === 'full' ? 'full' : 'delta',
     repository: { name: input.repository.name, branch: input.repository.branch, head: input.repository.head, base: input.change.base },
     story: story ? {
       workId: story.workId,

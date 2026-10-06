@@ -19,6 +19,14 @@ function at the cursor (and works on code the change did not touch). The sidebar
   code (documents, configuration) share one *Other changed files* card. Singularity Flow's own files
   (its governed roots, agent definitions and `.singularity-flow/` state) are never drawn, and
   **Explain This Code** refuses them: they are not application code.
+
+  **View** chooses what the graph covers:
+  - **Delta** draws what the Story changed and the code it calls or is called by.
+  - **Full** maps every function in the current worktree's code and how they call each other, with
+    anything the Story changed still marked as changed.
+
+  The explainer opens on Delta when the Story has changed code and on Full when it has not. **Re-index**
+  rebuilds the chosen view from the worktree as it is now, files not yet committed included.
 - **Inspector.** For the selected function: an explanation written from the facts below, its
   estimated complexity, size, callers, calls and test references, its typed signature, the exact
   lines that changed inside it, and links to every caller, callee and test reference. Selecting a call
@@ -31,7 +39,7 @@ function at the cursor (and works on code the change did not touch). The sidebar
   - each file's declarations and `@clause`/`@ac` tags;
   - the clauses those tags name.
 
-  It opens on its own when there is no change to explain. A repository over the AST budget is
+  In Delta it opens on its own when there is no change to explain. A repository over the AST budget is
   explained one folder at a time: choose a folder to explain it, and **Up** to go back. Choosing a
   declaration opens it in the dependency graph, with its callers, callees and tests. The page asks
   by entry index; the host resolves each request against the explanation it read.
@@ -41,8 +49,8 @@ function at the cursor (and works on code the change did not touch). The sidebar
 Interaction: drag to pan, ⌘/Ctrl + wheel (or pinch) to zoom, drag a card's header to move it, click a
 row to inspect it, double-click (or Enter) to open it in the editor, ←/→ to move to a caller or
 callee, ↑/↓ within a card, `/` to find, `I` to isolate the selection's neighbourhood, `F` to fit,
-`L` to lay the graph out again, `M` for the overview. Filters show or hide changed, caller, callee,
-test, external and other cards; **Call depth** 1–3 follows callers of callers and callees of callees.
+`L` to lay the graph out again, `M` for the overview. Filters show or hide changed, repository, caller,
+callee, test, external and other cards; **Call depth** 1–3 follows callers of callers and callees of callees.
 
 ## Where the facts come from
 
@@ -50,7 +58,7 @@ test, external and other cards; **Call depth** 1–3 follows callers of callers 
 |---|---|---|
 | What changed | The Story's leased comprehension capture: the XPL2 `change` view and its bounded patch. Singularity Flow's own files are not part of it. When the patch preview is not available (a very large change can exceed it), the base version of each changed code file is read through `comprehension source` (digest-checked) and diffed line by line against the working text. | — |
 | Which function a line is in | The editor's document symbols; a comment or decorator block directly above a declaration belongs to it. A removed line of a rewritten region follows the most similar added line; a function declared only on removed lines is listed as removed. With no language service, an outline read from the file's own text, marked *text outline*. | A text outline gives positions only, not calls. |
-| Calls | The editor's call hierarchy (`vscode.prepareCallHierarchy`, incoming and outgoing calls). | Static resolution only: dynamic dispatch, callbacks and reflection can add calls it cannot see. |
+| Calls | The editor's call hierarchy (`vscode.prepareCallHierarchy`, incoming and outgoing calls). A JavaScript or TypeScript repository without a `jsconfig.json` or `tsconfig.json` lets the language service see only open files, so the explainer first opens the worktree's other code files in the background (up to 60) and says so in its notes. | Static resolution only: dynamic dispatch, callbacks and reflection can add calls it cannot see. |
 | Test references | The editor's references, kept only when they are in a test file. | A test that names a function does not prove it exercises the change. |
 | Signature and documentation | The editor's hover for the symbol; otherwise the declaration text. | — |
 | Complexity | One plus the decision points counted in the function's own text, strings and comments removed. Bands: ≤5 simple, ≤10 moderate, ≤20 complex. | An estimate, not a syntax-tree measurement. |
@@ -64,7 +72,8 @@ language-service requests were answered, empty or failed.
 ## Boundaries
 
 - **Bounded.** At most 40 changed code files are analysed, 120 call-hierarchy requests and 240
-  functions per build, and 40 reference and hover lookups; anything cut is named in the view.
+  functions per build, and 40 reference and hover lookups. The full view maps up to 60 code files and
+  traces calls from up to 100 functions within 360 requests. Anything cut is named in the view.
 - **Live but pinned.** A build describes one moment. Saving a file shown, or a newer capture, raises
   *The repository changed since this view was built* with **Refresh**; nothing rebuilds under the reader.
 - **Closed messages.** The page sends a model id and a symbol, file or call id; the host resolves it

@@ -858,3 +858,23 @@ test('a Story keeps the skills the attachments file gave its agents when it star
   assert.match(rendered.text, /### Skill: Style guide \(`style-guide`\)[\s\S]*When to use it: When you name things\n\nUse the names the module already uses\./);
   assert.deepEqual(rendered.warnings, []);
 });
+
+test('a skill from a link for a seeded workflow\'s agent goes to the skill master and the attachments file', async (t) => {
+  const root = await seededRepository(t, 'sflow-skill-link-seeded-');
+  const developerBefore = await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8');
+  const link = await staged(root, '# Release notes\n\n- Write what changed for users.\n', 'https://skills.example.org/release-notes.md');
+  const refused = await planStudioChangeSet(root, changeSet([
+    { op: 'import.skill', agent: 'developer', id: 'release-notes', source: 'https://skills.example.org/release-notes.md', sha256: link.sha, phases: ['implementation'] }
+  ]), { imports: link.imports });
+  assert.equal(refused.valid, false);
+  assert.equal(refused.problems[0].code, 'SEEDED_WORKFLOW_READ_ONLY');
+  assert.match(refused.problems[0].message, /^Developer belongs to a seeded workflow, so its own skill tables are read-only\. Add the skill to the skill master instead \(an import without an agent\) and attach it to Developer; the attachment is kept in singularity\/skill-library\/attachments\.yml\.$/);
+  const routed = await planStudioChangeSet(root, changeSet([
+    { op: 'import.librarySkill', id: 'release-notes', sha256: link.sha, description: 'Writes release notes. Use it before a change is published.' },
+    { op: 'skill.attach', skill: 'release-notes', agent: 'developer', phases: ['implementation'] }
+  ]), { write: true, imports: link.imports });
+  assert.equal(routed.valid, true, JSON.stringify(routed.problems));
+  assert.deepEqual(routed.files.map((file) => file.path).sort(), ['singularity/imports.lock.yml', ATTACHMENTS_PATH, 'singularity/skill-library/release-notes/SKILL.md']);
+  assert.equal(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), developerBefore);
+  await loadDefinition(root);
+});

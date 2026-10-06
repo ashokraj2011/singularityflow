@@ -1,3 +1,4 @@
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -34,6 +35,8 @@ async function repository({ entry = { type: 'stdio', command: process.execPath, 
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'MCP Tester'], root); run('git', ['config', 'user.email', 'mcp@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# MCP\n');
   run(process.execPath, [bin, 'init'], root);
+  // Imports into an agent's own tables need an agent the repository owns; seeded agents are read-only.
+  await repositoryOwnedWorkflows(root);
   const file = path.join(root, 'singularity/workflow.yml');
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
   document.setIn(['mcpServers', 'docs'], document.createNode({ label: 'Docs server', ...(sources ? { sources } : {}) }));
@@ -151,7 +154,7 @@ test('an MCP skill is previewed with consent, vendored, read offline, kept by re
   const missing = await planStudioChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [{ ...changes[0], id: 'again', sha256: 'f'.repeat(64) }] });
   assert.equal(missing.problems[0].code, 'IMPORT_NOT_STAGED');
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'import from mcp'], root);
-  const exported = run(process.execPath, [bin, 'workflow', 'export', '--workflow', 'feature', '--out', path.join(root, '..', `${path.basename(root)}.json`)], root, { allowFailure: true });
+  const exported = run(process.execPath, [bin, 'workflow', 'export', '--workflow', 'repo-feature', '--out', path.join(root, '..', `${path.basename(root)}.json`)], root, { allowFailure: true });
   assert.notEqual(exported.status, 0);
   assert.match(exported.stderr, /imported from an MCP server, which a workflow bundle cannot carry yet/);
 });

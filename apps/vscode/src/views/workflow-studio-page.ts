@@ -815,6 +815,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     skillsView: function () { return skillsView(); }, openSkillForm: function () { return openSkillForm.apply(null, arguments); },
     saveSkillForm: function () { return saveSkillForm.apply(null, arguments); }, openAttachForm: function () { return openAttachForm.apply(null, arguments); },
     saveAttach: function () { return saveAttach.apply(null, arguments); }, detachSkill: function () { return detachSkill.apply(null, arguments); },
+    keepsSkillsInFile: function () { return keepsSkillsInFile.apply(null, arguments); }, addPreviewedImport: function () { return addPreviewedImport.apply(null, arguments); },
+    library: function () { return library(); },
     authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); },
     addStepAction: function () { return addStepAction.apply(null, arguments); }, setActionTarget: function () { return setActionTarget.apply(null, arguments); },
     setActionTrigger: function () { return setActionTrigger.apply(null, arguments); }, actionLine: function () { return actionLine.apply(null, arguments); },
@@ -3699,12 +3701,20 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else if (preview.as === 'skill') {
       var agents = Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
       var phaseIds = target.agent ? (agentSteps(target.agent).length ? agentSteps(target.agent) : Object.keys(state.draft.phases)) : [];
+      // An agent whose own file this repository cannot change gets the skill from the skill master.
+      var viaLibrary = Boolean(target.agent) && keepsSkillsInFile(target.agent);
+      var plainSkill = !/^\uFEFF?---\r?\n/.test(preview.text || '');
       card.appendChild(el('div', { class: 'grid-2' },
         field('import-agent', 'Which agent uses it', select('import-agent', [{ value: '', label: 'Choose an agent' }].concat(agents.map(function (id) { return { value: id, label: state.draft.agents[id].label }; })), target.agent, function (value) { target.agent = value; target.phases = target.phases.filter(function (phaseId) { return agentSteps(value).indexOf(phaseId) >= 0; }); render(); })),
-        field('import-id', 'Skill ID', textInput('import-id', target.id, function (value) { target.id = kebab(value); requestRender(); }), 'Shown in the agent\'s skills table.')));
+        field('import-id', 'Skill ID', textInput('import-id', target.id, function (value) { target.id = kebab(value); requestRender(); }), viaLibrary ? 'Its name in the skill master.' : 'Shown in the agent\'s skills table.')));
       if (target.agent) card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'In which of its steps (none chosen: every step it drafts)' }),
         stepChecks('import-step-', target.phases, phaseIds, function (phases) { target.phases = phases; })));
-      card.appendChild(el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'import-optional', checked: target.optional, onchange: function (event) { target.optional = event.target.checked; } }), 'Optional: the agent works without it'));
+      if (viaLibrary) {
+        card.appendChild(el('div', { class: 'callout wait', text: attachmentHint(target.agent) + ' So this skill is added to the skill master and attached to ' + state.draft.agents[target.agent].label + ' for the steps chosen.' }));
+        if (plainSkill) card.appendChild(field('import-description', 'What it does and when to use it', textInput('import-description', target.description || '', function (value) { target.description = value; }, { placeholder: 'This file is plain Markdown; say what the skill is for.' })));
+      } else {
+        card.appendChild(el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'import-optional', checked: target.optional, onchange: function (event) { target.optional = event.target.checked; } }), 'Optional: the agent works without it'));
+      }
     } else if (preview.as === 'template') {
       card.appendChild(el('div', { class: 'grid-2' },
         field('import-id', 'Template ID', textInput('import-id', target.id, function (value) { target.id = kebab(value); requestRender(); })),
@@ -3742,8 +3752,20 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else if (preview.as === 'skill') {
       if (!target.agent) { setStatus('Choose the agent that uses this skill.'); return; }
       if (!target.id) { setStatus('Give the skill an ID.'); return; }
-      queueImport({ op: 'import.skill', agent: target.agent, id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), optional: target.optional, replace: replace },
-        'Skill ' + target.id + ' for ' + state.draft.agents[target.agent].label + ' added to your changes.');
+      if (keepsSkillsInFile(target.agent)) {
+        // Into the skill master, attached to the agent in the attachments file.
+        var viaLibrary = { op: 'import.librarySkill', id: target.id, source: preview.reference, sha256: preview.sha256, replace: replace };
+        if (!/^\uFEFF?---\r?\n/.test(preview.text || '')) {
+          if (!String(target.description || '').trim()) { setStatus('Say what the skill does and when to use it.'); return; }
+          viaLibrary.description = String(target.description).trim();
+        }
+        var owner = state.draft.agents[target.agent];
+        owner.skills = (owner.skills || []).filter(function (entry) { return entry.id !== target.id; }).concat([{ id: target.id, phases: target.phases.slice(), use: '' }]);
+        queueImport(viaLibrary, 'Skill ' + target.id + ' added to the skill master and attached to ' + owner.label + ' in your changes.');
+      } else {
+        queueImport({ op: 'import.skill', agent: target.agent, id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), optional: target.optional, replace: replace },
+          'Skill ' + target.id + ' for ' + state.draft.agents[target.agent].label + ' added to your changes.');
+      }
     } else if (preview.as === 'template') {
       if (!target.id) { setStatus('Give the template an ID.'); return; }
       var change = { op: 'import.template', id: target.id, source: preview.reference, sha256: preview.sha256, phases: target.phases.slice(), replace: replace };
@@ -4356,10 +4378,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
    * Where an agent's skills are written: an agent this repository owns keeps them in its own file;
    * a packaged agent, or one a seeded workflow uses, in the attachments file, so it is never changed.
    */
+  function keepsSkillsInFile(agentId) {
+    var agent = state.draft.agents[agentId];
+    return Boolean(agent) && !(agent.scope === 'repository' && !protectedObject('agents', agentId));
+  }
   function attachmentHint(agentId) {
     var agent = state.draft.agents[agentId];
     if (!agent) return null;
-    if (agent.scope === 'repository' && !protectedObject('agents', agentId)) return 'Kept in ' + agent.label + '\'s own agent file.';
+    if (!keepsSkillsInFile(agentId)) return 'Kept in ' + agent.label + '\'s own agent file.';
     return agent.label + (protectedObject('agents', agentId) ? ' belongs to a seeded workflow' : ' comes with Singularity Flow') + ', so its skills are kept in ' + attachmentsPath() + ' and the agent itself is not changed.';
   }
   /** Use a skill in one more step: added to the steps it applies in, or attached for this step only. */

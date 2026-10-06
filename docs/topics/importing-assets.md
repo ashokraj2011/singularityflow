@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 4
+version: 5
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -31,7 +31,7 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 ## Guided workflow
 
 1. Preview: `singularity-flow import preview https://example.org/skills/security-review/SKILL.md --as skill`. The engine fetches the file once (public HTTPS only, private addresses refused, at most 1 MiB unless `--max-bytes` says otherwise), refuses web pages, secrets and template values it does not support, and stages the exact bytes.
-2. Decide what it is for. A skill either belongs to one agent and, optionally, to some of its steps (`--agent architect --phases design`), or, without `--agent`, goes into the skill master, where any agent can attach it (`sflow explain skill-master`; plain Markdown then needs `--description`). A template can become the default template of steps (`--phases design`). An agent's file names its own ID; `--without-defaults` keeps it from taking over steps that already have a drafting agent.
+2. Decide what it is for. A skill either belongs to one agent and, optionally, to some of its steps (`--agent architect --phases design`), or, without `--agent`, goes into the skill master, where any agent can attach it (`sflow explain skill-master`; plain Markdown then needs `--description`). A seeded workflow's agents are read-only, so `--agent` refuses them: import the skill without `--agent`, then `singularity-flow skill attach <ID> --agent <AGENT> --phases <STEPS>`. In Workflow Studio, a skill from a link for such an agent goes into the skill master and is attached in `singularity/skill-library/attachments.yml` in one change. A template can become the default template of steps (`--phases design`). An agent's file names its own ID; `--without-defaults` keeps it from taking over steps that already have a drafting agent.
 3. Add exactly what you saw: `singularity-flow import add <LINK> --as skill --agent architect --phases design --sha256 <HASH> --propose`. Without `--sha256` the command shows the content and refuses.
 4. Review the change. A skill for one agent becomes a row in the agent's `## Remote skills` table, its entry in `singularity/agents.lock.yml`, and a copy under `singularity/imports/agents/`. A skill for the skill master becomes `singularity/skill-library/<id>/SKILL.md`. A template becomes `<templatesRoot>/imported/<id>.md` and a catalog entry. `singularity/imports.lock.yml` records each source.
 5. To use a marketplace, trust it once: `singularity-flow marketplace add acme --index https://catalog.example.org/sflow-marketplace.json --allowed-origin https://cdn.example.org --propose`. Browse it with `singularity-flow marketplace browse acme`, then preview and add `market:acme/<entry>` exactly like a link. Each entry pins its file by SHA-256; a file that does not match is refused.

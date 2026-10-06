@@ -1,3 +1,4 @@
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -39,6 +40,8 @@ async function repository() {
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Market Tester'], root); run('git', ['config', 'user.email', 'market@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Market\n');
   run(process.execPath, [bin, 'init'], root);
+  // Imports into an agent's own tables need an agent the repository owns; seeded agents are read-only.
+  await repositoryOwnedWorkflows(root);
   const file = path.join(root, 'singularity/workflow.yml');
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
   document.setIn(['marketplaces'], document.createNode({ acme: { label: 'Acme', index: INDEX, allowedOrigins: ['https://cdn.example.org'] } }));

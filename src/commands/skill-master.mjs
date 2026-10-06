@@ -98,7 +98,8 @@ function printSkill(model, skill) {
   console.log('');
   if (!skill.usedBy.length) console.log('No agent uses it yet. Attach it with: singularity-flow skill attach ' + skill.id + ' --agent <AGENT> [--phases a,b] [--use "<when>"]');
   for (const use of skill.usedBy) {
-    console.log(`Used by ${labels.get(use.agent) ?? use.agent} ${use.phases.length ? `in ${use.phases.join(', ')}` : 'in every step it drafts'}${use.use ? `: ${use.use}` : ''}`);
+    console.log(`Used by ${labels.get(use.agent) ?? use.agent} ${use.phases.length ? `in ${use.phases.join(', ')}` : 'in every step it drafts'}${use.use ? `: ${use.use}` : ''}`
+      + (use.origin === 'attachments' ? ` (kept in ${model.skillAttachmentsPath})` : ''));
   }
 }
 

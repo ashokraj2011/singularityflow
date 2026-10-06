@@ -1430,7 +1430,11 @@ class StudioCandidate {
   }
 
   importSkill({ agent: agentId, id, sha256, phases = [], optional = false, replace = false }) {
-    const agent = this.touch(this.requireAgent(requireId(agentId, 'An agent ID')));
+    const target = this.requireAgent(requireId(agentId, 'An agent ID'));
+    if (this.protectedAgents.has(target.id)) {
+      throw new SingularityFlowError(`${target.label} belongs to a seeded workflow, so its own skill tables are read-only. Add the skill to the skill master instead (an import without an agent) and attach it to ${target.label}; the attachment is kept in ${SKILL_ATTACHMENTS_PATH}.`, { code: 'SEEDED_WORKFLOW_READ_ONLY' });
+    }
+    const agent = this.touch(target);
     const skillId = requireId(id, 'A skill ID');
     const staged = this.stagedContent(sha256, 'skill', { id: skillId });
     const url = sourceUrl(staged.source);

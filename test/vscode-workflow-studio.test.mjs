@@ -1664,3 +1664,32 @@ test('a step\'s skills are added from its properties, a seeded workflow\'s steps
   assert.ok(entry.phases.length && !entry.phases.includes('verification'), JSON.stringify(entry));
   assert.ok(entry.phases.every((phaseId) => every.state().draft.phases[phaseId].agent === 'qa'), 'the other steps QA drafts');
 });
+
+test('a skill from a link for a seeded agent is added to the skill master and attached, as one change set the engine accepts', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { stageImport } = await import(path.join(packageRoot, 'src/asset-import.mjs'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-link-seeded-'));
+  run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
+  run(process.execPath, [bin, 'init'], root);
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  assert.equal(page.keepsSkillsInFile('developer'), true, 'Developer belongs to the seeded Feature workflow');
+  const text = '# Release notes\n\n- Write what changed for users.\n';
+  const stagedImport = await stageImport(root, { bytes: Buffer.from(text), source: { kind: 'url', url: 'https://skills.example.org/release-notes.md', resolvedUrl: 'https://skills.example.org/release-notes.md' } });
+  const lib = page.library();
+  lib.as = 'skill';
+  lib.preview = { as: 'skill', reference: 'https://skills.example.org/release-notes.md', sha256: stagedImport.sha256, bytes: text.length, text, id: 'release-notes' };
+  lib.target = { agent: 'developer', id: 'release-notes', phases: ['implementation'], optional: false, label: '', withoutDefaults: false };
+  page.addPreviewedImport();
+  assert.equal(page.state().status, 'Say what the skill does and when to use it.', 'plain Markdown needs a description first');
+  assert.deepEqual(page.state().draft.imports, [], 'nothing is queued without it');
+  lib.target.description = 'Writes release notes. Use it before a change is published.';
+  page.addPreviewedImport();
+  const changeSet = page.changeSetFrom(model, page.state().draft);
+  assert.deepEqual(changeSet.changes.map((change) => change.op).sort(), ['import.librarySkill', 'skill.attach']);
+  assert.deepEqual(changeSet.changes.find((change) => change.op === 'skill.attach'), { op: 'skill.attach', skill: 'release-notes', agent: 'developer', phases: ['implementation'], use: '' });
+  const plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((file) => file.path).sort(), ['singularity/imports.lock.yml', 'singularity/skill-library/attachments.yml', 'singularity/skill-library/release-notes/SKILL.md']);
+});

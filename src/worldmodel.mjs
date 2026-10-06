@@ -35,7 +35,8 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import {
-  changedSnapshotPaths, expectedLegacyGroundingPlan, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
+  changedSnapshotPaths, expectedLegacyGroundingPlan, groundingMode, repositoryContentSnapshot,
+  resolveWorldModelAgentPrompt, resolveWorldModelContext,
   resolveWorldModelSource, validateWorldModelDirectory, worldModelCommit, worldModelFreshness,
   worldModelSourceSnapshot
 } from './grounding.mjs';
@@ -1147,7 +1148,10 @@ export async function resolveInspectedGrounding(root, inspected, phaseId, {
         }
       );
     }
-    return inspected.resolved;
+    return includeAgentPrompt ? {
+      ...inspected.resolved,
+      agentPrompt: await resolveWorldModelAgentPrompt(root, inspected.config)
+    } : inspected.resolved;
   }
   return resolveWorldModelContext(root, inspected.config, phaseId, {
     plan: inspected.plan,
@@ -3977,9 +3981,7 @@ async function context(root, config, phase, options) {
   const staleness = assertWorldModelStaleness(config.staleness, state.fresh, staleMessage);
   if (staleness.warns) console.warn(`Warning: ${staleMessage}`);
   const selected = [...resolved.selected];
-  if (optionBoolean(options, 'agent', true) && config.agentPrompt) selected.unshift({
-    relative: config.agentPrompt, absolute: path.join(root, config.agentPrompt), level: 0, reason: 'active agent prompt'
-  });
+  if (resolved.agentPrompt) selected.unshift(resolved.agentPrompt);
   if (optionBoolean(options, 'concat')) {
     for (const item of selected) {
       console.log(`\n<!-- L${item.level} ${item.relative}: ${item.reason} -->\n`);
@@ -3988,7 +3990,7 @@ async function context(root, config, phase, options) {
     }
   } else {
     console.log(`# World-model context: phase=${phase} commit=${String(state.built).slice(0, 10)}${state.fresh ? '' : ' STALE'}`);
-    selected.forEach((item) => console.log(`L${item.level}  ${item.absolute ? posix(path.relative(root, item.absolute)) : path.posix.join(config.outputDir, item.relative)}  # ${item.reason}`));
+    selected.forEach((item) => console.log(`L${item.level}  ${item.logicalId ?? (item.absolute ? posix(path.relative(root, item.absolute)) : path.posix.join(config.outputDir, item.relative))}  # ${item.reason}`));
   }
 }
 
@@ -5794,7 +5796,10 @@ export async function worldModelCommand(root, positionals, options) {
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
-    const config = await load(targetRoot, { capabilityId: optionString(options, 'capability') });
+    const config = await load(targetRoot, {
+      capabilityId: optionString(options, 'capability'),
+      ...(command === 'context' ? { phase: positionals[2] ?? optionString(options, 'phase') } : {})
+    });
     const registeredV4 = isWorldModelV4(config, options);
     if (v4OnlyCommands.has(command) || (versionedCommands.has(command) && registeredV4)) {
       return handleWorldModelV4Command(targetRoot, config, command, positionals, options);

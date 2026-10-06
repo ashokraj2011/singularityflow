@@ -1132,6 +1132,54 @@ export async function resolveWorldModelSource(root, config, {
   };
 }
 
+/** Agent sources in an accepted Story are logical identities, not checkout filenames. */
+export async function resolveWorldModelAgentPrompt(root, config) {
+  const source = config.agentPrompt;
+  if (!source) return null;
+  const execution = config.executionContext;
+  const agent = execution?.agent ?? Object.values(config.definition?.agents ?? {})
+    .find((candidate) => candidate.source === source);
+  const saved = execution?.mode === 'workflow-snapshot';
+  if (saved || source.startsWith('agent:')) {
+    // The loader has already verified and retained the Story closure. Never substitute a live
+    // agent, or reopen its materialized blob, after that operation boundary.
+    if (!saved || !agent || source !== `agent:${execution.agentId}`
+        || agent.source !== source || agent.id !== execution.agentId
+        || typeof agent.text !== 'string'
+        || execution.identity?.agentBlobSha256 !== `sha256:${agent.sha256}`) {
+      throw new SingularityFlowError(`Saved governed-agent prompt is unavailable: ${source}`, {
+        code: 'WFA_DEPENDENCY_UNAVAILABLE'
+      });
+    }
+    return {
+      relative: source, logicalId: source, absolute: null, body: agent.text,
+      sha256: agent.sha256, size: Buffer.byteLength(agent.text),
+      level: 0, reason: 'active agent prompt', source: 'workflow-snapshot'
+    };
+  }
+  // Live repository and packaged agents also carry the exact bytes observed by their loader.
+  // Keeping those bytes avoids a second read that could render different content after hashing.
+  const absolute = agent?.file ?? path.resolve(root, source);
+  let body = agent?.text;
+  if (typeof body !== 'string') {
+    try { body = await readFile(absolute, 'utf8'); }
+    catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      throw new SingularityFlowError(`Active governed-agent prompt is missing: ${source}`);
+    }
+  }
+  const sha256 = createHash('sha256').update(body).digest('hex');
+  if (agent?.sha256 && sha256 !== agent.sha256) {
+    throw new SingularityFlowError(`Active governed-agent prompt changed: ${source}`, {
+      code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED'
+    });
+  }
+  return {
+    relative: source, absolute, body, sha256, size: Buffer.byteLength(body),
+    level: 0, reason: 'active agent prompt', source: agent?.scope ?? 'repository'
+  };
+}
+
 export async function resolveWorldModelContext(root, config, phase, {
   task = null, evidence = false, includeAgentPrompt = false, plan: suppliedPlan = null,
   located: suppliedLocated = null
@@ -1251,10 +1299,7 @@ export async function resolveWorldModelContext(root, config, phase, {
   for (const relative of config.context?.always ?? []) {
     if (!knownCorePaths.has(relative)) await add(relative, 0, 'shared repository context');
   }
-  if (includeAgentPrompt && config.agentPrompt) {
-    const info = await snapshot(path.join(root, config.agentPrompt));
-    if (!info.exists) throw new SingularityFlowError(`Active governed-agent prompt is missing: ${config.agentPrompt}`);
-  }
+  const agentPrompt = includeAgentPrompt ? await resolveWorldModelAgentPrompt(root, config) : null;
   for (const selection of plan.views) {
     const entry = worldModelSelectionEntry(normalizedManifest, selection, {
       allowLegacyFallback: legacyFallback
@@ -1282,7 +1327,7 @@ export async function resolveWorldModelContext(root, config, phase, {
   return {
     manifest, normalizedManifest, manifestContentSha256,
     validatedModelFiles: registeredFiles,
-    freshness, selected, directory, plan, located
+    freshness, selected, directory, plan, located, agentPrompt
   };
 }
 

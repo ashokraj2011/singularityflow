@@ -13,7 +13,7 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
-import { expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
+import { expectedPhaseEvidencePaths, expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -88,6 +88,9 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
     for (const relative of await expectedPreparationContextPaths(root, config, workflow, phase, {
       itemRoot, generation, changedPaths: relevantPaths
     })) expected.add(relative);
+    for (const relative of await expectedPhaseEvidencePaths(root, config, workflow, phase, {
+      itemRoot, generation, changedPaths: relevantPaths
+    })) expected.add(relative);
   }
   if (!relevantPaths.length && simpleStatus && statusLines.every((line) => line.startsWith('??'))) {
     return null;
@@ -122,7 +125,7 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
         ? `Review the exact listed application diff since published generation ${applicationScope.publishedGeneration}, then use the returned confirmed rollover command. The prior publication stays immutable; recovery does not commit, stash or discard these edits.`
         : 'Review the listed source, test and documentation changes within the verified open generation, then continue that draft and recheck prepublish. This scope check does not establish authorship or make unfinished artifacts or failing tests valid. Recovery does not commit, stash or discard these edits.'
       : guided
-      ? 'Only exact current-phase preparation paths changed. Review their Git diff, especially workflow.json; these are uncommitted authoring bytes, not publication authority. Continue only if the changes match the current phase. Recovery will not discard or stash them.'
+      ? 'Only exact current-phase preparation or planned evidence paths changed. Review their Git diff, especially workflow.json; these are uncommitted authoring bytes, not publication authority. Continue only if the changes match the current phase. Recovery will not discard or stash them.'
       : 'Uncommitted changes include paths or Git operations outside exact current-phase preparation. Review them manually; recovery will not discard or stash them.'
   };
 }

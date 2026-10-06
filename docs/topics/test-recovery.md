@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 11
+version: 12
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -48,6 +48,31 @@ select changed-only testing, accept a pre-existing failure, or enable this intak
 - **VS Code:** the Start Work form shows the pilot only when the engine advertises it. Review the observed baseline and complete plan, then explicitly confirm. The current phase's **Test policy and recovery** action, or **Review Story Test Policy and Recovery** in the command palette, reads the policy and previews an approved runner amendment or missing local review origin. A returned review action stages the exact command in a terminal without pressing Enter; execute it yourself to begin live review. A UI selection is not human approval. Unsupported choices remain unavailable.
 
 ## Guided workflow
+
+### Test commands and configuration adoption
+
+The engine may resolve a supported test command directly from the affected module's manifests.
+`testExecution.commands[].argvSource: inferred` is not a missing policy or an approval blocker:
+use the returned argv, working directory and structured reporter. Publication independently runs
+the required tests and records their evidence. Only missing, invalid, ambiguous or explicitly
+policy-blocked runners require configuration repair.
+
+VS Code's main Navigator has **Configuration approvals**, opening Workflow Studio's **Changes**
+queue for workflow, agent and test-configuration proposals. **Reviews** separately links both that
+queue and **Setup & capability proposals**. Opening either list never approves anything.
+
+Activating `sflow/config` does not replace an existing Story's saved policy. When an explicit
+test-command adoption is needed, preview `story test-policy amend`, then have the authorized human
+execute the returned exact apply command in a live terminal. At its confirmation prompt, type
+`Amend test command`, or press Enter to cancel. Surrounding whitespace is ignored; the words and
+case must still match. A mismatch explains the expected phrase and allows up to three attempts.
+Live review cards and prompts use terminal stderr, so `--json` cannot buffer them out of sight;
+stdout remains reserved for the command result. Copilot must never answer the human confirmation itself.
+
+An open phase may contain an exact evidence file named for that phase in its approved, committed
+planning claim map. Recovery classifies that bounded, regular, non-symlink file as current-phase
+authoring, not unrelated work. This does not validate its contents or mark a test passed. Unknown
+files, invalid plan bindings, unsafe paths and protected changes still require manual review.
 
 ### Intake choices and baseline scope
 

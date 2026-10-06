@@ -1156,6 +1156,47 @@ test('new Story recovery preserves composed prompt and clarification records as 
   assert.deepEqual(protectedAction.unexpectedPaths, [answers.path]);
 });
 
+test('recovery recognizes exactly planned phase evidence without admitting unknown or protected paths', async t => {
+  const { root, config, workflow, phase } = await fixture('recovery-planned-evidence');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const itemRoot = `singularity/work-items/${workflow.workItem.id}`;
+  const evidence = `${itemRoot}/evidence/observed.png`;
+  const claimPath = `${itemRoot}/context/claims/plan-gen1-planned.json`;
+  const claims = { schemaVersion: currentSchemaVersion('specification-claim-map'),
+    kind: 'planned', workId: workflow.workItem.id, phase: 'plan', generation: 1,
+    claims: { [`${workflow.workItem.id}:AC-001`]: {
+      expectedPaths: [evidence], tests: ['test/observed.test.mjs'], steps: [phase.id], testDisposition: 'applicable'
+    } } };
+  workflow.phases.plan = { ...structuredClone(phase), id: 'plan', status: 'approved', generation: 1,
+    claimMaps: { planned: { path: claimPath, generation: 1, sha256: createHash('sha256').update(canonicalJson(claims)).digest('hex') } } };
+  workflow.phaseOrder.unshift('plan');
+  workflow.resolution.plannedClaims = { mode: 'required', owners: { [phase.id]: 'plan' } };
+  await mkdir(path.dirname(path.join(root, claimPath)), { recursive: true });
+  await writeFile(path.join(root, claimPath), canonicalJson(claims));
+  git(root, 'add', '.'); git(root, 'commit', '-m', 'Committed upstream plan');
+  await mkdir(path.dirname(path.join(root, evidence)), { recursive: true });
+  await writeFile(path.join(root, evidence), 'observed screenshot');
+  const before = git(root, 'status', '--porcelain=v1', '--untracked-files=all');
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
+  const action = plan.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(action.mode, 'guided');
+  assert.equal(action.confirmation, 'none');
+  assert.ok(action.expectedPaths.includes(evidence));
+  assert.deepEqual(action.unexpectedPaths, []);
+  assert.equal(action.automatic, false);
+  assert.equal(git(root, 'status', '--porcelain=v1', '--untracked-files=all'), before);
+  const unknown = `${itemRoot}/evidence/unknown.png`;
+  await writeFile(path.join(root, unknown), 'unallocated screenshot');
+  const unknownPlan = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
+  assert.deepEqual(unknownPlan.actions.find(entry => entry.id === 'working-tree').unexpectedPaths, [unknown]);
+  await unlink(path.join(root, unknown));
+  config.governance ??= {};
+  config.governance.protectedPaths = [evidence];
+  const protectedPlan = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
+  assert.equal(protectedPlan.actions.find(entry => entry.id === 'working-tree').mode, 'manual');
+  assert.deepEqual(protectedPlan.actions.find(entry => entry.id === 'working-tree').unexpectedPaths, [evidence]);
+});
+
 test('recovery ignores only untracked structured test reports without deleting their bytes', async () => {
   const { root, config, workflow, target } = await fixture('recovery-local-test-results');
   git(root, 'add', '.');

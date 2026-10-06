@@ -77,6 +77,41 @@ test('published current in-progress phase can establish a fresh pending validati
   assertTestCommandWorkflowScope(prior, next, 'implementation', { decision });
 });
 
+function uncommittedPreparationFixture() {
+  const { prior, next, decision } = fixture({ status: 'in_progress' });
+  decision.schemaVersion = 1; delete decision.revalidation;
+  prior.phases.implementation = { id: 'implementation', generation: 0, status: 'in_progress',
+    requiredArtifact: { path: 'artifacts/implementation/summary.md' }, qualityCommands: [command] };
+  next.phases.implementation = { ...structuredClone(prior.phases.implementation),
+    qualityCommands: structuredClone(next.resolution.phases[1].qualityCommands),
+    generationIntent: { status: 'open', generation: 1, path: 'context/generation-start/implementation-gen1.json' },
+    authoringBaseline: { generation: 1, path: 'artifacts/implementation/summary.md', fingerprint: H, bytes: 100 },
+    inputContext: { generation: 1, path: 'context/inputs-implementation-gen1.json', sha256: H } };
+  return { prior, next, decision };
+}
+
+test('first committed preparation is a v1 replay exception, never live capture authority', () => {
+  const { prior, next, decision } = uncommittedPreparationFixture();
+  assertTestCommandWorkflowScope(prior, next, 'implementation', { decision, replay: true });
+  assert.throws(() => assertTestCommandWorkflowScope(prior, next, 'implementation', { decision }));
+  assert.throws(() => assertTestCommandWorkflowScope(prior, next, 'implementation', { replay: true }));
+});
+
+for (const [label, mutate] of [
+  ['existing intent', value => { value.prior.phases.implementation.generationIntent = { status: 'open', generation: 1, path: 'retained.json' }; }],
+  ['existing draft baseline', value => { value.prior.phases.implementation.authoringBaseline = { fingerprint: 'retained' }; }],
+  ['existing input binding', value => { value.prior.phases.implementation.inputContext = { sha256: 'retained' }; }],
+  ['later generation', value => { value.next.phases.implementation.generationIntent.generation = 2; }],
+  ['consumed intent', value => { value.next.phases.implementation.generationIntent.status = 'consumed'; }],
+  ['published phase', value => { value.prior.phases.implementation.generation = 1; }],
+  ['other phase preparation', value => { value.next.phases.specification.inputContext = { path: 'new.json' }; }],
+  ['changed phase status', value => { value.next.phases.implementation.status = 'approved'; }]
+]) test(`first committed preparation cannot replace ${label}`, () => {
+  const value = uncommittedPreparationFixture(); mutate(value);
+  assert.throws(() => assertTestCommandWorkflowScope(value.prior, value.next, 'implementation',
+    { decision: value.decision, replay: true }));
+});
+
 for (const [label, mutate] of [
   ['fake successor generation', value => { value.next.phases.implementation.generation++; }],
   ['removed old approval', value => { value.next.phases.implementation.approvals = []; }],

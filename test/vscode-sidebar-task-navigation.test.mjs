@@ -11,13 +11,28 @@ const view = overrides => ({ navigation: { workspace: null, next: null }, freshn
   loading: false, pending: null, active: null, favorites: [], ...overrides });
 
 test('main task destinations have a fixed order and contributed commands', async () => {
-  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Story Analytics', 'Reviews', 'Workspaces', 'Configuration']);
+  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Story Analytics', 'Reviews', 'Configuration approvals', 'Workspaces', 'Configuration']);
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   for (const item of PRIMARY_NAVIGATION) assert.ok(manifest.contributes.commands.some(command => command.command === item.command));
   const html = sidebarBody(view());
   assert.equal((html.match(/aria-current=/g) ?? []).length, 0);
   assert.match(html, /data-action="configuration-center"/);
   assert.doesNotMatch(html, /Open Configuration Center|More actions/);
+});
+
+test('configuration approvals directly open the workflow proposal queue, not only capability proposals', async () => {
+  const item = PRIMARY_NAVIGATION.find(item => item.id === 'configuration-approvals');
+  assert.equal(item.command, 'singularityFlow.openConfigurationApprovals');
+  const html = sidebarBody(view({ active: item.id }));
+  assert.match(html, /data-action="configuration-approvals" aria-current="page"/);
+  const source = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(source, /'singularityFlow\.openConfigurationApprovals': async \(\) =>\s*vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio', \{ view: 'changes' \}\)/);
+  const commands = source.slice(source.indexOf('const REPOSITORY_COMMANDS = ['), source.indexOf('];', source.indexOf('const REPOSITORY_COMMANDS = [')));
+  assert.match(commands, /'singularityFlow\.openConfigurationApprovals'/);
+  const reviews = await readFile(new URL('../apps/vscode/src/views/inbox.ts', import.meta.url), 'utf8');
+  assert.match(reviews, /'workflow-proposals': 'singularityFlow\.openConfigurationApprovals'/);
+  assert.match(reviews, /data-review-route="workflow-proposals"/);
+  assert.match(reviews, /data-review-route="proposals"/);
 });
 
 test('Story Analytics is a direct main-menu destination even before a Story is selected', () => {

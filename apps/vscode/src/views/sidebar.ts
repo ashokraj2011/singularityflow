@@ -82,6 +82,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
   { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
+  { id: 'configuration-approvals', label: 'Configuration approvals', description: 'review and activate workflow, agent and test-configuration proposals', icon: 'merge', command: ACTION_COMMANDS['configuration-approvals']! },
   { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },
   { id: 'setup-wizard', label: 'Guided start', description: 'capability → workspace → first work item', icon: 'start', command: ACTION_COMMANDS['setup-wizard']! },
   { id: 'goals', label: 'Goals', description: 'outcomes linked to governed work', icon: 'impact', command: ACTION_COMMANDS.goals! },

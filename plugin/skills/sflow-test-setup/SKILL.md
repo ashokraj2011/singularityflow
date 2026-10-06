@@ -34,7 +34,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
    Only after explicit consent delegate the exact proposal save to `/sf-configuration`.
    Do not rewrite the application's checkout, run tests, merge, or push without the corresponding request.
-6. An existing Story retains its pin. After the command-only revision is approved in sflow/config,
+6. Supported inference needs no YAML proposal or amendment; existing Stories retain explicit pins.
+   Only for an explicit command revision approved in sflow/config,
    use `singularity-flow story test-policy amend <WORK-ID> --phase <CURRENT-CODE-PHASE>
    --reason "Configure the previously undetected test runner" --json` for preview only.
    Preserve code/documents and show the exact digest and authority requirements. Human confirmation

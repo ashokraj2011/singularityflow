@@ -79,6 +79,21 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  appeal: {
+    summary: 'Resolve phase blockers and review exact extra-work scope without waiving tests or approving the phase.',
+    description: ['preflight is read-only and names repair/human/configuration/external owners.',
+      'prepare previews a bounded exact-diff packet; submit retains those unchanged bytes as Git-backed evidence.',
+      'decide requires live human terminal review under the pinned plan authority. account-scope records a narrow plan amendment.',
+      'request-changes preserves the bytes. Published work uses authorized recovery and a successor generation.',
+      'attest re-presents a retained decision on a new checkout under its pinned authority; Git history remains unchanged.',
+      'repair-plan previews the closed repair and remaining durable budget. repair-run confirms its exact hash and reserves before execution.',
+      'repair-resume inspects the same reserved attempt after interruption or producer correction; unchanged/oscillating conditions cannot restart its budget.',
+      'New behaviour uses story intent-amendment; eligible observed risk uses story test-policy risks. No generic bypass exists.'],
+    options: [['--confirm PACKET_SHA256', 'Exact packet hash; human decisions still require live review.'],
+      ['--add-location CLAUSE=PATH', 'Account for an exact path under an existing approved clause.'],
+      ['--add-supporting PATH=CLASS', 'Account for a closed supporting class with --supporting-reason.']],
+    examples: [['singularity-flow appeal preflight --json', 'Inspect exact current issues and owners without running tests.']]
+  },
   pause: {
     summary: 'Pause SFlow guidance and use native Copilot without changing a Story.',
     description: [

@@ -1192,6 +1192,10 @@ function storyWorkflowNode(
             }]),
             ...storyPhaseActions(workflow, phase, actor, submissionReadiness),
             ...(current ? [{
+              kind: 'action' as const, id: `story:${phase.id}:appeals`, label: 'Resolve phase issues',
+              description: 'extra-work appeals, repair and risk review', icon: 'tools',
+              runCommand: 'singularityFlow.resolvePhaseIssues', contextValue: 'sflow.story.appeals'
+            }, {
               kind: 'action' as const, id: `story:${phase.id}:test-recovery`, label: 'Test policy and recovery',
               description: 'inspect policy, repair runner, restore review', icon: 'beaker',
               runCommand: 'singularityFlow.reviewStoryTestRecovery', contextValue: 'sflow.story.test-recovery'

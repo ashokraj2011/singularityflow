@@ -905,7 +905,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
-    'singularityFlow.reviewStoryTestRecovery',
+    'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.resolvePhaseIssues',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
@@ -7744,6 +7744,79 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prepareStoryPhase': ((node?: TreeNode) => runStoryPhase('prepare', node)) as never,
     'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,
     'singularityFlow.submitStoryPhase': ((node?: TreeNode) => runStoryPhase('submit', node)) as never,
+    'singularityFlow.resolvePhaseIssues': async () => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!repository || !workflow?.workItem.id || !workflow.currentPhase) {
+        void vscode.window.showWarningMessage('Attach a Story before resolving phase issues.'); return;
+      }
+      const checkedRepository = repository;
+      const scope = repositoryEpoch.capture();
+      const workId = workflow.workItem.id;
+      const phaseId = workflow.currentPhase;
+      const stillCurrent = (): boolean => repositoryEpoch.isCurrent(scope) && repository === checkedRepository
+        && store.current.snapshot?.workflow?.workItem.id === workId
+        && store.current.snapshot?.workflow?.currentPhase === phaseId;
+      try {
+        const result = await client.run<unknown>(['appeal', 'preflight', '--work-id', workId, '--phase', phaseId, '--json']);
+        if (!stillCurrent()) return;
+        const { showPhaseIssues } = await import('./views/phase-issues.ts');
+        showPhaseIssues(result, action => { void (async () => {
+          if (!stillCurrent()) { void vscode.window.showWarningMessage('Story context changed. Reopen phase issues in the selected Story.'); return; }
+          if (action === 'refresh') return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
+          if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });
+          if (action === 'tests') return vscode.commands.executeCommand('singularityFlow.reviewStoryTestRecovery');
+          if (action === 'repair' || action === 'resume') {
+            const planned = await client.run<{ data?: { status?: string; confirmation?: string;
+              binding?: { workId?: string; phaseId?: string }; admission?: { allowed?: boolean } } }>(
+              ['appeal', 'repair-plan', '--work-id', workId, '--phase', phaseId, '--json']);
+            if (!stillCurrent() || planned.data?.binding?.workId !== workId || planned.data?.binding?.phaseId !== phaseId) return;
+            const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(planned, null, 2) });
+            await vscode.window.showTextDocument(document, { preview: true });
+            if (!stillCurrent()) return;
+            const resume = planned.data.status === 'resume-required';
+            if (action === 'resume' && !resume) { void vscode.window.showInformationMessage('No active attempt needs resumption. The recorded budget remains unchanged.'); return; }
+            if (!resume && (planned.data.admission?.allowed !== true || !/^sha256:[a-f0-9]{64}$/u.test(planned.data.confirmation ?? ''))) {
+              void vscode.window.showWarningMessage('This repair needs its named human/owner route. No new attempt was started.'); return;
+            }
+            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Recorded Phase Repair', cwd: checkedRepository });
+            terminal.show(true);
+            terminal.sendText(terminalCommand(checkedRepository, ['appeal', resume ? 'repair-resume' : 'repair-run',
+              '--work-id', workId, '--phase', phaseId, ...(!resume ? ['--confirm', planned.data.confirmation!] : []), '--json'],
+              process.platform, client.location), false);
+            return;
+          }
+          const listed = await client.run<{ data?: { items?: { id: string; packetSha256: string; decisionSha256?: string; status: string }[] } }>(['appeal', 'list', '--work-id', workId, '--phase', phaseId, '--json']);
+          if (!stillCurrent()) return;
+          const items = (listed.data?.items ?? []).filter(item => /^APL-[a-f0-9]{24}$/u.test(item.id) && /^sha256:[a-f0-9]{64}$/u.test(item.packetSha256));
+          const selected = await vscode.window.showQuickPick(items.map(item => ({ label: item.id, description: item.status, item })), { title: 'Review the exact retained appeal', ignoreFocusOut: true });
+          if (!selected || !stillCurrent()) return;
+          const packet = await client.run<unknown>(['appeal', 'show', selected.item.id, '--work-id', workId, '--json']);
+          if (!stillCurrent()) return;
+          const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(packet, null, 2) });
+          await vscode.window.showTextDocument(document, { preview: true });
+          if (stillCurrent() && selected.item.status === 'needs-reattestation' && /^sha256:[a-f0-9]{64}$/u.test(selected.item.decisionSha256 ?? '')) {
+            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Appeal Re-review', cwd: checkedRepository });
+            terminal.show(true);
+            terminal.sendText(terminalCommand(checkedRepository, ['appeal', 'attest', selected.item.id, '--work-id', workId,
+              '--confirm', selected.item.decisionSha256!], process.platform, client.location), false);
+            return;
+          }
+          if (!stillCurrent() || selected.item.status !== 'needs-human') return;
+          const choice = await vscode.window.showQuickPick([
+            { label: 'Account for these extra paths', decision: 'account-scope' },
+            { label: 'Request changes; preserve the diff', decision: 'request-changes' }
+          ], { title: 'Prepare human terminal review — does not approve the phase or waive tests', ignoreFocusOut: true });
+          if (!choice || !stillCurrent()) return;
+          const reason = await vscode.window.showInputBox({ title: 'Reason for this exact appeal decision', ignoreFocusOut: true,
+            validateInput: value => value.trim().length >= 20 && value.trim().length <= 2000 && !/[\x00-\x1f\x7f]/u.test(value) ? null : 'Give a reason of 20–2000 ordinary characters.' });
+          if (reason === undefined || !stillCurrent()) return;
+          const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Appeal Review', cwd: checkedRepository });
+          terminal.show(true);
+          terminal.sendText(terminalCommand(checkedRepository, ['appeal', 'decide', selected.item.id, '--work-id', workId,
+            '--decision', choice.decision, '--reason', reason, '--confirm', selected.item.packetSha256], process.platform, client.location), false);
+        })().catch(error => showRefusal(error, { headline: 'Phase issue review could not continue' })); });
+      } catch (error) { showRefusal(error, { headline: 'Phase issues could not be inspected' }); }
+    },
     'singularityFlow.reviewStoryTestRecovery': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!repository || !workflow?.workItem?.id || !workflow.currentPhase) {

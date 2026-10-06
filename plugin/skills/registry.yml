@@ -211,6 +211,7 @@ skills:
   sflow-refresh-configuration: { class: mutation, executionBoundary: machine }
   sflow-regression-investigate: { class: conversational }
   sflow-recover: { class: mutation }
+  sflow-appeal: { class: review }
   sflow-reject: { class: review }
   sflow-release: { class: generative, maximumTokenOverride: 875, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
   sflow-report: { class: echo, executionBoundary: repository }

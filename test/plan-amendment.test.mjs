@@ -145,14 +145,21 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   // The note stays the person's: editing it after publication changes nothing the generation bound.
   await write('NOTES.md', 'Remember to tell the team about the helper, and thank the reviewer.\n');
   cli('submit', 'implementation');
-  cli('approve', 'implementation', '--yes');
+  // Approval is a separate human boundary: perform it in a clean review clone, without stashing
+  // or claiming the author's unrelated scratch note.
+  const reviewRoot = `${root}-review`;
+  t.after(() => rm(reviewRoot, { recursive: true, force: true }));
+  run('git', ['clone', '--branch', W, remote, reviewRoot], root);
+  run('git', ['config', 'user.name', 'Amendment Tester'], reviewRoot);
+  run('git', ['config', 'user.email', 'amend@example.test'], reviewRoot);
+  run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], reviewRoot);
   const generation = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation;
   const receipt = JSON.parse(await readFile(path.join(root, generation.deliveryEvidence.receiptPath), 'utf8'));
   assert.deepEqual(receipt.excludedChanges, ['NOTES.md']);
   assert.equal(run('git', ['ls-files', '--', 'NOTES.md'], root).stdout.trim(), '', 'the note was never committed');
   assert.equal(await readFile(path.join(root, 'NOTES.md'), 'utf8'), 'Remember to tell the team about the helper, and thank the reviewer.\n', 'and it is still in the worktree');
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
-  assert.equal(workflowState.phases.implementation.status, 'approved');
+  assert.equal(workflowState.phases.implementation.status, 'awaiting_approval');
   assert.deepEqual(workflowState.planAmendments.map((entry) => [entry.id, entry.changes]),
     [['PAM-001', [{ kind: 'add-location', clauseId: `${W}:AC-001`, path: 'src/helper.mjs' }]]]);
   assert.equal(workflowState.history.find((entry) => entry.event === 'plan_amended').detail.startsWith('PAM-001: src/helper.mjs added to AMEND-1:AC-001'), true);

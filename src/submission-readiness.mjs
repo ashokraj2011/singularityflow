@@ -147,13 +147,40 @@ export async function submissionReadiness(root, config, workflow, {
       stepActionHold = hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
     } catch { stepActionHold = null; }
   }
-  return submissionReadinessSnapshot(workflow, {
+  const readiness = submissionReadinessSnapshot(workflow, {
     phaseId,
     pendingSynchronization,
     draftEvidence,
     sourceReviewEvidence,
     stepActionHold
   });
+  if (phase && phaseId === workflow.currentPhase && ['in_progress', 'awaiting_approval'].includes(phase.status)) {
+    try {
+      const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
+      await assertPhaseRepairSettled(root, workflow, phase);
+    } catch (error) {
+      const journalInvalid = error.code !== 'PHASE_REPAIR_RECHECK_REQUIRED';
+      const command = journalInvalid ? 'singularity-flow doctor --json'
+        : `singularity-flow appeal repair-resume --phase ${phase.id} --json`;
+      return { ...readiness, lifecycleReady: false, classification: 'repair-recheck-required',
+        reasonCode: error.code ?? 'PHASE_REPAIR_JOURNAL_INVALID', reason: error.message,
+        command, nextCommand: command, nextSkill: journalInvalid ? '/sf-doctor' : '/sf-appeal' };
+    }
+  }
+  if (phase && phaseId === workflow.currentPhase
+      && ['in_progress', 'awaiting_approval'].includes(phase.status)
+      && (workflow.phaseAppeals !== undefined || workflow.phaseAppealDecisions !== undefined)) {
+    try {
+      const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
+      await assertPhaseAppealsResolved(root, config, workflow, phase);
+    } catch (error) {
+      return { ...readiness, lifecycleReady: false, classification: 'appeal-review-required',
+        reasonCode: error.code ?? 'PHASE_APPEAL_INTEGRITY', reason: error.message,
+        command: `singularity-flow appeal list --phase ${phase.id} --json`,
+        nextCommand: `singularity-flow appeal list --phase ${phase.id} --json`, nextSkill: '/sf-appeal' };
+    }
+  }
+  return readiness;
 }
 
 /**

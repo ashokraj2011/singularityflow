@@ -27,6 +27,14 @@ function finalCheckSentence(s) {
 }
 
 export const MESSAGES = Object.freeze({
+  'appeal.inspected': {
+    headline: (s) => `Phase appeal ${slot(s.action)}: ${slot(s.status)}. Read-only inspection; no tests, changes, risk acceptance or phase advance.`,
+    preserves: true
+  },
+  'appeal.review-result': {
+    headline: (s) => `Phase appeal ${slot(s.action)}: ${slot(s.status)}. Scope accounting and local review restoration do not waive tests or approve the phase.`,
+    preserves: false
+  },
   'copilot.mode-reported': {
     headline: (s) => `SFlow Copilot guidance is ${slot(s.mode)}. Story state, approvals, branches and checkouts are unchanged.${s.stateAvailable === false ? ' The local preference is unreadable; guidance remains paused until explicitly repaired with pause off.' : ''}`,
     preserves: false

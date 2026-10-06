@@ -158,8 +158,8 @@ test('valid human answers unblock readiness; when-needed answers are still check
   const f = await fixture(t, 'requirements');
   f.phase.clarification = { mode: 'when-needed' };
   const context = path.join(f.itemDirectory, 'context');
-  await mkdir(context, { recursive: true });
-  const promptPath = `${f.itemRelative}/context/prompt-requirements-gen1.md`;
+  await mkdir(path.join(context, 'prompts'), { recursive: true });
+  const promptPath = `${f.itemRelative}/context/prompts/requirements-gen1.md`;
   await writeFile(path.join(f.root, promptPath), '# Prompt\nConfirm the intended scope.\n');
   const prompt = await snapshot(path.join(f.root, promptPath));
   const groundingPath = path.join(context, 'requirements-gen1.json');
@@ -168,7 +168,8 @@ test('valid human answers unblock readiness; when-needed answers are still check
     responses: [{ question: 'Is this the intended scope?', answer: 'Yes, use the reviewed scope.' }],
     actor: { name: 'Reviewer', email: 'reviewer@example.test' }, agent: 'architect'
   });
-  assert.equal((await phasePrepublish(f.root, f.config, f.workflow, f.phase, { session: f.session })).status, 'ready');
+  const preview = await phasePrepublish(f.root, f.config, f.workflow, f.phase, { session: f.session });
+  assert.equal(preview.status, 'ready', JSON.stringify(preview.findings));
   await assertPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase);
   await writeFile(path.join(f.root, promptPath), '# Different prompt\n');
   await expectBlocked(f, 'clarification', 'PHASE_CLARIFICATION_NOT_READY');
@@ -279,8 +280,8 @@ test('all packaged workflow phase IDs use the same missing-input readiness contr
     const resolved = resolveWorkType(definition, id);
     for (const phase of resolved.phases) seen.add(phase.id);
   }
-  assert.equal(Object.keys(definition.workTypes).length, 13);
-  assert.equal(seen.size, 32);
+  assert.equal(Object.keys(definition.workTypes).length, 14);
+  assert.equal(seen.size, 36);
   const f = await fixture(t);
   await writeFile(f.absolute, '# Reviewed work\n\nTODO complete the accepted scope.\n');
   for (const id of seen) {

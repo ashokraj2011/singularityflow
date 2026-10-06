@@ -6,6 +6,8 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
 const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
+STRUCTURED.add('appeal');
+MODEL_FREE_MIXED_COMMANDS.add('appeal');
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -17,6 +19,7 @@ const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'd
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 
 const LAZY_MODULES = Object.freeze({
+  appeal: './commands/appeal.mjs',
   pause: './commands/pause.mjs',
   // The five verbs share one dispatcher; each is a registered command in its own right so the
   // registry, tripwires and help treat it like any other [SPK:REQ-010].
@@ -119,7 +122,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['integrations'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['review-source'], ['workflow'], ['skill'],
-  ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
+  ['assign'], ['watch'], ['recover'], ['appeal'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['import'], ['imports'], ['marketplace'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['decision'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
@@ -1444,6 +1447,12 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never(`phase.${positionals[1]}`, definition, 'read')
       : never('phase', definition, 'mutation');
   }
+  if (definition.name === 'appeal') {
+    const action = positionals[1] ?? 'preflight';
+    const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume'];
+    if (!actions.includes(action)) return unknownSubcommand('appeal', action, actions);
+    return never(`appeal.${action}`, definition, ['submit', 'decide', 'attest', 'repair-run', 'repair-resume'].includes(action) ? 'mutation' : 'read');
+  }
   if (definition.name === 'review-source') {
     const subcommand = positionals[1];
     if (!['context', 'check', 'status', 'submit', 'decide'].includes(subcommand)) {
@@ -1692,6 +1701,8 @@ export function operationCatalog() {
     ]),
     ...['context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
     ...['submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
+    ...['preflight', 'prepare', 'list', 'show', 'repair-plan', 'repair-status'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
+    ...['submit', 'decide', 'attest', 'repair-run', 'repair-resume'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
     never('revise.preview', reviseDefinition, 'read'),
     never('revise.apply', reviseDefinition, 'mutation'),
     ...REVISION_READ_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'read')),

@@ -223,7 +223,8 @@ export class InboxPanel {
         const commands: Record<string, string> = {
           proposals: 'singularityFlow.reviewCapabilityProposals', visual: 'singularityFlow.openVisualAssurance',
           'workflow-proposals': 'singularityFlow.openConfigurationApprovals',
-          approvals: 'singularityFlow.openApprovals'
+          approvals: 'singularityFlow.openApprovals',
+          appeals: 'singularityFlow.resolvePhaseIssues'
         };
         const route = stringField(message, 'route');
         if (route && commands[route]) void navigateTo(commands[route]!);
@@ -332,7 +333,7 @@ export class InboxPanel {
     const body = this.mode === 'stories' ? workspaceStoriesHtml(inbox, refreshStoriesControl(refresh))
       : this.mode === 'reviews' ? `<header><h1>${icon('approval')}Reviews</h1><p class="meta">Decisions and evidence. No action is approved simply by opening this screen.</p></header>
         <label>Review category<select id="review-filter"><option value="all">All categories</option><option value="phases">Phase approvals &amp; workflow decisions</option><option value="proposals">Configuration &amp; capability changes</option><option value="visual">Visual evidence</option></select></label>
-        <section data-review-group="phases"><h2>Phase approvals &amp; decisions</h2>${state.snapshot && !state.error && !state.stale && (!state.snapshot.included || state.snapshot.included.includes('lifecycle')) ? decisionCards(inbox) : '<p>Current approval state is not confirmed.</p>'}<button class="secondary" data-review-route="approvals">Open all phase reviews</button></section>
+        <section data-review-group="phases"><h2>Phase approvals &amp; decisions</h2>${state.snapshot && !state.error && !state.stale && (!state.snapshot.included || state.snapshot.included.includes('lifecycle')) ? decisionCards(inbox) : '<p>Current approval state is not confirmed.</p>'}<button class="secondary" data-review-route="approvals">Open all phase reviews</button><button class="secondary" data-review-route="appeals">Appeals and phase issues</button></section>
         <section data-review-group="proposals"><h2>Configuration &amp; capability changes</h2><p class="muted">Open the appropriate proposal queue to check its current state. Proposals are not counted as pending until checked. Activating shared configuration does not automatically amend an existing Story.</p><button class="secondary" data-review-route="workflow-proposals">Workflow &amp; test configuration approvals</button><button class="secondary" data-review-route="proposals">Setup &amp; capability proposals</button></section>
         <section data-review-group="visual"><h2>Visual evidence</h2><p class="muted">Inspect screenshots and comparison evidence for the current work.</p><button class="secondary" data-review-route="visual">Review visual evidence</button></section>`
       : inboxHtml(inbox, refresh);

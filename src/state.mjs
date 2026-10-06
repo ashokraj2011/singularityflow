@@ -4997,6 +4997,10 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
+  await assertPhaseRepairSettled(root, workflow, phase);
+  const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
+  await assertPhaseAppealsResolved(root, config, workflow, phase);
   await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be submitted`);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'submit');
@@ -5722,6 +5726,10 @@ export async function approvePhase(root, config, workflow, {
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
+  await assertPhaseRepairSettled(root, workflow, phase);
+  const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
+  await assertPhaseAppealsResolved(root, config, workflow, phase);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   const documentRisks = await assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve');
   assertSkillPhaseHostReady(workflow, phase, 'approve');
@@ -9135,6 +9143,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   expectedLocalHead = undefined,
   publicationAuthority = null,
   publicationTail = null,
+  exactWorkItemPaths = null,
   revisionPublication = null,
   fault = null
 } = {}) {
@@ -9274,6 +9283,15 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
   const workDirectory = workDirRelative(config, workflow.workItem.id);
+  // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
+  // The subject state and status projection remain mandatory owned paths; callers cannot use this
+  // internal option to commit application code or another Story's files.
+  if (exactWorkItemPaths !== null && (!Array.isArray(exactWorkItemPaths)
+      || exactWorkItemPaths.some(file => typeof file !== 'string' || !file.startsWith(`${workDirectory}/`)
+        || file.split('/').some(segment => !segment || segment === '.' || segment === '..')
+        || /[\\\x00-\x1f]/u.test(file)))) {
+    throw new SingularityFlowError('Exact Story publication paths must stay inside this work item.', { code: 'STORY_PUBLICATION_SCOPE_INVALID' });
+  }
   const pendingMetadata = {
     workId: workflow.workItem.id,
     ...(authenticatedPublicationTail ?? {}),
@@ -9304,7 +9322,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: [workDirRelative(config, workflow.workItem.id), ...extraPaths],
+    allowedPaths: exactWorkItemPaths === null ? [workDirectory, ...extraPaths]
+      : [...new Set([`${workDirectory}/workflow.json`, `${workDirectory}/STATUS.md`, ...exactWorkItemPaths, ...extraPaths])],
     event: envelope,
     commit: { message },
     state: {

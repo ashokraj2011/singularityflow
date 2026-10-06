@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "79ebe42df487a6d7c1d82a7e0a6d7a2d3b24d6d1",
-  "topicCount": 77,
-  "contentSha256": "b0645b9fa8e66b56b98c11ca50c9befa3a625e7229de4d1ee8a6fef987c56f63",
+  "sourceCommit": "a5253bca5a4fc675e6872d97fd3e2da1f2051351",
+  "topicCount": 78,
+  "contentSha256": "71ad528f67abce041dfb0617b75c31162103750a38643ddb99c7ff5faeab1669",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -372,6 +372,14 @@
       "sha256": "22c7c6988f2bab192c7a8ebc9eb322fc124e41a8d032edd415840eea63d98ede",
       "routingSha256": "ef4810deabfd97c053a8863fc7e53c872039f95c9504843ebddf70f2ffc3ba39",
       "file": "nextsteps.md"
+    },
+    {
+      "id": "phase-appeals",
+      "title": "Phase appeals and recoverable blockers",
+      "version": 1,
+      "sha256": "5d9cb1290a85210e52a81241af81cb92902d65d379440f45e316829ca91eb1ad",
+      "routingSha256": "10bdea3b1c2cf7abfb8fff98ab9bca35ed4e2fad27caa60f4f572d10684d6a28",
+      "file": "phase-appeals.md"
     },
     {
       "id": "pins",

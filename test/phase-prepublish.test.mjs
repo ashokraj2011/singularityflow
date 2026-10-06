@@ -7,6 +7,8 @@ import test from 'node:test';
 
 import { phasePrepublish, prepublishTestExecutionLines } from '../src/phase-prepublish.mjs';
 import { buildSpecIndex, derivePlannedClaimMap } from '../src/specifications.mjs';
+import { coordinatePhaseRepair } from '../src/phase-repair-runtime.mjs';
+import { restoreAgentSession } from '../src/session.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prepublish-'));
@@ -87,6 +89,30 @@ test('prepublish never presents a publish command for a non-current or non-in-pr
   assert.equal(red.readiness.lifecycle, false);
   assert.equal(red.commands.publish, null);
   assert.ok(red.findings.some((finding) => finding.code === 'phase.lifecycle.not-publishable'));
+});
+
+test('real prepublish reserves and resumes owned corrections without treating its own journal hold as a blocker', async t => {
+  const item = await fixture(t);
+  execFileSync('git', ['checkout', '-qb', 'repair-story'], { cwd: item.root });
+  execFileSync('git', ['add', '.'], { cwd: item.root });
+  execFileSync('git', ['-c', 'user.name=Repair Fixture', '-c', 'user.email=repair@example.test', 'commit', '-qm', 'Fixture baseline'], { cwd: item.root });
+  item.workflow.status = 'in_progress'; item.workflow.workItem.branch = 'repair-story';
+  await restoreAgentSession(item.root, item.session);
+  const call = (action, confirmation = null) => coordinatePhaseRepair({ root: item.root, phaseId: 'planning', action, confirmation },
+    { load: async () => ({ definition: item.config, workflow: item.workflow }) });
+  const plan = await call('plan');
+  assert.equal(plan.action?.id, 'owned-producer-repair');
+  assert.equal(plan.status, 'confirmation-required');
+  assert.equal((await call('run', plan.confirmation)).status, 'awaiting-producer-repair');
+  const held = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(held.status, 'correction-required');
+  assert.equal(held.repairLoop.status, 'recheck-required');
+  assert.equal(held.commands.next, 'singularity-flow appeal repair-resume --phase planning --json');
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  const resumed = await call('resume');
+  assert.equal(resumed.result, 'ready'); assert.equal(resumed.consumed, 1);
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(ready.status, 'ready'); assert.equal(ready.repairLoop.active, null);
 });
 
 test('prepublish catches missing governed grounding before offering publication, without composing it', async (t) => {

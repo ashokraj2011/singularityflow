@@ -32,6 +32,17 @@ Every public operation is classified before its implementation module is importe
 | adhoc.sync | mutation | never | — | — |
 | agent | mutation | never | — | — |
 | agents | mutation | never | — | — |
+| appeal.attest | mutation | never | — | — |
+| appeal.decide | mutation | never | — | — |
+| appeal.list | read | never | — | — |
+| appeal.preflight | read | never | — | — |
+| appeal.prepare | read | never | — | — |
+| appeal.repair-plan | read | never | — | — |
+| appeal.repair-resume | mutation | never | — | — |
+| appeal.repair-run | mutation | never | — | — |
+| appeal.repair-status | read | never | — | — |
+| appeal.show | read | never | — | — |
+| appeal.submit | mutation | never | — | — |
 | approvals | read | never | — | — |
 | approve | mutation | never | — | — |
 | architecture.diff | read | never | — | — |

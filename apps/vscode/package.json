@@ -695,6 +695,11 @@
         "icon": "$(beaker)"
       },
       {
+        "command": "singularityFlow.resolvePhaseIssues",
+        "title": "Singularity Flow: Resolve Phase Issues and Appeals",
+        "icon": "$(tools)"
+      },
+      {
         "command": "singularityFlow.prefillStoryPhaseGeneration",
         "title": "Singularity Flow: Generate and Publish Current Story Phase in Copilot",
         "icon": "$(sparkle)"

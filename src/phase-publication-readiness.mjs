@@ -39,8 +39,30 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   };
   const capture = async (read) => {
     try { return await read(); }
-    catch (error) { return { errors: [error.message], warnings: [], sourceCode: error.code ?? null }; }
+    catch (error) { return { errors: [error.message], warnings: [], sourceCode: error.code ?? null,
+      state: error.details?.repairLoop ?? null }; }
   };
+  const repair = await capture(async () => {
+    const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
+    return { errors: [], state: await assertPhaseRepairSettled(root, workflow, phase) };
+  });
+  add('repair-loop', 'repair-coordination', repair.errors, {
+    command: repair.sourceCode === 'PHASE_REPAIR_JOURNAL_INVALID' ? 'singularity-flow doctor --json'
+      : `singularity-flow appeal repair-resume --phase ${phase.id} --json`,
+    skill: repair.sourceCode === 'PHASE_REPAIR_JOURNAL_INVALID' ? '/sf-doctor' : '/sf-appeal',
+    detail: 'Resume and recheck the recorded attempt. No new budget, passing test or approval is inferred from an interrupted repair.'
+  }, { code: repair.sourceCode ?? 'PHASE_REPAIR_RECHECK_REQUIRED' });
+  if (workflow.phaseAppeals !== undefined || workflow.phaseAppealDecisions !== undefined) {
+    const appeals = await capture(async () => {
+      const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
+      await assertPhaseAppealsResolved(root, config, workflow, phase);
+      return { errors: [] };
+    });
+    add('appeal', 'appeal', appeals.errors, {
+      command: `singularity-flow appeal list --phase ${phase.id} --json`, skill: '/sf-appeal',
+      detail: 'Review the exact retained appeal. Scope accounting is separate from intent amendment, risk acceptance, tests and phase approval.'
+    }, { code: appeals.sourceCode ?? 'PHASE_APPEAL_REVIEW_REQUIRED' });
+  }
 
   const integration = await capture(async () => {
     const hold = await requiredStepActionHold(root, config, workflow);
@@ -100,6 +122,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
 
   return { blockers, actions, failures, warnings,
+    repairLoop: repair.state ?? { status: 'needs-owner', code: repair.sourceCode, automaticReset: false },
     grounding: grounding.projection, clarification, inputs, mcpHost, mcpEvidence };
 }
 

@@ -2723,6 +2723,11 @@ const families = [
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-review-[0-9]{3}\.json$/]
   }),
   family({ id: 'workflow-snapshot-amendment', currentVersion: 1, immutable: true }),
+  family({ id: 'phase-repair-loop-event', currentVersion: 1, immutable: true }),
+  family({ id: 'phase-appeal', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/appeals\/APL-[a-f0-9]{24}\/packet\.json$/] }),
+  family({ id: 'phase-appeal-decision', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/appeals\/APL-[a-f0-9]{24}\/decision\.json$/] }),
   family({ id: 'test-command-adoption-review', currentVersion: 2, immutable: true,
     // Read projections never invent a post-publication revalidation binding for old reviews.
     steps: [migration(1, 2, identity(2))],

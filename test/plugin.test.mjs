@@ -387,9 +387,9 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /stop for protected\/unrelated\/unowned changes or lifecycle\/authority blockers/i);
   assert.match(content, /generation\.intent\.consumed-changed.*\/sf-recover/s);
   assert.match(content, /generation\.intent\.consumed-changed[^\n]*reviewed rollover, never waiver/);
-  assert.match(content, /stop after correction on unchanged finding\/action fingerprints/i);
+  assert.match(content, /returned `repairLoop.protocol` for persistent correction\/resume; stop unchanged/i);
   assert.match(content, /resolve missing commands via `\/sf-recover` reviewed adoption/);
-  assert.match(content, /unchanged finding\/action fingerprints despite unrelated edits/);
+  assert.match(content, /returned `repairLoop.protocol`/);
   assert.match(content, /Untracked `\.sflow\/results\/\*\*` need no cleaning; preserve bytes/);
   assert.match(content, /Tracked\/staged reports still need review/);
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
@@ -409,16 +409,16 @@ test('code skill distinguishes read-only readiness from publication-time test ex
 test('recovery skill reviews a dirty consumed-generation rollover with an exact digest', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-recover', 'SKILL.md'), 'utf8');
   assert.match(content, /Follow action classifications, not blanket dirty-tree stops/);
-  assert.match(content, /generation\.intent\.consumed-changed/);
-  assert.match(content, /git status --porcelain=v1 --untracked-files=all/);
-  assert.match(content, /`manual` `working-tree` requires human confirmation of owned, in-scope changes/);
+  assert.match(content, /`begin-new-generation:<phase>` needs matching branch\/phase, authenticated changed publication/);
+  assert.match(content, /Review diffs\/untracked bytes/);
+  assert.match(content, /after human consent to exact `paths`\/`planId`/);
   assert.match(content, /`current-phase-review-required`\/`confirmation: none`/);
   assert.match(content, /review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks/);
-  assert.match(content, /Unknown evidence remains review-required/);
-  assert.match(content, /Stop for protected, unrelated, unowned, conflicted, removed or symlink paths/);
+  assert.match(content, /Reports\/other staged work stay preserved; no publication\/approval\/test waiver/);
+  assert.match(content, /Protected, unrelated, conflicted, removed\/symlink paths stay separate/);
   assert.match(content, /phase rollover <phase> --json/);
-  assert.match(content, /Match work ID, phase, command and `confirmation` to recovery; re-inspect mismatches/);
-  assert.match(content, /phase rollover <phase> --confirm <digest>/);
+  assert.match(content, /match identity\/confirmation to recovery/);
+  assert.match(content, /Human-confirm then run returned command once/);
   assert.match(content, /Never route to `\/sf-code` before rollover succeeds/);
   assert.match(content, /`\/sf-code` after rollover/i);
   assert.match(content, /Integrity cannot be waived/);
@@ -443,7 +443,7 @@ test('runner policy adoption stays a reviewed recovery action outside the coding
   assert.match(recover, /Relay preparation\/validation only/);
   assert.match(recover, /Approval refusal ends its turn; `\/sf-reject` later for changed bytes/);
   assert.match(recover, /Preserve generations\/bytes\/pins/);
-  assert.match(recover, /Never submit\/approve/);
+  assert.match(recover, /No submit\/approve/);
 });
 
 test('verify skill routes release to its phase skill without running verification authoring', async () => {
@@ -525,10 +525,9 @@ test('Copilot phase authoring repairs structured draft findings before publicati
       `${name} does not repair every finding`);
     assert.match(content, /current Copilot turn|this Copilot turn|finding now|Repair other agent findings|correct only findings with `correction.sameTurn`/i,
       `${name} defers repair instead of completing the authoring turn`);
-    assert.match(content, /fingerprint/i, `${name} does not track repair progress`);
-    assert.match(content, /(?:a maximum of|at most|allow(?: at most)?|up to) three (?:distinct )?changed fingerprints|Three changed fingerprints maximum|after three changed fingerprints/i,
-      `${name} lacks the bounded three-fingerprint limit`);
-    assert.match(content, /stop(?: immediately)? on an unchanged fingerprint|Stop on unchanged finding\/action fingerprints|stop after correction on unchanged finding\/action fingerprints/i,
+    assert.match(content, /returned `repairLoop.protocol`/,
+      `${name} must use the durable kernel budget instead of remembering turn-local counts`);
+    assert.match(content, /stop unchanged|never loop preparation/i,
       `${name} may loop on a non-progressing repair`);
     assert.match(content, /(?:never )?(?:blindly )?delete markers|never blindly delete markers|never delete markers blindly/i,
       `${name} permits blind placeholder deletion`);
@@ -571,9 +570,9 @@ test('Copilot phase authoring repairs structured draft findings before publicati
       `${name} omits current-phase recovery`);
     assert.match(content, /(?:publish only when .*ready|only when .*ready[^.]*publish)/i,
       `${name} may publish an unready draft`);
-    assert.match(content, /(?:at most|after) three (?:distinct changed )?fingerprints/i,
-      `${name} lacks a bounded correction budget`);
-    assert.match(content, /stop on an unchanged fingerprint/i,
+    assert.match(content, /returned `repairLoop.protocol`/,
+      `${name} lacks the durable correction budget`);
+    assert.match(content, /stop unchanged/i,
       `${name} may loop without progress`);
     assert.match(content, /ARTIFACT_AUTHORING_INCOMPLETE/i,
       `${name} omits the final kernel race guard`);

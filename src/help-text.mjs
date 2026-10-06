@@ -17,6 +17,17 @@ Every command below has a detailed page with options and worked examples:
   singularity-flow help <command>
 
 Usage:
+  singularity-flow appeal preflight [--phase PHASE] [--work-id WORK-ID] [--json]
+  singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT [--phase PHASE] [--json]
+  singularity-flow appeal prepare --add-supporting PATH=CLASS --supporting-reason TEXT --reason TEXT [--json]
+  singularity-flow appeal submit [same selectors as prepare] --confirm PACKET_SHA256 [--json]
+  singularity-flow appeal list [--phase PHASE] [--json]
+  singularity-flow appeal show APL-ID [--json]
+  singularity-flow appeal decide APL-ID --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256
+  singularity-flow appeal attest APL-ID --confirm DECISION_SHA256 [--json]
+  singularity-flow appeal repair-plan|repair-status [--phase PHASE] [--json]
+  singularity-flow appeal repair-run --confirm PLAN_SHA256 [--phase PHASE] [--json]
+  singularity-flow appeal repair-resume [--phase PHASE] [--json]
   singularity-flow [--no-model] <command> [options]
     --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
   singularity-flow about

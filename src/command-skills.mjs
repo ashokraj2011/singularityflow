@@ -98,6 +98,7 @@ const entries = {
   assign: ['sf-assign'],
   watch: ['sf-watch'],
   recover: ['sf-recover'],
+  appeal: ['sf-appeal'],
   nextsteps: ['sf-nextsteps'],
   action: ['sf-continue'],
   inputs: ['sf-inputs'],

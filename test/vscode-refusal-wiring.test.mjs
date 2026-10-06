@@ -285,6 +285,34 @@ test('a deterministic refusal plan becomes safe reviewable VS Code actions', () 
   assert.match(fidelityNote(fidelity), /never run them automatically/);
 });
 
+test('missing Story configuration has exact-repository recovery actions and a manual setup route', async () => {
+  const error = Object.assign(new Error('No approved configuration could be loaded.'), {
+    code: 'STORY_CONFIGURATION_AUTHORITY_MISSING'
+  });
+  const envelope = refusalEnvelope(error, ['start', 'RECOVER-1', '--json']);
+  const repositoryRoot = path.join(root, 'fixtures', 'missing configuration');
+  const { view: card, fidelity } = refusalFor(
+    Object.assign(cliError(error.message), { result: envelope }), { repositoryRoot }
+  );
+  assert.equal(fidelity, 'refusal-plan-v1');
+  assert.deepEqual(card.actions.map(entry => entry.command), [
+    terminalCommand(repositoryRoot, ['workspace', 'doctor', '--network', '--json']),
+    terminalCommand(repositoryRoot, ['workspace', 'reinitialize', '--dry-run', '--json'])
+  ]);
+  assert.ok(card.actions.every(entry => entry.executable === false && entry.copilotCommand?.startsWith('/sf-')));
+  assert.match(card.warnings[0].label, /Map a capability.*same Story ID/u);
+  assert.equal(envelope.remediationPlan.retry.automatic, false);
+  const html = resultCardHtml(card);
+  assert.match(html, /Copilot:.*\/sf-workspace-bootstrap/su);
+  assert.doesNotMatch(html, /There is no step you can take here right now/u);
+  assert.deepEqual(card.preserved, [], 'guidance must not invent an effects receipt');
+
+  const intake = await readFile(view('intake-panel.ts'), 'utf8');
+  assert.match(intake, /const startRepository = this\.client\.repository/u);
+  assert.match(intake, /this\.disposed \|\| this\.client\.repository !== startRepository/u);
+  assert.match(intake, /showRefusal\(failure, \{\s*headline: 'Story intake needs recovery', repositoryRoot: startRepository/su);
+});
+
 test('manual recovery instructions render without crowding safe actions out of the VS Code card', () => {
   const planned = {
     schemaVersion: 1, resultType: 'sflow-refusal-plan', status: 'failed',

@@ -267,8 +267,9 @@ import { baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline
 import { storyBaseRequired, assertStoryStartChoices } from './story-start-inputs.mjs';
 import { markCliFailureLogged } from './cli-failure.mjs';
 import {
-  loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext,
+  loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError,
 } from './story-start-base-configuration.mjs';
+import { bindIsolatedStoryConfiguration, sealIsolatedStoryConfiguration } from './commands/start-configuration.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile, buildWorkspaceContext,
@@ -1604,40 +1605,6 @@ const ISOLATED_STORY_INTAKE_HANDOFF = Symbol('isolated-story-intake-handoff');
 // holds none of that checkout's receipts, so the start uses this record and consumes it there.
 const ISOLATED_STORY_SELECTION_HANDOFF = Symbol('isolated-story-selection-handoff');
 
-async function sealIsolatedStoryConfiguration(sourceRoot, workId) {
-  const authority = await fosStoryConfigurationAuthority(sourceRoot);
-  if (!authority) return null;
-  // Resolve and validate every approved byte while still in the worktree to which the FOS pin is
-  // bound. The exact immutable snapshot, rather than a new lookup from the child worktree, is what
-  // crosses the isolated-start boundary.
-  const snapshot = await loadStoryConfigurationSnapshot(authority, {
-    session: new GitRemoteSession({ cwd: sourceRoot }), useObjectCache: true
-  });
-  return Object.freeze({
-    workId,
-    sourceRepository: await realpath(sourceRoot),
-    sourceCommonDir: await realpath(gitCommonDir(sourceRoot)),
-    authority,
-    snapshot
-  });
-}
-
-async function bindIsolatedStoryConfiguration(handoff, prepared) {
-  if (!handoff) return null;
-  const sourceRepository = await realpath(prepared.sourceRepository);
-  const targetRepository = await realpath(prepared.repositoryPath);
-  const targetCommonDir = await realpath(gitCommonDir(prepared.repositoryPath));
-  if (sourceRepository !== handoff.sourceRepository
-      || targetCommonDir !== handoff.sourceCommonDir) {
-    throw new SingularityFlowError(
-      'The managed Story worktree does not belong to the checkout whose FOS authority was verified.', {
-        code: 'AUTHORITY_PIN_INVALID'
-      }
-    );
-  }
-  return Object.freeze({ ...handoff, targetRepository });
-}
-
 async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot), baselineChoice = 'reuse') {
   intakeBaselineChoice(baselineChoice);
   if (!repositoryReadinessRequired(definition)) return null;
@@ -1724,20 +1691,23 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       { code: 'STORY_BRANCH_EXISTS' }
     );
   }
-  const sealedConfiguration = durableLocalStory
+  const intakeReceiptId = optionString(options, 'intake-receipt');
+  const intakeSession = new GitRemoteSession({ cwd: sourceRoot });
+  let sealedConfiguration = durableLocalStory
     ? null
     : await measureCommandSpan('start.authority', () =>
-      sealIsolatedStoryConfiguration(sourceRoot, id));
-  const launchDefinition = sealedConfiguration?.snapshot?.definition
+      sealIsolatedStoryConfiguration(sourceRoot, id, {
+        readStoryPin: capabilityDoctorStoryPin, session: intakeSession, fosOnly: Boolean(intakeReceiptId)
+      }));
+  let launchDefinition = sealedConfiguration?.snapshot?.definition
     ?? await loadConfig(sourceRoot).catch(() => null);
   const requestedBase = optionString(options, 'from-branch');
-  const requestedRemote = optionString(options, 'remote')
+  let requestedRemote = optionString(options, 'remote')
     ?? launchDefinition?.git?.remote
     ?? 'origin';
   // A receipt from a passing readiness preview lets this start confirm every input the preview saw
   // in one concurrent wave instead of fetching and observing them again one by one. Whatever the
   // wave cannot confirm, the ordinary path below does exactly as before.
-  const intakeReceiptId = optionString(options, 'intake-receipt');
   const intake = { status: intakeReceiptId ? 'rejected' : 'absent', reason: null, reused: [] };
   let intakeAdmission = null;
   let intakeProof = null;
@@ -1768,7 +1738,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       if (admission.status !== 'admitted') intake.reason = admission.reason;
       else {
         const wave = await measureCommandSpan('start.intake-verification', () =>
-          verifyStoryIntakeWave(sourceRoot, admission, { workId: id, references: intakeReferences }));
+          verifyStoryIntakeWave(sourceRoot, admission, {
+            workId: id, references: intakeReferences, session: intakeSession
+          }));
         if (wave.ok) {
           intakeAdmission = admission;
           intakeProof = wave.proof;
@@ -1779,6 +1751,32 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
           intake.reason = wave.reason;
         }
       }
+    }
+  }
+  if (intakeReceiptId && !durableLocalStory && !sealedConfiguration) {
+    // Observe an ordinary authority in the receipt wave, then load its exact approved snapshot
+    // using that operation-local observation. A receipt is never itself configuration authority.
+    // Failed/moved receipts still resolve current approved policy before launch prerequisites.
+    try {
+      sealedConfiguration = await measureCommandSpan('start.authority', () =>
+        sealIsolatedStoryConfiguration(sourceRoot, id, {
+          readStoryPin: capabilityDoctorStoryPin, session: intakeSession
+        }));
+    } catch (error) {
+      await intakeAdmission?.release();
+      throw error;
+    }
+    if (sealedConfiguration) {
+      launchDefinition = sealedConfiguration.snapshot.definition;
+      const approvedRemote = optionString(options, 'remote') ?? launchDefinition.git?.remote ?? 'origin';
+      if (approvedRemote !== requestedRemote) {
+        await intakeAdmission?.release();
+        intakeAdmission = null;
+        intakeProof = null;
+        intake.status = 'fallback';
+        intake.reason = 'remote';
+      }
+      requestedRemote = approvedRemote;
     }
   }
   let requestedBaseRef = null;
@@ -2138,7 +2136,7 @@ export async function startCommand(positionals, options) {
   // a verified immutable pin. Keep one verified snapshot for every remaining choice: remote,
   // default base, publication, receipt validation and workflow template. Reading current authority
   // later (after one of those choices) would combine two configuration revisions in one start.
-  const currentPin = await capabilityDoctorStoryPin(root);
+  const currentPin = configurationHandoff?.currentPin ?? await capabilityDoctorStoryPin(root);
   let configurationAuthority = configurationHandoff?.authority
     ?? await measureCommandSpan('start.authority', async () =>
       await fosStoryConfigurationAuthority(root)
@@ -2158,11 +2156,7 @@ export async function startCommand(positionals, options) {
   config = approvedConfigurationSnapshot?.definition
     ?? (existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null);
   if (!config) {
-    throw new SingularityFlowError(
-      `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
-      + 'state configuration mirror is available for this repository or its active workspace lead. '
-      + 'Refresh the workspace configuration authority first.'
-    );
+    throw storyConfigurationUnavailableError();
   }
   validateId(config, id);
   remote = config.git?.remote ?? 'origin';
@@ -2553,10 +2547,7 @@ export async function startCommand(positionals, options) {
   let automaticEnrollment = null;
   if (!configurationAuthority && !materializedSeedCommit
       && !baseCarriesConfiguration) {
-    throw new SingularityFlowError(
-      `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
-      + `state configuration mirror is available for this repository or its active workspace lead. `
-      + 'Refresh the workspace configuration authority first.');
+    throw storyConfigurationUnavailableError();
   }
   // Freeze and validate the exact approved payload before automatic enrollment is allowed to push
   // a shared configuration change. This validates both malformed catalogs and an explicit/workspace

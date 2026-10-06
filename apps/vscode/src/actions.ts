@@ -6,7 +6,7 @@
  * exact-hash confirmation, the same self-approval acknowledgement — because the governance property
  * belongs to the capability, not to whichever frontend happens to be calling it.
  *
- * So `--confirm` is filled from a human typing the expected string into an input box, not from the
+ * So `--confirm` is filled from a human typing the expected string into a review field, not from the
  * extension knowing what the expected string is. Knowing it and passing it silently would turn a
  * deliberate act into a click, which is precisely the failure the exact confirmation was designed to
  * prevent. The B5 escapes exist so a GUI *can* answer these prompts, not so it can skip them.
@@ -137,31 +137,31 @@ export interface ActionRequest {
  * expected value is shown in the prompt: the point is deliberateness, not recall.
  */
 async function askConfirmation(confirmation: Confirmation): Promise<string | null> {
-  const typed = await vscode.window.showInputBox({
+  const { collectReviewConfirmation } = await import('./views/review-confirmation.ts');
+  const accepted = await collectReviewConfirmation({
     title: confirmation.summary,
-    prompt: `Type ${confirmation.expected} to confirm. ${confirmation.consequence ?? 'This approves the exact current hash.'}`,
-    placeHolder: confirmation.expected,
-    ignoreFocusOut: true,
-    validateInput: (value) => (value && value !== confirmation.expected
-      ? `Type exactly: ${confirmation.expected}`
-      : null)
+    summary: 'Review and confirm the exact current decision.',
+    detail: confirmation.consequence ?? 'This approves the exact current hash.',
+    expected: confirmation.expected,
+    confirmLabel: 'Confirm exact decision'
   });
-  return typed === confirmation.expected ? typed : null;
+  return accepted ? confirmation.expected : null;
 }
 
 /**
  * Self-approval is allowed by the engine but must be said out loud.
  *
- * Asked as a modal, because the whole reason the flag exists is that a warning nobody reads is not a
+ * The scrollable review requires an explicit unchecked acknowledgement; a warning alone is not a
  * safeguard. Returns whether to add `--acknowledge-self-approval`.
  */
 async function askSelfApproval(): Promise<boolean> {
-  const choice = await vscode.window.showWarningMessage(
-    'This is a self-approval and is not independent review.',
-    { modal: true, detail: 'You generated one or more of the artifacts you are approving. The approval will record that it was not independent.' },
-    'Approve anyway'
-  );
-  return choice === 'Approve anyway';
+  const { collectReviewConfirmation } = await import('./views/review-confirmation.ts');
+  return collectReviewConfirmation({
+    title: 'Acknowledge self-approval',
+    summary: 'This is a self-approval and is not independent review.',
+    detail: 'You generated one or more of the artifacts you are approving. The approval will record that it was not independent.',
+    confirmLabel: 'Approve anyway'
+  });
 }
 
 /** Whether the CLI refused because the actor generated what they are approving. */
@@ -189,6 +189,7 @@ export async function runGovernedAction(
   output: vscode.OutputChannel
 ): Promise<boolean> {
   const args = [...request.command];
+  const reviewedRepository = client.repository;
 
   if (request.confirmation) {
     const confirmed = await askConfirmation(request.confirmation);
@@ -200,6 +201,10 @@ export async function runGovernedAction(
   }
 
   const run = async (argv: string[]): Promise<boolean> => {
+    if (client.repository !== reviewedRepository) {
+      void vscode.window.setStatusBarMessage('$(circle-slash) Repository changed; review the action again.', 4_000);
+      return false;
+    }
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: request.title, cancellable: false },
@@ -395,6 +400,12 @@ export async function approveWithReceipt(
   request: ApprovalRequest,
   output: vscode.OutputChannel
 ): Promise<boolean> {
+  const reviewedRepository = client.repository;
+  const stillCurrent = () => {
+    if (client.repository === reviewedRepository) return true;
+    void vscode.window.setStatusBarMessage('$(circle-slash) Repository changed; reopen the approval in the selected Story.', 4_000);
+    return false;
+  };
   let storyReview: StoryReviewBundle | null = null;
   if (request.kind === 'story') {
     try {
@@ -410,6 +421,7 @@ export async function approveWithReceipt(
     }
   }
 
+  if (!stillCurrent()) return false;
   let receipt: Receipt;
   try {
     receipt = await client.run<Receipt>(request.kind === 'story'
@@ -423,6 +435,7 @@ export async function approveWithReceipt(
   let confirmed: string | null = null;
   let checklist: ApprovalChecklistDecision[] = [];
   let witnessDecisions: WitnessMappingDecision[] = [];
+  let acknowledgeSelfApproval = false;
   if (request.kind === 'story') {
     const { collectApprovalReview } = await import('./views/approval-review.ts');
     const actorLabel = (
@@ -460,9 +473,11 @@ export async function approveWithReceipt(
     confirmed = review.confirmation;
     checklist = review.decisions;
     witnessDecisions = review.witnessDecisions;
+    acknowledgeSelfApproval = review.acknowledgeSelfApproval;
   } else {
     confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
   }
+  if (!stillCurrent()) return false;
   if (!confirmed || confirmed !== request.expected) {
     void vscode.window.setStatusBarMessage('$(circle-slash) Not confirmed; nothing was approved.', 4_000);
     return false;
@@ -480,6 +495,7 @@ export async function approveWithReceipt(
   const argv = request.kind === 'story'
     ? ['approve', request.workId, '--fetch', '--phase', request.phaseId, '--selection-receipt', receipt.token]
     : ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
+  if (request.kind === 'story' && acknowledgeSelfApproval) argv.push('--acknowledge-self-approval');
   if (request.kind === 'story') {
     for (const entry of checklist) {
       argv.push('--article', `${entry.article}=${entry.decision}`);
@@ -498,6 +514,7 @@ export async function approveWithReceipt(
     }
   }
   const run = async (extra: string[] = []): Promise<boolean> => {
+    if (!stillCurrent()) return false;
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay([...argv, ...extra])}`);
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: request.summary, cancellable: false },

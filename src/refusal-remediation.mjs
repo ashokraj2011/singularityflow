@@ -331,7 +331,22 @@ const UPGRADE_KNOWN = Object.freeze({
 
 export const UPGRADE_GUIDED_CODES = Object.freeze(Object.keys(UPGRADE_KNOWN));
 
+function missingConfigurationSteps() {
+  return [
+    step('diagnose-story-configuration',
+      'Automatic loading found no approved workflow configuration. Check Git access and the workspace authority; this is not a test-baseline failure.',
+      'singularity-flow workspace doctor --network --json'),
+    step('preview-safe-story-upgrade',
+      'After installing matching current CLI and VS Code builds, preview Upgrade / migrate SFlow. Review its exact plan before applying; do not recreate policy or erase Story history automatically.',
+      'singularity-flow workspace reinitialize --dry-run --json', 'configuration'),
+    step('restore-approved-story-configuration',
+      'If the authority has never been set up, use Map a capability → Check repository → Set up. Otherwise repair the approved authority or workspace attachment, then refresh intake and retry the same Story ID. Do not hand-edit schema versions or bypass policy.',
+      null, 'remediation')
+  ];
+}
+
 const KNOWN = Object.freeze({
+  WORKFLOW_CONFIGURATION_MISSING: missingConfigurationSteps,
   ...UPGRADE_KNOWN,
   RECOVERY_PHASE_UNKNOWN: () => [
     step('inspect-available-phases', 'Read the current Story and its actual phase IDs; do not guess a packaged phase name.',
@@ -417,6 +432,7 @@ const KNOWN = Object.freeze({
     step('diagnose-pin', 'Diagnose the attachment record; do not hand-edit its descriptor or receipt.',
       'singularity-flow doctor --json')
   ],
+  STORY_CONFIGURATION_AUTHORITY_MISSING: missingConfigurationSteps,
   BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL: () => [
     step('remove-url-credential', 'Configure an approved Git credential helper and replace the remote with a credential-free URL.',
       'singularity-flow workspace doctor --network --json')

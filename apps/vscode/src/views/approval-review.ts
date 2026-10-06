@@ -279,13 +279,13 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       <p class="muted">Review semantic adequacy yourself. Exact identity and a passing local test do not prove the requirement.</p>
       <div class="approval-checklist">${witnessMappings.map(witnessMappingHtml).join('')}</div></section>`
     : '';
-  return `<header>
+  return `<form class="approval-form" data-expected="${escape(request.expected)}">
+    <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
       <h1>${escape(request.title)}</h1>
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
     ${findings}${witnessed}${prior}${selfApproval}
-    <form class="approval-form" data-expected="${escape(request.expected)}">
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm the exact decision</h2>
@@ -295,6 +295,7 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
         <p class="muted">This value is never filled in or remembered.</p>
       </section>
       <div class="approval-errors" role="alert">${errors.map((error) => `<p>${escape(error)}</p>`).join('')}</div>
+    </div>
       <div class="form-actions">
         <button type="submit" disabled>Record approval</button>
         <button type="button" class="secondary" data-cancel>Cancel</button>
@@ -303,6 +304,13 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
 }
 
 const REVIEW_STYLE = `
+html { height:100%; }
+body { height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden; padding:0 .75rem; }
+.approval-form { flex:1; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; }
+.approval-review-content { min-height:0; overflow:auto; padding:0 .25rem .75rem; }
+.approval-review-content h1, .approval-review-content code, .approval-confirmation label { overflow-wrap:anywhere; }
+body > .page-nav { flex:none; flex-wrap:nowrap; overflow-x:auto; margin-top:.4rem; padding-block:.4rem; }
+body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-binding { grid-template-columns:max-content minmax(0,1fr); margin:1rem 0; }
 .approval-checklist { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(22rem,100%),1fr)); gap:.8rem; }
 .approval-article, .witness-mapping { display:grid; gap:.65rem; min-width:0; padding:1rem; border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface); }
@@ -320,7 +328,7 @@ const REVIEW_STYLE = `
 .approval-confirmation { border-left:3px solid var(--sf-wait); padding-left:1rem; }
 .approval-errors { min-height:1.2rem; color:var(--sf-bad); }
 .approval-errors p { margin:.2rem 0; }
-.form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; }
+.form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 `;
 
 const REVIEW_SCRIPT = `

@@ -68,6 +68,28 @@ async function captureRepository(t) {
   return root;
 }
 
+test('native Story start returns typed configuration recovery instead of a missing-definition crash', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  run('git', ['rm', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'Application base has no workflow'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], root).stdout;
+  const beforeTrees = run('git', ['worktree', 'list', '--porcelain'], root).stdout;
+  await assert.rejects(() => startStory(root, {
+    id: 'MISSING-CONFIGURATION',
+    source: manualStorySource('MISSING-CONFIGURATION', { title: 'Recover approved configuration' }),
+    workType: 'feature', baseBranch: 'main'
+  }), error => error?.code === 'STORY_CONFIGURATION_AUTHORITY_MISSING'
+    && /Automatic approved-configuration loading could not recover/u.test(error.message));
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout, beforeHead);
+  assert.equal(run('git', ['worktree', 'list', '--porcelain'], root).stdout, beforeTrees);
+  assert.equal(run('git', ['branch', '--list', 'MISSING-CONFIGURATION'], root).stdout, '');
+});
+
 test('Story document preflight refuses a path replacement between metadata check and open', async (t) => {
   const root = await captureRepository(t);
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-race-'));
@@ -898,7 +920,7 @@ test('programmatic Story start uses publication policy from the exact selected l
   assert.equal(testReadiness.repositories[0].sourceCommit,
     created.readiness.base.repositories[0].baseCommit);
   assert.equal(testReadiness.repositories[0].existingFailureDisposition,
-    'repair-or-verify-before-code');
+    'test-configuration-pending', 'unobserved tests are pending configuration, not an intake gate');
   assert.match(run('git', [
     'ls-remote', 'origin', 'refs/heads/WORK-BASE-POLICY'
   ], root).stdout, /^[0-9a-f]{40}\s+refs\/heads\/WORK-BASE-POLICY$/m);

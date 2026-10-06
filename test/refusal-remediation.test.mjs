@@ -11,6 +11,21 @@ import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.m
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
+test('missing workflow authority has bounded repair guidance, never an automatic destructive retry', () => {
+  for (const code of ['STORY_CONFIGURATION_AUTHORITY_MISSING', 'WORKFLOW_CONFIGURATION_MISSING']) {
+    const plan = refusalRemediationPlan(Object.assign(new Error('Missing approved workflow'), { code }), ['start', 'WORK-1', '--json']);
+    assert.deepEqual(plan.steps.slice(0, 2).map(step => step.command), [
+      'singularity-flow workspace doctor --network --json',
+      'singularity-flow workspace reinitialize --dry-run --json'
+    ]);
+    assert.ok(plan.steps.every(step => step.execution === 'user-reviewed'));
+    assert.ok(plan.steps[0].copilotCommand.startsWith('/sf-'));
+    assert.match(plan.steps[2].label, /same Story ID/u);
+    assert.equal(plan.retry.automatic, false);
+    assert.doesNotMatch(JSON.stringify(plan.steps), /factory-reset|--force|--skip|--confirm-plan|precheck --run/u);
+  }
+});
+
 test('manual recovery instructions survive the bounded refusal plan and diagnostics cannot displace them', () => {
   const error = Object.assign(new Error('No automatic action'), {
     code: 'RECOVERY_AUTOMATIC_ACTION_UNAVAILABLE', details: { workId: 'WORK-1', phase: 'custom-build', actions: [

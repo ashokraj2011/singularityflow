@@ -423,10 +423,13 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
   // The exact plan is necessary but not sufficient: a retained panel can receive output from an
   // older configured CLI. Only the current seeded-only contract may authorize Apply.
   const actionable = isSafeWorkspaceReinitializationPreview(result);
-  return `<h2>${icon('configuration')}Reinitialize framework-seeded assets</h2>
+  return `<h2>${icon('configuration')}Upgrade SFlow / migrate compatible schemas</h2>
   <div class="card${view.error ? ' blocked' : ''}">
     <div class="card-head"><strong>Review and refresh this SFlow build's managed assets</strong>
       <span class="grow"></span>${result ? `<span class="pill ${result.status === 'blocked' || result.status === 'partial' ? 'bad' : 'ok'}">${escape(result.status)}</span>` : ''}</div>
+    <p class="muted">Install the matching current CLI and VS Code extension first, then review and
+      apply this upgrade. Reinitialize framework-seeded assets here; do not use <strong>Re-create</strong>
+      as a routine upgrade. Re-creating repository configuration does not update the installed CLI.</p>
     <p class="muted">This is the repeatable, non-destructive upgrade path. It installs missing
       framework seeds and refreshes only byte-exact registered framework revisions for workflow,
       phase, artifact-set, template, prompt and agent assets. User-created or user-modified assets
@@ -518,7 +521,7 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
       </div>` : ''}
       <p class="card-foot"><button data-config-apply="${escape(view.scope)}"
         ${!result.planId || !actionable || view.loading || view.applying ? 'disabled' : ''}>
-        ${view.applying ? 'Applying…' : 'Confirm seeded-asset reinitialize'}</button></p>
+        ${view.applying ? 'Applying…' : 'Review and apply safe upgrade'}</button></p>
       <p class="muted">You must type the exact plan ID before apply. If configuration or state
         authority changed after preview, nothing is published and a new preview is required.</p>` : ''}
   </div>`;
@@ -614,16 +617,16 @@ export function workspacesHtml(
   </header>
 
   <section class="plain">
-    <div class="card-head"><div><strong>Refresh a capability to the new version</strong>
+    <div class="card-head"><div><strong>Upgrade / migrate SFlow for a capability</strong>
       <p class="muted">${row ? `Previews the framework-asset updates the installed SFlow brings to
         ${escape(row.name || row.id)}, then applies them after you confirm the reviewed plan. No Git URL
-        is needed. Application code and Git history are preserved.` : `Select a workspace to refresh
-        it to the installed SFlow version, or choose one when you press Refresh. No Git URL is
+        is needed. Application code and Git history are preserved.` : `Select a workspace to upgrade
+        it to the installed SFlow version, or choose one when you press Upgrade. No Git URL is
         needed.`}</p>
       <p class="muted">For a repository not registered here, find it by Git URL: SFlow locates its
         workspace and offers a safe framework-asset reinitialize, authority-pin repair, or an explicitly reviewed factory
         reset.</p></div><span class="grow"></span>
-      <button data-repository-refresh="1">${icon('refresh')}${row ? 'Refresh to new version…' : 'Refresh a capability…'}</button>
+      <button data-repository-refresh="1">${icon('refresh')}${row ? 'Upgrade / migrate SFlow…' : 'Upgrade a capability…'}</button>
       <button class="secondary" data-repository-refresh-url="1">Find a repository by Git URL…</button></div>
   </section>
 

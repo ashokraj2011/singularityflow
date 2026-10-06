@@ -1903,7 +1903,9 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   if (existsSync(path.join(root, LEGACY_CONTROL_ROOT)) || existsSync(path.join(root, 'singularity/config.json'))) {
     throw new SingularityFlowError('Legacy workflow configuration is not supported by the governed-agent model. Recreate it with singularity-flow init.');
   }
-  throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
+  throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`, {
+    code: 'WORKFLOW_CONFIGURATION_MISSING'
+  });
 }
 
 // Ensure the repository's workflow.yml declares at least `requiredViews` under worldModel.views,

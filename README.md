@@ -657,6 +657,35 @@ data from current configuration, a repository-bound state mirror, or retained hi
 cache entries. It does not clear workspace registrations, the active workspace/session, FOS pins,
 clones, or remote refs.
 
+For routine upgrades, install a matching current CLI package and VS Code extension **first**. Then
+open **Workspaces → Upgrade / migrate SFlow** (or **Configuration → Upgrade / migrate SFlow**),
+review the selected workspace's exact plan, and type its plan ID in the scrollable confirmation
+page. **Re-create** is configuration recovery, not an installer or a routine migration: it cannot
+fix a bug in an older CLI. The safe upgrade preserves repository-owned customizations and Story
+history; existing Stories retain their pinned policy, rather than silently adopting new policy.
+
+Shell equivalent:
+
+```bash
+singularity-flow workspace reinitialize <WORKSPACE> --dry-run --json
+singularity-flow workspace reinitialize <WORKSPACE> --confirm-plan <PLAN-ID> --json
+singularity-flow workspace migrate-schemas --json
+```
+
+The last command is a read-only compatibility check across active registered workspaces. Supported
+old schemas migrate **in memory when read**, not by rewriting approvals or evidence in Git. Review
+any reported custom-asset conflicts or unreadable records separately. A newer configuration than
+the installed build can read requires a compatible build; changing `schemaVersion` or recreating
+configuration is not a substitute.
+
+Story Start automatically reloads a missing or stale application-checkout configuration from the
+approved authority, before its launch readiness check. It validates and reuses that exact snapshot
+in the managed Story checkout; it does not rewrite the application checkout, recreate `sflow/config`,
+install dependencies, or run tests. If authority is absent or unreadable, Start returns a structured
+recovery plan and VS Code shows its repository-bound recovery actions. Diagnose Git access, review
+setup or the safe upgrade preview, then refresh intake and retry the same Story ID. Invalid or
+unsupported approved policy is never silently replaced with an older local workflow.
+
 An applied plan may safely stop with a resumable partial result:
 
 | Status | Meaning and recovery |

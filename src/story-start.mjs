@@ -58,7 +58,7 @@ import {
 import {
   assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired
 } from './story-start-readiness.mjs';
-import { loadLegacyStoryBaseContext } from './story-start-base-configuration.mjs';
+import { loadLegacyStoryBaseContext, storyConfigurationUnavailableError } from './story-start-base-configuration.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
@@ -306,7 +306,12 @@ export async function startStory(root, {
     ? await loadStoryConfigurationSnapshot(configurationAuthority)
     : null;
   let initialDefinition = approvedConfigurationSnapshot?.definition ?? checkoutDefinition;
-  if (!initialDefinition) throw definitionError;
+  if (!initialDefinition) {
+    if (['ENOENT', 'WORKFLOW_CONFIGURATION_MISSING'].includes(definitionError?.code)) {
+      throw storyConfigurationUnavailableError();
+    }
+    throw definitionError ?? storyConfigurationUnavailableError();
+  }
   validateId(initialDefinition, id);
   const normalizedSource = validateStorySource(source, id);
   const actor = identity(root);

@@ -22,7 +22,7 @@ type ConfigurationNavigationItem = {
 const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavigationItem[] }> = [
   { label: 'Repository setup', items: [
     { label: 'Overview', glyph: 'configuration', tab: 'overview' },
-    { label: 'Refresh to the new version', glyph: 'configuration', action: 'capability-refresh' },
+    { label: 'Upgrade / migrate SFlow', glyph: 'configuration', action: 'capability-refresh' },
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
     { label: 'Test setup', glyph: 'phase', tab: 'tests' },

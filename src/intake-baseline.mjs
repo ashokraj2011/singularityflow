@@ -15,7 +15,9 @@ export function baselineChoiceAllowed(definition = {}, choice = 'reuse') {
 }
 
 export function requiredIntakePrerequisites(definition = {}) {
-  const policies = [definition.repositoryReadiness, definition.initialization?.proof?.preStory].filter(Boolean);
+  // An isolated launch may not carry a local workflow. Its child resolves approved policy and
+  // checks prerequisites again before creating the Story; an absent launch copy is not authority.
+  const policies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory].filter(Boolean);
   if (!policies.some(policy => policy.requiredBeforeStory === true)) return [];
   return [['dependencyHydration', 'dependency'], ['build', 'build'], ['applicationStart', 'start']]
     .filter(([field]) => policies.some(policy => policy[field] === 'required')).map(([, purpose]) => purpose);

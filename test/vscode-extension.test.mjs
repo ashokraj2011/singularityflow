@@ -4497,7 +4497,7 @@ test('repository recovery modes are rendered and accepted only when the engine a
     /mode === 'recreate' \|\| mode === 'reset-local'[\s\S]{0,120}newer-version-required/,
     'the host no longer infers broad mode availability from status');
   assert.match(panel,
-    /const revision = this\.inspectionRevision[\s\S]*confirmed !== confirmationLabel[\s\S]*revision !== this\.inspectionRevision[\s\S]*await this\.run\([\s\S]*revision !== this\.inspectionRevision/,
+    /const revision = this\.inspectionRevision[\s\S]*collectReviewConfirmation\([\s\S]*if \(!confirmed\) return;[\s\S]*this\.disposed \|\| revision !== this\.inspectionRevision[\s\S]*await this\.run\([\s\S]*this\.disposed \|\| revision !== this\.inspectionRevision/,
     'apply checks the same inspection lease both before and after the asynchronous mutation');
   assert.match(panel,
     /applied\.mode === 'reset-local'[\s\S]*previewRepositorySetup\('auto'/,
@@ -6481,11 +6481,11 @@ test('a workspace list shows the working directory, which is what it is really a
   assert.match(html, /no two may share a directory/);
   assert.match(html, /data-repository-refresh="1"/,
     'a capability can be refreshed to the new version from the page');
-  assert.match(html, /Refresh a capability…/);
+  assert.match(html, /Upgrade a capability…/);
   assert.match(html, /data-repository-refresh-url="1"/,
     'old or moved repositories keep a visible Git-URL recovery entry point');
   const selected = workspacesHtml(rows, rows[0].path, EMPTY_COPY, null);
-  assert.match(selected, /Refresh to new version…/);
+  assert.match(selected, /Upgrade \/ migrate SFlow…/);
   assert.match(selected, /No Git URL\s+is needed/, 'refreshing the selected workspace never asks for its URL');
 });
 
@@ -6738,7 +6738,8 @@ test('workspace reinitialization renders seeded configuration and keeps capabili
       }
     }
   );
-  assert.match(html, /Reinitialize framework-seeded assets/);
+  assert.match(html, /Upgrade SFlow \/ migrate compatible schemas/);
+  assert.match(html, /Re-creating repository configuration does not update the installed CLI/);
   assert.match(html, /User-created or user-modified assets\s+remain repository-owned and unchanged/);
   assert.match(html, /immutable history, world\s+models/);
   assert.match(html, /data-config-preview="selected"/);
@@ -6772,7 +6773,7 @@ test('workspace reinitialization renders seeded configuration and keeps capabili
   assert.match(html, /The registered repository path could not be resolved/);
   assert.match(html, /data-copy-command="singularity-flow workspace doctor --network/);
   assert.doesNotMatch(html, />undefined</);
-  assert.match(html, /Confirm seeded-asset reinitialize/);
+  assert.match(html, /Review and apply safe upgrade/);
   assert.match(html, /type the exact plan ID/);
   assert.match(html, /cfgp-123/);
   assert.match(WORKSPACES_SCRIPT, /\[data-copy-command\]/);

@@ -153,7 +153,12 @@ export function inspectStoryStartReadiness({
   }
 
   let resolved = null;
-  if (!workType) {
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+    checks.push(check(
+      'workflow', 'block', 'STORY_WORKFLOW_INVALID',
+      'Story workflow configuration is unavailable. Refresh the approved workspace configuration and retry; no Story policy has been validated.'
+    ));
+  } else if (!workType) {
     checks.push(check(
       'workflow', 'warning', 'STORY_WORKFLOW_SELECTION_PENDING',
       'Choose a Story workflow before the final start.'

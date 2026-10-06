@@ -4,8 +4,25 @@ import test from 'node:test';
 import YAML from 'yaml';
 
 import {
-  assertStoryStartReady, inspectStoryStartReadiness
+  assertStoryStartReady, inspectStoryStartReadiness, repositoryReadinessRequired
 } from '../src/story-start-readiness.mjs';
+import { requiredIntakePrerequisites, baselineDeferralAllowed } from '../src/intake-baseline.mjs';
+
+test('a missing launch definition is safe to inspect, but never a ready final Story policy', () => {
+  for (const definition of [null, undefined]) {
+    assert.deepEqual(requiredIntakePrerequisites(definition), []);
+    assert.equal(repositoryReadinessRequired(definition), false);
+    assert.equal(baselineDeferralAllowed(definition), true);
+    for (const workType of ['feature', null]) {
+      const readiness = inspectStoryStartReadiness(facts(definition, { workType }));
+      assert.equal(readiness.ready, false);
+      assert.ok(readiness.blockers.some(entry => entry.id === 'workflow'
+        && entry.code === 'STORY_WORKFLOW_INVALID' && /configuration.*unavailable/iu.test(entry.message)));
+      assert.throws(() => assertStoryStartReady(readiness), error => error.code === 'STORY_WORKFLOW_INVALID'
+        && error.details.nextAction && !/Cannot read properties/iu.test(error.message));
+    }
+  }
+});
 
 test('explicit baseline deferral admits intake without turning missing or failing tests into passing evidence', async () => {
   const definition = await shippedDefinition();

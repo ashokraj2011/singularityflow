@@ -198,7 +198,7 @@
       {
         "command": "singularityFlow.refreshCapability",
         "category": "Singularity Flow",
-        "title": "Refresh Capability to New Version",
+        "title": "Upgrade / Migrate SFlow for Capability (Safe Preview)",
         "icon": "$(sync)"
       },
       {

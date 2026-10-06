@@ -11,6 +11,7 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import { rememberSetupReviewRepository } from './setup-review-repositories.ts';
+import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
   CAPABILITY_KINDS, EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapFormHasInput, mapProblems,
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type MapCapabilityOperation,
@@ -1489,7 +1490,7 @@ export class BootstrapPanel {
     const plan = this.form.repositorySetupPlan;
     const repositoryUrl = this.form.repositoryUrl.trim();
     const revision = this.inspectionRevision;
-    if (!plan || !plan.canApply || !repositoryUrl || this.form.repositorySetupApplying) return;
+    if (this.disposed || !plan || !plan.canApply || !repositoryUrl || this.form.repositorySetupApplying) return;
     // The fresh, auto-mode setup button already confirms the exact ref-bound plan shown in the
     // form. It creates the first sflow/config directly, so a second modal approval adds a click
     // without protecting a different decision. Repair, migration, recreation and local reset keep
@@ -1497,26 +1498,23 @@ export class BootstrapPanel {
     if (!(plan.mode === 'auto' && plan.status === 'not-set-up')) {
       const confirmationLabel = plan.mode === 'reset-local'
         ? 'Reset local registration' : 'Apply and continue';
-      const confirmed = await vscode.window.showInformationMessage(
-        'Apply this repository setup plan?',
-        {
-          modal: true,
-          detail: `${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; `
-            + `${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.`
-            + (plan.omitted.length ? `\n\nNot carried forward:\n${plan.omitted.join('\n')}` : '')
-        },
-        confirmationLabel
-      );
-      if (confirmed !== confirmationLabel) return;
+      const confirmed = await collectReviewConfirmation({
+        title: 'Review repository setup change',
+        summary: `${plan.mode}: ${plan.effects.length} planned changes; ${plan.preserved.length} preserved items.`,
+        detail: `Exact plan: ${plan.planId}\n\nPlanned changes:\n${plan.effects
+          .map(effect => `${effect.action} ${effect.kind}: ${effect.target}`).join('\n') || 'None'}\n\nPreserved:\n${plan.preserved.join('\n') || 'None'}\n\nNot carried forward:\n${plan.omitted.join('\n') || 'None'}`,
+        confirmLabel: confirmationLabel
+      });
+      if (!confirmed) return;
     }
-    if (revision !== this.inspectionRevision
+    if (this.disposed || revision !== this.inspectionRevision
       || this.form.repositorySetupPlan?.planId !== plan.planId
       || this.form.repositoryUrl.trim() !== repositoryUrl) return;
     this.update({ repositorySetupApplying: true, error: null });
     const { result, error, errorCode } = await this.run(
       repositoryOnboardingApplyArgv(repositoryUrl, plan)
     );
-    if (revision !== this.inspectionRevision
+    if (this.disposed || revision !== this.inspectionRevision
       || this.form.repositorySetupPlan?.planId !== plan.planId
       || this.form.repositoryUrl.trim() !== repositoryUrl) return;
     if (error) {

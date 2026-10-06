@@ -20,7 +20,7 @@ import {
   type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
-import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
+import { CliError, CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
 import { startProgressLabel } from '../cli/progress.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
@@ -1289,6 +1289,7 @@ export class IntakePanel {
   }
 
   private async start(): Promise<void> {
+    const startRepository = this.client.repository;
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
     if (intakeProblems(this.form).length || this.form.busy || this.form.enhancing || this.form.baselineRunning) return;
     if (this.client.repository !== this.form.targetRepository) {
@@ -1375,6 +1376,7 @@ export class IntakePanel {
       });
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
+      if (this.disposed || this.client.repository !== startRepository) return;
       this.update({
         busy: false,
         error: failure instanceof CliTimeoutError ? failure.summary : failure.message,
@@ -1382,6 +1384,12 @@ export class IntakePanel {
         recoveryRouteCommand: failure instanceof CliTimeoutError
           ? `singularity-flow ${args.slice(0, 2).join(' ')}` : null
       });
+      if (failure instanceof CliError) {
+        const { showRefusal } = await import('./result-panel.ts');
+        if (!this.disposed && this.client.repository === startRepository) showRefusal(failure, {
+          headline: 'Story intake needs recovery', repositoryRoot: startRepository
+        });
+      }
     } finally {
       navigation?.release();
     }

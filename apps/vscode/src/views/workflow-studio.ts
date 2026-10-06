@@ -14,6 +14,7 @@ import type { SingularityFlowClient } from '../cli/client.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { collectReviewConfirmation } from './review-confirmation.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
@@ -86,6 +87,7 @@ export interface StudioSavedDraft { schema: 1; base: string; savedAt: string; dr
 export class WorkflowStudioPanel implements vscode.Disposable {
   private static current: WorkflowStudioPanel | null = null;
   private readonly subscriptions: vscode.Disposable[] = [];
+  private disposed = false;
   private model: StudioModel | null = null;
   /** MCP servers the person allowed this Studio session to start or contact for imports. */
   private readonly mcpConsent = new Set<string>();
@@ -255,15 +257,19 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   }
 
   /**
-   * A yes/no question the page needs answered as a modal (a webview cannot open one): removing,
-   * replacing or discarding work. The page runs its action only on an explicit yes.
+   * Review removing, replacing or discarding work without a screen-sized native modal.
+   * The page runs its action only on an explicit human confirmation.
    */
   private async confirm(id: string | null, text: string | null, detail: string | null, ok: string | null): Promise<void> {
-    if (!id || !/^confirm-\d{1,9}$/.test(id) || !text || !ok) return;
+    if (this.disposed || !id || !/^confirm-\d{1,9}$/.test(id) || !text || !ok) return;
+    const reviewedRepository = this.client.repository;
     const bounded = (value: string, limit: number) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
-    const choice = await vscode.window.showWarningMessage(bounded(text, 300),
-      { modal: true, detail: detail ? bounded(detail, 2000) : undefined }, bounded(ok, 60));
-    this.post({ type: 'studio.confirmed', id, ok: choice === bounded(ok, 60) });
+    const accepted = await collectReviewConfirmation({
+      title: 'Review Workflow Studio change', summary: text,
+      detail: detail ?? 'Review the exact change before continuing.', confirmLabel: bounded(ok, 60)
+    });
+    if (this.disposed) return;
+    this.post({ type: 'studio.confirmed', id, ok: accepted && this.client.repository === reviewedRepository });
   }
 
   /** Jira targets use the Jira connection VS Code keeps; connecting is VS Code's own flow. */
@@ -442,6 +448,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   }
 
   private post(message: Record<string, unknown>): void {
+    if (this.disposed) return;
     void this.panel.webview.postMessage(message);
   }
 
@@ -550,6 +557,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
     if (WorkflowStudioPanel.current === this) WorkflowStudioPanel.current = null;
   }

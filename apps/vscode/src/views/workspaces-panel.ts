@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { collectReviewConfirmation } from './review-confirmation.ts';
 import { booleanField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_CONFIGURATION_REFRESH, EMPTY_DRAFT, EMPTY_EDIT_DRAFT, workspacesHtml, WORKSPACES_SCRIPT,
@@ -686,18 +687,18 @@ export class WorkspacesPanel {
     }
     const planId = reviewedResult.planId;
     if (!reviewedLease || !this.configurationRequests.isCurrent(reviewedLease, context)) return;
-    const confirmation = await vscode.window.showInputBox({
-      title: 'Confirm safe workspace reinitialization',
-      prompt: `Type the exact reviewed plan ID: ${planId}`,
-      placeHolder: planId,
-      ignoreFocusOut: true,
-      validateInput: (value) => value === planId
-        ? null
-        : 'The plan ID must exactly match the current reinitialization preview.'
+    const confirmation = await collectReviewConfirmation({
+      title: 'Confirm safe SFlow upgrade',
+      summary: `${reviewedResult.total} repositories in the exact reviewed upgrade plan.`,
+      detail: 'Refresh registered framework seeds and check schema compatibility. Repository-owned assets, application code and Story history remain unchanged.\n\n'
+        + reviewedResult.results.map(repository => `${repository.repository}: ${repository.status}\n`
+          + (repository.files ?? []).map(file => `  ${file}`).join('\n')).join('\n\n'),
+      confirmLabel: 'Apply reviewed upgrade',
+      expected: planId
     });
-    // A retained page can be refreshed or switched while the native input box is open. The typed
+    // A retained page can be refreshed or switched while the review page is open. The typed
     // value authorizes only the exact result that was on screen when it opened.
-    if (confirmation !== planId || this.configuration.result !== reviewedResult
+    if (!confirmation || this.disposed || this.configuration.result !== reviewedResult
       || this.configurationPreviewLease !== reviewedLease
       || !this.configurationRequests.isCurrent(
         reviewedLease, this.configurationRequestContext(this.configuration.scope)

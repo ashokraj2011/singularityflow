@@ -57,7 +57,7 @@ import { currentInteractiveRevisionPublication } from './revision/publication-ad
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import {
   captureTelemetryCursorsForWorkItem, copilotTelemetryStatus,
-  restoreTelemetryCursorsForWorkItem
+  pendingTelemetryNote, restoreTelemetryCursorsForWorkItem
 } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
 import { compileEvidencePacket, expandEvidencePacketHandle } from './evidence-packet.mjs';
@@ -7220,7 +7220,7 @@ async function phaseCommand(positionals, options) {
       ));
     }
     console.log(`Telemetry record: ${telemetry.path}`);
-    if (telemetry.status === 'pending') console.log('Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.');
+    if (telemetry.status === 'pending') console.log(pendingTelemetryNote(telemetry.captureGap));
   }
   const publishedReview = await postPublicationStep(
     'the phase review projection', workflow.workItem.id,

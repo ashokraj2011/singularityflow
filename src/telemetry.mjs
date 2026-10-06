@@ -501,6 +501,33 @@ async function composedPromptSummary(workflow, phase, itemDirectory) {
   }
 }
 
+/**
+ * Why a Copilot generation captured no activity, read from its own launches. A publication with no
+ * spans is always `pending`, whatever the cause, so the status alone cannot tell work in native
+ * Copilot Chat (no SFlow launch ran) from capture that was declined, an OpenTelemetry setup SFlow
+ * kept, or a launch that has not exported its finished turn yet.
+ */
+export function telemetryCaptureGap(capture, activity) {
+  if (activity || capture?.source !== 'copilot-otel') return null;
+  const statuses = (capture.launches ?? []).map((launch) => launch.captureStatus);
+  if (!statuses.length) return 'no-metered-session';
+  if (statuses.some((status) => ['disabled-by-user', 'disclosure-required'].includes(status))) return 'disabled';
+  if (statuses.includes('conflict')) return 'conflict';
+  return 'awaiting-export';
+}
+
+const PENDING_NOTES = {
+  'no-metered-session': 'No Copilot session started through SFlow ran for this phase. Telemetry will be reconciled automatically on the next submit action only if Copilot exports to this repository; native Copilot Chat sends SFlow nothing, so requests, turns and calls stay unavailable.',
+  disabled: 'Copilot activity capture was off for this phase; run singularity-flow telemetry enable to measure the next generation.',
+  conflict: 'An existing OpenTelemetry setup kept Copilot activity from SFlow; see singularity-flow telemetry probe.'
+};
+
+/** What to expect after publishing a generation that captured no activity, by why it has none. */
+export function pendingTelemetryNote(captureGap) {
+  return PENDING_NOTES[captureGap]
+    ?? 'Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.';
+}
+
 export async function recordPhaseTelemetry(root, workflow, phase, usage, capture, { itemDirectory, itemRelative }) {
   const relative = path.posix.join(itemRelative, 'telemetry', `${phase.id}-gen${phase.generation}.json`);
   const absolute = path.join(itemDirectory, 'telemetry', `${phase.id}-gen${phase.generation}.json`);
@@ -524,6 +551,7 @@ export async function recordPhaseTelemetry(root, workflow, phase, usage, capture
     models: [...new Set(usage.map((item) => item.model).filter(Boolean))],
     providerCost: costs.length ? costs.reduce((sum, value) => sum + value, 0) : null,
     activity, prompt,
+    captureGap: telemetryCaptureGap(capture, activity),
     record
   };
 }
@@ -537,7 +565,8 @@ export function phaseTelemetrySummary(telemetry) {
     generation: telemetry.generation, path: telemetry.path, sha256: telemetry.sha256, status: telemetry.status,
     models: telemetry.models, providerCost: telemetry.providerCost,
     ...(telemetry.activity ? { activity: telemetry.activity } : {}),
-    ...(telemetry.prompt ? { prompt: telemetry.prompt } : {})
+    ...(telemetry.prompt ? { prompt: telemetry.prompt } : {}),
+    ...(telemetry.captureGap ? { captureGap: telemetry.captureGap } : {})
   };
 }
 
@@ -560,6 +589,10 @@ export async function verifyPhaseTelemetry(root, workflow, phase, generation) {
     if (JSON.stringify(record[field] ?? null) !== JSON.stringify(context[field] ?? null)) {
       return { errors: [`telemetry ${field} differs from workflow state: ${context.path}`], passes: [] };
     }
+  }
+  // Older summaries predate the gap; a recorded one must be the one the record's launches give.
+  if (context.captureGap != null && context.captureGap !== telemetryCaptureGap(record, record.activity ?? null)) {
+    return { errors: [`telemetry captureGap differs from workflow state: ${context.path}`], passes: [] };
   }
   return { errors: [], passes: [`telemetry audit: ${phase.id} generation ${generation} (${context.status})`] };
 }

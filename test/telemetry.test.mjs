@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   beginTelemetryCapture, captureTelemetryCursorsForWorkItem, collectCopilotUsage,
   groupedUsage, parseCopilotTelemetry, phaseTelemetrySummary, recordPhaseTelemetry,
-  restoreTelemetryCursorsForWorkItem, verifyPhaseTelemetry
+  restoreTelemetryCursorsForWorkItem, telemetryCaptureGap, verifyPhaseTelemetry
 } from '../src/telemetry.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
@@ -278,4 +278,29 @@ test('a generation authored without a model, or composed for another generation,
     source: 'copilot-otel', pending: true, spans: 0
   }, { itemDirectory, itemRelative });
   assert.equal(later.prompt, null, 'generation 1\'s prompt is not generation 3\'s');
+});
+
+test('a generation that captured nothing records why, from its own launches', async () => {
+  const otel = (launches) => ({ source: 'copilot-otel', launches });
+  assert.equal(telemetryCaptureGap(otel([]), null), 'no-metered-session', 'native Copilot Chat: no SFlow launch ran');
+  assert.equal(telemetryCaptureGap(otel([{ captureStatus: 'disclosure-required' }]), null), 'disabled');
+  assert.equal(telemetryCaptureGap(otel([{ captureStatus: 'disabled-by-user' }]), null), 'disabled');
+  assert.equal(telemetryCaptureGap(otel([{ captureStatus: 'conflict' }]), null), 'conflict');
+  assert.equal(telemetryCaptureGap(otel([{ captureStatus: 'configured' }]), null), 'awaiting-export');
+  assert.equal(telemetryCaptureGap(otel([]), { requests: 1 }), null, 'captured activity has no gap');
+  assert.equal(telemetryCaptureGap({ source: 'not-invoked' }, null), null, 'nothing was sent to a model');
+
+  const { root, itemDirectory, itemRelative } = await telemetryItem('sflow-tel-gap-');
+  const workflow = { workItem: { id: 'WRK-9', workType: 'story' } };
+  const result = await recordPhaseTelemetry(root, workflow, { id: 'design', generation: 1 }, [], {
+    source: 'copilot-otel', pending: true, spans: 0, launches: []
+  }, { itemDirectory, itemRelative });
+  const summary = phaseTelemetrySummary(result);
+  assert.equal(summary.status, 'pending');
+  assert.equal(summary.captureGap, 'no-metered-session');
+  const published = { id: 'design', generation: 1, telemetry: [summary], usage: [] };
+  assert.deepEqual((await verifyPhaseTelemetry(root, workflow, published, 1)).errors, []);
+  const altered = { ...published, telemetry: [{ ...summary, captureGap: 'awaiting-export' }] };
+  assert.deepEqual((await verifyPhaseTelemetry(root, workflow, altered, 1)).errors,
+    [`telemetry captureGap differs from workflow state: ${result.path}`]);
 });

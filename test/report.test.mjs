@@ -339,3 +339,51 @@ test('without multipliers premium requests stay unavailable, and a Story with no
   assert.doesNotMatch(renderMarkdown(plain), /Copilot activity/);
   assert.doesNotMatch(renderHtml(plain), /Copilot activity/);
 });
+
+test('a generation Copilot sent nothing for says why, with what to do, and never claims zero events', () => {
+  const generation = (number, status, extra = {}) => ({ generation: number, status, models: [], ...extra });
+  const phase = (id, telemetry) => ({
+    id, label: id, status: 'approved', startedAt: at(0), approvedAt: at(10), generation: telemetry.length,
+    usage: [], approvals: [], checks: [], telemetry
+  });
+  const workflow = {
+    status: 'in_progress', currentPhase: 'specification',
+    workItem: { id: 'ENG-8', title: 'Unmetered', workType: 'spec-driven', branch: 'ENG-8' },
+    phaseOrder: ['specification', 'planning', 'release'],
+    phases: {
+      // Composed and published from native chat: a prompt, but no spans.
+      specification: phase('specification', [generation(1, 'pending', {
+        captureGap: 'no-metered-session',
+        prompt: { source: 'sflow-composition', bytes: 21600, estimatedTokens: 5400, maximumBytes: 72000, omittedSections: 0 }
+      })]),
+      // Publication with no spans is always pending; the recorded gap says why. The last two
+      // predate the gap: one wrote usage before activity counting, one cannot say.
+      planning: phase('planning', [
+        generation(1, 'pending', { captureGap: 'awaiting-export' }), generation(2, 'pending', { captureGap: 'disabled' }),
+        generation(3, 'pending', { captureGap: 'conflict' }), generation(4, 'exact'), generation(5, 'pending')
+      ]),
+      release: phase('release', [generation(1, 'not-invoked')])
+    },
+    usage: { byAgent: {}, byPhase: {} }, sequenceOverrides: [], history: []
+  };
+  const report = deriveReport(workflow, { now: at(60) });
+  assert.deepEqual(report.phases[0].copilot.uncaptured, { 'not-metered': 1 });
+  assert.deepEqual(report.phases[1].copilot.uncaptured, { pending: 1, disabled: 1, conflict: 1, 'older-record': 1, unconfirmed: 1 });
+  assert.deepEqual(report.phases[2].copilot.uncaptured, {}, 'a manual generation sent nothing, and needs no reason');
+  assert.equal(report.copilot.status, 'unavailable');
+  assert.deepEqual(report.copilot.captureNotes, [
+    '1 generation is waiting for Copilot to export the finished turn; the next submit reconciles it.',
+    '1 generation has no Copilot activity. Work in a session started with `singularity-flow copilot` is reconciled on the next submit; native Copilot Chat sends SFlow nothing, so those counts stay unavailable.',
+    '1 generation ran with local capture turned off; run `singularity-flow telemetry enable` to accept it.',
+    '1 generation found an OpenTelemetry setup SFlow would not override; see `singularity-flow telemetry probe`.',
+    '1 generation ran without a metered Copilot session. Copilot reports requests, turns and calls to SFlow only for sessions started with `singularity-flow copilot` (in VS Code, Continue with Copilot CLI) after `singularity-flow telemetry enable`; native Copilot Chat sends SFlow nothing.',
+    '1 generation was published before SFlow counted Copilot activity.'
+  ]);
+
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /\*\*Why some counts are unavailable:\*\*\n\n- 1 generation is waiting/);
+  assert.doesNotMatch(markdown, /\b0 quota or model events/, 'nothing captured is not zero events');
+  const html = renderHtml(report);
+  assert.match(html, /<h3>Why some counts are unavailable<\/h3>/);
+  assert.match(html, /started with <code>singularity-flow copilot<\/code>/);
+});

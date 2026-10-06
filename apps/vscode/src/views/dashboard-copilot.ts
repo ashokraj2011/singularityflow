@@ -11,6 +11,11 @@ import {
 } from './dashboard-model.ts';
 import { escape, icon } from './webview.ts';
 
+/** The engine writes commands as `code` spans; shown as code once the text is escaped. */
+function codeSpans(escaped: string): string {
+  return escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
 /** The prompt's size against the largest prompt on the page, with its budget as a dashed mark. */
 function promptBarHtml(phase: LifecyclePhaseMetric, scale: number): string {
   const prompt = phase.copilot?.prompt;
@@ -36,9 +41,18 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
   const prompted = analytics.phases.filter((phase) => phase.copilot?.prompt);
   if (copilot.status === 'none' && !prompted.length) return '';
   const scale = Math.max(1, ...prompted.flatMap((phase) => [phase.copilot?.prompt?.bytes ?? 0, phase.copilot?.prompt?.maximumBytes ?? 0]));
-  const premiumNote = copilot.premiumRequests.value == null
-    ? (copilot.premiumMultipliersConfigured ? 'No multiplier for the models used' : 'Set tokens.premiumMultipliers to estimate')
-    : copilot.premiumRequests.status === 'partial' ? 'Estimated; some models have no multiplier' : 'Estimated from configured multipliers';
+  // Requests come first: without them no multiplier can produce an estimate.
+  const premiumNote = copilot.requests.value == null ? 'Requests were not captured'
+    : copilot.premiumRequests.value == null
+      ? (copilot.premiumMultipliersConfigured ? 'No multiplier for the models used' : 'Set tokens.premiumMultipliers to estimate')
+      : copilot.premiumRequests.status === 'partial' ? 'Estimated; some models have no multiplier' : 'Estimated from configured multipliers';
+  // A count of events is only as good as the capture behind it: nothing captured is not zero events.
+  const eventValue = copilot.status === 'none' ? '—'
+    : copilot.status === 'unavailable' ? 'Unavailable'
+      : `${copilot.eventCount}${copilot.status === 'partial' ? ' (partial)' : ''}`;
+  const captureNotes = copilot.captureNotes?.length
+    ? `<ul class="sources">${copilot.captureNotes.map((note) => `<li class="warning-text">${codeSpans(escape(note))}</li>`).join('')}</ul>`
+    : '';
   const rows = analytics.phases.map((phase) => {
     const failed = phase.copilot?.failedToolCalls?.value;
     return `<tr>
@@ -62,9 +76,10 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
       <div class="summary-card${copilot.events.some((event) => event.kind !== 'failed') ? ' governance-warning' : ''}"><strong>${escape(premiumLabel(copilot.premiumRequests))}</strong><span>Premium requests · ${escape(premiumNote)}</span></div>
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.turns))}</strong><span>Agent turns${copilot.turnsDerived ? ' · some counted from model calls' : ''}</span></div>
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.toolCalls))}</strong><span>Tool calls</span></div>
-      <div class="summary-card${copilot.eventCount ? ' governance-warning' : ''}"><strong>${copilot.eventCount}</strong><span>Quota and model events</span></div>
+      <div class="summary-card${copilot.eventCount ? ' governance-warning' : ''}"><strong>${escape(eventValue)}</strong><span>Quota and model events</span></div>
       <div class="summary-card${copilot.promptsOverBudget.length ? ' governance-warning' : ''}"><strong>${copilot.largestPrompt ? escape(sizeLabel(copilot.largestPrompt.bytes)) : '—'}</strong><span>Largest governed prompt${copilot.largestPrompt ? ` · ${escape(copilot.largestPrompt.phase)}` : ''}${copilot.promptsOverBudget.length ? ` · ${copilot.promptsOverBudget.length} over budget` : ''}</span></div>
     </div>
+    ${captureNotes}
     <div class="table-wrap"><table class="analytics-table">
       <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium (est.)</th><th>Governed prompt</th></tr></thead>
       <tbody>${rows}</tbody>

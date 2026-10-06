@@ -69,7 +69,9 @@ import {
 import {
   publishedArchitectureIntentBinding, resolveArchitectureIntentPublicationBinding
 } from './architecture-intent-service.mjs';
-import { beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry } from './telemetry.mjs';
+import {
+  beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry, telemetryCaptureGap
+} from './telemetry.mjs';
 import { retainUnchangedPhases } from './phase-retention.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
@@ -3808,7 +3810,10 @@ export async function publishGeneration(root, config, workflow, {
     ? { source: 'usage-json', usage: Array.isArray(rawUsage) ? rawUsage : [rawUsage], spans: 0, rawBytes: 0, startedAt: rawUsage.startedAt, completedAt: rawUsage.completedAt, warnings: [] }
     : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase) };
   capture.pending = modelAssisted && !rawUsage && capture.usage.length === 0;
-  if (capture.pending) capture.warnings.push('The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.');
+  // Only a launch SFlow started can still be exporting its turn; say so only when one ran.
+  if (capture.pending) capture.warnings.push(telemetryCaptureGap(capture, null) === 'awaiting-export'
+    ? 'The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.'
+    : 'No Copilot activity was captured for this phase.');
   capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
   const normalizedUsage = modelAssisted
     ? (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, nextPhaseGeneration(phase)))

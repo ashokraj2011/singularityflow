@@ -531,6 +531,8 @@ export interface StoryPhaseCopilot {
   status: 'none' | 'unavailable' | 'partial' | 'observed' | (string & {});
   generations: number;
   capturedGenerations: number;
+  /** Generations with no activity, by why: pending, disabled, conflict, not-metered, older-record. */
+  uncaptured?: Record<string, number>;
   requests: CopilotCount;
   turns: CopilotCount;
   /** True when some turns were counted from model calls rather than reported by Copilot. */
@@ -567,6 +569,9 @@ export interface StoryCopilotSummary {
   omittedEvents: number;
   largestPrompt: { phase: string; bytes: number; estimatedTokens: number } | null;
   promptsOverBudget: string[];
+  uncaptured?: Record<string, number>;
+  /** One sentence per reason counts are unavailable, with what to do; absent from older CLIs. */
+  captureNotes?: string[];
 }
 
 export interface StoryPhaseReport {

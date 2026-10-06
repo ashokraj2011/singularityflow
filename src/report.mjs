@@ -192,6 +192,38 @@ function combinePremium(estimates) {
  * Stories captured before activity counting still chart them. Nothing here is converted to zero:
  * a generation that was not captured makes a count partial or unavailable.
  */
+const CAPTURE_GAP_REASONS = {
+  'no-metered-session': 'not-metered', disabled: 'disabled', conflict: 'conflict', 'awaiting-export': 'pending'
+};
+
+/**
+ * Why a model-assisted generation has no activity. Publication records the gap from the
+ * generation's launches. Older records only have a status, and a `pending` one cannot say whether
+ * a launch is still exporting or none ran, so it is reported as unconfirmed rather than guessed.
+ */
+function uncapturedReason(entry) {
+  if (entry.captureGap) return CAPTURE_GAP_REASONS[entry.captureGap] ?? 'not-metered';
+  if (entry.status === 'pending') return 'unconfirmed';
+  if (entry.status === 'disabled' || entry.status === 'conflict') return entry.status;
+  return 'older-record';
+}
+
+const plural = (count, one, many = `${one}s`) => (count === 1 ? one : many);
+
+const CAPTURE_NOTES = [
+  ['pending', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'is', 'are')} waiting for Copilot to export the finished turn; the next submit reconciles ${plural(count, 'it', 'them')}.`],
+  ['unconfirmed', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'has', 'have')} no Copilot activity. Work in a session started with \`singularity-flow copilot\` is reconciled on the next submit; native Copilot Chat sends SFlow nothing, so those counts stay unavailable.`],
+  ['disabled', (count) => `${count} ${plural(count, 'generation')} ran with local capture turned off; run \`singularity-flow telemetry enable\` to accept it.`],
+  ['conflict', (count) => `${count} ${plural(count, 'generation')} found an OpenTelemetry setup SFlow would not override; see \`singularity-flow telemetry probe\`.`],
+  ['not-metered', (count) => `${count} ${plural(count, 'generation')} ran without a metered Copilot session. Copilot reports requests, turns and calls to SFlow only for sessions started with \`singularity-flow copilot\` (in VS Code, Continue with Copilot CLI) after \`singularity-flow telemetry enable\`; native Copilot Chat sends SFlow nothing.`],
+  ['older-record', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'was', 'were')} published before SFlow counted Copilot activity.`]
+];
+
+/** One sentence per reason, with what to do about it, for every surface that shows the counts. */
+function copilotCaptureNotes(uncaptured) {
+  return CAPTURE_NOTES.filter(([reason]) => uncaptured[reason]).map(([reason, note]) => note(uncaptured[reason]));
+}
+
 function phaseCopilot(phase, premiumMultipliers) {
   const generations = (phase.telemetry ?? [])
     .filter((entry) => entry.status !== 'not-invoked')
@@ -222,6 +254,10 @@ function phaseCopilot(phase, premiumMultipliers) {
         : generations.some((entry) => entry.activity) ? 'partial' : 'unavailable',
     generations: generations.length,
     capturedGenerations: generations.filter((entry) => entry.activity).length,
+    uncaptured: generations.filter((entry) => !entry.activity).reduce((counts, entry) => {
+      const reason = uncapturedReason(entry);
+      return { ...counts, [reason]: (counts[reason] ?? 0) + 1 };
+    }, {}),
     requests: metric('requests'),
     turns: metric('turns'),
     // Whether any generation counted turns from model calls rather than Copilot's own turn count.
@@ -354,6 +390,10 @@ export function deriveReport(workflow, { pricing = null, premiumMultipliers = nu
   const prompted = phases.filter((phase) => phase.copilot.prompt);
   const largestPrompt = prompted.toSorted((left, right) => right.copilot.prompt.bytes - left.copilot.prompt.bytes)[0] ?? null;
   const copilotStatuses = phases.map((phase) => phase.copilot.status).filter((status) => status !== 'none');
+  const uncaptured = phases.reduce((counts, phase) => {
+    for (const [reason, count] of Object.entries(phase.copilot.uncaptured)) counts[reason] = (counts[reason] ?? 0) + count;
+    return counts;
+  }, {});
   const copilot = {
     status: !copilotStatuses.length ? 'none'
       : copilotStatuses.every((status) => status === 'observed') ? 'observed'
@@ -371,7 +411,9 @@ export function deriveReport(workflow, { pricing = null, premiumMultipliers = nu
       bytes: largestPrompt.copilot.prompt.bytes,
       estimatedTokens: largestPrompt.copilot.prompt.estimatedTokens
     } : null,
-    promptsOverBudget: prompted.filter((phase) => phase.copilot.prompt.overBudget).map((phase) => phase.id)
+    promptsOverBudget: prompted.filter((phase) => phase.copilot.prompt.overBudget).map((phase) => phase.id),
+    uncaptured,
+    captureNotes: copilotCaptureNotes(uncaptured)
   };
   const bottleneck = phases
     .filter((phase) => phase.waitingMs != null && phase.waitingMs > 0)
@@ -567,6 +609,11 @@ export function renderMarkdown(report) {
       if (copilot.omittedEvents) lines.push(`- ${copilot.omittedEvents} more event group${copilot.omittedEvents === 1 ? '' : 's'} not listed.`);
       lines.push('');
     }
+    if (copilot.captureNotes.length) {
+      lines.push('**Why some counts are unavailable:**', '');
+      for (const note of copilot.captureNotes) lines.push(`- ${note}`);
+      lines.push('');
+    }
     if (copilot.premiumRequests.missingModels.length) {
       lines.push(`_Premium requests are ${copilot.premiumRequests.value == null ? 'unavailable' : 'partial'}: no \`tokens.premiumMultipliers\` entry for ${copilot.premiumRequests.missingModels.join(', ')}._`, '');
     }
@@ -716,6 +763,8 @@ function copilotHtml(report) {
   const tableRows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${phase.generations}</td><td>${phase.sentBack}</td><td>${escapeHtml(countCell(phase.copilot.requests))}</td><td>${escapeHtml(countCell(phase.copilot.turns))}</td><td>${escapeHtml(countCell(phase.copilot.modelCalls))}</td><td>${escapeHtml(toolCell(phase))}</td><td>${escapeHtml(premiumCell(phase.copilot.premiumRequests))}</td><td>${escapeHtml(promptCell(phase.copilot.prompt))}</td></tr>`).join('');
   const events = copilot.events.length
     ? `<h3>Quota and model events</h3><ul>${copilot.events.map((event) => `<li>${escapeHtml(copilotEventLine(event))}</li>`).join('')}${copilot.omittedEvents ? `<li>${copilot.omittedEvents} more event group${copilot.omittedEvents === 1 ? '' : 's'} not listed.</li>` : ''}</ul>` : '';
+  const captureNotes = copilot.captureNotes.length
+    ? `<h3>Why some counts are unavailable</h3><ul>${copilot.captureNotes.map((note) => `<li>${codeSpans(escapeHtml(note))}</li>`).join('')}</ul>` : '';
   const missing = copilot.premiumRequests.missingModels.length
     ? `<p class="note">Premium requests are ${copilot.premiumRequests.value == null ? 'unavailable' : 'partial'}: no <code>tokens.premiumMultipliers</code> entry for ${escapeHtml(copilot.premiumRequests.missingModels.join(', '))}.</p>` : '';
   return `<h2>Copilot activity by phase</h2>
@@ -727,6 +776,7 @@ ${premiumChart}
 <h3>Governed prompt size</h3>
 <p class="note">Dashed red line: the phase's prompt budget.</p>
 ${promptChart}
+${captureNotes}
 ${events}
 ${missing}
 <p class="note">${codeSpans(escapeHtml(COPILOT_SOURCES))} * marks a count some generations did not report; "unavailable" means none did.</p>`;

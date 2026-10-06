@@ -515,14 +515,15 @@ test('publication counts Copilot requests, turns, tool calls and quota events fr
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  // After the phase's capture window opened, which a span dated just before "now" can miss.
   const now = Date.now();
-  const time = (offset) => new Date(now - offset).toISOString();
+  const time = (offset) => new Date(now + offset).toISOString();
   // A plan whose spans report no token counts: what the report can still chart.
   const spans = [
-    { traceId: 'one', name: 'invoke_agent copilot', endTime: time(500), attributes: { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.conversation.id': 'conversation-must-not-leak' } },
-    { traceId: 'one', name: 'chat model-premium-2', endTime: time(900), attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.response.model': 'model-premium-2' } },
-    { traceId: 'one', name: 'chat model-premium-2', endTime: time(800), attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.response.model': 'gpt-4.1' } },
-    { traceId: 'one', name: 'execute_tool read_file', endTime: time(700), attributes: { 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.call.arguments': 'arguments-must-not-leak' } }
+    { traceId: 'one', name: 'invoke_agent copilot', endTime: time(400), attributes: { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.conversation.id': 'conversation-must-not-leak' } },
+    { traceId: 'one', name: 'chat model-premium-2', endTime: time(100), attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.response.model': 'model-premium-2' } },
+    { traceId: 'one', name: 'chat model-premium-2', endTime: time(200), attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'model-premium-2', 'gen_ai.response.model': 'gpt-4.1' } },
+    { traceId: 'one', name: 'execute_tool read_file', endTime: time(300), attributes: { 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.call.arguments': 'arguments-must-not-leak' } }
   ];
   await writeFile(path.join(root, '.git/singularity-flow/copilot-otel.jsonl'), `${spans.map((span) => JSON.stringify(span)).join('\n')}\n`);
   await completeArtifact(root, workflow, 'intake');
@@ -558,6 +559,7 @@ test('Copilot telemetry published before turn completion is reconciled and commi
   assert.match(published.stdout, /reconciled automatically on the next submit action/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.telemetry[0].status, 'pending');
+  assert.equal(workflow.phases.intake.telemetry[0].captureGap, 'no-metered-session', 'no SFlow launch ran for this phase');
   assert.equal(workflow.phases.intake.usage[0].status, 'unavailable');
   assert.equal(JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout).costCoverage.pendingRecords, 1);
 
@@ -584,6 +586,7 @@ test('Copilot telemetry published before turn completion is reconciled and commi
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');
   assert.equal(workflow.phases.intake.telemetry[0].status, 'exact');
+  assert.equal(workflow.phases.intake.telemetry[0].captureGap, undefined, 'reconciled spans close the gap');
   assert.equal(workflow.phases.intake.usage[0].totalTokens, 1000);
   assert.equal(workflow.phases.intake.usage[0].providerCost, 0.01);
   assert.equal(workflow.usage.totalTokens, 1000);

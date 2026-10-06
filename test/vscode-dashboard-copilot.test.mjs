@@ -100,3 +100,17 @@ test('labels never show a missing count as zero, and an older CLI\'s report show
   assert.equal(analytics.sentBack, 0);
   assert.equal(copilotActivityHtml(analytics), '');
 });
+
+test('a Story Copilot sent nothing for shows why, not zero events, and blames the missing requests first', () => {
+  const unmetered = workflow();
+  for (const phase of Object.values(unmetered.phases)) {
+    phase.telemetry = phase.telemetry.map(({ activity, ...entry }) => ({ ...entry, status: 'pending', captureGap: 'no-metered-session' }));
+  }
+  const html = copilotActivityHtml(buildLifecycleAnalytics(deriveReport(unmetered, { now: at(60) })));
+  assert.match(html, /<strong>Unavailable<\/strong><span>Quota and model events<\/span>/, 'nothing captured is not zero events');
+  assert.doesNotMatch(html, /<strong>0<\/strong><span>Quota and model events/);
+  assert.match(html, /Premium requests · Requests were not captured/);
+  assert.match(html, /2 generations ran without a metered Copilot session/);
+  assert.match(html, /started with <code>singularity-flow copilot<\/code>/, 'commands read as code');
+  assert.match(html, /20\.0 KB of 64\.0 KB budget/, 'the prompt sflow composed is still measured');
+});

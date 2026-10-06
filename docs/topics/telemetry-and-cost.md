@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 8
+version: 9
 aliases:
   - tokens
   - cost
@@ -63,6 +63,8 @@ tokens:
 A name also matches dated builds of that model: `model-alpha-1.5` matches `model-alpha-1-5-20250929`, but `model-alpha` does not match `model-alpha-mini`. No multipliers are bundled, because GitHub changes them. A model without one makes the estimate partial or unavailable, and GitHub's billing stays authoritative.
 
 Native IDE chat exports no spans to SFlow, so its phases show generations and prompt size but no requests, turns or quota events.
+
+When a phase has no activity, the report, Lifecycle Analytics and `phase publish` say why and what to do. Publication records the reason from the generation's own launches: no session started through SFlow ran, capture was turned off, an existing OpenTelemetry setup was kept, or a launch has not exported its finished turn yet. Counts that were not captured read "Unavailable", never 0.
 
 ## State and safety
 

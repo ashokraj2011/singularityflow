@@ -2340,6 +2340,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   }
   /** Arrow paths between absolutely placed boxes, with an optional label at the middle. */
   function drawLinks(layer, links, boxes, options) {
+    // Boxes and labels already placed: a label that would cover one moves up or down until it is clear.
+    const taken = Object.keys(boxes).map(function (id) { const box = boxes[id]; return { x: box.x, y: box.y, w: box.w, h: box.h }; });
+    const clear = function (x, y, w) {
+      return !taken.some(function (rect) { return x < rect.x + rect.w + 4 && rect.x < x + w + 4 && y < rect.y + (rect.h || 20) && rect.y < y + 20; });
+    };
     links.forEach(function (link) {
       const a = boxes[link.from], b = boxes[link.to];
       if (!a || !b) return;
@@ -2364,6 +2369,10 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         const text = String(link.label);
         const shown = text.length > 44 ? text.slice(0, 43) + '…' : text;
         const width = Math.min(300, shown.length * 6.4 + 12);
+        const base = my;
+        const offsets = [0, -20, 20, -40, 40, -60, 60];
+        for (let at = 0; at < offsets.length; at += 1) { my = base + offsets[at]; if (clear(mx - width / 2, my - 9, width)) break; if (at === offsets.length - 1) my = base; }
+        taken.push({ x: mx - width / 2, y: my - 9, w: width, h: 20 });
         group.appendChild(svg('rect', { x: mx - width / 2, y: my - 9, width: width, height: 18, rx: 4, class: 'label-bg' }));
         const label = svg('text', { x: mx, y: my + 4, 'text-anchor': 'middle', class: 'label' });
         label.textContent = shown;

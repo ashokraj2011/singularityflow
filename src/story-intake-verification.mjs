@@ -61,53 +61,58 @@ export async function admitStoryIntakeReceipt(root, id, {
 }) {
   const claimed = await claimStoryIntakeReceipt(root, id, { inputs, now });
   if (claimed.status !== 'claimed') return claimed;
-  const refuse = async (reason) => {
-    await claimed.release();
-    return { status: 'rejected', reason };
-  };
-  const { receipt } = claimed;
-  if (receipt.repositories.length !== 1) return refuse('capability');
-  const [repository] = receipt.repositories;
-  if (repository.remote !== remote || repository.baseBranch !== baseBranch
-      || repository.destinationRef !== `refs/heads/${workId}`
-      || receipt.authority.branch !== CONFIGURATION_BRANCH) return refuse('inputs');
-  // A sealed onboarding pin is compatible only with this exact receipt authority. The pin remains
-  // immutable; a newer intake catalog cannot silently replace it. The subsequent wave still
-  // observes live authority, so neither matching scalars nor a MAC is an approval witness.
-  if (configurationAuthority && (receipt.authority.remote !== configurationAuthority.remote
-      || receipt.authority.branch !== configurationAuthority.branch
-      || receipt.authority.commit !== configurationAuthority.commit
-      || (receipt.authority.sourceCommit ?? receipt.authority.commit)
-        !== (configurationAuthority.sourceCommit ?? configurationAuthority.commit))) {
-    return refuse('configuration');
-  }
-  // These refs are read together, not memoized across the start's writes or across invocations.
-  const storyRef = `refs/heads/${workId}`;
-  const trackingStory = `refs/remotes/${remote}/${workId}`;
-  const baseRef = `refs/remotes/${remote}/${baseBranch}`;
-  let refs;
+  const refuse = (reason) => ({ status: 'rejected', reason });
+  let transferred = false;
   try {
-    refs = localRefHeads(root, [storyRef, trackingStory, baseRef]);
-  } catch {
-    return refuse('base-not-local');
+    const { receipt } = claimed;
+    if (receipt.repositories.length !== 1) return refuse('capability');
+    const [repository] = receipt.repositories;
+    if (repository.remote !== remote || repository.baseBranch !== baseBranch
+        || repository.destinationRef !== `refs/heads/${workId}`
+        || receipt.authority.branch !== CONFIGURATION_BRANCH) return refuse('inputs');
+    // A sealed onboarding pin is compatible only with this exact receipt authority. The pin remains
+    // immutable; a newer intake catalog cannot silently replace it. The subsequent wave still
+    // observes live authority, so neither matching scalars nor a MAC is an approval witness.
+    if (configurationAuthority && (receipt.authority.remote !== configurationAuthority.remote
+        || receipt.authority.branch !== configurationAuthority.branch
+        || receipt.authority.commit !== configurationAuthority.commit
+        || (receipt.authority.sourceCommit ?? receipt.authority.commit)
+          !== (configurationAuthority.sourceCommit ?? configurationAuthority.commit))) {
+      return refuse('configuration');
+    }
+    // These refs are read together, not memoized across the start's writes or across invocations.
+    const storyRef = `refs/heads/${workId}`;
+    const trackingStory = `refs/remotes/${remote}/${workId}`;
+    const baseRef = `refs/remotes/${remote}/${baseBranch}`;
+    let refs;
+    try {
+      refs = localRefHeads(root, [storyRef, trackingStory, baseRef]);
+    } catch {
+      return refuse('base-not-local');
+    }
+    if (refs.has(storyRef) || refs.has(trackingStory)) {
+      return refuse('story-exists');
+    }
+    const fetch = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+    const push = configuredRemoteAuthority(root, remote, { direction: 'push' });
+    if (fetch.url !== repository.fetch.url || fetch.fingerprint !== repository.fetch.fingerprint
+        || (repository.push && (push.url !== repository.push.url
+          || push.fingerprint !== repository.push.fingerprint))) return refuse('remote');
+    if (refs.get(baseRef) !== repository.baseCommit || !objectPresent(root, repository.baseCommit)
+        || !completeRepository(root)) return refuse('base-not-local');
+    const admission = {
+      status: 'admitted',
+      receipt,
+      repository,
+      consume: claimed.consume,
+      release: claimed.release
+    };
+    transferred = true;
+    return admission;
+  } finally {
+    // Until admission returns, this function owns cleanup, including thrown Git/URL errors.
+    if (!transferred) await claimed.release();
   }
-  if (refs.has(storyRef) || refs.has(trackingStory)) {
-    return refuse('story-exists');
-  }
-  const fetch = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
-  const push = configuredRemoteAuthority(root, remote, { direction: 'push' });
-  if (fetch.url !== repository.fetch.url || fetch.fingerprint !== repository.fetch.fingerprint
-      || (repository.push && (push.url !== repository.push.url
-        || push.fingerprint !== repository.push.fingerprint))) return refuse('remote');
-  if (refs.get(baseRef) !== repository.baseCommit || !objectPresent(root, repository.baseCommit)
-      || !completeRepository(root)) return refuse('base-not-local');
-  return {
-    status: 'admitted',
-    receipt,
-    repository,
-    consume: claimed.consume,
-    release: claimed.release
-  };
 }
 
 /**

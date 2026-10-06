@@ -15,6 +15,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { onboardRepository } from '../src/onboard.mjs';
+import { storyWorktreePath } from '../src/story-worktree.mjs';
 
 const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
 const posix = { skip: process.platform === 'win32' ? 'Story intake receipts are POSIX-only.' : false };
@@ -180,6 +181,52 @@ test('a passing preview\'s receipt lets start verify every input in one wave, on
   const reused = data(start(root, 'STORY-AGAIN', ['--intake-receipt', receipt.id]));
   assert.deepEqual([reused.intakeReceipt.status, reused.intakeReceipt.reason], ['rejected', 'missing'],
     'a receipt serves one start only');
+});
+
+test('pre-worktree refusals release the exact intake receipt for a corrected retry', posix, async (t) => {
+  const { root } = await repository(t);
+  const directory = path.join(root, '.git', 'singularity-flow', 'intake-receipts');
+  for (const [id, extra, code] of [
+    ['STORY-RETRY-SELECTION', ['--selection-receipt', 'not-a-receipt'], 'SINGULARITY_FLOW_ERROR'],
+    ['STORY-RETRY-BASELINE', ['--test-baseline-record', `sha256:${'0'.repeat(64)}`], 'TRP_INTAKE_BASELINE_INVALID'],
+    ['STORY-RETRY-WORKTREE', [], 'STORY_WORKTREE_RECOVERY_REQUIRED']
+  ]) {
+    const receipt = preflight(root, id);
+    assert.equal(receipt.issued, true);
+    const file = path.join(directory, `${receipt.id}.json`);
+    const original = await readFile(file, 'utf8');
+    const before = {
+      head: git(root, 'rev-parse', 'HEAD'),
+      worktrees: git(root, 'worktree', 'list', '--porcelain'),
+      status: git(root, 'status', '--porcelain')
+    };
+    const target = id === 'STORY-RETRY-WORKTREE' ? await storyWorktreePath(root, id) : null;
+    if (target) {
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, 'Preserve this occupied unregistered path.\n');
+    }
+    const failed = start(root, id, [...extra, '--intake-receipt', receipt.id], { allowFailure: true });
+    assert.notEqual(failed.status, 0);
+    assert.equal(JSON.parse(failed.stdout).error.code, code, failed.stdout);
+    assert.equal(counter(failed.stderr, 'story.intake-receipt-wave'), 1,
+      'the refusal occurs after the receipt has been claimed and verified');
+    assert.equal(await readFile(file, 'utf8'), original, 'the original sealed receipt is restored unchanged');
+    assert.deepEqual((await readdir(directory)).filter(name => name.startsWith(`${receipt.id}.claim-`)), []);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), before.head);
+    assert.equal(git(root, 'worktree', 'list', '--porcelain'), before.worktrees);
+    assert.equal(git(root, 'status', '--porcelain'), before.status);
+    assert.equal(git(root, 'branch', '--list', id), '');
+    if (target) {
+      assert.equal(await readFile(target, 'utf8'), 'Preserve this occupied unregistered path.\n');
+      await rm(target);
+    }
+    const retried = start(root, id, ['--intake-receipt', receipt.id]);
+    assert.equal(data(retried).intakeReceipt.status, 'verified');
+    assert.equal(counter(retried.stderr, 'git.remote.command.fetch'), 0,
+      'a corrected retry keeps the fast path without refetching the selected base');
+    assert.deepEqual((await readdir(directory)).filter(name => name.startsWith(receipt.id)), [],
+      'the successful Story consumes the receipt, rather than making it reusable');
+  }
 });
 
 test('an exact sealed onboarding pin permits receipt reuse without repinning configuration', posix, async (t) => {

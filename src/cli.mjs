@@ -1714,208 +1714,211 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const intakeReferences = intakeReceiptId ? parseReferenceRepositoryOptions(
     optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
   ) : [];
-  if (intakeReceiptId) {
-    if (!requestedBase || optionString(options, 'ref', id) !== id) intake.reason = 'inputs';
-    else if (durableLocalStory) intake.reason = 'story-exists';
-    else {
-      const admission = await admitStoryIntakeReceipt(sourceRoot, intakeReceiptId, {
-        inputs: {
-          workId: id, workType: optionString(options, 'work-type'), baseBranch: requestedBase,
-          remote: requestedRemote, capabilityId: optionString(options, 'capability') ?? null,
-          readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
-          testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected'),
-          references: intakeReferences
-            .map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
-        },
-        workId: id, remote: requestedRemote, baseBranch: requestedBase,
-        configurationAuthority: sealedConfiguration ? {
-          remote: sealedConfiguration.authority.remote,
-          branch: sealedConfiguration.authority.branch,
-          commit: sealedConfiguration.snapshot.observedCommit,
-          sourceCommit: sealedConfiguration.snapshot.sourceCommit
-        } : null
-      });
-      if (admission.status !== 'admitted') intake.reason = admission.reason;
+  try {
+    if (intakeReceiptId) {
+      if (!requestedBase || optionString(options, 'ref', id) !== id) intake.reason = 'inputs';
+      else if (durableLocalStory) intake.reason = 'story-exists';
       else {
-        const wave = await measureCommandSpan('start.intake-verification', () =>
-          verifyStoryIntakeWave(sourceRoot, admission, {
-            workId: id, references: intakeReferences, session: intakeSession
-          }));
-        if (wave.ok) {
+        const admission = await admitStoryIntakeReceipt(sourceRoot, intakeReceiptId, {
+          inputs: {
+            workId: id, workType: optionString(options, 'work-type'), baseBranch: requestedBase,
+            remote: requestedRemote, capabilityId: optionString(options, 'capability') ?? null,
+            readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
+            testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected'),
+            references: intakeReferences
+              .map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
+          },
+          workId: id, remote: requestedRemote, baseBranch: requestedBase,
+          configurationAuthority: sealedConfiguration ? {
+            remote: sealedConfiguration.authority.remote,
+            branch: sealedConfiguration.authority.branch,
+            commit: sealedConfiguration.snapshot.observedCommit,
+            sourceCommit: sealedConfiguration.snapshot.sourceCommit
+          } : null
+        });
+        if (admission.status !== 'admitted') intake.reason = admission.reason;
+        else {
           intakeAdmission = admission;
-          intakeProof = wave.proof;
-          intake.status = 'verified';
-        } else {
-          await admission.release();
-          intake.status = 'fallback';
-          intake.reason = wave.reason;
+          const wave = await measureCommandSpan('start.intake-verification', () =>
+            verifyStoryIntakeWave(sourceRoot, admission, {
+              workId: id, references: intakeReferences, session: intakeSession
+            }));
+          if (wave.ok) {
+            intakeProof = wave.proof;
+            intake.status = 'verified';
+          } else {
+            await admission.release();
+            intakeAdmission = null;
+            intake.status = 'fallback';
+            intake.reason = wave.reason;
+          }
         }
       }
     }
-  }
-  if (intakeReceiptId && !durableLocalStory && !sealedConfiguration) {
-    // Observe an ordinary authority in the receipt wave, then load its exact approved snapshot
-    // using that operation-local observation. A receipt is never itself configuration authority.
-    // Failed/moved receipts still resolve current approved policy before launch prerequisites.
-    try {
+    if (intakeReceiptId && !durableLocalStory && !sealedConfiguration) {
+      // Observe an ordinary authority in the receipt wave, then load its exact approved snapshot
+      // using that operation-local observation. A receipt is never itself configuration authority.
+      // Failed/moved receipts still resolve current approved policy before launch prerequisites.
       sealedConfiguration = await measureCommandSpan('start.authority', () =>
         sealIsolatedStoryConfiguration(sourceRoot, id, {
           readStoryPin: capabilityDoctorStoryPin, session: intakeSession
         }));
-    } catch (error) {
-      await intakeAdmission?.release();
-      throw error;
-    }
-    if (sealedConfiguration) {
-      launchDefinition = sealedConfiguration.snapshot.definition;
-      const approvedRemote = optionString(options, 'remote') ?? launchDefinition.git?.remote ?? 'origin';
-      if (approvedRemote !== requestedRemote) {
-        await intakeAdmission?.release();
-        intakeAdmission = null;
-        intakeProof = null;
-        intake.status = 'fallback';
-        intake.reason = 'remote';
+      if (sealedConfiguration) {
+        launchDefinition = sealedConfiguration.snapshot.definition;
+        const approvedRemote = optionString(options, 'remote') ?? launchDefinition.git?.remote ?? 'origin';
+        if (approvedRemote !== requestedRemote) {
+          await intakeAdmission?.release();
+          intakeAdmission = null;
+          intakeProof = null;
+          intake.status = 'fallback';
+          intake.reason = 'remote';
+        }
+        requestedRemote = approvedRemote;
       }
-      requestedRemote = approvedRemote;
     }
-  }
-  let requestedBaseRef = null;
-  let requestedBaseFetchAuthority = null;
-  if (requestedBase && !durableLocalStory) {
-    const fetchAuthority = configuredRemoteAuthority(sourceRoot, requestedRemote, {
-      direction: 'fetch'
-    });
-    if (!fetchAuthority.url) {
-      throw new SingularityFlowError(
-        `Story remote '${requestedRemote}' has no credential-free fetch authority. Nothing was changed.`,
-        { code: 'STORY_REMOTE_UNREACHABLE' }
-      );
-    }
-    // Readiness, dependency hydration, and Story creation must all observe the same freshly
-    // fetched base commit. Never prefer an old local tracking branch at this boundary, unless the
-    // intake wave has just confirmed that this exact tracking ref is still the remote's tip.
-    if (intakeProof && fetchAuthority.url === intakeProof.fetch.url
-        && fetchAuthority.fingerprint === intakeProof.fetch.fingerprint
-        && refHead(sourceRoot, `refs/remotes/${requestedRemote}/${requestedBase}`) === intakeProof.baseCommit) {
-      incrementCommandCounter('git.story-launch-fetch-verified');
-      intake.reused.push('launch-fetch');
-    } else {
-      await measureCommandSpan('start.fetch', () =>
-        fetchRemote(sourceRoot, requestedRemote, {
-          transportRemote: fetchAuthority.url,
-          // A stale Story tracking ref needs the ordinary inventory/prune path before reuse or
-          // resume can be decided. The normal new-Story path transfers only its chosen base.
-          branches: refExists(sourceRoot, `refs/remotes/${requestedRemote}/${canonicalBranch}`)
-            ? undefined : [requestedBase],
-          respectPartialClone: true
-        }));
-    }
-    requestedBaseFetchAuthority = fetchAuthority;
-    requestedBaseRef = `refs/remotes/${requestedRemote}/${requestedBase}`;
-    if (!refExists(sourceRoot, requestedBaseRef)) {
-      throw new SingularityFlowError(
-        `Selected base branch '${requestedBase}' is not published by remote '${requestedRemote}'. Nothing was changed.`,
-        { code: 'STORY_BASE_INVALID' }
-      );
-    }
-  }
-  const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
-  let baselineTarget = null;
-  if (!durableLocalStory && optionStrings(options, 'test-baseline-record').length) {
-    const { preparedStoryWorktreePath } = await import('./story-worktree.mjs');
-    baselineTarget = await preparedStoryWorktreePath(sourceRoot, id, { baseCommit: launchBaseCommit });
-    if (!baselineTarget) throw new SingularityFlowError(
-      'Capture this Story baseline with story test-policy baseline --isolated-worktree before starting. '
-      + 'A baseline from the launch checkout cannot authenticate a test run in the Story checkout. '
-      + 'Refresh intake using the returned record digest; no Story or worktree was created.',
-      { code: 'TRP_INTAKE_BASELINE_INVALID' }
-    );
-  }
-  // This checkout already exists because the operator explicitly ran its native baseline.
-  // Defer the legacy composite readiness gate to the child's exact TRP checks and live review.
-  // The child separately authenticates required dependency/build/start results before creating
-  // the Story. No missing non-test prerequisite is waived, and rehydrating here would mutate
-  // the already captured execution environment before that validation.
-  const preparedBaselineReview = Boolean(baselineTarget)
-    && launchDefinition?.testRecovery?.enabled === true
-    && launchDefinition.testRecovery.enabledRiskCategories?.includes('known-test-failure')
-    && optionString(options, 'test-baseline-disposition') === 'accept-known-failures';
-  if (!durableLocalStory && !preparedBaselineReview) await assertLaunchCheckoutRepositoryReady(
-    sourceRoot, launchDefinition, launchBaseCommit, optionString(options, 'readiness-baseline', 'reuse'));
-  // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
-  const selectionToken = optionString(options, 'selection-receipt');
-  const selectionHandoff = selectionToken && !durableLocalStory
-    ? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
-  const prepared = await measureCommandSpan('start.worktree', () =>
-    prepareStoryWorktree(sourceRoot, id, {
-      base: durableLocalStory ? 'HEAD' : launchBaseCommit
-    }));
-  const previousDirectory = process.cwd();
-  let result;
-  try {
-    // Intake only creates the isolated checkout and Story. Dependency installation and test
-    // execution belong to an explicitly reviewed readiness run or later code/verification work.
-    const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);
-    const childOptions = {
-      ...options,
-      'isolated-worktree': false,
-      'managed-story-worktree': prepared.repositoryPath,
-      'story-launch-repository': sourceRoot
-    };
-    if (requestedBaseRef) {
-      childOptions['story-launch-remote'] = requestedRemote;
-      childOptions['story-launch-base-branch'] = requestedBase;
-      childOptions['story-launch-base-commit'] = launchBaseCommit;
-      childOptions[ISOLATED_STORY_BASE_FETCH_HANDOFF] = Object.freeze({
-        sourceCommonDir: gitCommonDir(sourceRoot),
-        remote: requestedRemote,
-        transportRemote: requestedBaseFetchAuthority.url,
-        remoteFingerprint: requestedBaseFetchAuthority.fingerprint,
-        baseBranch: requestedBase,
-        baseCommit: launchBaseCommit,
-        // Only the same-transport state tip is covered by the launch's full fetch. Capability
-        // preflight re-observes these exact refs before admitting this process-private proof.
-        stateBranch: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
-          ? worldModelStateAuthority(launchDefinition ?? {}).branch : null,
-        stateCommit: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
-          ? refHead(sourceRoot, `refs/remotes/${requestedRemote}/${worldModelStateAuthority(launchDefinition ?? {}).branch}`)
-          : null
+    let requestedBaseRef = null;
+    let requestedBaseFetchAuthority = null;
+    if (requestedBase && !durableLocalStory) {
+      const fetchAuthority = configuredRemoteAuthority(sourceRoot, requestedRemote, {
+        direction: 'fetch'
       });
+      if (!fetchAuthority.url) {
+        throw new SingularityFlowError(
+          `Story remote '${requestedRemote}' has no credential-free fetch authority. Nothing was changed.`,
+          { code: 'STORY_REMOTE_UNREACHABLE' }
+        );
+      }
+      // Readiness, dependency hydration, and Story creation must all observe the same freshly
+      // fetched base commit. Never prefer an old local tracking branch at this boundary, unless the
+      // intake wave has just confirmed that this exact tracking ref is still the remote's tip.
+      if (intakeProof && fetchAuthority.url === intakeProof.fetch.url
+          && fetchAuthority.fingerprint === intakeProof.fetch.fingerprint
+          && refHead(sourceRoot, `refs/remotes/${requestedRemote}/${requestedBase}`) === intakeProof.baseCommit) {
+        incrementCommandCounter('git.story-launch-fetch-verified');
+        intake.reused.push('launch-fetch');
+      } else {
+        await measureCommandSpan('start.fetch', () =>
+          fetchRemote(sourceRoot, requestedRemote, {
+            transportRemote: fetchAuthority.url,
+            // A stale Story tracking ref needs the ordinary inventory/prune path before reuse or
+            // resume can be decided. The normal new-Story path transfers only its chosen base.
+            branches: refExists(sourceRoot, `refs/remotes/${requestedRemote}/${canonicalBranch}`)
+              ? undefined : [requestedBase],
+            respectPartialClone: true
+          }));
+      }
+      requestedBaseFetchAuthority = fetchAuthority;
+      requestedBaseRef = `refs/remotes/${requestedRemote}/${requestedBase}`;
+      if (!refExists(sourceRoot, requestedBaseRef)) {
+        throw new SingularityFlowError(
+          `Selected base branch '${requestedBase}' is not published by remote '${requestedRemote}'. Nothing was changed.`,
+          { code: 'STORY_BASE_INVALID' }
+        );
+      }
     }
-    if (configurationHandoff) {
-      childOptions[ISOLATED_STORY_CONFIGURATION_HANDOFF] = configurationHandoff;
-    }
-    if (intakeReceiptId) {
-      childOptions[ISOLATED_STORY_INTAKE_HANDOFF] = Object.freeze({ proof: intakeProof, status: intake });
-    }
-    if (selectionHandoff) childOptions[ISOLATED_STORY_SELECTION_HANDOFF] = selectionHandoff;
-    if (optionStrings(options, 'document').length) {
-      childOptions.document = optionStrings(options, 'document').map((file) => path.resolve(launchDirectory, file));
-    }
-    if (optionString(options, 'story-file')) childOptions['story-file'] = path.resolve(launchDirectory, optionString(options, 'story-file'));
-    process.chdir(prepared.repositoryPath);
-    result = await startCommand(positionals, childOptions);
-    completeStoryWorktree(prepared);
-    // The Story exists now, so this receipt can never be used again.
-    await intakeAdmission?.consume().catch(() => {});
-    try {
-      await activateWorkspaceStoryContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), prepared.repositoryPath,
-        { storyId: id, selectionSource: 'story-start' }
+    const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
+    let baselineTarget = null;
+    if (!durableLocalStory && optionStrings(options, 'test-baseline-record').length) {
+      const { preparedStoryWorktreePath } = await import('./story-worktree.mjs');
+      baselineTarget = await preparedStoryWorktreePath(sourceRoot, id, { baseCommit: launchBaseCommit });
+      if (!baselineTarget) throw new SingularityFlowError(
+        'Capture this Story baseline with story test-policy baseline --isolated-worktree before starting. '
+        + 'A baseline from the launch checkout cannot authenticate a test run in the Story checkout. '
+        + 'Refresh intake using the returned record digest; no Story or worktree was created.',
+        { code: 'TRP_INTAKE_BASELINE_INVALID' }
       );
-    } catch (error) {
-      // The Story is already committed and may already be pushed. A machine-local navigation
-      // receipt must never turn that durable success into a failed start or cause a duplicate retry.
-      console.warn(`Warning: Story '${id}' started, but its active-checkout selection was not updated: ${error.message}`);
     }
-  } catch (error) {
-    // Whether or not the failed start left a durable commit behind, the next attempt verifies from
-    // scratch: a receipt is never reused after a start that got this far.
-    await intakeAdmission?.consume().catch(() => {});
-    rollbackFailedStoryWorktree(prepared, error, previousDirectory);
+    // This checkout already exists because the operator explicitly ran its native baseline.
+    // Defer the legacy composite readiness gate to the child's exact TRP checks and live review.
+    // The child separately authenticates required dependency/build/start results before creating
+    // the Story. No missing non-test prerequisite is waived, and rehydrating here would mutate
+    // the already captured execution environment before that validation.
+    const preparedBaselineReview = Boolean(baselineTarget)
+      && launchDefinition?.testRecovery?.enabled === true
+      && launchDefinition.testRecovery.enabledRiskCategories?.includes('known-test-failure')
+      && optionString(options, 'test-baseline-disposition') === 'accept-known-failures';
+    if (!durableLocalStory && !preparedBaselineReview) await assertLaunchCheckoutRepositoryReady(
+      sourceRoot, launchDefinition, launchBaseCommit, optionString(options, 'readiness-baseline', 'reuse'));
+    // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
+    const selectionToken = optionString(options, 'selection-receipt');
+    const selectionHandoff = selectionToken && !durableLocalStory
+      ? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
+    const prepared = await measureCommandSpan('start.worktree', () =>
+      prepareStoryWorktree(sourceRoot, id, {
+        base: durableLocalStory ? 'HEAD' : launchBaseCommit
+      }));
+    const previousDirectory = process.cwd();
+    let result;
+    try {
+      // Intake only creates the isolated checkout and Story. Dependency installation and test
+      // execution belong to an explicitly reviewed readiness run or later code/verification work.
+      const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);
+      const childOptions = {
+        ...options,
+        'isolated-worktree': false,
+        'managed-story-worktree': prepared.repositoryPath,
+        'story-launch-repository': sourceRoot
+      };
+      if (requestedBaseRef) {
+        childOptions['story-launch-remote'] = requestedRemote;
+        childOptions['story-launch-base-branch'] = requestedBase;
+        childOptions['story-launch-base-commit'] = launchBaseCommit;
+        childOptions[ISOLATED_STORY_BASE_FETCH_HANDOFF] = Object.freeze({
+          sourceCommonDir: gitCommonDir(sourceRoot),
+          remote: requestedRemote,
+          transportRemote: requestedBaseFetchAuthority.url,
+          remoteFingerprint: requestedBaseFetchAuthority.fingerprint,
+          baseBranch: requestedBase,
+          baseCommit: launchBaseCommit,
+          // Only the same-transport state tip is covered by the launch's full fetch. Capability
+          // preflight re-observes these exact refs before admitting this process-private proof.
+          stateBranch: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
+            ? worldModelStateAuthority(launchDefinition ?? {}).branch : null,
+          stateCommit: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
+            ? refHead(sourceRoot, `refs/remotes/${requestedRemote}/${worldModelStateAuthority(launchDefinition ?? {}).branch}`)
+            : null
+        });
+      }
+      if (configurationHandoff) {
+        childOptions[ISOLATED_STORY_CONFIGURATION_HANDOFF] = configurationHandoff;
+      }
+      if (intakeReceiptId) {
+        childOptions[ISOLATED_STORY_INTAKE_HANDOFF] = Object.freeze({ proof: intakeProof, status: intake });
+      }
+      if (selectionHandoff) childOptions[ISOLATED_STORY_SELECTION_HANDOFF] = selectionHandoff;
+      if (optionStrings(options, 'document').length) {
+        childOptions.document = optionStrings(options, 'document').map((file) => path.resolve(launchDirectory, file));
+      }
+      if (optionString(options, 'story-file')) childOptions['story-file'] = path.resolve(launchDirectory, optionString(options, 'story-file'));
+      process.chdir(prepared.repositoryPath);
+      result = await startCommand(positionals, childOptions);
+      completeStoryWorktree(prepared);
+      // The Story exists now, so this receipt can never be used again.
+      await intakeAdmission?.consume().catch(() => {});
+      try {
+        await activateWorkspaceStoryContext(
+          activeWorkspaceFile(), workspaceRegistryFile(), prepared.repositoryPath,
+          { storyId: id, selectionSource: 'story-start' }
+        );
+      } catch (error) {
+        // The Story is already committed and may already be pushed. A machine-local navigation
+        // receipt must never turn that durable success into a failed start or cause a duplicate retry.
+        console.warn(`Warning: Story '${id}' started, but its active-checkout selection was not updated: ${error.message}`);
+      }
+    } catch (error) {
+      // Whether or not the failed start left a durable commit behind, the next attempt verifies from
+      // scratch: a receipt is never reused after a start that got this far.
+      await intakeAdmission?.consume().catch(() => {});
+      rollbackFailedStoryWorktree(prepared, error, previousDirectory);
+    }
+    process.chdir(previousDirectory);
+    return result;
+  } finally {
+    // The claim belongs to the whole launch, including wave verification and failures before
+    // worktree creation. Once the child starts it consumes the claim on success or failure;
+    // release is then a no-op. Earlier refusals restore the exact receipt for a corrected retry.
+    await intakeAdmission?.release();
   }
-  process.chdir(previousDirectory);
-  return result;
 }
 
 function testRecoveryIntakePhases(definition, workType, snapshot, capabilityId, legacyCapabilityEvidence) {

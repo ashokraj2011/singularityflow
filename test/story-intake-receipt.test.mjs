@@ -135,3 +135,20 @@ test('a receipt cannot override an onboarding pin and a mismatch releases its cl
   assert.equal(released.status, 'claimed');
   await released.consume();
 });
+
+test('local admission exceptions release the receipt before ownership reaches the caller', async (t) => {
+  const { root, directory } = await repository(t);
+  const minted = await mint(root);
+  const file = path.join(directory, `${minted.id}.json`);
+  const original = await readFile(file, 'utf8');
+  assert.equal(spawnSync('git', ['-C', root, 'remote', 'add', 'origin',
+    'https://fixture-user:fixture-not-a-secret@example.test/org/service.git']).status, 0);
+  await assert.rejects(admitStoryIntakeReceipt(root, minted.id, {
+    inputs, workId: inputs.workId, remote: inputs.remote, baseBranch: inputs.baseBranch
+  }), { code: 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL' });
+  assert.equal(await readFile(file, 'utf8'), original);
+  assert.deepEqual((await readdir(directory)).filter(name => name.startsWith(`${minted.id}.claim-`)), []);
+  const released = await claimStoryIntakeReceipt(root, minted.id, { inputs });
+  assert.equal(released.status, 'claimed');
+  await released.consume();
+});

@@ -248,7 +248,7 @@ test('the intake host owns file selection and bounds the attachment list', async
   assert.match(panel, /private enhancementController: AbortController \| null = null/);
   assert.match(panel, /private invalidateEnhancement\(\): void/);
   assert.match(panel, /active\.abort\(\)/);
-  assert.match(panel, /showWarningMessage\(messages\.join\(' '\)\)/);
+  assert.match(panel, /showCompactWarningMessage\(messages\.join\(' '\)\)/);
   assert.doesNotMatch(panel, /The Story changed while Copilot was responding/);
 
   const full = intakeHtml(story({

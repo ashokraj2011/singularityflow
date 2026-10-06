@@ -286,7 +286,7 @@ test('the publish command follows the authority the model came from', async () =
 test('the host publishes through a proposal bound to the authority it read, and never writes configuration itself', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
   assert.match(source, /args = studioPublishArgs\(this\.model\?\.authority\)/, 'publishing follows the authority the model was read from');
-  assert.match(source, /showWarningMessage\(\s*`Publish \$\{count\}/, 'a person confirms before anything is published');
+  assert.match(source, /showCompactWarningMessage\(\s*`Publish \$\{count\}/, 'a person confirms before anything is published');
   assert.doesNotMatch(source, /writeFile|fs\.promises/, 'the extension never writes configuration files');
   const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
   const studioCommand = extension.slice(extension.indexOf("'singularityFlow.openWorkflowStudio': async (target?: unknown) => {"));
@@ -389,7 +389,7 @@ test('the host previews, browses and checks imports only through engine reads', 
   assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['import', 'preview', reference, '--as', as, \.\.\.mcpFlags, '--json'\]\)/);
   // An MCP server is started only after the person allows it, with the engine's own description.
   assert.match(host, /if \(reference\.startsWith\('mcp:'\)\) \{[\s\S]{0,200}if \(!\(await this\.mcpConsentFor\(serverId\)\)\) return;[\s\S]{0,40}mcpFlags\.push\('--launch'\)/);
-  assert.match(host, /\['mcp', 'sources', serverId, '--json'\]\)[\s\S]{0,400}Repeat with --launch[\s\S]{0,600}showWarningMessage\(`Allow MCP server/);
+  assert.match(host, /\['mcp', 'sources', serverId, '--json'\]\)[\s\S]{0,400}Repeat with --launch[\s\S]{0,600}showCompactWarningMessage\(`Allow MCP server/);
   assert.match(host, /if \(!id \|\| !\(await this\.mcpConsentFor\(id\)\)\) return;[\s\S]{0,120}\['mcp', 'sources', id, '--launch', '--json'\]/);
   assert.match(host, /'Add host entry'\);[\s\S]{0,120}if \(confirmed !== 'Add host entry'\) return;[\s\S]{0,200}\['mcp', 'host', 'add', id, '--json'\]/);
   assert.match(host, /this\.client\.run<Record<string, unknown>>\(\['marketplace', 'browse', id, '--json'\]\)/);
@@ -1273,7 +1273,10 @@ test('discarding asks the host first, and a kept draft comes back only in the sh
 test('the host asks the questions the page cannot, and keeps a draft only against the configuration it was made on', async () => {
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
   assert.match(host, /'studio\.confirm': \(message\) =>/);
-  assert.match(host, /showWarningMessage\(bounded\(text, 300\),\s*\{ modal: true/);
+  assert.match(host, /const accepted = await collectReviewConfirmation\(\{\s*title: 'Review Workflow Studio change', summary: text,\s*detail: detail \?\? 'Review the exact change before continuing\.'/,
+    'the scrollable review retains the complete summary and detail rather than truncating a native modal');
+  assert.match(host, /ok: accepted && this\.client\.repository === reviewedRepository/,
+    'confirmation cannot apply after the selected repository changes');
   assert.match(host, /if \(saved\.base !== this\.modelBase\(\)\) \{ await store\.set\(undefined\); return; \}/,
     'a draft made on another configuration revision is dropped, not offered');
   assert.match(host, /this\.post\(\{ type: 'studio\.published', summary \}\);\s*await this\.clearDraft\(\);/);

@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /** Workspace-local governed-prompt audit viewer and controls. */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
@@ -207,7 +208,7 @@ export class PromptAuditPanel {
   }
 
   private async repair(): Promise<void> {
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       'Repair prompt history? The original bytes will be retained in a private recovery file and unsafe records will be excluded.',
       { modal: true }, 'Repair'
     );
@@ -217,7 +218,7 @@ export class PromptAuditPanel {
   }
 
   private async clear(): Promise<void> {
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       'Permanently clear all prompt history and recovery copies for this workspace?',
       { modal: true }, 'Clear history'
     );

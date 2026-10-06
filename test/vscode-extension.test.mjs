@@ -4656,7 +4656,7 @@ test('repository setup handoff leaves workspace attachment behind a fresh previe
   const preview = attach.indexOf('const previewCommand = capabilityChangeCommand(');
   const previewRun = attach.indexOf('registry.run<WorkspaceCapabilityChangePreview>(previewCommand)');
   const authorityCas = attach.indexOf('const expectedAuthority = message.type === \'attach-capability\'');
-  const confirmation = attach.indexOf('const confirmed = await vscode.window.showWarningMessage(');
+  const confirmation = attach.indexOf('const confirmed = await showCompactWarningMessage(');
   const finalCurrentCheck = attach.lastIndexOf('if (!message.isCurrent())');
   const apply = attach.indexOf('const applyCommand = capabilityChangeCommand(');
   const confirmPlan = attach.indexOf('planId: preview.planId', apply);

@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "./compact-message.ts";
 /** Explicit, model-free `@sflow` Copilot participant. */
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
@@ -203,7 +204,7 @@ async function removeChatAttachment(
   getCurrentWork: () => CurrentWork
 ): Promise<void> {
   const action = 'Exclude this attachment set';
-  const decision = await vscode.window.showWarningMessage(
+  const decision = await showCompactWarningMessage(
     `Exclude exact feedback attachment set ${pending.attachmentSetSha256} from future revision routing?`,
     {
       modal: true,
@@ -219,7 +220,7 @@ async function removeChatAttachment(
     const active = await activeAttachmentSession(context, getCurrentWork);
     if (!sameRealRepository(active.editorRoot, pending.repositoryRoot)
         || active.workId !== pending.workId || active.phaseId !== pending.phaseId) {
-      await vscode.window.showWarningMessage('The selected Story worktree or phase changed. Stage removal again; no attachment set was revoked.');
+      await showCompactWarningMessage('The selected Story worktree or phase changed. Stage removal again; no attachment set was revoked.');
       return;
     }
     removalAttempted = true;
@@ -230,11 +231,11 @@ async function removeChatAttachment(
         || !matchesChatRemovalReceipt(envelope.data?.revocation, pending)) {
       throw new Error('The exact revocation could not be verified.');
     }
-    await vscode.window.showInformationMessage(
+    await showCompactInformationMessage(
       `Feedback attachment set ${pending.attachmentSetSha256} is excluded from future routing. Registered original evidence was preserved.`
     );
   } catch {
-    await vscode.window.showWarningMessage(
+    await showCompactWarningMessage(
       removalAttempted
         ? 'The exact exclusion outcome could not be verified. Check `@sflow /attachments status` before retrying.'
         : 'The selected Story could not be verified. Stage removal again; no attachment set was revoked.'
@@ -356,7 +357,7 @@ async function registerChatAttachment(
   getCurrentWork: () => CurrentWork
 ): Promise<void> {
   const action = 'Register evidence';
-  const decision = await vscode.window.showWarningMessage(
+  const decision = await showCompactWarningMessage(
     `Register all ${pending.attachments.length} selected files as private feedback evidence for ${pending.workId}/${pending.phaseId}?`,
     {
       modal: true,
@@ -371,14 +372,14 @@ async function registerChatAttachment(
   const active = activeRepositoryContext();
   const selectedWork = getCurrentWork();
   if (!active?.root || selectedWork?.id !== pending.workId) {
-    await vscode.window.showWarningMessage('The selected Story changed. Preview the attachment again; nothing was registered.');
+    await showCompactWarningMessage('The selected Story changed. Preview the attachment again; nothing was registered.');
     return;
   }
   let registrationAttempted = false;
   try {
     const editorRoot = await realpath(active.root);
     if (!sameRealRepository(editorRoot, pending.repositoryRoot)) {
-      await vscode.window.showWarningMessage('The selected repository changed. Preview the attachment again; nothing was registered.');
+      await showCompactWarningMessage('The selected repository changed. Preview the attachment again; nothing was registered.');
       return;
     }
     const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -397,7 +398,7 @@ async function registerChatAttachment(
     if (!session.ready || !sessionRoot || !sameRealRepository(editorRoot, sessionRoot)
         || session.workId !== pending.workId || session.phase !== pending.phaseId
         || session.status !== 'in_progress') {
-      await vscode.window.showWarningMessage('The active Story session or phase changed. Preview the attachment again; nothing was registered.');
+      await showCompactWarningMessage('The active Story session or phase changed. Preview the attachment again; nothing was registered.');
       return;
     }
     registrationAttempted = true;
@@ -413,11 +414,11 @@ async function registerChatAttachment(
     if (!matchesChatAttachmentReceipt(receipt, pending) || typeof attachmentSetSha256 !== 'string') {
       throw new Error('Attachment registration did not return the exact selected receipt.');
     }
-    await vscode.window.showInformationMessage(
+    await showCompactInformationMessage(
       `All ${pending.attachments.length} feedback files were registered as private evidence: ${attachmentSetSha256}. No revision was started.`
     );
   } catch {
-    await vscode.window.showWarningMessage(
+    await showCompactWarningMessage(
       registrationAttempted
         ? 'The exact registration outcome could not be verified. Check revision attachments list before retrying. No revision was started.'
         : 'The selected Story could not be verified. Preview the attachment again; nothing was registered.'
@@ -1199,7 +1200,7 @@ export function registerSflowChat(
     'singularityFlow.registerFeedbackAttachmentFromChat', async (handle: unknown) => {
       const pending = confirmations.take(handle);
       if (!pending) {
-        await vscode.window.showWarningMessage('This attachment confirmation expired or was already used. Preview the file again.');
+        await showCompactWarningMessage('This attachment confirmation expired or was already used. Preview the file again.');
         return;
       }
       await registerChatAttachment(pending, context, getCurrentWork);
@@ -1209,7 +1210,7 @@ export function registerSflowChat(
     'singularityFlow.removeFeedbackAttachmentFromChat', async (handle: unknown) => {
       const pending = removals.take(handle);
       if (!pending) {
-        await vscode.window.showWarningMessage('This attachment-set removal confirmation expired or was already used. Stage removal again.');
+        await showCompactWarningMessage('This attachment-set removal confirmation expired or was already used. Stage removal again.');
         return;
       }
       await removeChatAttachment(pending, context, getCurrentWork);

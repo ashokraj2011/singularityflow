@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "./compact-message.ts";
 /** A single, review-first VS Code surface for a storyless SGOS Workflow Candidate. */
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -270,7 +271,7 @@ class SgosWorkflowCreatePanel {
         throw new Error(`Draft output already exists: ${relative}. Choose a new workflow ID; nothing was overwritten.`);
       }
     }
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       `Create the unratified SGOS Workflow '${selection.id}'?`,
       { modal: true, detail: sgosWorkflowCreateReview(selection) }, 'Create review files'
     );
@@ -297,7 +298,7 @@ class SgosWorkflowCreatePanel {
     try {
       await this.afterCreate(selection);
     } catch (error) {
-      await vscode.window.showWarningMessage(
+      await showCompactWarningMessage(
         `The unratified review files were created, but the follow-up view failed: ${(error as Error).message}`
       );
     }
@@ -314,13 +315,13 @@ class SgosWorkflowCreatePanel {
         preview: false, viewColumn: vscode.ViewColumn.Beside
       });
     } catch (error) {
-      await vscode.window.showWarningMessage(
+      await showCompactWarningMessage(
         `Review files were created, but VS Code could not open them: ${(error as Error).message}`
       );
     }
     const ratificationArgs = sgosRatificationPreviewArguments(selection);
     const guidance = commandGuidance(sgosCommand(ratificationArgs));
-    const action = await vscode.window.showInformationMessage(
+    const action = await showCompactInformationMessage(
       `Created ${selection.declarationOut} and ${selection.workflowOut}. The Workflow is not ratified or executable.${guidance
         ? `\nShell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}` : ''}`,
       ...(guidance?.copyable ? ['Copy Shell preview', 'Copy Copilot preview'] : []), 'Open Command Center'
@@ -331,10 +332,10 @@ class SgosWorkflowCreatePanel {
         [this.client.location.executable, this.client.location.cli], true
       );
       await vscode.env.clipboard.writeText(command);
-      await vscode.window.showInformationMessage('Copied the read-only ratification-packet command for review.');
+      await showCompactInformationMessage('Copied the read-only ratification-packet command for review.');
     } else if (action === 'Copy Copilot preview' && guidance?.copyable) {
       await vscode.env.clipboard.writeText(guidance.copilotCommand);
-      await vscode.window.showInformationMessage('Copied the Copilot ratification-packet preview command.');
+      await showCompactInformationMessage('Copied the Copilot ratification-packet preview command.');
     } else if (action === 'Open Command Center') {
       await vscode.commands.executeCommand('singularityFlow.openCommandCenter');
     }

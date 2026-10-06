@@ -60,7 +60,7 @@ test('Start Work, Create workspace and Map capability each have Cancel, and ask 
   assert.equal(mapFormHasInput({ ...EMPTY_MAP_FORM, repositoryUrl: 'https://example.test/app.git' }), true);
 
   for (const [file, check] of [
-    ['views/intake-panel.ts', /cancel: async \(\) => \{[\s\S]*intakeHasInput\(this\.form\)[\s\S]*showWarningMessage[\s\S]*this\.dispose\(\);/],
+    ['views/intake-panel.ts', /cancel: async \(\) => \{[\s\S]*intakeHasInput\(this\.form\)[\s\S]*showCompactWarningMessage[\s\S]*this\.dispose\(\);/],
     ['views/workspace-panel.ts', /cancel: async \(\) => \{[\s\S]*workspaceFormHasInput\(this\.form\)[\s\S]*this\.dispose\(\);/],
     ['views/bootstrap-panel.ts', /message\?\.type === 'closeForm'[\s\S]*mapFormHasInput\(this\.form\)[\s\S]*this\.dispose\(\);/]
   ]) assert.match(await source(file), check, `${file} closes only after asking about entered input`);
@@ -71,7 +71,7 @@ test('editors with Save also offer Discard, and switching away from unsaved edit
   assert.match(capabilityPage, /data-discard="\$\{escape\(detail\.id\)\}">Discard changes<\/button>/);
   assert.match(capabilityPage, /vscode\.postMessage\(\{ type: 'select', id: data\.select, dirty \}\)/);
   const capabilities = await source('views/capabilities.ts');
-  assert.match(capabilities, /message\.dirty === true && id !== this\.selected[\s\S]*showWarningMessage\('Discard the changes you have not saved\?'/);
+  assert.match(capabilities, /message\.dirty === true && id !== this\.selected[\s\S]*showCompactWarningMessage\('Discard the changes you have not saved\?'/);
   assert.match(capabilities, /if \(this\.dirty\) this\.renderHeld = true; else this\.render\(\);/,
     'a background refresh does not redraw the form over unsaved edits');
 
@@ -79,7 +79,7 @@ test('editors with Save also offer Discard, and switching away from unsaved edit
   assert.equal((centerPage.match(/data-action="discard-edits">Discard changes<\/button>/g) ?? []).length, 3,
     'Auto policy, world model and profile each offer Discard');
   const center = await source('views/configuration-center.ts');
-  assert.match(center, /const leaving = message\.type === 'tab' \|\| message\.type === 'select-authority' \|\| message\.type === 'select-mcp';\s*if \(leaving && this\.dirty && !await this\.discardEdits\(\)\) return;/);
+  assert.match(center, /const leaving = message\.type === 'tab' \|\| message\.type === 'select-authority' \|\| message\.type === 'select-mcp' \|\| message\.type === 'select-test-target';\s*if \(leaving && this\.dirty && !await this\.discardEdits\(\)\) return;/);
 });
 
 test('the remaining screens have a way out: proposal review, team onboarding, copy workspace, SGOS, forms', async () => {

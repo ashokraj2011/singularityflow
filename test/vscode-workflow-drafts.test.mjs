@@ -610,7 +610,7 @@ test('draft page escapes all untrusted text, states unavailable coverage and exp
   assert.match(panel, /surface === 'copilot'[\s\S]*workflowDraftCopilotContextIssue\(repository/);
   assert.match(panel, /vscode\.workspace\.workspaceFolders/);
   assert.match(panel, /terminalCommand\(repository, guidance\.argv\)/);
-  assert.match(panel, /showWarningMessage\([\s\S]*Cancel keeps the text and checkpoint/);
+  assert.match(panel, /showCompactWarningMessage\([\s\S]*Cancel keeps the text and checkpoint/);
   assert.doesNotMatch(panel, /createTerminal|sendText|issueActionAuthorization|useRepository|openGitDraftStore/);
   assert.equal([...panel.matchAll(/\bexecuteCommand\(/gu)].length, 1);
   assert.match(panel, /vscode\.commands\.executeCommand\('vscode\.diff',/);

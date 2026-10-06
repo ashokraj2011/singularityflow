@@ -140,7 +140,7 @@ function destinationText(plan: WorkflowMutationPreview): string {
 }
 
 /**
- * Complete, untruncated modal detail for a workflow import/copy decision.
+ * Complete, untruncated review detail for a workflow import/copy decision.
  *
  * The operation count is deliberately not capped: the exact confirmed plan may contain hundreds of
  * dependencies, and hiding the ninth operation would make the plan hash impossible to review.
@@ -166,6 +166,17 @@ export function workflowMutationPlanDetail(plan: WorkflowMutationPreview): strin
     '',
     AUTHORITY_DISPOSITION
   ].join('\n');
+}
+
+/** The native confirmation shows counts and consequences, never pages of raw dependency hashes. */
+export function workflowMutationPlanSummary(plan: WorkflowMutationPreview): string {
+  const counts = (['add', 'reuse', 'replace', 'keep'] as const)
+    .map(kind => `${{ add: 'Add', reuse: 'Reuse', replace: 'Replace', keep: 'Keep' }[kind]} ${operations(plan, kind).length}`);
+  return [counts.join(' · '),
+    `${plan.renamed?.length ?? 0} renamed · ${plan.changedPaths?.length ?? 0} changed files`,
+    `Destination: ${plan.destinationAuthority?.branch ?? 'local working tree'}`,
+    'Creates a configuration proposal or local edit; it does not approve the workflow.',
+    `Exact plan: ${plan.planSha256 ?? 'unavailable'}`].join('\n');
 }
 
 /** Full scrollable review document shown before the exact modal confirmation. */

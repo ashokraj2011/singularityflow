@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /**
  * The capability screen: what this organisation builds, and the policy each part is held to.
  *
@@ -75,7 +76,7 @@ export class CapabilitiesPanel {
       if (message?.type === 'select' && typeof message.id === 'string') {
         const id = message.id;
         if (message.dirty === true && id !== this.selected) {
-          return void vscode.window.showWarningMessage('Discard the changes you have not saved?',
+          return void showCompactWarningMessage('Discard the changes you have not saved?',
             { modal: true, detail: 'They have not been proposed, so nothing else changes.' }, 'Discard').then((choice) => {
             if (choice !== 'Discard') return;
             this.dirty = false; this.renderHeld = false; this.selected = id; this.error = null; this.render();

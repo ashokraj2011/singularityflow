@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /**
  * The work-intake panel: the six ways work starts, behind one screen.
  *
@@ -687,7 +688,7 @@ export class IntakePanel {
     cancel: async () => {
       if (this.form.busy || this.disposed) return;
       if (intakeHasInput(this.form)) {
-        const choice = await vscode.window.showWarningMessage('Discard what you entered in Start Work?',
+        const choice = await showCompactWarningMessage('Discard what you entered in Start Work?',
           { modal: true, detail: 'Nothing has been started, so nothing else changes.' }, 'Discard');
         if (choice !== 'Discard') return;
       }
@@ -1029,7 +1030,7 @@ export class IntakePanel {
         ...(merged.duplicates ? [`${merged.duplicates} duplicate document selection${merged.duplicates === 1 ? ' was' : 's were'} ignored.`] : []),
         ...(merged.overflow ? [`Only four Story documents can be attached; ${merged.overflow} selection${merged.overflow === 1 ? ' was' : 's were'} not added.`] : [])
       ];
-      void vscode.window.showWarningMessage(messages.join(' '));
+      void showCompactWarningMessage(messages.join(' '));
     }
     this.update({ storyAttachments: merged.attachments, enhanceError: null, error: null });
   }
@@ -1271,7 +1272,7 @@ export class IntakePanel {
         this.update({ baselineMessage: 'The baseline plan needs test-tool/configuration repair. Inspect /sf-ready before retrying; no tests were run.' });
         return;
       }
-      const confirmed = await vscode.window.showWarningMessage('Run this exact existing-test baseline?', {
+      const confirmed = await showCompactWarningMessage('Run this exact existing-test baseline?', {
         modal: true,
         detail: `Base ${base}\n${(plan.commands ?? []).map(command => `${command.purpose} · ${command.workingDirectory} · ${command.argv.join(' ')}`).join('\n')}\nTest-only Node flags: ${(plan.testRuntime?.profile?.nodeOptions ?? []).join(' ') || 'none'}\n${(plan.advisories ?? []).map(entry => entry.message).join('\n')}\nThis may install locked dependencies. It does not accept failures or start a Story.`
       }, 'Run reviewed baseline');

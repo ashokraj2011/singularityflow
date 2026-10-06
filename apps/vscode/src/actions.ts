@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "./compact-message.ts";
 /**
  * Running a governed action from the editor.
  *
@@ -226,7 +227,7 @@ export async function runGovernedAction(
         if (!guidance) {
           throw new Error('The generation rollover preview did not return a safe Shell and Copilot route.');
         }
-        const confirmed = await vscode.window.showWarningMessage(
+        const confirmed = await showCompactWarningMessage(
           `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
           {
             modal: true,
@@ -321,7 +322,7 @@ export async function runPlannedAction(
       entry.guidance !== null);
   if (!executable.length) {
     const waiting = plan.actions.map((action) => `${action.order}. ${action.reason}`).join('\n');
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       waiting
         ? `No governed action has a valid Shell and Copilot route yet. ${waiting}`
         : 'The workflow has no next action.'
@@ -342,7 +343,7 @@ export async function runPlannedAction(
   });
   if (!choice) return false;
 
-  const confirmed = await vscode.window.showWarningMessage(
+  const confirmed = await showCompactWarningMessage(
     `Run the exact governed action “${choice.action.reason}”?`,
     {
       modal: true,

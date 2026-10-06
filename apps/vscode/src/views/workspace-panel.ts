@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "../compact-message.ts";
 /**
  * The workspace panel: the form, the pickers behind it, and the one command it finally runs.
  *
@@ -352,7 +353,7 @@ export class WorkspacePanel {
     cancel: async () => {
       if (this.form.busy || this.disposed) return;
       if (workspaceFormHasInput(this.form)) {
-        const choice = await vscode.window.showWarningMessage('Discard this workspace draft?',
+        const choice = await showCompactWarningMessage('Discard this workspace draft?',
           { modal: true, detail: 'Nothing has been created, so nothing else changes.' }, 'Discard');
         if (choice !== 'Discard') return;
       }
@@ -480,7 +481,7 @@ export class WorkspacePanel {
       const workspaceDisposition = matchingManagedWorkspace
         ? 'The matching managed workspace will be reused. Existing checkouts are preserved and missing checkouts remain pending.'
         : 'The workspace manifest and local registration will be created. Application code will be downloaded when work starts.';
-      const confirmed = await vscode.window.showInformationMessage(
+      const confirmed = await showCompactInformationMessage(
         `Create workspace ${prepared.plan.workspace.name}?`,
         {
           modal: true,

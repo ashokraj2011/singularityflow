@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "./compact-message.ts";
 /**
  * Activation, commands, and the wiring between them.
  *
@@ -745,7 +746,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       context.globalState.update('onboardingComplete', true)
     ]);
     refreshPersonaMenus();
-    void vscode.window.showInformationMessage(`${role.label} menu is ready. All commands remain available.`);
+    void showCompactInformationMessage(`${role.label} menu is ready. All commands remain available.`);
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureProfile', async () => {
@@ -763,7 +764,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       context.globalState.update('onboardingComplete', true)
     ]);
     refreshPersonaMenus();
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       `Singularity Flow profile saved for ${name.trim() || role.label}. ${role.label} menus are ready.`
     );
   }));
@@ -788,7 +789,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // full-screen takeover is its own kind of rude, and a notification can be dismissed for good.
   if (!context.globalState.get<boolean>('onboardingComplete') && !context.globalState.get<boolean>('walkthroughOffered')) {
     void context.globalState.update('walkthroughOffered', true);
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       'New to Singularity Flow? The walkthrough sets up your profile and first governed workspace.',
       'Show me', 'Not now'
     ).then((choice) => {
@@ -827,7 +828,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await new SingularityFlowClient({ location, repository, environment: candidate }).run(['jira', 'status', '--json']);
       await secureCredentials.saveJira({ deployment: deployment.value, baseUrl, username, connectionName: 'vscode' }, token);
       cliEnvironment = await resolvedCliEnvironment();
-      void vscode.window.showInformationMessage('Jira connected securely. Reload this window to apply it to every view.', 'Reload')
+      void showCompactInformationMessage('Jira connected securely. Reload this window to apply it to every view.', 'Reload')
         .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
     } catch (error) {
       showRefusal(error, { headline: 'Jira was not saved' });
@@ -835,12 +836,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.resetJira', async () => {
-    const choice = await vscode.window.showWarningMessage(
+    const choice = await showCompactWarningMessage(
       'Remove the saved Jira connection from the operating-system keychain?', { modal: true }, 'Reset Jira');
     if (choice !== 'Reset Jira') return;
     await secureCredentials.resetJira();
     cliEnvironment = await resolvedCliEnvironment();
-    void vscode.window.showInformationMessage('Saved Jira credentials removed.');
+    void showCompactInformationMessage('Saved Jira credentials removed.');
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureTeams', async () => {
@@ -859,17 +860,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!webhook) return;
     await secureCredentials.saveTeamsWebhook(webhook);
     cliEnvironment = await resolvedCliEnvironment();
-    void vscode.window.showInformationMessage('Teams notifications configured. Reload this window to apply the secret to every command.', 'Reload')
+    void showCompactInformationMessage('Teams notifications configured. Reload this window to apply the secret to every command.', 'Reload')
       .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.resetTeams', async () => {
-    const choice = await vscode.window.showWarningMessage(
+    const choice = await showCompactWarningMessage(
       'Remove the saved Teams webhook from the operating-system keychain?', { modal: true }, 'Reset Teams');
     if (choice !== 'Reset Teams') return;
     await secureCredentials.resetTeamsWebhook();
     cliEnvironment = await resolvedCliEnvironment();
-    void vscode.window.showInformationMessage('Saved Teams webhook removed.');
+    void showCompactInformationMessage('Saved Teams webhook removed.');
   }));
 
   /**
@@ -1167,7 +1168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Selecting a workspace also does not select a Story or automatically open a Copilot chat.
     await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
     if (!await isCurrent()) return true;
-    void vscode.window.showInformationMessage(ready
+    void showCompactInformationMessage(ready
       ? `${selected.workspaceName} selected. Opening its repository in this window. Start a fresh Copilot chat or terminal for this workspace.`
       : ['missing', 'empty'].includes(selected.repositoryState ?? '')
         ? `${selected.workspaceName} selected. Opening its workspace folder; Start Work will prepare the repository when needed.`
@@ -1206,7 +1207,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!await selectionIsCurrent()) return true;
       if (!pending.length) return false;
       if (pending.some((entry) => !['missing', 'empty'].includes(entry.state))) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           'The selected workspace has a repository that needs review before work can start. Open Workspace details to inspect it.');
         if (reloadWhenBlocked) await reloadAfterBlockedPreparation();
         return true;
@@ -1225,7 +1226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         throw new Error('A required workspace repository is still unavailable. Open Workspace details for its repair status.');
       }
       if (!await selectionIsCurrent()) {
-        void vscode.window.showInformationMessage('Workspace selection changed while its repository was being prepared. The prepared checkout was kept; start work again in your selected workspace.');
+        void showCompactInformationMessage('Workspace selection changed while its repository was being prepared. The prepared checkout was kept; start work again in your selected workspace.');
         return true;
       }
       const selected = await registry.run<{
@@ -1259,7 +1260,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (id === 'singularityFlow.openReviews') {
         return vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
       }
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         `Singularity Flow: ${unavailableReason}`,
         'Map a capability', 'Find a workspace'
       ).then((chosen) => {
@@ -1370,7 +1371,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.guidedStartExit', async () => {
     await context.globalState.update(START_WIZARD_KEY, undefined);
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    void vscode.window.showInformationMessage('Guided start closed. Nothing it had not finished was created; start it again from the Navigator.');
+    void showCompactInformationMessage('Guided start closed. Nothing it had not finished was created; start it again from the Navigator.');
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.startWizard', async () => {
@@ -1485,7 +1486,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workspacePanel = WorkspacePanel.show(context, location, output, async (created) => {
       // Registration is intentionally checkout-free. Start Work performs the explicit repair before
       // any intake reads source or workflow configuration from the selected repositories.
-      void vscode.window.showInformationMessage(`Workspace registered. Now working in ${created.name}.`);
+      void showCompactInformationMessage(`Workspace registered. Now working in ${created.name}.`);
       // Guided Start can prepare the selected checkout with the early-registered command before
       // reloading. Otherwise selection would reload once for the planned path and again after
       // repair, even though the intermediate activation has no useful work to show.
@@ -1586,7 +1587,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const preservation = `Existing clone: ${cloneDirectory}\nWorkspace shell: ${preview.plan?.workspace?.path}\n\n`
         + 'Singularity Flow will not fetch, checkout, stash, commit, reset, clean, or edit remotes.';
       if (dirtyHash) {
-        const accepted = await vscode.window.showWarningMessage(
+        const accepted = await showCompactWarningMessage(
           'This clone has local changes. Keep and adopt them?',
           { modal: true, detail: `${preservation}\n\nChanged paths:\n${changed.slice(0, 20).join('\n') || '(Git reports local changes)'}` },
           'Keep local changes'
@@ -1605,7 +1606,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         '--confirm', confirmation, '--json'
       ]);
       const lead = result.status?.leadRepositoryPath ?? cloneDirectory;
-      void vscode.window.showInformationMessage(`${name.trim()} now uses the existing clone. No Git state was changed.`);
+      void showCompactInformationMessage(`${name.trim()} now uses the existing clone. No Git state was changed.`);
       await selectWorkspace(result.workspace.path, lead, name.trim());
     } catch (error) {
       showRefusal(error, { headline: 'Could not use the existing clone' });
@@ -1690,7 +1691,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           routeArgs = ['--remote', remotes[0]!];
           routeLabel = `remote ${remotes[0]}`;
         } else {
-          const local = await vscode.window.showWarningMessage(
+          const local = await showCompactWarningMessage(
             'This checkout has no Git remote. Use an already reviewed local configuration authority?',
             {
               modal: true,
@@ -1702,7 +1703,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           routeArgs = ['--authority-local'];
           routeLabel = 'the reviewed local authority';
         }
-        const confirmed = await vscode.window.showInformationMessage(
+        const confirmed = await showCompactInformationMessage(
           'Attach this repository to Singularity Flow?',
           {
             modal: true,
@@ -1722,7 +1723,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Authority: ${result.descriptor?.authority?.branch ?? 'unknown'}@${result.descriptor?.authority?.commit ?? 'unknown'}`);
         output.appendLine(`Pin: ${result.descriptor?.descriptorSha256 ?? 'unavailable'}`);
         output.show(true);
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           result.status === 'already-attached'
             ? 'Repository is already attached to this exact reviewed authority.'
             : 'Repository attached. Story start can now reuse the verified authority pin.'
@@ -1752,7 +1753,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refreshAuthorityPin', async (requestedRepository?: string) => {
       const repository = await resolveFosRepository(requestedRepository, 'Choose the attached repository to refresh');
       if (!repository) return;
-      const confirmed = await vscode.window.showInformationMessage(
+      const confirmed = await showCompactInformationMessage(
         'Refresh this repository’s reviewed authority pin?',
         {
           modal: true,
@@ -1769,7 +1770,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = fosPayload<{ status: string; operationId: string }>(envelope);
         output.appendLine(`FOS authority refresh: ${result.status} · ${result.operationId}`);
         output.show(true);
-        void vscode.window.showInformationMessage(`Authority pin ${result.status}.`);
+        void showCompactInformationMessage(`Authority pin ${result.status}.`);
         return fosOutcome(
           'refresh-authority', 'completed', 'Authority pin refreshed',
           `The previously selected authority route reported ${result.status}.`, repository,
@@ -1786,7 +1787,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.bootstrapLocalAuthority', async (requestedRepository?: string) => {
       const repository = await resolveFosRepository(requestedRepository, 'Choose the unmanaged repository to initialize locally');
       if (!repository) return;
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         'Create a local-only Singularity Flow authority?',
         {
           modal: true,
@@ -1809,7 +1810,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`FOS local bootstrap: ${result.status} · ${result.bootstrap?.operationId ?? 'unknown operation'}`);
         output.appendLine(`Scope: ${result.bootstrap?.scope ?? 'local-only'} · authority ${result.bootstrap?.authorityCommit ?? 'unknown'}`);
         output.show(true);
-        void vscode.window.showInformationMessage('Local-only authority created and attached.');
+        void showCompactInformationMessage('Local-only authority created and attached.');
         return fosOutcome(
           'local-authority', 'completed', 'Local-only authority created',
           'The unmanaged checkout now has a local authority; this does not claim organization approval.',
@@ -1831,7 +1832,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.useOfflineAuthorityPin', async (requestedRepository?: string) => {
       const repository = await resolveFosRepository(requestedRepository, 'Choose the attached repository to use offline');
       if (!repository) return;
-      const confirmed = await vscode.window.showInformationMessage(
+      const confirmed = await showCompactInformationMessage(
         'Use this repository’s approved offline authority pin?',
         {
           modal: true,
@@ -1851,7 +1852,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`FOS offline authority: ${result.status} · ${result.freshness?.mode ?? 'unknown'}`);
         output.appendLine(`Policy: ${result.freshness?.policyId ?? 'unknown'} · age ${result.freshness?.ageMilliseconds ?? 'unknown'} ms · expires ${result.freshness?.expiresAt ?? 'unknown'}`);
         output.show(true);
-        void vscode.window.showInformationMessage('Approved pinned authority is available offline. It is not reported as current or latest.');
+        void showCompactInformationMessage('Approved pinned authority is available offline. It is not reported as current or latest.');
         return fosOutcome(
           'offline-authority', 'completed', 'Offline authority pin validated',
           'The retained authority is usable under its pinned policy without contacting the remote.',
@@ -1904,14 +1905,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const enable = selected.filter((item) => !item.picked).map((item) => item.label);
         if (!enable.length) {
-          void vscode.window.showInformationMessage('The selected Git accelerators are already enabled.');
+          void showCompactInformationMessage('The selected Git accelerators are already enabled.');
           return fosOutcome(
             'git-acceleration', 'completed', 'Git accelerators already enabled',
             'Every selected repository-local accelerator was already active.', repository,
             selected.map((item) => item.label)
           );
         }
-        const confirmed = await vscode.window.showInformationMessage(
+        const confirmed = await showCompactInformationMessage(
           'Enable the selected repository-local Git accelerators?',
           {
             modal: true,
@@ -1925,7 +1926,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ]);
         output.appendLine(`Git acceleration receipt: ${applied.receipt?.receiptId ?? 'unavailable'}`);
         output.show(true);
-        void vscode.window.showInformationMessage('Selected Git accelerators were verified and enabled for this repository.');
+        void showCompactInformationMessage('Selected Git accelerators were verified and enabled for this repository.');
         return fosOutcome(
           'git-acceleration', 'completed', 'Git acceleration updated',
           'The selected repository-local settings were written and verified.', repository,
@@ -1945,7 +1946,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.clearDerivedCache', async (requestedRepository?: string) => {
       const repository = await resolveFosRepository(requestedRepository, 'Choose the repository whose disposable cache should be cleared');
       if (!repository) return;
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         'Clear only the disposable FOS derived cache?',
         {
           modal: true,
@@ -1959,7 +1960,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'cache', 'clear', '--derived', '--repo', repository, '--json'
         ]);
         const result = fosPayload<{ removedEntries: number }>(envelope);
-        void vscode.window.showInformationMessage(`Cleared ${result.removedEntries} disposable cache entr${result.removedEntries === 1 ? 'y' : 'ies'}.`);
+        void showCompactInformationMessage(`Cleared ${result.removedEntries} disposable cache entr${result.removedEntries === 1 ? 'y' : 'ies'}.`);
         return fosOutcome(
           'clear-cache', 'completed', 'Derived cache cleared',
           `Removed ${result.removedEntries} disposable cache ${result.removedEntries === 1 ? 'entry' : 'entries'}.`,
@@ -1993,7 +1994,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (recovery) output.appendLine(`    Recover:\n${recovery}`);
       }
       output.show(true);
-      void vscode.window.showInformationMessage(result.healthy
+      void showCompactInformationMessage(result.healthy
         ? 'Workspace setup checks passed. Details are in Singularity Flow output.'
         : 'Workspace setup needs attention. Review the Singularity Flow output.');
       const findings = (result.machine?.findings ?? []).slice(0, 8).map((finding: any) =>
@@ -2075,7 +2076,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         '--confirm', confirmation, '--json'
       ]);
       if (result.status === 'ready') {
-        void vscode.window.showInformationMessage(`${selected.label} is ready.`);
+        void showCompactInformationMessage(`${selected.label} is ready.`);
         await vscode.commands.executeCommand('singularityFlow.openWorkspaces');
         return fosOutcome(
           'resume-bootstrap', 'completed', 'Workspace setup completed',
@@ -2235,7 +2236,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { BootstrapPanel } = lazyPanels();
     BootstrapPanel.show(context, leads.map((lead) => lead.url), run, async (mapped: Mapped) => {
       if (!mapped.reviewRequired || !mapped.branch) {
-        void vscode.window.showInformationMessage(`${mapped.capabilityId} is already active on ${mapped.baseBranch}.`);
+        void showCompactInformationMessage(`${mapped.capabilityId} is already active on ${mapped.baseBranch}.`);
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
         else {
           const { WorkspacePanel } = lazyPanels();
@@ -2365,13 +2366,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(request.repositoryId.trim())
       ? request.repositoryId.trim() : null;
     if (repositoryIdSupplied && !requestedRepositoryId) {
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         'The repository refresh request did not identify one valid registered repository. Nothing was changed.'
       );
       return;
     }
     if (requestedRepositoryId && !requestedWorkspacePath) {
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         'A repository-scoped refresh must identify its exact registered workspace. Nothing was changed.'
       );
       return;
@@ -2422,11 +2423,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       : null;
     if (authoritySupplied && !requestedAuthority) {
-      void vscode.window.showWarningMessage(REPOSITORY_SETUP_CHANGED_MESSAGE);
+      void showCompactWarningMessage(REPOSITORY_SETUP_CHANGED_MESSAGE);
       return;
     }
     if (requestedCapabilityIds.length && !requestedAuthority) {
-      void vscode.window.showWarningMessage(REPOSITORY_SETUP_CHANGED_MESSAGE);
+      void showCompactWarningMessage(REPOSITORY_SETUP_CHANGED_MESSAGE);
       return;
     }
     const rawRepositorySetup = request && typeof request === 'object'
@@ -2601,13 +2602,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!requestIsCurrent()) return;
       if (issue) {
         output.appendLine(`\nCapability attachment refused:\n${issue}`);
-        void vscode.window.showWarningMessage(issue);
+        void showCompactWarningMessage(issue);
         return;
       }
       const { matchingPaths, unreadable } = workspaceAuthorityChoices(entries, requestedAuthority.leadUrl);
       if (!requestIsCurrent()) return;
       if (unreadable.length) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           `Capability attachment could not read every local workspace manifest. Reload with the current CLI, or repair ${unreadable.map((entry) => entry.name).join(', ')}, then retry. No workspace was selected.`
         );
         return;
@@ -2644,7 +2645,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return null;
       }
       if (message.type === 'forget') {
-        const confirmed = await vscode.window.showWarningMessage(
+        const confirmed = await showCompactWarningMessage(
           `Forget ${message.row.name}?`,
           { modal: true, detail: `Removes it from the workspace list. ${message.row.directory} is left exactly as it is.` },
           'Forget');
@@ -2652,7 +2653,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         message = { type: 'run', command: ['workspace', 'forget', message.row.directory, '--json'], title: 'Forgetting workspace' };
       }
       if (message.type === 'archive') {
-        const confirmed = await vscode.window.showWarningMessage(
+        const confirmed = await showCompactWarningMessage(
           `Archive ${message.row.name}?`,
           {
             modal: true,
@@ -2750,7 +2751,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const label = action === 'attach'
           ? 'Attach capability'
           : dropLocal ? 'Detach and drop local' : 'Detach capability';
-        const confirmed = await vscode.window.showWarningMessage(
+        const confirmed = await showCompactWarningMessage(
           `${label}: ${message.capabilityId}?`,
           { modal: true, detail: effects.join('\n') },
           label
@@ -2793,7 +2794,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const failure = `${applied.materializationError}${recovery
               ? ` Recover with:\n${recovery}` : ''}`;
             output.appendLine(`  attachment recorded; materialization pending: ${failure}`);
-            void vscode.window.showWarningMessage(
+            void showCompactWarningMessage(
               'Capability attached, but a repository still needs repair. Open the workspace and choose Repair workspace.'
             );
             return null;
@@ -2809,7 +2810,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const failure = `Capability detached, but ${applied.retained.length} checkout cleanup ${applied.retained.length === 1 ? 'item was' : 'items were'} retained for safe recovery.${recovery
               ? ` Recover with:\n${recovery}` : ''}`;
             output.appendLine(`  ${failure}`);
-            void vscode.window.showWarningMessage(failure);
+            void showCompactWarningMessage(failure);
             // This is a durable partial success, not a clean completion. Keeping a visible failure
             // preserves Manage and its Repair workspace action instead of closing the only recovery
             // surface after the manifest has already changed.
@@ -2976,7 +2977,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return showRefusal(error, { headline: 'Registered workspaces could not be read' });
       }
       if (!entries.length) {
-        const next = await vscode.window.showInformationMessage(
+        const next = await showCompactInformationMessage(
           'No workspace is registered on this machine yet, so there is no capability to refresh. Map a capability first.',
           'Map a capability'
         );
@@ -3362,7 +3363,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : null;
         output.appendLine(`No registered workspace matched the requested repository.${recoveryText
           ? ` Recover with:\n${recoveryText}` : ''}`);
-        const next = await vscode.window.showWarningMessage(
+        const next = await showCompactWarningMessage(
           'No registered workspace or open folder contains that repository.',
           {
             modal: true,
@@ -3560,7 +3561,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await refreshWorkspaceTree();
         const candidates = workspaceEntries.filter((entry) => !entry.archivedAt);
         if (!candidates.length) {
-          return void vscode.window.showWarningMessage(
+          return void showCompactWarningMessage(
             'No active Singularity Flow workspaces are available. Create or restore one first.');
         }
         const picked = await vscode.window.showQuickPick(candidates.map((entry) => ({
@@ -3601,7 +3602,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           repositoryId?: string; repositoryPath?: string;
         }>(['workspace', 'current', '--json']);
         if (current.active !== true || !current.workspaceId || !current.workspacePath) {
-          void vscode.window.showWarningMessage('Choose a workspace before selecting one of its repositories.');
+          void showCompactWarningMessage('Choose a workspace before selecting one of its repositories.');
           return false;
         }
         const status = await chooser.run<WorkspaceStatus>(
@@ -3609,7 +3610,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const ready = status.repositories.filter((repository) =>
           Boolean(repository.id) && (!repository.state || repository.state === 'ready'));
         if (!ready.length) {
-          void vscode.window.showWarningMessage(
+          void showCompactWarningMessage(
             `${current.workspaceName ?? current.workspaceId} has no ready repositories. Repair the workspace first.`);
           return false;
         }
@@ -3629,7 +3630,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const repository = ready.find((entry) => entry.id === repositoryId);
         if (!repository) {
-          void vscode.window.showWarningMessage(
+          void showCompactWarningMessage(
             `Repository '${repositoryId}' is not a ready member of ${current.workspaceName ?? current.workspaceId}.`);
           return false;
         }
@@ -3726,7 +3727,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await vscode.commands.executeCommand('workbench.action.reloadWindow');
           return;
         }
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           `${pending.workspaceName} attached. Switching this window to ${target}; Copilot will open after reload.`
         );
         await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
@@ -3745,7 +3746,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         active?: boolean; workspacePath?: string; workspaceName?: string;
       }>(['workspace', 'current', '--json']);
       if (!current.active || !current.workspacePath) {
-        return void vscode.window.showWarningMessage('Select a workspace before repairing it.');
+        return void showCompactWarningMessage('Select a workspace before repairing it.');
       }
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Repairing ${current.workspaceName ?? 'workspace'}` },
@@ -3753,7 +3754,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       // Refresh the persisted context so the next activation sees the repaired repository as ready.
       await client.run(['workspace', 'use', current.workspacePath, '--json']);
-      void vscode.window.showInformationMessage(
+      void showCompactInformationMessage(
         `${current.workspaceName ?? 'Workspace'} repaired. Reloading Lifecycle, Inbox, and Configuration.`);
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
@@ -3777,7 +3778,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (loadedBuild === 'unstamped' || !workspaceEntries.some((entry) => !entry.archivedAt)
       || context.globalState.get<string>(upgradeOfferKey) === loadedBuild) return;
     await context.globalState.update(upgradeOfferKey, loadedBuild);
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       'A new Singularity Flow build is installed. Review capability, workspace, and governed-agent updates?',
       'Review upgrades'
     ).then((choice) => choice === 'Review upgrades'
@@ -3880,8 +3881,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     progress: (title, task) => vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification, title
     }, task),
-    inform: (message, ...actions) => vscode.window.showInformationMessage(message, ...actions),
-    warn: (message, ...actions) => vscode.window.showWarningMessage(message, ...actions),
+    inform: (message, ...actions) => showCompactInformationMessage(message, ...actions),
+    warn: (message, ...actions) => showCompactWarningMessage(message, ...actions),
     reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
     remembered: (key) => context.globalState.get(key),
     remember: (key, value) => context.globalState.update(key, value)
@@ -4044,14 +4045,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Return never resets, stashes, cleans, or force-checks out local work.'
       ].join('\n');
       if (blockers.length) {
-        await vscode.window.showWarningMessage(
+        await showCompactWarningMessage(
           `Return to ${plan.workId} cannot be applied safely.`, { modal: true, detail }, 'Open Source Control'
         ).then(async (choice) => {
           if (choice === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
         });
         return;
       }
-      const approved = await vscode.window.showInformationMessage(
+      const approved = await showCompactInformationMessage(
         `Return to ${plan.workId}?`, { modal: true, detail }, 'Continue to confirmation'
       );
       if (approved !== 'Continue to confirmation') return;
@@ -4068,7 +4069,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => returnClient.run(['return', plan.workId, '--apply', '--confirm', confirmation, '--json'])
       );
       resetGatewaySession();
-      const next = await vscode.window.showInformationMessage(
+      const next = await showCompactInformationMessage(
         `${plan.workId} is attached on ${plan.destinationBranch}. Reload to show its durable next action.`,
         'Reload and open My Work'
       );
@@ -4098,7 +4099,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       target = selected?.folder;
     }
     if (!target) return;
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       'Initialize Singularity Flow in this repository?',
       { modal: true, detail: `This writes singularity/ into ${target.uri.fsPath} and commits it.` },
       'Initialize');
@@ -4108,7 +4109,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await new SingularityFlowClient({ location, repository: target.uri.fsPath, onOutput: (text) => output.append(text) })
         .runText(['init']);
       // The extension host has to reload: activation already decided this was not a Flow repository.
-      const reload = await vscode.window.showInformationMessage(
+      const reload = await showCompactInformationMessage(
         'Singularity Flow initialized. Reload the window to open it?', 'Reload');
       if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
@@ -4156,7 +4157,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (proposal.ambiguities.length) {
         const detail = proposal.ambiguities.map((item) =>
           `${item.id}: ${item.reason}${item.candidates?.length ? `\n  ${item.candidates.join(', ')}` : ''}`).join('\n');
-        await vscode.window.showWarningMessage(
+        await showCompactWarningMessage(
           'Smart initialization found choices it cannot make safely.',
           { modal: true, detail: `${detail}\n\nResolve the manifest ambiguity and preview again. Nothing was changed.` }
         );
@@ -4189,13 +4190,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Will not run project commands, call a model, install dependencies, access the network, or stage unrelated work.',
         `Proposal: ${proposal.proposalSha256}`
       ].join('\n');
-      const reviewed = await vscode.window.showInformationMessage(
+      const reviewed = await showCompactInformationMessage(
         'Review the exact smart-initialization proposal.', { modal: true, detail }, 'Continue to exact confirmation'
       );
       if (reviewed !== 'Continue to exact confirmation') return;
       let acceptsUnavailableVerification = false;
       if (proposal.proof.readiness === 'unavailable') {
-        const acceptedGap = await vscode.window.showWarningMessage(
+        const acceptedGap = await showCompactWarningMessage(
           'No structured verifier is available. This remains a visible proof gap and will block candidate admission.',
           { modal: true, detail: proposal.proof.gaps.map((gap) => gap.statement).join('\n') },
           'Accept disclosed gap'
@@ -4220,7 +4221,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => client.run<{ activationCommit: string; nextCommand: string }>(activationArgs)
       );
       const precheck = await client.run<{ data?: { precheck?: { status?: string } } }>(['precheck', '--quick', '--json']);
-      const reload = await vscode.window.showInformationMessage(
+      const reload = await showCompactInformationMessage(
         `Smart initialization committed at ${activated.activationCommit.slice(0, 12)}. Quick precheck: ${precheck.data?.precheck?.status ?? 'unavailable'}.`,
         'Reload'
       );
@@ -4283,7 +4284,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const action = discarded.length
         ? 'Discard all local SFlow data'
         : 'Factory reset local SFlow data';
-      const review = await vscode.window.showWarningMessage(
+      const review = await showCompactWarningMessage(
         'Factory reset all local Singularity Flow data in this repository?',
         {
           modal: true,
@@ -4337,7 +4338,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         customAgentRecoveries: candidate.customAgentRecoveries ?? []
       });
       if (reviewedIdentity(currentPlan) !== reviewedIdentity(plan)) {
-        return void vscode.window.showWarningMessage(
+        return void showCompactWarningMessage(
           'The repository changed after the reset preview. Nothing was removed. Run Factory Reset again to review the current boundary.'
         );
       }
@@ -4370,12 +4371,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await lazyPanels().IntakePanel.configurationChanged(repository);
       const completedMessage = 'The current Singularity Flow format is installed locally. Application source and Git history were preserved; remote sflow/config and state branches were not changed. Review all generated SFlow changes in Source Control—including singularity/, packaged .github/agents files, and any recovered custom-agent files—then commit and publish through your normal review path.';
       const next = verificationWarning
-        ? await vscode.window.showWarningMessage(
+        ? await showCompactWarningMessage(
           'The repository was factory reset, but cleanup or the post-reset check needs attention.',
           { modal: true, detail: `${completedMessage}\n\n${verificationWarning}` },
           'Open Output', 'Open Source Control', 'Reload Window'
         )
-        : await vscode.window.showInformationMessage(
+        : await showCompactInformationMessage(
           completedMessage, 'Open Source Control', 'Reload Window'
         );
       if (next === 'Open Output') output.show(true);
@@ -4662,10 +4663,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // After-step deliveries are read only for a Story that pinned actions, after one of its steps
   // moved. One that did not go out is said once, with a way to see why and to retry it.
   const stepActionDeliveries = new StepActionDeliveryMonitor(client, (notice, workId) => {
-    void vscode.window.showWarningMessage(notice.message, 'Show deliveries', 'Retry now').then(async (choice) => {
+    void showCompactWarningMessage(notice.message, 'Show deliveries', 'Retry now').then(async (choice) => {
       if (choice === 'Show deliveries') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (choice === 'Retry now') {
-        try { void vscode.window.showInformationMessage(await stepActionDeliveries.retry(workId, notice.keys)); }
+        try { void showCompactInformationMessage(await stepActionDeliveries.retry(workId, notice.keys)); }
         catch (error) { showRefusal(error, { headline: 'The deliveries were not retried' }); }
       }
     });
@@ -5273,7 +5274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     } catch (error) {
       if (selected.navigationIsCurrent && !await selected.navigationIsCurrent()) return;
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         `${selected.workspaceName} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
       return;
     }
@@ -5454,7 +5455,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const workflow = store.current.snapshot?.workflow;
       const checkoutIssue = storyCheckoutIssue(repository, store.current.snapshot, workflow);
       if (checkoutIssue) {
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await showCompactWarningMessage(
           `Cannot publish ${checkoutIssue.workId} from this checkout.`,
           {
             modal: true,
@@ -5473,7 +5474,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const unsaved = unsavedRepositoryPaths(vscode.workspace.textDocuments ?? [], repository);
       if (unsaved.length) {
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await showCompactWarningMessage(
           `Save ${unsaved.length} edited file${unsaved.length === 1 ? '' : 's'} before publishing this generation.`,
           {
             modal: true,
@@ -5485,7 +5486,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.commands.executeCommand('workbench.action.files.saveAll');
         const remaining = unsavedRepositoryPaths(vscode.workspace.textDocuments ?? [], repository);
         if (remaining.length) {
-          void vscode.window.showWarningMessage(
+          void showCompactWarningMessage(
             `Publication stopped because ${remaining.length} repository file${remaining.length === 1 ? ' is' : 's are'} still unsaved.`
           );
           return;
@@ -5493,7 +5494,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const phaseId = argv[2];
       if (!phaseId || !workflow?.workItem?.id || workflow.currentPhase !== phaseId) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           'Publication stopped because the selected Story phase is no longer current. Refresh Lifecycle and choose the phase again.'
         );
         return;
@@ -5501,7 +5502,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const checkedRepository = repository;
         if (!repositoryEpoch.isCurrent(publishScope)) {
-          void vscode.window.showWarningMessage(
+          void showCompactWarningMessage(
             'Publication stopped because the selected repository changed. Refresh Lifecycle and try again.'
           );
           return;
@@ -5511,7 +5512,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!repositoryEpoch.isCurrent(publishScope) || repository !== checkedRepository
             || currentWorkflow?.workItem?.id !== workflow.workItem.id
             || currentWorkflow.currentPhase !== phaseId) {
-          void vscode.window.showWarningMessage(
+          void showCompactWarningMessage(
             'Publication stopped because the selected repository or Story changed during the phase check. Refresh Lifecycle and try again.'
           );
           return;
@@ -5524,7 +5525,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           output.appendLine(gate.headline);
           for (const detail of gate.details) output.appendLine(`- ${detail}`);
           const correctionPrefill = phaseGenerationChatPrefill(gate.skill);
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await showCompactWarningMessage(
             `${gate.headline}${gate.details[0] ? ` ${gate.details[0]}` : ''}`,
             ...(correctionPrefill ? ['Fix in Copilot'] : []),
             'Show correction steps'
@@ -5544,7 +5545,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (gate.advisories.length) {
           output.appendLine(`\nDocumentation advisories for ${phaseId} (never block publication):`);
           for (const advisory of gate.advisories) output.appendLine(`- ${advisory}`);
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `Publishing ${phaseId}. Documentation: ${gate.advisories[0]}${gate.advisories.length > 1 ? ` (+${gate.advisories.length - 1} more)` : ''}`,
             'Show advisories'
           ).then((choice) => { if (choice === 'Show advisories') output.show(true); });
@@ -5643,7 +5644,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             };
             await context.globalState.update(COPILOT_HANDOFF_KEY, pending);
           }
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `Story ${attached.workId ?? argv[2]} is ready in its isolated checkout${attached.localOnly ? ' (local work preserved; remote not synchronized)' : ''}. Opening it now.`
           );
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(checkout), false);
@@ -5672,7 +5673,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workflow = store.current.snapshot?.workflow;
     const phaseId = workflow?.currentPhase;
     if (!workflow || !phaseId) {
-      void vscode.window.showWarningMessage('No governed Story phase is active in this workspace.');
+      void showCompactWarningMessage('No governed Story phase is active in this workspace.');
       return;
     }
     if (action === 'submit') {
@@ -5681,7 +5682,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? submissionCommandArgv(readiness, phaseId)
         : null;
       if (!command) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           'Submit is unavailable until the current phase has an exact recorded publication. Refresh Lifecycle for the legal next action.'
         );
         return;
@@ -5777,7 +5778,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const pending = view.pending;
     if (!pending) {
-      void vscode.window.showInformationMessage(`${workId} is not waiting for a decision.`);
+      void showCompactInformationMessage(`${workId} is not waiting for a decision.`);
       return;
     }
     let choice: { option?: string; to?: string; label: string } | null = null;
@@ -5905,7 +5906,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
       const releaseAction = release?.ready ? 'Preserve changes & return to base' : null;
-      const open = await vscode.window.showWarningMessage(
+      const open = await showCompactWarningMessage(
         `Cannot start work in ${target} on ${branchName}: ${changedPaths.length} uncommitted path(s) (${sample}${remaining ? `, +${remaining} more` : ''}).`,
         {
           modal: true,
@@ -5930,7 +5931,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await refreshAfterKnownMutation();
           const preserved = result.stashSha
             ? ` Changes were preserved at stash commit ${result.stashSha.slice(0, 12)}.` : '';
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `Cancelled Story ${cancelled.workItem.id} remains archived. Returned to ${result.baseBranch}.${preserved}`
             + (result.sessionWarning ? ` ${result.sessionWarning}` : '')
           );
@@ -5952,7 +5953,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const named = Object.entries(authorities).filter(([, authority]) => (authority?.members ?? []).length);
     const approvalAuthorityMissing = Object.keys(authorities).length > 0 && !named.length;
     if (checkoutShape && approvalAuthorityMissing) {
-      const open = await vscode.window.showWarningMessage(
+      const open = await showCompactWarningMessage(
         'No approval authority has a member yet, so governed work cannot be started.',
         { modal: true, detail: 'Add at least one person in People & approvals. Every governed approval is checked against the configured Git or GitHub identity.' },
         'Open People & approvals');
@@ -5974,7 +5975,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try { await context.globalState.update(STORY_START_HANDOFF_KEY, handoff); }
           catch { /* An advisory scheduling cache must not turn a published Story into a refusal. */ }
         }
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           `Story ${started.id} started in its isolated checkout. Opening it now.`
         );
         await vscode.commands.executeCommand(
@@ -5987,7 +5988,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : started.shape === 'epic' ? 'Epic' : 'Initiative';
       const next = started.currentPhase
         ? ` Next: prepare ${started.currentPhase.replaceAll('-', ' ')}.` : '';
-      const open = await vscode.window.showInformationMessage(
+      const open = await showCompactInformationMessage(
         `${subject} ${started.id} started.${next}`, 'Continue safely', 'Open the journey', 'Show status');
       if (open === 'Continue safely') await vscode.commands.executeCommand('singularityFlow.continueSafely');
       else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
@@ -6045,7 +6046,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ): Promise<void> => {
     const available = evidenceTargets(store.current.snapshot);
     if (!available.length) {
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         'Start or resume an Epic or Story before attaching evidence. The evidence must have a governed owner.');
       return;
     }
@@ -6124,7 +6125,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (!picked) return undefined;
       if (!picked.length) {
-        void vscode.window.showWarningMessage('Choose at least one phase. Nothing was attached.');
+        void showCompactWarningMessage('Choose at least one phase. Nothing was attached.');
         return undefined;
       }
       const chosen = phaseOrder.filter((phase) => picked.some((entry) => entry.label === phase));
@@ -6185,14 +6186,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? await expandEpicEvidenceDirectory(picked[0].fsPath)
         : [picked[0].fsPath];
       if (!paths.length) {
-        void vscode.window.showWarningMessage('The selected Figma export folder contains no files. Nothing was attached.');
+        void showCompactWarningMessage('The selected Figma export folder contains no files. Nothing was attached.');
         return;
       }
       if (target.kind === 'story') {
         const policy = evidenceStorageChoices(
           (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
         if (!policy.allowed.some((kind) => kind === 'git')) {
-          void vscode.window.showWarningMessage('A Figma export folder is committed to Git, and this Story keeps documents on this machine only. Attach its files one by one instead. Nothing was attached.');
+          void showCompactWarningMessage('A Figma export folder is committed to Git, and this Story keeps documents on this machine only. Attach its files one by one instead. Nothing was attached.');
           return;
         }
       }
@@ -6203,7 +6204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       input = { kind: 'figma-export', paths, names, store: 'git', phases };
     } else if (source.value === 'epic-source') {
       if (target.kind !== 'story') {
-        void vscode.window.showInformationMessage('An Epic\'s sources are imported into a Story released from it. Choose that Story as the owner.');
+        void showCompactInformationMessage('An Epic\'s sources are imported into a Story released from it. Choose that Story as the owner.');
         return;
       }
       let browsed: EpicSourceBrowse;
@@ -6219,7 +6220,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? `${browsed.rejected.length} failed verification and cannot be imported (${browsed.rejected.map((entry) => entry.sourceId ?? entry.name).join(', ')})`
         : '';
       if (!waiting.length) {
-        void vscode.window.showInformationMessage(`Every verified source of Epic ${browsed.epicId} is already in ${target.label}.${failed ? ` ${failed}.` : ''}`);
+        void showCompactInformationMessage(`Every verified source of Epic ${browsed.epicId} is already in ${target.label}.${failed ? ` ${failed}.` : ''}`);
         return;
       }
       const picked = await vscode.window.showQuickPick(waiting.map((entry) => ({
@@ -6275,7 +6276,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       : input.names?.length
         ? input.names.map((name) => `'${name}'`).join(', ')
         : `${input.paths.length} ${input.paths.length === 1 ? 'path' : 'paths'}`;
-    const confirmation = await vscode.window.showInformationMessage(
+    const confirmation = await showCompactInformationMessage(
       (input.kind === 'files' || input.kind === 'epic-source') && input.store === 'local'
         ? `Attach ${summary} to ${target.label}? The file stays on this machine; only its name, size and SHA-256 are committed and pushed.`
         : `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
@@ -6291,7 +6292,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!ran) return;
     }
     await refreshAfterKnownMutation();
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       `Attached ${summary} to ${target.label}. Open Lifecycle to review the governed IDs and artifacts.`);
   };
 
@@ -6331,7 +6332,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } else if (viewed.absolutePath && (item.mimeType?.startsWith('image/') || item.mimeType === 'application/pdf')) {
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(viewed.absolutePath));
       } else {
-        void vscode.window.showInformationMessage(`${item.id} (${item.label}) is a binary document with no text preview.`);
+        void showCompactInformationMessage(`${item.id} (${item.label}) is a binary document with no text preview.`);
       }
     } catch (error) {
       showRefusal(error, { headline: `Could not open ${item.id}` });
@@ -6345,7 +6346,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (item.storage === 'local') {
       if (item.availability !== 'available') {
-        void vscode.window.showWarningMessage(item.availability === 'changed'
+        void showCompactWarningMessage(item.availability === 'changed'
           ? `${item.id} (${item.label}) is kept on this machine, but the copy here no longer matches its committed SHA-256.`
           : `${item.id} (${item.label}) is kept on another machine; this checkout does not have its bytes.`);
         return;
@@ -6357,7 +6358,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return openVerifiedEvidence(item);
     }
     if (!item.path) {
-      void vscode.window.showInformationMessage(
+      void showCompactInformationMessage(
         `${item.id} has no locally committed preview. Its verified metadata remains available in Lifecycle.`);
       return;
     }
@@ -6384,7 +6385,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const detachEvidenceItem = async (item: EvidenceCatalogItem): Promise<void> => {
     if (item.status === 'detached') {
-      void vscode.window.showInformationMessage(`${item.id} is already detached. Its committed evidence remains read-only.`);
+      void showCompactInformationMessage(`${item.id} is already detached. Its committed evidence remains read-only.`);
       return;
     }
     let scope: 'file' | 'package' = 'file';
@@ -6426,7 +6427,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
     }
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Detach ${target}?`,
       {
         modal: true,
@@ -6447,7 +6448,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await refreshAfterKnownMutation();
       const meaningful = result.split(/\r?\n/).filter((line) =>
         /^(Commit|Invalidated phases|Reopened phase|Next in Copilot|Run|In Copilot):/.test(line));
-      const action = await vscode.window.showInformationMessage(
+      const action = await showCompactInformationMessage(
         `Detached ${target}. ${meaningful.slice(0, 2).join(' · ') || 'The decision was committed through the governed publication transaction.'}`,
         'Show complete result'
       );
@@ -6469,12 +6470,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
     if (!picked) return;
     if (!picked.length) {
-      void vscode.window.showWarningMessage('Choose at least one phase. To stop using a document everywhere, detach it.');
+      void showCompactWarningMessage('Choose at least one phase. To stop using a document everywhere, detach it.');
       return;
     }
     const phases = phaseOrder.filter((phase) => picked.some((entry) => entry.label === phase));
     if (phases.length === current.length && phases.every((phase) => current.includes(phase))) {
-      void vscode.window.showInformationMessage(`${item.label} is already used in exactly those phases.`);
+      void showCompactInformationMessage(`${item.label} is already used in exactly those phases.`);
       return;
     }
     const reason = await vscode.window.showInputBox({
@@ -6499,7 +6500,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : 'Only later prompts change; nothing is reopened.',
       preview.pendingPrompt ? 'The prompt already composed for the current phase is recomposed with this change the next time.' : null
     ].filter(Boolean).join('\n');
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Change which phases use ${item.id} — ${item.label}?`, { modal: true, detail }, 'Change phases');
     if (confirmed !== 'Change phases') return;
     const ran = await runGovernedAction(client, {
@@ -6508,7 +6509,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, output);
     if (!ran) return;
     await refreshAfterKnownMutation();
-    void vscode.window.showInformationMessage(`${item.label} is now used in: ${phases.join(', ')}.`);
+    void showCompactInformationMessage(`${item.label} is now used in: ${phases.join(', ')}.`);
   };
 
   const resolveEvidenceNode = (node?: TreeNode): EvidenceCatalogItem | undefined => {
@@ -6534,7 +6535,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (direct) return detachEvidenceItem(direct);
     const active = evidenceCatalog(store.current.snapshot).filter((item) => item.status === 'active');
     if (!active.length) {
-      void vscode.window.showInformationMessage('No active governed evidence is available to detach.');
+      void showCompactInformationMessage('No active governed evidence is available to detach.');
       return;
     }
     const picked = await vscode.window.showQuickPick(active.map((item) => ({
@@ -6724,7 +6725,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           capability?: { label?: string }; approvalProfile?: string;
           selfApprovalAllowed?: boolean; explanationSha256?: string
         }>(['capability', 'show', '--json', '--verbose']);
-        await vscode.window.showInformationMessage(
+        await showCompactInformationMessage(
           `${explanation.capability?.label ?? 'This repository'} owns the current path. `
           + `Approval uses the ${explanation.approvalProfile ?? 'team'} profile`
           + `${explanation.selfApprovalAllowed ? ' and self-approval is allowed.' : '.'}`,
@@ -6837,7 +6838,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const destination = message.reparentChildrenTo == null
         ? 'the top level'
         : message.reparentChildrenTo;
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Remove ${message.id} from the capability map?`,
         {
           modal: true,
@@ -6978,13 +6979,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await refreshAfterKnownMutation();
         if (store.current.error) {
           output.appendLine(`  configuration refresh warning: ${store.current.error.message}`);
-          void vscode.window.showWarningMessage(
+          void showCompactWarningMessage(
             `The configuration change completed, but the approved snapshot could not be refreshed: ${store.current.error.message}`
           );
         }
         if (disposition.kind === 'proposal') {
             const review = 'Review proposals';
-            const selected = await vscode.window.showInformationMessage(
+            const selected = await showCompactInformationMessage(
               `Configuration proposal ${disposition.branch} was created from the approved authority. `
               + `Merge it into ${disposition.baseBranch}, then refresh workspace configuration. `
               + 'The application checkout was not changed.',
@@ -6994,7 +6995,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
             }
         } else if (disposition.kind === 'unchanged') {
-            void vscode.window.showInformationMessage(
+            void showCompactInformationMessage(
               'The approved configuration already contains this change; no proposal was required.'
             );
         }
@@ -7077,9 +7078,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         await refreshAfterKnownMutation();
         if (!result.changed) {
-          void vscode.window.showInformationMessage('Your current Git identity already belongs to the selected approval groups.');
+          void showCompactInformationMessage('Your current Git identity already belongs to the selected approval groups.');
         } else {
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `People & approvals updated on sflow/config (${result.commit.slice(0, 8)}). Future Stories will use it.`
           );
         }
@@ -7167,7 +7168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const document = await vscode.workspace.openTextDocument({ content, language });
         await vscode.window.showTextDocument(document, { preview: true });
         if (!complete) {
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `Opened a bounded ${page.bytes}-byte preview of ${selected.kind}:${selected.id}.`
           );
         }
@@ -7257,7 +7258,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           title: 'Benchmarking repository and world-model scope…',
           cancellable: false
         }, () => client.runText(['doctor', '--performance', '--offline']));
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           'Repository performance benchmark completed. Review measured timings and recommendations in the Singularity Flow output.');
       } catch (error) {
         return `${(error as Error).message}\nThe complete diagnostic output is available in the Singularity Flow output channel.`;
@@ -7277,14 +7278,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await client.runText(['mcp', 'scaffold', 'playwright']);
         await refreshAfterKnownMutation();
-        void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers. The managed host requires the global Singularity Flow CLI; VSIX-only installation does not provide that launcher.');
+        void showCompactInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers. The managed host requires the global Singularity Flow CLI; VSIX-only installation does not provide that launcher.');
       } catch (error) {
         const detail = (error as Error).message;
         // A differing entry is not a terminal-only recovery exercise. Keep unrelated MCP servers,
         // show exactly what replacement means, and let the contributor make the same explicit
         // decision the CLI's --replace-server flag represents without leaving Configuration Center.
         if (!detail.includes('--replace-server')) return detail;
-        const confirmed = await vscode.window.showWarningMessage(
+        const confirmed = await showCompactWarningMessage(
           'Replace the existing Playwright MCP host entry?',
           {
             modal: true,
@@ -7296,7 +7297,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try {
           await client.runText(['mcp', 'scaffold', 'playwright', '--replace-server']);
           await refreshAfterKnownMutation();
-          void vscode.window.showInformationMessage('Playwright MCP host entry replaced. Review it, then trust and start it through VS Code MCP: List Servers. The managed host requires the global Singularity Flow CLI; VSIX-only installation does not provide that launcher.');
+          void showCompactInformationMessage('Playwright MCP host entry replaced. Review it, then trust and start it through VS Code MCP: List Servers. The managed host requires the global Singularity Flow CLI; VSIX-only installation does not provide that launcher.');
         } catch (replacementError) { return (replacementError as Error).message; }
       }
     } else if (message.action === 'open-mcp-host') {
@@ -7419,7 +7420,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return message;
       }
       const merge = 'Merge exact proposal';
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
         {
           modal: true,
@@ -7442,7 +7443,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i
           .test((error as Error).message)) throw error;
         const acknowledge = 'Acknowledge and merge';
-        const accepted = await vscode.window.showWarningMessage(
+        const accepted = await showCompactWarningMessage(
           `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
           { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
           acknowledge
@@ -7455,11 +7456,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (activation.activated === false) {
         const message = activation.failure?.message
           ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`;
-        void vscode.window.showWarningMessage(message);
+        void showCompactWarningMessage(message);
         return message;
       }
       await refreshAfterKnownMutation();
-      void vscode.window.showInformationMessage(
+      void showCompactInformationMessage(
         `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
         + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
         + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
@@ -7497,7 +7498,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (proposal.reviewRequired && proposal.branch) {
         const files = proposal.files?.length ?? 0;
         const review = 'Review and activate';
-        const selected = await vscode.window.showInformationMessage(
+        const selected = await showCompactInformationMessage(
           `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
           + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `
           + 'The active Story was not changed.',
@@ -7510,7 +7511,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return { outcome: 'proposed', branch: proposal.branch, error: null };
       } else if (proposal.authorityMode === 'local') {
         const openSourceControl = 'Open Source Control';
-        const selected = await vscode.window.showInformationMessage(
+        const selected = await showCompactInformationMessage(
           'Workflow configuration was saved as an uncommitted local draft. Review and commit '
           + 'it through the local configuration authority; no proposal was pushed and it is '
           + 'not yet available to new Stories.',
@@ -7521,7 +7522,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return { outcome: 'written', error: null };
       }
-      void vscode.window.showInformationMessage('The approved configuration already contains this workflow change.');
+      void showCompactInformationMessage('The approved configuration already contains this workflow change.');
       return { outcome: 'unchanged', error: null };
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
@@ -7549,7 +7550,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, () => client.run<{ notes?: unknown }>(command));
       // Skills attached in the attachments file stay behind; the export says which.
       const notes = Array.isArray(result?.notes) ? result.notes.filter((note): note is string => typeof note === 'string') : [];
-      void vscode.window.showInformationMessage(
+      void showCompactInformationMessage(
         `Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} and their dependencies to ${target.fsPath}.${notes.length ? ` ${notes.join(' ')}` : ''}`
       );
       return null;
@@ -7687,7 +7688,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (note === undefined) return;
           result = await client.run(['adhoc', 'start', ...(note.trim() ? [note.trim()] : []), '--json']);
         } else if (choice.action === 'land') {
-          const selected = await vscode.window.showWarningMessage(
+          const selected = await showCompactWarningMessage(
             'Observe all current tracked and untracked changes as one ad hoc landing candidate?',
             {
               modal: true,
@@ -7704,7 +7705,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           language: 'json', content: `${JSON.stringify(result, null, 2)}\n`
         });
         await vscode.window.showTextDocument(document, { preview: true });
-        const next = await vscode.window.showInformationMessage(
+        const next = await showCompactInformationMessage(
           'Ad hoc record opened. Continue the reviewed intent, disposition, verification, and exact-packet steps in Copilot or the terminal.',
           'Open Copilot', 'Open terminal command'
         );
@@ -7749,7 +7750,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const snapshot = store.current.snapshot;
       const workflow = snapshot?.workflow;
       if (!repository || !workflow?.workItem.id) {
-        void vscode.window.showWarningMessage('Attach a Story to view its saved intake details.'); return;
+        void showCompactWarningMessage('Attach a Story to view its saved intake details.'); return;
       }
       const checkedRepository = repository;
       const scope = repositoryEpoch.capture();
@@ -7789,7 +7790,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.resolvePhaseIssues': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!repository || !workflow?.workItem.id || !workflow.currentPhase) {
-        void vscode.window.showWarningMessage('Attach a Story before resolving phase issues.'); return;
+        void showCompactWarningMessage('Attach a Story before resolving phase issues.'); return;
       }
       const checkedRepository = repository;
       const scope = repositoryEpoch.capture();
@@ -7803,7 +7804,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!stillCurrent()) return;
         const { showPhaseIssues } = await import('./views/phase-issues.ts');
         showPhaseIssues(result, action => { void (async () => {
-          if (!stillCurrent()) { void vscode.window.showWarningMessage('Story context changed. Reopen phase issues in the selected Story.'); return; }
+          if (!stillCurrent()) { void showCompactWarningMessage('Story context changed. Reopen phase issues in the selected Story.'); return; }
           if (action === 'refresh') return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
           if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });
           if (action === 'tests') return vscode.commands.executeCommand('singularityFlow.reviewStoryTestRecovery');
@@ -7816,9 +7817,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await vscode.window.showTextDocument(document, { preview: true });
             if (!stillCurrent()) return;
             const resume = planned.data.status === 'resume-required';
-            if (action === 'resume' && !resume) { void vscode.window.showInformationMessage('No active attempt needs resumption. The recorded budget remains unchanged.'); return; }
+            if (action === 'resume' && !resume) { void showCompactInformationMessage('No active attempt needs resumption. The recorded budget remains unchanged.'); return; }
             if (!resume && (planned.data.admission?.allowed !== true || !/^sha256:[a-f0-9]{64}$/u.test(planned.data.confirmation ?? ''))) {
-              void vscode.window.showWarningMessage('This repair needs its named human/owner route. No new attempt was started.'); return;
+              void showCompactWarningMessage('This repair needs its named human/owner route. No new attempt was started.'); return;
             }
             const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Recorded Phase Repair', cwd: checkedRepository });
             terminal.show(true);
@@ -7862,7 +7863,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.reviewStoryTestRecovery': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!repository || !workflow?.workItem?.id || !workflow.currentPhase) {
-        void vscode.window.showWarningMessage('Attach a Story before reviewing its test policy.');
+        void showCompactWarningMessage('Attach a Story before reviewing its test policy.');
         return;
       }
       const checkedRepository = repository;
@@ -7905,7 +7906,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const sourcePhases = Object.entries(workflow.phases ?? {}).filter(([, phase]) => Number(phase.generation) > 0)
             .map(([phaseId]) => ({ label: phaseId, description: 'Published source phase; active phase will not change', phaseId }));
           if (!sourcePhases.length) {
-            void vscode.window.showInformationMessage('This Story has no published phase to review for downstream evidence use.');
+            void showCompactInformationMessage('This Story has no published phase to review for downstream evidence use.');
             return;
           }
           const sourcePhase = await vscode.window.showQuickPick(sourcePhases, {
@@ -7989,12 +7990,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prefillStoryPhaseGeneration': async (node?: TreeNode) => {
       const phaseId = store.current.snapshot?.workflow?.currentPhase;
       if (!phaseId) {
-        void vscode.window.showWarningMessage('No governed Story phase is active in this workspace.');
+        void showCompactWarningMessage('No governed Story phase is active in this workspace.');
         return;
       }
       const prefill = phaseGenerationChatPrefill(node?.prefill);
       if (!prefill) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           'The lifecycle snapshot did not provide a supported phase action skill. Refresh and try again.'
         );
         return;
@@ -8067,7 +8068,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.cancelWork': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!workflow || workflow.status !== 'in_progress') {
-        void vscode.window.showWarningMessage('Only active Story work can be cancelled.');
+        void showCompactWarningMessage('Only active Story work can be cancelled.');
         return;
       }
       const reason = await vscode.window.showInputBox({
@@ -8078,7 +8079,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         validateInput: (value) => value.trim() ? null : 'A cancellation reason is required.'
       });
       if (!reason?.trim()) return;
-      const decision = await vscode.window.showWarningMessage(
+      const decision = await showCompactWarningMessage(
         `Cancel ${workflow.workItem.id}? Its lifecycle will stop and it will move to Archived. Generated artifacts are preserved.`,
         { modal: true, detail: `Current phase: ${workflow.currentPhase ?? 'unknown'}\nReason: ${reason.trim()}` },
         'Cancel and archive'
@@ -8087,7 +8088,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await client.runText(['cancel', workflow.workItem.id, '--reason', reason.trim(), '--confirm', workflow.workItem.id]);
         await refreshAfterKnownMutation();
-        void vscode.window.showInformationMessage(`${workflow.workItem.id} was cancelled and moved to Archived.`);
+        void showCompactInformationMessage(`${workflow.workItem.id} was cancelled and moved to Archived.`);
       } catch (error) {
         showRefusal(error, { headline: 'Could not cancel ${workflow.workItem.id}' });
       }
@@ -8095,7 +8096,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.reopenCompleted': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!workflow || workflow.status !== 'closed') {
-        void vscode.window.showWarningMessage('Only a closed Story can be reopened.');
+        void showCompactWarningMessage('Only a closed Story can be reopened.');
         return;
       }
       const completion = workflow.phases[workflow.phaseOrder.at(-1) ?? ''];
@@ -8125,7 +8126,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await client.runText(['reopen', workflow.workItem.id, '--fetch', '--to', selected.phaseId, '--reason', reason.trim()]);
         await refreshAfterKnownMutation();
-        void vscode.window.showInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
+        void showCompactInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
       } catch (error) {
         showRefusal(error, { headline: 'Could not reopen ${workflow.workItem.id}' });
       }
@@ -8133,13 +8134,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.rollForwardRework': async (node?: TreeNode) => {
       const workflow = store.current.snapshot?.workflow;
       if (!workflow) {
-        void vscode.window.showWarningMessage('No active Story has a rework checkpoint to restore.');
+        void showCompactWarningMessage('No active Story has a rework checkpoint to restore.');
         return;
       }
       const requestId = node?.id.match(/^story:change-request:([^:]+):roll-forward$/)?.[1]
         ?? workflow.changeRequests?.filter((request) => request.status === 'open' && request.forwardCheckpoint).at(-1)?.id;
       if (!requestId) {
-        void vscode.window.showWarningMessage('No open change request has a safe forward checkpoint.');
+        void showCompactWarningMessage('No open change request has a safe forward checkpoint.');
         return;
       }
       type ReworkPlan = {
@@ -8161,12 +8162,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const previewContent = renderReworkRollForwardPreview(plan);
         const previewDocument = await vscode.workspace.openTextDocument({ language: 'markdown', content: previewContent });
         await vscode.window.showTextDocument(previewDocument, { preview: true });
-        const reviewed = await vscode.window.showInformationMessage(
+        const reviewed = await showCompactInformationMessage(
           `Review the complete ${plan.paths.length}-path roll-forward preview before continuing.`,
           'Continue to confirmation'
         );
         if (reviewed !== 'Continue to confirmation') return;
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await showCompactWarningMessage(
           `Discard ${requestId} rework and safely return ${workflow.workItem.id} to ${plan.sourcePhase}?`,
           {
             modal: true,
@@ -8187,7 +8188,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           '--change-request', plan.changeRequestId, '--confirm', plan.confirmation, '--json'
         ]);
         await refreshAfterKnownMutation();
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           `${plan.workId} returned to ${result.phase ?? 'its closed state'} in ${result.commit.slice(0, 8)}. `
           + `${result.restoredPaths.length} path(s) were backed up locally and restored.`
         );
@@ -8286,17 +8287,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await refreshAfterKnownMutation();
         const disposition = configurationSaveDisposition(text, message.proposal);
         if (disposition.kind === 'proposal') {
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `Instruction proposal ${disposition.branch} is ready for review. Merge it into `
             + `${disposition.baseBranch}, then refresh workspace configuration. `
             + 'The application checkout was not changed.'
           );
         } else if (disposition.kind === 'local') {
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             'Instruction changes were saved as a local configuration draft. Review and commit them through the local authority.'
           );
         } else {
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             'The approved instructions already contain this change; no proposal was required.'
           );
         }
@@ -8317,7 +8318,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string; rebuild?: boolean }) => {
       const active = activeRepositoryContext();
       if (!active) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           'Choose a governed workspace repository before building its World Model.'
         );
         return;
@@ -8353,7 +8354,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const engineCode = reason?.slots?.code;
           const refreshRequired = engineCode === 'WMB_GATEWAY_STATE_AUTHORITY_REFRESH_REQUIRED';
           const refreshAction = 'Refresh state & retry';
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await showCompactWarningMessage(
             `World Model build was not run: ${code}${engineCode ? ` (${String(engineCode)})` : ''}. ${refreshRequired
               ? 'The remote state authority must be materialized before an exact preserving Plan can be reviewed.'
               : 'Review the current repository state and try again.'}`,
@@ -8374,13 +8375,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         if (outcome.format === 'legacy-v3') {
           await refreshAfterSurfaceMutation();
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             'Deterministic legacy-v3 World Model built with zero model calls. Review the refreshed model and publication details in the Singularity Flow output.'
           );
           return;
         }
         await refreshAfterSurfaceMutation();
-        void vscode.window.showInformationMessage(worldModelBuildCompletionMessage(outcome));
+        void showCompactInformationMessage(worldModelBuildCompletionMessage(outcome));
       } catch (error) {
         output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
         // Keep recovery bound to the repository that produced the failure even if the user changes
@@ -8398,18 +8399,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const repository = store.current.snapshot?.repository;
       const files = repository?.configurationChanges ?? [];
       if (!files.length) {
-        void vscode.window.showInformationMessage('No validated configuration changes are ready to publish.');
+        void showCompactInformationMessage('No validated configuration changes are ready to publish.');
         return;
       }
       const unrelated = repository?.unrelatedChanges ?? [];
       if (unrelated.length) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           `Configuration publication is blocked by unrelated changes: ${unrelated.join(', ')}. Commit or set them aside, then refresh.`
         );
         return;
       }
       const branchName = repository?.branch ?? 'current branch';
-      const choice = await vscode.window.showWarningMessage(
+      const choice = await showCompactWarningMessage(
         `Publish ${files.length} configuration file${files.length === 1 ? '' : 's'} from ${branchName}?`,
         {
           modal: true,
@@ -8425,7 +8426,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ]);
         await refreshAfterKnownMutation();
         const destination = published.pushed ? `${published.remote ?? 'remote'}/${branchName}` : 'the local repository';
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           `Configuration published to ${destination}${published.sha ? ` at ${published.sha.slice(0, 8)}` : ''}.`
         );
       } catch (error) {
@@ -8482,12 +8483,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.inspectCompositionCache': async () => {
       const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);
-      void vscode.window.showInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);
+      void showCompactInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);
     },
     'singularityFlow.checkLedgerDeployment': async () => {
       const result = await client.run<{ valid: boolean; checks: Array<{ status: string }> }>(['ledger', 'deployment-check', '--offline', '--json']);
       const failed = result.checks.filter((check) => check.status === 'fail').length;
-      void vscode.window.showInformationMessage(result.valid ? 'Ledger deployment checks passed.' : `Ledger deployment needs attention: ${failed} failed check(s).`);
+      void showCompactInformationMessage(result.valid ? 'Ledger deployment checks passed.' : `Ledger deployment needs attention: ${failed} failed check(s).`);
     },
     'singularityFlow.openVisualAssurance': async () => {
       const { VisualAssurancePanel } = lazyPanels();
@@ -8497,7 +8498,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const nativeUsageNotice = 'singularityFlow.nativeCopilotUsageUnavailableNotice';
         if (!context.globalState.get<boolean>(nativeUsageNotice, false)) {
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             'Usage unavailable for native Copilot Chat in this build. Your work can continue. Use “Continue with Copilot CLI” for consented local usage capture.'
           );
           await context.globalState.update(nativeUsageNotice, true);
@@ -8515,7 +8516,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             requestedAt: new Date().toISOString()
           };
           await context.globalState.update(COPILOT_HANDOFF_KEY, pending);
-          void vscode.window.showInformationMessage(
+          void showCompactInformationMessage(
             `${workId ?? 'Governed work'} belongs to ${target}. Switching this window to that repository; Copilot will open after reload.`
           );
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
@@ -8581,7 +8582,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         resumeOnActivation: false
       });
       if (pendingStartWizard.workspaceId && pendingStartWizard.workspaceId !== resolved.workspaceId) {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           `Guided Start paused because the active workspace changed from ${pendingStartWizard.workspaceName ?? pendingStartWizard.workspaceId}. Run Guided Start again to continue in the current workspace.`
         );
       } else {
@@ -8683,7 +8684,7 @@ async function openArtifact(
         message, 6_000);
     }
   } catch {
-    void vscode.window.showWarningMessage(`This artifact has not been generated yet: ${node.path}`);
+    void showCompactWarningMessage(`This artifact has not been generated yet: ${node.path}`);
   }
 }
 

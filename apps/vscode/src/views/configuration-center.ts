@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /** First-class VS Code configuration for humans, approvals, MCP, and the other designers. */
 import * as vscode from 'vscode';
 import { DEFAULT_WORLD_MODEL_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore } from '../state.ts';
@@ -223,7 +224,7 @@ export class ConfigurationCenterPanel {
 
   /** Whether the person agrees to throw away edits they have not saved; clears the flag on yes. */
   private async discardEdits(): Promise<boolean> {
-    const choice = await vscode.window.showWarningMessage('Discard the changes you have not saved?',
+    const choice = await showCompactWarningMessage('Discard the changes you have not saved?',
       { modal: true, detail: 'Nothing has been saved or proposed, so nothing else changes.' }, 'Discard');
     if (choice !== 'Discard') return false;
     this.dirty = false;
@@ -408,7 +409,7 @@ export class ConfigurationCenterPanel {
       if (!this.pendingProposal) return;
       const branch = this.pendingProposal.branch;
       const resume = 'Resume approved baseline';
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Resume the approved configuration instead of proposal ${branch}?`,
         {
           modal: true,
@@ -620,7 +621,7 @@ export class ConfigurationCenterPanel {
 
     const labels = authorities.map((entry) => `${entry.label} (${entry.scope})`);
     const action = 'Add, commit & push';
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `${action} for ${identity.name}?`,
       {
         modal: true,
@@ -649,7 +650,7 @@ export class ConfigurationCenterPanel {
 
   private async deleteAuthority(): Promise<void> {
     const view = this.view(); const selected = view?.authorities.find((entry) => `${entry.scope}:${entry.id}` === this.authorityKey); if (!selected) return;
-    const confirmed = await vscode.window.showWarningMessage(`Delete approval authority '${selected.label}'?`, { modal: true }, 'Delete');
+    const confirmed = await showCompactWarningMessage(`Delete approval authority '${selected.label}'?`, { modal: true }, 'Delete');
     if (confirmed !== 'Delete') return;
     const snapshot = this.store.current.snapshot!; const story = selected.scope === 'story';
     const text = story ? this.renderedTexts.definitionText : this.renderedTexts.portfolioText;
@@ -665,7 +666,7 @@ export class ConfigurationCenterPanel {
 
   private async deleteMcp(): Promise<void> {
     const view = this.view(); const selected = view?.mcpServers.find((entry) => entry.id === this.mcpId); if (!selected) return;
-    const confirmed = await vscode.window.showWarningMessage(`Delete MCP policy '${selected.label}'?`, { modal: true }, 'Delete');
+    const confirmed = await showCompactWarningMessage(`Delete MCP policy '${selected.label}'?`, { modal: true }, 'Delete');
     if (confirmed !== 'Delete') return;
     const snapshot = this.store.current.snapshot!;
     const text = this.renderedTexts.definitionText;

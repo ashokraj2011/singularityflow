@@ -70,7 +70,7 @@ async function host() {
   let resolveConfirmation;
   const vscode = { ViewColumn: { Active: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => typeof confirmation === 'function' ? confirmation() : confirmation } };
   const module = { exports: {} };
-  new Function('module', 'exports', 'vscode', 'nonce', 'page', 'contentSecurityPolicy', 'workflowMutationPlanDetail', 'WORKFLOW_TRANSFER_BODY', 'WORKFLOW_TRANSFER_SCRIPT', compiled + '\nmodule.exports.WorkflowTransferPanel = WorkflowTransferPanel;')(module, module.exports, vscode, () => 'nonce', () => '', () => '', JSON.stringify, '', '');
+  new Function('module', 'exports', 'vscode', 'nonce', 'page', 'contentSecurityPolicy', 'workflowMutationPlanDetail', 'workflowMutationPlanSummary', 'showCompactWarningMessage', 'WORKFLOW_TRANSFER_BODY', 'WORKFLOW_TRANSFER_SCRIPT', compiled + '\nmodule.exports.WorkflowTransferPanel = WorkflowTransferPanel;')(module, module.exports, vscode, () => 'nonce', () => '', () => '', JSON.stringify, () => 'Exact proposal summary', vscode.window.showWarningMessage, '', '');
   return { Panel: module.exports.WorkflowTransferPanel, send: (message) => receiver(message), posted, cancel: () => panel.dispose(), reject: () => { confirmation = undefined; },
     holdConfirmation: () => { confirmation = () => new Promise((resolve) => { resolveConfirmation = resolve; }); },
     confirm: () => resolveConfirmation('Create proposal') };

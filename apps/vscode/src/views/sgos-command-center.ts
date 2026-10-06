@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "../compact-message.ts";
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type {
@@ -235,7 +236,7 @@ export class SgosCommandCenterPanel {
     if (!process || !action
         || action.source.processRevision !== expected.source.processRevision
         || action.source.processSha256 !== expected.source.processSha256) {
-      await vscode.window.showWarningMessage(
+      await showCompactWarningMessage(
         'This Process changed after the action was shown. Nothing was sent; Command Center will refresh so you can review the current state.'
       );
       await this.store.refresh();
@@ -255,7 +256,7 @@ export class SgosCommandCenterPanel {
   private async afterMutation(message: string): Promise<void> {
     await this.store.refresh();
     this.error = null;
-    await vscode.window.showInformationMessage(message);
+    await showCompactInformationMessage(message);
   }
 
   private mutationFailed(error: unknown): void {
@@ -304,7 +305,7 @@ export class SgosCommandCenterPanel {
         status: string; indexedRecordCount: number; orphans: unknown[];
         pendingReservations: unknown[]; errors: unknown[]; missing: unknown[];
       }>(await this.client.run(['process', 'fsck', processId, '--json']));
-      await vscode.window.showInformationMessage(
+      await showCompactInformationMessage(
         `${processId}: ${result.status}. ${result.indexedRecordCount} indexed records, `
         + `${result.orphans.length} orphans, ${result.pendingReservations.length} pending reservations, `
         + `${result.errors.length + result.missing.length} integrity issues.`
@@ -324,13 +325,13 @@ export class SgosCommandCenterPanel {
         await this.client.run(['process', 'recover', processId, '--json'])
       );
       if (!result.interrupted || !result.attemptId || !result.actions.length) {
-        await vscode.window.showInformationMessage(
+        await showCompactInformationMessage(
           `${processId}: ${result.status ?? 'stable'}. No interrupted execution requires recovery.`
         );
         return;
       }
       if (result.processRevision !== current.process.processRevision) {
-        await vscode.window.showWarningMessage(
+        await showCompactWarningMessage(
           'The recovery plan does not bind the Process revision that was just inspected. Nothing was executed.'
         );
         await this.store.refresh();
@@ -345,7 +346,7 @@ export class SgosCommandCenterPanel {
         placeHolder: 'Choose one runtime-projected recovery action.'
       });
       if (!selected) return;
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Apply recovery '${selected.action.resolution}' to ${result.attemptId}?`,
         { modal: true, detail: `${selected.action.effect}\n\nThe exact runtime confirmation is ${selected.action.confirmationSha256}.` },
         'Apply exact recovery'
@@ -363,7 +364,7 @@ export class SgosCommandCenterPanel {
         && entry.confirmationSha256 === selected.action.confirmationSha256);
       if (!refreshedPlan.interrupted || refreshedPlan.attemptId !== result.attemptId
           || refreshedPlan.processRevision !== result.processRevision || !refreshedAction) {
-        await vscode.window.showWarningMessage(
+        await showCompactWarningMessage(
           'The exact recovery choice changed while confirmation was open. Nothing was executed.'
         );
         await this.store.refresh();
@@ -387,7 +388,7 @@ export class SgosCommandCenterPanel {
   private async pause(processId: string): Promise<void> {
     const shown = this.shownAction(processId, 'process.pause');
     if (!shown) return;
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Pause ${processId}?`,
       { modal: true, detail: 'Pause is available only at a quiescent boundary. The current Process revision and digest will be checked again before anything is sent.' },
       'Pause Process'
@@ -409,7 +410,7 @@ export class SgosCommandCenterPanel {
     const shown = this.shownAction(processId, 'process.resume');
     const checkpoint = shown?.process.currentCheckpointSha256 ?? null;
     if (!shown || !checkpoint) return;
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Resume ${processId} from its exact checkpoint?`,
       { modal: true, detail: `Checkpoint: ${checkpoint}\n\nExecution must still be quiescent when the kernel re-checks it.` },
       'Resume Process'
@@ -429,7 +430,7 @@ export class SgosCommandCenterPanel {
   private async step(processId: string): Promise<void> {
     const shown = this.shownAction(processId, 'process.step');
     if (!shown) return;
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Run one deterministic step in ${processId}?`,
       { modal: true, detail: 'The kernel will choose at most one currently ready task from the approved Program.' },
       'Run one step'
@@ -452,7 +453,7 @@ export class SgosCommandCenterPanel {
   private async run(processId: string): Promise<void> {
     const shown = this.shownAction(processId, 'process.run');
     if (!shown) return;
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Run one bounded ready wave in ${processId}?`,
       { modal: true, detail: 'This runs only the deterministic compatible ready set and waits for every launched task to quiesce.' },
       'Run bounded wave'
@@ -475,7 +476,7 @@ export class SgosCommandCenterPanel {
   private async stop(processId: string): Promise<void> {
     const shown = this.shownAction(processId, 'process.stop');
     if (!shown) return;
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Stop ${processId}?`,
       {
         modal: true,
@@ -497,7 +498,7 @@ export class SgosCommandCenterPanel {
       // Exactly one post-mutation refresh. The webview never updates Process authority itself.
       await this.store.refresh();
       const active = result.activeAttemptIds?.length ?? 0;
-      await vscode.window.showInformationMessage(result.quiescent
+      await showCompactInformationMessage(result.quiescent
         ? `${result.process.processId} is paused and quiescent; no execution remains active.`
         : `${result.process.processId} stop is recorded; ${active} execution${active === 1 ? '' : 's'} ${active === 1 ? 'is' : 'are'} quiescing.`);
       this.error = null;
@@ -513,7 +514,7 @@ export class SgosCommandCenterPanel {
       const result = resultOf<QuarantinePlan>(
         await this.client.run(['process', 'quarantine', processId, '--json'])
       );
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Quarantine ${processId}'s preserved private bytes?`,
         {
           modal: true,
@@ -523,7 +524,7 @@ export class SgosCommandCenterPanel {
       );
       if (confirmed !== 'Quarantine exact tree') return;
       if (!this.store.current.snapshot?.sgos?.unavailable.some((entry) => entry.processId === processId)) {
-        await vscode.window.showWarningMessage('The unavailable Process changed while confirmation was open. Nothing was sent.');
+        await showCompactWarningMessage('The unavailable Process changed while confirmation was open. Nothing was sent.');
         await this.store.refresh();
         return;
       }
@@ -532,7 +533,7 @@ export class SgosCommandCenterPanel {
       );
       if (refreshed.confirmationSha256 !== result.confirmationSha256
           || refreshed.fileCount !== result.fileCount || refreshed.reason !== result.reason) {
-        await vscode.window.showWarningMessage(
+        await showCompactWarningMessage(
           'The preserved Process tree changed while confirmation was open. Nothing was quarantined.'
         );
         await this.store.refresh();
@@ -561,7 +562,7 @@ export class SgosCommandCenterPanel {
         ? null : 'Enter an exact sha256:<64 lowercase hex> checkpoint digest.'
     });
     if (!checkpoint) return;
-    const previewConfirmed = await vscode.window.showWarningMessage(
+    const previewConfirmed = await showCompactWarningMessage(
       `Create an exact replay preview for ${processId}?`,
       { modal: true, detail: 'This records an immutable replay plan but does not reopen any task. A second confirmation is required to apply it.' },
       'Create replay preview'
@@ -578,10 +579,10 @@ export class SgosCommandCenterPanel {
       if (plan.expectedProcessRevision !== current.process.processRevision
           || plan.expectedProcessSha256 !== current.process.processSha256
           || plan.fromCheckpointSha256 !== checkpoint) {
-        await vscode.window.showWarningMessage('Replay preview did not bind the Process and checkpoint that were reviewed. Nothing was executed.');
+        await showCompactWarningMessage('Replay preview did not bind the Process and checkpoint that were reviewed. Nothing was executed.');
         return;
       }
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Replay ${plan.taskInstanceIds.length} pure suffix task${plan.taskInstanceIds.length === 1 ? '' : 's'} in ${processId}?`,
         { modal: true, detail: `Checkpoint: ${checkpoint}\nPlan: ${plan.replayPlanSha256}\n\nExisting receipts remain historical; replayed tasks receive new governed attempts.` },
         'Confirm exact replay'
@@ -614,7 +615,7 @@ export class SgosCommandCenterPanel {
         ? null : 'Use 2-64 lower-case letters, digits, or hyphens.'
     });
     if (!label) return;
-    const previewConfirmed = await vscode.window.showWarningMessage(
+    const previewConfirmed = await showCompactWarningMessage(
       `Create an exact fork preview for ${processId}?`,
       { modal: true, detail: 'This records an immutable fork plan but does not create the child Process. A second confirmation is required to apply it.' },
       'Create fork preview'
@@ -629,10 +630,10 @@ export class SgosCommandCenterPanel {
       if (plan.expectedParentProcessRevision !== current.process.processRevision
           || plan.expectedParentProcessSha256 !== current.process.processSha256
           || plan.fromCheckpointSha256 !== checkpoint || plan.label !== label) {
-        await vscode.window.showWarningMessage('Fork preview did not bind the Process, checkpoint, and label that were reviewed. Nothing was executed.');
+        await showCompactWarningMessage('Fork preview did not bind the Process, checkpoint, and label that were reviewed. Nothing was executed.');
         return;
       }
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Create independent Process ${plan.childProcessId}?`,
         { modal: true, detail: `Parent: ${processId}\nGenesis checkpoint: ${checkpoint}\nPlan: ${plan.forkPlanSha256}` },
         'Confirm exact fork'
@@ -656,7 +657,7 @@ export class SgosCommandCenterPanel {
       );
       if (exact.process.processRevision !== process.processRevision
           || exact.process.processSha256 !== process.processSha256) {
-        await vscode.window.showWarningMessage('The Process changed after this receipt was rendered. Refresh before opening its evidence.');
+        await showCompactWarningMessage('The Process changed after this receipt was rendered. Refresh before opening its evidence.');
         await this.store.refresh();
         return;
       }
@@ -681,13 +682,13 @@ export class SgosCommandCenterPanel {
       if (found.request.requestSha256 !== binding.requestSha256
           || found.process.processRevision !== binding.expectedRevision
           || found.process.processSha256 !== binding.processSha256) {
-        await vscode.window.showWarningMessage('This Human Request changed after the form was rendered. It was not answered; the current request will be loaded.');
+        await showCompactWarningMessage('This Human Request changed after the form was rendered. It was not answered; the current request will be loaded.');
         await this.store.refresh();
         return;
       }
       const choices = sgosHumanRequestChoices(found.request);
       if (!choices.length) {
-        await vscode.window.showInformationMessage('This request requires typed or brokered input that this first Command Center release does not collect. Use the exact CLI response flow.');
+        await showCompactInformationMessage('This request requires typed or brokered input that this first Command Center release does not collect. Use the exact CLI response flow.');
         return;
       }
       const choice = await vscode.window.showQuickPick(choices, {
@@ -695,7 +696,7 @@ export class SgosCommandCenterPanel {
         placeHolder: 'Choose one exact response; nothing runs until you confirm.'
       });
       if (!choice) return;
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `${choice.label} for ${found.request.requestId}? The kernel will re-check request ${found.request.requestSha256}.`,
         { modal: true }, 'Confirm response'
       );
@@ -706,7 +707,7 @@ export class SgosCommandCenterPanel {
       if (current.request.requestSha256 !== found.request.requestSha256
           || current.process.processRevision !== found.process.processRevision
           || current.process.processSha256 !== found.process.processSha256) {
-        await vscode.window.showWarningMessage(
+        await showCompactWarningMessage(
           'This Human Request or Process changed while confirmation was open. Nothing was sent; review the current request.'
         );
         await this.store.refresh();

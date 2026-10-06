@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "../compact-message.ts";
 /** Review and activate a capability proposal without leaving VS Code. */
 import * as vscode from 'vscode';
 import {
@@ -267,13 +268,13 @@ export class CapabilityProposalPanel {
     }
     if (message.type === 'copy') {
       await vscode.env.clipboard.writeText(this.branch);
-      void vscode.window.showInformationMessage('Capability proposal branch copied.');
+      void showCompactInformationMessage('Capability proposal branch copied.');
       return;
     }
     if (message.type === 'repair' && this.proposal?.repairable === true && !this.busy) {
       const proposal = this.proposal;
       const label = 'Prepare repair for review';
-      const accepted = await vscode.window.showWarningMessage(
+      const accepted = await showCompactWarningMessage(
         `Prepare a compatibility repair on ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
         { modal: true, detail: 'Only missing packaged files and byte-exact historical SFlow package files can change. Repository-customized files, the approved configuration, state, and application branches remain untouched. The resulting commit must be reviewed again before activation.' },
         label);
@@ -295,7 +296,7 @@ export class CapabilityProposalPanel {
       const result = repaired.result as ProposalRepairResult;
       this.activated = null;
       this.error = null;
-      void vscode.window.showInformationMessage(result.repaired
+      void showCompactInformationMessage(result.repaired
         ? `Compatibility repair prepared at ${result.proposalCommit.slice(0, 12)}. Review the updated diff before merging.`
         : 'This capability proposal is already compatible.');
       await this.load();
@@ -323,10 +324,10 @@ export class CapabilityProposalPanel {
         if (failedFollowUps.length) {
           this.error = `Capability activation succeeded, but ${failedFollowUps.length} UI follow-up action(s) failed. Refresh the affected page; do not repeat the activation.`;
         }
-        void vscode.window.showInformationMessage(
+        void showCompactInformationMessage(
           `Capability configuration activated on ${this.activated.targetBranch}.`);
       } else {
-        void vscode.window.showWarningMessage(
+        void showCompactWarningMessage(
           this.activated.failure?.message ?? 'Capability activation is waiting for repository review.');
       }
     }

@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "./compact-message.ts";
 /** Native preview-and-confirm review form for governed Meta-tool authority transitions. */
 import path from 'node:path';
 import * as vscode from 'vscode';
@@ -214,7 +215,7 @@ export async function showSgosMetaToolReview(client: SingularityFlowClient): Pro
     if (!META_TOOL_SHA256.test(String(preview.confirmationSha256 ?? ''))) {
       throw new Error('The engine did not return an exact mutation-plan confirmation.');
     }
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       `${selection.action.charAt(0).toUpperCase()}${selection.action.slice(1)} this governed Meta-tool authority?`,
       { modal: true, detail: metaToolPlanReview(preview) },
       `Confirm ${selection.action}`
@@ -229,7 +230,7 @@ export async function showSgosMetaToolReview(client: SingularityFlowClient): Pro
       title: `Applying confirmed Meta-tool ${selection.action}`,
       cancellable: false
     }, () => client.run(metaToolArguments(selection, preview.confirmationSha256 ?? null)));
-    await vscode.window.showInformationMessage(
+    await showCompactInformationMessage(
       `Meta-tool ${selection.action} completed through the confirmed Authority Store transaction.`
     );
   } catch (error) {

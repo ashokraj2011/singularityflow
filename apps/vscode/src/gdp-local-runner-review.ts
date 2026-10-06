@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "./compact-message.ts";
 /** Native operator journey for non-gating developer-local signed evidence. */
 import path from 'node:path';
 import * as vscode from 'vscode';
@@ -38,7 +39,7 @@ async function signerReady(client: SingularityFlowClient, signerId: string): Pro
     await client.run(localRunnerSignerArguments('status', signerId));
     return true;
   } catch {
-    const decision = await vscode.window.showWarningMessage(
+    const decision = await showCompactWarningMessage(
       `Developer-local signer '${signerId}' is unavailable. Create it now?`,
       {
         modal: true,
@@ -105,7 +106,7 @@ async function runObservedCommand(client: SingularityFlowClient): Promise<void> 
   }, () => client.run(localRunnerPlanArguments(options, picked.command, signerId))));
   const plan = envelope.plan;
   const detail = localRunnerPlanReview(plan);
-  const accepted = await vscode.window.showWarningMessage(
+  const accepted = await showCompactWarningMessage(
     'Run this configured command as your local OS user?',
     { modal: true, detail },
     'Run and sign local observation'
@@ -124,7 +125,7 @@ async function runObservedCommand(client: SingularityFlowClient): Promise<void> 
     options, picked.command, signerId, plan.planSha256
   ))));
   const receipt = result?.output?.path;
-  const choice = await vscode.window.showInformationMessage(
+  const choice = await showCompactInformationMessage(
     `Local signed observation: ${result?.attestation?.outcome ?? 'completed'}. It is non-gating developer evidence.`,
     ...(receipt ? ['Open signed receipt'] : [])
   );
@@ -144,7 +145,7 @@ async function manageSigner(client: SingularityFlowClient): Promise<void> {
     const status = resultOf<{ status?: string; signerKeySha256?: string }>(
       await client.run(localRunnerSignerArguments('status', signerId))
     );
-    await vscode.window.showInformationMessage(
+    await showCompactInformationMessage(
       `Signer '${signerId}' is ${status.status ?? 'ready'} (${status.signerKeySha256 ?? 'key available'}). Non-gating.`
     );
   } catch {
@@ -175,7 +176,7 @@ async function verifyReceipt(client: SingularityFlowClient): Promise<void> {
   const verified = resultOf<{
     status?: string; outcome?: string; assurance?: string; gateEligible?: boolean;
   }>(await client.run(localRunnerVerifyArguments(relative, signerId)));
-  await vscode.window.showInformationMessage(
+  await showCompactInformationMessage(
     `Receipt ${verified.status ?? 'verified'}: ${verified.outcome ?? 'unknown'} · ${verified.assurance ?? 'developer-local-signed'} · gate eligible: ${verified.gateEligible === true ? 'yes' : 'no'}.`
   );
 }

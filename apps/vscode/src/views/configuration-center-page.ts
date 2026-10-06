@@ -64,8 +64,12 @@ function overview(view: ConfigurationCenterView): string {
   return `<section class="plain configuration-overview"><div class="section-heading"><div><h2>${icon('ok')}Repository readiness</h2><p class="muted">A quick view of the governed setup that applies to this repository.</p></div></div>
     <div class="summary-grid"><div class="summary-card"><strong>${view.authorities.length}</strong><span>Approval groups</span></div><div class="summary-card"><strong>${view.mcpServers.length}</strong><span>Governed MCP servers</span></div><div class="summary-card"><strong>${view.agents.length}</strong><span>Governed agents</span></div><div class="summary-card"><strong>${view.phases.length}</strong><span>Story phases</span></div></div>
     <p class="muted">Workflow ledger: <strong>${escape(view.ledger.summary)}</strong>. ${escape(view.ledger.detail)}</p>
-    <p class="muted">Jira and Teams credentials remain in VS Code SecretStorage. They are never written into workflow files or prompts.</p>
-    <p class="card-foot"><button class="secondary" data-action="jira">Jira connection</button><button class="secondary" data-action="teams">Teams notifications</button><button class="secondary" data-action="reset-jira">Reset saved Jira</button><button class="secondary" data-action="open-workflow">Open workflow YAML</button><button class="secondary" data-action="open-portfolio">Open portfolio YAML</button></p>
+    <h2>Connections</h2>
+    <div class="configuration-action-list">
+      <button class="configuration-action-row" data-action="jira">${icon('configuration', { size: 16 })}<span><strong>Jira connection</strong><small>Project and connection settings</small></span>${icon('next')}</button>
+      <button class="configuration-action-row" data-action="teams">${icon('agent', { size: 16 })}<span><strong>Teams notifications</strong><small>Notification and delivery settings</small></span>${icon('next')}</button>
+    </div>
+    <p class="muted configuration-caption">Credentials stay in VS Code SecretStorage, never workflow files or prompts.</p>
 
     ${view.publish.changes.length ? `<h2>${icon('merge')}Unpublished configuration</h2>
     <p class="muted">${view.publish.changes.length} file${view.publish.changes.length === 1 ? '' : 's'} changed on ${escape(view.publish.branch)}.</p>
@@ -81,15 +85,15 @@ function overview(view: ConfigurationCenterView): string {
     ${view.modelFreedom.blockers.length ? `<ul class="plain-list">${view.modelFreedom.blockers.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul>` : ''}
     ${view.modelFreedom.warnings.length ? `<ul class="plain-list muted">${view.modelFreedom.warnings.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul>` : ''}` : ''}
 
-    <h2>${icon('workflow')}Common actions</h2>
-    <p class="muted">Open the most common operational tools without turning every destination into an equally prominent card.</p>
+    <h2>Workflow tools</h2>
     <div class="configuration-action-list">
       <button class="configuration-action-row" data-action="workflow-studio">${icon('workflow', { size: 16 })}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="shared-workflow-drafts">${icon('workflow', { size: 16 })}<span><strong>Shared workflow drafts</strong><small>Explicitly save partial drafts in the configuration authority across machines.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with governed context.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-specification-trace">${icon('document', { size: 16 })}<span><strong>Specification traceability</strong><small>Review which clauses each artifact and test claims to satisfy.</small></span>${icon('next')}</button>
     </div>
-    <details class="configuration-advanced-tools"><summary>Advanced tools</summary>
+    <details class="configuration-advanced-tools"><summary>Advanced configuration</summary>
+      <p class="card-foot"><button class="secondary" data-action="open-workflow">Open workflow YAML</button><button class="secondary" data-action="open-portfolio">Open portfolio YAML</button><button class="link" data-action="reset-jira">Reset saved Jira</button></p>
       <div class="configuration-action-list">
         <button class="configuration-action-row" data-action="inspect-composition-cache">${icon('ok', { size: 16 })}<span><strong>Inspect composition cache</strong><small>Review cached agent composition and validity.</small></span>${icon('next')}</button>
         <button class="configuration-action-row" data-action="check-ledger-deployment">${icon('ok', { size: 16 })}<span><strong>Check ledger deployment</strong><small>Verify the governance ledger is reachable and current.</small></span>${icon('next')}</button>

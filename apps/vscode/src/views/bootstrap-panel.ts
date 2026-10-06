@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "../compact-message.ts";
 /**
  * The panel behind "map a capability".
  *
@@ -915,7 +916,7 @@ export class BootstrapPanel {
         if (!reason?.trim() || reason.trim().length > 500) return false;
         if (!automatic || !operation.proposalBranch) {
           const confirmation = 'Cancel exact pending mapping';
-          const accepted = await vscode.window.showWarningMessage(
+          const accepted = await showCompactWarningMessage(
             `Cancel ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
             { modal: true, detail: `${operation.proposalBranch
               ? 'This is the branch recorded by the earlier mapping.'
@@ -990,7 +991,7 @@ export class BootstrapPanel {
       });
       if (!reason?.trim() || reason.trim().length > 500) return;
       const confirmation = 'Cancel exact pending mapping';
-      const accepted = await vscode.window.showWarningMessage(
+      const accepted = await showCompactWarningMessage(
         `Cancel ${branch}@${commit.slice(0, 12)}?`,
         { modal: true, detail: 'This exact unmerged Git review branch will be deleted. If it moved or was merged, cancellation refuses. Approved configuration, state, application branches, and other proposals remain unchanged.' },
         confirmation
@@ -1238,7 +1239,7 @@ export class BootstrapPanel {
       pasteUrl: true
     };
     const showInformation = async () => {
-      await vscode.window.showInformationMessage(
+      await showCompactInformationMessage(
         'Known results come only from bounded local Singularity Flow records. Git-provider search is an explicit, cancellable read using the active stored gh identity for the host you enter. SFlow never reads or stores the token. Results may be cached privately for 15 minutes. Choosing one repository only revalidates it and opens the existing inspection flow—it does not clone, map, create a workspace, or grant authority.',
         { modal: true }
       );
@@ -1369,7 +1370,7 @@ export class BootstrapPanel {
       'repositories', 'select', selected.selectionRef, '--action', 'inspect', '--surface', 'vscode', '--json'
     ]);
     if (prepared.error) {
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         `Repository selection changed or expired: ${prepared.error}`,
         'Choose again'
       );
@@ -1613,9 +1614,9 @@ export class BootstrapPanel {
     ]);
     if (error) {
       this.update({ error });
-      void vscode.window.showWarningMessage('Repository diagnostics found an issue. See Singularity Flow output for details.');
+      void showCompactWarningMessage('Repository diagnostics found an issue. See Singularity Flow output for details.');
     } else {
-      void vscode.window.showInformationMessage('Repository diagnostics completed. See Singularity Flow output for details.');
+      void showCompactInformationMessage('Repository diagnostics completed. See Singularity Flow output for details.');
     }
   }
 
@@ -1764,7 +1765,7 @@ export class BootstrapPanel {
     if (message?.type === 'closeForm') {
       if (this.form.busy || this.disposed) return;
       if (mapFormHasInput(this.form)) {
-        const choice = await vscode.window.showWarningMessage('Discard what you entered?',
+        const choice = await showCompactWarningMessage('Discard what you entered?',
           { modal: true, detail: 'No proposal has been created, so nothing else changes.' }, 'Discard');
         if (choice !== 'Discard') return;
       }
@@ -1946,7 +1947,7 @@ export class BootstrapPanel {
     }
 
     if (message?.type === 'repositorySetupRequiresNewerVersion') {
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         'This repository uses a newer SFlow setup format. Install a newer Singularity Flow version before changing it.'
       );
       return;
@@ -1982,7 +1983,7 @@ export class BootstrapPanel {
         copilotCommand: this.form.inspectionRecoveryCopilotCommand });
       if (!route?.copyable || message.value !== route.command) return;
       await vscode.env.clipboard.writeText(route.command);
-      void vscode.window.showInformationMessage('Singularity Flow terminal continuation copied.');
+      void showCompactInformationMessage('Singularity Flow terminal continuation copied.');
       return;
     }
 
@@ -1992,7 +1993,7 @@ export class BootstrapPanel {
         copilotCommand: this.form.inspectionRecoveryCopilotCommand });
       if (!route?.copyable || message.value !== route.copilotCommand) return;
       await vscode.env.clipboard.writeText(route.copilotCommand);
-      void vscode.window.showInformationMessage('Singularity Flow Copilot continuation copied.');
+      void showCompactInformationMessage('Singularity Flow Copilot continuation copied.');
       return;
     }
 

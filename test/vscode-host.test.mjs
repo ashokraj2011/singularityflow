@@ -811,12 +811,17 @@ Preserve this custom repository agent during reinitialization.
 
   registered.pickedFolder = root;
   registered.selfApprovalAnswer = 'Discard all local SFlow data';
+  registered.warningAnswers = ['View details'];
+  registered.informationAnswer = 'Continue review';
   registered.typed = `RESET ${path.basename(root)} ${beforeHead.slice(0, 7)}`;
   await registered.commands.get('singularityFlow.factoryReset')();
 
-  assert.match(registered.warningDetails[0], /Will be permanently discarded:[\s\S]*\.sdlc\/config\.json/);
-  assert.match(registered.warningDetails[0], /custom-agent bytes that will be preserved:[\s\S]*company-specialist\.agent\.md/);
-  assert.match(registered.warningDetails[0],
+  const fullReview = registered.openedDocuments.find(document => document.content?.includes('Factory reset all local'))?.content;
+  assert.ok(fullReview, 'View details opens the exact complete review before consent');
+  assert.ok(registered.warningDetails[0].length <= 600, 'the native confirmation is bounded');
+  assert.match(fullReview, /Will be permanently discarded:[\s\S]*\.sdlc\/config\.json/);
+  assert.match(fullReview, /custom-agent bytes that will be preserved:[\s\S]*company-specialist\.agent\.md/);
+  assert.match(fullReview,
     /Invalid custom agents will be removed from active discovery and preserved byte-for-byte:[\s\S]*company-malformed\.agent\.md[\s\S]*singularity-flow-recovered-agents/);
   const formerFormatRemoved = await readFile(path.join(root, '.sdlc', 'config.json'))
     .then(() => false, (error) => error?.code === 'ENOENT');
@@ -1182,7 +1187,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-    ['my-work', 'stories', 'story-analytics', 'reviews', 'workspace-manage', 'configuration-center']);
+    ['my-work', 'stories', 'story-analytics', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -2023,7 +2028,7 @@ test('Configuration Center prepares world-model generation for review and never 
     message === 'Run this exact World Model build and atomically publish it to the governed state branch?'
   ));
   assert.notEqual(reviewIndex, -1, 'the native exact Plan reached its guarded modal review');
-  assert.deepEqual(registered.warningActions[reviewIndex], ['Build & publish exact Plan']);
+  assert.deepEqual(registered.warningActions[reviewIndex], ['Build & publish exact Plan', 'View details']);
   assert.equal(registered.infos.some((message) => /World Model published/.test(message)), false,
     'dismissing review does not report a completed publication');
   assert.equal(registered.terminals.length, 0, 'native review does not open or run a terminal command');
@@ -2040,13 +2045,15 @@ test('World Model build offers a reviewed deterministic legacy-v3 path without s
   if (!requireBundle(t)) return;
   const { root, registered } = await activated({ approvedWorldModelAuthority: true });
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  registered.warningAnswers = ['View details', undefined];
+  registered.informationAnswer = 'Continue review';
   await registered.commands.get('singularityFlow.buildWorldModel')();
   assert.equal(registered.quickPicks.length, 0, 'legacy configuration never enters the v4 picker');
   const reviewIndex = registered.warnings.findIndex((entry) =>
     /current legacy-v3 World Model/.test(entry));
   assert.notEqual(reviewIndex, -1, 'the effective legacy build has an explicit review');
-  assert.deepEqual(registered.warningActions[reviewIndex], ['Build deterministic legacy model']);
-  const detail = registered.warningDetails[reviewIndex];
+  assert.deepEqual(registered.warningActions[reviewIndex], ['Build deterministic legacy model', 'View details']);
+  const detail = registered.openedDocuments.find(document => document.content?.includes('wm light --format legacy-v3'))?.content;
   assert.match(detail, /wm light --format legacy-v3 --views all --state-only --expected-source-tree-sha256 sha256:[a-f0-9]{64}/);
   assert.match(detail, /zero model calls/);
   assert.match(detail, /Only publication target: origin\/state/);

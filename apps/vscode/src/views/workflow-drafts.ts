@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /** VS Code presentation over the existing CLI's repository-scoped shared DraftStore. */
 import * as vscode from 'vscode';
 import path from 'node:path';
@@ -50,7 +51,7 @@ class SharedWorkflowDraftsPanel {
     const recovery = createWorkflowDraftRecoveryStore(path.join(context.globalStorageUri.fsPath, 'workflow-draft-recovery'), context.secrets);
     this.controller = new SharedWorkflowDraftController(root, runner,
       (text, invoke) => withWorkflowDraftInputFile(text, invoke, {
-        cleanupWarning: () => { void vscode.window.showWarningMessage('The private draft request could not be removed from the OS temporary directory. The shared-write acknowledgement is unchanged.'); }
+        cleanupWarning: () => { void showCompactWarningMessage('The private draft request could not be removed from the OS temporary directory. The shared-write acknowledgement is unchanged.'); }
       }), {
         changed: () => this.render(),
         statusChanged: () => {
@@ -73,7 +74,7 @@ class SharedWorkflowDraftsPanel {
         confirmDiscard: async (reason) => {
           const recoveryOnly = reason === 'private-checkpoint';
           const label = recoveryOnly ? 'Discard private checkpoint' : 'Discard unsaved text';
-          return await vscode.window.showWarningMessage(
+          return await showCompactWarningMessage(
             recoveryOnly ? 'Discard this private workflow draft checkpoint?' : 'Discard unsaved workflow draft text?', { modal: true,
               detail: recoveryOnly
                 ? 'This removes only the reviewed private recovery copy on this machine. The current editor text and shared Git draft remain unchanged. Cancel keeps the checkpoint.'
@@ -82,7 +83,7 @@ class SharedWorkflowDraftsPanel {
         },
         confirmLockRepair: async (inspection) => {
           const label = 'Remove this dead private lock';
-          return await vscode.window.showWarningMessage('Repair this interrupted private checkpoint lock?', {
+          return await showCompactWarningMessage('Repair this interrupted private checkpoint lock?', {
             modal: true, detail: `Draft: ${inspection.scope.draftId}\nRepository: ${inspection.scope.repository}\nAuthority: ${inspection.scope.authority}\nLock: ${inspection.kind}${inspection.kind === 'key-init' ? ' (directory-wide key initialization)' : ''}\nDirectory: ${inspection.directorySha256}\nOwner PID: ${inspection.owner?.pid ?? 'unknown'}\nLock nonce: ${inspection.owner?.lockNonce ?? 'unknown'}\n${inspection.reason}\nOnly the exact proven-dead same-domain lock is removed after fresh ownership checks. Text, ciphertext, encryption key and shared Git draft are not changed. No save or retry runs. Cancel keeps everything.`
           }, label) === label;
         },
@@ -126,7 +127,7 @@ class SharedWorkflowDraftsPanel {
       const privateStatus = view.recovery.status === 'saved'
         ? 'Its acknowledged encrypted private checkpoint is retained on this machine. Reopen this repository and draft to Restore, Compare or Discard.'
         : 'The latest private checkpoint is not acknowledged; the newest edits may not survive closing. Any earlier acknowledged checkpoint is retained.';
-      void vscode.window.showWarningMessage(`The closed draft panel had pending changes. ${privateStatus} Native close does not flush to Git. Reconcile any unknown shared operation before another write.`);
+      void showCompactWarningMessage(`The closed draft panel had pending changes. ${privateStatus} Native close does not flush to Git. Reconcile any unknown shared operation before another write.`);
     }
     this.disposed = true; this.controller.dispose();
     for (const disposable of this.disposables) disposable.dispose();
@@ -142,7 +143,7 @@ class SharedWorkflowDraftsPanel {
     const current = this.current;
     if (current && !current.disposed) {
       if (current.controller.view.repository === root) { current.panel.reveal(vscode.ViewColumn.Active); return; }
-      await vscode.window.showWarningMessage('Shared Workflow Drafts is still bound to another opened repository. Close that panel before switching; any unsaved text remains there.');
+      await showCompactWarningMessage('Shared Workflow Drafts is still bound to another opened repository. Close that panel before switching; any unsaved text remains there.');
       current.panel.reveal(vscode.ViewColumn.Active); return;
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.sharedWorkflowDrafts', 'Shared Workflow Drafts', vscode.ViewColumn.Active,

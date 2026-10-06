@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /** Exact repository-setup proposal review. The CLI remains the authority for validation and writes. */
 import * as vscode from 'vscode';
 import {
@@ -216,7 +217,7 @@ export class SetupProposalPanel {
       || this.proposal.diff == null || this.busy) return;
     const proposal = this.proposal;
     const label = proposal.merged ? 'Record reviewed setup' : 'Approve exact setup';
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       `${label}: ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
       { modal: true, detail: `The exact reviewed configuration change targets ${proposal.targetBranch}. The repository may require its own review controls before the update is accepted.` },
       label
@@ -231,7 +232,7 @@ export class SetupProposalPanel {
     )) {
       this.busy = false; this.error = attempted.error; this.render();
       const acknowledgement = 'Acknowledge unprotected branch';
-      const acknowledged = await vscode.window.showWarningMessage(
+      const acknowledged = await showCompactWarningMessage(
         `Git cannot verify whether ${proposal.targetBranch} requires repository review. Authorize one exact update for ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
         { modal: true, detail: 'This authorizes only the reviewed commit. Server hooks and review controls can still refuse the update.' },
         acknowledgement

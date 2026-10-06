@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /**
  * Governed Flow Impact measurement and study reporting.
  *
@@ -470,7 +471,7 @@ export class FlowImpactPanel {
       if (!complexity) return;
       const risk = await vscode.window.showQuickPick(bands, { title: `${workId}: confirm risk` });
       if (!risk) return;
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         `Confirm Flow Impact classification for ${workId}?`,
         { modal: true, detail: `Complexity: ${complexity}\nRisk: ${risk}\nThis decision is committed and pushed with the Story.` }, 'Confirm classification'
       );
@@ -480,7 +481,7 @@ export class FlowImpactPanel {
     if (message.action === 'opt-out') {
       const reason = await vscode.window.showInputBox({ title: `${workId}: opt out of Flow Impact`, prompt: 'Reason (required)', validateInput: (value) => value.trim() ? null : 'A reason is required.' });
       if (!reason?.trim()) return;
-      const confirmed = await vscode.window.showWarningMessage(`Opt ${workId} out of its Flow Impact study?`, { modal: true, detail: reason.trim() }, 'Opt out');
+      const confirmed = await showCompactWarningMessage(`Opt ${workId} out of its Flow Impact study?`, { modal: true, detail: reason.trim() }, 'Opt out');
       if (confirmed !== 'Opt out') return;
       await this.mutation(() => this.client.runText(['impact', 'enroll', workId, '--opt-out', '--reason', reason.trim(), '--confirm']), 'Story opted out.'); return;
     }

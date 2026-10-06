@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 const workflowTransferPresentation = new URL('../apps/vscode/src/views/workflow-transfer-presentation.ts', import.meta.url);
 const {
   workflowImportChoiceItems, workflowImportConflictTitle, workflowImportOpenChoices, workflowImportResolveArgs,
-  workflowImportSuggestedChoices, workflowImportSuggestionSummary, workflowMutationPlanDetail, workflowMutationPlanMarkdown
+  workflowImportSuggestedChoices, workflowImportSuggestionSummary, workflowMutationPlanDetail, workflowMutationPlanMarkdown,
+  workflowMutationPlanSummary
 } = await import(workflowTransferPresentation);
 
 const stepConflict = {
@@ -70,6 +71,25 @@ test('workflow transfer review displays the exact bound destination, not only it
     assert.match(rendered, /local working-tree content; no remote authorization/);
     assert.doesNotMatch(rendered, /remote fingerprint=/);
   }
+});
+
+test('the native import summary names consequences and the exact plan without the full dependency dump', () => {
+  const plan = {
+    planSha256: `sha256:${'d'.repeat(64)}`, destinationAuthority: { branch: 'sflow/config' },
+    operations: { add: Array.from({ length: 52 }, (_, i) => ({ kind: 'agent', id: `agent-${i}` })),
+      reuse: [{ id: 'existing' }], replace: [{ id: 'changed' }], keep: [{ id: 'kept' }] },
+    renamed: [{ subject: 'agent:developer', to: 'developer-copy' }], changedPaths: ['workflow.yml', 'agent.md']
+  };
+  const summary = workflowMutationPlanSummary(plan);
+  assert.match(summary, /Add 52 · Reuse 1 · Replace 1 · Keep 1/);
+  assert.match(summary, /1 renamed · 2 changed files/);
+  assert.match(summary, /Destination: sflow\/config/);
+  assert.match(summary, /does not approve the workflow/);
+  assert.ok(summary.includes(plan.planSha256));
+  assert.equal(summary.split('\n').length, 5);
+  assert.doesNotMatch(summary, /agent-51/);
+  assert.match(workflowMutationPlanDetail(plan), /agent-51/);
+  assert.match(workflowMutationPlanSummary({}), /Destination: local working tree/);
 });
 
 test('each import conflict offers its choices, the suggested one first, in the person\'s terms', () => {

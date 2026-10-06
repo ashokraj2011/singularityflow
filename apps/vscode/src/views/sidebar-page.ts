@@ -1,5 +1,6 @@
 /** Presentation only. Opening, hovering and filtering navigation never read a repository. */
 import { brandSymbol, escape, icon, type IconName } from './webview.ts';
+import { CALM_PALETTE_STYLE } from './theme.ts';
 import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 
 export const PRIMARY_NAVIGATION = [
@@ -62,47 +63,48 @@ export function sidebarBody(view: SidebarPage): string {
     </footer>`;
 }
 
-export const SIDEBAR_STYLE = `
+export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   :root { color-scheme: light dark; }
   * { box-sizing:border-box; }
   body { margin:0; height:100vh; display:flex; flex-direction:column; overflow:hidden;
-    color:var(--vscode-sideBar-foreground,var(--vscode-foreground)); background:var(--vscode-sideBar-background);
+    color:var(--sf-text); background:var(--sf-sidebar);
     font-family:var(--vscode-font-family,system-ui,sans-serif); font-size:var(--vscode-font-size,13px); }
   button { font:inherit; color:inherit; cursor:pointer; }
   button:disabled { cursor:default; opacity:.6; }
   button:focus-visible,summary:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:-2px; }
-  .brand { display:flex; align-items:center; gap:8px; padding:12px; font-weight:600; flex:none; }
+  .brand { display:flex; align-items:center; gap:8px; padding:16px 14px; font-weight:500; flex:none; }
   .profile-button,.unpin { display:grid; place-items:center; border:0; background:transparent; border-radius:4px; width:28px; height:28px; flex:none; }
   .profile-button { margin-left:auto; }
-  .context { padding:4px 14px 14px; border-bottom:1px solid var(--vscode-panel-border); flex:none; }
-  .context-label { display:block; font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:5px; }
+  .context { padding:4px 14px 16px; border-bottom:1px solid var(--sf-border-color); flex:none; }
+  .context-label { display:block; font-size:12px; color:var(--sf-dim); margin-bottom:7px; }
   .workspace-switch { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; min-height:34px; padding:6px 8px;
-    border:1px solid var(--vscode-dropdown-border,var(--vscode-panel-border)); border-radius:4px; background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); text-align:left; }
+    border:1px solid var(--sf-border-color); border-radius:var(--sf-radius); background:var(--sf-surface); color:var(--sf-text); text-align:left; }
   .workspace-switch>span:first-child { overflow-wrap:anywhere; min-width:0; }
-  .context-detail { margin:7px 0 0; font-size:11px; color:var(--vscode-descriptionForeground); overflow-wrap:anywhere; }
-  .context-detail span { color:var(--vscode-foreground); }
+  .context-detail { margin:7px 0 0; font-size:12px; color:var(--sf-dim); overflow-wrap:anywhere; }
+  .context-detail span { color:var(--sf-text); }
   .freshness { font-size:11px; margin:8px 0 0; color:var(--vscode-descriptionForeground); }
-  main { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:10px 10px 6px; }
-  nav { display:flex; flex-direction:column; gap:3px; }
-  .nav-row { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; padding:8px; border:0; border-radius:5px; background:transparent; text-align:left; transform-origin:center;
+  main { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:14px 12px 8px; }
+  nav { display:flex; flex-direction:column; gap:4px; }
+  .nav-row { display:flex; align-items:center; gap:10px; width:100%; min-height:40px; padding:8px 10px; border:0; border-radius:var(--sf-radius); background:transparent; color:var(--sf-dim); text-align:left; transform-origin:center;
     transition:transform 140ms ease-out,background-color 140ms ease-out; }
   .nav-row .ico { flex:none; }
   .nav-label { flex:1; min-width:0; overflow-wrap:anywhere; }
-  .nav-row[aria-current="page"] { background:var(--vscode-list-activeSelectionBackground); color:var(--vscode-list-activeSelectionForeground); box-shadow:inset 2px 0 var(--vscode-focusBorder); }
-  .badge,.pin-count { font-size:11px; border-radius:12px; padding:1px 6px; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
-  .pins { margin-top:16px; padding-top:10px; border-top:1px solid var(--vscode-panel-border); }
-  .pins summary { cursor:pointer; padding:7px 8px; color:var(--vscode-descriptionForeground); }
+  .nav-row[aria-current="page"] { background:var(--sf-surface-raised); color:var(--sf-text); font-weight:500; box-shadow:inset 2px 0 var(--sf-accent); }
+  .nav-row[aria-current="page"] .ico { color:var(--sf-accent); }
+  .badge,.pin-count { font-size:11px; border-radius:12px; padding:1px 6px; background:var(--sf-surface-raised); color:var(--sf-text); }
+  .pins { margin-top:18px; padding-top:12px; border-top:1px solid var(--sf-border-color); }
+  .pins summary { cursor:pointer; padding:7px 8px; color:var(--sf-dim); }
   .pin-count { margin-left:4px; }
   .pin-row { display:flex; align-items:center; }
   .pin-row .nav-row { min-width:0; }
   .pin-list { padding-top:4px; }
   .setup-hint { margin:6px 0; }
   .text-action { border:0; background:transparent; color:var(--vscode-textLink-foreground); padding:8px; text-align:left; }
-  footer { flex:none; padding:8px 10px; border-top:1px solid var(--vscode-panel-border); }
+  footer { flex:none; padding:10px 12px; border-top:1px solid var(--sf-border-color); }
   footer .nav-row { font-size:12px; min-height:32px; }
   @media (hover:hover) and (pointer:fine) {
-    .nav-row:not(:disabled):hover,.workspace-switch:not(:disabled):hover { transform:scale(1.015); background:var(--vscode-list-hoverBackground); color:var(--vscode-list-hoverForeground,var(--vscode-foreground)); }
-    .profile-button:hover,.unpin:hover { background:var(--vscode-list-hoverBackground); }
+    .nav-row:not(:disabled):hover,.workspace-switch:not(:disabled):hover { transform:scale(1.015); background:var(--sf-surface-raised); color:var(--sf-text); }
+    .profile-button:hover,.unpin:hover { background:var(--sf-surface-raised); }
   }
   @media (prefers-reduced-motion:reduce) { *,*:hover { transition:none!important; animation:none!important; transform:none!important; } }
   @media (forced-colors:active) { .nav-row[aria-current="page"] { outline:1px solid Highlight; } }

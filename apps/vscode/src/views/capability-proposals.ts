@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "../compact-message.ts";
 /** Pending capability and repository-setup proposals across known repositories. */
 import * as vscode from 'vscode';
 import {
@@ -387,7 +388,7 @@ export class CapabilityProposalsPanel {
     if (!repository || gitRemoteProblem(repository, 'Repository')) return;
     if (!this.manuallyCheckedSetupRepositories.has(repository)
       && this.manuallyCheckedSetupRepositories.size >= MAX_MANUALLY_CHECKED_SETUP_REPOSITORIES) {
-      void vscode.window.showWarningMessage(
+      void showCompactWarningMessage(
         'This review session has reached its 100-repository check limit. Reopen Review Proposals to start a fresh session.'
       );
       return;
@@ -420,7 +421,7 @@ export class CapabilityProposalsPanel {
     });
     if (!reason?.trim()) return;
     const confirmation = 'Discard exact stale proposal';
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       `Discard ${entry.branch}@${entry.proposalCommit.slice(0, 12)}?`,
       {
         modal: true,
@@ -441,7 +442,7 @@ export class CapabilityProposalsPanel {
       this.render();
       return;
     }
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       `Discarded stale capability proposal ${shortName(entry.branch)}; approved configuration was preserved.`);
     await this.load();
   }
@@ -458,7 +459,7 @@ export class CapabilityProposalsPanel {
     });
     if (!reason?.trim() || reason.trim().length > 500) return;
     const confirmation = 'Cancel exact pending mapping';
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       `Cancel ${entry.branch}@${entry.proposalCommit.slice(0, 12)}?`,
       { modal: true, detail: 'Only this exact unmerged Git review branch is deleted. If the branch moved or was merged, cancellation refuses. Approved configuration, state, application branches, and other proposals are preserved.' },
       confirmation
@@ -478,7 +479,7 @@ export class CapabilityProposalsPanel {
       this.render();
       return;
     }
-    void vscode.window.showInformationMessage(
+    void showCompactInformationMessage(
       `Cancelled pending mapping ${shortName(entry.branch)}; approved configuration was preserved.`);
     await this.load();
   }

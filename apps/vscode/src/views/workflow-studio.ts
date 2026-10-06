@@ -1,3 +1,4 @@
+import { showCompactWarningMessage, showCompactInformationMessage } from "../compact-message.ts";
 /**
  * Workflow Studio: create and change workflows, their steps, the agent that drafts each step and
  * the people who sign it off, then check and publish everything as one governed change.
@@ -302,7 +303,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private async clearSecret(name: string | null): Promise<void> {
     const store = this.actions.integrationSecrets;
     if (!store || !name || !INTEGRATION_SECRET_NAME.test(name)) return;
-    const confirmed = await vscode.window.showWarningMessage(`Remove ${name} from this machine's keychain?`, {
+    const confirmed = await showCompactWarningMessage(`Remove ${name} from this machine's keychain?`, {
       modal: true,
       detail: 'Deliveries that need it wait and retry until it is stored again or set in the environment.'
     }, 'Remove');
@@ -326,7 +327,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     const targets = ((this.model as { integrations?: { targets?: Array<{ id?: string; kind?: string }> } } | null)?.integrations?.targets) ?? [];
     const readOnly = ['jira', 'git', 'confluence', 'onedrive'].includes(targets.find((entry) => entry.id === target)?.kind ?? '');
     if (sendTest && !readOnly) {
-      const confirmed = await vscode.window.showWarningMessage(`Send a test delivery to '${target}'?`, {
+      const confirmed = await showCompactWarningMessage(`Send a test delivery to '${target}'?`, {
         modal: true,
         detail: 'One request marked as a test goes to the address the target names, signed or authenticated with its secret. Nothing in the repository changes.'
       }, 'Send test');
@@ -402,7 +403,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       if (!/Repeat with --launch/.test(message)) { this.post({ type: 'studio.importFailed', message }); return false; }
       described = (message.split(' Nothing was started.')[0] ?? message).replace(/\.$/, '');
     }
-    const allowed = await vscode.window.showWarningMessage(`Allow MCP server '${serverId}' for imports?`, {
+    const allowed = await showCompactWarningMessage(`Allow MCP server '${serverId}' for imports?`, {
       modal: true,
       detail: `${described}.\n\nWorkflow Studio stops it as soon as each import is read. Your choice lasts until this Studio closes.`
     }, 'Allow');
@@ -424,7 +425,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   /** The host entry of an installed MCP server goes to this workspace's VS Code file, on request. */
   private async mcpHostAdd(id: string | null): Promise<void> {
     if (!id || !SERVER_ID.test(id)) return;
-    const confirmed = await vscode.window.showWarningMessage(`Add MCP server '${id}' to this workspace's .vscode/mcp.json?`, {
+    const confirmed = await showCompactWarningMessage(`Add MCP server '${id}' to this workspace's .vscode/mcp.json?`, {
       modal: true,
       detail: 'The entry comes from the reviewed import. VS Code asks before it starts the server; review and commit the file like any other change.'
     }, 'Add host entry');
@@ -516,7 +517,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try { args = studioPublishArgs(this.model?.authority); }
     catch (error) { this.post({ type: 'studio.failed', message: (error as Error).message }); return; }
     const proposal = args.includes('--propose');
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Publish ${count} ${count === 1 ? 'change' : 'changes'} from Workflow Studio?`,
       {
         modal: true,
@@ -542,11 +543,11 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       await this.load(true);
       await this.actions.refresh();
       if (result.reviewRequired && result.branch) {
-        const choice = await vscode.window.showInformationMessage(
+        const choice = await showCompactInformationMessage(
           `Workflow Studio changes are ready for review: ${result.branch}.`, 'Review and activate', 'Later');
         if (choice === 'Review and activate') await this.actions.reviewProposal(result.branch);
       } else {
-        const choice = await vscode.window.showInformationMessage(
+        const choice = await showCompactInformationMessage(
           'Workflow Studio wrote the configuration files. Review the diff and commit it.', 'Open Source Control');
         if (choice === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
       }

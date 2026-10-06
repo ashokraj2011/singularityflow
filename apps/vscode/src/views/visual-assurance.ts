@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /** VS Code host for local-first visual assurance and explicit MCP operations. */
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -78,7 +79,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
       return path ? this.guard(() => this.open(path)) : undefined;
     },
     'network-doctor': () => this.guard(async () => {
-      const confirmed = await vscode.window.showWarningMessage(
+      const confirmed = await showCompactWarningMessage(
         'Run network diagnostics against configured MCP hosts? This may contact external design and browser services.',
         { modal: true }, 'Run network doctor'
       );
@@ -89,7 +90,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
       const server = stringField(message, 'server');
       if (!server) return;
       return this.guard(async () => {
-        const confirmed = await vscode.window.showWarningMessage(
+        const confirmed = await showCompactWarningMessage(
           `Contact and warm MCP server '${server}'?`, { modal: true }, 'Warm server'
         );
         if (confirmed !== 'Warm server') return;
@@ -107,7 +108,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
           ignoreFocusOut: true
         });
         if (confirmation !== server) {
-          if (confirmation !== undefined) void vscode.window.showWarningMessage(`Readiness was not attested. Enter the exact server ID: ${server}`);
+          if (confirmation !== undefined) void showCompactWarningMessage(`Readiness was not attested. Enter the exact server ID: ${server}`);
           return;
         }
         await this.operateText(`MCP host readiness attested for '${server}'.`, ['mcp', 'attest', server, '--confirm', server]);
@@ -157,7 +158,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
         for (const node of nodes) if (typeof node === 'string' && node) addOption(args, '--node', node);
         const outputUrl = stringField(message, 'outputUrl');
         if (outputUrl) {
-          const confirmed = await vscode.window.showWarningMessage(
+          const confirmed = await showCompactWarningMessage(
             `Download and hash MCP evidence from ${outputUrl}?`, { modal: true }, 'Record remote evidence'
           );
           if (confirmed !== 'Record remote evidence') return;

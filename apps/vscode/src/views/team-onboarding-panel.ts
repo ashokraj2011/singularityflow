@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 /** Host boundary for the bounded TON-v1 team-onboarding journey. */
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
@@ -676,7 +677,7 @@ export class TeamOnboardingPanel {
     if (!row) return;
     const retry = 'Check again';
     const setAside = 'Set aside';
-    const chosen = await vscode.window.showWarningMessage(
+    const chosen = await showCompactWarningMessage(
       row.detail ?? 'This repository needs a choice before it can enter the proposal.',
       { modal: true, detail: 'Checking again refreshes its exact repository and authority evidence. Setting it aside preserves the result and lets other eligible repositories proceed.' },
       retry, setAside

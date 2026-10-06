@@ -1,12 +1,8 @@
 /**
- * The Singularity terminal look, layered over every full-page view's shared stylesheet.
- *
- * A dark editor gets the product's own surface: near-black panels, hairline borders, one green for
- * structure, state and the action that commits, monospace for every label a person scans (titles,
- * section numbers, tags, keys), and the editor's sans-serif for prose. A light editor gets the same
- * structure on light paper, and high contrast hands every colour back to VS Code. It is appended
- * after `STYLE`, so it restyles the existing classes in place rather than asking each screen to
- * change its markup; the helpers below add the few pieces the existing markup never had.
+ * Quiet workspace styling shared by editor pages and the navigation sidebar.
+ * Neutral surfaces, regular sans-serif labels and restrained sage state cues keep the product
+ * coherent. The existing brand mark and its colours are deliberately independent of this palette.
+ * High contrast keeps the editor's own colours. No setting changes VS Code's theme outside a webview.
  */
 /** The same escaping as webview.ts, kept local so the stylesheet module has no import cycle. */
 function escape(value: unknown): string {
@@ -14,12 +10,13 @@ function escape(value: unknown): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-export const THEME_STYLE = `
+export const CALM_PALETTE_STYLE = `
   :root {
     --sf-font-mono: var(--vscode-editor-font-family, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace);
-    --sf-font-sans: var(--vscode-font-family);
-    --sf-radius: 4px;
+    --sf-font-sans: var(--vscode-font-family, system-ui, sans-serif);
+    --sf-radius: 8px;
     --sf-bg: var(--vscode-editor-background);
+    --sf-sidebar: var(--vscode-sideBar-background, var(--sf-bg));
     --sf-text: var(--vscode-foreground);
     --sf-surface-sunken: var(--vscode-input-background, var(--sf-surface));
     --sf-border-strong: var(--vscode-input-border, var(--sf-border-color));
@@ -27,43 +24,57 @@ export const THEME_STYLE = `
     --sf-accent-strong: var(--sf-accent);
     --sf-accent-line: color-mix(in srgb, var(--sf-accent) 55%, transparent);
     --sf-glow: 0 0 0 1px var(--sf-accent-line);
+    --sf-brand: #3d8e10;
   }
   body.vscode-light {
-    --sf-bg: #f6f9f7; --sf-surface: #ffffff; --sf-surface-raised: #f0f5f1; --sf-surface-sunken: #f3f7f4;
-    --sf-border-color: #d7e1da; --sf-border-strong: #bfccc3; --sf-border: 1px solid var(--sf-border-color);
-    --sf-text: #13201a; --sf-dim: #56685d; --sf-faint: #7d8c83;
-    --sf-accent: #3d8e10; --sf-accent-strong: #31720d; --sf-accent-hover: #357c0e;
-    --sf-accent-quiet: rgba(61, 142, 16, .08); --sf-accent-line: rgba(61, 142, 16, .5);
-    --sf-glow: 0 0 0 1px rgba(61, 142, 16, .55), 0 6px 20px -10px rgba(61, 142, 16, .45);
-    --sf-on-accent: #031005; --sf-ok: #31720d; --sf-shadow: none;
+    --sf-bg: #f7f8f9; --sf-sidebar: #f0f2f4; --sf-surface: #ffffff; --sf-surface-raised: #e8ecef; --sf-surface-sunken: #ffffff;
+    --sf-border-color: #dfe4e8; --sf-border-strong: #bcc6cf; --sf-border: 1px solid var(--sf-border-color);
+    --sf-text: #26313b; --sf-dim: #61707e; --sf-faint: #697785;
+    --sf-accent: #426d58; --sf-accent-strong: #426d58; --sf-accent-hover: #365c49;
+    --sf-accent-quiet: rgba(66, 109, 88, .08); --sf-accent-line: rgba(66, 109, 88, .4);
+    --sf-glow: 0 0 0 1px var(--sf-accent-line);
+    --sf-on-accent: #ffffff; --sf-ok: #426d58; --sf-shadow: none;
+    --sf-link: #426d58; --sf-wait: #8b620d; --sf-bad: #b83b43;
   }
   body.vscode-dark {
-    --sf-bg: #0b0e0c; --sf-surface: #0f1411; --sf-surface-raised: #141a16; --sf-surface-sunken: #090c0a;
-    --sf-border-color: #212a24; --sf-border-strong: #2f3b33; --sf-border: 1px solid var(--sf-border-color);
-    --sf-text: #e4ebe6; --sf-dim: #8b978f; --sf-faint: #5e6a63;
-    --sf-accent: #3d8e10; --sf-accent-strong: #3d8e10; --sf-accent-hover: #357c0e;
-    --sf-accent-quiet: rgba(61, 142, 16, .12); --sf-accent-line: rgba(61, 142, 16, .65);
-    --sf-glow: 0 0 0 1px rgba(61, 142, 16, .8), 0 0 26px -6px rgba(61, 142, 16, .5);
-    --sf-on-accent: #031005; --sf-link: #6ea8ff; --sf-shadow: none;
-    --sf-ok: #3d8e10; --sf-wait: #eab308; --sf-bad: #f87171;
+    --sf-bg: #1c2024; --sf-sidebar: #191d21; --sf-surface: #22272c; --sf-surface-raised: #2a3036; --sf-surface-sunken: #22272c;
+    --sf-border-color: #30373e; --sf-border-strong: #46515d; --sf-border: 1px solid var(--sf-border-color);
+    --sf-text: #d4dbe1; --sf-dim: #9da8b3; --sf-faint: #8995a1;
+    --sf-accent: #8fae9f; --sf-accent-strong: #8fae9f; --sf-accent-hover: #a1bdae;
+    --sf-accent-quiet: rgba(143, 174, 159, .1); --sf-accent-line: rgba(143, 174, 159, .4);
+    --sf-glow: 0 0 0 1px var(--sf-accent-line);
+    --sf-on-accent: #18221d; --sf-link: #a5c3b4; --sf-shadow: none;
+    --sf-ok: #8fae9f; --sf-wait: #d5b775; --sf-bad: #eb969c;
   }
   body.vscode-high-contrast, body.vscode-high-contrast-light {
     --sf-bg: var(--vscode-editor-background); --sf-surface: var(--vscode-editor-background);
     --sf-surface-raised: var(--vscode-editor-background); --sf-surface-sunken: var(--vscode-input-background);
     --sf-border-color: var(--vscode-contrastBorder, CanvasText); --sf-border-strong: var(--vscode-contrastBorder, CanvasText);
+    --sf-sidebar: var(--vscode-sideBar-background, var(--vscode-editor-background));
+    --sf-text: var(--vscode-foreground); --sf-dim: var(--vscode-descriptionForeground, CanvasText);
+    --sf-accent: var(--vscode-focusBorder, Highlight); --sf-accent-strong: var(--sf-accent);
+    --sf-on-accent: var(--vscode-button-foreground, HighlightText);
+    --sf-accent-quiet: var(--vscode-list-hoverBackground, Canvas);
+    --sf-accent-hover: var(--vscode-button-hoverBackground, Highlight);
+    --sf-faint: var(--vscode-disabledForeground, GrayText);
+    --sf-link: var(--vscode-textLink-foreground, LinkText);
     --sf-accent-line: var(--vscode-contrastActiveBorder, Highlight); --sf-glow: 0 0 0 1px var(--vscode-contrastActiveBorder, Highlight);
     --sf-shadow: none;
   }
+`;
+
+export const THEME_STYLE = `${CALM_PALETTE_STYLE}
 
   /* Screens with their own stylesheet (result cards, Workflow Studio, the review and explorer pages)
      read VS Code's variables directly. Inside a themed page those variables are the theme's, so every
-     screen lands on the same surfaces, hairlines and green; high contrast keeps VS Code's own. */
+     screen lands on the same surfaces, hairlines and muted accent; high contrast keeps VS Code's own. */
   body.vscode-dark, body.vscode-light {
     --vscode-editor-background: var(--sf-bg);
     --vscode-editorWidget-background: var(--sf-surface); --vscode-editorWidget-border: var(--sf-border-color);
     --vscode-sideBar-background: var(--sf-surface-raised); --vscode-panel-background: var(--sf-surface);
     --vscode-panel-border: var(--sf-border-color); --vscode-widget-border: var(--sf-border-color);
     --vscode-input-background: var(--sf-surface-sunken); --vscode-input-border: var(--sf-border-strong);
+    --vscode-input-foreground: var(--sf-text); --vscode-dropdown-foreground: var(--sf-text);
     --vscode-dropdown-background: var(--sf-surface-sunken); --vscode-dropdown-border: var(--sf-border-strong);
     --vscode-textCodeBlock-background: var(--sf-surface-sunken); --vscode-textPreformat-background: var(--sf-surface-raised);
     --vscode-textBlockQuote-background: var(--sf-surface-raised); --vscode-textBlockQuote-border: var(--sf-accent-line);
@@ -78,17 +89,19 @@ export const THEME_STYLE = `
   }
 
   body { background: var(--sf-bg); color: var(--sf-text); }
-  .sf-result-nav button, .sf-result-nav span { font-family: var(--sf-font-mono); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
-  body .sf-result-nav button { border-radius: 2px; }
+  .sf-result-nav button, .sf-result-nav span { font-family: var(--sf-font-sans); font-size: .85rem; letter-spacing: normal; text-transform: none; }
+  body .sf-result-nav button { border-radius: var(--sf-radius); }
   .page-nav .link { color: var(--sf-dim); text-decoration: none; }
   .page-nav .link:hover, .page-nav .link:focus-visible { color: var(--sf-text); }
   ::selection { background: color-mix(in srgb, var(--sf-accent) 28%, transparent); }
-  h1 { font-family: var(--sf-font-mono); font-size: 1.6rem; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
-  h2 { font-family: var(--sf-font-mono); font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--sf-text); }
-  h3 { font-family: var(--sf-font-mono); font-weight: 700; letter-spacing: .01em; }
-  h1 .ico, h2 .ico, h3 .ico { color: var(--sf-accent); }
+  h1 { font-family: var(--sf-font-sans); font-size: 1.8rem; font-weight: 500; letter-spacing: -.025em; text-transform: none; }
+  h2 { font-family: var(--sf-font-sans); font-size: 1.05rem; font-weight: 500; letter-spacing: normal; text-transform: none; color: var(--sf-text); }
+  h3 { font-family: var(--sf-font-sans); font-weight: 500; letter-spacing: normal; }
+  h1 .ico, h2 .ico, h3 .ico { color: var(--sf-dim); }
   .meta, .muted, .question { color: var(--sf-dim); }
-  .eyebrow, .brand-lockup { font-family: var(--sf-font-mono); color: var(--sf-accent-strong); }
+  .eyebrow { font-family: var(--sf-font-sans); color: var(--sf-dim); font-weight: 400; letter-spacing: normal; text-transform: none; }
+  .brand-lockup { font-family: var(--sf-font-mono); color: var(--sf-brand); }
+  .inbox-header { border-bottom: 1px solid var(--sf-border-color); }
   section { border-top: 1px solid var(--sf-border-color); }
   a, button.link { color: var(--sf-link); }
 
@@ -102,7 +115,7 @@ export const THEME_STYLE = `
   button.capability-root-card:hover, button.template-tile:hover, button.evidence-source:hover:not(:disabled) {
     border-color: var(--sf-accent-line); background: var(--sf-surface-raised);
   }
-  .summary-card strong, .count-badge, .choice-number { font-family: var(--sf-font-mono); }
+  .summary-card strong, .count-badge, .choice-number { font-family: var(--sf-font-sans); }
   .summary-card, .summary-card > * { min-width: 0; }
   /* In a narrow split the phase rail's state lines wrap inside their own phase instead of running into the next. */
   .phase-state { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
@@ -110,29 +123,46 @@ export const THEME_STYLE = `
   .summary-card strong, .lifecycle-kpis .summary-card strong, .governance-kpis .summary-card strong, .wm-summary .summary-card strong {
     color: var(--sf-text); font-size: 1.2rem; line-height: 1.2; overflow-wrap: break-word; }
   .summary-card.governance-warning strong, .governance-kpis .summary-card.governance-warning strong { color: var(--sf-wait); }
-  .summary-card span { font-family: var(--sf-font-mono); text-transform: uppercase; letter-spacing: .05em; font-size: .68rem; }
+  .summary-card span { font-family: var(--sf-font-sans); text-transform: none; letter-spacing: normal; font-size: .85rem; }
   .count-badge { border-radius: 2px; border: 1px solid var(--sf-accent-line); }
 
-  /* Tables read like a terminal listing: keys in uppercase mono, rows on hairlines. */
-  th { font-family: var(--sf-font-mono); font-size: .68rem; letter-spacing: .07em; text-transform: uppercase; color: var(--sf-dim); border-bottom-color: var(--sf-border-strong); }
+  /* Tables use readable labels and restrained row separators; code retains monospace. */
+  th { font-family: var(--sf-font-sans); font-size: .85rem; letter-spacing: normal; text-transform: none; color: var(--sf-dim); border-bottom-color: var(--sf-border-strong); }
   td { border-bottom-color: var(--sf-border-color); }
   code, kbd { font-family: var(--sf-font-mono); color: var(--sf-text); background: var(--sf-surface-raised);
     border: 1px solid var(--sf-border-color); border-radius: 2px; }
   .terminal-command, .source-preview { background: var(--sf-surface-sunken); border: 1px solid var(--sf-border-color); font-family: var(--sf-font-mono); }
 
-  /* Controls: the committing action is solid green; everything else is a hairline. */
-  button { border-radius: var(--sf-radius); }
+  /* Controls share one compact rhythm; card/row navigation keeps its own layout. */
+  button { border-radius: var(--sf-radius); font-weight: 500; letter-spacing: normal; }
+  .card-foot, .form-actions, .actions, .button-row, .confirmation-actions {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+  }
+  .card-foot > button, .form-actions > button, .actions > button, .button-row > button, .confirmation-actions > button {
+    margin: 0; min-height: 2.25rem; padding: .4rem .85rem;
+  }
+  strong, b, .artifact-title, .active-story-title, .phase-name { font-weight: 500; }
+  .configuration-shell { grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; }
+  .configuration-nav-group h2 { font-size: .85rem; font-weight: 400; letter-spacing: normal; text-transform: none; }
+  button.configuration-nav-item { color: var(--sf-dim); font-weight: 400; }
+  button.configuration-nav-item.active { color: var(--sf-text); font-weight: 500; }
+  .configuration-action-row > .ico:first-child { color: var(--sf-dim); }
+  .configuration-caption { font-size: .85rem; margin-top: .6rem; }
+  .summary-card { border-color: transparent; padding: 1rem; }
+  .summary-card.important { border-color: var(--sf-accent-line); }
+  body.vscode-high-contrast .summary-card, body.vscode-high-contrast-light .summary-card { border-color: var(--sf-border-color); }
+  @media (max-width: 900px) { .configuration-shell { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; } }
   button.secondary { background: transparent; color: var(--sf-text); border-color: var(--sf-border-strong); }
   button.secondary:hover:not(:disabled) { background: var(--sf-accent-quiet); border-color: var(--sf-accent-line); }
   /* A filled button that cannot act yet is grey, not a dim green that still reads as the next step. */
   button:disabled:not(.secondary):not(.link):not(.tab):not(.icon-button) { background: var(--sf-surface-raised); color: var(--sf-faint);
     border: 1px solid var(--sf-border-color); box-shadow: none; opacity: 1; }
-  button.tab { font-family: var(--sf-font-mono); text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+  button.tab { font-family: var(--sf-font-sans); text-transform: none; letter-spacing: normal; font-size: .85rem; }
   button.tab.active { color: var(--sf-accent-strong); border-bottom-color: var(--sf-accent); }
   /* A row of views is navigation, not a row of actions: tabs, never filled buttons. */
   .tabs > button { min-height: 2.1rem; padding: .4rem .8rem; color: var(--sf-dim); background: transparent; border: 0;
-    border-bottom: 2px solid transparent; border-radius: 0; box-shadow: none; font-family: var(--sf-font-mono); font-size: .72rem;
-    font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    border-bottom: 2px solid transparent; border-radius: 0; box-shadow: none; font-family: var(--sf-font-sans); font-size: .85rem;
+    font-weight: 500; letter-spacing: normal; text-transform: none; }
   .tabs > button:hover:not(:disabled) { color: var(--sf-text); background: var(--sf-accent-quiet); box-shadow: none; }
   .tabs > button.active, .tabs > button[aria-selected="true"] { color: var(--sf-accent-strong); background: transparent; border-bottom-color: var(--sf-accent); }
   input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="url"],
@@ -141,27 +171,27 @@ export const THEME_STYLE = `
   }
   input:not([type]):focus, input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus, input[type="date"]:focus,
   input[type="url"]:focus, select:focus, textarea:focus { border-color: var(--sf-accent); box-shadow: var(--sf-glow); outline: none; }
-  input.mono, textarea.mono, textarea.story-description { font-family: var(--sf-font-mono); }
+  input.mono, textarea.mono { font-family: var(--sf-font-mono); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--sf-accent)); outline-offset: 2px; }
   input[type="checkbox"], input[type="radio"] { accent-color: var(--sf-accent); }
 
-  /* Status pills become terminal tags. */
-  .pill { font-family: var(--sf-font-mono); font-size: .66rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  /* Status pills use a restrained outline and a semantic colour. */
+  .pill { font-family: var(--sf-font-sans); font-size: .85rem; font-weight: 500; letter-spacing: normal; text-transform: none;
     border: 1px solid var(--sf-border-strong); border-radius: 2px; }
   .pill.ok { color: var(--sf-accent-strong); border-color: var(--sf-accent-line); background: var(--sf-accent-quiet); }
   .pill.wait { border-color: color-mix(in srgb, var(--sf-wait) 55%, transparent); }
   .pill.bad { border-color: color-mix(in srgb, var(--sf-bad) 55%, transparent); }
 
-  /* Choices are option cards: a radio, a mono title, a reason, and a glow when chosen. */
+  /* Choices use a radio, a readable title, a reason and a subtle selected surface. */
   .choices { gap: .75rem; }
   .choice { position: relative; padding: 1rem 1.1rem; border: 1px solid var(--sf-border-color); border-radius: var(--sf-radius);
     background: var(--sf-surface); column-gap: .85rem; transition: border-color .15s ease, box-shadow .15s ease; }
   .choice:hover { border-color: var(--sf-accent-line); }
-  .choice.chosen { border-color: var(--sf-accent); box-shadow: var(--sf-glow);
-    background: linear-gradient(180deg, var(--sf-accent-quiet), transparent 70%), var(--sf-surface); }
+  .choice.chosen { border-color: var(--sf-accent-line); box-shadow: none; background: var(--sf-accent-quiet); }
   .choice input[type="radio"] { appearance: none; width: 1rem; height: 1rem; margin: .2rem 0 0; border: 1.5px solid var(--sf-faint);
     border-radius: 50%; background: transparent; cursor: pointer; }
   .choice input[type="radio"]:checked { border-color: var(--sf-accent); background: radial-gradient(var(--sf-accent) 0 42%, transparent 48%); }
-  .choice-label { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; font-family: var(--sf-font-mono); font-weight: 700; color: var(--sf-text); }
+  .choice-label { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; font-family: var(--sf-font-sans); font-weight: 500; color: var(--sf-text); }
   .choice-label .ico { color: var(--sf-accent); }
   .choice-detail { line-height: 1.55; }
   /* A radio card is a grid, never a flex row: in a row the radio is the item that gives up width, and
@@ -177,34 +207,34 @@ export const THEME_STYLE = `
   .choice.sf-tracker > .choice-detail { grid-column: 1 / -1; }
   .choice.sf-tracker > .choice-label .sf-title { flex: 1 1 auto; }
   .choice.sf-tracker.chosen > .choice-label::after { content: ""; flex: none; width: .45rem; height: .45rem; border-radius: 50%;
-    background: var(--sf-accent); box-shadow: 0 0 8px var(--sf-accent); }
+    background: var(--sf-accent); }
 
   /* The pieces the product's screens share. */
-  .field > span:first-child:not(.hint) { font-family: var(--sf-font-mono); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  .field > span:first-child:not(.hint) { font-family: var(--sf-font-sans); font-size: .85rem; font-weight: 500; letter-spacing: normal; text-transform: none;
     color: var(--sf-text); }
-  .field > span:first-child:not(.hint) small { font-weight: 600; color: var(--sf-faint); }
+  .field > span:first-child:not(.hint) small { font-weight: 500; color: var(--sf-faint); }
   .field-info::after { font-family: var(--vscode-font-family); font-weight: 400; letter-spacing: normal; text-transform: none; }
   .sf-field-row { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 2fr); gap: 1rem; margin: .25rem 0 1.1rem; }
   .sf-field-row:has(> .field:only-child) { grid-template-columns: minmax(0, 1fr); }
   .sf-field-stack { display: grid; gap: 1.1rem; margin: 0 0 1.1rem; }
-  .field textarea { font-family: var(--sf-font-mono); font-size: .86rem; line-height: 1.55; }
+  .field textarea { font-family: var(--sf-font-sans); font-size: .86rem; line-height: 1.55; }
   .story-description-editor { width: 100%; margin-bottom: 1.1rem; }
   @media (max-width: 640px) { .sf-field-row { grid-template-columns: minmax(0, 1fr); } }
   .sf-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.1rem; align-items: center; margin: 1.7rem 0 1.2rem; }
   .sf-hero h1 { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: 0; }
   .sf-hero p { margin: .35rem 0 0; color: var(--sf-dim); }
   .sf-logo-box { display: grid; place-items: center; min-width: 4.4rem; min-height: 3.4rem; padding: .55rem .75rem;
-    font-family: var(--sf-font-mono); font-size: 1.15rem; font-weight: 700; color: var(--sf-accent-strong);
+    font-family: var(--sf-font-sans); font-size: 1.15rem; font-weight: 500; color: var(--sf-accent-strong);
     border: 1px solid var(--sf-accent-line); border-radius: var(--sf-radius); background: var(--sf-accent-quiet); box-shadow: var(--sf-glow); }
-  .sf-tag { display: inline-flex; align-items: center; gap: .3rem; padding: .08rem .45rem; font-family: var(--sf-font-mono); font-size: .68rem;
-    font-weight: 600; letter-spacing: .02em; color: var(--sf-dim); border: 1px solid var(--sf-border-strong); border-radius: 2px;
+  .sf-tag { display: inline-flex; align-items: center; gap: .3rem; padding: .08rem .45rem; font-family: var(--sf-font-sans); font-size: .85rem;
+    font-weight: 500; letter-spacing: normal; color: var(--sf-dim); border: 1px solid var(--sf-border-strong); border-radius: 2px;
     background: var(--sf-surface-raised); white-space: nowrap; }
   .sf-tag.accent { color: var(--sf-accent-strong); border-color: var(--sf-accent-line); background: var(--sf-accent-quiet); }
-  .sf-tag.status { font-size: .62rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-  .sf-ribbon { position: absolute; top: -1px; right: 1rem; padding: .18rem .55rem; font-family: var(--sf-font-mono); font-size: .6rem;
-    font-weight: 800; letter-spacing: .1em; color: var(--sf-on-accent); background: var(--sf-accent); border-radius: 0 0 3px 3px; }
+  .sf-tag.status { font-size: .85rem; font-weight: 500; letter-spacing: .1em; text-transform: none; }
+  .sf-ribbon { position: absolute; top: -1px; right: 1rem; padding: .18rem .55rem; font-family: var(--sf-font-sans); font-size: .85rem;
+    font-weight: 500; letter-spacing: .1em; color: var(--sf-on-accent); background: var(--sf-accent); border-radius: 0 0 3px 3px; }
   .sf-step { display: inline-grid; place-items: center; min-width: 1.55rem; height: 1.3rem; margin-right: .6rem; padding: 0 .25rem;
-    font-family: var(--sf-font-mono); font-size: .7rem; font-weight: 800; color: var(--sf-accent-strong);
+    font-family: var(--sf-font-sans); font-size: .85rem; font-weight: 500; color: var(--sf-accent-strong);
     border: 1px solid var(--sf-accent-line); border-radius: 2px; background: var(--sf-accent-quiet); }
   .sf-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr)); gap: 1.25rem; align-items: stretch; margin: 1.25rem 0; }
   .sf-panel { min-width: 0; padding: 1.25rem 1.35rem 1.4rem; border: 1px solid var(--sf-border-color); border-radius: var(--sf-radius); background: var(--sf-surface); }
@@ -213,22 +243,22 @@ export const THEME_STYLE = `
   .sf-panel > h2:first-child, .sf-panel-head h2 { margin-top: 0; }
   .sf-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: .85rem; margin-bottom: 1rem; border-bottom: 1px solid var(--sf-border-color); }
   .sf-panel-head h2 { margin-bottom: 0; }
-  .sf-panel-head .sf-format { font-family: var(--sf-font-mono); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--sf-faint); }
+  .sf-panel-head .sf-format { font-family: var(--sf-font-sans); font-size: .85rem; letter-spacing: normal; text-transform: none; color: var(--sf-faint); }
   .sf-lede { margin: -.15rem 0 1rem; color: var(--sf-dim); line-height: 1.5; }
   .sf-kv { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.4rem; margin: 0 0 .9rem; padding: .7rem 1rem;
-    border: 1px solid var(--sf-border-color); border-radius: var(--sf-radius); background: var(--sf-surface); font-family: var(--sf-font-mono); font-size: .78rem; }
+    border: 1px solid var(--sf-border-color); border-radius: var(--sf-radius); background: var(--sf-surface); font-family: var(--sf-font-sans); font-size: .85rem; }
   .sf-kv div { display: inline-flex; align-items: center; gap: .5rem; min-width: 0; }
-  .sf-kv dt { color: var(--sf-faint); letter-spacing: .06em; text-transform: uppercase; }
+  .sf-kv dt { color: var(--sf-faint); letter-spacing: normal; text-transform: none; }
   .sf-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--sf-text); }
   .sf-kv dd.chip { padding: .12rem .5rem; border: 1px solid var(--sf-border-strong); border-radius: 2px; background: var(--sf-surface-raised); }
   .sf-kv dd.chip.accent { color: var(--sf-accent-strong); border-color: var(--sf-accent-line); background: var(--sf-accent-quiet); }
   .sf-note { display: flex; gap: .6rem; margin: .4rem 0 1.4rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--sf-border-color);
-    font-family: var(--sf-font-mono); font-size: .76rem; line-height: 1.6; color: var(--sf-dim); }
-  .sf-note::before { content: "i"; flex: none; color: var(--sf-accent-strong); font-weight: 800; }
+    font-family: var(--sf-font-sans); font-size: .85rem; line-height: 1.6; color: var(--sf-dim); }
+  .sf-note::before { content: "i"; flex: none; color: var(--sf-accent-strong); font-weight: 500; }
   .choice .sf-card-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 1rem; margin-top: .75rem; padding-top: .7rem;
-    border-top: 1px solid var(--sf-border-color); font-family: var(--sf-font-mono); font-size: .7rem; color: var(--sf-faint); }
+    border-top: 1px solid var(--sf-border-color); font-family: var(--sf-font-sans); font-size: .85rem; color: var(--sf-faint); }
   .choice.chosen .sf-card-foot span:first-child, .choice.chosen .sf-card-foot span:last-child { color: var(--sf-accent-strong); }
-  .page-nav { font-family: var(--sf-font-mono); font-size: .74rem; letter-spacing: .03em; border-top: 1px solid var(--sf-border-color); }
+  .page-nav { font-family: var(--sf-font-sans); font-size: .85rem; letter-spacing: normal; border-top: 1px solid var(--sf-border-color); }
   .page-nav .nav-current { color: var(--sf-accent-strong); }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--sf-border-strong); border: 2px solid var(--sf-bg); border-radius: 6px; }

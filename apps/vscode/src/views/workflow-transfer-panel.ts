@@ -1,6 +1,7 @@
+import { showCompactWarningMessage } from "../compact-message.ts";
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
-import { workflowMutationPlanDetail, type WorkflowMutationPreview, type WorkflowImportChoice } from './workflow-transfer-presentation.ts';
+import { workflowMutationPlanDetail, workflowMutationPlanSummary, type WorkflowMutationPreview, type WorkflowImportChoice } from './workflow-transfer-presentation.ts';
 import type { StudioChangeOutcome } from './workflow-studio.ts';
 
 type Choices = Record<string, WorkflowImportChoice>;
@@ -38,8 +39,8 @@ export class WorkflowTransferPanel {
         } else if (request.type === 'transfer.apply') {
           if (!current || revision !== request.revision || current.status !== 'ready' || request.planSha256 !== current.planSha256) return;
           const reviewed = current, selected = structuredClone(choices); applying = true;
-          const accepted = await vscode.window.showWarningMessage('Create this exact workflow proposal?',
-            { modal: true, detail: workflowMutationPlanDetail(reviewed) }, 'Create proposal');
+          const accepted = await showCompactWarningMessage('Create this exact workflow proposal?',
+            { modal: true, detail: workflowMutationPlanDetail(reviewed), compactDetail: workflowMutationPlanSummary(reviewed) }, 'Create proposal');
           if (settled) return;
           if (accepted !== 'Create proposal') { applying = false; await panel.webview.postMessage({ type: 'transfer.plan', plan: current, revision }); return; }
           try {

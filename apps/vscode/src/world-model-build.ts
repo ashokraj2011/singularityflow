@@ -1,3 +1,4 @@
+import { showCompactWarningMessage } from "./compact-message.ts";
 /**
  * Native exact-confirm World Model build flow.
  *
@@ -187,7 +188,7 @@ async function showGovernedWorldModelBuildInConfigurationScope(
       views, remote, stateBranch, outputDir: config.outputDir,
       capabilityId
     });
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       'Build the current legacy-v3 World Model deterministically and publish only to governed state?',
       { modal: true, detail }, 'Build deterministic legacy model'
     );
@@ -261,7 +262,7 @@ async function showGovernedWorldModelBuildInConfigurationScope(
 
   const outcome = await runExactWorldModelBuild(host.kernel as ExactBuildKernel, args, async (review) => {
     const action = rebuild ? 'Rebuild & push exact Plan' : 'Build & publish exact Plan';
-    const accepted = await vscode.window.showWarningMessage(
+    const accepted = await showCompactWarningMessage(
       rebuild
         ? 'Rebuild this capability World Model at the selected complexity and push it to the governed Git state branch?'
         : 'Run this exact World Model build and atomically publish it to the governed state branch?',

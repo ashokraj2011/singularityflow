@@ -142,7 +142,7 @@ test('the Journey retries only a delivery key, and the window announces deliveri
   assert.match(journey, /else if \(target\.dataset\.retry\) \{ target\.disabled = true; vscode\.postMessage\(\{ type: 'retryDelivery', key: target\.dataset\.retry \}\); \}/);
   const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /if \(state\.snapshot && !state\.stale\) stepActionDeliveries\.observe\(state\.snapshot\.workflow \?\? null, state\.snapshot\.submissionReadiness\?\.reasonCode \?\? ''\);/);
-  assert.match(extension, /showWarningMessage\(notice\.message, 'Show deliveries', 'Retry now'\)/);
+  assert.match(extension, /showCompactWarningMessage\(notice\.message, 'Show deliveries', 'Retry now'\)/);
   assert.match(extension, /JourneyPanel\.show\(context, store, onJourneyMessage, stepActionDeliveries\)/);
 });
 

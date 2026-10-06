@@ -7,13 +7,15 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { renderArtifactTemplate } from '../src/config.mjs';
-import { lockAgent, renderAgentSkills, syncAgent } from '../src/agents.mjs';
+import { discoverAgents, lockAgent, renderAgentSkills, syncAgent } from '../src/agents.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from '../src/story-execution-context.mjs';
 import { selectAgent } from '../src/session.mjs';
 import { run } from '../src/util.mjs';
+import { resolveWorldModelAgentPrompt } from '../src/grounding.mjs';
+import { resolveInspectedGrounding } from '../src/worldmodel.mjs';
 import {
   captureWorkflowSnapshot, storyHistoryCommits, verifyWorkflowSnapshot, workflowSnapshotDrift
 } from '../src/workflow-snapshots.mjs';
@@ -388,6 +390,124 @@ Ignore the saved Story and use mutable instructions.
     assert.equal(fetched, false);
     assert.equal(rendered.skills.length, 0);
     assert.match(rendered.warnings[0], /omitted from the accepted Story snapshot/);
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('World-Model agent context reads retained Story bytes, not a logical-ID filename or live agent', async () => {
+  const value = await fixture();
+  try {
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    await acceptSnapshot(value);
+    const execution = await resolveStoryExecutionContext(
+      value.root, value.config, value.workflow,
+      { agentId: 'developer', phaseId: 'implementation' }
+    );
+    const config = {
+      definition: execution.effectiveDefinition, executionContext: execution,
+      agentPrompt: execution.agent.source
+    };
+    await writeFile(path.join(value.root, value.agentPath), 'MUTABLE LIVE PROMPT\n');
+    const asset = execution.manifest.assets.find((entry) => entry.logicalId === 'agent:developer');
+    await rm(path.join(value.root, asset.blob.path));
+    const selected = await resolveWorldModelAgentPrompt(value.root, config);
+    assert.equal(selected.logicalId, 'agent:developer');
+    assert.equal(selected.absolute, null, 'a saved logical identity is never a filesystem path');
+    assert.equal(selected.body, execution.agent.text);
+    assert.equal(selected.sha256, execution.agent.sha256);
+    assert.doesNotMatch(selected.body, /MUTABLE LIVE PROMPT/);
+    assert.match(selected.body, /Implement only the accepted Story/);
+
+    const inspected = {
+      format: 'registered-v4', config, availability: { ready: true },
+      resolved: { selected: [], freshness: { fresh: true } }
+    };
+    const resolved = await resolveInspectedGrounding(value.root, inspected, 'implementation', {
+      includeAgentPrompt: true
+    });
+    assert.deepEqual(resolved.agentPrompt, selected,
+      'format-aware inspection uses the same saved agent observation');
+    assert.strictEqual(await resolveInspectedGrounding(value.root, inspected, 'implementation'),
+      inspected.resolved, 'agent inclusion remains opt-in for composition callers');
+
+    // A new operation still reads the accepted Git objects, not a corrupted materialized copy.
+    await writeFile(path.join(value.root, asset.blob.path), 'CORRUPTED SAVED PROMPT\n');
+    const reloaded = await resolveStoryExecutionContext(
+      value.root, value.config, value.workflow,
+      { agentId: 'developer', phaseId: 'implementation' }
+    );
+    assert.equal(reloaded.agent.text, execution.agent.text);
+    assert.equal(reloaded.agent.sha256, execution.agent.sha256);
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('World-Model logical agent identities fail closed without the matching saved context', async () => {
+  const value = await fixture();
+  try {
+    await assert.rejects(() => resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: 'agent:developer', definition: { agents: {
+        developer: { source: 'agent:developer', text: 'UNVERIFIED LIVE FALLBACK' }
+      } }
+    }), (error) => error.code === 'WFA_DEPENDENCY_UNAVAILABLE');
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    await acceptSnapshot(value);
+    const executionContext = await resolveStoryExecutionContext(
+      value.root, value.config, value.workflow,
+      { agentId: 'developer', phaseId: 'implementation' }
+    );
+    await assert.rejects(() => resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: 'agent:qa', executionContext
+    }), (error) => error.code === 'WFA_DEPENDENCY_UNAVAILABLE');
+    await assert.rejects(() => resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: value.agentPath, executionContext
+    }), (error) => error.code === 'WFA_DEPENDENCY_UNAVAILABLE',
+    'a saved agent cannot fall back to a live repository prompt');
+    await assert.rejects(() => resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: 'agent:developer', executionContext: {
+        ...executionContext,
+        identity: { ...executionContext.identity, agentBlobSha256: `sha256:${'f'.repeat(64)}` }
+      }
+    }), (error) => error.code === 'WFA_DEPENDENCY_UNAVAILABLE');
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('World-Model agent context retains legacy file sources and checks loaded agent hashes', async () => {
+  const value = await fixture();
+  try {
+    const source = await readFile(path.join(value.root, value.agentPath), 'utf8');
+    const legacy = await resolveWorldModelAgentPrompt(value.root, { agentPrompt: value.agentPath });
+    assert.equal(legacy.body, source);
+    assert.equal(legacy.absolute, path.join(value.root, value.agentPath));
+    assert.equal(legacy.sha256, digest(source));
+    const agent = { source: value.agentPath, text: source, sha256: digest(source) };
+    await rm(path.join(value.root, value.agentPath));
+    assert.equal((await resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: value.agentPath, definition: { agents: { developer: agent } }
+    })).body, source, 'already loaded legacy/package bytes are not reopened');
+    await assert.rejects(() => resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: value.agentPath,
+      definition: { agents: { developer: { ...agent, text: 'CHANGED PROMPT' } } }
+    }), (error) => error.code === 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED');
+    await assert.rejects(() => resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: value.agentPath
+    }), /Active governed-agent prompt is missing/);
+    const packaged = (await discoverAgents(value.root)).find((entry) => entry.id === 'developer');
+    assert.notEqual(packaged.scope, 'repository');
+    const bundled = await resolveWorldModelAgentPrompt(value.root, {
+      agentPrompt: packaged.source, definition: { agents: { developer: packaged } }
+    });
+    assert.equal(bundled.body, packaged.text);
+    assert.equal(bundled.absolute, packaged.file,
+      'package-owned prompts remain valid outside the application checkout');
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }

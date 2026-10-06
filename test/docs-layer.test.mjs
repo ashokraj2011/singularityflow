@@ -409,7 +409,8 @@ test('the sflow-docs skill contracts to relay, not to recall', async () => {
   assert.match(skill, /concise-relay/, 'the skill is not held to the relay output contract');
 
   const registry = await readFile(path.join(packageRoot, 'plugin', 'skills', 'registry.yml'), 'utf8');
-  assert.match(registry, /^\s+- sflow-docs$/m, 'the skill is not in the automatic-invocation allowlist');
+  assert.match(registry, /^automaticInvocationAllowlist: \[\]$/m, 'documentation must not take over ordinary requests');
+  assert.match(skill, /disable-model-invocation:\s*true/, 'documentation remains explicitly invocable');
 
   // It is indexed, so its description is part of every session's fixed cost. 15 is the policy cap.
   const description = /^description:\s*(.*)$/m.exec(skill)[1];

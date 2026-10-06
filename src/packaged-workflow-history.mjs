@@ -87,7 +87,8 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   mcpServers: Object.freeze({
     // Reviewed predecessor before browser evidence was enabled for the Testing phase.
     playwright: Object.freeze([
-      'dc0952904a8d2944f3e66dd72eddd4e47c0f8827b98325b0f7f00734602b8ee1'
+      'dc0952904a8d2944f3e66dd72eddd4e47c0f8827b98325b0f7f00734602b8ee1',
+      'd5dcb613feed5a69dda1123ac922435fa130bc8e7cd9ab6845726c420c0757cc'
     ])
   })
 });
@@ -100,6 +101,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     bugfix: '39ac9d457a906eeeae595d44fa379b709c4ecb77f2992b30d54b327c1312fc24',
     chore: '7d55217aa976c51a702616daeccd8829ca91778839985ae8c4dabc3336645597',
     'classic-delivery': '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
+    'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
     feature: 'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3',
     'figma-mobile': '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
@@ -116,6 +118,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     design: 'f7ee1f2db131d69f8b8bdca489722ec0142daee15e7bcab4cd2e69e1d2b6ab32',
     'design-intake': 'c627e7856b5c077ac9b6f2395623d0ab440ab9ad02a2a2f983679830968719e1',
     'design-inventory': 'abd5671883bb6f98ea452790bfdc05b56d826d667055fbe24d9f7a61405a2d3c',
+    'document-intake': '7ec868843d5827c6d7bc01e2642d0b10232207fd6fecc132321c652f609a2f5d',
     'fix-design': '738a2da6b1a6777785f500055715c2474ab9ebc20904d120e3f864916a61ecfe',
     'fix-spec': '6716d50536dccfa1ca58e5f85e4ce9a21f1c95d183397546645bb6156074768d',
     implement: '23a79bed9ddd4b5e9ac014dc70385a673ed32c7650b6859ad90d2fefe71a3705',
@@ -137,6 +140,9 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     release: 'ea1d875e603e54c8621eacf8c0e23fa2d2c20d2b9358c479b4eec6c2731f1d2a',
     reproduction: '493668d016cd6d280c31011fcccfad2017b2931a8bd5871acaccf561efc1063b',
     requirements: '360a64821e529395e9ba85bf6d80270ca16562323f7fa535494c6719616d44b1',
+    'scenario-check': '829dfac2a445fc3daf5e7166b975d3b7997750da4b9a8a714e0ce3290765c15d',
+    'scenario-repair': '5f135439746cd2373405ee3cd2b3ec6ead020c697eba3265ac784bcb56aec288',
+    'scenario-retest': 'c8ea29959ff1aceb60fe02f5d18427b652bc5e270a2ce0e335368c4d2ed18343',
     specification: 'e3fd4a7f7797f8cb7ad10766a74c931b6edf0adba453ba8e19a84b50d40befc7',
     testing: '4ecef918781975e253ea4b85baeb635a15966f9eb9b24c68815ba1cb54e18e09',
     verification: 'b76ea4b72e122af77b6c2b42492a929d99fb927cb8cf8d23407dc429e372ea42',
@@ -150,7 +156,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   }),
   mcpServers: Object.freeze({
     figma: '30ef371d29021a7f50a1c5bda73f022c727998a6ae99fd57a3e51335ccaad9fb',
-    playwright: 'd5dcb613feed5a69dda1123ac922435fa130bc8e7cd9ab6845726c420c0757cc'
+    playwright: 'c5717793fcbb8aaa6626801da1a478cd757b5b96713adf2a02b87948c0babb63'
   })
 });
 

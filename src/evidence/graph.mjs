@@ -233,7 +233,7 @@ export function evidenceGraph({ workflow, records, deliveries = [], inspections 
  */
 async function loadInspections(root, directory, workflow, findings) {
   const phases = workflow.phases ?? {};
-  if ((workflow.phaseOrder ?? []).some((id) => phaseRequiresCodeDelivery(phases[id]))) return [];
+  if ((workflow.phaseOrder ?? []).some((id) => phases[id]?.status !== 'skipped' && phaseRequiresCodeDelivery(phases[id]))) return [];
   const verifying = (workflow.resolution?.obligationGraph?.nodes ?? []).filter((node) => node.responsibilities.includes('verify'));
   const inspections = [];
   for (const node of verifying) {

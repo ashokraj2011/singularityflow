@@ -1365,9 +1365,10 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
     (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
   const planned = [];
   const observed = [];
-  const ownerIds = plannedPolicy?.mode === 'required'
+  const ownerIds = (plannedPolicy?.mode === 'required'
     ? [...new Set(Object.values(plannedPolicy.owners ?? {}))]
-    : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.planned);
+    : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.planned))
+    .filter((phaseId) => workflow.phases?.[phaseId]?.status !== 'skipped');
   for (const ownerId of ownerIds) {
     const owner = workflow.phases?.[ownerId];
     planned.push(await readBoundSpecificationClaimMap(
@@ -1379,7 +1380,8 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
   const codePhaseIds = (plannedPolicy?.mode === 'required'
     ? Object.keys(plannedPolicy.owners ?? {})
     : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.observed))
-    .filter((phaseId) => limit < 0 || phaseOrder.indexOf(phaseId) <= limit);
+    .filter((phaseId) => workflow.phases?.[phaseId]?.status !== 'skipped'
+      && (limit < 0 || phaseOrder.indexOf(phaseId) <= limit));
   for (const codePhaseId of codePhaseIds) {
     const codePhase = workflow.phases?.[codePhaseId];
     observed.push(await readBoundSpecificationClaimMap(

@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { applicabilityStatus } from './evidence/applicability.mjs';
 
 export const DECISION_KINDS = Object.freeze(['branch', 'loop', 'ask']);
 /** Route targets that are not phase IDs: the phase after the deciding one, or finishing the Story. */
@@ -32,7 +33,7 @@ const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const INPUT_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/;
 const LIMITS = Object.freeze({ routes: 10, inputs: 10, values: 20, label: 120, value: 60, rounds: 20 });
 const NUMBER_TESTS = Object.freeze(['atLeast', 'atMost', 'above', 'below']);
-const ENTRY_KEYS = Object.freeze(['id', 'after', 'kind', 'label', 'inputs', 'routes', 'goal', 'back', 'maxRounds', 'by', 'anyStep']);
+const ENTRY_KEYS = Object.freeze(['id', 'after', 'kind', 'label', 'inputs', 'routes', 'goal', 'back', 'maxRounds', 'by', 'anyStep', 'enforceConditions']);
 const INPUT_KEYS = Object.freeze(['name', 'label', 'type', 'values', 'minimum', 'maximum']);
 const ROUTE_KEYS = Object.freeze(['id', 'label', 'when', 'to', 'omits']);
 
@@ -303,6 +304,9 @@ export function normalizeDecisions(value, {
     }
     if (!DECISION_KINDS.includes(entry.kind)) throw invalid(`${where}.kind must be branch, loop, or ask.`);
     const kind = entry.kind;
+    if (entry.enforceConditions !== undefined && (kind === 'ask' || typeof entry.enforceConditions !== 'boolean')) {
+      throw invalid(`${where}.enforceConditions is true or false, and only on branch or loop decisions.`);
+    }
     const display = text(entry.label, `${where}.label`);
     if (kind === 'ask' && entry.inputs !== undefined) {
       throw invalid(`${where} is an ask decision: a person chooses, so it records no inputs.`);
@@ -374,7 +378,8 @@ export function normalizeDecisions(value, {
       ...(kind === 'loop' ? { goal, back } : {}),
       maxRounds,
       by,
-      anyStep: kind === 'ask' ? entry.anyStep === true : false
+      anyStep: kind === 'ask' ? entry.anyStep === true : false,
+      ...(entry.enforceConditions === true ? { enforceConditions: true } : {})
     };
   });
 }
@@ -388,6 +393,9 @@ export function normalizeDecisions(value, {
 export function obligationsDroppedBySkips(workflow) {
   const plannedClaims = workflow?.resolution?.plannedClaims;
   if (plannedClaims?.mode !== 'required') return [];
+  // A declared no-change endpoint is settled only by its named human authority. It omits building,
+  // not the approved scope or verification evidence, which remain terminal obligations.
+  if (applicabilityStatus(workflow).some((entry) => entry.responsibility === 'implement' && entry.satisfied)) return [];
   const order = workflow.phaseOrder ?? [];
   const phaseOf = (id) => workflow.phases?.[id];
   const skipped = (id) => phaseOf(id)?.status === 'skipped';
@@ -608,6 +616,8 @@ export function describeOutcome(workflow, outcome) {
  */
 export function pendingDecisionRecord(workflow, phase, outcome, { at }) {
   const decision = decisionAfter(workflow, phase.id);
+  const values = recordedDecisionValues(phase, decision);
+  const matched = decision.enforceConditions && values ? chooseRoute(decision, values) : null;
   const record = {
     schemaVersion: 1,
     decision: decision.id,
@@ -619,8 +629,9 @@ export function pendingDecisionRecord(workflow, phase, outcome, { at }) {
     maxRounds: decision.maxRounds,
     by: [...decision.by],
     anyStep: decision.anyStep,
-    values: recordedDecisionValues(phase, decision),
-    options: decision.routes.map((route) => ({ id: route.id, label: route.label, to: route.to }))
+    values,
+    options: decision.routes.filter((route) => !decision.enforceConditions || route.id === matched?.id)
+      .map((route) => ({ id: route.id, label: route.label, to: route.to }))
   };
   record.key = createHash('sha256').update(canonicalJson(record)).digest('hex').slice(0, 16);
   return record;
@@ -655,6 +666,20 @@ export function resolveDecisionChoice(workflow, pending, { option = null, to = n
     route = { id: 'step', label: to === DECISION_END ? 'Finish the Story' : `Go to ${workflow.phases[to]?.label ?? to}`, to };
   }
   const reach = routeReach(workflow.phaseOrder, pending.after, route.to);
+  // An acceptance workflow must not turn an unmet agent verdict into a pass when a loop pauses.
+  // Read the pinned rule and submitted values, not the options/values echoed by a client.
+  const decision = decisionAfter(workflow, pending.after);
+  if (decision?.enforceConditions) {
+    const values = recordedDecisionValues(workflow.phases?.[pending.after], decision);
+    const matched = values ? chooseRoute(decision, values) : null;
+    if (!option || matched?.id !== route.id || matched?.to !== route.to) {
+      throw new SingularityFlowError(
+        `Decision '${decision.label}' requires its recorded conditions. This verdict does not allow '${route.label}'. Repair or recheck the evidence, reopen the intake, or cancel the Story; a human choice cannot manufacture a passing result.`,
+        { code: 'DECISION_CONDITION_REQUIRED', details: { decision: decision.id, allowedOption: matched?.id ?? null } }
+      );
+    }
+    route = matched;
+  }
   return { route, reach };
 }
 
@@ -719,6 +744,7 @@ export function storyDecisionView(workflow) {
       mode: decision.mode,
       by: [...decision.by],
       anyStep: decision.anyStep,
+      ...(decision.enforceConditions ? { enforceConditions: true } : {}),
       maxRounds: decision.maxRounds,
       rounds: workflow.decisionRounds?.[decision.id]?.count ?? 0,
       inputs: decision.inputs,

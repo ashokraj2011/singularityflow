@@ -475,7 +475,8 @@
                 "back": { "type": "string" },
                 "maxRounds": { "type": "integer", "minimum": 1, "maximum": 20 },
                 "by": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
-                "anyStep": { "type": "boolean" }
+                "anyStep": { "type": "boolean" },
+                "enforceConditions": { "type": "boolean", "description": "A human choice at a round limit must still match the recorded branch/loop verdict; it cannot override a failed condition." }
               },
               "additionalProperties": false
             }

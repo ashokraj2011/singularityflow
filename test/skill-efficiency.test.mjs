@@ -148,7 +148,8 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
   const phaseSkills = [
     'sflow-phase', 'sflow-requirements', 'sflow-design',
     'sflow-review', 'sflow-release', 'sflow-verify', 'sflow-next',
-    'sflow-specify', 'sflow-plan', 'sflow-converge'
+    'sflow-specify', 'sflow-plan', 'sflow-converge',
+    'sflow-document-intake', 'sflow-scenario-check'
   ];
   for (const name of phaseSkills) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
@@ -157,8 +158,11 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
       assert.match(content, /`Copilot: \/sf-\.\.\.`/);
       assert.match(content, /`Shell: singularity-flow \.\.\.`/);
     } else {
-      assert.match(content, /Next in Copilot: \/sf-|next: Copilot `\/sf-/, `${name} must lead its handoff with a Copilot command`);
-      assert.match(content, /Terminal equivalent: singularity-flow |Shell `singularity-flow /, `${name} must include the terminal equivalent`);
+      // Dynamic handoffs retain exact decision arguments; a literal slash command is not required.
+      const boundHandoff = /`handoff`[^\n]*`copilotCommand`[^\n]*`command`/.test(content)
+        || /relay the returned handoff[^\n]*Copilot\/Shell pairs/.test(content);
+      assert.ok(boundHandoff || /Next in Copilot: \/sf-|next: Copilot `\/sf-/.test(content), `${name} must relay the verified Copilot command`);
+      assert.ok(boundHandoff || /Terminal equivalent: singularity-flow |Shell `singularity-flow /.test(content), `${name} must include the terminal equivalent`);
     }
   }
   const verify = await readFile(path.join(root, 'plugin', 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');

@@ -181,7 +181,9 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   const records = graph.records ?? {};
   const plannedClaims = mergePlannedClaimRecords(records.planned ?? []);
   const observedClaims = mergeObservedClaimRecords(records.observed ?? [], plannedClaims);
-  const codePhaseIds = phaseOrder.filter((id) => phaseRequiresCodeDelivery(phases[id]));
+  // A decision may finish after observing existing behavior and skip every Code step. Judge the
+  // route actually taken, not an unexecuted repair route; applicability still gates its omissions.
+  const codePhaseIds = phaseOrder.filter((id) => phases[id]?.status !== 'skipped' && phaseRequiresCodeDelivery(phases[id]));
   const owners = workflow.resolution?.plannedClaims?.owners ?? {};
   const ownerIds = [...new Set(codePhaseIds.map((id) => owners[id]).filter(Boolean))];
   const deliveries = (graph.deliveries ?? []).filter((delivery) =>

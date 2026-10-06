@@ -21,7 +21,7 @@ function execute(command, args, cwd, { allowFailure = false, agent = null } = {}
 const flow = (cwd, args, options) => execute(process.execPath, [bin, ...args], cwd, options);
 
 /** A governed repository whose workflow carries a branch, an ask and a loop decision. */
-async function repository() {
+async function repository({ enforceConditions = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-decisions-'));
   execute('git', ['init', '-b', 'main'], root);
   execute('git', ['config', 'user.name', 'Decision Tester'], root);
@@ -64,7 +64,8 @@ async function repository() {
       },
       {
         id: 'until-ready', after: 'design', kind: 'loop', label: 'Rework until the design is ready',
-        inputs: [{ name: 'ready', values: ['yes', 'no'] }], goal: { ready: 'yes' }, back: 'requirements', maxRounds: 1
+        inputs: [{ name: 'ready', values: ['yes', 'no'] }], goal: { ready: 'yes' }, back: 'requirements', maxRounds: 1,
+        ...(enforceConditions ? { enforceConditions: true } : {})
       }
     ]
   };
@@ -232,4 +233,33 @@ test('a person can finish a Story early, and the finished Story reopens from the
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(['requirements', 'design', 'implementation-spec'].map((id) => workflow.phases[id].status), ['in_progress', 'not_started', 'not_started']);
   assert.equal(workflow.phases.design.skippedBy, undefined);
+});
+
+test('a condition-enforced workflow cannot override a failed verdict through the CLI at its loop limit', async () => {
+  const root = await repository({ enforceConditions: true });
+  const workId = 'DEC-STRICT';
+  start(root, workId);
+  await work(root, workId, 'intake', ['--decision', 'risk=low']);
+  let workflow = await state(root, workId);
+  assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  assert.equal(workflow.currentPhase, 'intake', 'an agent-submitted verdict cannot bypass human approval');
+  flow(root, ['approve', '--yes'], { agent: 'product-owner' });
+  for (let round = 0; round < 2; round += 1) {
+    await work(root, workId, 'design', ['--decision', 'ready=no']);
+    flow(root, ['approve', '--yes'], { agent: 'architect' });
+    if (round === 0) {
+      await work(root, workId, 'requirements');
+      flow(root, ['approve', '--yes'], { agent: 'product-owner' });
+      flow(root, ['decision', 'choose', '--option', 'continue', '--reason', 'Requirements remain unchanged.'], { agent: 'product-owner' });
+    }
+  }
+  workflow = await state(root, workId);
+  assert.equal(workflow.pendingDecision.reason, 'limit');
+  assert.deepEqual(workflow.pendingDecision.options.map((entry) => entry.id), ['again']);
+  const refused = flow(root, ['decision', 'choose', '--option', 'goal-met', '--reason', 'Ignore the failed verdict.', '--json'], { agent: 'architect', allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /DECISION_OPTION_UNKNOWN/);
+  assert.deepEqual((await state(root, workId)).pendingDecision, workflow.pendingDecision, 'a refused override preserves the exact pending decision');
+  flow(root, ['decision', 'choose', '--option', 'again', '--reason', 'Authorize one more exact reviewed repair attempt.'], { agent: 'architect' });
+  assert.equal((await state(root, workId)).currentPhase, 'requirements');
 });

@@ -104,6 +104,9 @@ skills:
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
   sflow-code: { class: generative, maximumTokenOverride: 1120, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, and generated public code must carry doc comments.' }
+  sflow-document-intake: { class: generative }
+  sflow-scenario-check: { class: generative }
+  sflow-scenario-repair: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
   sflow-code-docs: { class: repair }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }

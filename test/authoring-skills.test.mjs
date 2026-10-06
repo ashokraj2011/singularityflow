@@ -36,7 +36,7 @@ function refusal(mutate) {
 
 test('the authoring-skill catalog is declared once, checked strictly, and names only packaged skills', async () => {
   const catalog = authoringSkillCatalog();
-  assert.deepEqual(catalog.map((entry) => entry.id), ['sf-phase', 'sf-code', 'sf-requirements', 'sf-design', 'sf-release']);
+  assert.deepEqual(catalog.map((entry) => entry.id), ['sf-phase', 'sf-code', 'sf-requirements', 'sf-design', 'sf-release', 'sf-document-intake', 'sf-scenario-check']);
   assert.deepEqual(catalog.find((entry) => entry.id === 'sf-design').legacyPhases, ['design']);
   assert.deepEqual(catalog.find((entry) => entry.id === 'sf-release').produces, ['document']);
   assert.deepEqual(catalog.find((entry) => entry.id === 'sf-code').produces, ['code']);
@@ -133,7 +133,7 @@ test('configuration refuses an authoring skill the step cannot use, with a code 
   assert.equal(refusal((definition) => { definition.phases.requirements.authoringSkill = 'sf-release'; }), null);
   const cases = [
     [(definition) => { definition.phases.design.authoringSkill = '/sf-phase'; }, 'PHASE_AUTHORING_SKILL_UNKNOWN', /Write it as 'sf-phase'/],
-    [(definition) => { definition.phases.design.authoringSkill = 'sf-jira-board'; }, 'PHASE_AUTHORING_SKILL_UNKNOWN', /Choose one of: sf-phase, sf-code, sf-requirements, sf-design, sf-release\./],
+    [(definition) => { definition.phases.design.authoringSkill = 'sf-jira-board'; }, 'PHASE_AUTHORING_SKILL_UNKNOWN', /Choose one of: sf-phase, sf-code, sf-requirements, sf-design, sf-release, sf-document-intake, sf-scenario-check\./],
     [(definition) => { definition.phases.design.authoringSkill = 'sf-code'; }, 'PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH', /drafts only code steps/],
     [(definition) => { definition.phases.implementation.authoringSkill = 'sf-phase'; }, 'PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH', /produces code/],
     // The shared implementation step is an analysis in the chore workflow, so sf-code fails there.

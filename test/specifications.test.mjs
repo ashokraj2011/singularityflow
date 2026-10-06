@@ -352,6 +352,18 @@ test('bound terminal claim loading rejects bytes changed after their workflow di
   );
 });
 
+test('an approved no-change route does not require observed claim maps from its skipped repair phase', async () => {
+  const fixture = await boundClaimFixture();
+  fixture.workflow.phases.implementation.status = 'skipped';
+  delete fixture.workflow.phases.implementation.claimMaps.observed;
+  const records = await loadBoundActiveSpecRecords(fixture.root, fixture.itemDirectory, fixture.workflow);
+  assert.equal(records.planned.length, 1, 'the approved conditional plan remains bound');
+  assert.deepEqual(records.observed, [], 'a repair that never ran must not manufacture observations');
+  fixture.workflow.phases.implementation.status = 'approved';
+  await assert.rejects(() => loadBoundActiveSpecRecords(fixture.root, fixture.itemDirectory, fixture.workflow),
+    /no authoritative observed claim-map binding/, 'executed repair still requires its bound map');
+});
+
 test('planned claims are derived only from an exact structured Markdown table', () => {
   const source = `# Plan
 

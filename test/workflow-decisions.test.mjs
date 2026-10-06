@@ -100,6 +100,8 @@ test('configuration refuses decisions that cannot be followed', async () => {
   await refused([{ ...BRANCH, maxRounds: 2 }], /maxRounds needs a route that goes back/);
   await refused([{ ...ASK, inputs: BRANCH.inputs }], /records no inputs/);
   await refused([{ ...ASK, maxRounds: 2 }], /a person chooses every round/);
+  await refused([{ ...ASK, enforceConditions: true }], /only on branch or loop/);
+  await refused([{ ...LOOP, enforceConditions: 'yes' }], /true or false/);
   await refused([{ ...ASK, by: ['nobody'] }], /unknown approval group 'nobody'/);
   await refused([{ ...LOOP, kind: 'branch', routes: [{ id: 'x', label: 'X', when: { ready: 'no' }, to: 'requirements' }, { id: 'y', label: 'Y', to: 'next' }], goal: undefined, back: undefined }],
     /A rule may send work back only after a phase a person signs off/, { overrides: { design: { inputs: ['intake'], approval: 'none' } } });

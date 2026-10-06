@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9bcb071a412b4cbd2fde60a3ab1f38a1743aaa0b",
-  "topicCount": 76,
-  "contentSha256": "d331a91cc26cbfb068ce7c00ee1f3f6c2c7e709e11ff91ad952121fb3c2e7852",
+  "sourceCommit": "110fb14a39d31c74c7cffac81a5d2d2c7a7d56e7",
+  "topicCount": 77,
+  "contentSha256": "aa09e80a7b1a1a5e25f8e0cca09d407a7d284d525eb2d4a40176b927ae39a714",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -156,6 +156,14 @@
       "sha256": "2d374bdd55a1943310fb10eb715b3835d1d1dee78f4d19dd6c13a361f68e54d9",
       "routingSha256": "76ae2d7d5ea6d171289a78938a37c1c9a822cd56dbf581809b7f59c81560b424",
       "file": "diagnostics-and-regression.md"
+    },
+    {
+      "id": "document-test-repair",
+      "title": "Document-led acceptance and repair workflow",
+      "version": 1,
+      "sha256": "64a245ec07a2d3445425a6a7ff7f456f2c1d23882723cd41f053dc31292ad8a7",
+      "routingSha256": "792cf7b684167734fcd9235d375f6b9e9d282154a97c01d6788e45e31674d8e9",
+      "file": "document-test-repair.md"
     },
     {
       "id": "environment-bindings",
@@ -592,8 +600,8 @@
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 9,
-      "sha256": "1d534af4e8229e34955214a1764751a50703ec64c462eeae64f6b58d10e33e12",
+      "version": 10,
+      "sha256": "df513d18b9975702f272a31a05b64ac093cbb9af68dbd4622f4c9a318b4bcef4",
       "routingSha256": "dcc9577dec4f1d3b710538ad2115d7409ea5022c47c100ad95caff22977b8b96",
       "file": "workflow-decisions.md"
     },

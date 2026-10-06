@@ -348,6 +348,10 @@ test('decisions are edited on the board and checked by the engine with its own p
   const converted = logic.convertDecision(feature, { ...logic.newDecision(feature, 'intake', 'branch'), label: 'Risky?' }, 'loop');
   assert.equal(converted.label, 'Risky?');
   assert.deepEqual(converted.goal, { outcome: 'yes' });
+  const strict = logic.convertDecision(feature, { ...logic.newDecision(feature, 'intake', 'branch'), enforceConditions: true }, 'loop');
+  assert.equal(strict.enforceConditions, true, 'changing branch/loop kind must not silently weaken acceptance');
+  assert.equal(logic.convertDecision(feature, strict, 'ask').enforceConditions, undefined);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /Human choices must match the recorded verdict/);
 });
 
 test('library imports queued in the page become engine operations the engine checks from staged bytes', async () => {
@@ -853,7 +857,8 @@ test('Drafted with shows each skill\'s description as its tooltip', async () => 
   const settings = page.stepSettings('repo-feature', 'design');
   const options = page.skillPicker('repo-feature', 'design', settings, []).options;
   assert.deepEqual(options.map((option) => [option.value, option.title]), [
-    ['', descriptions['sf-phase']], ['sf-requirements', descriptions['sf-requirements']], ['sf-design', descriptions['sf-design']], ['sf-release', descriptions['sf-release']]
+    ['', descriptions['sf-phase']], ['sf-requirements', descriptions['sf-requirements']], ['sf-design', descriptions['sf-design']], ['sf-release', descriptions['sf-release']],
+    ['sf-document-intake', descriptions['sf-document-intake']], ['sf-scenario-check', descriptions['sf-scenario-check']]
   ]);
   const field = page.authoringSkillControl('repo-feature', 'design', settings, []);
   const select = field.children.find((child) => child.tag === 'select');

@@ -21,7 +21,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 9
+version: 10
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -112,6 +112,13 @@ singularity-flow decision applicability --responsibility scope --reason "This St
 No decision removes the person a governed workflow relies on. A rule may send work back, or skip a phase a person signs off, only after a phase a person signs off, so every round passes someone who saw what approving does. A loop that reaches its limit stops and waits for a person instead of continuing.
 
 Decisions are pinned with the Story when it starts, like every other workflow policy, so a later configuration change never reroutes running work. The Story records the values each phase submitted, which phases were skipped and by which route, the rounds each loop used, a question waiting for a person, and a log of every routed and chosen decision with its actor and reason. A person's choice is a governed `decision-made` lifecycle event, allowed only for members of the decision's approval groups. This build writes Story state version 12, which older builds refuse to read, so everyone on a team upgrades together.
+
+A branch or loop may set `enforceConditions: true`. At a round limit, human choices then offer only
+the route matching the submitted values. The kernel rechecks the pinned rule, so neither a stale
+screen nor a manual choice can override an unmet passing condition. The document-led acceptance
+starter uses this to require both an agent pass and human acceptance. An explicit additional repair
+attempt remains possible; changing intent requires reviewed rework, and cancellation never means
+the acceptance criteria passed. Existing workflows without this setting keep their choice policy.
 
 ## Troubleshooting
 

@@ -1575,6 +1575,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     fresh.id = decision.id;
     fresh.label = decision.label || fresh.label;
     if (decision.by) fresh.by = clone(decision.by);
+    if (kind !== 'ask' && decision.enforceConditions) fresh.enforceConditions = true;
     if (kind !== 'ask' && decision.inputs && decision.inputs.length) {
       fresh.inputs = clone(kind === 'loop' ? decision.inputs.slice(0, 1) : decision.inputs);
       var first = fresh.inputs[0];
@@ -1787,7 +1788,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }), decision.kind === 'branch' ? 'Rules read values the step records and choose the next step; the last one takes everything else.'
       : decision.kind === 'loop' ? 'Goes back until the goal is met. When the rounds are used up, a person chooses.'
         : 'The Story waits, and someone you choose picks one of the options.'));
-    if (decision.kind !== 'ask') body.appendChild(inputsEditor(decision));
+    if (decision.kind !== 'ask') {
+      body.appendChild(inputsEditor(decision));
+      body.appendChild(el('label', { class: 'field', style: 'display:flex;gap:6px;align-items:center;font-size:13px' },
+        el('input', { type: 'checkbox', 'data-key': 'dec-enforce-conditions', checked: decision.enforceConditions === true, onchange: function (event) { if (event.target.checked) decision.enforceConditions = true; else delete decision.enforceConditions; changed(); } }),
+        'Human choices must match the recorded verdict (no failed-result override)'));
+    }
     if (decision.kind === 'branch') {
       var rules = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Rules, checked in order' }));
       decision.routes.slice(0, -1).forEach(function (route, index) {

@@ -7758,6 +7758,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         && store.current.snapshot?.workflow?.workItem?.id === subject.workId
         && store.current.snapshot?.workflow?.currentPhase === attachedPhaseId;
       const choice = await vscode.window.showQuickPick([
+        { label: 'Review and commit current code-phase edits', action: 'worktree' as TestRecoveryAction,
+          description: 'Exact file list and confirmation; preserve reports, revalidate changed code, never auto-approve' },
         { label: 'Inspect test policy and readiness', action: 'show' as TestRecoveryAction,
           description: 'Read only; no tests, changes or risk acceptance' },
         { label: 'Preview approved test-runner repair', action: 'amend' as TestRecoveryAction,

@@ -3201,7 +3201,18 @@ singularity-flow recover WORK-123 --fetch --apply
 
 Recovery is plan-first. Apply only retries retained publication or performs a
 clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards
-work. The bundled Copilot plugin uses a nonblocking `sessionStart` prompt for
+work. Untracked regular `.sflow/results/**` reports do not block lifecycle approval;
+tracked/staged reports and real edits still require review. In any code-delivery
+phase, `recover WORK-ID --phase PHASE-ID --json` offers `commit-reviewed-worktree`
+for verified source/test/documentation changes. Review the exact listed diff,
+then use its returned `--commit-reviewed --confirm sha256:…` command. This commits
+only listed files, respects Git hooks/signing, keeps other staged work and reports,
+and returns current recovery actions. It neither pushes nor publishes, submits,
+approves or waives tests. Changed published code requires successor-generation
+revalidation and a fresh approval review. In VS Code, use **Test policy and recovery**
+→ **Review and commit current code-phase edits**; Copilot uses `/sf-recover`.
+
+The bundled Copilot plugin uses a nonblocking `sessionStart` prompt for
 guidance and a nonblocking `subagentStart` command hook for exact custom-agent
 name to agent mapping. The mapping activates only local-only packs or
 already locked and cached remote packs; it never fetches, trusts, changes a
@@ -3561,7 +3572,9 @@ singularity-flow workflow list|validate|simulate|diff|add|upgrade
 singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]
 singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
-singularity-flow recover [WORK-ID] [--fetch] [--apply]
+singularity-flow recover [WORK-ID] [--phase PHASE-ID] [--fetch] [--json]
+singularity-flow recover [WORK-ID] --commit-reviewed --confirm PLAN-HASH [--phase PHASE-ID] [--json]
+singularity-flow recover [WORK-ID] --apply --confirm PLAN-HASH [--phase PHASE-ID] [--fetch] [--json]
 sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow inputs [PHASE] [--dry-run] [--json]
 singularity-flow agents list

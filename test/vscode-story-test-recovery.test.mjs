@@ -43,6 +43,24 @@ test('re-attestation prepares only missing reviews bound to the selected Story',
   assert.deepEqual(testRecoveryReviewActions(result, 'show', subject), []);
 });
 
+test('worktree commit UI prepares an exact hash-bound command, never executes supplied commands', () => {
+  const plan = { ...subject, pendingPublication: false, branch: subject.workId, targetBranch: subject.workId,
+    planId: hash, actions: [{ id: 'commit-reviewed-worktree', automatic: false, confirmation: 'plan-hash',
+      reviewRequired: true, scope: { phaseId: subject.phaseId }, paths: ['src/code.ts', 'README.md'], command: 'sh -c unsafe' }] };
+  assert.deepEqual(testRecoveryPreviewArgs('worktree', subject), ['recover', subject.workId, '--phase', subject.phaseId, '--json']);
+  const actions = testRecoveryReviewActions(plan, 'worktree', subject);
+  assert.deepEqual(actions[0].args, ['recover', subject.workId, '--phase', subject.phaseId, '--commit-reviewed', '--confirm', hash, '--json']);
+  assert.deepEqual(testRecoveryReviewActions({ ...plan, branch: 'custom/story-branch', targetBranch: 'custom/story-branch' },
+    'worktree', subject), actions, 'Story identity must not be confused with its separately bound branch name');
+  for (const mutation of [{ pendingPublication: true }, { branch: 'other' }, { targetBranch: 'other' },
+    { phaseId: 'testing' }, { planId: 'arbitrary' }, { applied: true }, { reviewedCommit: { commit: hash } }]) {
+    assert.deepEqual(testRecoveryReviewActions({ ...plan, ...mutation }, 'worktree', subject), []);
+  }
+  for (const paths of [['../outside'], ['/absolute'], ['C:\\outside'], ['src/file\nname'], []]) {
+    assert.deepEqual(testRecoveryReviewActions({ ...plan, actions: [{ ...plan.actions[0], paths }] }, 'worktree', subject), []);
+  }
+});
+
 test('review commands quote shell-sensitive reasons on Windows and POSIX', () => {
   const text = 'Fix runner; $(touch nope) `calc` \'quote\'';
   const args = testRecoveryReviewActions(preview, 'amend', subject, text)[0].args;

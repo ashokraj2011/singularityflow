@@ -188,6 +188,7 @@ import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision }
 import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from './evidence/refusal-memory.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
+import { assertLifecycleWorktreeClean } from './lifecycle-worktree.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
@@ -3602,7 +3603,7 @@ async function choicesCommand(positionals, options) {
       validateId(config, workId);
       let workflow = null;
       if (action === 'approve') {
-        assertClean(root);
+        assertLifecycleWorktreeClean(root, config, null, { workId });
         if (workId !== branch(root) || optionBoolean(options, 'fetch')) await checkout(root, workId, {
           base: config.defaultBaseBranch,
           fetch: optionBoolean(options, 'fetch'),
@@ -3612,6 +3613,7 @@ async function choicesCommand(positionals, options) {
         config = await loadConfig(root);
         workflow = await loadStoryAggregate(root, config, workId);
         await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
+        assertLifecycleWorktreeClean(root, config, workflow);
       }
       receipt = await beginSelectionReceipt(root, config, { action, workId, workflow });
     }
@@ -6792,6 +6794,10 @@ async function phaseCommand(positionals, options) {
         ? selectedPhase.generationIntent.publication.resultDigest
         : generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
     );
+    if (plan?.action.id === `return-submitted-generation:${phase.id}`) throw new SingularityFlowError(
+      'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
+      { code: 'GENERATION_ROLLOVER_REVIEW_REQUIRED', details: { actions: [plan.action] } }
+    );
     if (!plan || plan.action.mode === 'manual' || !plan.action.command) {
       throw new SingularityFlowError(
         plan?.action.detail ?? `Phase '${phaseId}' has no changed consumed generation to roll over.`,
@@ -8051,8 +8057,9 @@ async function tokensCommand(positionals, options) {
 async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
   const receiptToken = optionString(options, 'selection-receipt');
-  if (receiptToken) assertClean(root);
+  if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
   const { requestedPhase, definition: config, workflow } = await loadStoryDecisionExecution(root, positionals, options, action);
+  if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
@@ -11190,6 +11197,12 @@ async function watchCommand(positionals, options) {
 
 async function recoverCommand(positionals, options) {
   const root = repoRoot(); const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
+  if (optionBoolean(options, 'commit-reviewed')) {
+    const { commitReviewedRecovery } = await import('./recovery-worktree-commit.mjs');
+    const result = await commitReviewedRecovery(root, config, workflow, options);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
+    return;
+  }
   const plan = await recoveryPlan(root, config, workflow, {
     fetch: optionBoolean(options, 'fetch'), phaseId: optionString(options, 'phase'), inspectActivePhase: true, modelEnabled: operationContext()?.modelMode.enabled !== false
   });

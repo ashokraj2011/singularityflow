@@ -493,6 +493,7 @@ Every public operation is classified before its implementation module is importe
 | receipt | read | never | — | — |
 | recommend | read | never | — | — |
 | recover.apply | mutation | never | — | — |
+| recover.commit-reviewed | mutation | never | — | — |
 | recover.inspect | read | never | — | — |
 | refresh-branch | mutation | never | — | — |
 | regression | mutation | never | — | — |

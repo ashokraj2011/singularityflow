@@ -70,10 +70,11 @@ function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}
  */
 export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
   if (!phaseRequiresCodeDelivery(phase) || phase?.id !== workflow.currentPhase
-      || phase.status !== 'in_progress' || phase.writeScope !== 'source-and-artifact') return null;
+      || !['in_progress', 'awaiting_approval'].includes(phase.status) || phase.writeScope !== 'source-and-artifact') return null;
   try {
     const consumed = phase.generationIntent?.status === 'consumed'
       && Number(phase.generationIntent.generation) === Number(phase.generation);
+    if (phase.status === 'awaiting_approval' && !consumed) return null;
     let baseCommit;
     if (consumed) {
       baseCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
@@ -157,8 +158,11 @@ export async function generationRecovery(root, workflow, phase, generationDigest
     }
   }
   const rolloverConfirmation = changeSetDigest ?? digest;
+  const submitted = phase.status === 'awaiting_approval';
   if (mode !== 'manual') {
-    command = `singularity-flow phase rollover ${phase.id} --confirm ${rolloverConfirmation}`;
+    command = submitted
+      ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>`
+      : `singularity-flow phase rollover ${phase.id} --confirm ${rolloverConfirmation}`;
   }
   return {
     blocker: {
@@ -188,17 +192,20 @@ export async function generationRecovery(root, workflow, phase, generationDigest
     action: action({
       id: mode === 'manual'
         ? `${!previousGenerationCommit ? 'repair-publication-authority' : 'repair-generation-change-set'}:${phase.id}`
-        : `begin-new-generation:${phase.id}`, mode,
+        : `${submitted ? 'return-submitted-generation' : 'begin-new-generation'}:${phase.id}`, mode,
       detail: mode === 'manual'
         ? publicationAuthorityError
           ? `Published bytes changed, but the exact prior generation commit could not be authenticated (${publicationAuthorityError.code ?? 'GENERATION_PUBLICATION_UNAVAILABLE'}: ${publicationAuthorityError.message}). Preserve the work and repair or migrate publication authority before beginning another generation.`
           : changeSetInspectionError
             ? `Published bytes changed, but the application change set could not be inspected (${changeSetInspectionError.code ?? 'GENERATION_CHANGE_SET_UNAVAILABLE'}: ${changeSetInspectionError.message}). Preserve the work and repair the repository read before beginning another generation.`
             : 'Published bytes changed, but the exact prior generation commit is unavailable. Preserve the work and repair publication authority before beginning another generation.'
-        : 'Review the exact current artifact and application changes, then begin a successor generation without changing the published generation. Use /sf-recover for this phase-scoped rollover; /sf-code resumes only after recovery clears.',
+        : submitted
+          ? 'New edits cannot be approved as the old submitted packet. Commit reviewed authoring bytes if desired, then have an authorized human return this submission to a permitted phase using reject; re-author, test and submit the successor. Published evidence stays immutable. Direct rollover is not legal while awaiting approval.'
+          : 'Review the exact current artifact and application changes, then begin a successor generation without changing the published generation. Use /sf-recover for this phase-scoped rollover; /sf-code resumes only after recovery clears.',
       command: mode === 'manual' ? 'singularity-flow doctor --json' : command,
-      skill: mode === 'manual' ? '/sf-doctor' : '/sf-recover',
-      evidence: { path: phase.generationIntent.path ?? null, line: null }
+      skill: mode === 'manual' ? '/sf-doctor' : submitted ? '/sf-reject' : '/sf-recover',
+      evidence: { path: phase.generationIntent.path ?? null, line: null,
+        ...(submitted ? { permittedTargets: phase.approvalPolicy?.rejectTo ?? [] } : {}) }
     })
   };
 }

@@ -1,5 +1,5 @@
 /** Read-only recovery cards. A UI selection never substitutes for terminal review. */
-export type TestRecoveryAction = 'show' | 'amend' | 'attest' | 'risks';
+export type TestRecoveryAction = 'show' | 'amend' | 'attest' | 'risks' | 'worktree';
 export interface TestRecoverySubject { workId: string; phaseId: string }
 const digest = /^sha256:[a-f0-9]{64}$/u;
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -11,6 +11,7 @@ function object(value: unknown): Record<string, unknown> | null {
 export function testRecoveryPreviewArgs(action: TestRecoveryAction, subject: TestRecoverySubject, reason?: string): string[] {
   if (!identifier.test(subject.workId) || !identifier.test(subject.phaseId)
       || subject.workId.includes('..') || subject.phaseId.includes('..')) throw new Error('Refresh the current Story before reviewing test recovery.');
+  if (action === 'worktree') return ['recover', subject.workId, '--phase', subject.phaseId, '--json'];
   if (!['show', 'amend', 'attest', 'risks'].includes(action)) throw new Error('Unsupported test-recovery action.');
   const args = ['story', 'test-policy', action, '--work-id', subject.workId];
   if (action === 'risks') args.push('--phase', subject.phaseId);
@@ -30,6 +31,20 @@ export function testRecoveryReviewActions(result: unknown, action: TestRecoveryA
   const response = object(result);
   const data = response?.resultType === 'command-result' ? object(response.data) : response;
   if (!data || data.workId !== subject.workId || data.stateChanged === true || data.executed === true) return [];
+  if (action === 'worktree') {
+    if (data.phaseId !== subject.phaseId || data.pendingPublication !== false || data.applied === true
+        || data.reviewedCommit || typeof data.branch !== 'string' || !data.branch || data.branch !== data.targetBranch
+        || typeof data.planId !== 'string' || !digest.test(data.planId) || !Array.isArray(data.actions)) return [];
+    const commit = data.actions.map(object).find(entry => entry?.id === 'commit-reviewed-worktree');
+    const scope = object(commit?.scope);
+    if (!commit || commit.automatic !== false || commit.reviewRequired !== true || commit.confirmation !== 'plan-hash'
+        || scope?.phaseId !== subject.phaseId || !Array.isArray(commit.paths) || !commit.paths.length
+        || commit.paths.length > 10000 || commit.paths.some(value => typeof value !== 'string' || !value
+          || /[\\\x00-\x1f\x7f]/u.test(value) || value.startsWith('/') || /^[A-Za-z]:/u.test(value)
+          || value.split('/').some(part => !part || part === '.' || part === '..'))) return [];
+    return [{ label: 'Prepare reviewed authoring commit — inspect the listed diff before pressing Enter',
+      args: ['recover', subject.workId, '--phase', subject.phaseId, '--commit-reviewed', '--confirm', data.planId, '--json'] }];
+  }
   if (action === 'amend') {
     if (data.schemaVersion !== 1 || data.resultType !== 'test-command-amendment-preview'
         || data.status !== 'ready' || data.phaseId !== subject.phaseId

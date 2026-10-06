@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 12
+version: 13
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -48,6 +48,26 @@ select changed-only testing, accept a pre-existing failure, or enable this intak
 - **VS Code:** the Start Work form shows the pilot only when the engine advertises it. Review the observed baseline and complete plan, then explicitly confirm. The current phase's **Test policy and recovery** action, or **Review Story Test Policy and Recovery** in the command palette, reads the policy and previews an approved runner amendment or missing local review origin. A returned review action stages the exact command in a terminal without pressing Enter; execute it yourself to begin live review. A UI selection is not human approval. Unsupported choices remain unavailable.
 
 ## Guided workflow
+
+### Reviewed worktree commit and continuation
+
+Untracked regular test reports under `.sflow/results/**` are preserved and do not block approval.
+Tracked or staged reports, symbolic links and real authoring changes still need review.
+For every resolved code-delivery phase (including custom/future workflows), recovery can offer
+`commit-reviewed-worktree` with exact paths and a hash-bound command. Review those diffs and
+explicitly confirm the current plan before `recover --commit-reviewed --confirm <planId>`.
+It makes an authoring commit only: normal Git hooks/signing still apply, other staged work stays
+untouched, no remote push occurs, and tests or publication/approval gates are not waived.
+Follow the returned current phase actions. Changed published source needs an authenticated
+successor/revalidation; a commit never makes an old submitted packet cover new code.
+Changed bytes, HEAD or index invalidate confirmation. Pending publication must be recovered first.
+Governed/protected files, other Stories, out-of-boundary paths and non-regular operations are not
+swept into this commit. Their original recovery actions remain visible.
+
+VS Code: **Test policy and recovery → Review and commit current code-phase edits** previews the
+plan and prepares its exact command without pressing Enter. Copilot: `/sf-recover` offers the
+commit option and waits for human consent. An approval refusal still ends its approval-only turn;
+recover separately, then refresh the immutable packet review and consent.
 
 ### Test commands and configuration adoption
 

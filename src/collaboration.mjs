@@ -1,6 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward, untrackedFiles } from './git.mjs';
-import { applicationPathContext, isTransientTestResultPath } from './application-paths.mjs';
+import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward } from './git.mjs';
 import {
   currentPhase, generationResultDigest, generationResultMatches, syncPublication
 } from './state-stores.mjs';
@@ -14,6 +13,8 @@ import { nowIso, SingularityFlowError } from './util.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
+import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
+import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -30,12 +31,14 @@ function pathWithin(candidate, parent) {
   return path === root || path.startsWith(`${root}/`);
 }
 
-function recoveryWorktreeDigest(root, config, workflow) {
-  const untracked = new Set(untrackedFiles(root));
-  const ownership = applicationPathContext(config, workflow);
-  const visiblePaths = changedFiles(root).filter((candidate) => !untracked.has(candidate)
-    || !isTransientTestResultPath(candidate, ownership));
+function recoveryWorktreeDigest(root, config, workflow, inspection = null) {
+  const ignored = new Set((inspection ?? inspectLifecycleWorktree(root, config, workflow)).disposableUntrackedPaths);
+  const visiblePaths = changedFiles(root).filter(candidate => !ignored.has(candidate));
   return worktreeFingerprint(root, { fresh: true, visiblePaths }).sha256;
+}
+
+export function recoveryRevision(root, config, workflow, inspection = null) {
+  return { branch: branch(root), head: head(root), worktree: recoveryWorktreeDigest(root, config, workflow, inspection) };
 }
 
 /**
@@ -44,7 +47,7 @@ function recoveryWorktreeDigest(root, config, workflow) {
  * This is a routing hint, not publication authority: even the workflow aggregate still needs
  * review of its diff before an agent may continue.
  */
-async function workingTreeAction(root, config, workflow, phase, status, phaseRecovery) {
+async function workingTreeAction(root, config, workflow, phase, status, phaseRecovery, inspection) {
   let paths;
   try {
     paths = changedFiles(root);
@@ -54,10 +57,7 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
   // Structured runner output is local transport state, not authored source. Only a genuinely
   // untracked result is disposable for routing: a tracked result (or any other dirty path) must
   // still be reviewed. This never removes the report or changes Git's index.
-  const untracked = new Set(untrackedFiles(root));
-  const ownership = applicationPathContext(config, workflow);
-  const disposableUntrackedPaths = paths.filter((candidate) => untracked.has(candidate)
-    && isTransientTestResultPath(candidate, ownership));
+  const disposableUntrackedPaths = inspection.disposableUntrackedPaths;
   const relevantPaths = paths.filter((candidate) => !disposableUntrackedPaths.includes(candidate));
   const itemRoot = repositoryRelativePath(
     `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`
@@ -235,18 +235,22 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     actions.push(...recoveryActionsForFindings(terminalGate.findings));
   }
   const worktreeStatus = changes(root);
+  // One raw-byte status inspection per plan; the apply-time stability guard always reads fresh.
+  const worktreeInspection = inspectLifecycleWorktree(root, config, workflow);
   if (worktreeStatus.trim()) {
-    const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery);
+    const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery, worktreeInspection);
     if (worktreeAction) actions.push(worktreeAction);
+    if (pending.status === 'absent') {
+      const commitAction = await reviewedWorktreeCommitAction(root, config, workflow, phase ?? activePhase,
+        worktreeInspection, worktreeAction?.applicationScope);
+      if (commitAction) actions.push(commitAction);
+    }
   }
   if (!actions.length) actions.push({
     id: 'none', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: null,
     detail: 'No recoverable publication, branch, synchronization, artifact, projection, or generation problem was found.'
   });
-  const revision = {
-    branch: branch(root), head: head(root),
-    worktree: recoveryWorktreeDigest(root, config, workflow)
-  };
+  const revision = recoveryRevision(root, config, workflow, worktreeInspection);
   const core = {
     schemaVersion: currentSchemaVersion('recovery-plan'),
     workId: workflow.workItem.id,
@@ -287,7 +291,9 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
       || Boolean(terminalGate?.errors.length)
   };
   const plan = { ...core, planId: `sha256:${recordSha256(core)}` };
-  return { ...plan, applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
+  return { ...plan, actions: plan.actions.map(action => action.id === 'commit-reviewed-worktree'
+    ? { ...action, command: `singularity-flow recover ${plan.workId}${plan.phaseId ? ` --phase ${plan.phaseId}` : ''} --commit-reviewed --confirm ${plan.planId} --json${plan.modelEnabled === false ? ' --no-model' : ''}` }
+    : action), applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
 }
 
 function recoveryApplyCommand(plan) {
@@ -388,5 +394,7 @@ export function recoveryText(plan) {
     } else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
   }
   if (plan.applied) lines.push('', `Applied ${plan.completed.length} safe action(s). No history was reset or rewritten.`);
+  if (plan.reviewedCommit) lines.push('', `Committed reviewed authoring changes: ${plan.reviewedCommit.commit}. No publication, approval or test waiver was performed. Continue with the returned current phase actions.`);
+  for (const warning of plan.reviewedCommit?.warnings ?? []) lines.push(`Warning: ${warning}`);
   return `${lines.join('\n')}\n`;
 }

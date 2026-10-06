@@ -22,6 +22,8 @@ import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import { evaluateCodeDeliveryPreflight } from '../src/delivery-evidence.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { commitReviewedRecovery } from '../src/recovery-worktree-commit.mjs';
+import { generationRecovery } from '../src/recovery-plan.mjs';
 import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
@@ -137,7 +139,8 @@ async function createSymlinkOrSkip(t, target, link) {
 
 async function codeFixture(name, {
   acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured',
-  configuredResult = null, configuredProvenance = null, preexistingResult = null, sourceBoundary = null
+  configuredResult = null, configuredProvenance = null, preexistingResult = null, sourceBoundary = null,
+  phaseId = 'implementation'
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
@@ -241,11 +244,12 @@ async function codeFixture(name, {
   const implementation = resolved.phases.find((phase) => phase.id === 'implementation');
   const implementationPhase = {
     ...implementation,
+    id: phaseId,
     ...(sourceBoundary ? { sourceBoundary } : {}),
     order: acceptance ? 1 : 0,
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
-    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
+    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: [phaseId] },
     qualityCommands: angularProfile || playwrightProfile || testProfile === 'maven' ? [] : [{
       id: 'fixture-tests', kind: 'test',
       argv: [process.execPath, 'test-runner.mjs',
@@ -272,7 +276,7 @@ async function codeFixture(name, {
   if (intelligenceAst) resolved.intelligence = {
     ...resolved.intelligence, ast: intelligenceAst
   };
-  await setAgentSession(root, config, ACTOR, 'developer', 'DELIVERY-1', { phaseId: 'implementation', source: 'test' });
+  await setAgentSession(root, config, ACTOR, 'developer', 'DELIVERY-1', { phaseId, source: 'test' });
   const workflow = await createWorkflow(root, config, {
     id: 'DELIVERY-1',
     title: 'Require source and acceptance tests',
@@ -286,7 +290,7 @@ async function codeFixture(name, {
     agent: 'developer',
     resolved
   });
-  const phase = workflow.phases.implementation;
+  const phase = workflow.phases[phaseId];
   const item = path.join(root, 'singularity', 'work-items', 'DELIVERY-1');
   const target = path.join(item, phase.requiredArtifact.path);
   await mkdir(path.dirname(target), { recursive: true });
@@ -1348,6 +1352,63 @@ test('recovery guides in-scope README and test repairs inside a verified open ge
   assert.equal(git(context.root, 'write-tree'), originalIndex);
   assert.equal(git(context.root, 'status', '--porcelain=v1', '--untracked-files=all'), originalStatus);
   assert.equal(await readFile(context.target, 'utf8'), artifactBytes);
+});
+
+test('reviewed recovery commits code and README without publishing, for built-in and future custom code phases', async t => {
+  for (const phaseId of ['implementation', 'team-custom-delivery']) await t.test(phaseId, async t => {
+    const context = await codeFixture(`reviewed-commit-${phaseId}`, { acceptance: false, phaseId });
+    t.after(() => rm(context.root, { recursive: true, force: true }));
+    git(context.root, 'add', '.'); git(context.root, 'commit', '-m', 'baseline code Story');
+    await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId });
+    await saveWorkflow(context.root, context.config, context.workflow);
+    await writeFile(path.join(context.root, 'README.md'), '# Confirmed authoring change\n');
+    await mkdir(path.join(context.root, 'src'), { recursive: true });
+    await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int edited = 2; }\n');
+    const statePath = path.join(context.root, 'singularity', 'work-items', context.workflow.workItem.id, 'workflow.json');
+    const beforeWorkflow = await readFile(statePath, 'utf8');
+    const report = path.join(context.root, '.sflow', 'results', 'node-tests.json');
+    await mkdir(path.dirname(report), { recursive: true });
+    await writeFile(report, '{"passed":16}\n');
+    const plan = JSON.parse(flow(context.root, ['recover', 'DELIVERY-1', '--phase', phaseId, '--json']).stdout);
+    const commitAction = plan.actions.find(entry => entry.id === 'commit-reviewed-worktree');
+    assert.deepEqual(commitAction.paths, ['README.md', 'src/app.java']);
+    assert.equal(safeCommandGuidance(commitAction)?.copilotCommand, '/sf-recover');
+    assert.match(commitAction.command, /--commit-reviewed --confirm sha256:/u);
+    // A regenerated report is transport, not a changed authoring consent.
+    await writeFile(report, '{"passed":32}\n');
+    const result = JSON.parse(flow(context.root, ['recover', 'DELIVERY-1', '--phase', phaseId,
+      '--commit-reviewed', '--confirm', plan.planId, '--json']).stdout);
+    assert.equal(result.reviewedCommit.lifecycleAdvanced, false);
+    assert.equal(result.reviewedCommit.testsWaived, false);
+    assert.equal(result.reviewedCommit.pushed, false);
+    assert.equal(context.phase.status, 'in_progress');
+    assert.equal(context.phase.generation, 0);
+    assert.equal(await readFile(statePath, 'utf8'), beforeWorkflow);
+    assert.equal(await readFile(report, 'utf8'), '{"passed":32}\n');
+    assert.equal(git(context.root, 'show', 'HEAD:README.md'), '# Confirmed authoring change');
+    assert.ok(result.actions.every(entry => entry.id !== 'commit-reviewed-worktree'));
+    assert.ok(result.actions.length > 0, 'next legal phase/recovery action remains available');
+  });
+});
+
+test('reviewed recovery rejects changed bytes or forged scope instead of committing a stale plan', async t => {
+  const context = await codeFixture('reviewed-commit-stale', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  git(context.root, 'add', '.'); git(context.root, 'commit', '-m', 'baseline code Story');
+  await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId: 'implementation' });
+  await saveWorkflow(context.root, context.config, context.workflow);
+  await writeFile(path.join(context.root, 'README.md'), '# First review\n');
+  const plan = await recoveryPlan(context.root, context.config, context.workflow, { inspectActivePhase: true });
+  const before = git(context.root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(context.root, 'README.md'), '# Changed after review\n');
+  await assert.rejects(commitReviewedRecovery(context.root, context.config, context.workflow, { confirm: plan.planId }),
+    { code: 'RECOVERY_PLAN_STALE' });
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), before);
+  context.config.governance.protectedPaths.push('README.md');
+  const protectedPlan = await recoveryPlan(context.root, context.config, context.workflow, { inspectActivePhase: true });
+  assert.equal(protectedPlan.actions.some(entry => entry.id === 'commit-reviewed-worktree'), false);
+  await assert.rejects(commitReviewedRecovery(context.root, context.config, context.workflow, { confirm: protectedPlan.planId }),
+    { code: 'RECOVERY_COMMIT_UNAVAILABLE' });
 });
 
 test('application recovery scope requires the retained generation receipt and keeps other Story edits manual', async (t) => {
@@ -2769,6 +2830,36 @@ test('prepare refuses a consumed code generation before writing next-generation 
   assert.equal(JSON.stringify(context.phase), phaseBefore,
     'prepare mutated phase state before rejecting the consumed generation');
   await assert.rejects(() => readFile(nextReceipt), (error) => error.code === 'ENOENT');
+});
+
+test('changed submitted code returns to human rejection, never an unusable direct rollover', async t => {
+  const context = await codeFixture('submitted-recovery-route', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), 'final class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(context.root, context.config, context.workflow, 'implementation'));
+  context.phase.status = 'awaiting_approval';
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int next = 2; }\n');
+  const recovery = await generationRecovery(context.root, context.workflow, context.phase, async () => 'changed');
+  assert.equal(recovery.action.id, 'return-submitted-generation:implementation');
+  assert.equal(recovery.action.skill, '/sf-reject');
+  assert.equal(safeCommandGuidance(recovery.action)?.copilotCommand, '/sf-reject');
+  assert.match(recovery.action.command, /reject implementation --work-id DELIVERY-1/u);
+  assert.doesNotMatch(recovery.action.command, /rollover/u);
+  assert.equal(context.phase.generation, 1);
+  // Exercise the public CLI dispatch too: a misplaced guard elsewhere in cli.mjs must not
+  // allow a submitted generation to open a successor without authorized rejection.
+  await saveWorkflow(context.root, context.config, context.workflow);
+  const before = git(context.root, 'rev-parse', 'HEAD');
+  const index = git(context.root, 'write-tree');
+  const rollover = flow(context.root, ['phase', 'rollover', 'implementation', '--json'], { allowFailure: true });
+  assert.equal(rollover.status, 1, rollover.stdout);
+  const refusal = JSON.parse(rollover.stdout);
+  assert.equal(refusal.error.code, 'GENERATION_ROLLOVER_REVIEW_REQUIRED');
+  assert.match(refusal.error.message, /authorized rejection/u);
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), before);
+  assert.equal(git(context.root, 'write-tree'), index);
 });
 
 test('phase rollover previews exact current bytes and opens one successor without erasing publication', async () => {

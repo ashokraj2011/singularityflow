@@ -227,6 +227,32 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.approvals.length, 1);
 });
 
+test('untracked runner reports do not block receipt preparation or approval and are never committed', async t => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workId = 'CHOICE-REPORTS';
+  const workflowFile = await submitIntakeForApproval(root, workId);
+  const resultDirectory = path.join(root, '.sflow', 'results');
+  await mkdir(resultDirectory, { recursive: true });
+  const reportFile = path.join(resultDirectory, 'node-tests.json');
+  await writeFile(reportFile, '{"passed":16}\n');
+  const begun = JSON.parse(flow(root, ['choices', 'begin', 'approve', workId, '--fetch', '--json']).stdout);
+  flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']);
+  await writeFile(reportFile, '{"passed":32}\n');
+  // An actual authoring edit still blocks the final receipt-backed action without consuming it.
+  await writeFile(path.join(root, 'README.md'), '# Edited after review\n');
+  const refused = flow(root, ['approve', 'intake', '--work-id', workId, '--selection-receipt', begun.token, '--json'], { allowFailure: true });
+  assert.equal(refused.status, 1);
+  assert.match(refused.stdout, /LIFECYCLE_WORKTREE_REVIEW_REQUIRED/u);
+  assert.match(refused.stdout, /sf-recover/u);
+  await writeFile(path.join(root, 'README.md'), run('git', ['show', 'HEAD:README.md'], root).stdout);
+  const approved = flow(root, ['approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token]);
+  assert.equal(approved.status, 0);
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.status, 'approved');
+  assert.equal(await readFile(reportFile, 'utf8'), '{"passed":32}\n');
+  assert.equal(run('git', ['ls-files', '--error-unmatch', '.sflow/results/node-tests.json'], root, { allowFailure: true }).status, 1);
+});
+
 test('approval receipts reject changed generation, packet, artifacts, and repository HEAD', async () => {
   const root = await repository();
   const workId = 'CHOICE-APPROVE-CONTEXT-DRIFT';

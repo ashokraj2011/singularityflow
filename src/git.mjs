@@ -28,6 +28,7 @@ import {
   parseEnvironmentDeclaration
 } from './environment-declaration.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
+import { parsePorcelainV2Status } from './git-status-detail.mjs';
 
 function git(args, options = {}) {
   // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's
@@ -791,6 +792,16 @@ export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
 
 export function changes(root) {
   return git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout;
+}
+
+/** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
+export function worktreeStatusDetail(root) {
+  const env = immutableLocalGitEnvironment();
+  const objectFormat = git(['rev-parse', '--show-object-format'], { cwd: root, env }).stdout.trim();
+  const bytes = git(['status', '--porcelain=v2', '-z', '--untracked-files=all'], {
+    cwd: root, env, encoding: 'buffer'
+  }).stdout;
+  return parsePorcelainV2Status(bytes, { objectFormat });
 }
 
 export function assertClean(root) {
@@ -2730,6 +2741,74 @@ export function commit(root, message, paths = null) {
   const scope = paths?.length ? ['--only', '--', ...paths] : [];
   git(['commit', '-m', message, ...scope], { cwd: root, stdio: 'inherit' });
   return head(root);
+}
+
+/** Human-reviewed authoring commit, not publication. Keep normal hooks/signing and the user's
+ * unrelated staged changes. A veto or a changed hook output never advances the workflow. */
+export async function commitReviewedPaths(root, message, paths, {
+  expectedHead, stabilityGuard, onCleanupWarning = warning => console.warn(warning)
+} = {}) {
+  invariant(expectedHead && stabilityGuard && paths?.length, 'An exact reviewed commit scope is required.');
+  const reference = `refs/heads/${branch(root)}`;
+  const assertStable = async () => {
+    if (head(root) !== expectedHead || `refs/heads/${branch(root)}` !== reference
+        || !await stabilityGuard()) throw new SingularityFlowError(
+      'The reviewed repository changed. Inspect recovery and confirm a new plan before committing.',
+      { code: 'RECOVERY_PLAN_STALE' }
+    );
+  };
+  await assertStable();
+  const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
+  await mkdir(temporaryRoot, { recursive: true });
+  const scratch = await mkdtemp(path.join(temporaryRoot, 'reviewed-commit-'));
+  const env = immutableLocalGitEnvironment(process.env, { indexFile: path.join(scratch, 'index') });
+  const scope = paths.map(relative => `:(literal)${relative}`);
+  let committed = null;
+  try {
+    git(['read-tree', expectedHead], { cwd: root, env });
+    git(['add', '-A', '--', ...scope], { cwd: root, env });
+    const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
+    admitExactProspectiveTree(root, { baselineCommit: expectedHead, candidateTree: tree, label: 'Reviewed authoring commit' });
+    await assertStable();
+    // Unlike lifecycle commit-tree, this deliberately respects repository hooks and signing.
+    const result = git(['commit', '-m', message], { cwd: root, env, allowFailure: true });
+    const observed = head(root);
+    if (observed !== expectedHead) committed = observed;
+    if (result.status !== 0 || !committed) throw new SingularityFlowError(
+      `Reviewed commit did not complete: ${(result.stderr || result.stdout).trim() || 'Git refused the commit'}. `
+      + 'Preserve the changes and correct the reported Git/hook prerequisite; no lifecycle action was run.',
+      { code: 'RECOVERY_COMMIT_FAILED', details: { commit: committed, recoveryCommand: 'singularity-flow recover --json' } }
+    );
+    const parent = git(['rev-parse', `${committed}^`], { cwd: root, env }).stdout.trim();
+    const actualTree = git(['rev-parse', `${committed}^{tree}`], { cwd: root, env }).stdout.trim();
+    if (`refs/heads/${branch(root)}` !== reference || parent !== expectedHead || actualTree !== tree) {
+      throw new SingularityFlowError(
+        'Git or a commit hook changed the reviewed commit. The commit is retained; inspect its exact diff before continuing. No lifecycle action was run.',
+        { code: 'RECOVERY_COMMIT_CHANGED', details: { commit: committed, recoveryCommand: 'singularity-flow recover --json' } }
+      );
+    }
+    // Refresh only the reviewed files; do not borrow, commit, reset, or discard any other index entry.
+    try {
+      git(['reset', '-q', committed, '--', ...scope], { cwd: root, env: immutableLocalGitEnvironment() });
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Reviewed commit ${committed} completed, but its listed index entries could not be refreshed: ${error.message}. `
+        + 'Do not repeat the commit. Preserve it and inspect recovery/index-lock diagnostics; no lifecycle action was run.',
+        { code: 'RECOVERY_COMMITTED_INDEX_REPAIR_REQUIRED', details: {
+          commit: committed, paths, lifecycleAdvanced: false, recoveryCommand: 'singularity-flow recover --json'
+        } }
+      );
+    }
+    return committed;
+  } finally {
+    try { await removeTemporaryTree(scratch); }
+    catch (error) {
+      // Windows can retain a temporary-index handle after Git exits. Never turn cleanup of
+      // disposable scratch into an ambiguous commit failure or mask a hook's original veto.
+      onCleanupWarning(`Temporary reviewed-commit index cleanup is pending at ${scratch}: ${error.message}. `
+        + `${committed ? `Commit ${committed} is retained. ` : ''}No lifecycle action was run; do not repeat a completed commit.`);
+    }
+  }
 }
 
 function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {

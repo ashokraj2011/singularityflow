@@ -76,6 +76,18 @@ test('off clarification adds no prompt instructions and when-needed may explicit
   assert.match(rendered, /found no material ambiguity and continue/);
 });
 
+test('composed clarification refers to the verified source recovery route while standalone use keeps it', () => {
+  const standalone = renderClarificationProtocol('required', 'implementation');
+  const composed = renderClarificationProtocol('required', 'implementation', { intentRecoveryInSource: true });
+  assert.match(standalone, /story intent-amendment propose/);
+  assert.doesNotMatch(composed, /story intent-amendment propose/);
+  assert.match(composed, /follow Conflict recovery in the Pinned Story source/);
+  for (const contract of [/Pause for at least one human response/, /Never rewrite|never silently overwrite/, /CLI-owned/, /Material unresolved decisions block/, /ask_user.*unavailable/, /Do not author or publish/]) {
+    assert.match(composed, contract);
+  }
+  assert.ok(Buffer.byteLength(composed) < Buffer.byteLength(standalone));
+});
+
 test('off clarification refuses recording with a stable recovery contract', async () => {
   const value = await clarificationFixture('off');
   assert.throws(

@@ -13,6 +13,10 @@ import {
 } from '../src/prompt-audit.mjs';
 import { snapshot } from '../src/util.mjs';
 import { setAgentSession } from '../src/session.mjs';
+import { createAgentBriefs } from '../src/agent-briefs.mjs';
+import { activeClauseCapsule } from '../src/active-clause-capsule.mjs';
+import { buildSpecIndex } from '../src/specifications.mjs';
+import { collectInputs, renderInputsBlock } from '../src/inputs.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 const promptRepetitionMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-repeat-machine-'));
@@ -242,6 +246,77 @@ test('an immediate identical wm-compose miss reuses the audit record without app
   assert.equal(repeated.deduplicated, true);
   assert.equal(rawAfterRepeat, rawAfterFirst, 'the append-only log does not receive a second prompt body');
   assert.equal((await promptAuditStatus(root)).count, 1);
+});
+
+test('CLI composition supplies exact approved clauses once and retains summary, mapping and expansion', async (t) => {
+  const fixture = await compositionFixture(t);
+  const itemRelative = `singularity/work-items/${fixture.workId}`;
+  const itemDirectory = path.join(fixture.root, itemRelative);
+  const workflowPath = path.join(itemDirectory, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
+  const producer = workflow.phases.intake;
+  const consumer = workflow.phases.design;
+  const sourceRelative = producer.artifacts[0].path;
+  const clauses = [
+    '- A failed operation must stop after three attempts and preserve the original data for review. [REPEAT-1:REQ-001]',
+    '- Every retry must be observable by its owner without changing the approved delivery boundary. [REPEAT-1:REQ-002]',
+    '- Cancellation must retain historical evidence and never silently delete earlier decisions. [REPEAT-1:REQ-003]'
+  ].join('\n');
+  const source = `# Approved intake\n\n## Agent brief\n\nUNIQUE-SUMMARY: bounded retry.\n\n## Requirements\n\n${clauses}\n\n## Supporting files\n\n| Clause | Source | Test |\n| --- | --- | --- |\n| REPEAT-1:REQ-001 | src/retry.js | retry.test.js |\n`;
+  await writeFile(path.join(fixture.root, sourceRelative), source);
+  const info = await snapshot(path.join(fixture.root, sourceRelative));
+  producer.artifacts[0] = { ...producer.artifacts[0], ...info };
+  const declaration = {
+    ...consumer.inputs[0], projection: 'approved-summary',
+    preserve: ['Requirements', 'Supporting files'], maximumSummaryBytes: 8192,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  consumer.inputs = [declaration];
+  consumer.clarification = { mode: 'required', maxQuestions: 3, topics: ['scope'] };
+  workflow.resolution.phases = [{ id: 'intake' }, {
+    id: 'design', inputs: [declaration], clarification: consumer.clarification
+  }];
+  const briefs = await createAgentBriefs(fixture.root, workflow, producer, { itemDirectory, itemRelative });
+  producer.agentBriefs = briefs;
+  workflow.lineage.submissions[0].projection.agentBriefs = briefs;
+  workflow.lineage.submissions[0].projection.artifacts = [{
+    path: sourceRelative, sha256: info.sha256, size: info.size, reference: { handle: fixture.registered.handle }
+  }];
+  const indexPath = `${itemRelative}/context/spec-indexes/intake-gen1.json`;
+  const index = await buildSpecIndex(fixture.root, sourceRelative, {
+    workId: fixture.workId, phase: 'intake', generation: 1, outputPath: indexPath,
+    policy: { mode: 'enforce', namespace: 'REPEAT-1' }
+  });
+  producer.specIndex = {
+    generation: 1, path: indexPath, clauses: index.clauses.length,
+    indexSha256: index.indexSha256, sourceSha256: index.source.sha256
+  };
+  await writeFile(workflowPath, JSON.stringify(workflow));
+  const definition = await loadDefinition(fixture.root);
+  const inputs = await collectInputs(fixture.root, workflow, consumer, { itemDirectory, itemRelative });
+  assert.deepEqual(inputs.errors, []);
+  const durableInputs = renderInputsBlock(inputs);
+  const beforeWorkflow = await readFile(workflowPath);
+  const beforeBrief = await readFile(path.join(fixture.root, briefs[0].renderedPath));
+  const expectedCapsule = await activeClauseCapsule(itemDirectory, workflow, consumer, null, { root: fixture.root });
+  const args = ['wm', 'compose', '--phase', 'design', '--work-id', fixture.workId, '--agent', 'developer', '--render-only'];
+  const first = flow(fixture.root, args);
+  assert.equal(flow(fixture.root, args), first);
+  assert.ok(first.includes(expectedCapsule.text), 'the complete verified capsule reaches the CLI prompt');
+  for (const clause of index.clauses) assert.equal(occurrences(first, clause.body), 1);
+  assert.match(first, /Exact clauses in Active Clause Capsule: REPEAT-1:REQ-001, REPEAT-1:REQ-002, REPEAT-1:REQ-003/);
+  assert.match(first, /UNIQUE-SUMMARY: bounded retry/);
+  assert.match(first, /src\/retry.js \| retry.test.js/);
+  assert.ok(first.includes(fixture.registered.handle));
+  assert.equal(occurrences(first, 'singularity-flow story intent-amendment propose'), 1,
+    'the verified source owns the amendment route, not every clarification block');
+  assert.match(first, /Pause for at least one human response/);
+  assert.match(first, /singularity-flow clarification record design --response-file/);
+  assert.match(first, /The pinned clarification mode for `design` is `required`/);
+  assert.deepEqual(await readFile(workflowPath), beforeWorkflow);
+  assert.deepEqual(await readFile(path.join(fixture.root, briefs[0].renderedPath)), beforeBrief);
+  assert.deepEqual(renderInputsBlock(await collectInputs(fixture.root, workflow, consumer, { itemDirectory, itemRelative })), durableInputs);
+  assert.equal(definition.worldModel.tokenEconomy?.composer ?? 'legacy-v1', 'legacy-v1');
 });
 
 test('phase prompt selection keeps a current explicit agent override but drops an outgoing phase agent', async (t) => {

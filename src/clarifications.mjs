@@ -337,7 +337,7 @@ export function normalizeClarificationPolicy(value = {}) {
   return { mode, maxQuestions, topics: normalizedTopics, markers: markerPolicy(value.markers) };
 }
 
-export function renderClarificationProtocol(value, phaseId) {
+export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSource = false } = {}) {
   const policy = normalizeClarificationPolicy(value);
   if (policy.mode === 'off') return '';
   const topics = policy.topics.length
@@ -361,15 +361,14 @@ export function renderClarificationProtocol(value, phaseId) {
     ...required.map((line) => `- ${line}`),
     `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
     '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository world model, or contradictions among them. Never reuse example questions or placeholder text from templates.',
-    '- Do not ask for information already established by pinned sources, approved upstream artifacts, or the repository world model.',
-    '- If a proposed answer contradicts pinned intent, ask the human to confirm the change; never silently author over the source. Once scope is approved, use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"` from the active phase in any workflow; no convergence finding or revision loop is required. The CLI binds the phase and exact changed clauses. Have the authorized scope reviewer decide, acknowledge the approved amendment, then recompose. Before scope approval, record the explicit human change in clarification and revise/review the scope draft through its normal publication route; do not rewrite the pinned source.',
-    '- Treat pinned evidence as fact. Label every hypothesis or proposed design explicitly; never convert it into an acceptance or specification decision without human confirmation.',
-    '- For each question, explain briefly why the answer changes the governed output. Offer a recommended/default choice when the evidence supports one.',
-    '- Do not infer an answer from generic knowledge. The user may explicitly answer “unknown” or defer a non-blocking decision.',
-    '- After the response, incorporate confirmed answers into the phase artifact as decisions. Keep explicitly deferred items in Open questions with their impact and owner.',
+    '- Do not re-ask established facts or infer answers from generic knowledge. Label hypotheses/design proposals; they become acceptance or specification decisions only with human confirmation.',
+    intentRecoveryInSource
+      ? '- For intent conflicts, confirm the human change and follow Conflict recovery in the Pinned Story source; never silently overwrite intent.'
+      : '- For intent conflicts, confirm the human change. After scope approval use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"` from any active phase/workflow (no convergence finding or loop required); have the authorized scope reviewer decide, acknowledge approval, then recompose. Before scope approval, record the human change in clarification and revise/review the scope draft normally. Never rewrite the pinned source.',
+    '- Explain each question’s impact; offer an evidence-supported default. Accept explicit “unknown” or non-blocking deferral. Record confirmed decisions in the artifact and deferred items in Open questions with impact and owner.',
     `- Stage only {"responses":[...]} at the Git-private path returned by \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`, then run \`singularity-flow clarification record ${phaseId} --response-file <that-path>\` and remove the staging file after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
-    '- A material unresolved decision remains blocking through specification publication; do not hide it behind a recommendation or placeholder.',
-    '- If `ask_user` is unavailable, print the numbered questions and stop before authoring or publication. Never turn missing interactivity into silent assumptions.',
+    '- Material unresolved decisions block specification publication; recommendations/placeholders cannot hide them.',
+    '- If `ask_user` is unavailable, print numbered questions and stop before authoring or publication; never assume answers.',
     '- Do not author or publish the governed output until the checkpoint is complete.'
   ].join('\n');
 }

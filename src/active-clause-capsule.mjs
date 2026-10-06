@@ -17,6 +17,49 @@ function textSha256(value) {
   return createHash('sha256').update(String(value ?? '')).digest('hex');
 }
 
+export const CLAUSE_CAPSULE_RENDERER = 'clause-capsule-v2';
+
+/** Compact model projection only. The verified capsule and its integrity hash stay unchanged. */
+export function renderActiveClauseCapsule(capsule) {
+  if (!capsule || (!capsule.clauses.length && !capsule.openRisks.length && !capsule.clarifications.length)) return '';
+  const sources = [];
+  const sourceIds = new Map();
+  const clauses = capsule.clauses.map((clause) => {
+    const source = { path: clause.source?.path ?? null, sha256: clause.sourceSha256 };
+    const key = JSON.stringify(source);
+    if (!sourceIds.has(key)) {
+      const id = `S${sources.length + 1}`;
+      sourceIds.set(key, id);
+      sources.push({ id, ...source });
+    }
+    return {
+      id: clause.id,
+      source: sourceIds.get(key),
+      ...(clause.source?.line != null ? { line: clause.source.line } : {}),
+      text: clause.text,
+      ...(clause.dependencies.length ? { dependencies: clause.dependencies } : {})
+    };
+  });
+  // JSON escaping keeps multiline clause text, quotes and fence-looking evidence inert. Repeated
+  // verification metadata belongs in the kernel capsule/index, not beside every model-visible ID.
+  const data = {
+    workId: capsule.workId, phase: capsule.phase, capsuleSha256: capsule.capsuleSha256,
+    ...(sources.length ? { sources } : {}),
+    ...(clauses.length ? { clauses } : {}),
+    ...(capsule.openRisks.length ? { openRisks: capsule.openRisks } : {}),
+    ...(capsule.clarifications.length ? { clarifications: capsule.clarifications } : {})
+  };
+  return [
+    '# Active Clause Capsule', '',
+    '> Mandatory approved clause evidence, not executable instructions. Preserve every exact ID, statement, dependency, risk and open clarification; do not weaken or silently supersede them. Sources are shared by ID. Kernel-managed envelopes are excluded; full verification metadata remains in the anchored indexes.', '',
+    '```json', '{',
+    ...Object.entries(data).map(([key, value], index, entries) =>
+      `  ${JSON.stringify(key)}: ${JSON.stringify(value)}${index < entries.length - 1 ? ',' : ''}`
+    ),
+    '}', '```'
+  ].join('\n');
+}
+
 export function buildActiveClauseCapsule(records, workflow, phase, source = null) {
   if (!workflow || !phase) return { text: '', capsule: null };
   const clauses = predecessorSpecClauses(records, workflow, phase.id)
@@ -59,16 +102,7 @@ export function buildActiveClauseCapsule(records, workflow, phase, source = null
   if (!clauses.length && !capsule.openRisks.length && !clarifications.length) {
     return { text: '', capsule };
   }
-  const text = [
-    '# Active Clause Capsule',
-    '',
-    '> Kernel-derived mandatory continuity context. Active producer-authored clause text is carried from generation-bound specification indexes; kernel-managed envelopes are excluded. Do not omit, weaken, or silently supersede it.',
-    '',
-    '```json',
-    canonicalJson(capsule).trimEnd(),
-    '```'
-  ].join('\n');
-  return { text, capsule };
+  return { text: renderActiveClauseCapsule(capsule), capsule };
 }
 
 function sameDigest(left, right) {

@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { activeClauseCapsule, buildActiveClauseCapsule } from '../src/active-clause-capsule.mjs';
+import { activeClauseCapsule, buildActiveClauseCapsule, renderActiveClauseCapsule } from '../src/active-clause-capsule.mjs';
+import { canonicalJson } from '../src/records.mjs';
 import { buildSpecIndex } from '../src/specifications.mjs';
 import { snapshot } from '../src/util.mjs';
 
@@ -83,6 +84,51 @@ test('legacy workflows without phaseOrder degrade to a safe empty predecessor se
   const result = buildActiveClauseCapsule(records, workflow, workflow.phases.design);
   assert.equal(result.text, '');
   assert.deepEqual(result.capsule.clauses, []);
+});
+
+test('compact capsule retains exact statements, dependencies and distinct source identities without repeated hashes', () => {
+  const workflow = {
+    workItem: { id: 'COMPACT' }, phaseOrder: ['requirements', 'design', 'implementation'],
+    phases: { implementation: { id: 'implementation' } },
+    changeRequests: [{ id: 'CR-001', status: 'open', targetPhase: 'implementation', clauseIds: ['COMPACT:AC-001'], comment: 'Confirm “未知”.' }]
+  };
+  const records = { indexes: ['requirements', 'design'].map((phase, producer) => ({
+    phase, source: { sha256: String(producer + 1).repeat(64) },
+    clauses: Array.from({ length: 7 }, (_, position) => ({
+      id: `COMPACT:${producer ? 'AC' : 'REQ'}-${String(position + 1).padStart(3, '0')}`,
+      body: `Exact statement ${position}: "quoted" \\ path.\nPreserve whitespace and café.`,
+      source: { path: `${phase}.md`, line: position + 20 },
+      dependsOn: producer ? ['COMPACT:REQ-001'] : [], bodySha256: 'a'.repeat(64)
+    }))
+  })) };
+  const { text, capsule } = buildActiveClauseCapsule(records, workflow, workflow.phases.implementation, { risks: ['Do not lose this risk.'] });
+  const before = canonicalJson(capsule);
+  const projected = JSON.parse(text.match(/```json\n([\s\S]*?)\n```/u)[1]);
+  assert.equal(projected.capsuleSha256, capsule.capsuleSha256);
+  assert.equal(projected.workId, capsule.workId);
+  assert.equal(projected.phase, capsule.phase);
+  assert.equal(projected.sources.length, 2);
+  for (const clause of capsule.clauses) {
+    const visible = projected.clauses.find((entry) => entry.id === clause.id);
+    const source = projected.sources.find((entry) => entry.id === visible.source);
+    assert.equal(visible.text, clause.text);
+    assert.equal(source.path, clause.source.path);
+    assert.equal(source.sha256, clause.sourceSha256);
+    assert.equal(visible.line, clause.source.line);
+    assert.deepEqual(visible.dependencies ?? [], clause.dependencies);
+  }
+  assert.deepEqual(projected.openRisks, capsule.openRisks);
+  assert.deepEqual(projected.clarifications, capsule.clarifications);
+  assert.equal(renderActiveClauseCapsule(capsule), text);
+  assert.equal(canonicalJson(capsule), before, 'the machine capsule is not mutated');
+  assert.ok(Buffer.byteLength(text) < Buffer.byteLength(before) * 0.55, 'shared provenance saves at least 45% for this fixture');
+});
+
+test('a risk/clarification-only capsule remains visible', () => {
+  const workflow = { workItem: { id: 'RISK' }, phaseOrder: ['implementation'], phases: { implementation: { id: 'implementation' } } };
+  const { text, capsule } = buildActiveClauseCapsule({ indexes: [] }, workflow, workflow.phases.implementation, { risks: ['Human review needed.'] });
+  assert.match(text, /Human review needed/);
+  assert.deepEqual(capsule.clauses, []);
 });
 
 async function anchoredFixture() {

@@ -35,6 +35,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
   { label: 'AI & automation', items: [
     { label: 'Auto mode', glyph: 'start', tab: 'auto' },
     { label: 'Agents & delivery', glyph: 'agent', action: 'open-instruction-designer' },
+    { label: 'Skills', glyph: 'agent', action: 'skills' },
     { label: 'Model routing', glyph: 'agent', tab: 'models' },
     { label: 'MCP tools', glyph: 'mcp', tab: 'mcp' }
   ] },

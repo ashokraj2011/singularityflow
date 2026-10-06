@@ -80,9 +80,10 @@ phase-specific execution contract injected into the authored prompt. For example
 `/sf-submit` is a skill; `implementation.agent.md` can be the active agent.
 
 A skill in the **skill master** is different: a named set of instructions kept once in
-`singularity/skill-library/<id>/SKILL.md`. Any number of agents attach it in their
-`## Attached skills` table, for some of their steps; in those steps its instructions are part
-of the agent's prompt. See `sflow explain skill-master`.
+`singularity/skill-library/<id>/SKILL.md`. Any number of agents attach it, for some of their
+steps: in their own `## Attached skills` table, or for any agent (a seeded workflow's included)
+in `singularity/skill-library/attachments.yml`. In those steps its instructions are part of the
+agent's prompt. See `sflow explain skill-master`.
 
 ### Prompt versus world model
 

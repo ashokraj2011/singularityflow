@@ -522,6 +522,11 @@
         "icon": "$(file-text)"
       },
       {
+        "command": "singularityFlow.openSkills",
+        "title": "Singularity Flow: Skills",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "singularityFlow.configureModels",
         "title": "Singularity Flow: Configure Model Routing",
         "icon": "$(hubot)"

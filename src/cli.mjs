@@ -10818,10 +10818,10 @@ async function workflowCommand(positionals, options) {
     console.log(`Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} to ${absolute}.`);
     console.log(`  Bundle: ${result.bundleSha256 ?? result.sha256}`);
     if (result.summary) {
-      console.log(`  Dependencies: ${result.summary.phases ?? 0} phases, `
-        + `${result.summary.artifactSets ?? 0} artifact sets, ${result.summary.templates ?? 0} templates, `
-        + `${result.summary.agents ?? 0} governed agents.`);
+      console.log(`  Dependencies: ${result.summary.phases ?? 0} phases, ${result.summary.artifactSets ?? 0} artifact sets, `
+        + `${result.summary.templates ?? 0} templates, ${result.summary.agents ?? 0} governed agents.`);
     }
+    for (const note of result.notes ?? []) console.log(`  Note: ${note}`);
     return;
   }
 

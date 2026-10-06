@@ -11,7 +11,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
 import { syncAgent } from './agents.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { librarySkillPath, librarySkillReference, parseLibrarySkill } from './skill-library.mjs';
+import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill } from './skill-library.mjs';
 import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
@@ -278,11 +278,12 @@ async function captureInstalledAgent(root, config, workId, agent) {
  * A skill from the skill master is retained like a required agent skill, under the agent that
  * attaches it: the Story keeps the exact SKILL.md bytes it started with. `availability` only says
  * the skill is required; its reference names the library, which is never fetched. It is read from
- * the configuration the agent file came from.
+ * the configuration the agent file came from. Skills the attachments file attaches are kept the same
+ * way, and the Story policy keeps those attachments (`skillAttachments`).
  */
 async function captureAttachedLibrarySkills(root, config, workId, agent) {
   const assets = []; const dependencies = [];
-  for (const attachment of agent.librarySkills ?? []) {
+  for (const attachment of effectiveLibrarySkills(agent)) {
     const logicalId = `agent:${agent.id}:skill:${attachment.id}`;
     const label = `Skill '${attachment.id}' attached to governed agent '${agent.id}'`;
     const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(attachment.id), { label, type: 'file' });
@@ -1032,6 +1033,9 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   ]);
   const agents = new Map((config.agentCatalog ?? []).map((agent) => [agent.id, agent]));
   const executionDependencies = [];
+  // Skills the attachments file attaches are not in the saved agent text, so the policy keeps
+  // which skills each agent uses and when; the skill bytes are kept under the agent like its own.
+  const skillAttachments = {};
   for (const agentId of [...selectedAgentIds].sort()) {
     const agent = agents.get(agentId);
     if (!agent?.file || !agent?.sha256) {
@@ -1043,7 +1047,14 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
     );
     assets.push(...capturedDependencies.assets);
     executionDependencies.push(...capturedDependencies.dependencies);
+    const own = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
+    const attached = (agent.attachedSkills ?? []).filter((entry) => !own.has(entry.id));
+    if (attached.length) {
+      skillAttachments[agentId] = attached.map((entry) => ({ id: entry.id, phases: [...entry.phases], use: entry.use }));
+    }
   }
+  if (Object.keys(skillAttachments).length) workflow.resolution.skillAttachments = skillAttachments;
+  else delete workflow.resolution.skillAttachments;
   const assetLimit = selectedSkills.length ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS;
   if (assets.length > assetLimit) fail('Workflow snapshot has too many assets.', 'WFA_LIMIT_REACHED');
   const capturedAssetIndex = new Map();

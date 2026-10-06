@@ -9,7 +9,8 @@ import {
 } from './remote-fetch.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import {
-  LIBRARY_SKILL_TABLE, librarySkillReference, normalizeSkillUse, parseLibrarySkill, readLibrarySkill, renderLibrarySkills
+  LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillReference, normalizeSkillUse,
+  parseLibrarySkill, readLibrarySkill, readSkillAttachments, renderLibrarySkills
 } from './skill-library.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -268,6 +269,15 @@ export async function discoverAgents(root) {
       }
     }
   }
+  // Skills the attachments file attaches to an agent, whoever owns the agent. One naming an agent
+  // that is not here is refused when configuration loads (assertAttachedLibrarySkills).
+  for (const attachment of await readSkillAttachments(root)) {
+    const agent = agents.get(attachment.agent);
+    if (agent) {
+      agent.attachedSkills = Object.freeze([...(agent.attachedSkills ?? []),
+        Object.freeze({ id: attachment.id, phases: attachment.phases, use: attachment.use })]);
+    }
+  }
   return [...agents.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -320,6 +330,17 @@ export function validateAgentCatalog(agents, definition) {
             }
           );
         }
+      }
+    }
+    // The attachments file is this repository's own, whoever owns the agent it names.
+    for (const attachment of agent.attachedSkills ?? []) {
+      for (const phase of attachment.phases) {
+        if (!phaseIds.has(phase)) throw new SingularityFlowError(
+          `${SKILL_ATTACHMENTS_PATH} attaches skill '${attachment.id}' to agent '${agent.id}' for unknown step '${phase}'.`, {
+            code: 'AGENT_PHASE_UNKNOWN',
+            details: { agentId: agent.id, phaseId: phase, skillId: attachment.id, source: SKILL_ATTACHMENTS_PATH }
+          }
+        );
       }
     }
     for (const view of agent.worldModelViews) if (!viewIds.has(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
@@ -696,7 +717,7 @@ async function attachedLibrarySkills(root, phase, executionContext, agent, agent
     }
     return { skills, warnings };
   }
-  for (const attachment of agent?.librarySkills ?? []) {
+  for (const attachment of effectiveLibrarySkills(agent)) {
     if (!matches(phase.id, attachment.phases)) continue;
     const skill = await readLibrarySkill(configurationReadRoot(root), attachment.id);
     if (!skill) {

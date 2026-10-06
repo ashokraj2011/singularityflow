@@ -104,6 +104,9 @@ const STUDIO_STYLE = `
 .node-sign{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px}
 .node-sign.none{border-style:dashed;opacity:.75}
 .node-sign.bad{background:var(--sf-bad);border-color:var(--sf-bad);color:var(--vscode-editor-background)}
+.node-skills{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px}
+.seeded-steps{display:flex;flex-direction:column;gap:8px;padding-left:20px}
+.seeded-steps .studio-card{margin-top:6px}
 .node-asks{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px;font-weight:700;color:var(--sf-dim,inherit)}
 .node-after{margin-top:auto;display:flex;align-items:center;gap:4px;min-width:0;padding-top:7px;border-top:1px solid var(--sf-border-color);overflow:hidden}
 .node-after .lane{flex:none;font-family:var(--sf-font-mono,monospace);font-size:9px;letter-spacing:.12em;font-weight:700;color:var(--sf-faint,var(--sf-dim));margin-right:2px}
@@ -805,6 +808,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     copyStepForWorkflow: function () { return copyStepForWorkflow.apply(null, arguments); }, stepSettings: function () { return stepSettings.apply(null, arguments); },
     stepOutput: function () { return stepOutput.apply(null, arguments); }, setStepOutput: function () { return setStepOutput.apply(null, arguments); },
     skillPicker: function () { return skillPicker.apply(null, arguments); }, chooseAuthoringSkill: function () { return chooseAuthoringSkill.apply(null, arguments); },
+    // Skills from the skill master: for one step, or for any agent.
+    stepSkillEntries: function () { return stepSkillEntries.apply(null, arguments); }, attachToStep: function () { return attachToStep.apply(null, arguments); },
+    detachFromStep: function () { return detachFromStep.apply(null, arguments); }, stepSkillForm: function () { return stepSkillForm.apply(null, arguments); },
+    saveStepSkill: function () { return saveStepSkill.apply(null, arguments); }, attachmentHint: function () { return attachmentHint.apply(null, arguments); },
+    skillsView: function () { return skillsView(); }, openSkillForm: function () { return openSkillForm.apply(null, arguments); },
+    saveSkillForm: function () { return saveSkillForm.apply(null, arguments); }, openAttachForm: function () { return openAttachForm.apply(null, arguments); },
+    saveAttach: function () { return saveAttach.apply(null, arguments); }, detachSkill: function () { return detachSkill.apply(null, arguments); },
     authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); },
     addStepAction: function () { return addStepAction.apply(null, arguments); }, setActionTarget: function () { return setActionTarget.apply(null, arguments); },
     setActionTrigger: function () { return setActionTrigger.apply(null, arguments); }, actionLine: function () { return actionLine.apply(null, arguments); },
@@ -2129,6 +2139,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var signText = !group ? 'No sign-off' : blocked ? 'Nobody can approve it yet'
       : minimum + (minimum === 1 ? ' approval' : ' approvals') + ' from ' + group.label + (others > 0 ? ' and ' + others + (others === 1 ? ' other group' : ' other groups') : '');
     var asks = Boolean(phase.clarification && phase.clarification !== 'off');
+    var skills = stepSkillEntries(phase.agent, phaseId);
     var chips = afterChips(workflow, phaseId, node.index);
     var then = chips.map(function (entry) { return entry.title; }).join('; ');
     var decisionChip = chips.find(function (entry) { return entry.tone === 'decision'; });
@@ -2151,6 +2162,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       el('span', { class: 'node-meta' },
         el('span', { class: 'node-agent', title: agent ? agent.label : 'Choose an agent' }, el('span', { class: 'avatar', text: agent ? initials(agent.label) : '?' }), el('span', { class: 'name', text: agent ? agent.label : 'Choose an agent' })),
         asks ? el('span', { class: 'node-asks', title: 'Asks clarifying questions before drafting' }, '?') : null,
+        skills.length ? el('span', { class: 'node-skills', title: 'Skills: ' + skills.map(function (entry) { return skillLabel(entry.id); }).join(', ') }, icon('spark', 11), String(skills.length)) : null,
         el('span', { class: 'node-sign' + (blocked ? ' bad' : group ? '' : ' none'), title: signText }, icon(group ? 'people' : 'right', 11), group ? String(minimum) : 'auto')),
       el('span', { class: 'node-after' }, el('span', { class: 'lane', text: 'THEN' }), chips.map(chip))
     ];
@@ -2840,6 +2852,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         agent ? button('Edit agent', function () { editAgent(agent.id, { returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }) : null,
         button('Create an agent', function () { openAgentForm({ returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }))
     ], null, agent ? agent.label : 'none'));
+
+    var stepSkills = stepSkillEntries(phase.agent, phaseId);
+    aside.appendChild(section('skills', 'Skills', stepSkillsBody(phaseId, phase.agent, 'step-skill-'), null,
+      stepSkills.length ? stepSkills.map(function (entry) { return skillLabel(entry.id); }).join(', ') : 'none', !stepSkills.length));
 
     var group = settings.approval.group ? state.draft.groups[settings.approval.group] : null;
     var earlier = workflow.phases.slice(0, Math.max(0, index));
@@ -4330,6 +4346,98 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return Object.keys(state.draft.agents).filter(function (agentId) { return Boolean(attachmentOf(agentId, skillId)); })
       .sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
   }
+  /** The skills an agent uses in one step: those attached for it, and those for every step it drafts. */
+  function stepSkillEntries(agentId, phaseId) {
+    var agent = agentId ? state.draft.agents[agentId] : null;
+    return agent ? (agent.skills || []).filter(function (entry) { return !entry.phases.length || entry.phases.indexOf(phaseId) >= 0; }) : [];
+  }
+  function attachmentsPath() { return (state.model && state.model.skillAttachmentsPath) || 'singularity/skill-library/attachments.yml'; }
+  /**
+   * Where an agent's skills are written: an agent this repository owns keeps them in its own file;
+   * a packaged agent, or one a seeded workflow uses, in the attachments file, so it is never changed.
+   */
+  function attachmentHint(agentId) {
+    var agent = state.draft.agents[agentId];
+    if (!agent) return null;
+    if (agent.scope === 'repository' && !protectedObject('agents', agentId)) return 'Kept in ' + agent.label + '\'s own agent file.';
+    return agent.label + (protectedObject('agents', agentId) ? ' belongs to a seeded workflow' : ' comes with Singularity Flow') + ', so its skills are kept in ' + attachmentsPath() + ' and the agent itself is not changed.';
+  }
+  /** Use a skill in one more step: added to the steps it applies in, or attached for this step only. */
+  function attachToStep(agentId, skillId, phaseId, use) {
+    var agent = state.draft.agents[agentId];
+    var entry = attachmentOf(agentId, skillId);
+    if (entry) {
+      agent.skills = agent.skills.map(function (item) {
+        if (item.id !== skillId) return item;
+        return Object.assign({}, item, { phases: item.phases.length && item.phases.indexOf(phaseId) < 0 ? item.phases.concat([phaseId]) : item.phases.slice(), use: use || item.use || '' });
+      });
+    } else {
+      agent.skills = (agent.skills || []).concat([{ id: skillId, phases: [phaseId], use: use || '' }]);
+    }
+    setStatus(agent.label + ' uses ' + skillLabel(skillId) + ' in ' + stepLabel(phaseId) + '.');
+    changed();
+  }
+  /** Stop using a skill in one step; it stays in the agent's other steps. */
+  function detachFromStep(agentId, skillId, phaseId) {
+    var agent = state.draft.agents[agentId];
+    var entry = attachmentOf(agentId, skillId);
+    if (!entry) return;
+    if (entry.origin === 'agent' && protectedObject('agents', agentId)) { setStatus(skillLabel(skillId) + ' comes with ' + agent.label + '. Duplicate the workflow to change it.'); return; }
+    var remaining = (entry.phases.length ? entry.phases : agentSteps(agentId)).filter(function (id) { return id !== phaseId; });
+    if (remaining.length) {
+      agent.skills = agent.skills.map(function (item) { return item.id === skillId ? Object.assign({}, item, { phases: remaining }) : item; });
+      setStatus(agent.label + ' no longer uses ' + skillLabel(skillId) + ' in ' + stepLabel(phaseId) + '; it still does in ' + remaining.map(stepLabel).join(', ') + '.');
+    } else {
+      agent.skills = agent.skills.filter(function (item) { return item.id !== skillId; });
+      setStatus(agent.label + ' no longer uses ' + skillLabel(skillId) + '.');
+    }
+    changed();
+  }
+  /** The form for adding a skill to one step; it starts over when another step is shown. */
+  function stepSkillForm(phaseId, agentId) {
+    var view = skillsView();
+    var key = agentId + '/' + phaseId;
+    if (!view.step || view.step.key !== key) view.step = { key: key, skill: '', use: '' };
+    return view.step;
+  }
+  function saveStepSkill(phaseId, agentId) {
+    var form = stepSkillForm(phaseId, agentId);
+    var use = String(form.use || '').replace(/\s+/g, ' ').trim();
+    if (!form.skill) { setStatus('Choose a skill to add.'); return; }
+    if (use.indexOf('|') >= 0) { setStatus('"When to use it" cannot contain "|".'); return; }
+    if (use.length > 300) { setStatus('"When to use it" must be at most 300 characters.'); return; }
+    var skillId = form.skill;
+    skillsView().step = null;
+    attachToStep(agentId, skillId, phaseId, use);
+  }
+  /** A step's skills: those its agent uses in it, with add, write and remove for this step. */
+  function stepSkillsBody(phaseId, agentId, prefix) {
+    var agent = agentId ? state.draft.agents[agentId] : null;
+    if (!agent) return [el('span', { class: 'hint', text: 'Choose the agent that drafts this step first: skills are attached to the agent, for the steps you choose.' })];
+    var entries = stepSkillEntries(agentId, phaseId);
+    var form = stepSkillForm(phaseId, agentId);
+    var available = Object.keys(state.draft.skills || {}).concat(pendingLibrarySkills())
+      .filter(function (id) { return !entries.some(function (entry) { return entry.id === id; }); })
+      .sort(function (a, b) { return skillLabel(a).localeCompare(skillLabel(b)); });
+    return [
+      entries.length ? el('ul', { class: 'change-list', 'aria-label': 'Skills ' + agent.label + ' uses in ' + stepLabel(phaseId) }, entries.map(function (entry) {
+        var others = entry.phases.filter(function (id) { return id !== phaseId; });
+        return el('li', { class: 'studio-row spread' },
+          el('span', { style: 'font-size:12px' }, el('strong', { text: skillLabel(entry.id) }),
+            el('span', { class: 'muted', text: (entry.phases.length ? (others.length ? ' · also in ' + others.map(stepLabel).join(', ') : '') : ' · in every step ' + agent.label + ' drafts') + (entry.use ? ' · ' + entry.use : '') })),
+          button('Remove', function () { detachFromStep(agentId, entry.id, phaseId); }, { class: 'secondary', 'aria-label': 'Remove ' + skillLabel(entry.id) + ' from ' + stepLabel(phaseId) }));
+      })) : el('span', { class: 'hint', text: agent.label + ' uses no skill from the skill master in this step yet.' }),
+      el('div', { class: 'grid-2' },
+        field(prefix + 'choice', 'Add a skill', select(prefix + 'choice', [{ value: '', label: available.length ? 'Choose a skill…' : 'No other skills yet' }]
+          .concat(available.map(function (id) { return { value: id, label: skillLabel(id) }; })).concat([{ value: '__new__', label: 'Write a new skill…' }]), form.skill, function (value) {
+          if (value === '__new__') { openSkillForm(null, { agent: agentId, phase: phaseId, use: form.use }); return; }
+          form.skill = value; render();
+        })),
+        field(prefix + 'use', 'When to use it', textInput(prefix + 'use', form.use, function (value) { form.use = value; }, { placeholder: 'Before you publish' }))),
+      el('div', { class: 'studio-row' }, button('Add to this step', function () { saveStepSkill(phaseId, agentId); }, { class: 'secondary', disabled: !form.skill, 'data-key': prefix + 'add' })),
+      el('span', { class: 'hint', text: attachmentHint(agentId) })
+    ];
+  }
 
   function renderSkills(main) {
     var view = skillsView();
@@ -4368,7 +4476,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return el('ul', { class: 'change-list', 'aria-label': 'Agents that use ' + skillLabel(id) }, users.map(function (agentId) {
       var entry = attachmentOf(agentId, id);
       return el('li', { class: 'studio-row spread' },
-        el('span', { style: 'font-size:12px', text: state.draft.agents[agentId].label + ' · ' + (entry.phases.length ? entry.phases.map(stepLabel).join(', ') : 'every step it drafts') + (entry.use ? ' · ' + entry.use : '') }),
+        el('span', { style: 'font-size:12px', title: entry.origin === 'attachments' ? 'Kept in ' + attachmentsPath() : null, text: state.draft.agents[agentId].label + ' · ' + (entry.phases.length ? entry.phases.map(stepLabel).join(', ') : 'every step it drafts') + (entry.use ? ' · ' + entry.use : '') }),
         el('span', { class: 'studio-row' },
           button('Change', function () { openAttachForm(id, agentId); }, { class: 'secondary', 'aria-label': 'Change how ' + state.draft.agents[agentId].label + ' uses ' + skillLabel(id) }),
           button('Detach', function () { detachSkill(agentId, id); }, { class: 'secondary', 'aria-label': 'Detach ' + skillLabel(id) + ' from ' + state.draft.agents[agentId].label })));
@@ -4387,17 +4495,27 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         button('Delete', function () { askRemoveSkill(id); }, { class: 'secondary', 'aria-label': 'Delete ' + skill.label })));
   }
 
-  function openSkillForm(id) {
+  function openSkillForm(id, attachTo) {
     if (id && protectedObject('skills', id)) { setStatus('Seeded skill: duplicate the workflow before editing its copy.'); return; }
     var skill = id ? state.draft.skills[id] : null;
     var view = skillsView();
-    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '' };
+    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '', attachTo: attachTo || null };
+    if (attachTo) state.returnTo = boardReturn();
     view.attach = null; state.view = 'skills'; render();
+  }
+  /** Back to the step a skill form was opened from. */
+  function closeSkillForm() {
+    var form = skillsView().form;
+    skillsView().form = null;
+    var back = form && form.attachTo ? state.returnTo : null;
+    if (back) { state.returnTo = null; state.view = 'board'; state.workflow = back.workflow; state.step = back.step; }
+    render();
   }
 
   function renderSkillForm(form) {
     var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'Create a skill' : 'Edit skill' });
     card.appendChild(el('h2', { text: form.mode === 'create' ? 'Create a skill' : 'Edit ' + form.label }));
+    if (form.attachTo && state.draft.agents[form.attachTo.agent]) card.appendChild(el('p', { class: 'muted', text: 'Added to ' + stepLabel(form.attachTo.phase) + ', for ' + state.draft.agents[form.attachTo.agent].label + ', when you add it to your changes.' }));
     var id = form.mode === 'create' ? kebab(form.label) : form.id;
     card.appendChild(el('div', { class: 'grid-2' },
       field('skill-name', 'Name', textInput('skill-name', form.label, function (value) { form.label = value; requestRender(); }, { placeholder: 'Security review' }),
@@ -4407,7 +4525,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       'What the agent does when it uses this skill, step by step. Markdown.'));
     card.appendChild(el('div', { class: 'studio-row' },
       button(form.mode === 'create' ? 'Add skill to changes' : 'Keep changes', function () { saveSkillForm(); }, { class: 'primary' }),
-      button('Cancel', function () { skillsView().form = null; render(); }, { class: 'secondary' })));
+      button('Cancel', function () { closeSkillForm(); }, { class: 'secondary' })));
     return card;
   }
 
@@ -4423,6 +4541,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (!instructions) { setStatus('Write the instructions the agent follows.'); return; }
     var existing = state.draft.skills[id];
     state.draft.skills[id] = { id: id, label: label, description: description, instructions: instructions, isNew: existing ? existing.isNew : true };
+    var attachTo = form.attachTo && state.draft.agents[form.attachTo.agent] ? form.attachTo : null;
+    if (attachTo) {
+      var back = state.returnTo;
+      skillsView().form = null; skillsView().step = null;
+      if (back) { state.returnTo = null; state.view = 'board'; state.workflow = back.workflow; state.step = back.step; }
+      attachToStep(attachTo.agent, id, attachTo.phase, String(attachTo.use || '').replace(/\s+/g, ' ').trim());
+      return;
+    }
     skillsView().form = null;
     setStatus(form.mode === 'create' ? 'Skill ' + label + ' added to your changes.' : 'Skill ' + label + ' changed.');
     changed();
@@ -4442,7 +4568,6 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function openAttachForm(skillId, agentId) {
-    if (agentId && protectedObject('agents', agentId)) { setStatus('Seeded agent: duplicate the workflow before changing its skills.'); return; }
     var view = skillsView();
     var existing = skillId && agentId ? attachmentOf(agentId, skillId) : null;
     view.attach = { skill: skillId || '', agent: agentId || '', phases: existing ? existing.phases.slice() : [], use: existing ? existing.use || '' : '' };
@@ -4453,7 +4578,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var card = el('section', { class: 'studio-card', 'aria-label': 'Attach a skill' });
     card.appendChild(el('h2', { text: 'Attach a skill to an agent' }));
     var skills = Object.keys(state.draft.skills || {}).sort(function (a, b) { return skillLabel(a).localeCompare(skillLabel(b)); }).concat(pendingLibrarySkills());
-    var agents = Object.keys(state.draft.agents).filter(function (id) { return !protectedObject('agents', id); }).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
+    var agents = Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
     var reset = function () { var existing = form.skill && form.agent ? attachmentOf(form.agent, form.skill) : null; form.phases = existing ? existing.phases.slice() : []; form.use = existing ? existing.use || '' : ''; };
     card.appendChild(el('div', { class: 'grid-2' },
       field('attach-skill', 'Skill', select('attach-skill', [{ value: '', label: 'Choose a skill' }].concat(skills.map(function (id) { return { value: id, label: skillLabel(id) }; })), form.skill, function (value) { form.skill = value; reset(); render(); })),
@@ -4465,6 +4590,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }
     card.appendChild(field('attach-use', 'When to use it', textInput('attach-use', form.use, function (value) { form.use = value; }, { placeholder: 'After you write the code, before you publish it' }),
       'Added to the prompt with the skill, so the agent knows when to carry it out. Leave it empty for whenever the step needs it.'));
+    if (form.agent) card.appendChild(el('span', { class: 'hint', text: attachmentHint(form.agent) }));
     card.appendChild(el('div', { class: 'studio-row' },
       button('Attach', function () { saveAttach(); }, { class: 'primary' }),
       button('Cancel', function () { skillsView().attach = null; render(); }, { class: 'secondary' })));
@@ -4475,19 +4601,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var form = skillsView().attach;
     if (!form.skill) { setStatus('Choose a skill.'); return; }
     if (!form.agent) { setStatus('Choose the agent that uses it.'); return; }
-    if (protectedObject('agents', form.agent)) { setStatus('Duplicate the seeded workflow before changing its agent skills.'); return; }
+    var current = attachmentOf(form.agent, form.skill);
+    if (current && current.origin === 'agent' && protectedObject('agents', form.agent)) { setStatus(skillLabel(form.skill) + ' comes with ' + state.draft.agents[form.agent].label + '. Duplicate the workflow to change it.'); return; }
     var use = String(form.use || '').replace(/\s+/g, ' ').trim();
     if (use.indexOf('|') >= 0) { setStatus('"When to use it" cannot contain "|".'); return; }
     if (use.length > 300) { setStatus('"When to use it" must be at most 300 characters.'); return; }
     var agent = state.draft.agents[form.agent];
-    agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== form.skill; }).concat([{ id: form.skill, phases: form.phases.slice(), use: use }]);
+    agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== form.skill; }).concat([{ id: form.skill, phases: form.phases.slice(), use: use, origin: current ? current.origin : undefined }]);
     skillsView().attach = null;
     setStatus(agent.label + ' uses ' + skillLabel(form.skill) + '.');
     changed();
   }
 
   function detachSkill(agentId, skillId) {
-    if (protectedObject('agents', agentId)) { setStatus('Duplicate the seeded workflow before changing its agent skills.'); return; }
+    var entry = attachmentOf(agentId, skillId);
+    if (entry && entry.origin === 'agent' && protectedObject('agents', agentId)) { setStatus(skillLabel(skillId) + ' comes with ' + state.draft.agents[agentId].label + '. Duplicate the workflow to change it.'); return; }
     var agent = state.draft.agents[agentId];
     agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== skillId; });
     setStatus(agent.label + ' no longer uses ' + skillLabel(skillId) + '.');
@@ -4694,12 +4822,22 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
   function renderSeededWorkflow(main, workflow, governs) {
     main.appendChild(el('header', null, el('h1', { text: workflow.label }),
-      el('p', { class: 'studio-lede', text: 'Seeded workflow · read-only. Duplicate it to customize steps, agents, skills and templates without changing the framework workflow.' })));
+      el('p', { class: 'studio-lede', text: 'Seeded workflow · read-only. Its steps can still use skills from the skill master: they are kept in ' + attachmentsPath() + ', so the framework workflow and its agents stay as they shipped. Duplicate it to customize steps, agents and templates.' })));
     main.appendChild(el('div', { class: 'studio-row' },
       button('← Workflows', function () { state.view = 'home'; render(); }, { class: 'secondary' }),
       button('Duplicate and customize', function () { duplicateWorkflow(governs + ':' + workflow.id); }, { class: 'primary' })));
-    main.appendChild(el('ol', null, workflow.phases.map(function (id) { var phase = governs === 'story' ? state.draft.phases[id] : state.draft.epics.steps[id];
-      return el('li', null, el('strong', { text: phase ? phase.label : id }), el('span', { class: 'muted', text: phase && phase.agent ? ' · ' + phase.agent : '' })); })));
+    main.appendChild(el('ol', { class: 'seeded-steps' }, workflow.phases.map(function (id) {
+      var phase = governs === 'story' ? state.draft.phases[id] : state.draft.epics.steps[id];
+      var agent = phase && phase.agent ? state.draft.agents[phase.agent] : null;
+      if (governs !== 'story' || !agent) return el('li', null, el('strong', { text: phase ? phase.label : id }), el('span', { class: 'muted', text: phase && phase.agent ? ' · ' + phase.agent : '' }));
+      var skills = stepSkillEntries(phase.agent, id);
+      var open = state.seededSkills === id;
+      return el('li', null,
+        el('div', { class: 'studio-row spread' },
+          el('span', null, el('strong', { text: phase.label }), el('span', { class: 'muted', text: ' · ' + agent.label + (skills.length ? ' · skills: ' + skills.map(function (entry) { return skillLabel(entry.id); }).join(', ') : '') })),
+          button(open ? 'Done' : 'Skills', function () { state.seededSkills = open ? null : id; state.step = id; render(); }, { class: 'secondary', 'aria-expanded': open ? 'true' : 'false', 'aria-label': 'Skills for ' + phase.label, 'data-key': 'seeded-skills-' + id })),
+        open ? el('div', { class: 'studio-card', 'aria-label': 'Skills for ' + phase.label }, stepSkillsBody(id, phase.agent, 'seeded-skill-' + id + '-')) : null);
+    })));
   }
   /** Open a governed file in an editor: the workflow file, or a template under the templates folder. */
   function openFile(relative) { post({ type: 'studio.openFile', path: relative }); }
@@ -4834,7 +4972,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
             : 'The configuration already has everything in that bundle; nothing changed.');
       render();
     } else if (message.type === 'studio.focus') {
-      if (['home', 'agents', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
+      if (['home', 'agents', 'skills', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {

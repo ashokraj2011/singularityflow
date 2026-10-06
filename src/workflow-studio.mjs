@@ -21,7 +21,8 @@ import YAML from 'yaml';
 import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
-  librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, withoutAttachedSkills
+  SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
+  parseLibrarySkill, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
 } from './skill-library.mjs';
 import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
@@ -324,6 +325,23 @@ function groupStatus(group, security) {
   return security.autoEnrollNewIdentities ? 'auto' : 'blocked';
 }
 
+/**
+ * The skills an agent uses, each with the steps it applies in, when to use it, and where it is
+ * attached: `agent` (the agent's own table) or `attachments` (the attachments file).
+ */
+function skillUses(agent) {
+  const own = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
+  return effectiveLibrarySkills(agent).map((entry) => ({
+    id: entry.id, phases: [...entry.phases], use: entry.use, origin: own.has(entry.id) ? 'agent' : 'attachments'
+  }));
+}
+
+/** The skills the agent drafting a step uses in it. */
+function stepSkills(agent, phaseId) {
+  return agent ? skillUses(agent).filter((entry) => !entry.phases.length || entry.phases.includes(phaseId))
+    .map(({ id, use, origin }) => ({ id, use, origin })) : [];
+}
+
 function agentView(agent) {
   return {
     id: agent.id, label: agent.label ?? agent.id, description: agent.description ?? '',
@@ -332,7 +350,7 @@ function agentView(agent) {
     path: agent.scope === 'repository' ? agent.source : null,
     // The skill master edits the Attached skills table, so the instructions shown leave it out.
     instructions: withoutAttachedSkills(agent.prompt ?? '').trim(),
-    skills: (agent.librarySkills ?? []).map((entry) => ({ id: entry.id, phases: [...entry.phases], use: entry.use })),
+    skills: skillUses(agent),
     // Skills, templates and generated sources the agent's tables name, for the Library and its card.
     resources: (agent.dependencies ?? []).map((dependency) => ({
       id: dependency.id, type: dependency.type, url: dependency.url, optional: dependency.optional === true,
@@ -356,6 +374,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   catch (error) { problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: error.message }); }
   const discovered = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
   const library = await loadSkillLibrary(configRoot);
+  const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
   const security = normalizeApprovalSecurity(raw.approvalSecurity ?? {});
   const starter = await packagedDefinition();
   const bundled = await bundledAgents();
@@ -399,6 +418,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
           authoringSkillSource: route.authoringSkillSource,
           afterStep: (phase.afterStep ?? []).map((action) => ({ id: action.id, on: [...(action.on ?? [])], target: action.target, send: action.send ?? 'event', ...(action.required === true ? { required: true } : {}) })),
+          skills: stepSkills(discovered.find((agent) => agent.id === (phase.defaultAgent ?? defaultAgentOf(phase.id))), phase.id),
           afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
@@ -419,6 +439,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     base: {
       workflowSha256: sha256(definitionText),
       agentsSha256: agentsSha256(discovered),
+      attachmentsSha256: sha256(attachmentsText ?? ''),
       ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {})
     },
     problems,
@@ -465,10 +486,11 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
     skills: [...library.skills.values()].map((skill) => ({
       id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, path: skill.path,
-      usedBy: discovered.flatMap((agent) => (agent.librarySkills ?? []).filter((entry) => entry.id === skill.id)
-        .map((entry) => ({ agent: agent.id, phases: [...entry.phases], use: entry.use })))
+      usedBy: discovered.flatMap((agent) => skillUses(agent).filter((entry) => entry.id === skill.id)
+        .map((entry) => ({ agent: agent.id, phases: entry.phases, use: entry.use, origin: entry.origin })))
     })),
     skillProblems: library.problems,
+    skillAttachmentsPath: SKILL_ATTACHMENTS_PATH,
     mcpSources: await importableMcpServers(root).catch(() => []),
     blueprintPhases: Object.fromEntries(Object.entries(starter.phases).filter(([id]) => !phases[id]).map(([id, phase]) => {
       const approval = approvalSummary(phase.approval);
@@ -661,6 +683,11 @@ class StudioCandidate {
     // The skill master: skills by ID, and the SKILL.md files this change set writes (null removes one).
     this.skills = new Map(sources.library?.skills ?? []);
     this.skillFiles = new Map();
+    // Skills attached in the attachments file, and the agents a framework workflow keeps read-only:
+    // a skill attaches to those there, so the agent and its workflow stay as they shipped.
+    this.attachments = [...(sources.attachments ?? [])];
+    this.attachmentsChanged = false;
+    this.protectedAgents = new Set(sources.protectedAgents ?? []);
     // Skills changed by this change set, by the index of their summary line (see finalize).
     this.updatedSkills = new Map();
     // Steps the change set creates, and the step each copy among them copies (copy ID -> step ID).
@@ -866,6 +893,29 @@ class StudioCandidate {
     return parseAttachedSkills(this.agentBody(agent), agent.relative ?? agent.id);
   }
 
+  /** The attachments-file entry attaching a skill to an agent, or null. */
+  fileAttachment(agentId, skillId) {
+    return this.attachments.find((entry) => entry.agent === agentId && entry.id === skillId) ?? null;
+  }
+
+  usesSkill(agent, skillId) {
+    return Boolean(this.fileAttachment(agent.id, skillId)) || this.attachedSkills(agent).some((entry) => entry.id === skillId);
+  }
+
+  /**
+   * Whether a new attachment goes in the agent's own table: only for an agent the repository owns
+   * outright. A framework agent, or one a framework workflow uses, is attached skills in the
+   * attachments file, so it is never copied or changed.
+   */
+  attachesInTable(agent) {
+    return agent.scope === 'repository' && !this.protectedAgents.has(agent.id);
+  }
+
+  setFileAttachments(entries) {
+    this.attachments = entries;
+    this.attachmentsChanged = true;
+  }
+
   writeSkill(skillId, { label, description, instructions }) {
     const text = librarySkillText({ id: skillId, label, description, instructions });
     const skill = parseLibrarySkill(text, { id: skillId });
@@ -900,6 +950,11 @@ class StudioCandidate {
       agent.body = this.withoutSkill(agent, skill.id);
       detached.push(agent.label);
     }
+    const kept = this.attachments.filter((entry) => entry.id !== skill.id);
+    if (kept.length !== this.attachments.length) {
+      for (const entry of this.attachments) if (entry.id === skill.id && !detached.includes(this.agentLabel(entry.agent))) detached.push(this.agentLabel(entry.agent));
+      this.setFileAttachments(kept);
+    }
     this.skills.delete(skill.id);
     this.skillFiles.set(librarySkillPath(skill.id), null);
     this.forgetImport(`library-skill:${skill.id}`);
@@ -908,11 +963,21 @@ class StudioCandidate {
 
   attachSkill({ skill: skillId, agent: agentId, phases = [], use = '' }) {
     const skill = this.requireSkill(skillId);
-    const agent = this.touch(this.requireAgent(requireId(agentId, 'An agent ID')));
+    const agent = this.requireAgent(requireId(agentId, 'An agent ID'));
     const steps = this.requirePhases(phases);
     const when = normalizeSkillUse(use);
-    agent.body = upsertAgentTableRow(this.agentBody(agent), 'library',
-      [skill.id, steps.join(', ') || '*', when || '-'], { replace: true });
+    const inFile = Boolean(this.fileAttachment(agent.id, skill.id));
+    const inTable = this.attachedSkills(agent).some((entry) => entry.id === skill.id);
+    if (inFile || (!inTable && !this.attachesInTable(agent))) {
+      // Where it already is, or the attachments file for an agent the repository does not own.
+      this.setFileAttachments([
+        ...this.attachments.filter((entry) => !(entry.agent === agent.id && entry.id === skill.id)),
+        Object.freeze({ agent: agent.id, id: skill.id, phases: Object.freeze(steps), use: when })
+      ]);
+    } else {
+      this.touch(agent).body = upsertAgentTableRow(this.agentBody(agent), 'library',
+        [skill.id, steps.join(', ') || '*', when || '-'], { replace: true });
+    }
     this.summary.push(`${agent.label} uses skill ${skill.label}${steps.length ? ` in ${steps.map((step) => this.phaseLabel(step)).join(', ')}` : ' in every step it drafts'}${when ? `: ${when}` : ''}.`);
   }
 
@@ -926,6 +991,11 @@ class StudioCandidate {
   detachSkill({ skill: skillId, agent: agentId }) {
     const id = requireId(skillId, 'A skill ID');
     const agent = this.requireAgent(requireId(agentId, 'An agent ID'));
+    if (this.fileAttachment(agent.id, id)) {
+      this.setFileAttachments(this.attachments.filter((entry) => !(entry.agent === agent.id && entry.id === id)));
+      this.summary.push(`${agent.label} no longer uses skill ${this.skills.get(id)?.label ?? id}.`);
+      return;
+    }
     const body = this.withoutSkill(agent, id);
     if (body == null) throw new SingularityFlowError(`${agent.label} does not use skill '${id}'.`, { code: 'STUDIO_SKILL_NOT_ATTACHED' });
     this.touch(agent).body = body;
@@ -1618,6 +1688,9 @@ class StudioCandidate {
         this.agents.delete(agent.id);
         this.removedAgents.add(agent.relative);
         if (this.lock.agents?.[agent.id]) { delete this.lock.agents[agent.id]; this.lockChanged = true; }
+        if (this.attachments.some((attachment) => attachment.agent === agent.id)) {
+          this.setFileAttachments(this.attachments.filter((attachment) => attachment.agent !== agent.id));
+        }
       }
       this.summary.push(`Agent ${agent?.label ?? target.id} removed.`);
     } else if (entry.kind === 'mcp-server') {
@@ -2307,7 +2380,7 @@ class StudioCandidate {
     this.rewireCopies();
     for (const [skillId, index] of this.updatedSkills) {
       const skill = this.skills.get(skillId);
-      const users = skill ? [...this.agents.values()].filter((agent) => this.attachedSkills(agent).some((entry) => entry.id === skillId)) : [];
+      const users = skill ? [...this.agents.values()].filter((agent) => this.usesSkill(agent, skillId)) : [];
       if (users.length) this.summary[index] = `Skill ${skill.label} updated; ${users.map((agent) => agent.label).join(', ')} use${users.length === 1 ? 's' : ''} the new text in Stories started from now on.`;
     }
     for (const [workflowId, { newlyCreated }] of this.workflows) {
@@ -2363,6 +2436,9 @@ class StudioCandidate {
       const before = await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null);
       if (text == null && before == null) continue;
       files.push({ path: relative, before, after: text });
+    }
+    if (this.attachmentsChanged) {
+      files.push({ path: SKILL_ATTACHMENTS_PATH, before: this.sources.attachmentsText, after: skillAttachmentsText(this.attachments) });
     }
     for (const [relative, bytes] of this.vendored) {
       const before = await readFile(path.join(this.sources.configRoot, relative)).catch(() => null);
@@ -2544,6 +2620,7 @@ async function loadSources(root, options = {}) {
   const ledgerText = await readFile(path.join(configRoot, IMPORTS_LOCK_PATH), 'utf8').catch(() => null);
   const agentLockText = await readFile(path.join(configRoot, AGENT_LOCK_PATH), 'utf8').catch(() => null);
   const agentLock = agentLockText ? YAML.parse(agentLockText) : { version: 1, agents: {} };
+  const portfolioText = await readFile(path.join(configRoot, PORTFOLIO_PATH), 'utf8').catch(() => null);
   if (agentLock?.version !== 1 || !agentLock.agents || typeof agentLock.agents !== 'object') {
     throw new SingularityFlowError(`${AGENT_LOCK_PATH} is invalid.`, { code: 'AGENT_LOCK_INVALID' });
   }
@@ -2556,7 +2633,10 @@ async function loadSources(root, options = {}) {
     templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),
     starter: await packagedDefinition(),
     portfolio: await loadPortfolio(root, { required: false }).catch(() => null),
-    portfolioText: await readFile(path.join(configRoot, PORTFOLIO_PATH), 'utf8').catch(() => null)
+    portfolioText,
+    attachments: await readSkillAttachments(root),
+    attachmentsText: await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null),
+    protectedAgents: (await seededWorkflowProtection(raw, portfolioText ? YAML.parse(portfolioText) ?? {} : {}, agents)).agents
   };
 }
 
@@ -2600,6 +2680,13 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (expectedAgents && expectedAgents !== actualAgents) {
     throw new SingularityFlowError('The agent configuration changed since Workflow Studio loaded it. Reload the Studio, review the newer agents, and apply your changes again.', {
       code: 'STUDIO_BASE_CHANGED', details: { expected: expectedAgents, actual: actualAgents }
+    });
+  }
+  const expectedAttachments = changeSet.base?.attachmentsSha256;
+  const actualAttachments = sha256(sources.attachmentsText ?? '');
+  if (expectedAttachments && expectedAttachments !== actualAttachments) {
+    throw new SingularityFlowError('The skill attachments changed since Workflow Studio loaded them. Reload the Studio, review the newer attachments, and apply your changes again.', {
+      code: 'STUDIO_BASE_CHANGED', details: { expected: expectedAttachments, actual: actualAttachments }
     });
   }
   const changes = orderChanges(changeSet.changes);
@@ -2693,8 +2780,9 @@ async function validateStudioCandidate(sources, files) {
     { beforeAgents: sources.agents, afterAgents: [...afterAgents.values()], files });
   const { validateConfigurationCandidates } = await import('./editor.mjs');
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
-  await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null)
-    .map((file) => ({ path: file.path, content: asText(file.after) })), definition, sources.portfolio);
+  // A removed file stays in the copy validation reads, so the attachments file is checked empty.
+  await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null || file.path === SKILL_ATTACHMENTS_PATH)
+    .map((file) => ({ path: file.path, content: file.after == null ? 'attachments: []\n' : asText(file.after) })), definition, sources.portfolio);
 }
 
 export function readStudioChangeSet(text) {

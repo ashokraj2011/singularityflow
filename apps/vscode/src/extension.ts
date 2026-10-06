@@ -925,7 +925,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureTests', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
     'singularityFlow.buildWorldModel', 'singularityFlow.rebuildWorldModel', 'singularityFlow.configureAstIntelligence',
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
-    'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
+    'singularityFlow.configureTemplates', 'singularityFlow.openSkills', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
   ];
@@ -7201,6 +7201,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
     else if (message.action === 'models') { await openConfigurationCenter('models'); return null; }
     else if (message.action === 'templates') { await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'artifacts' }); return null; }
+    else if (message.action === 'skills') { await vscode.commands.executeCommand('singularityFlow.openSkills'); return null; }
     // Absorbed from the Configuration sidebar section, which now only leads here.
     else if (message.action === 'publish-configuration') await vscode.commands.executeCommand('singularityFlow.publishConfiguration');
     else if (message.action === 'reset-jira') await vscode.commands.executeCommand('singularityFlow.resetJira');
@@ -7541,13 +7542,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     command.push('--out', target.fsPath, '--json');
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
     try {
-      await vscode.window.withProgress({
+      const result = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
         title: `Exporting ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'}`,
         cancellable: false
-      }, () => client.run(command));
+      }, () => client.run<{ notes?: unknown }>(command));
+      // Skills attached in the attachments file stay behind; the export says which.
+      const notes = Array.isArray(result?.notes) ? result.notes.filter((note): note is string => typeof note === 'string') : [];
       void vscode.window.showInformationMessage(
-        `Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} and their dependencies to ${target.fsPath}.`
+        `Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} and their dependencies to ${target.fsPath}.${notes.length ? ` ${notes.join(' ')}` : ''}`
       );
       return null;
     } catch (error) {
@@ -8436,6 +8439,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // palette is the only route into a tab that does not start at the Center's overview.
     // Templates are designed in Workflow Studio's Artifacts; instructions in the Agent Designer.
     'singularityFlow.configureTemplates': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'artifacts' }),
+    // The skill master: write skills and attach them to any agent, for the steps they are for.
+    'singularityFlow.openSkills': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'skills' }),
     'singularityFlow.configureModels': () => openConfigurationCenter('models'),
     'singularityFlow.openWorkspaceLogs': async () => {
       const { WorkspaceLogsPanel } = lazyPanels();

@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 3
+version: 4
 ---
 Phase activation selects a governed agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -25,8 +25,9 @@ budgets, and audit receipt. A repository may govern a concrete model in
 both are recorded and fail closed if the provider substitutes another model.
 
 An agent can attach skills from the skill master, each for some of its steps and with a line on
-when to use it; in those steps the skills' instructions are part of its prompt
-(`sflow explain skill-master`).
+when to use it; in those steps the skills' instructions are part of its prompt. Any agent, a
+seeded workflow's included, can be attached skills in `singularity/skill-library/attachments.yml`
+without changing the agent (`sflow explain skill-master`).
 
 ## Purpose and prerequisites
 

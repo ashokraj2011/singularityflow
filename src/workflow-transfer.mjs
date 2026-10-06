@@ -31,14 +31,16 @@ import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
 import {
-  AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference,
+  AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
   portableVendoredPath, validateAgentCatalog
 } from './agents.mjs';
 import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
 import { mcpDescriptorPath } from './mcp-descriptor.mjs';
-import { librarySkillPath, loadSkillLibrary, parseLibrarySkill } from './skill-library.mjs';
+import {
+  LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, librarySkillPath, loadSkillLibrary, parseLibrarySkill, readSkillAttachments
+} from './skill-library.mjs';
 import {
   CATALOG_SUBJECTS, RESOLVE_ALL_CHOICES, catalogSubjectKind, nameCandidates, normalizeResolutions, parseSubject,
   pickResolution, renameBundleSubjects, renameRefusal, subjectChoices, subjectNoun, suggestedAction,
@@ -1631,8 +1633,23 @@ export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
   return {
     schemaVersion: 1, resultType: 'workflow-export', status: 'exported', outputPath: target,
     bundleSha256: bundle.bundleSha256, workflows: bundle.workflows,
-    summary: summarizeBundle(bundle), dependencies: dependencyInventory(bundle)
+    summary: summarizeBundle(bundle), dependencies: dependencyInventory(bundle),
+    notes: await uncarriedAttachmentNotes(root, bundle)
   };
+}
+
+/**
+ * A bundle carries the skills its agents attach in their own files. Skills the attachments file
+ * attaches to an agent drafting an exported step stay behind, so the export says which.
+ */
+async function uncarriedAttachmentNotes(root, bundle) {
+  const attachments = await readSkillAttachments(root);
+  if (!attachments.length) return [];
+  const phases = new Set([...Object.keys(bundle.objects.story.phases), ...Object.keys(bundle.objects.initiative.initiativePhases)]);
+  const agents = new Set((await discoverAgents(root)).filter((agent) => agent.defaultFor.some((id) => phases.has(id))).map((agent) => agent.id));
+  for (const asset of bundle.assets) if (asset.kind === 'agent') agents.add(asset.id);
+  const left = attachments.filter((entry) => agents.has(entry.agent));
+  return left.length ? [`${SKILL_ATTACHMENTS_PATH} attaches ${left.map((entry) => `${entry.id} to ${entry.agent}`).join(', ')}. The bundle does not carry those attachments, or a skill only they use; attach them again where it is imported.`] : [];
 }
 
 export async function readWorkflowBundle(filePath) {
@@ -2633,6 +2650,7 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
         };
       }
     }
+    await carryFileAttachments(root, closure);
     await resealBundle(closure);
     const choices = { ...normalizeResolutions(resolutions),
       [`${located.governs === 'story' ? 'workflow' : 'initiative-workflow'}:${source}`]: { action: 'rename', to: target } };
@@ -2696,6 +2714,52 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
     destination, operation: 'copy', input: { sourceId, targetId, label }, planSha256: result.planSha256
   });
   return result;
+}
+
+/** The agent text with rows added to its `## Attached skills` table, which is made when it has none. */
+function withAttachedSkillRows(text, rows) {
+  const lines = text.replace(/\s+$/, '').split(/\r?\n/);
+  const at = lines.findIndex((line) => line.trim().toLowerCase() === `## ${LIBRARY_SKILL_TABLE.heading}`.toLowerCase());
+  const cells = rows.map((row) => `| ${row.join(' | ')} |`);
+  if (at < 0) {
+    return `${[...lines, '', `## ${LIBRARY_SKILL_TABLE.heading}`, '', `| ${LIBRARY_SKILL_TABLE.columns.join(' | ')} |`,
+      `|${LIBRARY_SKILL_TABLE.columns.map(() => '---').join('|')}|`, ...cells].join('\n')}\n`;
+  }
+  let end = at + 1;
+  while (end < lines.length && !lines[end].trim()) end += 1;
+  while (end < lines.length && lines[end].trim().startsWith('|')) end += 1;
+  lines.splice(end, 0, ...cells);
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * An independent copy takes along the skills the attachments file attaches to the agents it
+ * copies. The copies are this repository's own agents, so each skill is written into its copy's own
+ * table and carried, and the import renames the skill and its steps with everything else; the
+ * attachments file keeps naming the originals.
+ */
+async function carryFileAttachments(root, closure) {
+  const attachments = await readSkillAttachments(root);
+  if (!attachments.length) return;
+  const carried = new Set(closure.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id));
+  for (const asset of closure.assets.filter((candidate) => candidate.kind === 'agent')) {
+    const own = new Set(parseAttachedSkills(asset.content, asset.path).map((entry) => entry.id));
+    const extra = attachments.filter((entry) => entry.agent === asset.id && !own.has(entry.id));
+    if (!extra.length) continue;
+    asset.content = withAttachedSkillRows(asset.content, extra.map((entry) => [entry.id, entry.phases.join(', ') || '*', entry.use || '-']));
+    for (const entry of extra.filter((candidate) => !carried.has(candidate.id))) {
+      const relative = librarySkillPath(entry.id);
+      const secured = await secureRepositoryPath(configurationReadRoot(root), relative, { label: `Skill '${entry.id}'`, type: 'file' });
+      if (!secured.exists) fail(`${SKILL_ATTACHMENTS_PATH} attaches skill '${entry.id}', which is not in the skill master.`, 'WORKFLOW_DEPENDENCY_MISSING');
+      const content = await readFile(secured.absolute, 'utf8');
+      parseLibrarySkill(content, { id: entry.id });
+      closure.assets.push({
+        kind: 'skill', id: entry.id, path: relative, mediaType: 'text/markdown; charset=utf-8',
+        size: Buffer.byteLength(content, 'utf8'), sha256: digest(content), content
+      });
+      carried.add(entry.id);
+    }
+  }
 }
 
 export async function copyWorkflow(root, {

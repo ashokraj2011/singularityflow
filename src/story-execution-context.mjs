@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { parseAgentDependencies } from './agents.mjs';
+import { effectiveLibrarySkills } from './skill-library.mjs';
 import {
   hasRetainedWorkflowSnapshotDraft, verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
@@ -142,9 +143,10 @@ function dependenciesForAgent(closure, agentId, parsed) {
       { agentId, dependencyId: declaration.id, snapshotHash: closure.snapshotHash }
     );
   }
-  // Skills from the skill master that the saved agent attaches, retained under it when the Story
-  // started. One the snapshot did not keep (an older version took it) is not part of this Story.
-  for (const attachment of parsed.librarySkills ?? []) {
+  // Skills from the skill master that the saved agent or the saved attachments attach, retained
+  // under it when the Story started. One the snapshot did not keep (an older version took it) is
+  // not part of this Story.
+  for (const attachment of effectiveLibrarySkills(parsed)) {
     const key = `skill:${attachment.id}`;
     const record = byDeclaration.get(key);
     const common = { id: attachment.id, kind: 'skill', source: 'library', phases: [...attachment.phases], use: attachment.use };
@@ -164,6 +166,19 @@ function dependenciesForAgent(closure, agentId, parsed) {
     });
   }
   return dependencies.sort((left, right) => compareText(left.logicalId, right.logicalId));
+}
+
+/** The skills the Story policy keeps as attached to a saved agent by the attachments file. */
+function pinnedAttachedSkills(closure, agentId) {
+  const entries = closure.policy?.skillAttachments?.[agentId];
+  if (entries == null) return null;
+  const id = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  if (!Array.isArray(entries) || entries.some((entry) => !entry || !id.test(String(entry.id ?? ''))
+      || !Array.isArray(entry.phases) || entry.phases.some((phase) => !id.test(String(phase)))
+      || typeof (entry.use ?? '') !== 'string')) {
+    fail(`Saved skill attachments of governed agent '${agentId}' are invalid.`, 'WFA_SNAPSHOT_INVALID');
+  }
+  return entries.map((entry) => ({ id: entry.id, phases: [...entry.phases], use: entry.use ?? '' }));
 }
 
 function parsedSnapshotAgents(closure) {
@@ -192,8 +207,10 @@ function parsedSnapshotAgents(closure) {
         { agentId, parserProfile }
       );
     }
+    const attachedSkills = pinnedAttachedSkills(closure, agentId);
     agents[agentId] = {
       ...parsed,
+      ...(attachedSkills ? { attachedSkills } : {}),
       scope: 'workflow-snapshot', source: logicalId, file: null, text,
       sha256: hash(asset.blob.sha256, `Saved governed agent '${agentId}'`).slice(7)
     };

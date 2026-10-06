@@ -21,7 +21,8 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { parseAgentDependencies, renderAgentSkills } from '../src/agents.mjs';
 import {
-  defaultSkillLabel, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, withoutAttachedSkills
+  defaultSkillLabel, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, parseSkillAttachments,
+  skillAttachmentsText, withoutAttachedSkills
 } from '../src/skill-library.mjs';
 import { readStagedImport, stageImport } from '../src/asset-import.mjs';
 import { buildStudioModel, planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
@@ -336,12 +337,13 @@ test('Workflow Studio keeps the skill master: one skill, attached to several age
   assert.deepEqual({ id: skill.id, label: skill.label, description: skill.description, path: skill.path }, {
     id: 'security-review', label: 'Security pass', description: SECURITY_REVIEW.description, path: SKILL_PATH
   });
+  // Agents this repository owns keep the skills they use in their own files.
   assert.deepEqual(skill.usedBy, [
-    { agent: 'developer', phases: ['implementation'], use: 'After you write the code, before you publish it' },
-    { agent: 'qa', phases: [], use: '' }
+    { agent: 'developer', phases: ['implementation'], use: 'After you write the code, before you publish it', origin: 'agent' },
+    { agent: 'qa', phases: [], use: '', origin: 'agent' }
   ]);
   const developer = model.agents.find((agent) => agent.id === 'developer');
-  assert.deepEqual(developer.skills, [{ id: 'security-review', phases: ['implementation'], use: 'After you write the code, before you publish it' }]);
+  assert.deepEqual(developer.skills, [{ id: 'security-review', phases: ['implementation'], use: 'After you write the code, before you publish it', origin: 'agent' }]);
   assert.doesNotMatch(developer.instructions, /Attached skills/, 'the Studio edits the table, not the instructions');
   await loadDefinition(root);
 
@@ -652,4 +654,207 @@ test('the VS Code import names a skill conflict as a skill', async () => {
   const { workflowImportConflictTitle } = await import(new URL('../apps/vscode/src/views/workflow-transfer-presentation.ts', import.meta.url));
   assert.equal(workflowImportConflictTitle({ subject: 'skill:store-review', kind: 'skill', id: 'store-review', reasons: [], choices: ['keep', 'replace', 'rename'] }, 0, 1),
     'Import conflict 1 of 1: skill store-review');
+});
+
+// ---------------------------------------------------------------------------------------------
+// The attachments file: any skill, attached to any agent, without changing the agent.
+
+const ATTACHMENTS_PATH = 'singularity/skill-library/attachments.yml';
+
+async function writeAttachments(root, text) {
+  await mkdir(path.join(root, 'singularity/skill-library'), { recursive: true });
+  await writeFile(path.join(root, ATTACHMENTS_PATH), text);
+}
+
+async function seededRepository(t, prefix) {
+  // A repository as init leaves it: its workflows are seeded, so they and their agents are read-only.
+  const root = await temporary(t, prefix);
+  await initializeDefinition(root);
+  return root;
+}
+
+test('the attachments file lists which agents use which skills, in which steps and when, and is written in a stable order', () => {
+  const entries = parseSkillAttachments([
+    'attachments:',
+    '  - skill: security-review',
+    '    agent: developer',
+    '    steps: [implementation, verification]',
+    '    use: "  Before   you publish "',
+    '  - skill: api-style',
+    '    agent: architect',
+    ''
+  ].join('\n'));
+  assert.deepEqual(entries, [
+    { agent: 'developer', id: 'security-review', phases: ['implementation', 'verification'], use: 'Before you publish' },
+    { agent: 'architect', id: 'api-style', phases: [], use: '' }
+  ]);
+  const text = skillAttachmentsText(entries);
+  assert.match(text, /^# Which agents use which skills from the skill master\./);
+  assert.deepEqual(parseSkillAttachments(text).map((entry) => entry.agent), ['architect', 'developer'], 'sorted by agent, then skill');
+  assert.equal(skillAttachmentsText([]), null, 'nothing attached: no file');
+  assert.deepEqual(parseSkillAttachments(''), []);
+
+  const refused = [
+    ['not a list', 'attachments: 3', /attachments must be a list/],
+    ['another key', 'skills: []', /unknown key\(s\) skills/],
+    ['a bad skill ID', 'attachments:\n  - skill: Security_Review\n    agent: developer', /needs the skill's lower-case kebab-case ID/],
+    ['no agent', 'attachments:\n  - skill: security-review', /needs the agent's lower-case kebab-case ID/],
+    ['a step twice', 'attachments:\n  - skill: a\n    agent: b\n    steps: [x, x]', /lists a step more than once/],
+    ['an unknown field', 'attachments:\n  - skill: a\n    agent: b\n    phases: [x]', /unknown key\(s\) phases/],
+    ['the same attachment twice', 'attachments:\n  - skill: a\n    agent: b\n  - skill: a\n    agent: b', /attaches skill 'a' to agent 'b' more than once/],
+    ['a | in when to use it', 'attachments:\n  - skill: a\n    agent: b\n    use: before | after', /cannot contain "\|"/],
+    ['not YAML', 'attachments: [', /is not valid YAML/]
+  ];
+  for (const [label, text, message] of refused) assert.throws(() => parseSkillAttachments(text), message, label);
+});
+
+test('the attachments file attaches a skill to a seeded workflow\'s agent for the steps it names, and configuration checks it', async (t) => {
+  const root = await seededRepository(t, 'sflow-skill-attachments-');
+  await writeSkill(root);
+  const developerFile = path.join(root, '.github/agents/developer.agent.md');
+  const developerText = await readFile(developerFile, 'utf8');
+  const attachment = (lines) => writeAttachments(root, ['attachments:', ...lines.map((line) => `  ${line}`), ''].join('\n'));
+  await attachment(['- skill: security-review', '  agent: developer', '  steps: [implementation]', '  use: Before you publish']);
+  const definition = await loadDefinition(root);
+  assert.deepEqual(definition.agents.developer.attachedSkills, [{ id: 'security-review', phases: ['implementation'], use: 'Before you publish' }]);
+  assert.deepEqual(definition.agents.developer.librarySkills, [], 'the agent file attaches nothing itself');
+  assert.equal(await readFile(developerFile, 'utf8'), developerText, 'the seeded agent is not changed');
+
+  const workflow = { workItem: { id: 'SEC-1', workType: 'feature' } };
+  const rendered = await renderAgentSkills(root, workflow, { id: 'implementation' }, { agent: 'developer' });
+  assert.deepEqual(rendered.skills.map((skill) => skill.id), ['security-review']);
+  assert.match(rendered.text, /### Skill: Security pass \(`security-review`\)[\s\S]*When to use it: Before you publish/);
+  assert.equal((await renderAgentSkills(root, workflow, { id: 'verification' }, { agent: 'developer' })).text, '', 'only in the steps it names');
+
+  const refusals = [
+    [['- skill: security-review', '  agent: nobody'], 'SKILL_ATTACHMENT_AGENT_UNKNOWN', /attaches skill 'security-review' to agent 'nobody', which is not an agent here/],
+    [['- skill: security-review', '  agent: developer', '  steps: [nowhere]'], 'AGENT_PHASE_UNKNOWN', /attaches skill 'security-review' to agent 'developer' for unknown step 'nowhere'/],
+    [['- skill: style-guide', '  agent: developer'], 'SKILL_LIBRARY_MISSING', /Agent 'developer' attaches skill 'style-guide', but it is not in the skill master/],
+    [['- skill: security-review', '  agent: developer', '  surprise: true'], 'SKILL_ATTACHMENTS_INVALID', /unknown key\(s\) surprise/]
+  ];
+  for (const [lines, code, message] of refusals) {
+    await attachment(lines);
+    await assert.rejects(() => loadDefinition(root), (error) => error.code === code && message.test(error.message), code);
+  }
+});
+
+test('a skill attached to an agent must not share the ID of one of the agent\'s remote resources', async (t) => {
+  const root = await repository(t);
+  await addReleaseWorkflow(root, 'source');
+  const skillPath = path.join(root, 'singularity/skill-library/store-checklist/SKILL.md');
+  await mkdir(path.dirname(skillPath), { recursive: true });
+  await writeFile(skillPath, librarySkillText({ ...SECURITY_REVIEW, id: 'store-checklist', label: null }));
+  await writeAttachments(root, 'attachments:\n  - skill: store-checklist\n    agent: release-manager\n');
+  await assert.rejects(() => loadDefinition(root), (error) => error.code === 'SKILL_ATTACHMENT_CONFLICT'
+    && /attaches skill 'store-checklist' to agent 'release-manager', which already has a remote skill with that ID/.test(error.message));
+});
+
+test('Workflow Studio attaches a skill to a seeded workflow\'s agents in the attachments file and leaves the agents as they shipped', async (t) => {
+  const root = await seededRepository(t, 'sflow-skill-seeded-');
+  const agentFile = (id) => path.join(root, `.github/agents/${id}.agent.md`);
+  const developerBefore = await readFile(agentFile('developer'), 'utf8');
+  const model = await buildStudioModel(root);
+  assert.ok(model.protection.agents.includes('developer') && model.protection.agents.includes('qa'), 'Feature is seeded, so its agents are read-only');
+  assert.equal(model.skillAttachmentsPath, ATTACHMENTS_PATH);
+
+  const created = await planStudioChangeSet(root, { ...changeSet([
+    { op: 'skill.create', ...SECURITY_REVIEW },
+    { op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation'], use: 'Before you publish' },
+    { op: 'skill.attach', skill: 'security-review', agent: 'qa' }
+  ]), base: model.base }, { write: true });
+  assert.equal(created.valid, true, JSON.stringify(created.problems));
+  assert.deepEqual(created.files.map((file) => [file.path, file.action]).sort(), [[ATTACHMENTS_PATH, 'create'], [SKILL_PATH, 'create']]);
+  assert.ok(created.summary.includes('Developer uses skill Security pass in Implementation: Before you publish.'), created.summary.join('\n'));
+  assert.equal(await readFile(agentFile('developer'), 'utf8'), developerBefore);
+  assert.deepEqual(parseSkillAttachments(await readFile(path.join(root, ATTACHMENTS_PATH), 'utf8')), [
+    { agent: 'developer', id: 'security-review', phases: ['implementation'], use: 'Before you publish' },
+    { agent: 'qa', id: 'security-review', phases: [], use: '' }
+  ]);
+  await loadDefinition(root);
+
+  // The board shows each step's skills, and the skill master says where each use is kept.
+  const after = await buildStudioModel(root);
+  const steps = after.workflows.find((workflow) => workflow.id === 'feature').steps;
+  assert.deepEqual(steps.find((step) => step.id === 'implementation').skills, [{ id: 'security-review', use: 'Before you publish', origin: 'attachments' }]);
+  assert.deepEqual(steps.find((step) => step.id === 'verification').skills, [{ id: 'security-review', use: '', origin: 'attachments' }], 'QA uses it in every step it drafts');
+  assert.deepEqual(steps.find((step) => step.id === 'intake').skills, []);
+  assert.deepEqual(after.skills[0].usedBy, [
+    { agent: 'developer', phases: ['implementation'], use: 'Before you publish', origin: 'attachments' },
+    { agent: 'qa', phases: [], use: '', origin: 'attachments' }
+  ]);
+
+  // Exporting Feature says the bundle does not carry these attachments.
+  const exported = await exportWorkflowBundle(root, ['feature'], path.join(await temporary(t, 'sflow-skill-export-'), 'bundle.json'));
+  assert.equal(exported.notes.length, 1);
+  assert.match(exported.notes[0], /^singularity\/skill-library\/attachments\.yml attaches security-review to developer, security-review to qa\. The bundle does not carry those attachments/);
+
+  // A Studio opened before these attachments changed is told to reload.
+  await assert.rejects(() => planStudioChangeSet(root, { ...changeSet([{ op: 'skill.detach', skill: 'security-review', agent: 'qa' }]), base: model.base }),
+    (error) => error.code === 'STUDIO_BASE_CHANGED' && /skill attachments changed/.test(error.message));
+
+  // Changing and detaching edits the file; removing the skill takes its last attachment, and the file, with it.
+  const changed = await planStudioChangeSet(root, { ...changeSet([
+    { op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation', 'verification'], use: 'Before you publish' },
+    { op: 'skill.detach', skill: 'security-review', agent: 'qa' }
+  ]), base: after.base }, { write: true });
+  assert.equal(changed.valid, true, JSON.stringify(changed.problems));
+  assert.deepEqual(changed.files.map((file) => [file.path, file.action]), [[ATTACHMENTS_PATH, 'update']]);
+  assert.deepEqual(parseSkillAttachments(await readFile(path.join(root, ATTACHMENTS_PATH), 'utf8')),
+    [{ agent: 'developer', id: 'security-review', phases: ['implementation', 'verification'], use: 'Before you publish' }]);
+  const removed = await planStudioChangeSet(root, changeSet([{ op: 'skill.remove', id: 'security-review' }]), { write: true });
+  assert.equal(removed.valid, true, JSON.stringify(removed.problems));
+  assert.deepEqual(removed.files.map((file) => [file.path, file.action]).sort(), [[ATTACHMENTS_PATH, 'delete'], [SKILL_PATH, 'delete']]);
+  assert.ok(removed.summary.includes('Skill Security pass removed from the skill master and from Developer.'), removed.summary.join('\n'));
+  assert.equal(existsSync(path.join(root, ATTACHMENTS_PATH)), false);
+  assert.equal(await readFile(agentFile('developer'), 'utf8'), developerBefore);
+  await loadDefinition(root);
+});
+
+test('an agent this repository owns keeps its skills in its own file, and a skill already in the attachments file is changed there', async (t) => {
+  const root = await repository(t);
+  await writeSkill(root);
+  await writeAttachments(root, 'attachments:\n  - skill: security-review\n    agent: qa\n');
+  const plan = await planStudioChangeSet(root, changeSet([
+    { op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation'] },
+    { op: 'skill.attach', skill: 'security-review', agent: 'qa', use: 'Before you sign off' }
+  ]), { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((file) => file.path).sort(), ['.github/agents/developer.agent.md', ATTACHMENTS_PATH]);
+  assert.match(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), /\| security-review \| implementation \| - \|\n$/);
+  assert.deepEqual(parseSkillAttachments(await readFile(path.join(root, ATTACHMENTS_PATH), 'utf8')),
+    [{ agent: 'qa', id: 'security-review', phases: [], use: 'Before you sign off' }]);
+  const model = await buildStudioModel(root);
+  assert.deepEqual(model.skills[0].usedBy.map((use) => [use.agent, use.origin]), [['developer', 'agent'], ['qa', 'attachments']]);
+});
+
+test('a Story keeps the skills the attachments file gave its agents when it started, offline, whatever changes later', async (t) => {
+  const story = await storyFixture(t);
+  const stylePath = 'singularity/skill-library/style-guide/SKILL.md';
+  const styleText = librarySkillText({ id: 'style-guide', description: 'Names things the way this codebase does.', instructions: 'Use the names the module already uses.' });
+  await mkdir(path.join(story.root, path.dirname(stylePath)), { recursive: true });
+  await writeFile(path.join(story.root, stylePath), styleText);
+  // Discovery merges the attachments file into the agent; the agent's own table wins for a skill it attaches itself.
+  story.config.agentCatalog[0].attachedSkills = [
+    { id: 'style-guide', phases: [], use: 'When you name things' },
+    { id: 'security-review', phases: ['verification'], use: 'Not this one' }
+  ];
+  story.workflow.workflowSnapshot = await captureWorkflowSnapshot(story.root, story.config, story.workflow);
+  assert.deepEqual(story.workflow.resolution.skillAttachments, { developer: [{ id: 'style-guide', phases: [], use: 'When you name things' }] });
+  const manifest = JSON.parse(await readFile(path.join(story.root, story.workflow.workflowSnapshot.manifestPath), 'utf8'));
+  const asset = manifest.assets.find((entry) => entry.logicalId === 'agent:developer:skill:style-guide');
+  assert.equal(await readFile(path.join(story.root, asset.blob.path), 'utf8'), styleText);
+  await accept(story);
+
+  // The skill leaves the skill master and nothing attaches it any more: the Story still uses it.
+  await rm(path.join(story.root, 'singularity/skill-library/style-guide'), { recursive: true });
+  const context = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  assert.deepEqual(context.dependencies.filter((entry) => entry.source === 'library').map((entry) => [entry.id, entry.inclusion, entry.phases, entry.use]), [
+    ['security-review', 'included', ['implementation'], 'After you write the code, before you publish it'],
+    ['style-guide', 'included', [], 'When you name things']
+  ]);
+  const rendered = await renderAgentSkills(story.root, story.workflow, story.workflow.resolution.phases[0], { agent: 'developer' }, {
+    executionContext: context, fetchImpl: async () => { throw new Error('a saved skill is never fetched'); }
+  });
+  assert.match(rendered.text, /### Skill: Style guide \(`style-guide`\)[\s\S]*When to use it: When you name things\n\nUse the names the module already uses\./);
+  assert.deepEqual(rendered.warnings, []);
 });

@@ -3,9 +3,16 @@
  *
  * A skill lives at `singularity/skill-library/<id>/SKILL.md` in the open Agent Skills format:
  * front matter with its `name` (the ID, which is also its folder) and a `description` of what it
- * does and when to use it, then the instructions. An agent attaches skills in its
- * `## Attached skills` table, which says when to use each one. That table is part of the agent's prompt, and each
- * attached skill's instructions are added to the prompt of every step it applies to.
+ * does and when to use it, then the instructions. A skill is attached to an agent in one of two
+ * places, each saying the steps it applies in and when to use it:
+ *
+ * - the agent's own `## Attached skills` table, for an agent the repository owns; or
+ * - `singularity/skill-library/attachments.yml`, which attaches any skill to any agent (a framework
+ *   workflow's agents included) without changing the agent, so the framework workflow stays as it
+ *   shipped and keeps its updates.
+ *
+ * Each attached skill's instructions are added to the prompt of every step it applies to, and a
+ * Story keeps the skills and attachments it started with.
  *
  * These are not the compiled skill packages under `singularity/skills/`, which skill steps bind
  * and which never reach a prompt.
@@ -37,6 +44,10 @@ function fail(message, code = 'SKILL_LIBRARY_INVALID', details = undefined) {
 }
 
 export function librarySkillPath(id) { return `${SKILL_LIBRARY_ROOT}/${id}/${SKILL_FILE}`; }
+
+/** Skill attachments kept apart from the agents (see the module comment). */
+export const SKILL_ATTACHMENTS_PATH = `${SKILL_LIBRARY_ROOT}/attachments.yml`;
+const ATTACHMENT_KEYS = new Set(['skill', 'agent', 'steps', 'use']);
 
 /** What a library skill dependency names as its source: never fetched, read from the library. */
 export function librarySkillReference(id) { return `library:${id}`; }
@@ -136,11 +147,96 @@ export async function loadSkillLibrary(configRoot) {
   return { skills, problems };
 }
 
-/** Every skill an agent attaches is in the skill master and readable; checked when configuration loads. */
+/**
+ * The attachments file: one list of { skill, agent, steps, use }. `steps` names the steps the skill
+ * applies in (none: every step the agent drafts); `use` says when to use it. An agent is attached a
+ * skill at most once here, and step IDs are checked against the workflow when configuration loads.
+ */
+export function parseSkillAttachments(text, source = SKILL_ATTACHMENTS_PATH) {
+  let value;
+  try { value = YAML.parse(String(text ?? '')) ?? {}; }
+  catch (error) { fail(`${source} is not valid YAML: ${error.message}`, 'SKILL_ATTACHMENTS_INVALID'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${source} must be a map holding an attachments list.`, 'SKILL_ATTACHMENTS_INVALID');
+  const unknown = Object.keys(value).filter((key) => key !== 'attachments');
+  if (unknown.length) fail(`${source} has unknown key(s) ${unknown.join(', ')}; it holds one list, attachments.`, 'SKILL_ATTACHMENTS_INVALID');
+  const list = value.attachments ?? [];
+  if (!Array.isArray(list)) fail(`${source} attachments must be a list.`, 'SKILL_ATTACHMENTS_INVALID');
+  const seen = new Set();
+  return Object.freeze(list.map((entry, index) => {
+    const where = `${source} attachment ${index + 1}`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${where} must be a map with skill, agent, steps and use.`, 'SKILL_ATTACHMENTS_INVALID');
+    const extra = Object.keys(entry).filter((key) => !ATTACHMENT_KEYS.has(key));
+    if (extra.length) fail(`${where} has unknown key(s) ${extra.join(', ')}.`, 'SKILL_ATTACHMENTS_INVALID');
+    const skill = typeof entry.skill === 'string' ? entry.skill : '';
+    const agent = typeof entry.agent === 'string' ? entry.agent : '';
+    if (!ID.test(skill)) fail(`${where} needs the skill's lower-case kebab-case ID.`, 'SKILL_ATTACHMENTS_INVALID');
+    if (!ID.test(agent)) fail(`${where} needs the agent's lower-case kebab-case ID.`, 'SKILL_ATTACHMENTS_INVALID');
+    const steps = entry.steps ?? [];
+    if (!Array.isArray(steps) || steps.some((step) => typeof step !== 'string' || !ID.test(step))) {
+      fail(`${where} steps must be a list of step IDs (none: every step the agent drafts).`, 'SKILL_ATTACHMENTS_INVALID');
+    }
+    if (new Set(steps).size !== steps.length) fail(`${where} lists a step more than once.`, 'SKILL_ATTACHMENTS_INVALID');
+    if (seen.has(`${agent}\0${skill}`)) fail(`${source} attaches skill '${skill}' to agent '${agent}' more than once.`, 'SKILL_ATTACHMENTS_INVALID');
+    seen.add(`${agent}\0${skill}`);
+    return Object.freeze({ agent, id: skill, phases: Object.freeze([...steps]), use: normalizeSkillUse(entry.use) });
+  }));
+}
+
+/** The attachments at `configRoot`; none when the file is not there. */
+export async function readSkillAttachments(configRoot) {
+  const secured = await secureRepositoryPath(configRoot, SKILL_ATTACHMENTS_PATH, { label: 'Skill attachments', type: 'file' });
+  if (!secured.exists) return Object.freeze([]);
+  return parseSkillAttachments(await readFile(secured.absolute, 'utf8'));
+}
+
+/** The attachments file's text in a stable order, or null when nothing is attached (no file). */
+export function skillAttachmentsText(entries) {
+  if (!entries.length) return null;
+  const sorted = [...entries].sort((a, b) => a.agent.localeCompare(b.agent) || a.id.localeCompare(b.id));
+  const body = YAML.stringify({
+    attachments: sorted.map((entry) => ({
+      skill: entry.id, agent: entry.agent, ...(entry.phases.length ? { steps: [...entry.phases] } : {}), ...(entry.use ? { use: entry.use } : {})
+    }))
+  }, { lineWidth: 0 });
+  return [
+    '# Which agents use which skills from the skill master. Kept apart from the agents, so a skill',
+    "# attaches to any agent, a framework workflow's included, without changing that agent.",
+    '# steps: the steps it applies in (none: every step the agent drafts). use: when to use it.',
+    body
+  ].join('\n');
+}
+
+/**
+ * Every skill an agent uses, with the steps and when: those its own file attaches, then those the
+ * attachments file attaches to it.
+ */
+export function effectiveLibrarySkills(agent) {
+  const own = agent?.librarySkills ?? [];
+  const ids = new Set(own.map((entry) => entry.id));
+  return [...own, ...(agent?.attachedSkills ?? []).filter((entry) => !ids.has(entry.id))];
+}
+
+/**
+ * Every skill an agent attaches is in the skill master and readable, every agent the attachments
+ * file names is here, and no skill attached to an agent shares the ID of one of its remote
+ * resources (a Story keeps both under that ID). Checked when configuration loads.
+ */
 export async function assertAttachedLibrarySkills(configRoot, agents) {
+  const known = new Map(agents.map((agent) => [agent.id, agent]));
+  for (const attachment of await readSkillAttachments(configRoot)) {
+    if (!known.has(attachment.agent)) {
+      fail(`${SKILL_ATTACHMENTS_PATH} attaches skill '${attachment.id}' to agent '${attachment.agent}', which is not an agent here.`,
+        'SKILL_ATTACHMENT_AGENT_UNKNOWN', { agentId: attachment.agent, skillId: attachment.id });
+    }
+    const remote = (known.get(attachment.agent).dependencies ?? []).find((entry) => entry.id === attachment.id);
+    if (remote) {
+      fail(`${SKILL_ATTACHMENTS_PATH} attaches skill '${attachment.id}' to agent '${attachment.agent}', which already has a remote ${remote.type} with that ID.`,
+        'SKILL_ATTACHMENT_CONFLICT', { agentId: attachment.agent, skillId: attachment.id });
+    }
+  }
   const problems = new Map();
   for (const agent of agents) {
-    for (const attachment of agent.librarySkills ?? []) {
+    for (const attachment of effectiveLibrarySkills(agent)) {
       if (!problems.has(attachment.id)) {
         problems.set(attachment.id, await readLibrarySkill(configRoot, attachment.id)
           .then((skill) => (skill ? null : `it is not in the skill master (${librarySkillPath(attachment.id)})`), (error) => error.message));

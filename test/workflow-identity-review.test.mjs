@@ -8,7 +8,7 @@ import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { discoverAgents, resolveCopilotAgent } from '../src/agents.mjs';
 import { exportWorkflowBundle, planWorkflowImport, applyWorkflowImport, planWorkflowCopy, copyWorkflow } from '../src/workflow-transfer.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA, buildStudioModel } from '../src/workflow-studio.mjs';
-import { librarySkillText, librarySkillPath } from '../src/skill-library.mjs';
+import { SKILL_ATTACHMENTS_PATH, librarySkillText, librarySkillPath } from '../src/skill-library.mjs';
 import { stageImport, readStagedImport } from '../src/asset-import.mjs';
 import { loadPortfolio, resolveInitiativeProfile } from '../src/initiative-config.mjs';
 import { editPhase } from '../src/workflow-authoring.mjs';
@@ -136,6 +136,30 @@ test('duplicate skill IDs can be renamed and agent attachments follow the new id
   await copyWorkflow(root, { ...input, expectedPlanSha256: plan.planSha256 });
   const renamed = plan.renamed.find((row) => row.subject === 'agent:developer').to;
   assert.equal((await discoverAgents(root)).find((agent) => agent.id === renamed).librarySkills[0].id, 'other-checklist');
+});
+
+test('independent duplication carries the skills the attachments file attaches to the agents it copies', async (t) => {
+  // Feature is seeded, so its developer is attached a skill in the attachments file, not in its own file.
+  const root = await repo(t);
+  const text = librarySkillText({ id: 'review-checklist', description: 'Review changes.', instructions: 'Check the changes against the specification.' });
+  const skill = path.join(root, librarySkillPath('review-checklist')); await mkdir(path.dirname(skill), { recursive: true }); await writeFile(skill, text);
+  const attachments = path.join(root, SKILL_ATTACHMENTS_PATH);
+  await writeFile(attachments, 'attachments:\n  - skill: review-checklist\n    agent: developer\n    steps: [implementation]\n    use: Review changes\n');
+  const attachmentsBefore = await readFile(attachments, 'utf8');
+  const developer = path.join(root, '.github/agents/developer.agent.md');
+  const developerBefore = await readFile(developer, 'utf8');
+  const input = { sourceId: 'feature', targetId: 'my-feature', label: 'My feature', independent: true };
+  const plan = await planWorkflowCopy(root, input); assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));
+  const renamed = (subject) => plan.renamed.find((row) => row.subject === subject)?.to;
+  assert.ok(renamed('skill:review-checklist'), 'the skill is copied with the workflow, like every editable dependency');
+  await copyWorkflow(root, { ...input, expectedPlanSha256: plan.planSha256 });
+  const copy = (await discoverAgents(root)).find((agent) => agent.id === renamed('agent:developer'));
+  assert.deepEqual(copy.librarySkills.map((entry) => entry.id), [renamed('skill:review-checklist')], "written into the copy's own table");
+  assert.ok(copy.librarySkills[0].phases.includes(renamed('phase:implementation')), JSON.stringify(copy.librarySkills));
+  assert.equal(copy.librarySkills[0].use, 'Review changes');
+  assert.equal(await readFile(attachments, 'utf8'), attachmentsBefore, 'the attachments file keeps naming the originals');
+  assert.equal(await readFile(developer, 'utf8'), developerBefore, 'the seeded agent is not changed');
+  await loadDefinition(root);
 });
 
 test('raw agent and library-skill imports accept explicit new IDs with recorded transformations', async (t) => {

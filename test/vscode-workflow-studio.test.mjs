@@ -1603,3 +1603,64 @@ test('Epic workflows edited in the Studio become portfolio changes the engine ac
   const restored = logic.withDraftDefaults(old);
   assert.ok(restored.epics && restored.templates, 'missing collections come back from the configuration');
 });
+
+test('a step\'s skills are added from its properties, a seeded workflow\'s steps too, as one change set the engine accepts', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  // A repository as init leaves it: Feature is seeded and read-only, and so is its developer agent.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-step-skills-'));
+  run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
+  run(process.execPath, [bin, 'init'], root);
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const state = page.state();
+  assert.match(page.attachmentHint('developer'), /^Developer belongs to a seeded workflow, so its skills are kept in singularity\/skill-library\/attachments\.yml and the agent itself is not changed\.$/);
+
+  // A new skill written from Implementation is added to that step when it is added to the changes.
+  Object.assign(state, { view: 'board', workflow: 'feature', step: 'implementation' });
+  page.openSkillForm(null, { agent: 'developer', phase: 'implementation', use: 'Before you publish' });
+  assert.equal(state.view, 'skills');
+  Object.assign(page.skillsView().form, { label: 'Security review', description: 'Checks a change for common security mistakes.', instructions: '1. List every input.\n2. Check each one.' });
+  page.saveSkillForm();
+  assert.deepEqual([state.view, state.workflow, state.step], ['board', 'feature', 'implementation'], 'back on the step it was written from');
+  assert.deepEqual(page.stepSkillEntries('developer', 'implementation').map((entry) => [entry.id, entry.phases, entry.use]),
+    [['security-review', ['implementation'], 'Before you publish']]);
+  // The same skill chosen in a second step adds that step and keeps when to use it.
+  const form = page.stepSkillForm('verification', 'developer');
+  form.skill = 'security-review';
+  page.saveStepSkill('verification', 'developer');
+  assert.deepEqual(page.stepSkillEntries('developer', 'verification').map((entry) => [entry.id, entry.phases, entry.use]),
+    [['security-review', ['implementation', 'verification'], 'Before you publish']]);
+
+  const changeSet = page.changeSetFrom(model, state.draft);
+  assert.deepEqual(changeSet.changes, [
+    { op: 'skill.create', id: 'security-review', label: 'Security review', description: 'Checks a change for common security mistakes.', instructions: '1. List every input.\n2. Check each one.' },
+    { op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation', 'verification'], use: 'Before you publish' }
+  ]);
+  const plan = await planStudioChangeSet(root, changeSet, { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((file) => file.path).sort(), ['singularity/skill-library/attachments.yml', 'singularity/skill-library/security-review/SKILL.md']);
+
+  // Reloaded, nothing is pending; removing it from one step keeps the other, and from the last detaches it.
+  const after = await buildStudioModel(root);
+  const reload = loadedStudio(after);
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
+  reload.detachFromStep('developer', 'security-review', 'verification');
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes,
+    [{ op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation'], use: 'Before you publish' }]);
+  reload.detachFromStep('developer', 'security-review', 'implementation');
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [{ op: 'skill.detach', skill: 'security-review', agent: 'developer' }]);
+  const detached = await planStudioChangeSet(root, reload.changeSetFrom(after, reload.state().draft), { write: true });
+  assert.equal(detached.valid, true, JSON.stringify(detached.problems));
+  assert.deepEqual(detached.files.map((file) => [file.path, file.action]), [['singularity/skill-library/attachments.yml', 'delete']]);
+
+  // A skill used in every step an agent drafts, removed from one, stays in its others.
+  const last = await buildStudioModel(root);
+  const every = loadedStudio(last);
+  every.openAttachForm('security-review', 'qa');
+  every.saveAttach();
+  every.detachFromStep('qa', 'security-review', 'verification');
+  const [entry] = every.state().draft.agents.qa.skills;
+  assert.ok(entry.phases.length && !entry.phases.includes('verification'), JSON.stringify(entry));
+  assert.ok(entry.phases.every((phaseId) => every.state().draft.phases[phaseId].agent === 'qa'), 'the other steps QA drafts');
+});

@@ -1064,7 +1064,11 @@ test('remote publication preflight failure creates no branch, Story state, or se
     '--description', 'Preflight must refuse before checkout.'
   ], { allowFailure: true });
   assert.notEqual(result.status, 0);
-  assert.match(result.stdout, /Cannot publish the new Story branch/);
+  assert.match(result.stdout, /Cannot publish Story branch/);
+  const refusal = JSON.parse(result.stdout);
+  assert.equal(refusal.error.details.publicationPreflight.localHooks, 'not-run');
+  assert.equal(refusal.error.details.publicationPreflight.remoteStoryBranch, 'not-updated');
+  assert.doesNotMatch(refusal.error.message, /Nothing was changed/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/STORY-READ-ONLY'], root,
@@ -1098,5 +1102,38 @@ test('a post-preflight push rejection retains the commit and sync publishes it l
   const localHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
   const remoteHead = git(root, 'ls-remote', 'origin', 'refs/heads/STORY-RACE').stdout.split(/\s+/)[0];
   assert.equal(remoteHead, localHead);
+  await assert.rejects(readFile(pending), /ENOENT/);
+});
+
+test('a local pre-push failure retains the Story and generated files for exact sync recovery', async (t) => {
+  const { base, root, remote } = await repository();
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const hook = path.join(root, '.git/hooks/pre-push');
+  await writeFile(hook, '#!/bin/sh\necho "retained report" > hook-report.txt\nsflow_missing_hook_tool_for_test\n');
+  await chmod(hook, 0o755);
+  const failed = flow(root, [
+    'start', 'STORY-LOCAL-HOOK', '--json', '--from-branch', 'release/24.3',
+    '--work-type', 'feature', '--title', 'Local hook recovery',
+    '--description', 'Preserve the exact commit and hook-generated files.'
+  ], { allowFailure: true });
+  assert.notEqual(failed.status, 0);
+  const refusal = JSON.parse(failed.stdout);
+  assert.equal(refusal.error.remoteFailure.classification, 'local-hook-tool-unavailable');
+  assert.equal(refusal.error.remoteFailure.hook.tool, 'sflow_missing_hook_tool_for_test');
+  assert.equal(refusal.error.remoteFailure.hookWorktree.status, 'changed');
+  assert.match(refusal.remediationPlan.steps[0].label, /pre-push/);
+  assert.match(refusal.error.message, /retained locally but push failed/);
+  assert.doesNotMatch(refusal.error.message, /Nothing was changed|fixing remote access/);
+  assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'retained report\n');
+  const pending = path.join(root, '.git/singularity-flow/pending-publication/story--STORY-LOCAL-HOOK.json');
+  const pendingRecord = JSON.parse(await readFile(pending, 'utf8'));
+  assert.equal(pendingRecord.pushOutcome, 'rejected');
+  assert.equal(pendingRecord.expectedRemoteSha, null);
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-LOCAL-HOOK').stdout.trim(), '');
+  const retainedCommit = pendingRecord.commit;
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+  flow(root, ['sync']);
+  assert.equal(git(remote, 'rev-parse', 'refs/heads/STORY-LOCAL-HOOK').stdout.trim(), retainedCommit);
+  assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'retained report\n');
   await assert.rejects(readFile(pending), /ENOENT/);
 });

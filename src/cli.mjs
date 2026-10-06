@@ -36,6 +36,7 @@ import {
 } from './story-intake-verification.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
+import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake,
   testRecoveryChoices } from './test-recovery-intake.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -2820,11 +2821,7 @@ export async function startCommand(positionals, options) {
       { transportRemote: publicationAuthority.url }
     );
     if (dryRun.status !== 0) {
-      throw new SingularityFlowError(
-        `Cannot publish the new Story branch '${canonicalBranch}' to '${remote}'. `
-        + `Git reported: ${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
-        { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
-      );
+      throw storyPublicationPreflightError(dryRun, { branch: canonicalBranch, remote });
     }
   }
   assertBaseCarriesGovernance(root, {
@@ -10850,12 +10847,13 @@ async function workflowCommand(positionals, options) {
   }
 
   if (subcommand === 'copy' || subcommand === 'duplicate') {
-    const { planWorkflowCopy, workflowTransferProposal } = await import('./workflow-transfer.mjs');
+    const { planWorkflowCopy, workflowTransferProposal, importResolutionOptions } = await import('./workflow-transfer.mjs');
     const sourceId = requirePositional(positionals, 2, 'source workflow ID');
     const targetId = requirePositional(positionals, 3, 'target workflow ID');
     const label = optionString(options, 'label');
     if (!label?.trim()) throw new SingularityFlowError('Workflow copy requires --label <TEXT>.');
-    const input = { sourceId, targetId, label };
+    const input = { sourceId, targetId, label, independent: subcommand === 'duplicate' || optionBoolean(options, 'independent'),
+      ...importResolutionOptions(optionStrings(options, 'resolve'), options['resolve-all']) };
     if (optionBoolean(options, 'dry-run')) {
       const plan = await withApprovedConfigurationRead(root, () =>
         planWorkflowCopy(root, input), { preferAuthority: true });

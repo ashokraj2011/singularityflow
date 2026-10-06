@@ -11,6 +11,8 @@ export const REMOTE_FAILURE_CLASSES = Object.freeze([
   'git-unavailable',
   'working-directory-unavailable',
   'credential-helper-unavailable',
+  'local-hook-tool-unavailable',
+  'local-hook-failed',
   'authentication-required',
   'sso-authorization-required',
   'authorization-denied',
@@ -31,6 +33,8 @@ const ADVICE = Object.freeze({
   'git-unavailable': 'Install Git or add the approved Git executable to PATH, restart the calling application, then retry.',
   'working-directory-unavailable': 'Restore or reopen the local repository directory, then retry the same operation.',
   'credential-helper-unavailable': 'Install or repair the configured Git credential helper, then sign in and retry. Do not put a token in the URL.',
+  'local-hook-tool-unavailable': 'Repair the command named by the local Git hook and make its runtime available in the calling IDE or terminal environment. For Node version managers, configure Husky initialization for GUI launches, then restart the IDE and retry the retained operation. Do not disable repository hooks globally.',
+  'local-hook-failed': 'Review the local Git hook output and repair the reported check or runtime. Preserve authored work and hook-generated files, then retry the retained operation; do not recreate the Story or disable hooks globally.',
   'authentication-required': 'Sign in to Git or configure its credential helper, then retry. Do not put a token in the URL.',
   'sso-authorization-required': 'Authorize or re-authorize your Git credential for the organisation\'s SSO, then retry. Do not put a token in the URL.',
   'authorization-denied': 'Ask the repository owner for read access, then retry the same bootstrap session.',
@@ -696,6 +700,37 @@ function receiveHookRejected(output) {
   return /pre-receive hook declined|(?:^|\s)hook declined\)?(?:\s|$)|remote rejected.+hook/i.test(output);
 }
 
+/** Only local hook markers qualify; provider-side `remote:` diagnostics remain server policy. */
+export function localGitHookFailure(result) {
+  const lines = outputForClassification(result).split(/\r?\n/u).filter((line) => !/^\s*remote:/iu.test(line));
+  const marker = lines.find((line) => /(?:\.husky[\\/]|[\\/]hooks[\\/])pre-push\b|husky\s*(?:-|–)?\s*pre-push\b/iu.test(line));
+  if (!marker) return null;
+  const missing = lines.map((line) => line.match(/(?:line\s+\d+:|:\s*\d+:)\s*['"]?([A-Za-z0-9][A-Za-z0-9._-]{0,63})['"]?:\s*(?:command\s+)?not found\b/iu)
+    ?? line.match(/(?:^|:\s*)['"]?([A-Za-z0-9][A-Za-z0-9._-]{0,63})['"]?\s+is not recognized as (?:an internal or external command|the name of a cmdlet)\b/iu))
+    .find(Boolean);
+  const tool = missing?.[1] ?? null;
+  const line = marker.match(/(?:line\s+|:\s*)(\d+):/iu)?.[1];
+  return Object.freeze({
+    hook: 'pre-push',
+    ...(line ? { line: Number(line) } : {}),
+    ...(tool ? { tool } : {}),
+    toolStatus: tool ? 'unavailable-to-hook' : 'not-determined',
+    environment: 'calling-process',
+    runtimeFamily: tool && /^(?:node|npm|npx|pnpm|yarn|bun|corepack)(?:\.cmd|\.exe)?$/iu.test(tool)
+      ? 'node-package-manager' : 'not-determined'
+  });
+}
+
+/** Keep both diagnostic streams, redacting before a per-stream bound can split a secret. */
+export function gitFailureDiagnostic(result) {
+  const streams = ['stdout', 'stderr'].map((stream) => {
+    const value = result?.[stream];
+    const text = Buffer.isBuffer(value) ? value.toString('utf8') : String(value ?? '');
+    return text.trim() ? `${stream}:\n${redactDiagnosticText(text).slice(0, 4096)}` : null;
+  }).filter(Boolean);
+  return streams.join('\n') || 'Git returned no diagnostic output.';
+}
+
 function tlsTrustFailure(output) {
   // Keep this narrower than a bare "certificate" token: repository names and policy prose can
   // legally contain that word. These are concrete TLS trust-chain diagnostics from Git/cURL,
@@ -706,11 +741,14 @@ function tlsTrustFailure(output) {
 /** Deterministic classification only. Raw provider output is deliberately not returned. */
 export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable = null } = {}) {
   const output = outputForClassification(result);
+  const hook = localGitHookFailure(result);
   let classification = 'unknown';
   if (result?.blocked
     || /(?:^|[\r\n])\s*(?:network(?: access)? (?:is )?disabled|offline(?:(?: mode)?(?: is)? enabled)?|you (?:appear to be|are) offline)\s*[.!]?\s*(?:$|[\r\n])/i.test(output)) classification = 'offline';
   else if (cwdAvailable === false && result?.error?.code === 'ENOENT') classification = 'working-directory-unavailable';
   else if (gitExecutableUnavailable(result, output, cwdAvailable)) classification = 'git-unavailable';
+  else if (hook?.tool) classification = 'local-hook-tool-unavailable';
+  else if (hook) classification = 'local-hook-failed';
   else if (/remote branch .+ not found|couldn't find remote ref|invalid refspec/i.test(output)) classification = 'branch-not-found';
   else if (/proxy authentication|required proxy|could not resolve proxy|failed to connect to proxy|proxy CONNECT (?:aborted|failed)|http[^\n]*407|407[^\n]*proxy|requested URL returned error:\s*407\b/i.test(output)) classification = 'proxy-configuration';
   else if (credentialHelperUnavailable(output)) classification = 'credential-helper-unavailable';
@@ -744,6 +782,7 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
       'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required'
     ].includes(classification),
     branch,
+    ...(hook ? { hook } : {}),
     advice: ADVICE[classification]
   });
 }

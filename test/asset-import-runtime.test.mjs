@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -49,6 +50,7 @@ async function repository() {
   execute('git', ['config', 'user.email', 'imports@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Imports\n');
   flow(root, ['init']);
+  await repositoryOwnedWorkflows(root);
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';

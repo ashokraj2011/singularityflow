@@ -1,10 +1,10 @@
 import {
-  acknowledgeIntentAmendment, assertAmendedPlannedClaims, commitAndPublish, decideIntentAmendment, loadWorkflow,
+  acknowledgeIntentAmendment, assertAmendedPlannedClaims, assertAmendedScopeContent, commitAndPublish, decideIntentAmendment, loadWorkflow,
   pendingIntentAmendmentAcknowledgement, resolveWorkItem, saveWorkflow, syncPublication,
   validateWorkflow, workflowPath
 } from './state.mjs';
 
-export { acknowledgeIntentAmendment, assertAmendedPlannedClaims, decideIntentAmendment, pendingIntentAmendmentAcknowledgement };
+export { acknowledgeIntentAmendment, assertAmendedPlannedClaims, assertAmendedScopeContent, decideIntentAmendment, pendingIntentAmendmentAcknowledgement };
 import {
   commitInitiativeChange, initiativeStatePath, loadInitiative, saveInitiative, syncInitiativePublication
 } from './initiative-state.mjs';

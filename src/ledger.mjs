@@ -19,6 +19,7 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
@@ -2064,12 +2065,15 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
     ...(audit.pinRef ? [[audit.pinRef, commit, null, ['*']]] : [])
   ];
   const frozen = frozenRemoteTransport(pushRemote, { push: true, env });
-  const pushed = await runRemoteGitAsync([
+  const pushed = await observePublicationHookEffects(root, () => runRemoteGitAsync([
     'push', '--atomic', '--porcelain',
     ...updates.filter(([, , expected]) => expected !== undefined)
       .map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
     frozen.remote, ...updates.map(([ref, value]) => `${value}:${ref}`)
-  ], { cwd: root, operation: 'remote-push', env: frozen.env, allowFailure: true });
+  ], { cwd: root, operation: 'remote-push', env: frozen.env, allowFailure: true }));
+  // A local hook failure is not lack of atomic-push support. Do not immediately run that same
+  // hook again through the sequential fallback; preserve its result for exact publication recovery.
+  if (pushed.status !== 0 && pushed.failure?.hook) return { refused: true, hookRejected: true, result: pushed };
   const flags = porcelainPushFlags(pushed.stdout);
   let landed = pushed.status === 0
     && updates.every(([ref, , , acquired]) => acquired.includes(flags.get(ref)));

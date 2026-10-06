@@ -53,6 +53,7 @@ import {
 } from './step-actions.mjs';
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
 import { isSpecificationDefinitionPhase } from './specifications.mjs';
+import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 
 export const STUDIO_CHANGE_SET_SCHEMA = 'sflow-studio-change-set@1';
 
@@ -190,14 +191,7 @@ function epicModel(portfolio, templatesRoot) {
   const phases = portfolio.initiativePhases ?? {};
   const profiles = portfolio.initiativeProfiles ?? {};
   const lanes = new Set();
-  return {
-    templatesRoot: posix(portfolio.templatesRoot ?? templatesRoot),
-    workflows: Object.entries(profiles).map(([id, profile]) => ({
-      id, label: profile?.label ?? id, description: profile?.description ?? '',
-      lifecycleMode: profile?.lifecycleMode ?? (usesEpicPlanningLifecycle({ phases: (profile?.phases ?? []).map((phaseId) => phases[phaseId]) }) ? 'planning-only' : 'full-delivery'),
-      phases: [...(profile?.phases ?? [])], packs: (profile?.packs ?? []).length
-    })),
-    steps: Object.entries(phases).map(([id, phase]) => {
+  const stepView = (id, phase) => {
       (phase?.lanes ?? []).forEach((lane) => lanes.add(lane));
       const approval = phase?.bundleApproval ?? {};
       return {
@@ -215,7 +209,20 @@ function epicModel(portfolio, templatesRoot) {
         checklist: (phase?.checklist ?? []).length,
         usedBy: Object.entries(profiles).filter(([, profile]) => (profile?.phases ?? []).includes(id)).map(([profileId]) => profileId)
       };
-    }),
+  };
+  return {
+    templatesRoot: posix(portfolio.templatesRoot ?? templatesRoot),
+    workflows: Object.entries(profiles).map(([id, profile]) => ({
+      id, label: profile?.label ?? id, description: profile?.description ?? '',
+      lifecycleMode: profile?.lifecycleMode ?? (usesEpicPlanningLifecycle({ phases: (profile?.phases ?? []).map((phaseId) => phases[phaseId]) }) ? 'planning-only' : 'full-delivery'),
+      phases: [...(profile?.phases ?? [])], packs: (profile?.packs ?? []).length,
+      localSteps: Object.fromEntries(Object.entries(profile?.phaseOverrides ?? {}).map(([phaseId, override]) => [phaseId, stepView(phaseId, {
+        ...phases[phaseId], ...override,
+        outputs: (phases[phaseId]?.outputs ?? []).map((output) => ({ ...output, ...override.outputs?.[output.id],
+          template: profile.templateOverrides?.[`${phaseId}/${output.id}`] ?? override.outputs?.[output.id]?.template ?? output.template }))
+      })]))
+    })),
+    steps: Object.entries(phases).map(([id, phase]) => stepView(id, phase)),
     groups: Object.entries(portfolio.approvalAuthorities ?? {}).map(([id, group]) => ({ id, label: group?.label ?? id })),
     lanes: [...lanes].sort(),
     outputKinds: [...INITIATIVE_OUTPUT_KINDS]
@@ -353,6 +360,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const starter = await packagedDefinition();
   const bundled = await bundledAgents();
   const workTypes = raw.workTypes ?? {};
+  const protection = await seededWorkflowProtection(raw, portfolioText ? YAML.parse(portfolioText) : {}, discovered);
   const phases = raw.phases ?? {};
   const defaultAgentOf = (phaseId) => discovered.find((agent) => agent.defaultFor.includes(phaseId))?.id ?? null;
   const usedBy = (phaseId) => Object.entries(workTypes).filter(([, type]) => (type.phases ?? []).includes(phaseId)).map(([id]) => id);
@@ -363,7 +371,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     try { resolved = definition ? resolveWorkType(definition, id) : null; } catch (error) { resolved = null; failure = error?.message ?? null; }
     const packaged = starter.workTypes[id];
     return {
-      id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])],
+      id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])], readOnly: protection.workflows.includes(id),
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
       // Kept whole: a send-back rule's reset phase is part of its repair budget, and a decision is
@@ -414,6 +422,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {})
     },
     problems,
+    protection,
     workflows,
     epics: epicModel(portfolioText == null ? null : YAML.parse(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates')),
     integrations: {
@@ -937,7 +946,15 @@ class StudioCandidate {
     }
     let text = staged.text; let extra = {};
     let skill;
-    if (/^\ufeff?---\r?\n/.test(text)) skill = parseLibrarySkill(text, { id: skillId });
+    if (/^\ufeff?---\r?\n/.test(text)) {
+      const { document, header, body } = splitAgentText(text, skillId);
+      if (document.get('name') !== skillId) {
+        document.set('name', skillId);
+        text = `---\n${renderPreservingFormatting(header, document)}---\n${body}`;
+        extra = { transforms: ['renamed'], fileSha256: sha256Of(Buffer.from(text, 'utf8')) };
+      }
+      skill = parseLibrarySkill(text, { id: skillId });
+    }
     else {
       // An update of plain Markdown keeps the skill's name and description unless new ones are given.
       const current = replace ? this.skills.get(skillId) : null;
@@ -1202,23 +1219,26 @@ class StudioCandidate {
     this.summary.push(`New Epic step ${name}.`);
   }
 
-  updateEpicStep({ id, label, agents, lanes, views, approval }) {
+  updateEpicStep({ id, workflow = null, label, agents, lanes, views, approval }) {
     const document = this.requirePortfolio();
     const stepId = requireId(id, 'An Epic step ID');
-    const current = this.epicStep(stepId);
+    const base = this.epicStep(stepId);
+    const profile = workflow ? this.portfolioContent.initiativeProfiles?.[requireId(workflow, 'An Epic workflow ID')] : null;
+    if (workflow && !profile?.phases?.includes(stepId)) throw new SingularityFlowError(`Epic workflow '${workflow}' does not use '${stepId}'.`, { code: 'STUDIO_EPIC_STEP_UNKNOWN' });
+    const current = profile ? { ...base, ...profile.phaseOverrides?.[stepId] } : base;
     if (!current) throw new SingularityFlowError(`There is no Epic step '${stepId}'.`, { code: 'STUDIO_EPIC_STEP_UNKNOWN' });
     const name = label != null ? requireLabel(label, 'The Epic step') : current.label ?? stepId;
     const changed = [];
-    const keys = (field) => ['initiativePhases', stepId, field];
+    const keys = (field) => workflow ? ['initiativeProfiles', workflow, 'phaseOverrides', stepId, field] : ['initiativePhases', stepId, field];
     if (label != null) { document.setIn(keys('label'), name); changed.push('name'); }
     if (agents != null) {
       const list = this.epicAgents(agents, name);
-      if (list.length) this.setPortfolioKeepingStyle(keys('agents'), list); else if (document.hasIn(keys('agents'))) document.deleteIn(keys('agents'));
+      if (list.length || workflow) this.setPortfolioKeepingStyle(keys('agents'), list); else if (document.hasIn(keys('agents'))) document.deleteIn(keys('agents'));
       changed.push('agents');
     }
     if (lanes != null) {
       const list = this.epicList(lanes, name, 'lanes');
-      if (list.length) this.setPortfolioKeepingStyle(keys('lanes'), list); else if (document.hasIn(keys('lanes'))) document.deleteIn(keys('lanes'));
+      if (list.length || workflow) this.setPortfolioKeepingStyle(keys('lanes'), list); else if (document.hasIn(keys('lanes'))) document.deleteIn(keys('lanes'));
       changed.push('lanes');
     }
     if (views != null) { this.setPortfolioKeepingStyle(keys('worldModelViews'), this.epicList(views, name, 'knowledge views')); changed.push('knowledge views'); }
@@ -1227,14 +1247,19 @@ class StudioCandidate {
   }
 
   /** Add an output to an Epic step, or change one: what it is, where it is written, its template, and what it reads. */
-  setEpicOutput({ step, id, label, kind, path: outputPath, template, required, consumes }) {
+  setEpicOutput({ step, id, workflow = null, label, kind, path: outputPath, template, required, consumes }) {
     const document = this.requirePortfolio();
     const stepId = this.requireEpicStep(requireId(step, 'An Epic step ID'));
     const outputId = requireId(id, 'An output ID');
     const name = `${this.epicStepLabel(stepId)}/${outputId}`;
     const outputs = Array.isArray(this.epicStep(stepId)?.outputs) ? this.epicStep(stepId).outputs : [];
     const index = outputs.findIndex((entry) => entry?.id === outputId);
-    const previous = index >= 0 ? outputs[index] : {};
+    const profile = workflow ? this.portfolioContent.initiativeProfiles?.[requireId(workflow, 'An Epic workflow ID')] : null;
+    if (workflow && (!profile?.phases?.includes(stepId) || index < 0)) throw new SingularityFlowError('A workflow-local Epic output must already exist in its active step.', { code: 'STUDIO_EPIC_OUTPUT_UNKNOWN' });
+    const previous = { ...(index >= 0 ? outputs[index] : {}), ...profile?.phaseOverrides?.[stepId]?.outputs?.[outputId] };
+    if (workflow && template !== undefined && !template && outputs[index]?.template) {
+      throw new SingularityFlowError('This workflow-local output inherits a template from its shared step. Choose a replacement template; clearing it would silently restore the shared original.', { code: 'STUDIO_EPIC_OUTPUT_INVALID' });
+    }
     const outputKind = kind ?? previous.kind ?? 'markdown';
     if (!INITIATIVE_OUTPUT_KINDS.has(outputKind)) throw new SingularityFlowError(`An Epic output is one of: ${[...INITIATIVE_OUTPUT_KINDS].join(', ')}.`, { code: 'STUDIO_EPIC_OUTPUT_INVALID' });
     const file = String(outputPath ?? previous.path ?? `${outputId}.${outputKind === 'yaml' ? 'yml' : 'md'}`).trim();
@@ -1251,6 +1276,15 @@ class StudioCandidate {
     if (template !== undefined) { if (template) next.template = this.epicTemplate(template, name); else delete next.template; }
     if (required !== undefined) { if (required === false) next.required = false; else delete next.required; }
     if (consumes != null) { if (consumes.length) next.consumes = [...new Set(consumes)]; else delete next.consumes; }
+    if (workflow) {
+      if (required === true) next.required = true;
+      if (consumes != null) next.consumes = [...new Set(consumes)];
+      document.setIn(['initiativeProfiles', workflow, 'phaseOverrides', stepId, 'outputs', outputId], document.createNode(next));
+      // A profile's legacy templateOverrides have precedence over output overrides.
+      const legacyTemplate = ['initiativeProfiles', workflow, 'templateOverrides', `${stepId}/${outputId}`];
+      if (template !== undefined && document.hasIn(legacyTemplate)) document.deleteIn(legacyTemplate);
+      this.portfolioChanged = true; this.summary.push(`Output ${name} changed only in ${workflow}.`); return;
+    }
     // Only the edited output is rewritten, in the style the list already uses ({ ... } or block).
     const list = document.getIn(['initiativePhases', stepId, 'outputs'], true);
     if (YAML.isSeq(list)) {
@@ -1376,6 +1410,16 @@ class StudioCandidate {
       if (!this.ledger.imports[key]) throw new SingularityFlowError(`Agent '${agentId}' was written in this repository, not imported, so an import cannot replace it.`, { code: 'STUDIO_AGENT_EXISTS' });
     }
     let text = staged.text;
+    const { document: importedDocument, header: importedHeader, body: importedBody } = splitAgentText(text, agentId);
+    const importedName = importedDocument.get('name');
+    let renamed = false;
+    if (id && importedName !== agentId) {
+      importedDocument.set('name', ID.test(String(importedName)) ? agentId : `${importedName} (${agentId})`);
+      const label = importedDocument.getIn(['metadata', 'sflow-label']);
+      if (typeof label === 'string') importedDocument.setIn(['metadata', 'sflow-label'], `${label} (${agentId})`);
+      text = `---\n${renderPreservingFormatting(importedHeader, importedDocument)}---\n${importedBody}`;
+      renamed = true;
+    }
     if (withoutDefaults) {
       const { document, header, body } = splitAgentText(text, agentId);
       document.deleteIn(['metadata', 'sflow-default-for']);
@@ -1391,7 +1435,7 @@ class StudioCandidate {
     });
     const bytes = Buffer.from(text, 'utf8');
     this.recordImport('agent', { id: agentId }, staged, { id: agentId, path: relative },
-      withoutDefaults ? { transforms: ['without-defaults'], fileSha256: sha256Of(bytes) } : {});
+      withoutDefaults || renamed ? { transforms: [...(withoutDefaults ? ['without-defaults'] : []), ...(renamed ? ['renamed'] : [])], fileSha256: sha256Of(bytes) } : {});
     this.summary.push(`${existing ? 'Updated' : 'New'} agent ${parsed.label} from ${sourceText(staged.source)}${parsed.defaultFor.length ? `, drafting ${parsed.defaultFor.map((step) => this.phaseLabel(step)).join(', ')}` : ''}.`);
   }
 
@@ -2634,6 +2678,19 @@ function obligationFindings(files, touched) {
 }
 
 async function validateStudioCandidate(sources, files) {
+  const readCandidate = (file, fallback) => {
+    const changed = files.find((entry) => entry.path === file);
+    return changed ? YAML.parse(asText(changed.after) ?? '') ?? {} : fallback;
+  };
+  const before = { story: sources.raw, initiative: sources.portfolioText ? YAML.parse(sources.portfolioText) : {} };
+  const after = { story: readCandidate(WORKFLOW_PATH, before.story), initiative: readCandidate(PORTFOLIO_PATH, before.initiative) };
+  const afterAgents = new Map(sources.agents.map((agent) => [agent.id, agent]));
+  for (const file of files.filter((entry) => entry.path.startsWith('.github/agents/'))) {
+    const parsed = parseAgentDependencies(asText(file.after), { source: file.path });
+    afterAgents.set(parsed.id, parsed);
+  }
+  assertSeededWorkflowsUnchanged(await seededWorkflowProtection(before.story, before.initiative, sources.agents), before, after,
+    { beforeAgents: sources.agents, afterAgents: [...afterAgents.values()], files });
   const { validateConfigurationCandidates } = await import('./editor.mjs');
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
   await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null)

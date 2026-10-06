@@ -13,6 +13,7 @@ import { register } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import YAML from 'yaml';
 
 let createdPanel = null;
 globalThis.__sfInstructionDesignerTestVscode = {
@@ -52,8 +53,9 @@ register('data:text/javascript,' + encodeURIComponent(`
 
 const { InstructionDesignerPanel } = await import('../apps/vscode/src/views/instruction-designer.ts');
 const { INSTRUCTION_DESIGNER_SCRIPT } = await import('../apps/vscode/src/views/instruction-designer-page.ts');
-const { parseAgent, renderAgent } = await import('../apps/vscode/src/views/instruction-designer-model.ts');
-const { agentStatus, lockAgent, parseAgentDependencies } = await import('../src/agents.mjs');
+const { parseAgent, renderAgent, renderAgentMappings, validateAgentMappingsDraft } =
+  await import('../apps/vscode/src/views/instruction-designer-model.ts');
+const { agentStatus, lockAgent, parseAgentDependencies, validateAgentMappings } = await import('../src/agents.mjs');
 
 const SOURCE = '.github/agents/reviewer.agent.md';
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -191,6 +193,43 @@ Use evidence.
 
 Stop for human review.
 `;
+
+test('the mapping designer and CLI agree on parenthesized display names and safety bounds', () => {
+  const agentId = 'feature-development-no-jira';
+  for (const copilotAgent of ['Feature Development Agent (No Jira)', 'Architect (QA)_v2.0',
+    `A${'x'.repeat(125)}()`]) {
+    const rows = [{ copilotAgent, agentId }];
+    assert.deepEqual(validateAgentMappingsDraft(rows, [agentId]), []);
+    const rendered = renderAgentMappings(rows);
+    assert.deepEqual(validateAgentMappings(YAML.parse(rendered), { agentIds: [agentId] }), {
+      version: 1, mappings: { [copilotAgent]: agentId }
+    });
+  }
+  for (const copilotAgent of ['', ' Leading', 'Trailing ', 'bad/agent', 'bad\\agent',
+    'bad\nagent', 'bad\tagent', 'bad\u0000agent', 'bad\u007fagent', 'A'.repeat(129)]) {
+    assert.match(validateAgentMappingsDraft([{ copilotAgent, agentId }], [agentId]).join(' '), /invalid/);
+  }
+  const copilotAgent = 'Feature Development Agent (No Jira)';
+  assert.match(validateAgentMappingsDraft([
+    { copilotAgent, agentId }, { copilotAgent, agentId }
+  ], [agentId]).join(' '), /more than once/);
+  assert.match(validateAgentMappingsDraft([
+    { copilotAgent, agentId: 'missing' }
+  ], [agentId]).join(' '), /not available/);
+});
+
+test('saving a parenthesized native agent mapping in the designer preserves its name', async (t) => {
+  const name = 'Feature Development Agent (No Jira)';
+  const id = 'feature-development-no-jira';
+  const content = REMOTE_AGENT.replace('name: reviewer', `name: ${name}`);
+  const designer = await openDesigner(t, [[id, content]]);
+  await designer.send({ type: 'save-mappings', rows: [{ copilotAgent: name, agentId: id }] });
+  assert.equal(designer.saves.length, 1);
+  assert.equal(designer.saves[0].path, 'singularity/agent-mappings.yml');
+  assert.deepEqual(validateAgentMappings(YAML.parse(designer.saves[0].content), { agentIds: [id] }), {
+    version: 1, mappings: { [name]: id }
+  });
+});
 
 test('an indented remote table is replaced by the designer save, not left ahead of it', () => {
   // Markdown and the CLI both accept indented table rows and headings. The designer used to strip

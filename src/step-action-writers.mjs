@@ -232,6 +232,8 @@ const GIT_HINTS = Object.freeze({
   'rate-limited': 'The Git host is limiting requests; the delivery is tried again later.',
   'authentication-required': 'Sign in to this Git host on this machine (credential helper or SSH key), then retry.',
   'credential-helper-unavailable': 'The Git credential helper on this machine is not available; fix it, then retry.',
+  'local-hook-tool-unavailable': 'Repair the local Git hook command or approved runtime in the calling environment, then retry the retained delivery.',
+  'local-hook-failed': 'Review and repair the local Git hook check; preserve generated files before retrying the retained delivery.',
   'sso-authorization-required': 'Authorize this machine\'s Git credential for the organisation (SSO), then retry.',
   'authorization-denied': 'The Git account on this machine cannot write to that repository.',
   'remote-not-found': 'Check the repository address in the target.',

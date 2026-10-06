@@ -1,3 +1,4 @@
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -33,6 +34,7 @@ async function repository() {
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Import Tester'], root); run('git', ['config', 'user.email', 'imports@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Imports\n');
   run(process.execPath, [bin, 'init'], root);
+  await repositoryOwnedWorkflows(root);
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
   return root;
 }
@@ -98,7 +100,7 @@ test('references, kinds and content checks refuse what could never be used', () 
   assert.throws(() => inspectImportContent('skill', '<!DOCTYPE html><html></html>'), { code: 'IMPORT_NOT_MARKDOWN' });
   assert.throws(() => inspectImportContent('skill', 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB"'), { code: 'IMPORT_SECRET_DETECTED' });
   assert.throws(() => inspectImportContent('template', '# {{secret}}'), { code: 'IMPORT_TEMPLATE_INVALID' });
-  assert.throws(() => inspectImportContent('agent', '---\nname: real-name\ndescription: x\n---\nBody', { id: 'other-name' }), { code: 'IMPORT_AGENT_ID_MISMATCH' });
+  assert.equal(inspectImportContent('agent', '---\nname: real-name\ndescription: x\n---\nBody', { id: 'other-name' }).id, 'other-name');
   const agent = inspectImportContent('agent', '---\nname: helper\ndescription: Helps.\nmetadata:\n  sflow-default-for: "design"\n---\nBody');
   assert.equal(agent.id, 'helper');
   assert.match(agent.warnings.join(' '), /exactly one default agent/);
@@ -225,7 +227,7 @@ test('a workflow bundle carries an imported skill as its exact bytes, with its l
   await plan(root, [{ op: 'import.skill', agent: 'architect', id: 'bundled', source: url, sha256: sha, phases: ['design'] }], { imports, write: true });
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'import'], root);
   const out = path.join(root, '..', `${path.basename(root)}-bundle.json`);
-  run(process.execPath, [bin, 'workflow', 'export', '--workflow', 'feature', '--out', out], root);
+  run(process.execPath, [bin, 'workflow', 'export', '--workflow', 'repo-feature', '--out', out], root);
   const bundle = JSON.parse(await readFile(out, 'utf8'));
   const dependency = bundle.agentLocks.architect.dependencies.find((entry) => entry.id === 'bundled');
   assert.equal(dependency.sha256, sha);

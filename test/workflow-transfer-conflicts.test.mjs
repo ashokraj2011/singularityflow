@@ -83,7 +83,7 @@ async function releaseBundle(t, options = {}) {
 
 test('export carries every dependent object, including groups and reviewers only a decision, exception or source review names', async (t) => {
   const { source, bundle } = await releaseBundle(t);
-  assert.equal(bundle.schemaVersion, 5);
+  assert.equal(bundle.schemaVersion, 6);
   assert.deepEqual(Object.keys(bundle.objects.story.approvalAuthorities).sort(),
     ['architecture-reviewers', 'product-approvers', 'release-leads', 'release-managers']);
   assert.deepEqual(bundle.assets.filter((asset) => asset.kind === 'agent').map((asset) => asset.id).sort(),
@@ -143,11 +143,11 @@ test('the bundle reader refuses imported copies and records that do not match wh
       return copy;
     }, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA'],
     ['a version-3 bundle that names a copy', (copy) => {
-      copy.schemaVersion = 3; delete copy.imports;
+      copy.schemaVersion = 3; delete copy.imports; delete copy.objects.story.integrations;
       copy.assets = copy.assets.filter((asset) => asset.kind !== 'vendored');
       return copy;
     }, 'WORKFLOW_AGENT_LOCK_INVALID'],
-    ['a version-3 bundle that carries a copy', (copy) => { copy.schemaVersion = 3; delete copy.imports; return copy; },
+    ['a version-3 bundle that carries a copy', (copy) => { copy.schemaVersion = 3; delete copy.imports; delete copy.objects.story.integrations; return copy; },
       'WORKFLOW_BUNDLE_INVALID']
   ];
   for (const [label, edit, code] of cases) {

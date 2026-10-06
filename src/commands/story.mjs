@@ -55,6 +55,7 @@ import { persistGenerationPublicationRecord } from '../generation-publication-st
 import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
+import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions } from '../manual-authorship.mjs';
 import { activateWorkItemSession } from '../session.mjs';
 import {
   evaluateSpecAcceptance,
@@ -65,7 +66,7 @@ import {
   mergePlannedClaimRecords
 } from '../specifications.mjs';
 import {
-  StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedPlannedClaims, commitAndPublish, createWorkflow,
+  StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedScopeContent, commitAndPublish, createWorkflow,
   currentPhase, decideIntentAmendment, decideStorySkillVersion, loadConfig, loadStoryAggregate,
   preparePhase, previewReworkRollForward, previewStorySkillVersionDecision,
   previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework,
@@ -1776,9 +1777,8 @@ async function proposeIntentAmendment(root, config, workflow, options) {
       code: 'INTENT_AMENDMENT_EMPTY'
     });
   }
-  // The amended specification must plan its clauses as a published one does; refuse it now rather
-  // than when an authority approves it.
-  await assertAmendedPlannedClaims(root, config, workflow, specification, proposedText, afterClauses.map((clause) => clause.id));
+  // Validate the pinned content and planned-clause contracts before recording any proposal.
+  await assertAmendedScopeContent(root, config, workflow, specification, proposedText, afterClauses.map((clause) => clause.id));
   const requiredClauses = intentAmendmentClauses(diff, optionStrings(options, 'clause'));
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const radius = intentAmendmentBlastRadius(diff, records);
@@ -1794,6 +1794,21 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   const beforeSha256 = createHash('sha256').update(currentText).digest('hex');
   const proposedSha256 = createHash('sha256').update(proposedText).digest('hex');
   const proposedAt = nowIso();
+  const requestedChangeOrigins = optionStrings(options, 'change-origin');
+  const authorshipOptions = normalizeAuthorshipOptions({
+    producer: optionString(options, 'authored'),
+    channel: optionString(options, 'channel'),
+    imported: true,
+    externalAiUse: optionString(options, 'external-ai'),
+    changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
+  });
+  assertProducerAllowed(specification, authorshipOptions.producer);
+  const authorship = buildGenerationAuthorship({
+    options: authorshipOptions, actor,
+    governedAgentContext: authorshipOptions.producer === 'governed-agent'
+      ? workflow.activeAgent ?? workflow.phases[source.phaseId]?.defaultAgent ?? null : null,
+    source: { kind: 'intent-amendment', id, path: proposedPath, sha256: proposedSha256 }
+  });
   const core = {
     schemaVersion: currentSchemaVersion('intent-amendment-proposal'),
     resultType: 'intent-amendment-proposal',
@@ -1802,6 +1817,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     status: 'proposed',
     proposedAt,
     proposedBy: structuredClone(actor),
+    authorship,
     reason: reason.trim(),
     source,
     specification: {

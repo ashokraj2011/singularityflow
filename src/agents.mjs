@@ -16,6 +16,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { BUILTIN_VIEW_IDS } from './world-model/registry/views.mjs';
+import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from './copilot-agent-names.mjs';
 
 export { fetchRemoteMarkdown, isPublicRemoteAddress, resolvePublicRemoteHost } from './remote-fetch.mjs';
 
@@ -46,10 +47,6 @@ function displayNameId(value) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return idPattern(normalized) ? normalized : null;
-}
-function copilotAgentPattern(value) {
-  return typeof value === 'string' && value === value.trim()
-    && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/.test(value);
 }
 function splitList(value) { return !value || value === '*' || value === '-' ? [] : value.split(',').map((item) => item.trim()).filter(Boolean); }
 function parseBoolean(value, label) {
@@ -252,9 +249,15 @@ export async function discoverAgents(root) {
   ];
   const agents = new Map();
   for (const [scope, directory] of locations) {
+    const localIds = new Map();
     for (const file of await agentFiles(directory)) {
       const text = await readFile(file, 'utf8');
       const parsed = parseAgentDependencies(text, { source: posix(path.relative(repositoryRoot, file)) });
+      if (localIds.has(parsed.id)) throw new SingularityFlowError(
+        `Agent ID '${parsed.id}' is declared by both '${localIds.get(parsed.id)}' and '${file}'. Give each agent a unique ID.`,
+        { code: 'AGENT_ID_COLLISION', details: { id: parsed.id, scope, files: [localIds.get(parsed.id), file] } }
+      );
+      localIds.set(parsed.id, file);
       if (!agents.has(parsed.id)) {
         const discovered = { ...parsed, scope, file, text, sha256: hash(text) };
         agents.set(parsed.id, discovered);
@@ -270,6 +273,15 @@ export async function discoverAgents(root) {
 
 export function validateAgentCatalog(agents, definition) {
   if (!agents.length) throw new SingularityFlowError('No governed Agent Markdown files were found in .github/agents or the bundled plugin.');
+  const displayNames = new Map();
+  for (const agent of agents) {
+    const name = (agent.displayName ?? agent.label ?? agent.id).trim().toLowerCase();
+    if (displayNames.has(name) && displayNames.get(name) !== agent.id) throw new SingularityFlowError(
+      `Copilot agent name '${agent.displayName ?? agent.label}' is shared by '${displayNames.get(name)}' and '${agent.id}'. Rename one of them.`,
+      { code: 'AGENT_NAME_COLLISION' }
+    );
+    displayNames.set(name, agent.id);
+  }
   const phaseIds = new Set(Object.keys(definition.phases ?? {}));
   const declaredViews = definition.worldModel?.format === 'registered-v4'
     && definition.worldModel?.views == null
@@ -339,7 +351,7 @@ export function validateAgentMappings(value, { agentIds = null } = {}) {
   const known = agentIds ? new Set(agentIds) : null;
   const normalized = {};
   for (const [copilotAgent, agentId] of Object.entries(mappings)) {
-    if (!copilotAgentPattern(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must be trimmed display text using letters, numbers, spaces, '.', '_' or '-' and be at most 128 characters.`);
+    if (!validCopilotAgentMappingName(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must ${COPILOT_AGENT_MAPPING_NAME_RULE}.`);
     if (typeof agentId !== 'string' || !idPattern(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case governed agent ID.`);
     if (known && !known.has(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown governed agent '${agentId}'.`);
     normalized[copilotAgent] = agentId;

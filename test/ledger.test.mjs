@@ -626,6 +626,29 @@ const combinedOptions = ({ root, branch, commit }, overrides = {}) => ({
   pushRemote: originPushUrl(root), upstreamRemote: 'origin', ...overrides
 });
 
+test('combined lifecycle publication retains a local hook failure instead of retrying it sequentially', async (t) => {
+  const fixture = await lifecycleCommit('WORK-COMBINED-HOOK');
+  const { parent, root, remote, branch, intent } = fixture;
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const hook = path.join(root, '.git/hooks/pre-push');
+  const stateBefore = remoteRef(remote, 'refs/heads/state');
+  await writeFile(hook, '#!/bin/sh\necho "hook attempt" >> hook-report.txt\nsflow_missing_hook_tool_for_test\n');
+  await chmod(hook, 0o755);
+  const result = await publishBranchWithLedgerEntry(root, enabled, intent, combinedOptions(fixture));
+  assert.equal(result.refused, true);
+  assert.equal(result.hookRejected, true);
+  assert.equal(result.result.failure.classification, 'local-hook-tool-unavailable');
+  assert.equal(result.result.hookWorktree.status, 'changed');
+  assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'hook attempt\n');
+  assert.equal(remoteRef(remote, `refs/heads/${branch}`), null);
+  assert.equal(remoteRef(remote, 'refs/heads/state'), stateBefore);
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+  const repaired = await publishBranchWithLedgerEntry(root, enabled, intent, combinedOptions(fixture));
+  assert.equal(repaired.landed, true);
+  assert.equal(remoteRef(remote, `refs/heads/${branch}`), fixture.commit);
+  assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'hook attempt\n');
+});
+
 test('a lifecycle branch, its ledger entry and the entry pin land together in one push', async () => {
   const fixture = await lifecycleCommit('WORK-COMBINED');
   const { remote, root, branch, commit, intent } = fixture;

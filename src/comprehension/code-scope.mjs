@@ -16,6 +16,8 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { applicationPathContext, isApplicationChangePath } from '../application-paths.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { buildRepositoryChangeSet, repositoryChangeSetDigest } from '../repository-change-set.mjs';
 
 const MACHINE_STATE_ROOT = '.singularity-flow';
@@ -23,14 +25,16 @@ const MAX_HIDDEN_GROUPS = 20;
 const MAX_DIFF_PATHS = 2_000;
 
 /**
- * The repository's definition file as written, or an empty object when it is absent or unreadable.
+ * The active approved overlay, or the locally available authority when no overlay is active.
  * Full definition loading validates agents and templates too, and one malformed agent file must
  * not turn a configured work-item root back into code to explain.
  */
 export async function comprehensionDefinition(root) {
   try {
-    const parsed = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    return await withApprovedConfigurationRead(root, async () => {
+      const parsed = YAML.parse(await readFile(path.join(configurationReadRoot(root), 'singularity', 'workflow.yml'), 'utf8'));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    }, { preferAuthority: true, refreshAuthority: false, selectPaths: ['singularity/workflow.yml'] });
   } catch {
     return {};
   }

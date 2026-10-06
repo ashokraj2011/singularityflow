@@ -20,7 +20,8 @@ import {
   resolveCopilotAgent,
   resolvePublicRemoteHost,
   syncAgent,
-  validateAgentCatalog
+  validateAgentCatalog,
+  validateAgentMappings
 } from '../src/agents.mjs';
 import { setAgentSession, loadSession } from '../src/session.mjs';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
@@ -147,11 +148,11 @@ function response(content, { status = 200, location = null } = {}) {
   return { ok: status >= 200 && status < 300, status, headers: { get: (name) => name.toLowerCase() === 'location' ? location : null }, arrayBuffer: async () => bytes };
 }
 
-async function rootWithAgent(content = agentMarkdown) {
+async function rootWithAgent(content = agentMarkdown, id = 'architecture') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-'));
   await mkdir(path.join(root, '.github/agents'), { recursive: true });
   await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
-  await writeFile(path.join(root, '.github/agents/architecture.agent.md'), content);
+  await writeFile(path.join(root, `.github/agents/${id}.agent.md`), content);
   return root;
 }
 
@@ -205,6 +206,45 @@ test('agent mappings resolve different Copilot names before same-name fallback',
   const displayMapping = await resolveCopilotAgent(root, 'Playwright Test Engineer');
   assert.equal(displayMapping.agentId, 'architecture');
   assert.equal(displayMapping.source, 'configured');
+});
+
+test('parenthesized Copilot display names retain exact identity through mapping and fallback', async () => {
+  const name = 'Feature Development Agent (No Jira)';
+  const id = 'feature-development-no-jira';
+  const content = agentMarkdown.replace('name: architecture', `name: ${name}`);
+  const root = await rootWithAgent(content, id);
+  const fallback = await resolveCopilotAgent(root, name);
+  assert.equal(fallback.agentId, id);
+  assert.equal(fallback.agent.displayName, name);
+  assert.equal(fallback.source, 'display-name');
+
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), YAML.stringify({
+    version: 1, mappings: { [name]: id }
+  }));
+  const explicit = await resolveCopilotAgent(root, name);
+  assert.equal(explicit.copilotAgent, name);
+  assert.equal(explicit.agentId, id);
+  assert.equal(explicit.source, 'configured');
+  assert.deepEqual((await loadAgentMappings(root)).mappings, { [name]: id });
+  assert.ok((await agentMappingStatus(root)).rows.some((row) =>
+    row.copilotAgent === name && row.agentId === id && row.source === 'configured'));
+});
+
+test('Copilot mapping punctuation does not relax identity, length or path safety', () => {
+  const id = 'architecture';
+  const validate = (name, agentId = id) => validateAgentMappings({
+    version: 1, mappings: { [name]: agentId }
+  }, { agentIds: [id] });
+  for (const name of ['Architect (QA)_v2.0', `A${'x'.repeat(125)}()`]) {
+    assert.deepEqual(validate(name).mappings, { [name]: id });
+  }
+  for (const name of ['', ' Leading', 'Trailing ', 'bad/agent', 'bad\\agent',
+    'bad\nagent', 'bad\tagent', 'bad\u0000agent', 'bad\u007fagent', 'A'.repeat(129)]) {
+    assert.throws(() => validate(name), /Copilot agent mapping key/);
+  }
+  assert.throws(() => validate('Architect (QA)', 'Unknown Agent'), /lower-case kebab-case/);
+  assert.throws(() => validate('Architect (QA)', 'missing'), /unknown governed agent/);
 });
 
 test('agent mapping validation rejects malformed names and unknown agents', async () => {

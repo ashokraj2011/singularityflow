@@ -21,6 +21,7 @@ import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
+import { seededWorkflowCatalogs, seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -136,6 +137,14 @@ async function saveIn(file, document, store) {
   store.validate(document.toJS());
   // The file is maintained by people too: only the edited lines change, the rest keep their formatting.
   const original = existsSync(file) ? await readFile(file, 'utf8') : null;
+  if (original) {
+    const root = path.resolve(path.dirname(file), '..');
+    const values = {};
+    for (const [side, definition] of Object.entries(STORES)) values[side] =
+      (await loadIn(root, definition).catch(() => null))?.document.toJS() ?? {};
+    const candidate = { ...values, [store.governs]: document.toJS() };
+    assertSeededWorkflowsUnchanged(await seededWorkflowProtection(values.story, values.initiative), values, candidate);
+  }
   await writeFile(file, renderPreservingFormatting(original, document), 'utf8');
 }
 
@@ -292,6 +301,9 @@ export async function defineWorkflow(root, workflowId, {
   }
   const { file, document } = await loadIn(root, store);
   const content = document.toJS() ?? {};
+  const seeds = await seededWorkflowCatalogs();
+  if (seeds[store.governs]?.[store.workflows]?.[id]) throw new SingularityFlowError(
+    `Seeded workflow '${id}' is read-only. Duplicate it before editing.`, { code: 'SEEDED_WORKFLOW_READ_ONLY' });
 
   if (content[store.workflows]?.[id]) {
     throw new SingularityFlowError(`Workflow '${id}' already exists. Use workflow edit to change it.`);
@@ -344,6 +356,9 @@ export async function editWorkflow(root, workflowId, changes = {}) {
   }
   const { file, document } = await loadIn(root, store);
   const content = document.toJS() ?? {};
+  const seeds = await seededWorkflowCatalogs();
+  if (seeds[store.governs]?.[store.workflows]?.[id]) throw new SingularityFlowError(
+    `Seeded workflow '${id}' is read-only. Duplicate it before editing.`, { code: 'SEEDED_WORKFLOW_READ_ONLY' });
   if (Object.hasOwn(changes, 'plannedClaims') && store.governs !== 'story') {
     throw new SingularityFlowError('plannedClaims applies only to Story workflows.');
   }

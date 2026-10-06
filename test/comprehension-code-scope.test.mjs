@@ -11,10 +11,13 @@ import YAML from 'yaml';
 
 import { applicationPathContext } from '../src/application-paths.mjs';
 import {
-  buildComprehensionChangeSet, comprehensionDiffOptions, isExplainedPath
+  buildComprehensionChangeSet, comprehensionDefinition, comprehensionDiffOptions, isExplainedPath
 } from '../src/comprehension/code-scope.mjs';
+import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
+import { withConfigurationReadRoot } from '../src/configuration-read-scope.mjs';
+import { repositoryCodeInventory } from '../src/comprehension/repository-explanation.mjs';
 import { verifyRepositoryChangeSetIntegrity } from '../src/repository-change-set.mjs';
-import { cliJson, comprehensionSlice, createChangeRepository, isolatedHome } from './helpers/xpl2-fixture.mjs';
+import { cliJson, comprehensionSlice, createChangeRepository, git, isolatedHome } from './helpers/xpl2-fixture.mjs';
 
 const HIDDEN = [
   'singularity/work-items/S-1/STATUS.md',
@@ -104,4 +107,50 @@ test('the change subject and the VS Code slice describe the same code-only captu
   assert.deepEqual(slice.manifest.regions.map((region) => region.location.pathAfter ?? region.location.pathBefore).sort(),
     ['.github/workflows/ci.yml', 'src/cart.js']);
   assert.equal(slice.diff.status, 'available');
+});
+
+test('code reads approved configuration roots and budgets when application HEAD has no workflow YAML', async (t) => {
+  const home = await isolatedHome(t);
+  const { root, base } = await createChangeRepository(t, {
+    baseline: {
+      'src/cart.js': 'export const cart = 1;\n',
+      'records/S-1/notes.md': '# Governed Story\n'
+    }
+  });
+  git(root, 'switch', '-c', 'sflow/config');
+  assert.equal(cliJson(root, home, ['init']).status, 0);
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.workItemRoot = 'records';
+  definition.ast = { ...definition.ast, budgets: { ...definition.ast?.budgets, maxFiles: 1 } };
+  await writeFile(file, YAML.stringify(definition));
+  git(root, 'add', '.');
+  git(root, 'commit', '-qm', 'Approved configuration on separate branch');
+  git(root, 'switch', 'main');
+  await assert.rejects(readFile(file), { code: 'ENOENT' });
+  await writeFile(path.join(root, 'records/S-1/notes.md'), '# Changed governed Story\n');
+
+  const verifyScope = async () => {
+    const resolved = await comprehensionDefinition(root);
+    assert.equal(resolved.workItemRoot, 'records');
+    assert.equal(resolved.ast.budgets.maxFiles, 1);
+    const inventory = await repositoryCodeInventory(root);
+    assert.deepEqual(inventory.paths, ['src/cart.js']);
+    assert.equal(inventory.budgets.maxFiles, 1);
+    const projected = await buildComprehensionChangeSet(root, { baseCommit: base });
+    assert.equal(projected.changeSet.entries.some((entry) => entry.newPath.startsWith('records/')), false);
+    assert.equal(projected.hidden.entries, 1);
+  };
+  await verifyScope();
+  await withApprovedConfigurationRead(root, verifyScope, {
+    preferAuthority: true, refreshAuthority: false, selectPaths: ['singularity/workflow.yml']
+  });
+  // The active read overlay is also used for a Story pin instead of silently rereading local refs.
+  await withConfigurationReadRoot(root, root, { kind: 'test-pin' }, async () => {
+    assert.deepEqual(await comprehensionDefinition(root), {}, 'an explicitly empty overlay does not escape to authority refs');
+  });
+  const explained = cliJson(root, home, ['explain', 'code', '--repository', '--json']);
+  assert.equal(explained.status, 0, explained.stderr);
+  assert.deepEqual(explained.json.data.repository.files.map((entry) => entry.path), ['src/cart.js']);
+  assert.equal(explained.json.data.repository.budget.maxFiles, 1);
 });

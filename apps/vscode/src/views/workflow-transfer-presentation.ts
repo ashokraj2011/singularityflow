@@ -14,6 +14,7 @@ export type WorkflowImportConflict = {
 };
 
 export type WorkflowMutationPreview = {
+  identities?: WorkflowTransferIdentity[];
   status?: string;
   planSha256?: string;
   unresolved?: WorkflowImportConflict[];
@@ -37,6 +38,14 @@ export type WorkflowMutationPreview = {
   sharedDependencies?: unknown[] | Record<string, unknown>;
   dependencies?: unknown[] | Record<string, unknown>;
   summary?: Record<string, unknown>;
+};
+
+export type WorkflowTransferIdentity = {
+  subject: string; kind: string; sourceId: string; targetId: string; suggestedId: string;
+  renameable: boolean; reason?: string | null; occupiedIds: string[];
+  label?: string; description?: string; action?: string;
+  skills?: Array<{ id: string; phases?: string[] }>;
+  resources?: Array<{ id: string; type: string; url?: string }>;
 };
 
 type WorkflowOperationKind = 'add' | 'reuse' | 'replace' | 'keep' | 'conflicts';

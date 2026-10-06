@@ -164,7 +164,7 @@ import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
   buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap,
-  evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
+  evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
   loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
   predecessorSpecClauses
@@ -188,7 +188,7 @@ import { operationContext } from './operation-context.mjs';
 import {
   evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
 } from './external-command-policy.mjs';
-import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
+import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import {
   advanceCompletedPhase, clearApprovalDisposition, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,
@@ -244,7 +244,7 @@ import {
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
-  inspectPhaseAuthoredReviewContent, requiredArtifactRepoPath,
+  inspectPhaseAuthoredReviewContent, inspectRequiredArtifactText, requiredArtifactRepoPath,
   repairPreparedArtifactMetadata,
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
@@ -1883,6 +1883,19 @@ export async function assertAmendedPlannedClaims(root, config, workflow, phase, 
     clauseIds, policy: target.policy, enforce: target.enforce, artifactPath: requiredRepoPath(config, workflow, phase), codeSteps: target.codeSteps,
     subject: 'The amended specification cannot be proposed', where: 'in the proposed file', again: 'propose it again'
   });
+}
+
+/** Amendments must satisfy the same pinned authoring contract as ordinary publication. */
+export async function assertAmendedScopeContent(root, config, workflow, phase, proposedText, proposedClauseIds) {
+  const findings = inspectRequiredArtifactText(proposedText, phase, {
+    path: requiredRepoPath(config, workflow, phase), generation: nextPhaseGeneration(phase)
+  });
+  if (findings.length) throw new SingularityFlowError(
+    `The amended specification is incomplete:\n- ${findings.map(artifactFindingMessage).join('\n- ')}\n`
+    + 'Correct the proposed file before requesting approval; the approved scope remains unchanged.',
+    { code: 'ARTIFACT_AUTHORING_INCOMPLETE', details: { phase: phase.id, findings } }
+  );
+  return assertAmendedPlannedClaims(root, config, workflow, phase, proposedText, proposedClauseIds);
 }
 
 async function refreshPlannedSpecificationClaims(root, config, workflow, phase) {
@@ -7263,6 +7276,63 @@ async function persistIntentAmendmentRecord(root, config, workflow, summary, rec
   await writeJson(file, record);
 }
 
+/** Inspect exact candidate bytes before recording any approval, including a partial one. */
+async function inspectedIntentAmendmentCandidate(root, config, workflow, specification, proposal, actor, staleProposalDetails) {
+  const specificationPath = requiredRepoPath(config, workflow, specification);
+  if (specificationPath !== proposal.specification?.artifact) {
+    throw new SingularityFlowError(`Intent amendment '${proposal.id}' targets a different specification artifact.`, {
+      code: 'INTENT_AMENDMENT_INVALID'
+    });
+  }
+  const specificationFile = (await secureRepositoryPath(root, specificationPath, {
+    label: 'Specification artifact', mustExist: true, type: 'file'
+  })).absolute;
+  const current = await repositoryArtifactSnapshot(root, specificationPath);
+  if (!current.exists || current.sha256 !== proposal.specification.beforeSha256) {
+    throw new SingularityFlowError(
+      `Specification changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
+      { code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails }
+    );
+  }
+  const proposedFile = await intentAmendmentPath(root, config, workflow,
+    proposal.specification.proposedPath, 'Proposed specification', { mustExist: true, type: 'file' });
+  const proposedText = await readFile(proposedFile, 'utf8');
+  // Bind validation and replacement to the very same bytes, not to a second file read.
+  const proposedSnapshot = { sha256: createHash('sha256').update(proposedText).digest('hex') };
+  if (proposedSnapshot.sha256 !== proposal.specification.proposedSha256) {
+    throw new SingularityFlowError(`Intent amendment '${proposal.id}' proposed bytes changed after review.`, {
+      code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails
+    });
+  }
+  try {
+    await assertAmendedScopeContent(root, config, workflow, specification, proposedText,
+      extractClauses(proposedText, { sourcePath: specificationPath }).map((clause) => clause.id));
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    throw new SingularityFlowError(
+      `Intent amendment '${proposal.id}' cannot be approved. ${error.message} `
+      + 'An authorized scope reviewer can reject this proposal, then propose corrected bytes; do not edit the stored candidate or approved scope in place.',
+      { code: error.code, details: { ...error.details, ...staleProposalDetails, proposalId: proposal.id } }
+    );
+  }
+  // A reviewer approves intent, not a claim of authorship. Older proposals have unspecified
+  // provenance; never turn the human decision into a fabricated human/no-AI attestation.
+  const amendmentAuthorship = proposal.authorship ?? buildGenerationAuthorship({
+    options: normalizeAuthorshipOptions(), actor: proposal.proposedBy ?? actor,
+    governedAgentContext: null,
+    source: { kind: 'intent-amendment', id: proposal.id, path: proposal.specification.proposedPath,
+      sha256: proposedSnapshot.sha256 }
+  });
+  const declaredAuthorship = normalizeAuthorshipOptions({
+    producer: amendmentAuthorship.producer, channel: amendmentAuthorship.channel,
+    externalAiUse: amendmentAuthorship.externalAiUse?.status === 'self-reported'
+      ? amendmentAuthorship.externalAiUse.value : null,
+    changeOrigins: amendmentAuthorship.changeOrigins
+  });
+  assertProducerAllowed(specification, declaredAuthorship.producer);
+  return { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship };
+}
+
 /**
  * Record the authority decision and, once its threshold is reached, install the approved intent.
  *
@@ -7344,14 +7414,16 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       { code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails }
     );
   }
+  const decisions = [...(proposal.decisions ?? [])];
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     specification.approvalPolicy,
-    actor
+    actor,
+    { preferredAuthorities: decision === 'approve'
+      ? remainingRequiredAuthorities(specification.approvalPolicy, decisions) : [] }
   );
   const key = actorKey(actor);
-  const decisions = [...(proposal.decisions ?? [])];
-  if (decisions.some((entry) => actorKey(entry.actor) === key)) {
+  if (decision === 'approve' && decisions.some((entry) => actorKey(entry.actor).toLowerCase() === key.toLowerCase())) {
     throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
   }
   const selfApproval = actorKey(proposal.proposedBy ?? {}) === key;
@@ -7360,6 +7432,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       `Specification policy prohibits the proposer from approving intent amendment '${proposal.id}'. Ask another authorized Git identity.`
     );
   }
+  const amendmentCandidate = decision === 'approve'
+    ? await inspectedIntentAmendmentCandidate(root, config, workflow, specification, proposal, actor, staleProposalDetails)
+    : null;
   const at = nowIso();
   const recorded = {
     decision: decision === 'approve' ? 'approved' : 'rejected',
@@ -7400,10 +7475,11 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
 
   const approvals = decisions.filter((entry) => entry.decision === 'approved');
   const minimum = specification.approvalPolicy.minimum ?? 1;
-  if (approvals.length < minimum) {
+  proposal.approvals = { reached: approvals.length, required: minimum,
+    missingAuthorities: remainingRequiredAuthorities(specification.approvalPolicy, approvals) };
+  Object.assign(summary, { approvals: proposal.approvals });
+  if (!approvalRequirementsMet(specification.approvalPolicy, approvals)) {
     proposal.status = 'proposed';
-    proposal.approvals = { reached: approvals.length, required: minimum };
-    Object.assign(summary, { approvals: proposal.approvals });
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
     return {
       proposal,
@@ -7416,34 +7492,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
   }
 
-  const specificationPath = requiredRepoPath(config, workflow, specification);
-  if (specificationPath !== proposal.specification?.artifact) {
-    throw new SingularityFlowError(`Intent amendment '${proposal.id}' targets a different specification artifact.`, {
-      code: 'INTENT_AMENDMENT_INVALID'
-    });
-  }
-  const specificationFile = (await secureRepositoryPath(root, specificationPath, {
-    label: 'Specification artifact',
-    mustExist: true,
-    type: 'file'
-  })).absolute;
-  const current = await repositoryArtifactSnapshot(root, specificationPath);
-  if (!current.exists || current.sha256 !== proposal.specification.beforeSha256) {
-    throw new SingularityFlowError(
-      `Specification changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
-      { code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails }
-    );
-  }
-  const proposedFile = await intentAmendmentPath(root, config, workflow,
-    proposal.specification.proposedPath, 'Proposed specification', { mustExist: true, type: 'file' });
-  const proposedText = await readFile(proposedFile, 'utf8');
-  const proposedSnapshot = await snapshot(proposedFile);
-  if (proposedSnapshot.sha256 !== proposal.specification.proposedSha256) {
-    throw new SingularityFlowError(`Intent amendment '${proposal.id}' proposed bytes changed after review.`, {
-      code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails
-    });
-  }
-
+  const { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship } = amendmentCandidate;
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
   const amendmentGeneration = nextPhaseGeneration(specification);
@@ -7463,25 +7512,18 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   specification.approvedBy = key;
   specification.generatedAt = at;
   specification.generatedBy = structuredClone(proposal.proposedBy ?? actor);
-  specification.generatedAgent = null;
+  specification.generatedAgent = amendmentAuthorship.governedAgentContext?.agentId ?? null;
   specification.authorship = [
     ...(specification.authorship ?? []).filter((entry) => Number(entry.generation) !== Number(specification.generation)),
     {
-      schemaVersion: currentSchemaVersion('artifact-authorship'),
-      producer: 'human',
-      channel: 'manual-in-place',
-      actor: structuredClone(proposal.proposedBy ?? actor),
-      governedAgentContext: null,
-      kernelModel: { invoked: false, status: 'exact', invocationIds: [] },
-      externalAiUse: { value: 'none', status: 'self-reported' },
-      changeOrigins: ['human'],
-      source: { kind: 'intent-amendment', id: proposal.id, proposalSha256: proposal.proposalSha256 },
+      ...structuredClone(amendmentAuthorship),
+      source: { ...structuredClone(amendmentAuthorship.source), proposalSha256: proposal.proposalSha256 },
       generation: specification.generation,
       publishedAt: at
     }
   ];
-  const amendmentApproval = {
-    ...recorded,
+  const amendmentApprovals = approvals.map((approval) => ({
+    ...approval,
     decision: 'approved',
     phase: specification.id,
     generation: specification.generation,
@@ -7490,7 +7532,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     artifactSha256: [{ path: specificationPath, sha256: proposedSnapshot.sha256 }],
     architectureIntent: structuredClone(amendmentArchitectureIntent),
     architectureDecision: null
-  };
+  }));
+  const amendmentApproval = amendmentApprovals.at(-1);
   // The ordinary submit ceremony registers a model-safe expansion reference against the immutable
   // generation commit. An approved amendment deliberately has no synthetic submission packet, but
   // its proposed bytes already exist in the immutable proposal commit. Register that reviewed
@@ -7517,7 +7560,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     revision: amendmentReferenceRevision,
     visibility: 'model'
   });
-  specification.approvals.push(amendmentApproval);
+  specification.approvals.push(...amendmentApprovals);
   await updateArtifactMetadata(root, config, workflow, specification);
   await registerApprovedSnapshot(root, config, workflow, specification);
   await refreshPhaseSpecificationIndex(root, config, workflow, specification);
@@ -7607,7 +7650,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       Number(entry.generation) !== Number(specification.generation)),
     amendmentPublication
   ].sort((left, right) => Number(left.generation) - Number(right.generation));
-  await writeDecision(root, config, workflow, specification, amendmentApproval);
+  for (const approval of amendmentApprovals) await writeDecision(root, config, workflow, specification, approval);
 
   const specificationIndex = workflow.phaseOrder.indexOf(specification.id);
   const nextIndex = specificationIndex + 1;

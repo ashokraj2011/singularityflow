@@ -4,6 +4,7 @@ import { renderCommandResultJson } from './narration/render-json.mjs';
 import { renderCommandResult } from './narration/render-terminal.mjs';
 import { optionBoolean, parseArgs } from './util.mjs';
 import { refusalEnvelope, renderRefusalPlan } from './refusal-remediation.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
 /**
  * Where the structured result begins when a reader asks for it beside the prose: with
@@ -41,19 +42,19 @@ export async function reportCliFailure(error, argv = []) {
   if (result) {
     if (json) console.log(renderCommandResultJson(result));
     else {
-      console.error(`\n${error?.message ?? String(error)}`);
-      console.error(`\n${renderCommandResult(result)}`);
+      console.error(`\n${redactDiagnosticText(error?.message ?? String(error))}`);
+      console.error(`\n${redactDiagnosticText(renderCommandResult(result))}`);
       if (structuredBeside) console.error(`\n${REFUSAL_ENVELOPE_MARKER}\n${JSON.stringify(JSON.parse(renderCommandResultJson(result)))}`);
     }
   } else {
     const envelope = refusalEnvelope(error, argv);
     if (json) console.log(JSON.stringify(envelope, null, 2));
     else {
-      console.error(`\nSingularity Flow error: ${error?.message ?? String(error)}`);
+      console.error(`\nSingularity Flow error: ${envelope.error.message}`);
       console.error(`\n${renderRefusalPlan(envelope.remediationPlan)}`);
       if (structuredBeside) console.error(`\n${REFUSAL_ENVELOPE_MARKER}\n${JSON.stringify(envelope)}`);
     }
   }
-  if (!json && process.env.SINGULARITY_FLOW_DEBUG === '1' && error?.stack) console.error(error.stack);
+  if (!json && process.env.SINGULARITY_FLOW_DEBUG === '1' && error?.stack) console.error(redactDiagnosticText(error.stack));
   process.exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : 1;
 }

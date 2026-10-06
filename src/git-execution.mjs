@@ -8,7 +8,7 @@
  * same provider error.
  */
 import {
-  assertCredentialFreeRemote, classifyGitRemoteFailure, failureEvidence, redactDiagnosticText,
+  assertCredentialFreeRemote, classifyGitRemoteFailure, failureEvidence, gitFailureDiagnostic, redactDiagnosticText,
   frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
@@ -130,7 +130,10 @@ function throwRemoteFailure(observed) {
         retryable: failure.retryable,
         timedOut: timedOut === true,
         outputOverflow: outputOverflow === true,
-        evidence: failure.evidence
+        evidence: failure.evidence,
+        // Provider prose remains digest-only at this low-level boundary. Hook failures need the
+        // exact local command/check for repair, so retain only their bounded, redacted streams.
+        remoteFailure: { ...failure, ...(failure.hook ? { diagnostics: gitFailureDiagnostic(observed) } : {}) }
       }
     }
   );

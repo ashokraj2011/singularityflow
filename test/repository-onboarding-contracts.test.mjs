@@ -14,10 +14,26 @@ const recoverySchema = JSON.parse(await readFile(
 
 const {
   parseRepositoryOnboardingPlan,
-  parseRepositoryOnboardingResult
+  parseRepositoryOnboardingResult,
+  repositoryOnboardingCopy,
+  repositoryOnboardingCommandFailureCopy
 } = await import(new URL(
   '../apps/vscode/src/views/repository-onboarding-model.ts', import.meta.url
 ));
+
+test('repository setup UI treats local hook failures as local repair, not sign-in or provider access', () => {
+  for (const [classification, code] of [
+    ['local-hook-tool-unavailable', 'REMOTE_LOCAL_HOOK_TOOL_UNAVAILABLE'],
+    ['local-hook-failed', 'REMOTE_LOCAL_HOOK_FAILED']
+  ]) {
+    const failure = { code, classification, retryable: false, advice: '' };
+    const copy = repositoryOnboardingCopy({ status: 'could-not-check-git', failure });
+    assert.match(copy.title, /Local Git hook/);
+    assert.match(copy.message, /repair|Repair/);
+    assert.doesNotMatch(copy.message, /sign in|credentials|read access/iu);
+    assert.deepEqual(repositoryOnboardingCommandFailureCopy({ code }), copy);
+  }
+});
 
 function pointer(document, reference) {
   assert.match(reference, /^#\//u);

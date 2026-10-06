@@ -2085,7 +2085,7 @@ const PAGES = Object.freeze({
       ['singularity-flow story references verify --work-id PAY-1 --json', 'Verify every local reference is clean, detached, and at its pinned commit.'],
       ['singularity-flow story references materialize --work-id PAY-1', 'Recreate only missing local reference checkouts from immutable Story pins.'],
       ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
-      ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected approved intent from any active downstream phase in any workflow, without a convergence finding or rework loop. The CLI binds the phase and exact changed clauses; only scope authority approval applies it.'],
+      ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed" --authored human', 'Propose corrected approved intent from any active downstream phase in any workflow, without a convergence finding or rework loop. The CLI binds exact bytes, declared authorship and changed clauses; omitted authorship/AI declarations remain unknown. Only scope authority approval applies it.'],
       ['singularity-flow story checks PAY-1', 'Record configured repository-check evidence against the submitted packet.']
     ],
     seeAlso: ['start', 'submit', 'epic']

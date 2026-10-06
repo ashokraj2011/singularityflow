@@ -61,6 +61,7 @@ export interface WorkflowStudioActions {
   exportWorkflows?(selectors: readonly string[]): Promise<string | null>;
   /** Import a workflow bundle: preview the plan, then propose it after the person confirms. */
   importWorkflows?(): Promise<StudioChangeOutcome>;
+  duplicateWorkflow?(selector: string): Promise<StudioChangeOutcome>;
   /** Open a repository file in an editor: the governed workflow or portfolio file, or a template. */
   openFile?(relative: string): Promise<void>;
   /** The operating-system keychain, through VS Code, for the secrets integration targets name. */
@@ -150,6 +151,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.reviewProposal': (message) => this.reviewProposal(stringField(message, 'branch'), integerField(message, 'pending') ?? 0),
     'studio.exportWorkflows': (message) => this.exportWorkflows((message as { workflowIds?: unknown }).workflowIds),
     'studio.importWorkflows': (message) => this.importWorkflows(integerField(message, 'pending') ?? 0),
+    'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.openFile': (message) => this.openFile(stringField(message, 'path')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
       stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
@@ -211,6 +213,21 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     }
     this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error });
     if (result.outcome !== 'cancelled') await this.proposals();
+  }
+
+  private async duplicateWorkflow(selector: string | null, pending: number): Promise<void> {
+    if (!selector || !WORKFLOW_SELECTOR.test(selector) || !this.actions.duplicateWorkflow) {
+      this.post({ type: 'studio.failed', message: 'Choose a published workflow to duplicate.' }); return;
+    }
+    const before = this.modelBase();
+    const result = await this.actions.duplicateWorkflow(selector);
+    if (result.outcome === 'failed') { this.post({ type: 'studio.failed', message: result.error ?? 'Duplication failed.' }); return; }
+    if (result.outcome !== 'cancelled') {
+      const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
+      if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, 'a workflow was duplicated');
+      await this.proposals();
+    }
+    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error });
   }
 
   /** Repository files the page may open: the governed workflow and portfolio files, and templates. */

@@ -350,7 +350,9 @@ Usage:
                                                         linked copy: preserve the complete workflow record and reuse dependencies
   singularity-flow workflow duplicate <[story|initiative:]SOURCE> <TARGET> --label TEXT
     [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
-                                                        alias of workflow copy
+    [--resolve KIND:ID=rename:NAME]...                    independent copy with renamed editable dependencies;
+                                                        compiled skill / canonical Epic steps remain shared and read-only
+    Seeded workflows and their shared dependencies are read-only. Duplicate before customizing.
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
     [--agents a,b] [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N]
     [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default governed agent
@@ -855,6 +857,8 @@ Usage:
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
   singularity-flow story intent-amendment status [--work-id ID] [--json]
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
+    [--authored human|governed-agent|external-tool] [--channel CHANNEL]
+    [--external-ai none|assisted] [--change-origin ORIGIN...]
     [--source-phase CURRENT-PHASE] [--clause ID]... (optional exact list; otherwise computed)
     Available in every workflow after scope approval; no convergence finding or rework loop required.
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>

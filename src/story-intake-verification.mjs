@@ -28,6 +28,7 @@ import { processResultSucceeded } from './process-result.mjs';
 import { resolveReferenceRepositoryPins } from './reference-repositories.mjs';
 import { claimStoryIntakeReceipt } from './story-intake-receipt.mjs';
 import { run } from './util.mjs';
+import { probeStoryBranchPublication } from './story-publication-preflight.mjs';
 
 /** How long the wave's authority observation stands in for start's own pre-mutation check. */
 export const STORY_INTAKE_AUTHORITY_REUSE_MS = 30_000;
@@ -126,13 +127,8 @@ export async function verifyStoryIntakeWave(root, admission, {
   const shared = receipt.authority.remote === repository.fetch.url;
   const startedAt = now();
   const dryRun = repository.push
-    ? (() => {
-      const transport = frozenRemoteTransport(repository.push.url, { push: true });
-      return runGit([
-        'push', '--dry-run', '--porcelain', transport.remote,
-        `refs/remotes/${repository.remote}/${repository.baseBranch}:${repository.destinationRef}`
-      ], { cwd: root, operation: 'remote-push', allowFailure: true, env: transport.env });
-    })()
+    ? probeStoryBranchPublication(root, repository.push.url,
+      `refs/remotes/${repository.remote}/${repository.baseBranch}`, repository.destinationRef, { runGit })
     : Promise.resolve(null);
   let application;
   let authority;

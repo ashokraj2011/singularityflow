@@ -13,6 +13,8 @@ import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { probeStoryBranchPublication } from './story-publication-preflight.mjs';
+import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteAuthority,
   configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference, isPortableAbsoluteGitPath
@@ -3179,13 +3181,13 @@ export async function pushCommitToBranch(root, remote, commitSha, branchName, op
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote, { push: true })
     : null;
-  const result = await runRemoteGitAsync([
+  const result = await observePublicationHookEffects(root, () => runRemoteGitAsync([
     'push', '--porcelain', ...lease, frozen?.remote ?? transportRemote,
     `${commit.stdout.trim()}:refs/heads/${branchName}`
   ], {
     cwd: root, operation: 'remote-push',
     ...(frozen ? { env: frozen.env } : {})
-  });
+  }));
   // Git elides an update when another actor already installed the identical object ID. It does so
   // even when an explicit non-null lease names the older ref: receive-pack sees no update and Git
   // reports `=` / "up to date". An explicit lease is an ownership claim, not merely a desired final
@@ -3244,13 +3246,13 @@ export async function pushCommitToBranchAsync(root, remote, commitSha, branchNam
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote, { push: true })
     : null;
-  let result = await runRemoteGitAsync([
+  let result = await observePublicationHookEffects(root, () => runRemoteGitAsync([
     'push', '--porcelain', ...lease, frozen?.remote ?? transportRemote,
     `${commit.stdout.trim()}:refs/heads/${branchName}`
   ], {
     cwd: root, operation: 'remote-push',
     ...(frozen ? { env: frozen.env } : {})
-  });
+  }));
   if (result.status === 0 && expectedRemoteSha !== undefined
       && String(expectedRemoteSha ?? '').toLowerCase() !== commit.stdout.trim().toLowerCase()) {
     const destination = `refs/heads/${branchName}`;
@@ -3287,25 +3289,18 @@ export function recordBranchPublication(root, branchName, commit, upstreamRemote
 }
 
 /**
- * Prove that the configured remote will accept creation of a Story ref before the worktree moves.
+ * Probe transport access before the worktree moves; this is not application-hook evidence.
  *
  * The source is an already-fetched remote base ref. `--dry-run` negotiates with the real remote and
- * exercises its authentication/authorization path without creating the destination branch. The
- * actual publication still uses HEAD after the governed commit exists.
+ * exercises transport authentication without creating the destination branch or running local
+ * hooks. Provider receive rules and local hooks are still enforced by the actual publication.
  */
 export async function preflightPushBranch(root, remote, sourceRef, branchName, options = {}) {
   const transportRemote = options.transportRemote ?? remote;
   validBranch(root, branchName);
-  const frozen = Object.hasOwn(options, 'transportRemote')
-    ? frozenRemoteTransport(transportRemote, { push: true })
-    : null;
-  return runRemoteGitAsync([
-    'push', '--dry-run', '--porcelain', frozen?.remote ?? transportRemote,
-    `${sourceRef}:refs/heads/${branchName}`
-  ], {
-    cwd: root, operation: 'remote-push',
-    ...(frozen ? { env: frozen.env } : {})
-  });
+  const authority = Object.hasOwn(options, 'transportRemote') ? transportRemote
+    : configuredRemoteAuthority(root, remote, { direction: 'push' }).url;
+  return probeStoryBranchPublication(root, authority ?? transportRemote, sourceRef, `refs/heads/${branchName}`);
 }
 
 export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {

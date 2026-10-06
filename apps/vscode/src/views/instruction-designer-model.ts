@@ -3,6 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { worldModelViewCatalog } from '../../../../src/world-model-views.mjs';
 import { renderPreservingFormatting } from '../../../../src/yaml-formatting.mjs';
+import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from '../../../../src/copilot-agent-names.mjs';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
 export type InstructionTab = 'agents' | 'delivery' | 'prompts' | 'skills' | 'packs';
@@ -436,9 +437,8 @@ export function renderAgentMappings(rows: Array<{ copilotAgent: string; agentId:
 export function validateAgentMappingsDraft(rows: Array<{ copilotAgent: string; agentId: string }>, agentIds: string[]): string[] {
   const errors: string[] = []; const seen = new Set<string>(); const known = new Set(agentIds);
   for (const row of rows) {
-    if (row.copilotAgent !== row.copilotAgent.trim()
-        || !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/.test(row.copilotAgent)) {
-      errors.push(`Copilot agent '${row.copilotAgent || '(empty)'}' is invalid.`);
+    if (!validCopilotAgentMappingName(row.copilotAgent)) {
+      errors.push(`Copilot agent '${row.copilotAgent || '(empty)'}' is invalid: it must ${COPILOT_AGENT_MAPPING_NAME_RULE}.`);
     }
     if (seen.has(row.copilotAgent)) errors.push(`Copilot agent '${row.copilotAgent}' is mapped more than once.`);
     seen.add(row.copilotAgent);

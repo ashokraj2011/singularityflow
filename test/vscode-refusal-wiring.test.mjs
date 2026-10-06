@@ -12,6 +12,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { codeOccurrences } from './source-text.mjs';
+import { storyPublicationPreflightError } from '../src/story-publication-preflight.mjs';
+import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
@@ -309,6 +311,19 @@ test('manual recovery instructions render without crowding safe actions out of t
     'no executable command does not mean no recovery instruction');
   planned.remediationPlan.steps.push(null);
   assert.doesNotThrow(() => refusalFor(cliError('Human review needed', JSON.stringify(planned))));
+});
+
+test('local hook recovery instructions reach the VS Code card without offering a hook bypass', () => {
+  const error = storyPublicationPreflightError({ status: 1, stdout: '',
+    stderr: '.husky/pre-push: line 7: pnpm: command not found' }, { branch: 'STORY-HOOK', remote: 'origin' });
+  const envelope = refusalEnvelope(error, ['start', 'STORY-HOOK']);
+  const { view: card } = refusalFor(cliError(error.message, JSON.stringify(envelope)));
+  const html = resultCardHtml(card);
+  assert.match(html, /pre-push.*line 7.*pnpm/);
+  assert.match(html, /IDE.*Husky/);
+  assert.match(html, /Preserve|preserve/);
+  assert.ok(card.actions.every((entry) => entry.executable === false));
+  assert.doesNotMatch(JSON.stringify(card.actions), /--no-verify|core\.hooksPath|workspace --help/);
 });
 
 test('VS Code derives paired shell and Copilot routes without exposing credential-shaped commands', () => {

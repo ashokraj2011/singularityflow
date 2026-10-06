@@ -450,24 +450,18 @@ async function readReviewArtifact(root, relative, label) {
   return opened.bytes.toString('utf8');
 }
 
-/** Pure, complete artifact authoring preflight used by publish, recover, and host guidance. */
-export async function inspectRequiredArtifactContent(root, config, workflow, phase, {
-  placeholders = true, minimumBytes = true
+/** Validate candidate bytes without replacing the currently approved artifact. */
+export function inspectRequiredArtifactText(text, phase, {
+  path: required = 'artifact', generation = null, placeholders = true, minimumBytes = true
 } = {}) {
-  const required = requiredArtifactRepoPath(config, workflow, phase);
-  const text = await readReviewArtifact(root, required, 'Required phase artifact');
-  if (text == null) return [{
-    code: 'artifact.required.missing', category: 'authoring', path: required, line: null,
-    value: null, bytes: null, minimumBytes: phase.requiredArtifact.minimumBytes ?? 1
-  }];
   const contract = {
     ...phase.requiredArtifact,
     // During authoring the contract describes the next generation; after publication it describes
     // the current submitted generation. This lets submit/approval retain the unchanged-template
     // invariant instead of accidentally comparing generation N's bytes with an N+1 contract.
-    generation: phase.status === 'in_progress'
+    generation: generation ?? (phase.status === 'in_progress'
       ? nextPhaseGeneration(phase)
-      : Number(phase.generation),
+      : Number(phase.generation)),
     ...(minimumBytes ? {} : { minimumBytes: 0 }),
     ...(!placeholders ? {
       validation: { ...phase.requiredArtifact.validation, forbiddenPlaceholders: [] }
@@ -491,6 +485,17 @@ export async function inspectRequiredArtifactContent(root, config, workflow, pha
   return placeholders
     ? findings
     : findings.filter((finding) => finding.code !== 'artifact.placeholder.unresolved');
+}
+
+/** Complete artifact authoring preflight used by publish, recover, and host guidance. */
+export async function inspectRequiredArtifactContent(root, config, workflow, phase, options = {}) {
+  const required = requiredArtifactRepoPath(config, workflow, phase);
+  const text = await readReviewArtifact(root, required, 'Required phase artifact');
+  if (text == null) return [{
+    code: 'artifact.required.missing', category: 'authoring', path: required, line: null,
+    value: null, bytes: null, minimumBytes: phase.requiredArtifact.minimumBytes ?? 1
+  }];
+  return inspectRequiredArtifactText(text, phase, { ...options, path: required });
 }
 
 function reviewableMarkdownPath(relativePath) {

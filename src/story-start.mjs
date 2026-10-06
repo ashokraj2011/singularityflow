@@ -23,6 +23,7 @@ import {
   preflightWorldModelAuthorityRefreshes, storyBaseForRepository
 } from './capability-start.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish,
@@ -507,11 +508,7 @@ export async function startStory(root, {
         transportRemote: publicationAuthority.url
       });
       if (dryRun.status !== 0) {
-        throw new SingularityFlowError(
-          `Cannot publish the new Story branch '${id}' to '${remote}'. `
-          + `Git reported: ${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
-          { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
-        );
+        throw storyPublicationPreflightError(dryRun, { branch: id, remote });
       }
     }
     if (afterPublicationPreflight) {

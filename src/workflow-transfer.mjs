@@ -21,6 +21,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeIntegrations } from './step-actions.mjs';
 import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
 import {
   inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
@@ -40,7 +41,8 @@ import { mcpDescriptorPath } from './mcp-descriptor.mjs';
 import { librarySkillPath, loadSkillLibrary, parseLibrarySkill } from './skill-library.mjs';
 import {
   CATALOG_SUBJECTS, RESOLVE_ALL_CHOICES, catalogSubjectKind, nameCandidates, normalizeResolutions, parseSubject,
-  pickResolution, renameBundleSubjects, renameRefusal, subjectChoices, subjectNoun, suggestedAction
+  pickResolution, renameBundleSubjects, renameRefusal, subjectChoices, subjectNoun, suggestedAction,
+  transferCatalog, setTransferCatalog
 } from './workflow-transfer-resolution.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import {
@@ -51,6 +53,8 @@ import { recordSha256 } from './records.mjs';
 import { isTemplateReference, parseTemplateReference } from './template-catalog.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
+import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
 export { importPlanText, importResolutionOptions } from './workflow-transfer-resolution.mjs';
 export const WORKFLOW_BUNDLE_KIND = 'sflow-workflow-bundle';
@@ -487,6 +491,7 @@ function collectNamedDependencies(value, result, { governs = 'story' } = {}) {
     }
     // Source review names the governed agent that reviews; the closure decides whether it travels.
     if (key === 'reviewerAgent' && typeof entry === 'string') result.reviewerAgents.add(entry);
+    if (key === 'target' && typeof entry === 'string' && Array.isArray(parent.on) && parent.send) result.integrationTargets.add(entry);
   });
 }
 
@@ -497,7 +502,7 @@ function phaseReferences(phase) {
     else if (typeof input?.phase === 'string') result.add(input.phase);
   }
   if (typeof phase?.testEvidenceFrom === 'string') result.add(phase.testEvidenceFrom);
-  for (const output of phase?.outputs ?? []) {
+  for (const output of (Array.isArray(phase?.outputs) ? phase.outputs : Object.values(phase?.outputs ?? {}))) {
     for (const consumed of output?.consumes ?? []) {
       if (typeof consumed === 'string' && consumed.includes('/')) result.add(consumed.split('/')[0]);
     }
@@ -517,13 +522,13 @@ function templateReferences(governs, workflow, phases) {
   }
   for (const [phaseId, phase] of Object.entries(phases)) {
     add(phase?.defaultTemplate, phaseId);
-    for (const output of phase?.outputs ?? []) {
+    for (const output of (Array.isArray(phase?.outputs) ? phase.outputs : Object.values(phase?.outputs ?? {}))) {
       add(output?.template, phaseId);
     }
   }
   for (const [phaseId, override] of Object.entries(workflow?.phaseOverrides ?? {})) {
     add(override?.defaultTemplate, phaseId);
-    for (const output of override?.outputs ?? []) {
+    for (const output of (Array.isArray(override?.outputs) ? override.outputs : Object.values(override?.outputs ?? {}))) {
       add(output?.template, phaseId);
     }
   }
@@ -539,7 +544,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
     artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
     mcpServers: new Set(), agents: new Set(), reviewerAgents: new Set(),
     authorityCandidates: { story: new Set(), initiative: new Set() },
-    applicabilityPolicies: new Set(), templateCatalog: new Set(), worldModelViews: new Set()
+    applicabilityPolicies: new Set(), templateCatalog: new Set(), worldModelViews: new Set(), integrationTargets: new Set()
   };
   const selectedPhases = { story: new Set(), initiative: new Set() };
   const processedPhases = { story: new Set(), initiative: new Set() };
@@ -688,7 +693,7 @@ function templateAssetPath(rootPath, reference) {
 function emptyObjects() {
   return {
     story: {
-      workTypes: {}, phases: {}, templates: {}, artifactSets: {}, approvalAuthorities: {}, mcpServers: {}
+      workTypes: {}, phases: {}, templates: {}, artifactSets: {}, approvalAuthorities: {}, mcpServers: {}, integrations: { targets: {} }
     },
     initiative: { initiativeProfiles: {}, initiativePhases: {}, approvalAuthorities: {}, applicabilityPolicies: {} }
   };
@@ -750,6 +755,7 @@ function dependencyInventory(bundle) {
       ...objectIds('initiative', 'approvalAuthorities').map((id) => `initiative:${id}`)
     ].sort(),
     mcpServers: objectIds('story', 'mcpServers'),
+    integrationTargets: Object.keys(bundle.objects.story.integrations?.targets ?? {}).sort(),
     applicabilityPolicies: objectIds('initiative', 'applicabilityPolicies'),
     worldModelViews: [...(bundle.requirements?.worldModelViews ?? [])].sort(),
     skillPackages: (bundle.skillPackages ?? []).map((record) => ({
@@ -768,6 +774,14 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
   const { dependencies, selectedPhases, references } = workflowDependencyClosure(
     bundle.objects, bundle.workflows, agents, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING',
     { legacy: storedVersion < 3 });
+  for (const id of dependencies.integrationTargets) {
+    if (!Object.hasOwn(bundle.objects.story.integrations?.targets ?? {}, id)) fail(
+      `Workflow bundle is missing integration target '${id}'. Export it again from the source repository.`,
+      'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+  }
+  for (const id of Object.keys(bundle.objects.story.integrations?.targets ?? {})) {
+    if (!dependencies.integrationTargets.has(id)) fail(`Workflow bundle contains unreferenced integration target '${id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+  }
   for (const workflow of bundle.workflows) {
     const store = STORE[workflow.governs];
     const definition = bundle.objects[workflow.governs][store.workflows][workflow.id];
@@ -1214,6 +1228,11 @@ async function buildBundle(root, workflowIds) {
     if (!value) fail(`Referenced MCP server '${id}' is not defined.`, 'WORKFLOW_DEPENDENCY_MISSING');
     addMapEntry(objects.story.mcpServers, id, value, 'mcp-server');
   }
+  for (const id of dependencies.integrationTargets) {
+    const value = configs.story?.integrations?.targets?.[id];
+    if (!value) fail(`Referenced integration target '${id}' is not defined.`, 'WORKFLOW_DEPENDENCY_MISSING');
+    addMapEntry(objects.story.integrations.targets, id, value, 'integration-target');
+  }
   for (const governs of ['story', 'initiative']) {
     for (const id of dependencies.authorities[governs]) {
       const value = configs[governs]?.approvalAuthorities?.[id];
@@ -1396,6 +1415,8 @@ async function buildBundle(root, workflowIds) {
         : staticDependencies.every((dependency) => dependency.vendored != null) ? 'vendored' : 'hash-verified-refetch'
     }
   };
+  // Export declarations, never credentials hidden in malformed integration targets.
+  normalizeIntegrations(objects.story.integrations);
   const selectedSkills = selectedSkillBindings(bundle);
   let selectedSkillBytes = 0;
   if (selectedSkills.length) {
@@ -1452,6 +1473,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
     fail('Workflow bundle is missing workflows, objects, agent locks, or assets.');
   }
   const expectedObjects = emptyObjects();
+  if (storedVersion < 6) delete expectedObjects.story.integrations;
   if (canonicalJson(Object.keys(raw.objects).sort()) !== canonicalJson(Object.keys(expectedObjects).sort())) {
     fail('Workflow bundle has unknown or missing governed object sections.');
   }
@@ -1461,12 +1483,19 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       fail(`Workflow bundle has unknown or missing '${governs}' object catalogs.`);
     }
   }
+  if (storedVersion >= 6) {
+    if (!plainObject(raw.objects.story.integrations) || !plainObject(raw.objects.story.integrations.targets)) {
+      fail('Workflow bundle integrations must contain a targets object.');
+    }
+    exactFields(raw.objects.story.integrations, ['targets'], 'Workflow bundle integrations');
+    normalizeIntegrations(raw.objects.story.integrations);
+  }
   let objectCount = 0;
   for (const { governs, section } of configSections(raw)) {
-    if (!plainObject(raw.objects[governs]?.[section])) {
+    if (!plainObject(transferCatalog(raw.objects[governs], section))) {
       fail(`Workflow bundle object catalog '${governs}.${section}' must be an object.`);
     }
-    for (const id of Object.keys(raw.objects[governs][section])) {
+    for (const id of Object.keys(transferCatalog(raw.objects[governs], section))) {
       requireId(id, `${governs}.${section} object identifier`);
       objectCount += 1;
     }
@@ -1631,9 +1660,10 @@ function configSections(bundle) {
   return [
     ['story', 'workTypes'], ['story', 'phases'], ['story', 'templates'], ['story', 'artifactSets'],
     ['story', 'approvalAuthorities'], ['story', 'mcpServers'],
+    ['story', 'integrations.targets'],
     ['initiative', 'initiativeProfiles'], ['initiative', 'initiativePhases'],
     ['initiative', 'approvalAuthorities'], ['initiative', 'applicabilityPolicies']
-  ].map(([governs, section]) => ({ governs, section, values: bundle.objects[governs][section] ?? {} }));
+  ].map(([governs, section]) => ({ governs, section, values: transferCatalog(bundle.objects[governs], section) }));
 }
 
 function linkedDependencyKind(governs, section) {
@@ -1676,10 +1706,11 @@ function entry(kind, id, extra = {}) { return { kind, id, ...extra }; }
 function mergedConfigurationValue(existing, bundle, governs, replaced = new Set()) {
   const merged = clone(existing);
   for (const { section, values } of configSections(bundle).filter((item) => item.governs === governs)) {
-    merged[section] ??= {};
+    const catalog = transferCatalog(merged, section);
     for (const [id, value] of Object.entries(values)) {
-      if (!Object.hasOwn(merged[section], id) || replaced.has(`${governs}.${section}:${id}`)) merged[section][id] = clone(value);
+      if (!Object.hasOwn(catalog, id) || replaced.has(`${governs}.${section}:${id}`)) catalog[id] = clone(value);
     }
+    if (Object.keys(catalog).length) setTransferCatalog(merged, section, catalog);
   }
   return merged;
 }
@@ -1998,8 +2029,8 @@ async function importNaming(target, bundle, values, agents) {
     taken.get(kind).add(id);
   };
   for (const [kind, [governs, catalog]] of Object.entries(CATALOG_SUBJECTS)) {
-    for (const id of Object.keys(values[governs]?.[catalog] ?? {})) take(kind, id);
-    for (const id of Object.keys(bundle.objects[governs][catalog] ?? {})) take(kind, id);
+    for (const id of Object.keys(transferCatalog(values[governs], catalog))) take(kind, id);
+    for (const id of Object.keys(transferCatalog(bundle.objects[governs], catalog))) take(kind, id);
   }
   // One ID names one workflow across Story and Epic work, so neither may take the other's.
   for (const id of [...(taken.get('workflow') ?? []), ...(taken.get('initiative-workflow') ?? [])]) {
@@ -2027,10 +2058,11 @@ async function importNaming(target, bundle, values, agents) {
     return relative != null && (await portableTargetState(target.root, relative)).exists;
   };
   return {
+    occupiedIds(kind) { return [...(taken.get(kind) ?? [])].sort(); },
     inBundle(kind, id) {
       if (Object.hasOwn(CATALOG_SUBJECTS, kind)) {
         const [governs, catalog] = CATALOG_SUBJECTS[kind];
-        return Object.hasOwn(bundle.objects[governs][catalog] ?? {}, id);
+        return Object.hasOwn(transferCatalog(bundle.objects[governs], catalog), id);
       }
       if (kind === 'agent' || kind === 'skill') return bundle.assets.some((asset) => asset.kind === kind && asset.id === id);
       return kind === 'template-file' && templateRoots.has(id);
@@ -2121,7 +2153,7 @@ async function importPlan(root, destination, original, chosen) {
   }
   await validateSkillTargetMembership(target.root, bundle, conflicts);
   for (const { governs, section, values: incoming } of configSections(bundle)) {
-    const existing = values[governs][section] ?? {};
+    const existing = transferCatalog(values[governs], section);
     const kind = catalogSubjectKind(`${governs}.${section}`);
     for (const [id, value] of Object.entries(incoming)) {
       const subject = subjectRef(kind, id);
@@ -2251,6 +2283,22 @@ async function importPlan(root, destination, original, chosen) {
   const candidates = Object.fromEntries(['story', 'initiative'].map((governs) => [
     governs, mergedConfigurationValue(values[governs], bundle, governs, replacedObjects)
   ]));
+  try {
+    const writing = new Set([...additions, ...replaced].map((item) => item.id));
+    const files = await Promise.all(assetTargets.filter(({ relative }) => writing.has(relative)).map(async ({ relative, asset }) => {
+      let before = await readFile(path.join(target.root, relative)).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+      if (before == null && asset.kind === 'template' && asset.rootRelative) {
+        before = await readFile(path.join(PACKAGE_ROOT, 'templates', 'artifacts', asset.rootRelative)).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+      }
+      return { path: relative, before, after: assetBytes(asset) };
+    }));
+    assertSeededWorkflowsUnchanged(await seededWorkflowProtection(values.story, values.initiative, targetAgents), values, candidates, {
+      beforeAgents: targetAgents, afterAgents: [...agentCatalog.values()],
+      files
+    });
+  } catch (error) {
+    open.push(entry('story.configuration', WORKFLOW_PATH, { reason: error.message, code: error.code }));
+  }
   // Preview the complete merged schema before asking for confirmation.  A valid source bundle can
   // still be incompatible with a target repository's global policy (for example, a legacy view
   // assignment under a registered-v4 catalog).  That is an import conflict, not a surprise apply
@@ -2319,6 +2367,42 @@ async function importPlan(root, destination, original, chosen) {
   }
   const byIdentity = (a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`);
   const renamed = [...renames].map(([subject, to]) => ({ subject, to })).sort((a, b) => a.subject.localeCompare(b.subject));
+  const identities = [];
+  for (const [kind, [governs, catalog]] of Object.entries(CATALOG_SUBJECTS)) {
+    for (const id of Object.keys(transferCatalog(original.objects[governs], catalog)).sort()) {
+      const subject = `${kind}:${id}`;
+      const reason = renameRefusal(kind, id, original);
+      identities.push({ subject, kind, sourceId: id, targetId: resolutions[subject]?.to ?? id,
+        action: resolutions[subject]?.action ?? 'automatic', renameable: !reason, reason,
+        occupiedIds: Object.keys(transferCatalog(values[governs], catalog)).sort(),
+        suggestedId: reason ? id : resolutions[subject]?.to ?? await naming.free(kind, id) });
+    }
+  }
+  for (const asset of original.assets.filter((asset) => ['agent', 'skill'].includes(asset.kind))) {
+    const subject = `${asset.kind}:${asset.id}`;
+    const details = asset.kind === 'agent' ? parseAgentDependencies(asset.content, { source: asset.path })
+      : parseLibrarySkill(asset.content, { id: asset.id });
+    identities.push({ subject, kind: asset.kind, sourceId: asset.id, targetId: resolutions[subject]?.to ?? asset.id,
+      action: resolutions[subject]?.action ?? 'automatic', renameable: true,
+      occupiedIds: asset.kind === 'agent' ? targetAgents.map((agent) => agent.id).sort()
+        : [...(await loadSkillLibrary(target.root)).skills.keys()].sort(),
+      suggestedId: resolutions[subject]?.to ?? await naming.free(asset.kind, asset.id),
+      label: details.label, description: details.description,
+      skills: details.librarySkills ?? [], resources: details.dependencies ?? [] });
+    if (asset.kind === 'agent') for (const dependency of details.dependencies ?? []) {
+      if (dependency.type !== 'skill') continue;
+      identities.push({ subject: `remote-skill:${asset.id}/${dependency.id}`, kind: 'remote-skill',
+        sourceId: `${asset.id}/${dependency.id}`, targetId: `${resolutions[subject]?.to ?? asset.id}/${dependency.id}`,
+        occupiedIds: [], renameable: false,
+        reason: 'Agent-scoped skill: its destination follows the renamed agent, so it cannot collide with another agent’s skill.' });
+    }
+  }
+  for (const record of original.skillPackages ?? []) identities.push({
+    subject: `compiled-skill:${record.skillId}`, kind: 'compiled-skill', sourceId: record.skillId,
+    targetId: record.skillId, suggestedId: record.skillId, occupiedIds: [], renameable: false,
+    reason: 'Compiled package identity is hash-bound; manage a different package through Skill configuration.',
+    label: record.skillId, description: `Verified package ${record.manifest?.packageSha256 ?? record.manifest?.contentSha256 ?? ''}`
+  });
   const planCore = {
     schemaVersion: 1, resultType: 'workflow-import-plan', bundleSha256: original.bundleSha256,
     ...(destination ? { destinationAuthority: destination.identity } : {}),
@@ -2339,7 +2423,7 @@ async function importPlan(root, destination, original, chosen) {
     ...planCore, planSha256, status: open.length ? 'blocked' : 'ready',
     added: planCore.operations.add, reused: planCore.operations.reuse,
     replaced: planCore.operations.replace ?? [], kept: planCore.operations.keep ?? [],
-    conflicts: planCore.operations.conflicts, unresolved,
+    conflicts: planCore.operations.conflicts, unresolved, identities,
     counts: {
       add: additions.length, reuse: reuse.length, replace: replaced.length, keep: kept.length, conflicts: open.length
     }
@@ -2436,10 +2520,11 @@ export async function applyWorkflowImport(root, bundleOrPath, {
     const document = current.document.clone();
     let changed = false;
     for (const { section, values } of sections) {
+      const keys = section.split('.');
       for (const [id, value] of Object.entries(values)) {
-        if (document.getIn([section, id]) !== undefined && !replacedObjects.has(`${governs}.${section}:${id}`)) continue;
-        if (document.getIn([section]) === undefined) document.setIn([section], document.createNode({}));
-        document.setIn([section, id], document.createNode(value)); changed = true;
+        if (document.getIn([...keys, id]) !== undefined && !replacedObjects.has(`${governs}.${section}:${id}`)) continue;
+        if (document.getIn(keys) === undefined) document.setIn(keys, document.createNode({}));
+        document.setIn([...keys, id], document.createNode(value)); changed = true;
       }
     }
     candidateDocuments[governs] = { current, document, changed };
@@ -2513,7 +2598,7 @@ async function locateWorkflow(root, id) {
   };
 }
 
-export async function planWorkflowCopy(root, { sourceId, targetId, label } = {}) {
+export async function planWorkflowCopy(root, { sourceId, targetId, label, independent = false, resolutions = {} } = {}) {
   const destination = captureTransferDestination(root);
   const target = requireId(targetId, 'Target workflow identifier');
   if (typeof label !== 'string' || !label.trim()) fail('Workflow copy requires a non-empty label.',
@@ -2529,6 +2614,53 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label } = {})
   const definition = clone(located.document.value[located.store.workflows][source]);
   definition.label = label.trim();
   const closure = await buildBundle(root, [located.selector]);
+  if (independent) {
+    const copied = closure.objects[located.governs][located.store.workflows][source];
+    copied.label = label.trim();
+    if (located.governs === 'initiative') {
+      // Canonical Epic steps cannot change ID, but their agent and output configuration can
+      // be independently bound by the copied profile. Otherwise renamed assets are orphaned
+      // when import deliberately keeps the target's shared canonical declaration.
+      for (const id of copied.phases) if (renameRefusal('initiative-phase', id, closure)) {
+        const phase = closure.objects.initiative.initiativePhases[id];
+        const previous = copied.phaseOverrides?.[id] ?? {};
+        copied.phaseOverrides ??= {};
+        copied.phaseOverrides[id] = {
+          ...clone(previous), agents: clone(previous.agents ?? phase.agents ?? []),
+          outputs: Object.fromEntries((phase.outputs ?? []).map((output) => [output.id, {
+            ...clone(output), ...clone(previous.outputs?.[output.id] ?? {})
+          }]))
+        };
+      }
+    }
+    await resealBundle(closure);
+    const choices = { ...normalizeResolutions(resolutions),
+      [`${located.governs === 'story' ? 'workflow' : 'initiative-workflow'}:${source}`]: { action: 'rename', to: target } };
+    // Copy editable dependencies rather than sharing them with the source workflow. Approval
+    // groups and compiled/canonical contracts keep their identities and remain read-only.
+    for (const [kind, [governs, catalog]] of Object.entries(CATALOG_SUBJECTS)) {
+      if (kind.includes('approval-group') || kind.includes('workflow')) continue;
+      for (const id of Object.keys(transferCatalog(closure.objects[governs], catalog))) {
+        if (!renameRefusal(kind, id, closure)) choices[`${kind}:${id}`] ??= { action: 'rename' };
+      }
+    }
+    for (const asset of closure.assets) {
+      const kind = asset.kind === 'template' ? 'template-file' : asset.kind;
+      if (['agent', 'skill', 'template-file'].includes(kind)) {
+        const id = kind === 'template-file' ? targetTemplatePath(asset, located.documents.story?.value ?? {}, located.documents.initiative?.value ?? {}) : asset.id;
+        choices[`${kind}:${id}`] ??= { action: 'rename' };
+      }
+    }
+    for (const [subject, choice] of Object.entries(choices)) {
+      const { kind, id } = parseSubject(subject);
+      if (!kind.includes('approval-group') && !renameRefusal(kind, id, closure) && choice.action !== 'rename') {
+        fail(`Independent duplication must rename ${subject}; shared editable dependencies would change the original.`, 'WORKFLOW_COPY_TARGET_INVALID');
+      }
+    }
+    const plan = await planWorkflowImport(root, closure, { resolutions: choices, resolveAll: 'suggested' });
+    return Object.assign(plan, { resultType: 'workflow-copy-plan', sourceId: source, sourceSelector: located.selector,
+      targetId: target, governs: located.governs, independent: true });
+  }
   const reuse = configSections(closure).flatMap(({ governs, section, values }) =>
     Object.keys(values)
       .filter((id) => !(governs === located.governs && section === located.store.workflows && id === source))
@@ -2567,10 +2699,14 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label } = {})
 }
 
 export async function copyWorkflow(root, {
-  sourceId, targetId, label, expectedPlanSha256
+  sourceId, targetId, label, expectedPlanSha256, independent = false, resolutions = {}
 } = {}) {
-  const plan = await planWorkflowCopy(root, { sourceId, targetId, label });
+  const plan = await planWorkflowCopy(root, { sourceId, targetId, label, independent, resolutions });
   assertConfirmation(expectedPlanSha256, plan.planSha256, 'Workflow copy');
+  if (independent) {
+    const retained = TRANSFER_PLANS.get(plan);
+    return applyWorkflowImport(root, retained.input, { expectedPlanSha256, resolutions: retained.resolutions });
+  }
   if (plan.conflicts.length) fail(`Workflow '${targetId}' already exists; nothing was changed.`,
     'WORKFLOW_COPY_TARGET_EXISTS', { conflicts: plan.conflicts });
   const located = await locateWorkflow(root, sourceId);

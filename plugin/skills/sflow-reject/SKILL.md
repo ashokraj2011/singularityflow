@@ -25,7 +25,7 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
 1. Inspect `singularity-flow status --json`. Confirm the human's changed intent and reason.
    Draft separate amended scope Markdown;
    never edit approved intent in place.
-2. Run `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --json`.
+2. Run `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --authored governed-agent --channel copilot-host --json`.
    Every workflow supports it after scope approval; do not invent an `update-intent` convergence
    finding or change YAML. The CLI binds the phase and exact clause diff. Before scope approval,
    record the human change in clarification and revise/review the ordinary scope draft instead.

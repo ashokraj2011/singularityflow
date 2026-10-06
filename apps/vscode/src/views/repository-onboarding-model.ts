@@ -37,6 +37,8 @@ export const REPOSITORY_ONBOARDING_FAILURE_CLASSIFICATIONS = [
   'git-unavailable',
   'working-directory-unavailable',
   'credential-helper-unavailable',
+  'local-hook-tool-unavailable',
+  'local-hook-failed',
   'authentication-required',
   'sso-authorization-required',
   'authorization-denied',
@@ -705,6 +707,16 @@ function repositoryOnboardingFailureCopy(
     );
   }
   switch (failure.classification) {
+    case 'local-hook-tool-unavailable':
+      return retryCopy(
+        'Local Git hook tool is unavailable',
+        'Repair the exact hook command or its approved runtime in the IDE environment. Preserve local changes and retry after repair; do not disable hooks globally.'
+      );
+    case 'local-hook-failed':
+      return retryCopy(
+        'Local Git hook failed',
+        'Review the local hook output and repair its check or runtime. Preserve authored work and generated files before retrying.'
+      );
     case 'git-unavailable':
       return retryCopy(
         'Git is unavailable to VS Code',
@@ -815,6 +827,16 @@ export function repositoryOnboardingCommandFailureCopy(value: unknown): Reposito
   const diagnostic = structuredCode.toUpperCase();
   // Only versioned error identifiers may select a remediation. Free-form prose can contain a
   // repository named `snapshot`, `tls`, or `proxy`; classifying operands would give false advice.
+  if (/\bREMOTE_LOCAL_HOOK_TOOL_UNAVAILABLE\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_LOCAL_HOOK_TOOL_UNAVAILABLE', classification: 'local-hook-tool-unavailable', retryable: false, advice: ''
+    });
+  }
+  if (/\bREMOTE_LOCAL_HOOK_FAILED\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_LOCAL_HOOK_FAILED', classification: 'local-hook-failed', retryable: false, advice: ''
+    });
+  }
   if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED\b/u.test(diagnostic)) {
     return retryCopy(
       'Repository inspection work limit reached',

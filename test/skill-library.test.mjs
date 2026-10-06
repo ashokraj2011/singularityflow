@@ -1,3 +1,4 @@
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 /**
  * The skill master: named skills a repository keeps once and attaches to any number of agents.
  *
@@ -59,6 +60,7 @@ async function temporary(t, prefix) {
 async function repository(t, prefix = 'sflow-skill-master-') {
   const root = await temporary(t, prefix);
   await initializeDefinition(root);
+  await repositoryOwnedWorkflows(root);
   return root;
 }
 
@@ -467,6 +469,7 @@ async function cliRepository(t) {
   git(root, 'config', 'user.email', 'skills@example.invalid');
   await writeFile(path.join(root, 'README.md'), '# Skills\n');
   flow(root, ['init']);
+  await repositoryOwnedWorkflows(root);
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'initialize');
   return root;
@@ -564,7 +567,7 @@ test('a workflow bundle carries the skills its agents attach, and nothing else f
   await addReleaseWorkflow(source, 'source', { librarySkill: true });
   await writeSkill(source);
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 5);
+  assert.equal(bundle.schemaVersion, 6);
   const skills = bundle.assets.filter((asset) => asset.kind === 'skill');
   assert.deepEqual(skills.map((asset) => [asset.id, asset.path]), [['store-review', LIBRARY_SKILL_PATH]],
     'security-review is in the skill master but no carried agent attaches it');

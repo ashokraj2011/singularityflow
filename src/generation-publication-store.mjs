@@ -125,7 +125,8 @@ function verifiedProjection(workflow, record, eventSha256) {
     const approval = (workflow.phases?.[record.phase]?.approvals ?? []).find((entry) =>
       entry.intentAmendmentId === record.origin.id
         && Number(entry.generation) === Number(record.generation)
-        && !entry.invalidatedAt);
+        && !entry.invalidatedAt
+        && recordSha256(entry) === record.origin.decisionSha256);
     if (!summary || summary.status !== 'approved'
         || summary.proposalSha256 !== record.origin.proposalSha256
         || !approval

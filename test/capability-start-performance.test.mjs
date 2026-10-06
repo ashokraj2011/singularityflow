@@ -52,7 +52,8 @@ test('sibling publication settles bounded waves in plan order and stops later wa
     ['sibling-1', 'sibling-3', 'sibling-4', 'sibling-5', 'sibling-6']);
   assert.deepEqual(result.pending.map((entry) => entry.pushOutcome),
     ['rejected', 'not-attempted', 'not-attempted', 'not-attempted', 'not-attempted']);
-  assert.equal(result.error, 'explicit refusal');
+  assert.match(result.error, /stderr:\s*explicit refusal/);
+  assert.match(result.error, /no automatic file cleanup/);
 });
 
 test('publication cannot raise the four-transport ceiling and preserves successful order', async () => {

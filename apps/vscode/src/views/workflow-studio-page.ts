@@ -320,7 +320,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {}, skills: {} };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
-      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null,
+      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null, readOnly: Boolean(workflow.readOnly),
         plannedClaims: workflow.plannedClaims && workflow.plannedClaims.declared ? clone(workflow.plannedClaims.declared) : null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
@@ -363,9 +363,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function epicsDraftFrom(epics) {
     if (!epics) return null;
     var draft = { templatesRoot: epics.templatesRoot, order: [], workflows: {}, steps: {} };
+    function stepDraft(step) { return { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(),
+      approval: { on: step.approval.mode !== 'none', groups: step.approval.authorities.slice(), minimum: step.approval.minimum || 1, chain: Boolean(step.approval.chain) },
+      outputs: clone(step.outputs), checklist: step.checklist || 0, isNew: false, local: true }; }
     (epics.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
-      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), lifecycleMode: workflow.lifecycleMode, packs: workflow.packs || 0, isNew: false, copyOf: null };
+      draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), lifecycleMode: workflow.lifecycleMode, packs: workflow.packs || 0, isNew: false, copyOf: null,
+        localSteps: Object.fromEntries(Object.entries(workflow.localSteps || {}).map(function (entry) { return [entry[0], stepDraft(entry[1])]; })) };
     });
     (epics.steps || []).forEach(function (step) {
       draft.steps[step.id] = { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(),
@@ -667,6 +671,20 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if (before.description !== workflow.description) patch.description = workflow.description;
         if (!same(before.phases, workflow.phases)) patch.phases = workflow.phases.slice();
         if (Object.keys(patch).length > 2) changes.push(patch);
+        Object.keys(workflow.localSteps || {}).forEach(function (stepId) {
+          if (workflow.phases.indexOf(stepId) < 0) return;
+          var step = workflow.localSteps[stepId], was = before.localSteps && before.localSteps[stepId];
+          if (!was) return;
+          var update = { op: 'epicStep.update', id: stepId, workflow: id };
+          if (step.label !== was.label) update.label = step.label;
+          ['agents', 'lanes', 'views'].forEach(function (key) { if (!same(step[key], was[key])) update[key] = clone(step[key]); });
+          if (!step.approval.chain && !same(step.approval, was.approval)) update.approval = epicApprovalChange(step.approval);
+          if (Object.keys(update).length > 3) changes.push(update);
+          step.outputs.forEach(function (output) {
+            var original = was.outputs.find(function (entry) { return entry.id === output.id; });
+            if (original && !same(epicOutputFields(output), epicOutputFields(original))) changes.push(Object.assign(epicOutputChange(stepId, output), { workflow: id }));
+          });
+        });
       });
     }
     // Imports and marketplace trust are explicit operations the person queued; the engine orders them.
@@ -1106,7 +1124,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null),
           el('div', { class: 'studio-row' },
             button('Open', function () { state.workflow = id; state.step = workflow.phases[0]; state.view = 'board'; render(); }, { class: 'secondary', 'aria-label': 'Open ' + workflow.label }),
-            button('Duplicate', function () { state.view = 'new'; state.wizard = { label: workflow.label + ' copy', from: 'workflow:' + id }; render(); }, { class: 'secondary', 'aria-label': 'Duplicate ' + workflow.label }))),
+            button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') }),
         rail(workflow.phases)));
     });
@@ -1120,11 +1138,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // checklists stay in the file; everything else is edited here and published with the other changes.
 
   function epicStepLabel(id) { var step = state.draft.epics && state.draft.epics.steps[id]; return step ? step.label : id; }
+  function epicStepFor(workflow, id) { return workflow.localSteps && workflow.localSteps[id] || state.draft.epics.steps[id]; }
   function renderEpicList(main) {
     var epics = state.draft.epics;
     if (!epics) return;
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Epic workflows' }),
-      button('New Epic workflow', function () { state.epicForm = { label: '', description: '', from: epics.order[0] || null, copy: false }; render(); }, { class: 'primary' })));
+      button('New Epic workflow', function () { state.epicForm = { label: '', description: '', from: null, copy: false }; render(); }, { class: 'primary' })));
     if (state.epicForm) main.appendChild(renderEpicForm(state.epicForm));
     epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; })).forEach(function (id) {
       var workflow = epics.workflows[id];
@@ -1134,7 +1153,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
             el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
           el('div', { class: 'studio-row' },
             button('Open', function () { state.view = 'epic'; state.epic = id; state.epicStep = workflow.phases[0] || null; state.epicOutput = null; render(); }, { class: 'secondary', 'aria-label': 'Open ' + workflow.label }),
-            button('Duplicate', function () { state.epicForm = { label: workflow.label + ' copy', description: workflow.description, from: id, copy: true }; render(); }, { class: 'secondary', 'aria-label': 'Duplicate ' + workflow.label }))),
+            button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') }),
         el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); }))));
     });
@@ -1149,7 +1168,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         id ? 'ID ' + id + (epics.workflows[id] ? ' is already used: choose another name' : '') : 'The ID is made from the name.'),
       field('epic-form-description', 'What is it for? (optional)', textInput('epic-form-description', form.description, function (value) { form.description = value; }))));
     if (!form.copy) {
-      card.appendChild(field('epic-form-from', 'Start with the steps of', select('epic-form-from', [{ value: '', label: 'No steps: add them next' }].concat(epics.order.map(function (entry) { return { value: entry, label: epics.workflows[entry].label }; })), form.from || '', function (value) { form.from = value || null; render(); })));
+      card.appendChild(el('p', { class: 'muted', text: 'Start a new workflow here. To customize an existing workflow, use Duplicate and review its dependency identities.' }));
     } else {
       card.appendChild(el('p', { class: 'muted', text: 'A linked copy shares its source\'s steps and review packs: changing a shared step changes both workflows.' }));
     }
@@ -1171,6 +1190,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var epics = state.draft.epics;
     var workflow = epics && epics.workflows[state.epic];
     if (!workflow) { state.view = 'home'; renderHome(main); return; }
+    if (protectedObject('epics', workflow.id)) { renderSeededWorkflow(main, workflow, 'initiative'); return; }
     main.appendChild(el('div', { class: 'studio-row' }, button('← Workflows', function () { state.view = 'home'; state.epic = null; state.epicStep = null; state.epicOutput = null; render(); }, { class: 'secondary', 'data-key': 'epic-back' })));
     main.appendChild(el('header', null, el('h1', { text: workflow.label }),
       el('p', { class: 'studio-lede', text: 'An Epic goes through these steps before its Stories start. In each step an agent drafts its outputs and people sign them off together.' })));
@@ -1184,7 +1204,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var steps = el('section', { class: 'studio-card', 'aria-label': 'Steps' });
     steps.appendChild(el('h2', { text: 'Steps' }));
     workflow.phases.forEach(function (phaseId, index) {
-      var step = epics.steps[phaseId] || { label: phaseId, outputs: [], approval: { on: false, groups: [] } };
+      var step = epicStepFor(workflow, phaseId) || { label: phaseId, outputs: [], approval: { on: false, groups: [] } };
       var selected = state.epicStep === phaseId;
       steps.appendChild(el('div', { class: 'decision-box', 'aria-current': selected ? 'true' : null },
         el('div', { class: 'studio-row spread' },
@@ -1211,7 +1231,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           workflow.phases.push(stepId); adding.label = ''; state.epicStep = stepId; changed();
         }, { class: 'secondary' }))));
     main.appendChild(steps);
-    if (state.epicStep && epics.steps[state.epicStep] && workflow.phases.indexOf(state.epicStep) >= 0) main.appendChild(renderEpicStep(workflow, epics.steps[state.epicStep]));
+    if (state.epicStep && epics.steps[state.epicStep] && workflow.phases.indexOf(state.epicStep) >= 0) main.appendChild(renderEpicStep(workflow, epicStepFor(workflow, state.epicStep)));
   }
   function epicGroupLabel(id) {
     var group = ((state.model.epics && state.model.epics.groups) || []).find(function (entry) { return entry.id === id; });
@@ -1223,7 +1243,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var card = el('section', { class: 'studio-card', 'aria-label': 'Epic step ' + step.label });
     card.appendChild(el('h2', { text: step.label }));
     var sharedWith = Object.keys(epics.workflows).filter(function (id) { return id !== workflow.id && epics.workflows[id].phases.indexOf(step.id) >= 0; });
-    if (sharedWith.length) card.appendChild(el('div', { class: 'callout wait', text: 'Also used by ' + sharedWith.map(function (id) { return epics.workflows[id].label; }).join(', ') + ': changes to this step apply there too.' }));
+    if (step.local) card.appendChild(el('div', { class: 'callout', text: 'Workflow-local settings: changes here affect only this copy. Canonical step and output identities remain fixed.' }));
+    else if (protectedObject('epicPhases', step.id)) { card.appendChild(el('p', { text: 'This shared seeded step is read-only. Duplicate its workflow to customize a copy.' })); return card; }
+    else if (sharedWith.length) card.appendChild(el('div', { class: 'callout wait', text: 'Also used by ' + sharedWith.map(function (id) { return epics.workflows[id].label; }).join(', ') + ': changes to this step apply there too.' }));
     card.appendChild(field('epic-step-name', 'Name', textInput('epic-step-name', step.label, function (value) { if (value.trim()) { step.label = value.trim(); changed(); } })));
     card.appendChild(el('span', { class: 'lane-label', text: 'AGENTS' }));
     card.appendChild(el('div', { class: 'checks' }, Object.keys(state.draft.agents).map(function (id) {
@@ -1284,11 +1306,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
             var readers = Object.keys(epics.steps).filter(function (id) { return epics.steps[id].outputs.some(function (entry) { return (entry.consumes || []).indexOf(reference) >= 0; }); });
             if (readers.length) { setStatus(reference + ' is read by ' + readers.map(epicStepLabel).join(', ') + '; take it off them first.'); return; }
             step.outputs = step.outputs.filter(function (entry) { return entry.id !== output.id; }); changed();
-          }, { class: 'secondary', 'aria-label': 'Remove ' + output.label }))));
+          }, { class: 'secondary', disabled: step.local, 'aria-label': 'Remove ' + output.label }))));
     });
     var form = state.epicOutput && state.epicOutput.step === step.id ? state.epicOutput : null;
     if (!form) {
-      box.appendChild(el('div', { class: 'studio-row' }, button('Add output', function () { state.epicOutput = { step: step.id, id: '', label: '', kind: 'markdown', path: '', template: '', required: true, consumes: [], isNew: true }; render(); }, { class: 'secondary' })));
+      box.appendChild(el('div', { class: 'studio-row' }, button('Add output', function () { state.epicOutput = { step: step.id, id: '', label: '', kind: 'markdown', path: '', template: '', required: true, consumes: [], isNew: true }; render(); }, { class: 'secondary', disabled: step.local })));
       return box;
     }
     var earlier = workflow.phases.slice(0, workflow.phases.indexOf(step.id)).reduce(function (all, phaseId) {
@@ -1325,15 +1347,13 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function renderWizard(main) {
     var wizard = state.wizard;
     var editing = wizard.editing && state.draft.workflows[wizard.editing] ? wizard.editing : null;
-    var choices = Object.keys(state.draft.workflows).filter(function (id) { return id !== editing; }).map(function (id) { var workflow = state.draft.workflows[id]; return { key: 'workflow:' + id, label: workflow.label, description: 'Copy the steps of your ' + workflow.label + ' workflow.', phases: workflow.phases }; })
-      .concat((state.model.blueprints || []).filter(function (bp) { return !bp.installed && !state.draft.workflows[bp.id]; }).map(function (bp) { return { key: 'blueprint:' + bp.id, label: bp.label, description: (bp.description || 'A packaged workflow.') + ' Adds its steps and agents.', phases: bp.phases, blueprint: bp }; }))
-      .concat([{ key: 'blank', label: 'Blank', description: 'Start with one step and add what you need. Good for analysis or review work with no code.', phases: [Object.keys(state.draft.phases).indexOf('intake') >= 0 ? 'intake' : Object.keys(state.draft.phases)[0]] }]);
+    var choices = [{ key: 'blank', label: 'Blank', description: 'Start with one step and add what you need. To customize an existing workflow, use Duplicate from the workflow list.', phases: [Object.keys(state.draft.phases).indexOf('intake') >= 0 ? 'intake' : Object.keys(state.draft.phases)[0]] }];
     if (!wizard.from) wizard.from = 'blank';
     if (editing && !choices.some(function (choice) { return choice.key === wizard.from; })) wizard.from = 'blank';
     var id = editing || kebab(wizard.label);
     main.appendChild(el('header', null, el('h1', { text: editing ? 'Workflow details' : 'New workflow' }), el('p', { class: 'studio-lede', text: editing
       ? 'It is not published yet, so you can still rename it, or start again from another point. Its ID stays ' + editing + '.'
-      : 'Name it and pick the closest starting point. You can add, remove and reorder steps next.' })));
+      : 'Create your own workflow. Add, remove and reorder steps next; existing workflows are duplicated separately.' })));
     main.appendChild(el('div', { class: 'grid-2', style: 'max-width:820px' },
       field('wizard-name', 'Workflow name', textInput('wizard-name', wizard.label, function (value) { wizard.label = value; requestRender(); }, { placeholder: 'Vendor assessment' }),
         editing ? 'ID ' + editing + ' (kept)' : id ? 'ID ' + id + (state.draft.workflows[id] ? ' is already used: choose another name' : '') : 'The ID is made from the name.'),
@@ -2404,6 +2424,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflowId = state.workflow;
     var workflow = state.draft.workflows[workflowId];
     if (!workflow) { state.view = 'home'; render(); return; }
+    if (workflow.readOnly) { renderSeededWorkflow(main, workflow, 'story'); return; }
     var phases = workflow.phases;
     if (phases.indexOf(state.step) < 0) state.step = phases[0];
     main.appendChild(el('div', { class: 'board-head' },
@@ -3456,6 +3477,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function editAgent(id, context) {
+    if (protectedObject('agents', id)) { setStatus('This agent is used by a seeded workflow. Duplicate the workflow before editing its agent.'); return; }
     var agent = state.draft.agents[id];
     state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions, defaults: [], context: context || null };
     state.view = 'agents';
@@ -4010,6 +4032,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function setUsers(id) { return Object.keys(state.draft.phases).filter(function (phaseId) { return state.draft.phases[phaseId].artifactSet === id; }); }
 
   function openTemplateForm(relative, returnTo) {
+    if (relative && protectedObject('templateFiles', templateFilePath(relative))) { setStatus('Seeded template: duplicate the workflow before editing its copy.'); return; }
     var template = relative ? state.draft.templates[relative] : null;
     artifactsState().templateForm = { path: relative || '', scope: template ? template.scope : 'new', content: template ? (template.content || '') : '',
       mode: template ? 'write' : 'sections', returnTo: returnTo || null,
@@ -4087,6 +4110,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function openSetForm(id) {
+    if (id && protectedObject('artifactSets', id)) { setStatus('Seeded artifact set: duplicate the workflow before editing its copy.'); return; }
     var set = id ? state.draft.artifactSets[id] : null;
     artifactsState().setForm = set ? { id: set.id, isNew: false, primary: set.primary, members: clone(set.members) }
       : { id: '', isNew: true, primary: '', members: [{ path: '', role: '', required: true, authority: 'governed' }] };
@@ -4358,6 +4382,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function openSkillForm(id) {
+    if (id && protectedObject('skills', id)) { setStatus('Seeded skill: duplicate the workflow before editing its copy.'); return; }
     var skill = id ? state.draft.skills[id] : null;
     var view = skillsView();
     view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '' };
@@ -4398,6 +4423,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function askRemoveSkill(id) {
+    if (protectedObject('skills', id)) { setStatus('Seeded skill: duplicate the workflow before removing its copy.'); return; }
     var skill = state.draft.skills[id]; var users = skillUsers(id);
     confirmAction('Delete the skill ' + skill.label + '?',
       users.length ? 'It is detached from ' + users.map(function (agentId) { return state.draft.agents[agentId].label; }).join(', ') + ' too. Running Stories keep the text they started with.' : 'No agent uses it.',
@@ -4410,6 +4436,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function openAttachForm(skillId, agentId) {
+    if (agentId && protectedObject('agents', agentId)) { setStatus('Seeded agent: duplicate the workflow before changing its skills.'); return; }
     var view = skillsView();
     var existing = skillId && agentId ? attachmentOf(agentId, skillId) : null;
     view.attach = { skill: skillId || '', agent: agentId || '', phases: existing ? existing.phases.slice() : [], use: existing ? existing.use || '' : '' };
@@ -4420,7 +4447,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var card = el('section', { class: 'studio-card', 'aria-label': 'Attach a skill' });
     card.appendChild(el('h2', { text: 'Attach a skill to an agent' }));
     var skills = Object.keys(state.draft.skills || {}).sort(function (a, b) { return skillLabel(a).localeCompare(skillLabel(b)); }).concat(pendingLibrarySkills());
-    var agents = Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
+    var agents = Object.keys(state.draft.agents).filter(function (id) { return !protectedObject('agents', id); }).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
     var reset = function () { var existing = form.skill && form.agent ? attachmentOf(form.agent, form.skill) : null; form.phases = existing ? existing.phases.slice() : []; form.use = existing ? existing.use || '' : ''; };
     card.appendChild(el('div', { class: 'grid-2' },
       field('attach-skill', 'Skill', select('attach-skill', [{ value: '', label: 'Choose a skill' }].concat(skills.map(function (id) { return { value: id, label: skillLabel(id) }; })), form.skill, function (value) { form.skill = value; reset(); render(); })),
@@ -4442,6 +4469,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var form = skillsView().attach;
     if (!form.skill) { setStatus('Choose a skill.'); return; }
     if (!form.agent) { setStatus('Choose the agent that uses it.'); return; }
+    if (protectedObject('agents', form.agent)) { setStatus('Duplicate the seeded workflow before changing its agent skills.'); return; }
     var use = String(form.use || '').replace(/\s+/g, ' ').trim();
     if (use.indexOf('|') >= 0) { setStatus('"When to use it" cannot contain "|".'); return; }
     if (use.length > 300) { setStatus('"When to use it" must be at most 300 characters.'); return; }
@@ -4453,6 +4481,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   function detachSkill(agentId, skillId) {
+    if (protectedObject('agents', agentId)) { setStatus('Duplicate the seeded workflow before changing its agent skills.'); return; }
     var agent = state.draft.agents[agentId];
     agent.skills = (agent.skills || []).filter(function (entry) { return entry.id !== skillId; });
     setStatus(agent.label + ' no longer uses ' + skillLabel(skillId) + '.');
@@ -4625,22 +4654,25 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function renderExport() {
     var chosen = state.exporting;
-    var published = state.draft.order.filter(function (id) { var workflow = state.draft.workflows[id]; return workflow && !workflow.isNew && !workflow.installFrom; });
+    var published = state.draft.order.filter(function (id) { var workflow = state.draft.workflows[id]; return workflow && !workflow.isNew && !workflow.installFrom; })
+      .map(function (id) { return { key: id, selector: 'story:' + id, workflow: state.draft.workflows[id], governs: 'Story' }; });
+    if (state.draft.epics) Object.keys(state.draft.epics.workflows).filter(function (id) { return !state.draft.epics.workflows[id].isNew; })
+      .forEach(function (id) { published.push({ key: 'initiative:' + id, selector: 'initiative:' + id, workflow: state.draft.epics.workflows[id], governs: 'Epic' }); });
     var card = el('section', { class: 'studio-card', 'aria-label': 'Export workflows' });
     card.appendChild(el('h2', { text: 'Export workflows' }));
     card.appendChild(el('p', { class: 'muted', text: 'A bundle carries the workflows and everything they need (steps, templates, artifact sets and agents), so another repository can import them as one reviewed proposal. Only published workflows are exported.' }));
-    card.appendChild(el('div', { class: 'checks' }, published.map(function (id) {
-      var workflow = state.draft.workflows[id];
+    card.appendChild(el('div', { class: 'checks' }, published.map(function (entry) {
+      var workflow = entry.workflow, id = entry.key;
       return el('label', null, el('input', { type: 'checkbox', 'data-key': 'export-' + id, checked: Boolean(chosen[id]), onchange: function (event) { if (event.target.checked) chosen[id] = true; else delete chosen[id]; render(); } }),
-        ' ' + workflow.label + ' ', el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') }));
+        ' ' + workflow.label + ' ', el('span', { class: 'muted', text: entry.governs + ' · ' + workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') }));
     })));
-    var selected = published.filter(function (id) { return chosen[id]; });
+    var selected = published.filter(function (entry) { return chosen[entry.key]; });
     card.appendChild(el('div', { class: 'studio-row' },
-      button('Select all', function () { published.forEach(function (id) { chosen[id] = true; }); render(); }, { class: 'secondary' }),
-      button('Clear', function () { published.forEach(function (id) { delete chosen[id]; }); render(); }, { class: 'secondary' }),
+      button('Select all', function () { published.forEach(function (entry) { chosen[entry.key] = true; }); render(); }, { class: 'secondary' }),
+      button('Clear', function () { published.forEach(function (entry) { delete chosen[entry.key]; }); render(); }, { class: 'secondary' }),
       button(state.busy === 'export' ? 'Exporting…' : 'Save bundle…', function () {
         state.busy = 'export'; render();
-        post({ type: 'studio.exportWorkflows', workflowIds: selected.map(function (id) { return 'story:' + id; }) });
+        post({ type: 'studio.exportWorkflows', workflowIds: selected.map(function (entry) { return entry.selector; }) });
       }, { class: 'primary', disabled: !selected.length || Boolean(state.busy) }),
       button('Cancel', function () { state.exporting = null; render(); }, { class: 'secondary' })));
     return card;
@@ -4648,6 +4680,20 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function importWorkflows() {
     state.busy = 'import'; setStatus('Choose a workflow bundle to import…'); render();
     post({ type: 'studio.importWorkflows', pending: changesNow().length });
+  }
+  function protectedObject(kind, id) { return Boolean(state.model && state.model.protection && (state.model.protection[kind] || []).indexOf(id) >= 0); }
+  function duplicateWorkflow(selector) {
+    state.busy = 'import'; setStatus('Review the workflow dependencies and destination identities…'); render();
+    post({ type: 'studio.duplicateWorkflow', selector: selector, pending: changesNow().length });
+  }
+  function renderSeededWorkflow(main, workflow, governs) {
+    main.appendChild(el('header', null, el('h1', { text: workflow.label }),
+      el('p', { class: 'studio-lede', text: 'Seeded workflow · read-only. Duplicate it to customize steps, agents, skills and templates without changing the framework workflow.' })));
+    main.appendChild(el('div', { class: 'studio-row' },
+      button('← Workflows', function () { state.view = 'home'; render(); }, { class: 'secondary' }),
+      button('Duplicate and customize', function () { duplicateWorkflow(governs + ':' + workflow.id); }, { class: 'primary' })));
+    main.appendChild(el('ol', null, workflow.phases.map(function (id) { var phase = governs === 'story' ? state.draft.phases[id] : state.draft.epics.steps[id];
+      return el('li', null, el('strong', { text: phase ? phase.label : id }), el('span', { class: 'muted', text: phase && phase.agent ? ' · ' + phase.agent : '' })); })));
   }
   /** Open a governed file in an editor: the workflow file, or a template under the templates folder. */
   function openFile(relative) { post({ type: 'studio.openFile', path: relative }); }

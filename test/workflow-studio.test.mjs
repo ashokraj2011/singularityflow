@@ -1,3 +1,4 @@
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -26,6 +27,7 @@ async function repository({ dropWorkflow = null, edit = null } = {}) {
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Studio\n');
   flow(root, ['init']);
+  await repositoryOwnedWorkflows(root);
   if (dropWorkflow || edit) {
     const file = path.join(root, 'singularity/workflow.yml');
     const document = YAML.parseDocument(await readFile(file, 'utf8'));
@@ -48,7 +50,7 @@ test('the Studio shows every workflow with the agent that really drafts each ste
   const model = json(root, ['workflow', 'studio']);
   assert.equal(model.resultType, 'workflow-studio');
   assert.equal(model.authority.kind, 'working-tree');
-  const feature = model.workflows.find((workflow) => workflow.id === 'feature');
+  const feature = model.workflows.find((workflow) => workflow.id === 'repo-feature');
   assert.deepEqual(feature.steps.slice(0, 3).map((step) => [step.id, step.agent]), [['intake', 'product-owner'], ['requirements', 'product-owner'], ['design', 'architect']]);
   assert.equal(feature.steps.find((step) => step.id === 'implementation').output, 'code');
   assert.ok(model.agents.some((agent) => agent.id === 'developer' && agent.defaultFor.includes('implementation')));
@@ -108,7 +110,7 @@ test('moving a step to another agent changes both agents in one valid change', a
   assert.ok(plan.summary.some((line) => /^Architecture and design is now drafted by Product owner \(was Architect\), in all \d+ workflows that use it\.$/.test(line)));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const model = json(root, ['workflow', 'studio']);
-  assert.equal(model.workflows.find((workflow) => workflow.id === 'feature').steps.find((step) => step.id === 'design').agent, 'product-owner');
+  assert.equal(model.workflows.find((workflow) => workflow.id === 'repo-feature').steps.find((step) => step.id === 'design').agent, 'product-owner');
   const architect = await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8');
   assert.equal(architect.match(/sflow-default-for: "([^"]*)"/)[1].split(',').includes('design'), false);
   assert.match(architect, /# Architect agent/, 'the agent keeps its own instructions');
@@ -125,7 +127,7 @@ test('problems name the step to fix, and a stale base is refused', async () => {
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /Workflow Studio changes were not applied: There is no agent 'nobody-here'/);
 
-  const stale = await changeSet(root, [{ op: 'workflow.update', id: 'feature', label: 'Feature work' }], { workflowSha256: '0'.repeat(64) });
+  const stale = await changeSet(root, [{ op: 'workflow.update', id: 'repo-feature', label: 'Feature work' }], { workflowSha256: '0'.repeat(64) });
   const stalePlan = flow(root, ['workflow', 'studio', 'apply', '--change-set', stale, '--dry-run', '--json'], { allowFailure: true });
   assert.notEqual(stalePlan.status, 0);
   assert.match(stalePlan.stdout, /changed since Workflow Studio loaded it/);
@@ -135,15 +137,15 @@ test('people, sign-off and send-back rules are edited from the Studio', async ()
   const root = await repository();
   const file = await changeSet(root, [
     { op: 'group.update', id: 'architecture-reviewers', members: [{ name: 'Ada Lovelace', email: 'Ada@Example.com' }] },
-    { op: 'phase.update', id: 'design', workflow: 'feature', approval: { group: 'architecture-reviewers', minimum: 1 } },
-    { op: 'workflow.update', id: 'feature', reworkLoops: [{ from: 'verification', to: 'implementation', maxAttempts: 2 }] }
+    { op: 'phase.update', id: 'design', workflow: 'repo-feature', approval: { group: 'architecture-reviewers', minimum: 1 } },
+    { op: 'workflow.update', id: 'repo-feature', reworkLoops: [{ from: 'verification', to: 'implementation', maxAttempts: 2 }] }
   ]);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.approvalAuthorities['architecture-reviewers'].members, [{ name: 'Ada Lovelace', email: 'ada@example.com', githubLogin: null }]);
-  assert.deepEqual(workflow.workTypes.feature.reworkLoops, [{ from: 'verification', to: 'implementation', maxAttempts: 2 }]);
+  assert.deepEqual(workflow.workTypes['repo-feature'].reworkLoops, [{ from: 'verification', to: 'implementation', maxAttempts: 2 }]);
   const model = json(root, ['workflow', 'studio']);
   assert.equal(model.groups.find((group) => group.id === 'architecture-reviewers').status, 'people');
   assert.match(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /^# /m, 'comments in workflow.yml survive the edit');
@@ -211,7 +213,7 @@ test('a step copied for one workflow keeps every input setting it has there, so 
   assert.deepEqual(copy.worldModel, before.phases.design.worldModel, 'the copy keeps its knowledge depth, not only its views');
   assert.deepEqual(copy.clarification, before.phases.design.clarification, 'and every clarifying-question setting');
   assert.deepEqual(after.phases.design, before.phases.design, 'the shared step is unchanged');
-  assert.deepEqual(after.workTypes.feature, before.workTypes.feature, 'other workflows are unchanged');
+  assert.deepEqual(after.workTypes['repo-feature'], before.workTypes['repo-feature'], 'other workflows are unchanged');
   flow(root, ['workflow', 'validate', 'decide-demo']);
 });
 
@@ -252,26 +254,26 @@ async function copySteps(root, model, workflowId, steps, extra = {}) {
 }
 
 test('a copy takes its step\'s place in source review and where Auto stops, so the spec-driven specification and plan can be copied [E2G-001]', async () => {
-  const root = await repository({ edit: (document) => document.setIn(['workTypes', 'spec-driven-standard', 'auto'], document.createNode({ defaultUntil: 'published:planning' })) });
+  const root = await repository({ edit: (document) => document.setIn(['workTypes', 'repo-spec-driven-standard', 'auto'], document.createNode({ defaultUntil: 'published:planning' })) });
   const before = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   const model = json(root, ['workflow', 'studio']);
-  const file = await copySteps(root, model, 'spec-driven-standard', ['specification', 'planning']);
+  const file = await copySteps(root, model, 'repo-spec-driven-standard', ['specification', 'planning']);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   // Source review once listed the steps by name only, so Check refused both copies.
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   assert.ok(plan.summary.some((line) => /takes the place of .*source review.*where Auto stops/.test(line)), plan.summary.join('\n'));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  const type = after.workTypes['spec-driven-standard'];
-  assert.deepEqual(type.sourceReview.phases, ['specification-spec-driven-standard', 'planning-spec-driven-standard']);
-  assert.equal(type.auto.defaultUntil, 'published:planning-spec-driven-standard');
-  assert.deepEqual(type.plannedClaims, { mode: 'required', clausePhases: ['specification-spec-driven-standard'], owners: { implementation: 'planning-spec-driven-standard' } });
-  assert.deepEqual(after.workTypes['reference-driven-build'], before.workTypes['reference-driven-build'], 'the other workflow sharing the steps is unchanged');
-  flow(root, ['workflow', 'validate', 'spec-driven-standard']);
+  const type = after.workTypes['repo-spec-driven-standard'];
+  assert.deepEqual(type.sourceReview.phases, ['specification-repo-spec-driven-standard', 'planning-repo-spec-driven-standard']);
+  assert.equal(type.auto.defaultUntil, 'published:planning-repo-spec-driven-standard');
+  assert.deepEqual(type.plannedClaims, { mode: 'required', clausePhases: ['specification-repo-spec-driven-standard'], owners: { implementation: 'planning-repo-spec-driven-standard' } });
+  assert.deepEqual(after.workTypes['repo-reference-driven-build'], before.workTypes['repo-reference-driven-build'], 'the other workflow sharing the steps is unchanged');
+  flow(root, ['workflow', 'validate', 'repo-spec-driven-standard']);
   // The engine reviews each copy for what it does: one defines the scope, the other plans the claims.
   const { loadDefinition, resolveWorkType } = await import('../src/config.mjs');
   const { reviewKindForResponsibilities } = await import('../src/phase-roles.mjs');
-  const resolved = resolveWorkType(await loadDefinition(root), 'spec-driven-standard');
+  const resolved = resolveWorkType(await loadDefinition(root), 'repo-spec-driven-standard');
   assert.deepEqual(resolved.sourceReview.phases.map((id) => reviewKindForResponsibilities(
     resolved.obligationGraph.nodes.find((node) => node.id === id).responsibilities)), ['specification', 'planning']);
 });
@@ -279,18 +281,18 @@ test('a copy takes its step\'s place in source review and where Auto stops, so t
 test('a copy of convergence is convergence: the engine knows it by its artifact kind, never by its name [E2G-001]', async () => {
   const root = await repository();
   const model = json(root, ['workflow', 'studio']);
-  json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'spec-driven-standard', ['convergence'])]);
-  const copy = json(root, ['workflow', 'studio']).workflows.find((workflow) => workflow.id === 'spec-driven-standard').steps.find((step) => step.id === 'convergence-spec-driven-standard');
+  json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'repo-spec-driven-standard', ['convergence'])]);
+  const copy = json(root, ['workflow', 'studio']).workflows.find((workflow) => workflow.id === 'repo-spec-driven-standard').steps.find((step) => step.id === 'convergence-repo-spec-driven-standard');
   assert.deepEqual([copy.effectiveAuthoringSkill, copy.authoringSkillSource], ['/sf-converge', 'fixed'], 'deterministic convergence, drafted only by the engine');
-  flow(root, ['workflow', 'validate', 'spec-driven-standard']);
+  flow(root, ['workflow', 'validate', 'repo-spec-driven-standard']);
   // Its rules follow it: a person must still approve it.
   const file = path.join(root, 'singularity/workflow.yml');
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
-  document.setIn(['phases', 'convergence-spec-driven-standard', 'approval'], 'none');
+  document.setIn(['phases', 'convergence-repo-spec-driven-standard', 'approval'], 'none');
   await writeFile(file, document.toString());
-  const refused = flow(root, ['workflow', 'validate', 'spec-driven-standard'], { allowFailure: true });
+  const refused = flow(root, ['workflow', 'validate', 'repo-spec-driven-standard'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(`${refused.stdout}\n${refused.stderr}`, /convergence-spec-driven-standard.*(?:explicit human decision|cannot waive convergence)/s);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /convergence-repo-spec-driven-standard.*(?:explicit human decision|cannot waive convergence)/s);
 });
 
 test('a copy says at Check what it cannot take along: a skill that takes its step by name, and an agent skill kept for that step [E2G-001]', async () => {
@@ -299,16 +301,16 @@ test('a copy says at Check what it cannot take along: a skill that takes its ste
   await writeFile(agentFile, `${await readFile(agentFile, 'utf8')}\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-kit | https://example.test/design-kit.md | design | yes | 4096 |\n`);
   run('git', ['commit', '-qam', 'Keep a design skill for the design step'], root);
   const model = json(root, ['workflow', 'studio']);
-  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'feature', ['design']), '--dry-run']);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'repo-feature', ['design']), '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   const said = (result, code) => result.warnings.filter((warning) => warning.code === code).map((warning) => warning.message);
   assert.deepEqual(said(plan, 'STUDIO_COPY_SKILL_BY_NAME'), ['/sf-design takes Architecture and design by its name when the step names no drafting skill, but it does not take design copy. To draft design copy with /sf-design, choose it under Drafted with.']);
   assert.deepEqual(said(plan, 'STUDIO_COPY_AGENT_RESOURCE'), ['Architect uses skill design-kit only in Architecture and design, so design copy is drafted without it. To keep it, import it again with design copy among its steps.']);
   // A copy that chooses the skill keeps it, and a step no skill takes by name says nothing.
-  const chosen = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'feature', ['design'], { design: { authoringSkill: 'sf-design' } }), '--dry-run']);
+  const chosen = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'repo-feature', ['design'], { design: { authoringSkill: 'sf-design' } }), '--dry-run']);
   assert.equal(chosen.valid, true, JSON.stringify(chosen.problems));
   assert.deepEqual(said(chosen, 'STUDIO_COPY_SKILL_BY_NAME'), []);
-  const intake = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'feature', ['intake']), '--dry-run']);
+  const intake = json(root, ['workflow', 'studio', 'apply', '--change-set', await copySteps(root, model, 'repo-feature', ['intake']), '--dry-run']);
   assert.deepEqual(intake.warnings.filter((warning) => warning.code.startsWith('STUDIO_COPY_')), []);
 });
 
@@ -381,15 +383,15 @@ test('the Studio shows what each step really produces and which skill drafts it'
   const model = json(root, ['workflow', 'studio']);
   const step = (workflowId, id) => model.workflows.find((workflow) => workflow.id === workflowId).steps.find((entry) => entry.id === id);
   // Write scope no longer implies code: these steps write against source without delivering it.
-  assert.equal(step('feature', 'verification').output, 'document');
-  assert.equal(step('chore', 'implementation').output, 'analysis');
-  assert.equal(step('feature', 'implementation').output, 'code');
+  assert.equal(step('repo-feature', 'verification').output, 'document');
+  assert.equal(step('repo-chore', 'implementation').output, 'analysis');
+  assert.equal(step('repo-feature', 'implementation').output, 'code');
   assert.deepEqual(
-    [step('feature', 'design').authoringSkill, step('feature', 'design').effectiveAuthoringSkill, step('feature', 'design').authoringSkillSource],
+    [step('repo-feature', 'design').authoringSkill, step('repo-feature', 'design').effectiveAuthoringSkill, step('repo-feature', 'design').authoringSkillSource],
     [null, '/sf-phase', 'automatic']
   );
-  assert.equal(step('feature', 'implementation').effectiveAuthoringSkill, '/sf-code');
-  assert.equal(step('spec-driven-standard', 'convergence').authoringSkillSource, 'fixed');
+  assert.equal(step('repo-feature', 'implementation').effectiveAuthoringSkill, '/sf-code');
+  assert.equal(step('repo-spec-driven-standard', 'convergence').authoringSkillSource, 'fixed');
   const design = model.choices.authoringSkills.find((choice) => choice.id === 'sf-design');
   assert.deepEqual([design.label, design.produces, design.legacyPhases], ['/sf-design', ['document', 'analysis'], ['design']]);
   assert.match(design.description, /architecture and design artifact/i);
@@ -406,30 +408,30 @@ test('the drafting skill of a shared step is set for one workflow, cleared again
     return YAML.parse(await readFile(workflowFile, 'utf8'));
   };
   // design is used by several workflows, so the choice is the Feature workflow's own.
-  let workflow = await apply([{ op: 'phase.update', id: 'design', workflow: 'feature', authoringSkill: 'sf-design' }]);
-  assert.equal(workflow.workTypes.feature.phaseOverrides.design.authoringSkill, 'sf-design');
+  let workflow = await apply([{ op: 'phase.update', id: 'design', workflow: 'repo-feature', authoringSkill: 'sf-design' }]);
+  assert.equal(workflow.workTypes['repo-feature'].phaseOverrides.design.authoringSkill, 'sf-design');
   assert.equal(workflow.phases.design.authoringSkill, undefined);
   let model = json(root, ['workflow', 'studio']);
   const designIn = (id) => model.workflows.find((entry) => entry.id === id).steps.find((entry) => entry.id === 'design');
-  assert.deepEqual([designIn('feature').effectiveAuthoringSkill, designIn('feature').authoringSkillSetByWorkflow], ['/sf-design', true]);
-  const other = model.workflows.find((entry) => entry.id !== 'feature' && entry.steps.some((candidate) => candidate.id === 'design'));
+  assert.deepEqual([designIn('repo-feature').effectiveAuthoringSkill, designIn('repo-feature').authoringSkillSetByWorkflow], ['/sf-design', true]);
+  const other = model.workflows.find((entry) => entry.id !== 'repo-feature' && entry.steps.some((candidate) => candidate.id === 'design'));
   assert.equal(designIn(other.id).effectiveAuthoringSkill, '/sf-phase', 'other workflows are untouched');
 
-  workflow = await apply([{ op: 'phase.update', id: 'design', workflow: 'feature', authoringSkill: null }]);
-  assert.equal(Object.hasOwn(workflow.workTypes.feature.phaseOverrides.design ?? {}, 'authoringSkill'), false);
+  workflow = await apply([{ op: 'phase.update', id: 'design', workflow: 'repo-feature', authoringSkill: null }]);
+  assert.equal(Object.hasOwn(workflow.workTypes['repo-feature'].phaseOverrides.design ?? {}, 'authoringSkill'), false);
 
   // A new step names its skill; a copy made for one workflow takes the value it had there.
   workflow = await apply([
     { op: 'phase.create', id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', agent: 'architect', authoringSkill: 'sf-design' },
-    { op: 'phase.create', id: 'design-feature', label: 'Design (Feature)', copyOf: 'design', authoringSkill: 'sf-design' },
-    { op: 'workflow.create', id: 'vendor-review', label: 'Vendor review', phases: ['intake', 'vendor-analysis', 'design-feature'] }
+    { op: 'phase.create', id: 'design-repo-feature', label: 'Design (Feature)', copyOf: 'design', authoringSkill: 'sf-design' },
+    { op: 'workflow.create', id: 'vendor-review', label: 'Vendor review', phases: ['intake', 'vendor-analysis', 'design-repo-feature'] }
   ]);
   assert.equal(workflow.phases['vendor-analysis'].authoringSkill, 'sf-design');
-  assert.equal(workflow.phases['design-feature'].authoringSkill, 'sf-design');
+  assert.equal(workflow.phases['design-repo-feature'].authoringSkill, 'sf-design');
 
   // A skill that cannot draft the step is a problem the check names, not a silent write.
   const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
-    { op: 'phase.update', id: 'implementation', workflow: 'feature', authoringSkill: 'sf-design' }
+    { op: 'phase.update', id: 'implementation', workflow: 'repo-feature', authoringSkill: 'sf-design' }
   ]), '--dry-run']);
   assert.equal(refused.valid, false);
   assert.match(JSON.stringify(refused.problems), /PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH/);
@@ -584,39 +586,39 @@ test('a setting for a step the same change set adds to another workflow stays th
   // updated before workflows change their lists, so Chore does not list it yet at that moment.
   let root = await repository();
   const before = YAML.parse(await readFile(workflowFile(root), 'utf8'));
-  assert.deepEqual(Object.keys(before.workTypes).filter((id) => before.workTypes[id].phases.includes('requirements')), ['feature']);
-  const chore = [...before.workTypes.chore.phases];
+  assert.deepEqual(Object.keys(before.workTypes).filter((id) => before.workTypes[id].phases.includes('requirements')), ['repo-feature']);
+  const chore = [...before.workTypes['repo-chore'].phases];
   chore.splice(1, 0, 'requirements');
   const plan = await publish(root, [
-    { op: 'workflow.update', id: 'chore', phases: chore },
-    { op: 'phase.update', id: 'requirements', workflow: 'chore', approval: { group: 'quality-reviewers', minimum: 2 }, inputs: [], authoringSkill: 'sf-design' }
+    { op: 'workflow.update', id: 'repo-chore', phases: chore },
+    { op: 'phase.update', id: 'requirements', workflow: 'repo-chore', approval: { group: 'quality-reviewers', minimum: 2 }, inputs: [], authoringSkill: 'sf-design' }
   ]);
   assert.ok(plan.summary.includes('Requirements: inputs, sign-off, drafting skill changed for Chore only.'), plan.summary.join('\n'));
   let after = YAML.parse(await readFile(workflowFile(root), 'utf8'));
   assert.deepEqual(after.phases.requirements, before.phases.requirements, 'the step itself, so Feature too, is unchanged');
   let model = await buildStudioModel(root);
-  assert.deepEqual(stepIn(model, 'feature', 'requirements').approval, { mode: 'required', authorities: ['product-approvers'], requiredAuthorities: [], minimum: 1 });
-  assert.equal(stepIn(model, 'feature', 'requirements').effectiveAuthoringSkill, '/sf-phase');
-  const inChore = stepIn(model, 'chore', 'requirements');
+  assert.deepEqual(stepIn(model, 'repo-feature', 'requirements').approval, { mode: 'required', authorities: ['product-approvers'], requiredAuthorities: [], minimum: 1 });
+  assert.equal(stepIn(model, 'repo-feature', 'requirements').effectiveAuthoringSkill, '/sf-phase');
+  const inChore = stepIn(model, 'repo-chore', 'requirements');
   assert.deepEqual([inChore.approval.authorities, inChore.approval.minimum, inChore.inputs, inChore.effectiveAuthoringSkill], [['quality-reviewers'], 2, [], '/sf-design']);
 
   // The other way round: Feature's own change in the same change set stays Feature's, and Chore
   // takes the step up as it is.
   root = await repository();
   await publish(root, [
-    { op: 'workflow.update', id: 'chore', phases: chore },
-    { op: 'phase.update', id: 'requirements', workflow: 'feature', approval: { group: 'architecture-reviewers', minimum: 1 } }
+    { op: 'workflow.update', id: 'repo-chore', phases: chore },
+    { op: 'phase.update', id: 'requirements', workflow: 'repo-feature', approval: { group: 'architecture-reviewers', minimum: 1 } }
   ]);
   after = YAML.parse(await readFile(workflowFile(root), 'utf8'));
   assert.deepEqual(after.phases.requirements, before.phases.requirements);
   model = await buildStudioModel(root);
-  assert.deepEqual(stepIn(model, 'feature', 'requirements').approval.authorities, ['architecture-reviewers']);
-  assert.deepEqual(stepIn(model, 'chore', 'requirements').approval.authorities, ['product-approvers']);
+  assert.deepEqual(stepIn(model, 'repo-feature', 'requirements').approval.authorities, ['architecture-reviewers']);
+  assert.deepEqual(stepIn(model, 'repo-chore', 'requirements').approval.authorities, ['product-approvers']);
 
   // A workflow that does not use the step has no settings for it: the change is refused, not
   // written to the step every other workflow uses.
   const refused = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
-    { op: 'phase.update', id: 'design', workflow: 'chore', approval: { group: 'quality-reviewers', minimum: 2 } }
+    { op: 'phase.update', id: 'design', workflow: 'repo-chore', approval: { group: 'quality-reviewers', minimum: 2 } }
   ] });
   assert.deepEqual(refused.problems.map((problem) => problem.code), ['STUDIO_PHASE_UNKNOWN']);
 });
@@ -710,7 +712,7 @@ test('integration targets and the actions a step sends after it are edited from 
   // intake is shared by several workflows, so an action set for Feature is Feature's alone.
   const file = await changeSet(root, [
     { op: 'integration.target.create', id: 'team-events', target: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_EVENTS_KEY' } },
-    { op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event' }] }
+    { op: 'phase.update', id: 'intake', workflow: 'repo-feature', afterStep: [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event' }] }
   ], model.base);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
@@ -718,13 +720,13 @@ test('integration targets and the actions a step sends after it are edited from 
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.deepEqual(written.integrations.targets['team-events'], { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_EVENTS_KEY' });
-  assert.deepEqual(written.workTypes.feature.phaseOverrides.intake.afterStep, [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events' }]);
+  assert.deepEqual(written.workTypes['repo-feature'].phaseOverrides.intake.afterStep, [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events' }]);
   assert.equal(written.phases.intake.afterStep, undefined, 'the shared step itself is unchanged');
   const after = json(root, ['workflow', 'studio']);
   const step = (workflowId) => after.workflows.find((entry) => entry.id === workflowId).steps.find((entry) => entry.id === 'intake');
-  assert.deepEqual(step('feature').afterStep, [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event' }]);
-  assert.equal(step('feature').afterStepSetByWorkflow, true);
-  assert.deepEqual(step('bugfix').afterStep, []);
+  assert.deepEqual(step('repo-feature').afterStep, [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events', send: 'event' }]);
+  assert.equal(step('repo-feature').afterStepSetByWorkflow, true);
+  assert.deepEqual(step('repo-bugfix').afterStep, []);
   assert.deepEqual(after.integrations.targets.map((target) => target.id), ['team-events']);
 
   // A target still in use cannot be removed, and a secret value is refused where it is typed.
@@ -745,7 +747,7 @@ test('integration targets and the actions a step sends after it are edited from 
 
   // Removing the action and then the target in one change set is fine.
   const cleared = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [
-    { op: 'phase.update', id: 'intake', workflow: 'feature', afterStep: [] },
+    { op: 'phase.update', id: 'intake', workflow: 'repo-feature', afterStep: [] },
     { op: 'integration.target.remove', id: 'team-events' }
   ], after.base), '--dry-run']);
   assert.equal(cleared.valid, true, JSON.stringify(cleared.problems));
@@ -766,7 +768,7 @@ test('the Studio lists templates with where they are used, and artifact sets wit
     { path: 'checklists/requirements.md', role: 'specification-quality', required: false, authority: 'advisory' });
   assert.ok(specification.usedBy.length >= 1);
   assert.equal(model.phases.find((phase) => phase.id === specification.usedBy[0]).artifactSet, 'spec-driven-specification');
-  const feature = model.workflows.find((workflow) => workflow.id === 'feature');
+  const feature = model.workflows.find((workflow) => workflow.id === 'repo-feature');
   assert.ok(feature.steps.every((step) => Array.isArray(step.optionalInputs) && Object.hasOwn(step, 'template')));
 });
 
@@ -777,7 +779,7 @@ test('templates are made and changed in the change set, and a step chooses one f
   const file = await changeSet(root, [
     { op: 'template.create', path: 'common/vendor-brief.md', content: '# {{work.id}} — Vendor brief\n\n## Vendors compared\n' },
     { op: 'template.update', path: 'common/intake.md', content: `${before.trimEnd()}\n\n## Vendor notes\n` },
-    { op: 'phase.update', id: 'intake', workflow: 'feature', template: 'common/vendor-brief.md' }
+    { op: 'phase.update', id: 'intake', workflow: 'repo-feature', template: 'common/vendor-brief.md' }
   ], model.base);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
@@ -790,11 +792,11 @@ test('templates are made and changed in the change set, and a step chooses one f
   assert.ok(plan.summary.some((line) => /New template common\/vendor-brief\.md/.test(line)));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const after = json(root, ['workflow', 'studio']);
-  assert.equal(after.workflows.find((workflow) => workflow.id === 'feature').steps.find((step) => step.id === 'intake').template,
+  assert.equal(after.workflows.find((workflow) => workflow.id === 'repo-feature').steps.find((step) => step.id === 'intake').template,
     'common/vendor-brief.md', 'Feature uses its own template for the shared step');
   assert.equal(after.phases.find((phase) => phase.id === 'intake').template, 'common/intake.md', 'other workflows keep the step\'s template');
   const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  assert.equal(written.workTypes.feature.templateOverrides.intake, 'common/vendor-brief.md');
+  assert.equal(written.workTypes['repo-feature'].templateOverrides.intake, 'common/vendor-brief.md');
 
   const refusals = await changeSet(root, [
     { op: 'template.create', path: 'common/vendor-brief.md', content: 'again' },
@@ -956,28 +958,28 @@ test('a step signed off by several groups keeps all of them, and the groups that
 test('planned claims are named in the Studio, refused for a step that defines no clauses, and worked out again on request', async () => {
   const root = await repository();
   const model = json(root, ['workflow', 'studio']);
-  const feature = model.workflows.find((workflow) => workflow.id === 'feature');
+  const feature = model.workflows.find((workflow) => workflow.id === 'repo-feature');
   assert.equal(feature.plannedClaims.mode, 'required');
   assert.ok(feature.plannedClaims.clausePhases.length >= 1, JSON.stringify(feature.plannedClaims));
   assert.deepEqual(feature.steps.filter((step) => step.definesClauses).map((step) => step.id).sort(), ['implementation-spec', 'requirements'].sort());
 
-  const named = await changeSet(root, [{ op: 'workflow.update', id: 'feature', plannedClaims: { clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } } }], model.base);
+  const named = await changeSet(root, [{ op: 'workflow.update', id: 'repo-feature', plannedClaims: { clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } } }], model.base);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', named, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   json(root, ['workflow', 'studio', 'apply', '--change-set', named]);
-  let written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes.feature.plannedClaims;
+  let written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes['repo-feature'].plannedClaims;
   assert.deepEqual(written, { mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'implementation-spec' } });
   let after = json(root, ['workflow', 'studio']);
-  assert.deepEqual(after.workflows.find((workflow) => workflow.id === 'feature').plannedClaims.declared.clausePhases, ['requirements']);
+  assert.deepEqual(after.workflows.find((workflow) => workflow.id === 'repo-feature').plannedClaims.declared.clausePhases, ['requirements']);
 
-  const wrong = await changeSet(root, [{ op: 'workflow.update', id: 'feature', plannedClaims: { clausePhases: ['design'], owners: { implementation: 'implementation-spec' } } }], after.base);
+  const wrong = await changeSet(root, [{ op: 'workflow.update', id: 'repo-feature', plannedClaims: { clausePhases: ['design'], owners: { implementation: 'implementation-spec' } } }], after.base);
   const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', wrong, '--dry-run']);
   assert.equal(refused.valid, false);
   assert.match(refused.problems.map((problem) => problem.message).join(' '), /design' is not authoritative/);
 
-  const infer = await changeSet(root, [{ op: 'workflow.update', id: 'feature', plannedClaims: 'infer' }], after.base);
+  const infer = await changeSet(root, [{ op: 'workflow.update', id: 'repo-feature', plannedClaims: 'infer' }], after.base);
   json(root, ['workflow', 'studio', 'apply', '--change-set', infer]);
-  written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes.feature.plannedClaims;
+  written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes['repo-feature'].plannedClaims;
   assert.equal(written.mode, 'required');
   assert.deepEqual(written.clausePhases, feature.plannedClaims.clausePhases, 'working them out again pins what the engine infers');
 });
@@ -986,7 +988,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   const root = await repository();
   const model = json(root, ['workflow', 'studio']);
   assert.ok(model.epics, 'the model carries the Epic workflows');
-  assert.ok(model.epics.workflows.some((workflow) => workflow.id === 'initiative-lite'));
+  assert.ok(model.epics.workflows.some((workflow) => workflow.id === 'repo-initiative-lite'));
   const define = model.epics.steps.find((step) => step.id === 'define');
   assert.ok(define.outputs.some((output) => output.id === 'business-case'));
   assert.match(model.base.portfolioSha256, /^[a-f0-9]{64}$/);
@@ -996,7 +998,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
       approval: { group: 'product-approvers', minimum: 1 } },
     { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', template: 'initiatives/generic-output.md', consumes: ['define/business-case'] },
     { op: 'epicWorkflow.create', id: 'vendor-epic', label: 'Vendor Epic', description: 'Choose a vendor.', phases: ['define', 'vendor-review'] },
-    { op: 'epicWorkflow.create', id: 'lite-copy', label: 'Lite copy', copyOf: 'initiative-lite' }
+    { op: 'epicWorkflow.create', id: 'lite-copy', label: 'Lite copy', copyOf: 'repo-initiative-lite' }
   ], model.base);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
@@ -1004,7 +1006,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   let portfolio = YAML.parse(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'));
   assert.deepEqual(portfolio.initiativeProfiles['vendor-epic'], { label: 'Vendor Epic', phases: ['define', 'vendor-review'], description: 'Choose a vendor.' });
-  assert.deepEqual(portfolio.initiativeProfiles['lite-copy'].phases, portfolio.initiativeProfiles['initiative-lite'].phases, 'a linked copy shares its source\'s steps');
+  assert.deepEqual(portfolio.initiativeProfiles['lite-copy'].phases, portfolio.initiativeProfiles['repo-initiative-lite'].phases, 'a linked copy shares its source\'s steps');
   assert.deepEqual(portfolio.initiativePhases['vendor-review'].outputs, [{ id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', path: 'vendor-brief.md', template: 'initiatives/generic-output.md', consumes: ['define/business-case'] }]);
   assert.deepEqual(portfolio.initiativePhases['vendor-review'].bundleApproval, { mode: 'bundle', authorities: ['product-approvers'], minimum: 1, allowSelfApproval: true });
 
@@ -1049,7 +1051,7 @@ test('a Studio Epic workflow edit changes only its own line of a portfolio folde
   const before = await foldYamlFile(file);
   const model = await buildStudioModel(root);
   await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', base: model.base,
-    changes: [{ op: 'epicWorkflow.update', id: 'initiative-lite', label: 'Lite initiative' }] }, { write: true });
+    changes: [{ op: 'epicWorkflow.update', id: 'repo-initiative-lite', label: 'Lite initiative' }] }, { write: true });
   assert.deepEqual(changedLines(before, await readFile(file, 'utf8')), {
     removed: ['    label: Initiative lite'], added: ['    label: Lite initiative']
   });

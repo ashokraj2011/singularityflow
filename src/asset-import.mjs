@@ -225,9 +225,7 @@ export function inspectImportContent(kind, text, { id = null, label = 'The impor
   let parsed;
   try { parsed = parseAgentDependencies(text, { source: `.github/agents/${fileId}.agent.md` }); }
   catch (error) { throw fail(`${label} is not a usable agent file: ${error.message}`, 'IMPORT_AGENT_INVALID'); }
-  if (id && parsed.id !== id) {
-    throw fail(`This agent file names itself '${parsed.id}', so it cannot be imported as '${id}'.`, 'IMPORT_AGENT_ID_MISMATCH');
-  }
+  if (id && parsed.id !== id) warnings.push(`Agent '${parsed.id}' will be renamed to '${id}', retaining its source hash in the import record.`);
   if (parsed.dependencies.length) {
     warnings.push(`This agent names ${parsed.dependencies.length} remote resource(s) of its own; after it is published, trust them with singularity-flow agents lock ${parsed.id}.`);
   }
@@ -235,7 +233,7 @@ export function inspectImportContent(kind, text, { id = null, label = 'The impor
     warnings.push(`This agent wants to draft ${parsed.defaultFor.join(', ')} by default; each step keeps exactly one default agent, so choose which one drafts it.`);
   }
   return {
-    id: parsed.id,
+    id: id ?? parsed.id,
     details: {
       label: parsed.label, description: parsed.description, tools: parsed.tools, phases: parsed.phases,
       defaultFor: parsed.defaultFor, views: parsed.worldModelViews, remoteResources: parsed.dependencies.length

@@ -108,7 +108,7 @@ test('transfer plan confirmation binds exact approved remote source and mirror c
       ? planWorkflowCopy(target, { sourceId: 'feature', targetId: 'feature-copy', label: 'Feature copy' })
       : planWorkflowImport(target, bundle));
   const plan = await makePlan(original);
-  assert.equal(plan.status, 'ready');
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   assert.deepEqual(plan.destinationAuthority, {
     kind: original.kind, branch: 'sflow/config', commit: original.commit,
     sourceCommit: original.commit, remoteFingerprint: remoteFingerprint(original.remote)
@@ -351,7 +351,7 @@ test('workflow bundle closure rejects self-rehashed missing transitive MCP phase
 test('v3 dependency closure never treats inherited constructor keys as retained declarations before target writes', async (t) => {
   const f = await mcpClosureFixture(t);
   const bundle = await exportWorkflowBundle(f.source, ['story:portable-mcp-feature']);
-  assert.equal(bundle.schemaVersion, 5);
+  assert.equal(bundle.schemaVersion, 6);
   for (const catalog of ['workTypes', 'phases', 'mcpServers', 'artifactSets', 'templates']) {
     assert.equal(Object.hasOwn(bundle.objects.story[catalog], 'constructor'), false);
     assert.equal(typeof bundle.objects.story[catalog].constructor, 'function', 'the ordinary object still has the inherited key');
@@ -503,7 +503,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   await writeWorkflowConfiguration(f.source, f.configuration);
   await loadDefinition(f.source);
   const complete = await exportWorkflowBundle(f.source, ['story:historical-mcp']);
-  assert.equal(complete.schemaVersion, 5);
+  assert.equal(complete.schemaVersion, 6);
   assert.ok(complete.objects.story.phases['unrelated-note']);
   assert.ok(complete.objects.story.mcpServers['unrelated-server']);
 
@@ -524,6 +524,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
     const stored = structuredClone(historical);
     stored.schemaVersion = version;
     delete stored.imports;
+  delete stored.objects.story.integrations;
     if (version === 1) { delete stored.skillPackages; delete stored.semantics; }
     stored.bundleSha256 = bundleDigest(stored);
     const bytes = Buffer.from(`${JSON.stringify(stored, null, 2)}\n`, 'utf8');
@@ -544,6 +545,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   const strict = structuredClone(historical);
   strict.schemaVersion = 3;
   delete strict.imports;
+  delete strict.objects.story.integrations;
   strict.bundleSha256 = bundleDigest(strict);
   await assert.rejects(() => planWorkflowImport(f.source, strict),
     (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING'
@@ -565,6 +567,7 @@ test('workflow bundle v1 cannot acquire skill authority through a self-rehashed 
   delete incomplete.skillPackages;
   delete incomplete.semantics;
   delete incomplete.imports;
+  delete incomplete.objects.story.integrations;
   incomplete.objects.story.phases.implementation.kind = 'skill';
   incomplete.objects.story.phases.implementation.skillBinding = {
     bindingRefs: { skill: { id: 'example', packageSha256: `sha256:${'a'.repeat(64)}` } }
@@ -580,6 +583,7 @@ test('workflow bundle v1 cannot acquire skill authority through a self-rehashed 
   delete overridden.skillPackages;
   delete overridden.semantics;
   delete overridden.imports;
+  delete overridden.objects.story.integrations;
   overridden.objects.story.workTypes.feature.phaseOverrides ??= {};
   overridden.objects.story.workTypes.feature.phaseOverrides.implementation = {
     kind: 'skill', skillBinding: incomplete.objects.story.phases.implementation.skillBinding
@@ -653,7 +657,7 @@ test('workflow bundles support Initiative-only and mixed Story/Initiative select
   assert.ok(mixed.assets.some((asset) => asset.kind === 'agent'));
   assert.ok(mixed.assets.some((asset) => asset.kind === 'template' && asset.governs === 'initiative'));
   const plan = await planWorkflowImport(target, mixed);
-  assert.equal(plan.status, 'ready');
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   assert.equal(plan.conflicts.length, 0);
   const applied = await applyWorkflowImport(target, mixed, { expectedPlanSha256: plan.planSha256 });
   assert.equal(applied.status, 'current', 'the packaged target already contains the exact closure');
@@ -944,7 +948,7 @@ test('workflow import previews, requires exact confirmation, round-trips, and re
   const bundle = await exportWorkflowBundle(source, ['portable-feature']);
 
   const plan = await planWorkflowImport(target, bundle);
-  assert.equal(plan.status, 'ready');
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   assert.equal(plan.conflicts.length, 0);
   assert.ok(plan.added.some((item) => item.kind === 'story.workTypes'
     && item.id === 'portable-feature'));
@@ -1182,7 +1186,7 @@ Use the governed remote intake template.
     && /portable path identity/.test(item.reason)));
 
   const plan = await planWorkflowImport(target, bundle);
-  assert.equal(plan.status, 'ready');
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   for (const expected of [
     '.github/agents/portable-owner.agent.md', 'custom/templates/portable/intake.md',
     'singularity/agents.lock.yml', 'singularity/workflow.yml'
@@ -1229,7 +1233,7 @@ test('workflow copy is a confirmed linked duplicate that preserves the source an
     sourceId: 'feature', targetId: 'feature-team', label: 'Feature — Team'
   });
 
-  assert.equal(plan.status, 'ready');
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   assert.deepEqual(plan.changedPaths, ['singularity/workflow.yml']);
   assert.equal(plan.sharedDependencies.linked, true);
   assert.equal(plan.sharedDependencies.phases, dependencyPhases.length);
@@ -1312,7 +1316,7 @@ test('workflow copy accepts a governed selector when Story and Initiative IDs ov
   const plan = await planWorkflowCopy(root, {
     sourceId: 'story:feature', targetId: 'feature-copy', label: 'Feature copy'
   });
-  assert.equal(plan.status, 'ready');
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
   assert.equal(plan.sourceSelector, 'story:feature');
   assert.ok(plan.reused.some((item) => item.kind === 'story.approval-authority'));
   assert.ok(plan.reused.some((item) => item.kind === 'agent'));

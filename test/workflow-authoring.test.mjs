@@ -1,3 +1,4 @@
+import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 /**
  * Creating and changing the lifecycle a repository runs.
  *
@@ -138,6 +139,7 @@ test('identifiers are kebab-case, like every other identifier in the product', a
 test('future Story workflow authoring validates planned claims before writing configuration', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-workflow-contract-'));
   await initializeDefinition(root);
+  await repositoryOwnedWorkflows(root);
 
   await assert.rejects(
     () => defineWorkflow(root, 'unsafe-delivery', {
@@ -180,6 +182,7 @@ test('future Story workflow authoring validates planned claims before writing co
 test('a Story workflow can declare, resolve, replace, and clear a bounded review loop', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-loop-authoring-'));
   await initializeDefinition(root);
+  await repositoryOwnedWorkflows(root);
   const loop = { from: 'verification', to: 'implementation', maxAttempts: 2,
     resetOnPhase: 'requirements' };
   await defineWorkflow(root, 'loop-delivery', {
@@ -207,6 +210,7 @@ test('a Story workflow can declare, resolve, replace, and clear a bounded review
 test('invalid Story loop policy is refused before workflow configuration is written', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-loop-refusal-'));
   await initializeDefinition(root);
+  await repositoryOwnedWorkflows(root);
   const file = path.join(root, 'singularity', 'workflow.yml');
   const before = await readFile(file, 'utf8');
   await assert.rejects(() => defineWorkflow(root, 'invalid-loop', {
@@ -217,7 +221,7 @@ test('invalid Story loop policy is refused before workflow configuration is writ
 
   const definition = await loadDefinition(root);
   const invalid = structuredClone(definition);
-  invalid.workTypes['spec-code-test-loop'].phaseOverrides.testing.approval = 'none';
+  invalid.workTypes['repo-spec-code-test-loop'].phaseOverrides.testing.approval = 'none';
   assert.throws(() => validateDefinition(invalid), /requires human approval/);
   await assert.rejects(() => defineWorkflow(root, 'initiative-loop', {
     phases: ['intake'], governs: 'initiative',
@@ -228,6 +232,7 @@ test('invalid Story loop policy is refused before workflow configuration is writ
 test('Story phase edits expose generation task and approval without losing other policy', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-phase-authoring-'));
   await initializeDefinition(root);
+  await repositoryOwnedWorkflows(root);
   await editPhase(root, 'verification', {
     task: 'analyze', approvalAuthorities: ['quality-reviewers'], approvalMinimum: 1
   }, { governs: 'story' });
@@ -327,6 +332,7 @@ test('phase output authoring preserves initiative YAML comments and supports Sto
 
   const storyRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-output-'));
   await initializeDefinition(storyRoot);
+  await repositoryOwnedWorkflows(storyRoot);
   const story = await upsertPhaseOutput(storyRoot, 'design', 'design', {
     label: 'Technical design', path: 'artifacts/design/technical-design.md', template: 'common/technical-design.md'
   }, { action: 'edit', governs: 'story' });

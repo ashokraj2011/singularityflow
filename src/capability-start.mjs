@@ -45,6 +45,8 @@ import {
 } from './configuration-branch.mjs';
 import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { probeStoryBranchPublication, storyPublicationPreflightError } from './story-publication-preflight.mjs';
+import { publicationFailureMessage } from './git-hook-effects.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { STORY_INTAKE_AUTHORITY_REUSE_MS, isStoryIntakeProof } from './story-intake-verification.mjs';
@@ -972,25 +974,14 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       incrementCommandCounter('git.story-dry-run-verified');
       return { candidate: { ...candidate, dryRunVerified: true }, dryRun: null };
     }
-    const transport = frozenRemoteTransport(candidate.transportRemote, { push: true });
-    const dryRun = await runGit([
-      'push', '--dry-run', '--porcelain', transport.remote,
-      `${candidate.sourceRef}:${candidate.destinationRef}`
-    ], {
-      cwd: candidate.root, operation: 'remote-push', allowFailure: true,
-      env: transport.env
-    });
+    const dryRun = await probeStoryBranchPublication(candidate.root, candidate.transportRemote,
+      candidate.sourceRef, candidate.destinationRef, { runGit });
     return { candidate, dryRun };
   });
   const refused = checked.find((entry) => entry.dryRun && !processResultSucceeded(entry.dryRun));
   if (refused) {
     const { candidate, dryRun } = refused;
-    throw new SingularityFlowError(
-      `Cannot publish Story branch '${storyBranch}' for required repository '${candidate.repository}' `
-      + `to '${remote}'. Git reported: `
-      + `${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
-      { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
-    );
+    throw storyPublicationPreflightError(dryRun, { branch: storyBranch, remote, repository: candidate.repository });
   }
   return checked.map((entry) => entry.candidate);
 }
@@ -1143,7 +1134,7 @@ async function publishCapabilityRepository(entry, {
       return {
         published: [],
         pending: [{ ...entry, pushOutcome }],
-        error: (result.stderr || result.stdout || 'remote rejected the Story branch').trim()
+        error: publicationFailureMessage(result)
       };
     }
     return { published: [{

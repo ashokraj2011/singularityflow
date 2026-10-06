@@ -780,6 +780,12 @@
       },
       "digest": "836d0c8121ec87c0ed8cf27dfc120349eee82461fbb9d33c506ed90faa42b5c3"
     },
+    "src/git-hook-effects.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "65a107769c762670b2534a34ce46ca3f4d3058944a82f0f3dde03c8b1fb42abc"
+    },
     "src/git-ref-tree.mjs": {
       "counts": {
         "command-runCommand": 4

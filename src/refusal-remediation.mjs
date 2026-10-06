@@ -7,7 +7,7 @@
  * guidance still wins; this module fills only the gap and never executes an action.
  */
 
-import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
   safeCommandGuidance, validateSafeSflowCommand
@@ -638,6 +638,23 @@ function deduplicate(steps) {
 
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
+  const hookFailure = error?.details?.remoteFailure?.hook ?? localGitHookFailure({ stderr: error?.message });
+  if (hookFailure) return Object.freeze({
+    schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
+    status: 'blocked', code,
+    steps: Object.freeze([
+      step('repair-local-push-hook',
+        `The local pre-push hook${hookFailure.line ? ` at line ${hookFailure.line}` : ''}${hookFailure.tool ? ` cannot find '${redactDiagnosticText(hookFailure.tool)}'` : ' failed'}. Review its exact output and repair the command or failed check; do not change Git credentials for a local hook failure.`, null, 'remediation'),
+      step('repair-hook-environment',
+        hookFailure.runtimeFamily === 'node-package-manager'
+          ? 'Make the required Node/package-manager runtime available to the IDE-launched Git environment. If a version manager works only in terminals, configure Husky user initialization for GUI launches and restart the IDE. Do not install tools or disable hooks automatically.'
+          : 'Verify the named command and its runtime in the calling IDE or terminal environment. Correct a typo or restore the approved tool/PATH. Do not install tools or disable hooks automatically.', null, 'remediation'),
+      step('preserve-and-retry-hook',
+        'Inspect local changes and preserve hook-generated files and authored work. Retry the retained publication after repair; if remote publication may have completed, reconcile the exact pending operation instead of recreating the Story.',
+        'singularity-flow doctor --json', 'diagnostic')
+    ]),
+    retry: Object.freeze({ label: 'Retry only after the hook, command or runtime has changed; preserve the existing Story and exact publication checkpoint.', automatic: false })
+  });
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
   const riskReviewBlocked = ['TRP_PHASE_GATE_BLOCKED', 'TRP_RISK_REVIEW_STALE',
@@ -782,6 +799,11 @@ export function refusalDetails(details) {
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));
     if (coverage) projected.coverage = coverage;
   }
+  if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
+    scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
+    applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',
+    localRefs: 'may-have-refreshed', remotePolicyVerified: false
+  };
   return Object.keys(projected).length ? projected : null;
 }
 

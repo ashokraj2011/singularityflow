@@ -653,7 +653,7 @@ export class GitPublicationUnitOfWork {
       let result;
       if (combinedPublication?.landed) {
         result = { status: 0, stdout: '', stderr: '', signal: null };
-      } else if (combinedPublication?.uncertain) {
+      } else if (combinedPublication?.uncertain || combinedPublication?.hookRejected) {
         result = combinedPublication.result;
       } else if (publicationAuthority?.url) {
         result = await pushCommitToBranchAsync(
@@ -737,7 +737,9 @@ export class GitPublicationUnitOfWork {
           event: envelope, ledger: null, candidate: candidateBinding,
           ...(revisionSelection ? { revisionSelection } : {})
         };
-        throw new SingularityFlowError(`${message} Run the appropriate sync command after fixing remote access.`);
+        throw new SingularityFlowError(`${message} Run the appropriate sync command after ${result.failure?.hook ? 'repairing the local hook or runtime' : 'fixing remote access'}.`, {
+          ...(result.failure?.hook ? { code: result.failure.code, details: { remoteFailure: result.failure } } : {})
+        });
       }
       pushed = true;
       await updatePublicationJournal(root, subject, {

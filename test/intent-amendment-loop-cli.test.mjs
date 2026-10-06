@@ -7,6 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
+import { decideIntentAmendment } from '../src/state.mjs';
 
 const PACKAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(PACKAGE, 'bin/singularity-flow.mjs');
@@ -49,6 +51,9 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   if (workType === 'custom-no-convergence') {
     configuration.workTypes[workType] = structuredClone(configuration.workTypes['spec-code-test-loop']);
     delete configuration.workTypes[workType].reworkLoops;
+    configuration.workTypes[workType].phaseOverrides.specification = {
+      artifact: { validation: { requiredHeadings: ['Actors'] } }
+    };
   }
   // This fixture tests amendment authority rather than the independent source-review service.
   if (workType === 'spec-driven-standard') configuration.workTypes[workType].sourceReview = { mode: 'off' };
@@ -98,6 +103,27 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   await writeFile(amendedPath, spec(2));
   const before = await readFile(specPath, 'utf8');
 
+  const invalidPath = path.join(candidateDirectory, 'incomplete-spec.md');
+  const incomplete = spec(2).replace('The application returns the value 2.', 'TODO: decide which value to return.');
+  await writeFile(invalidPath, incomplete);
+  const headBeforeRefusal = git('rev-parse', 'HEAD');
+  const invalid = run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose',
+    '--file', invalidPath, '--reason', 'Review an incomplete draft.', '--json'], root, { allowFailure: true });
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stdout + invalid.stderr, /ARTIFACT_AUTHORING_INCOMPLETE/);
+  assert.match(invalid.stdout + invalid.stderr, /artifact.placeholder.unresolved/);
+  assert.equal(git('rev-parse', 'HEAD'), headBeforeRefusal, 'invalid authoring creates no proposal commit');
+  assert.equal(await readFile(specPath, 'utf8'), before);
+  if (workType === 'custom-no-convergence') {
+    await writeFile(invalidPath, spec(2).replace('## Actors\n\nA user reads the value.\n\n', ''));
+    const missingHeading = run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose',
+      '--file', invalidPath, '--reason', 'Review missing required structure.', '--json'], root, { allowFailure: true });
+    assert.notEqual(missingHeading.status, 0);
+    assert.match(missingHeading.stdout + missingHeading.stderr, /artifact.heading.missing/);
+    assert.equal(git('rev-parse', 'HEAD'), headBeforeRefusal);
+    assert.equal(await readFile(specPath, 'utf8'), before);
+  }
+
   // An amended specification that no longer plans a clause is refused when it is proposed, not when
   // an authority approves it, and nothing is recorded.
   const unplannedPath = path.join(candidateDirectory, 'unplanned-spec.md');
@@ -114,9 +140,13 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   }
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).intentAmendments, undefined,
     'a refused proposal records nothing');
+  const authorshipFlags = workType === 'spec-code-test-loop'
+    ? ['--authored', 'governed-agent', '--channel', 'copilot-host']
+    : workType === 'custom-no-convergence'
+      ? ['--authored', 'human', '--external-ai', 'assisted', '--change-origin', 'mixed'] : [];
   const proposed = JSON.parse(cli('story', 'intent-amendment', 'propose',
     '--file', amendedPath, '--reason', 'Review showed that value 2 is required.',
-    '--json').stdout);
+    ...authorshipFlags, '--json').stdout);
   assert.equal(proposed.proposal.source.phaseId, sourcePhase);
   assert.deepEqual(proposed.proposal.requiredClauses, [`${WORK}:AC-001`, `${WORK}:REQ-001`]);
   assert.equal(proposed.proposal.convergence, undefined, 'no convergence findings were invented');
@@ -133,6 +163,29 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   assert.equal(createHash('sha256').update(proposedBytes).digest('hex'),
     proposed.proposal.specification.proposedSha256, 'proposal file changed after publication');
 
+  // Older proposals can predate the new drafting check. Even exact, hash-bound but incomplete
+  // candidate bytes must be refused at the decision boundary, without editing approved intent.
+  const accepted = await loadAcceptedStoryExecution(root, WORK);
+  const unsafeProposal = structuredClone(proposed.proposal);
+  delete unsafeProposal.authorship;
+  unsafeProposal.specification.proposedSha256 = createHash('sha256').update(incomplete).digest('hex');
+  const storedCandidate = path.join(root, unsafeProposal.specification.proposedPath);
+  await writeFile(storedCandidate, incomplete);
+  try {
+    await assert.rejects(() => decideIntentAmendment(root, accepted.config, accepted.workflow, unsafeProposal, {
+      decision: 'approve', actor: { name: 'Loop Tester', email: 'loop@example.test', login: null }
+    }), (error) => {
+      assert.equal(error.code, 'ARTIFACT_AUTHORING_INCOMPLETE');
+      assert.match(error.details.recoveryCommand, /intent-amendment decide AMD-001 --decision reject --confirm AMD-001/);
+      return true;
+    });
+    assert.equal(await readFile(specPath, 'utf8'), before);
+    assert.equal(accepted.workflow.phases.specification.generation, 1);
+    assert.deepEqual(unsafeProposal.decisions, [], 'a refused candidate must not even record a partial approval');
+  } finally {
+    await writeFile(storedCandidate, proposedBytes);
+  }
+
   const decision = JSON.parse(cli('story', 'intent-amendment', 'decide', 'AMD-001',
     '--decision', 'approve', '--confirm', 'AMD-001', '--json').stdout);
   assert.equal(decision.transition.applied, true);
@@ -141,6 +194,19 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   assert.equal(amended.currentPhase, sourcePhase);
   assert.ok(amended.phases[sourcePhase].intentAmendmentRevalidation);
   assert.match(await readFile(specPath, 'utf8'), /value 2/);
+  const authorship = amended.phases.specification.authorship.at(-1);
+  assert.equal(authorship.producer, workType === 'spec-code-test-loop' ? 'governed-agent'
+    : workType === 'custom-no-convergence' ? 'human' : 'legacy-unspecified');
+  assert.equal(authorship.channel, workType === 'spec-code-test-loop' ? 'copilot-host'
+    : workType === 'custom-no-convergence' ? 'manual-import' : 'legacy');
+  assert.deepEqual(authorship.externalAiUse, workType === 'custom-no-convergence'
+    ? { value: 'assisted', status: 'self-reported' } : { value: 'unknown', status: 'unavailable' });
+  assert.deepEqual(authorship.changeOrigins, workType === 'spec-code-test-loop' ? ['copilot']
+    : workType === 'custom-no-convergence' ? ['mixed'] : []);
+  assert.equal(authorship.source.sha256, proposed.proposal.specification.proposedSha256);
+  assert.equal(authorship.source.proposalSha256, proposed.proposal.proposalSha256);
+  assert.deepEqual(authorship.actor, proposed.proposal.proposedBy);
+  if (workType === 'spec-code-test-loop') assert.ok(authorship.governedAgentContext?.agentId);
 
   // The amendment is a new scope revision [E2G-008], chained to the first, and it names exactly the
   // clauses whose evidence is now stale.

@@ -189,12 +189,13 @@ test('workflow copy and duplicate confirmations use the same exact destination f
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
   };
-  const planA = preview('copy');
-  assert.equal(preview('duplicate').planSha256, planA.planSha256);
+  const copyA = preview('copy'), planA = preview('duplicate');
+  assert.deepEqual(copyA.destinationAuthority, planA.destinationAuthority);
+  assert.notEqual(copyA.planSha256, planA.planSha256, 'independent duplication is a different reviewed plan');
   git(item.root, 'remote', 'set-url', 'origin', item.remoteB);
   for (const command of ['copy', 'duplicate']) {
     const rejected = flow(item.root, 'workflow', command, 'feature', 'feature-copy',
-      '--label', 'Feature copy', '--confirm', planA.planSha256, '--propose', '--json');
+      '--label', 'Feature copy', '--confirm', (command === 'copy' ? copyA : planA).planSha256, '--propose', '--json');
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stdout, /plan changed or was not confirmed/);
   }
@@ -210,7 +211,7 @@ test('workflow copy and duplicate confirmations use the same exact destination f
   assert.equal(git(item.base, '--git-dir', item.remoteA, 'rev-parse', 'sflow/config'), item.approved);
   assert.equal(git(item.base, '--git-dir', item.remoteB, 'rev-parse', 'sflow/config'), item.approved);
   const copied = YAML.parse(git(item.base, '--git-dir', item.remoteB, 'show', `${proposal.branch}:singularity/workflow.yml`));
-  assert.equal(copied.workTypes['feature-copy'].label, 'Feature copy');
+  assert.equal(copied.workTypes['feature-copy'].label, 'Feature copy (imported)');
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 
@@ -301,7 +302,7 @@ test('workflow export writes one portable bundle for several selected workflows'
 
   const bundle = JSON.parse(await readFile(output, 'utf8'));
   assert.equal(bundle.kind, 'sflow-workflow-bundle');
-  assert.equal(bundle.schemaVersion, 5);
+  assert.equal(bundle.schemaVersion, 6);
   assert.equal(bundle.bundleSha256, receipt.bundleSha256);
   assert.deepEqual(bundle.workflows.map((entry) => `${entry.governs}:${entry.id}`), [
     'story:bugfix', 'story:feature'
@@ -333,7 +334,7 @@ test('workflow import dry-run reports exact reuse without changing configuration
   assert.equal(await readFile(workflowFile, 'utf8'), before);
 });
 
-test('workflow copy and duplicate previews are deterministic linked-copy plans', async (t) => {
+test('copy retains linked dependencies while duplicate previews independent renamed dependencies', async (t) => {
   const root = await repository(t);
   const workflowFile = path.join(root, 'singularity', 'workflow.yml');
   const before = await readFile(workflowFile, 'utf8');
@@ -352,7 +353,10 @@ test('workflow copy and duplicate previews are deterministic linked-copy plans',
   assert.equal(copyPlan.sharedDependencies.linked, true);
   assert.deepEqual(copyPlan.operations.add, [{ kind: 'story.workflow', id: 'feature-copy' }]);
   assert.ok(copyPlan.operations.reuse.some((entry) => entry.kind === 'story.phase'));
-  assert.equal(duplicatePlan.planSha256, copyPlan.planSha256);
+  assert.notEqual(duplicatePlan.planSha256, copyPlan.planSha256);
+  assert.equal(duplicatePlan.independent, true);
+  assert.ok(duplicatePlan.renamed.some((item) => item.subject === 'agent:developer'));
+  assert.ok(duplicatePlan.renamed.some((item) => item.subject === 'phase:implementation'));
   assert.equal(await readFile(workflowFile, 'utf8'), before);
 
   const applied = flow(root,

@@ -26,6 +26,7 @@ export const CATALOG_SUBJECTS = Object.freeze({
   'artifact-set': Object.freeze(['story', 'artifactSets', 'artifact set']),
   'approval-group': Object.freeze(['story', 'approvalAuthorities', 'approval group']),
   'mcp-server': Object.freeze(['story', 'mcpServers', 'MCP server']),
+  'integration-target': Object.freeze(['story', 'integrations.targets', 'integration target']),
   'initiative-workflow': Object.freeze(['initiative', 'initiativeProfiles', 'Epic workflow']),
   'initiative-phase': Object.freeze(['initiative', 'initiativePhases', 'Epic step']),
   'initiative-approval-group': Object.freeze(['initiative', 'approvalAuthorities', 'Epic approval group']),
@@ -37,6 +38,17 @@ const NOUNS = Object.freeze({
 });
 export const RESOLUTION_ACTIONS = Object.freeze(['keep', 'replace', 'rename']);
 export const RESOLVE_ALL_CHOICES = Object.freeze(['suggested', 'keep', 'replace', 'rename']);
+
+export function transferCatalog(value, section) {
+  return section.split('.').reduce((node, key) => node?.[key], value) ?? {};
+}
+export function setTransferCatalog(value, section, catalog) {
+  const keys = section.split('.');
+  const last = keys.pop();
+  let node = value;
+  for (const key of keys) node = node[key] ??= {};
+  node[last] = catalog;
+}
 
 function fail(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'WORKFLOW_IMPORT_RESOLUTION_INVALID', ...(details ? { details } : {}) });
@@ -502,7 +514,7 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
     .map((asset) => asset.owner.id));
 
   for (const [kind, [governs, catalog]] of Object.entries(CATALOG_SUBJECTS)) {
-    if (maps[kind]) bundle.objects[governs][catalog] = renamedCatalog(bundle.objects[governs][catalog], maps[kind]);
+    if (maps[kind]) setTransferCatalog(bundle.objects[governs], catalog, renamedCatalog(transferCatalog(bundle.objects[governs], catalog), maps[kind]));
   }
   // Agents name a server's tools by its host entry, `hostReference`, which defaults to its ID. A
   // server that arrives with its descriptor is a different program: its host entry takes the new
@@ -539,6 +551,9 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
   if (maps['approval-group']) renameGroupFields(story, maps['approval-group']);
   if (maps['initiative-approval-group']) renameGroupFields(initiative, maps['initiative-approval-group']);
   if (maps['artifact-set']) eachObject(story, (object) => swapField(object, 'artifactSet', maps['artifact-set']));
+  if (maps['integration-target']) eachObject(story, (object) => {
+    if (object.on && object.send) swapField(object, 'target', maps['integration-target']);
+  });
   if (serverMap.size) {
     eachObject(story, (object) => {
       swapList(object, 'requiredServers', serverMap);
@@ -621,9 +636,10 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
     const before = asset.content;
     asset.content = rewriteAgent(asset.content, (document, body) => {
       if (renamed) {
-        if (document.get('name') === from) document.set('name', to);
+        const name = document.get('name');
+        document.set('name', name === from ? to : `${name || from} (${to})`);
         const label = document.getIn(['metadata', 'sflow-label']);
-        if (typeof label === 'string' && !label.endsWith(IMPORTED_LABEL)) document.setIn(['metadata', 'sflow-label'], `${label}${IMPORTED_LABEL}`);
+        if (typeof label === 'string') document.setIn(['metadata', 'sflow-label'], `${label} (${to})`);
       }
       if (hostMap.size) {
         const tools = document.get('tools', true);

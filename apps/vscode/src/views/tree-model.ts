@@ -550,6 +550,9 @@ function completedStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
     icon: 'statusSuccess',
     contextValue: 'sflow.story.completed',
     children: [{
+      kind: 'action', id: 'completed-story:intake', label: 'View intake details',
+      description: 'saved inputs and recorded setup', icon: 'book', runCommand: 'singularityFlow.openStoryIntake'
+    }, {
       kind: 'action', id: 'completed-story:reopen', label: 'Request changes after closing',
       description: 'choose phase · record comment · reopen', icon: 'git-pull-request-go-to-changes',
       runCommand: 'singularityFlow.reopenCompleted', contextValue: 'sflow.story.reopen'
@@ -592,6 +595,9 @@ function cancelledStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
     tooltip: `Cancelled during ${workflow.cancellation?.phase ?? 'unknown phase'} by ${actorLabel}\n${workflow.cancellation?.reason ?? 'No reason recorded'}`,
     icon: 'archive', contextValue: 'sflow.story.archived',
     children: [{
+      kind: 'action', id: 'archived-story:intake', label: 'View intake details',
+      description: 'saved inputs and recorded setup', icon: 'book', runCommand: 'singularityFlow.openStoryIntake'
+    }, {
       kind: 'message', id: 'archived-story:reason', label: 'Cancellation reason',
       description: workflow.cancellation?.reason ?? 'Not recorded', icon: 'comment-discussion',
       tooltip: `${actorLabel} · ${workflow.cancellation?.cancelledAt ?? 'time unavailable'}`
@@ -1114,6 +1120,10 @@ function storyWorkflowNode(
     icon: 'story',
     contextValue: 'sflow.story.active',
     children: [...fastPathRailNode(fastPath, workflow), {
+      kind: 'action', id: 'story:intake', label: 'View intake details',
+      description: 'saved inputs and recorded setup', icon: 'book',
+      runCommand: 'singularityFlow.openStoryIntake', contextValue: 'sflow.story.intake'
+    }, {
       kind: 'action', id: 'story:continue-safely', label: 'Continue safely',
       description: 'review exact next action', icon: 'play-circle',
       runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'

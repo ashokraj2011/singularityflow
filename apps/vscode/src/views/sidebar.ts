@@ -26,6 +26,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workspace-switch': 'singularityFlow.switchWorkspace',
   'local-reset': 'singularityFlow.openLocalReset',
   'work-start': 'singularityFlow.startWork',
+  'story-intake': 'singularityFlow.openStoryIntake',
   'adhoc-work': 'singularityFlow.openAdhocWork',
   goals: 'singularityFlow.openGoals',
   'impact-form': 'singularityFlow.impactForm',
@@ -79,6 +80,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'code-explanation', label: 'Code explanation', description: 'why each changed hunk is there', icon: 'code', command: ACTION_COMMANDS['code-explanation']! },
   { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
   { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
+  { id: 'story-intake', label: 'View Story intake details', description: 'saved inputs, selected base and recorded setup', icon: 'book', command: ACTION_COMMANDS['story-intake']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
   { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
@@ -364,7 +366,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private async openTools(group: string): Promise<void> {
     const groups: Record<string, { title: string; ids: string[] }> = {
-      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'work-start', 'adhoc-work', 'goals', 'impact-form', 'understand-changes', 'epic-stories', 'command-center', 'flow-impact'] },
+      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'story-intake', 'work-start', 'adhoc-work', 'goals', 'impact-form', 'understand-changes', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'code-explanation', 'comprehension-center'] },
       'help-tools': { title: 'Help & diagnostics', ids: ['help-open', 'diagnostics', 'fault-repairs', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'prompt-audit', 'journal'] }

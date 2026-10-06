@@ -38,6 +38,7 @@ export function sidebarBody(view: SidebarPage): string {
         <span>${escape(workspace?.name ?? 'Choose a workspace')}</span><span aria-hidden="true">▾</span></button>
       ${workspace?.repository ? `<p class="context-detail">Repository: <span>${escape(workspace.repository)}</span></p>` : ''}
       ${subject ? `<p class="context-detail">${escape(subject.kind)}: <span>${escape(subject.id)}</span></p><p class="context-detail">${escape(subject.phase ?? 'Phase not reported')}</p>` : workspace ? '<p class="context-detail">No confirmed active work</p>' : '<p class="context-detail">Select or create a workspace to begin.</p>'}
+      ${subject?.kind === 'Story' ? '<button type="button" class="text-action" data-action="story-intake">View intake details</button>' : ''}
       ${view.freshness || view.loading ? `<p class="freshness" role="status">${escape(view.freshness ?? 'Reading workspace state…')}</p>` : ''}
     </section>
     <main>

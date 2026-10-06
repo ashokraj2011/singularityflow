@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 22
+version: 23
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -70,6 +70,24 @@ are not interpreted during enhancement. The equivalent shell form is:
 ```sh
 singularity-flow story enhance-description --draft-stdin --json < story-draft.json
 ```
+
+## View saved intake details
+
+In the VS Code Navigator, select **View intake details** beneath the current Story. The same action
+is available under **Work tools** and in the Command Palette as **Singularity Flow: View Story Intake
+Details**. The selected Story's lifecycle tree retains this action after completion or cancellation.
+
+The read-only page shows the saved source input, recorded workflow, base branch/commit, reference
+repositories and test execution mode. Expand **Saved source record** to see every recorded field,
+including custom intake fields. The evidence list is explicitly the current catalog, which may
+include later uploads; **Test policy and recovery** shows current policy and decisions, which can
+have changed after intake. Missing records are reported, not reconstructed. Switching Stories or
+workspaces closes the old page. Viewing does not rerun intake, tests or approval.
+
+For a terminal view of the saved narrative, use
+`singularity-flow documents view SYS-STORY --work-id <WORK-ID> --json`; use `SYS-SOURCE` instead for
+the saved source JSON. There is no dedicated intake-details Copilot command; ask Copilot to read
+that exact document for the selected Story using the terminal command above.
 
 ## Testing is advisory at Story start
 

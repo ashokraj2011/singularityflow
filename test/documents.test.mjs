@@ -43,6 +43,28 @@ async function repository(configure = () => {}) {
   return root;
 }
 
+test('saved Story intake system documents are readable by exact Work ID without changing Git or lifecycle state', async () => {
+  const root = await repository();
+  flow(root, ['start', 'INTAKE-VIEW', '--from-branch', 'main', '--title', 'Original requested title']);
+  const before = {
+    head: run('git', ['rev-parse', 'HEAD'], root).stdout,
+    status: run('git', ['status', '--porcelain'], root).stdout,
+    workflow: await readFile(path.join(root, 'singularity/work-items/INTAKE-VIEW/workflow.json'), 'utf8')
+  };
+  const result = JSON.parse(flow(root, ['documents', 'view', 'SYS-SOURCE', '--work-id', 'INTAKE-VIEW', '--json']).stdout);
+  assert.equal(result.record.id, 'SYS-SOURCE');
+  assert.equal(result.record.path, 'singularity/work-items/INTAKE-VIEW/source.json');
+  assert.equal(result.binary, false);
+  assert.equal(JSON.parse(result.content).title, 'Original requested title');
+  assert.equal(result.content, await readFile(path.join(root, result.record.path), 'utf8'));
+  assert.match(result.verifiedSha256, /^[a-f0-9]{64}$/u);
+  const narrative = JSON.parse(flow(root, ['documents', 'view', 'SYS-STORY', '--work-id', 'INTAKE-VIEW', '--json']).stdout);
+  assert.match(narrative.content, /Original requested title/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout, before.head);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, before.status);
+  assert.equal(await readFile(path.join(root, 'singularity/work-items/INTAKE-VIEW/workflow.json'), 'utf8'), before.workflow);
+});
+
 test('progress and document commands upload, list, and view files, images, and Figma links', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-uploads-'));
   const notes = path.join(uploads, 'research notes.md'); const image = path.join(uploads, 'wireframe.png');

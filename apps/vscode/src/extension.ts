@@ -901,7 +901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
     'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
     'singularityFlow.detachEvidence', 'singularityFlow.addSource',
-    'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
+    'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.openStoryIntake', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
@@ -7386,6 +7386,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // read-only and memory-backed, so reviewing leaves nothing to save. The name's extension picks the
   // language: .diff or .md.
   const reviewDocuments = new Map<string, string>();
+  let storyIntakePanel: vscode.WebviewPanel | null = null;
+  let storyIntakeRequest = 0;
   let reviewDocumentProvider: vscode.Disposable | null = null;
   const showReviewDocument = async (name: string, content: string): Promise<void> => {
     if (!reviewDocumentProvider) {
@@ -7740,6 +7742,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const evidence = resolveEvidenceNode(node);
         return evidence ? openEvidence(evidence) : openArtifact(repository, node, cliPackageRoot);
       }) as never,
+    'singularityFlow.openStoryIntake': async () => {
+      const snapshot = store.current.snapshot;
+      const workflow = snapshot?.workflow;
+      if (!repository || !workflow?.workItem.id) {
+        void vscode.window.showWarningMessage('Attach a Story to view its saved intake details.'); return;
+      }
+      const checkedRepository = repository;
+      const scope = repositoryEpoch.capture();
+      const workId = workflow.workItem.id;
+      const request = ++storyIntakeRequest;
+      const stillCurrent = (): boolean => request === storyIntakeRequest
+        && repositoryEpoch.isCurrent(scope) && repository === checkedRepository
+        && store.current.snapshot?.workflow?.workItem.id === workId;
+      try {
+        const preview = await client.run<import('./views/story-intake-page.ts').IntakeDocumentPreview>(
+          ['documents', 'view', 'SYS-SOURCE', '--work-id', workId, '--json'], undefined, { priority: 'interactive' });
+        if (!stillCurrent()) return;
+        const { showStoryIntakeDetails } = await import('./views/story-intake-details.ts');
+        if (!stillCurrent()) return;
+        storyIntakePanel?.dispose();
+        const panel = showStoryIntakeDetails(workflow, preview, snapshot?.documents ?? [], action => {
+          if (!stillCurrent()) return;
+          const commands = { refresh: 'singularityFlow.openStoryIntake',
+            evidence: 'singularityFlow.manageEvidence', tests: 'singularityFlow.reviewStoryTestRecovery' };
+          void vscode.commands.executeCommand(commands[action]);
+        });
+        storyIntakePanel = panel;
+        const selection = store.onDidChange(() => { if (!stillCurrent()) panel.dispose(); });
+        panel.onDidDispose(() => {
+          selection.dispose();
+          if (storyIntakePanel === panel) storyIntakePanel = null;
+        });
+        context.subscriptions.push(panel);
+      } catch (error) {
+        if (stillCurrent()) showRefusal(error, { headline: 'Could not view Story intake details' });
+      }
+    },
     'singularityFlow.runAction': runNode as never,
     'singularityFlow.prepareStoryPhase': ((node?: TreeNode) => runStoryPhase('prepare', node)) as never,
     'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,

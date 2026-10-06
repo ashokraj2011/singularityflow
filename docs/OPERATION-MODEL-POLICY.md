@@ -520,6 +520,7 @@ Every public operation is classified before its implementation module is importe
 | resume | mutation | never | — | — |
 | return.apply | mutation | never | — | — |
 | return.plan | read | never | — | — |
+| review-source.check | read | never | — | — |
 | review-source.context | read | never | — | — |
 | review-source.decide | mutation | never | — | — |
 | review-source.status | read | never | — | — |

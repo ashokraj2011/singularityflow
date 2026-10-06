@@ -20,6 +20,7 @@
 import { workflowGuide } from './guide.mjs';
 import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 
 /**
  * The public vocabulary, in journey order. `[SPK:REQ-010]`
@@ -193,6 +194,14 @@ export function planFastPath(workflow, definition, verb, {
       next: [{ id: 'fastpath.recover', label: 'Recover the retained publication', command: 'sflow sync', rank: 'NOW' }]
     });
   }
+
+  const hold = phaseGovernanceHold(workflow, phase);
+  if (hold) return result({
+    verb, milestone, checkpoint: { kind: 'human-review', reason: hold.reason }, outcome: 'blocked',
+    underlyingOperations: [], why: [{ code: hold.code, source: 'governance' }],
+    next: hold.actions.map((entry, index) => ({ ...entry, id: `fastpath.governance.${index}`,
+      label: entry.reason, rank: index === 0 ? 'NOW' : 'SOON' }))
+  });
 
   if (milestoneReached(workflow, profile, verb)) {
     const following = nextVerb(profile, verb);

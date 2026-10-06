@@ -10,8 +10,8 @@ import { sourceReviewBinding } from '../src/source-grounded-review.mjs';
 import { LIFECYCLE_EVENT } from '../src/lifecycle-event.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import {
-  evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
-  retainSourceReviewDecision, sourceReviewContext, sourceReviewInput
+  checkSourceReviewReport, evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
+  retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
 } from '../src/source-review-lifecycle.mjs';
 
 const ID = 'EXAMPLE';
@@ -159,6 +159,7 @@ test('review context binds Story snapshot, exact attachment bytes, and published
   assert.equal(packet.artifact.sha256, sha(Buffer.from(SPEC)));
   assert.equal(packet.authorAgentId, 'sflow-product-owner');
   assert.equal(packet.reportTemplate.binding.sources.length, 2);
+  assert.equal(packet.reportSchema.properties.kind.const, 'specification');
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'missing');
 });
 
@@ -241,6 +242,11 @@ test('a review still describes the artifact after submission rewrites its manage
   const { root, config, workflow } = await fixture(t, { document: 'url', spec: `${envelope('in_progress')}${SPEC}` });
   const input = await sourceReviewInput(root, config, workflow, 'specification');
   assert.equal(input.artifact.text, SPEC, 'the reviewer reads what the author wrote');
+  const context = await sourceReviewContext(root, config, workflow, 'specification', '.git/review.json');
+  assert.equal(context.artifact.authoredContentSha256, sha(Buffer.from(SPEC)));
+  assert.equal(context.artifact.registeredFileSha256, sha(Buffer.from(`${envelope('in_progress')}${SPEC}`)));
+  assert.notEqual(context.artifact.authoredContentSha256, context.artifact.registeredFileSha256);
+  assert.equal(context.artifact.integrity.status, 'verified');
   await retainReport(root, config, workflow, storyOnlyReport(input), input);
   await decide(root, config, workflow, 'unreadable:DOC-001');
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready');
@@ -254,6 +260,40 @@ test('a review still describes the artifact after submission rewrites its manage
   git(root, 'commit', '-q', '-m', 'Submit for approval');
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready',
     'submission must not make a ready review stale');
+});
+
+test('historical reviewer authorship is recoverable without forging provenance or replacing reviewer', async (t) => {
+  const { root, config, workflow } = await fixture(t);
+  const phase = workflow.phases.specification;
+  workflow.resolution.sourceReview = { mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer' };
+  phase.defaultAgent = 'sflow-product-owner';
+  phase.generatedAgent = 'sflow-source-reviewer';
+  const before = JSON.stringify(workflow);
+  const context = await sourceReviewContext(root, config, workflow, phase.id, '.git/review.json');
+  assert.equal(context.reviewer.activation, 'blocked-author-conflict');
+  assert.equal(context.reviewer.setupRequired, false);
+  assert.equal(context.recovery.actions[0].command, 'singularity-flow agent --agent sflow-product-owner');
+  assert.equal((await readSourceReviewStatus(root, config, workflow, phase.id)).status, 'author-conflict');
+  const input = await sourceReviewInput(root, config, workflow, phase.id);
+  assert.throws(() => scopedSourceReviewerSession(input, { ...session, agent: 'sflow-product-owner' }),
+    error => error.code === 'SOURCE_REVIEW_AUTHOR_COLLISION' && error.details.actions.length === 2);
+  assert.equal(JSON.stringify(workflow), before, 'review repaired provenance by rewriting history');
+});
+
+test('operation-scoped reviewer rejects cross-story/phase attachment and never mutates the author session', () => {
+  const input = { workId: ID, phase: 'planning-copy', reviewerAgentId: 'sflow-source-reviewer',
+    reviewerAgentSha256: REVIEWER_SHA256, authorAgentId: 'architect' };
+  const authorSession = { actor: session.actor, agent: 'architect', agentSha256: 'b'.repeat(64),
+    workId: ID, phaseId: 'planning-copy' };
+  const before = JSON.stringify(authorSession);
+  const reviewer = scopedSourceReviewerSession(input, authorSession);
+  assert.equal(reviewer.agent, input.reviewerAgentId);
+  assert.equal(reviewer.agentSha256, REVIEWER_SHA256);
+  assert.equal(JSON.stringify(authorSession), before);
+  for (const mismatch of [{ workId: 'OTHER' }, { phaseId: 'specification' }, { actor: null }]) {
+    assert.throws(() => scopedSourceReviewerSession(input, { ...authorSession, ...mismatch }),
+      error => error.code === 'SOURCE_REVIEW_SESSION_SCOPE_INVALID' && error.details.actions[0].skill === '/sf-session');
+  }
 });
 
 test('a decision on an unreadable document carries over while that document is unchanged', async (t) => {
@@ -293,8 +333,11 @@ test('a scenario grounded only in an unreadable document is attested by a person
   const input = await sourceReviewInput(root, config, workflow, 'specification');
   const unattested = storyOnlyReport(input, [{ id: 'link-draft', sourceId: 'DOC-001', outcome: 'covered',
     scenarioId: 'S1', clauseIds: ['EXAMPLE:REQ-001'] }]);
-  const refused = evaluateSubmittedSourceReview(unattested, input, session);
+  const refused = checkSourceReviewReport(unattested, input);
   assert.ok(refused.findings.some((entry) => entry.code === 'attestation-invalid'));
+  assert.equal(refused.retentionReady, false);
+  assert.throws(() => evaluateSubmittedSourceReview(unattested, input, session),
+    (error) => error.code === 'SOURCE_REVIEW_REPORT_INVALID');
   const report = storyOnlyReport(input, [{ id: 'link-draft', sourceId: 'DOC-001', outcome: 'covered',
     scenarioId: 'S1', clauseIds: ['EXAMPLE:REQ-001'], attestation: 'Section "Drafts" of the linked page.' }]);
   await retainReport(root, config, workflow, report, input);

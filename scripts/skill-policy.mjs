@@ -152,6 +152,15 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Never loop quality commands/i
     ]
   },
+  'sflow-review-source': {
+    required: [
+      /reportTemplate.*reportSchema/,
+      /review-source check <phase> --report-file/,
+      /at most two changed-packet repair attempts/,
+      /Never mark a real gap supported merely to pass validation/,
+      /`retentionReady` is false.*stop without commit\/push/s
+    ]
+  },
   'sflow-code': {
     required: [
       /singularity-flow phase begin <phase> --json/,

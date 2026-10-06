@@ -110,10 +110,15 @@ test('Story base catalog leaves out orphan branches, says which, and keeps them 
   assert.equal(assertStoryBaseSharesHistory(work, { remote: 'origin', baseBranch: 'release/24.3', defaultBranch: 'main' }), undefined);
   assert.equal(assertStoryBaseSharesHistory(work, { remote: 'origin', baseBranch: 'no-such-branch', defaultBranch: 'main' }), undefined);
 
-  const catalog = await storyBaseCatalog(work, {});
+  const internal = ['sflow/config', 'sflow/config-change/capability/map-12345678',
+    'sflow/config-history/0123456789abcdef', 'state', 'audit-state', 'singularity/pins/approved'];
+  git(work, 'push', '--quiet', 'origin', ...internal.map((name) => `pages:refs/heads/${name}`));
+  const catalog = await storyBaseCatalog(work, { stateBranch: 'audit-state' });
   assert.deepEqual(catalog.choices.map((choice) => choice.branch), ['main', 'release/24.3'], 'an orphan branch is never offered');
   assert.deepEqual(catalog.orphaned, { application: ['pages'] });
   assert.ok(catalog.published.application.includes('pages'), 'it stays published, so a typed base is refused as an orphan, not as missing');
+  assert.ok(internal.every((name) => catalog.published.application.includes(name)),
+    'internal refs remain in the raw inventory but not in user-facing orphan explanations');
 
   // A shallow clone cannot tell an orphan from history it does not have, so it offers every branch.
   const shallow = path.join(base, 'shallow');

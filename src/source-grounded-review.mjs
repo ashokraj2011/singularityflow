@@ -267,13 +267,23 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
     }
     const expectedPaths = [...actual.expectedPaths].sort();
     const plannedTests = [...actual.tests].sort();
-    if (!sameArray([...new Set(row.expectedPaths ?? [])].sort(), expectedPaths)
-        || !sameArray([...new Set(row.plannedTests ?? [])].sort(), plannedTests)
-        || row.testDisposition !== actual.testDisposition
-        || (row.testReason ?? null) !== (actual.testReason ?? null)) {
-      findings.push(finding('plan-row-mismatch', `${label} does not match the exact structured plan row for '${row.clauseId}'.`));
+    const mismatches = [];
+    for (const [field, expected] of Object.entries({ expectedPaths, plannedTests })) {
+      if (!Array.isArray(row[field]) || !sameArray([...row[field]].sort(), expected)) mismatches.push({ field, expected, received: row[field] ?? null });
     }
-    if (!expectedPaths.length) findings.push(finding('plan-path-missing', `Clause '${row.clauseId}' has no exact expected source path.`));
+    for (const field of ['testDisposition', 'testReason', 'fulfillment', 'observableResult']) {
+      // Older reports omitted the optional obligation metadata. When supplied, it must match too.
+      if (['fulfillment', 'observableResult'].includes(field) && !Object.hasOwn(row, field)) continue;
+      if ((row[field] ?? null) !== (actual[field] ?? null)) mismatches.push({ field, expected: actual[field] ?? null, received: row[field] ?? null });
+    }
+    if (Object.hasOwn(row, 'steps') && (!Array.isArray(row.steps) || !sameArray([...row.steps].sort(), [...(actual.steps ?? [])].sort()))) {
+      mismatches.push({ field: 'steps', expected: actual.steps ?? [], received: row.steps });
+    }
+    for (const mismatch of mismatches) findings.push(finding('plan-row-mismatch',
+      `${label} ${mismatch.field} does not match the structured plan for '${row.clauseId}'. Copy the pinned reportTemplate field.`,
+      { ...mismatch, field: `rows[${index}].${mismatch.field}`, clauseId: row.clauseId }));
+    // Only the authoritatively parsed plan can declare test-only; the reviewer cannot waive paths.
+    if (!expectedPaths.length && actual.fulfillment !== 'test-only') findings.push(finding('plan-path-missing', `Clause '${row.clauseId}' has no exact expected source path.`));
     if (!plannedTests.length && actual.testDisposition !== 'not-applicable') {
       findings.push(finding('plan-test-missing', `Clause '${row.clauseId}' has no exact planned test path.`));
     }
@@ -342,7 +352,7 @@ export function evaluateSourceGroundedReview(report, context) {
       if (!ID.test(String(entry?.id ?? '')) || ids.has(entry.id)
           || !['blocking', 'advisory'].includes(entry.severity)
           || !String(entry.message ?? '').trim()) {
-        findings.push(finding('review-finding-invalid', 'Reviewer findings need a unique ID, severity, and explanation.'));
+        findings.push(finding('review-finding-invalid', 'Reviewer findings need a unique id, severity "blocking" or "advisory", and non-empty message (not explanation).'));
         continue;
       }
       ids.add(entry.id);

@@ -25,8 +25,8 @@ async function clarificationFixture(mode = 'required') {
     resolution: { phases: [{ id: 'requirements', clarification: definition.phases.requirements.clarification }] }
   };
   const context = path.join(root, 'singularity/work-items/WORK-1/context');
-  await mkdir(context, { recursive: true });
-  const promptPath = 'singularity/work-items/WORK-1/context/prompt-requirements-gen1.md';
+  await mkdir(path.join(context, 'prompts'), { recursive: true });
+  const promptPath = 'singularity/work-items/WORK-1/context/prompts/requirements-gen1.md';
   await writeFile(path.join(root, promptPath), '# Governed prompt\n\nAsk the human.\n');
   const prompt = await snapshot(path.join(root, promptPath));
   const groundingPath = 'singularity/work-items/WORK-1/context/requirements-gen1.json';
@@ -133,6 +133,21 @@ test('required clarification is bound to the exact prompt and prospective genera
   await writeFile(path.join(value.root, value.promptPath), '# Changed governed prompt\n');
   const stale = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
   assert.match(stale.errors.join('\n'), /prompt snapshot hash differs/);
+});
+
+test('clarification verification rejects an unbound prompt path without opening it', async () => {
+  const value = await clarificationFixture();
+  const recorded = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+    actor: { name: 'Product Owner' }, agent: 'product-owner',
+    responses: [{ question: 'Is the scope correct?', answer: 'Yes.' }]
+  });
+  // Opening a directory as a snapshot would throw instead of returning a governed finding.
+  // A record-controlled pointer must never be opened merely to diagnose its invalid binding.
+  recorded.record.promptPath = '..';
+  await writeFile(path.join(value.root, recorded.path), JSON.stringify(recorded.record));
+  const verified = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+  assert.match(verified.errors.join('\n'), /prompt snapshot path differs/);
+  assert.deepEqual(verified.passes, []);
 });
 
 test('a raw response envelope staged at the durable path is atomically adopted and schema-stamped', async () => {

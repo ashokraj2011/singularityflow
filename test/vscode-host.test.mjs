@@ -984,6 +984,7 @@ test('My Work resolves an active workspace when no editor folder is open', async
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', workflowFile], { cwd: root });
   run('git', ['commit', '-m', 'Use local publication for My Work test'], { cwd: root });
+  run('git', ['push', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: root });
   const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'start', 'STORY-ACTIVE', '--title', 'Active workspace Story',
     '--description', 'Prove My Work can resolve it without an editor folder.',
@@ -992,6 +993,24 @@ test('My Work resolves an active workspace when no editor folder is open', async
     cwd: root, encoding: 'utf8', env: process.env
   });
   assert.equal(started.status, 0, started.stderr);
+  // Quick fix now starts with scope-and-plan. Approve real intent before exercising the open
+  // implementation interval; preparing artifact-only intake must not invent a source interval.
+  const intakeFile = path.join(root, 'singularity/work-items/STORY-ACTIVE/artifacts/intake/intake.md');
+  const intake = await readFile(intakeFile, 'utf8');
+  await writeFile(intakeFile, intake
+    .replace(/TODO: Describe[^\n]*/, 'Prove My Work can resolve an open implementation interval without an editor folder.')
+    .replace(/TODO: State one[^\n]*/, 'My Work displays the active Story. |')
+    .replace(/TODO: `src\/example.js`/, '`local-poc-change.txt`')
+    .replace(/TODO: `test\/example.test.js`/, 'not-applicable: this host regression exercises the packaged UI separately')
+    .replace(/TODO: what a person[^\n]*/, 'The active Story and its local changes are visible. |')
+    .replace(/TODO: State what[^\n]*/, 'No application feature or production test is changed.'));
+  for (const args of [['phase', 'publish', 'intake', '--authored', 'human'], ['submit', 'intake'],
+    ['approve', 'intake', '--yes', '--acknowledge-self-approval']]) {
+    const advanced = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+      cwd: root, encoding: 'utf8', env: process.env
+    });
+    assert.equal(advanced.status, 0, `${args.join(' ')}: ${advanced.stderr}`);
+  }
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-my-work-context-'));
   const registryFile = path.join(base, 'registry.json');
   const selectionFile = path.join(base, 'active.json');
@@ -1016,6 +1035,10 @@ test('My Work resolves an active workspace when no editor folder is open', async
   const prepared = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'prepare'], { cwd: workspaceLead, encoding: 'utf8', env });
   assert.equal(prepared.status, 0, prepared.stderr);
+  const activeState = JSON.parse(await readFile(path.join(workspaceLead,
+    'singularity/work-items/STORY-ACTIVE/workflow.json'), 'utf8'));
+  assert.equal(activeState.currentPhase, 'implement');
+  assert.ok(activeState.workIntervals?.current, 'the fixture opens an actual governed work interval');
   await writeFile(path.join(workspaceLead, 'local-poc-change.txt'), 'uncommitted application work\n');
 
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
@@ -1056,7 +1079,9 @@ test('My Work resolves an active workspace when no editor folder is open', async
   await until(() => /data-action-id="resolved:work\.return"/.test(result.webview.html) ? true : null);
   await result.post({ type: 'sflow.action', actionId: 'resolved:work.return' });
   await until(() => /gateway\.returned/.test(result.webview.html) ? true : null);
-  assert.match(result.webview.html, /path\(s\) changed/,
+  const returnedText = result.webview.html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(returnedText, /path\(s\) changed/,
     'the built extension reconciles the real interval instead of returning a hidden failure');
   assert.doesNotMatch(result.webview.html, /No governed work interval is open/);
 });
@@ -1157,7 +1182,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-    ['my-work', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
+    ['my-work', 'stories', 'story-analytics', 'reviews', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -1720,15 +1745,22 @@ test('clicking an offline topic renders the engine-served bytes inside Help Cent
   const help = section(registered, 'help');
   const topics = help.getChildren().find((node) => node.id === 'help:topics');
   assert.ok(topics, 'the packaged topic group is visible');
-  const [topic] = help.getChildren(topics);
+  const topic = help.getChildren(topics).find((entry) => entry.id === 'help:topic:help-and-docs');
   assert.ok(topic?.id.startsWith('help:topic:'), 'a real packaged topic is available to click');
   assert.ok(registered.commands.has('singularityFlow.explainTopic'),
     'the command rendered on every topic row is registered');
 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
   const documentsBefore = registered.openedDocuments.length;
-  await navigation.post({ type: 'node', key: 'help:2.0' });
-  const panel = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter'));
+  await navigation.post({ type: 'help-topic', topic: 'help-and-docs' });
+  const panel = await until(() => {
+    const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+    if (refusal?.webview.html.includes('Could not read topic')) {
+      throw new Error(refusal.webview.html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '')
+        .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    }
+    return registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  });
   assert.match(panel.webview.html, /<h2>Purpose and prerequisites<\/h2>/);
   assert.doesNotMatch(panel.webview.html, /## Purpose and prerequisites/);
   assert.match(panel.webview.html, new RegExp(`topic ${topic.id.slice('help:topic:'.length)} v\\d+`));
@@ -1980,7 +2012,7 @@ test('Configuration Center prepares world-model generation for review and never 
     entry.id === 'workbench.action.chat.open'
   )), false, 'the native build review no longer hands authority to a Copilot prefill');
   assert.deepEqual(registered.quickPicks.slice(-3).map((entry) => entry.options.title), [
-    'World Model · exact governed build', 'World Model depth', 'World Model composer'
+    'World Model · exact governed build', 'World Model complexity for this capability', 'World Model composer'
   ]);
   assert.deepEqual(
     registered.quickPicks.at(-3).items.map((entry) => entry.label),
@@ -3585,9 +3617,9 @@ test('the packaged POC release candidate journey survives publication, review, C
         '',
         '## Reviewed exact planned evidence',
         '',
-        '| Clause | Expected paths | Planned tests |',
-        '|---|---|---|',
-        '| `POC:AC-001` | `tests/poc-generated.test.mjs` | `tests/poc-generated.test.mjs` |',
+        '| Clause | Expected paths | Planned tests | Fulfillment | Steps | Observable result |',
+        '|---|---|---|---|---|---|',
+        '| `POC:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | poc-test-generation | The existing checkout scenario has executable regression coverage. |',
         ''
       ].join('\n');
     }
@@ -3619,6 +3651,13 @@ test('the packaged POC release candidate journey survives publication, review, C
     const firstApproval = cli(['approve', phaseId, '--yes'], reviewer.name);
     assert.equal(firstApproval.status, 0, `approve ${phaseId} failed:\n${firstApproval.stderr}`);
     if (phaseId === 'poc-publication-review') {
+      const scope = cli(['evidence', 'scope', '--json'], reviewer.name);
+      assert.equal(scope.status, 0, scope.stderr);
+      for (const item of JSON.parse(scope.stdout).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+        const decision = cli(['decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'POC:AC-001',
+          '--reason', 'This offline lifecycle fixture accepts the checkout requirement through its exact test-only clause.'], reviewer.name);
+        assert.equal(decision.status, 0, decision.stderr);
+      }
       const afterQuality = JSON.parse(await readFile(workflowStateFile, 'utf8'));
       assert.equal(afterQuality.currentPhase, phaseId, 'one functional approval cannot complete publication');
       const secondApproval = cli(['approve', phaseId, '--yes'], 'Initiative Owner');
@@ -5712,14 +5751,17 @@ test('the sidebar lists workspaces even with no repository open', async (t) => {
   assert.match(rows[0].openPath, /workspaces\/commerce\/repos\/platform/);
 });
 
-test('the lifecycle analytics dashboard opens and reports the repository it is actually in', async (t) => {
+test('Story Analytics opens from the main menu and reports the repository it is actually in', async (t) => {
   if (!requireBundle(t)) return;
   // Everything on it was already available from doctor, inbox, initiative status and the agent
   // lock — four commands whose answers a person had to hold in their head at once.
   const { registered } = await activated();
-  await registered.commands.get('singularityFlow.openDashboard')();
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /data-action="story-analytics"/);
+  await navigation.post({ type: 'action', action: 'story-analytics' });
 
-  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.dashboard');
+  const panel = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.dashboard'),
+    { what: 'the analytics main-menu destination to open' });
   assert.ok(panel, 'a lifecycle analytics panel was created');
   assert.match(panel.webview.html, /default-src 'none'/);
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
@@ -5869,13 +5911,13 @@ test('the first explicit workspace selection opens its exact ready repository in
   assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
     'clicking an inactive workspace selects its governed scope');
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
-  await until(() => navigation.webview.html.includes('aria-label="Select commerce"') ? true : null);
-  assert.match(navigation.webview.html, /data-action="workspace-switch"[^>]*data-selection-key="action:workspace-switch"/,
+  await until(() => navigation.webview.html.includes('data-action="workspace-switch"') ? true : null);
+  assert.match(navigation.webview.html, /data-action="workspace-switch"/,
     'an existing workspace is offered for selection before creating another');
   assert.match(navigation.webview.html, /Choose a workspace/);
-  assert.match(navigation.webview.html, /aria-label="Details for commerce"/,
-    'workspace selection and inspection are two explicit actions');
-  await navigation.post({ type: 'workspace', action: 'select', key: 'workspaces:0' });
+  assert.match(navigation.webview.html, /data-action="workspace-manage"/,
+    'workspace inspection remains separate from the current-context picker');
+  await navigation.post({ type: 'action', action: 'workspace-switch' });
   const opened = await until(() => registered.executedCommands.find((entry) =>
     entry.id === 'vscode.openFolder') ?? null);
 
@@ -8547,7 +8589,7 @@ test('explicit repository-member selection opens the selected member rather than
   assert.deepEqual(mixedHost.registered.errors, []);
 });
 
-test('an already-active workspace offers Open to repair a native window still rooted elsewhere', async (t) => {
+test('the current-workspace picker repairs a native window still rooted elsewhere', async (t) => {
   if (!requireBundle(t)) return;
   const fixture = await workspaceSelectionRaceFixture(t);
   const used = spawnSync(process.execPath, [fixture.cli, 'workspace', 'use', 'older', '--json'], {
@@ -8556,22 +8598,20 @@ test('an already-active workspace offers Open to repair a native window still ro
   assert.equal(used.status, 0, used.stderr);
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.source } }];
+  api.window.showQuickPick = async (items, options) => {
+    registered.quickPicks.push({ items, options });
+    return items.find((item) => item.label === 'older');
+  };
   const extension = loadExtension(api);
   await extension.activate(context());
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
-  const button = await until(() => navigation.webview.html.match(
-    /<button[^>]*data-workspace-action="open"[^>]*aria-label="Open older in this window"[^>]*>/
-  ), { what: 'the already-active workspace to offer an explicit Open action' });
-  assert.match(navigation.webview.html, /aria-label="Details for older"/);
-  assert.doesNotMatch(navigation.webview.html, /aria-label="Select older"/,
-    'the inactive Select label remains distinct from repairing an already-active native root');
+  await until(() => navigation.webview.html.includes('data-action="workspace-switch"') ? true : null,
+    { what: 'the current-context workspace picker' });
   assert.equal(registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false,
     'activation and machine-selection reconciliation must not navigate a window without a click');
-  const key = button[0].match(/data-workspace-key="([^"]+)"/)?.[1];
-  assert.ok(key);
-  await navigation.post({ type: 'workspace', action: 'open', key });
+  await navigation.post({ type: 'action', action: 'workspace-switch' });
   const opened = await until(() => registered.executedCommands.find((entry) =>
-    entry.id === 'vscode.openFolder') ?? null, { what: 'the active workspace Open action to align the native folder' });
+    entry.id === 'vscode.openFolder') ?? null, { what: 'the explicit current-workspace choice to align the native folder' });
   assert.equal(path.resolve(opened.args[0].fsPath), await realpath(fixture.nodes.older.openPath));
   assert.equal(opened.args[1], false);
   assert.equal(registered.executedCommands.some((entry) => /^workbench\.action\.chat\./.test(entry.id)), false);

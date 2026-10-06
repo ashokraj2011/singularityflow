@@ -283,7 +283,14 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   if (!groundingInfo.exists || groundingInfo.sha256 !== record.groundingRecordSha256) problems.push(`clarification record is stale because the grounding record changed: ${relative}`);
   const currentGrounding = groundingRecord ?? (groundingInfo.exists ? await readJson(path.join(root, expectedGroundingPath)).catch(() => null) : null);
   if (!currentGrounding || currentGrounding.renderedSha256 !== record.promptSha256) problems.push(`clarification record is stale because the composed prompt changed: ${relative}`);
-  const promptInfo = record.promptPath ? await snapshot(path.join(root, record.promptPath)) : { exists: false, sha256: null };
+  const expectedPromptPath = posix(path.join(
+    definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
+    'prompts', `${phase.id}-gen${generation}.md`
+  ));
+  if (record.promptPath !== expectedPromptPath) problems.push(`clarification prompt snapshot path differs: ${relative}`);
+  // A record may name an arbitrary path. Never open it merely to diagnose a bad binding.
+  const promptInfo = record.promptPath === expectedPromptPath
+    ? await snapshot(path.join(root, expectedPromptPath)) : { exists: false, sha256: null };
   if (!promptInfo.exists || promptInfo.sha256 !== record.promptSha256) problems.push(`clarification prompt snapshot hash differs: ${relative}`);
   const info = await snapshot(path.join(root, relative));
   return {

@@ -151,12 +151,17 @@ export async function setAgentSession(root, definition, actor, agent, workId = n
 
 export async function setNativeCopilotAgentSession(root, resolved, actor = null) {
   const existing = await loadSession(root, { required: false });
+  const readOnly = ['read-only', 'read-only-review'].includes(resolved.agent?.metadata?.['sflow-mode']);
   const record = {
     ...(existing ?? {}),
     schemaVersion: SESSION_SCHEMA_VERSION,
     nativeCopilotAgent: resolved.copilotAgent,
     nativeAgentMappingSource: resolved.source,
-    ...(resolved.agent ? { agent: resolved.agent.id, agentSource: resolved.agent.scope, agentSha256: resolved.agent.sha256 } : {}),
+    nativeAgentMode: resolved.agent?.metadata?.['sflow-mode'] ?? null,
+    nativeGovernedAgent: resolved.agent?.id ?? null,
+    // A native reviewer/utility invocation must not replace the Story's author. Review retention
+    // activates its pinned reviewer in an operation-local session, never this shared author slot.
+    ...(resolved.agent && !readOnly ? { agent: resolved.agent.id, agentSource: resolved.agent.scope, agentSha256: resolved.agent.sha256 } : {}),
     agentSelectedAt: nowIso()
   };
   if (actor && !record.actor) record.actor = actor;

@@ -517,13 +517,13 @@ function localRepositoryClone(root, plan, repository) {
 }
 
 /**
- * The orphan branches each repository publishes: branches that share no history with its default
+ * The application orphan branches each repository publishes: branches that share no history with its default
  * branch (one that holds pages or state, say), which are never offered as a Story base. Read from
  * each local clone's remote-tracking refs, so it costs no network round trip; a repository this
  * machine has not cloned, or a shallow clone, reports none. The published lists stay complete, so
  * a branch someone types is refused as an orphan by start rather than reported missing.
  */
-function orphanBranches(root, plan, published, defaultBranch) {
+function orphanBranches(root, plan, published, defaultBranch, stateBranch) {
   const orphaned = {};
   for (const repository of plan.repositories) {
     const clone = localRepositoryClone(root, plan, repository);
@@ -531,7 +531,8 @@ function orphanBranches(root, plan, published, defaultBranch) {
     const repositoryDefault = repository.defaultBranch ?? defaultBranch;
     const { checked, orphans } = orphanRemoteBranches(clone, { remote: plan.remote, defaultBranch: repositoryDefault });
     const listed = published[repository.id] ?? [];
-    const found = checked ? orphans.filter((name) => name !== repositoryDefault && listed.includes(name)) : [];
+    const found = checked ? orphans.filter((name) => name !== repositoryDefault
+      && isStoryBaseBranch(name, { stateBranch }) && listed.includes(name)) : [];
     if (found.length) orphaned[repository.id] = found;
   }
   return orphaned;
@@ -552,7 +553,7 @@ export async function storyBaseCatalog(root, options = {}) {
   const { published, unreachable } = await publishedBranchesAsync(plan.repositories, {
     observed: options.observedHeads ?? null
   });
-  const orphaned = orphanBranches(root, plan, published, options.defaultBranch ?? 'main');
+  const orphaned = orphanBranches(root, plan, published, options.defaultBranch ?? 'main', stateBranch);
   const offered = Object.fromEntries(Object.entries(published)
     .map(([id, branches]) => [id, branches.filter((name) => !(orphaned[id] ?? []).includes(name))]));
   const choices = branchChoices(offered, { stateBranch });

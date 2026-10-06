@@ -137,6 +137,9 @@ test('a published generation awaiting submit is a review checkpoint, never model
   for (const [phaseId, verb] of [['specification', 'specify'], ['convergence', 'converge']]) {
     const workflow = phaseId === 'convergence' ? deterministicStory() : story(phaseId);
     workflow.phases[phaseId].generation = 1;
+    if (phaseId === 'convergence') workflow.phases[phaseId].generationPublications = [{
+      generation: 1, record: { path: 'publications/convergence-gen1.json', sha256: `sha256:${'a'.repeat(64)}` }
+    }];
     const plan = planFastPath(workflow, DEFINITION, verb);
     assert.equal(
       plan.next[0].command,
@@ -147,6 +150,15 @@ test('a published generation awaiting submit is a review checkpoint, never model
     assert.equal(plan.checkpoint.kind, 'human-review');
     assert.doesNotMatch(plan.checkpoint.reason, /model|author/i);
   }
+});
+
+test('a Convergence generation without its publication record routes recovery, not advance', () => {
+  const workflow = deterministicStory();
+  workflow.phases.convergence.generation = 1;
+  const plan = planFastPath(workflow, DEFINITION, 'converge');
+  assert.equal(plan.next[0].command, 'singularity-flow recover SPK-1 --phase convergence --json');
+  assert.equal(plan.checkpoint.kind, 'human-review');
+  assert.doesNotMatch(plan.checkpoint.reason, /model|author/i);
 });
 
 test('legacy deterministic generation policy is classified without relying on the prepare verb alone', () => {

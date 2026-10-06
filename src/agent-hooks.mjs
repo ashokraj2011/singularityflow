@@ -24,6 +24,8 @@ import {
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
+import { parseArgs } from './util.mjs';
+import { resolveOperation } from './command-registry.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -280,6 +282,21 @@ function isCopilotRepositoryMutation(payload) {
   ].some((name) => tool === name || tool.includes(name));
 }
 
+// This host hook is a lifecycle guard, not a shell sandbox. Report staging and source reads remain
+// available, but a native reviewer cannot use the shared author's identity to advance the Story.
+function readOnlyLifecycleCall(payload) {
+  const command = setupCommandText(payload.toolArgs);
+  if (!command || !/\b(?:singularity-flow|sflow)\b/u.test(command)) return false;
+  if (/[;&|`$<>\n]/u.test(command)) return true;
+  const tokens = command.match(/'[^']*'|"[^"]*"|\S+/gu)?.map((token) => token.replace(/^(['"])(.*)\1$/u, '$2')) ?? [];
+  if (!['singularity-flow', 'sflow'].includes(tokens[0])) return true;
+  const { positionals, options } = parseArgs(tokens.slice(1));
+  if (positionals[0] === 'agent' || positionals[0] === 'pause'
+      || (positionals[0] === 'review-source' && positionals[1] === 'submit')) return false;
+  try { return resolveOperation({ requestedCommand: positionals[0], positionals, options }).classification !== 'read'; }
+  catch { return true; }
+}
+
 function isConsumedGenerationTerminalCallAllowed(payload, phase) {
   const command = setupCommandText(payload.toolArgs);
   if (!command) return true;
@@ -376,6 +393,12 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
   const log = repositoryLogger(root, definition, {
     context: { hook: 'agent-guard', toolName: payload.toolName ?? null }
   });
+  const selected = await loadSession(root, { required: false });
+  if (['read-only', 'read-only-review'].includes(selected?.nativeAgentMode)
+      && (isCopilotRepositoryMutation(payload) || readOnlyLifecycleCall(payload))) {
+    return { permissionDecision: 'deny', permissionDecisionReason:
+      `Native agent '${selected.nativeGovernedAgent}' is read-only. It may inspect and retain its review packet, not author, submit, approve, acknowledge, or advance the Story. Return control to the configured phase author or an authorized human; the shared author session is preserved.` };
+  }
   const turnIntent = await loadCopilotTurnIntent(root, payload.sessionId ?? payload.session_id ?? null);
   if (turnIntent?.intent === 'session-only' && !isSessionBoundaryToolCall(payload)) {
     log.warn('hook.guard.deny', `denied '${payload.toolName ?? 'tool'}'`, {

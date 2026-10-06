@@ -13,6 +13,7 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
+import { expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -83,6 +84,11 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
   // a name-only roster cannot classify safely. Keep their entire recovery action manual.
   const simpleStatus = statusLines.length === paths.length && statusLines.every((line) =>
     ['??', ' M', 'M ', 'MM', ' A', 'A ', 'AM'].includes(line.slice(0, 2)));
+  if (current && simpleStatus && expected.size) {
+    for (const relative of await expectedPreparationContextPaths(root, config, workflow, phase, {
+      itemRoot, generation, changedPaths: relevantPaths
+    })) expected.add(relative);
+  }
   if (!relevantPaths.length && simpleStatus && statusLines.every((line) => line.startsWith('??'))) {
     return null;
   }

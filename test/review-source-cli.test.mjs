@@ -10,7 +10,7 @@ import YAML from 'yaml';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
-import { setAgentSession } from '../src/session.mjs';
+import { loadSession, setAgentSession } from '../src/session.mjs';
 import {
   commitAndPublish, createWorkflow, loadConfig, publishGeneration, scanArtifacts
 } from '../src/state.mjs';
@@ -40,6 +40,7 @@ function cli(root, ...args) {
  * a name of its own.
  */
 async function publishedSpecificationStory(t, { copied = false } = {}) {
+  const workType = copied ? 'review-copy' : 'spec-driven-standard';
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-cli-'));
   t.after(async () => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-b', 'main');
@@ -61,8 +62,9 @@ async function publishedSpecificationStory(t, { copied = false } = {}) {
     const { planStudioChangeSet } = await import('../src/workflow-studio.mjs');
     const steps = authored.workTypes['spec-driven-standard'].phases;
     await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+      { op: 'workflow.create', id: workType, label: 'Review copy', copyOf: 'spec-driven-standard', phases: steps },
       { op: 'phase.create', id: 'specification-spec-driven-standard', label: 'Specification (Spec-Driven Standard)', copyOf: 'specification', copyFromWorkflow: 'spec-driven-standard' },
-      { op: 'workflow.update', id: 'spec-driven-standard', phases: steps.map((id) => (id === 'specification' ? 'specification-spec-driven-standard' : id)) }
+      { op: 'workflow.update', id: workType, phases: steps.map((id) => (id === 'specification' ? 'specification-spec-driven-standard' : id)) }
     ] }, { write: true });
   }
   git(root, 'add', '.');
@@ -70,7 +72,7 @@ async function publishedSpecificationStory(t, { copied = false } = {}) {
   git(root, 'switch', '-c', WORK_ID);
 
   const config = await loadConfig(root);
-  const resolved = resolveWorkType(config, 'spec-driven-standard');
+  const resolved = resolveWorkType(config, workType);
   const phaseId = resolved.phases[0].id;
   const authorAgent = resolved.phases[0].defaultAgent;
   await setAgentSession(root, config, ACTOR, authorAgent, WORK_ID,
@@ -84,7 +86,7 @@ async function publishedSpecificationStory(t, { copied = false } = {}) {
       description: 'Save a draft and show saved status.',
       acceptanceCriteria: ['Saving persists the draft and displays saved status.'],
       notes: 'Export is out of scope.' },
-    baseBranch: 'main', workType: 'spec-driven-standard', agent: authorAgent, resolved
+    baseBranch: 'main', workType, agent: authorAgent, resolved
   }));
   const phase = workflow.phases[phaseId];
   const artifact = path.join(root, 'singularity/work-items', WORK_ID, phase.requiredArtifact.path);
@@ -132,7 +134,7 @@ Export.
           expectedHead: transactionContext.expectedHead }
       })
     }));
-  return { root, phaseId, authorAgent };
+  return { root, phaseId, authorAgent, workType };
 }
 
 /** The reviewer's report on the published specification: two covered statements and one exclusion. */
@@ -165,16 +167,30 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   const packet = JSON.parse(cli(root, 'review-source', 'context', 'specification', '--json'));
   assert.equal(packet.requiredReviewerAgentId, 'sflow-source-reviewer');
   assert.equal(packet.binding.generation, 1);
+  assert.equal(packet.reviewer.setupRequired, false);
+  assert.equal(packet.reviewer.activation, 'automatic');
+  assert.equal(packet.artifact.sha256Domain, 'authored-content');
+  assert.equal(packet.artifact.integrity.registeredFileMatches, true);
+  assert.match(packet.reviewer.instructions, /Source-grounded reviewer/);
   const report = reviewReport(packet);
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, `${JSON.stringify(report, null, 2)}\n`);
-  cli(root, 'agent', '--agent', 'sflow-source-reviewer');
+  const beforeCheck = git(root, 'rev-parse', 'HEAD');
+  const checked = JSON.parse(cli(root, 'review-source', 'check', 'specification', '--report-file', packet.stagingPath, '--json'));
+  assert.equal(checked.format.status, 'ready');
+  assert.equal(checked.retentionReady, true);
+  assert.equal(checked.status, 'correction-required', 'a preflight never grants the pending human decision');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeCheck);
+  assert.equal(git(root, 'status', '--short'), '');
+  const authorSession = await loadSession(root);
   const submitted = JSON.parse(cli(root, 'review-source', 'submit', 'specification',
     '--report-file', packet.stagingPath, '--json'));
   assert.equal(submitted.status, 'correction-required');
+  assert.deepEqual(await loadSession(root), authorSession, 'review retention changed the shared phase author');
   assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
   const pending = JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json'));
   assert.equal(pending.reportSha256, submitted.reportSha256);
+  cli(root, 'agent', '--agent', 'sflow-source-reviewer');
   const reviewerDecision = spawnSync(process.execPath, [executable, 'review-source', 'decide',
     'specification', '--finding', 'exclusion:export-exclusion',
     '--reason', 'The reviewer cannot approve this exclusion.', '--json'], {
@@ -220,7 +236,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
 });
 
 test('a copied specification is reviewed and rejected using its accepted contract after live resources change [E2G-001]', async (t) => {
-  const { root, phaseId, authorAgent } = await publishedSpecificationStory(t, { copied: true });
+  const { root, phaseId, authorAgent, workType } = await publishedSpecificationStory(t, { copied: true });
   assert.equal(phaseId, 'specification-spec-driven-standard');
   const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
   // The report template once carried the step's name as its kind, which the evaluator compares with
@@ -229,7 +245,7 @@ test('a copied specification is reviewed and rejected using its accepted contrac
   assert.equal(packet.reportTemplate.kind, 'specification');
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, `${JSON.stringify(reviewReport(packet), null, 2)}\n`);
-  cli(root, 'agent', '--agent', 'sflow-source-reviewer');
+  assert.equal(JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
   const submitted = JSON.parse(cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json'));
   assert.equal(submitted.status, 'correction-required');
   assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
@@ -240,13 +256,58 @@ test('a copied specification is reviewed and rejected using its accepted contrac
   const file = path.join(root, 'singularity/workflow.yml');
   const current = YAML.parse(await readFile(file, 'utf8'));
   current.phases[phaseId].defaultTemplate = 'unavailable-copy.md';
-  current.workTypes['spec-driven-standard'].templateOverrides[phaseId] = 'unavailable-copy.md';
+  current.workTypes[workType].templateOverrides ??= {};
+  current.workTypes[workType].templateOverrides[phaseId] = 'unavailable-copy.md';
   await writeFile(file, YAML.stringify(current));
   await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'Refresh live copied-step resources before submission');
   cli(root, 'submit', phaseId, '--skip-checks');
   cli(root, 'reject', phaseId, '--to', phaseId, '--reason', 'Revise the agreed specification.');
+});
+
+test('malformed reviewer packets are diagnosed read-only and cannot be committed by bypassing check', async (t) => {
+  const { root, phaseId } = await publishedSpecificationStory(t);
+  const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const authorSession = await loadSession(root);
+  const report = reviewReport(packet);
+  report.findings = [{ id: 'review-gap', severity: 'high', explanation: 'A real gap should use blocking and message.' }];
+  await mkdir(path.dirname(packet.stagingPath), { recursive: true });
+  await writeFile(packet.stagingPath, `${JSON.stringify(report, null, 2)}\n`);
+  const head = git(root, 'rev-parse', 'HEAD');
+  const index = git(root, 'write-tree');
+  const tracked = git(root, 'status', '--porcelain');
+  const checked = JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
+  assert.equal(checked.retentionReady, false);
+  assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].severity'));
+  assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].message'));
+  const submit = spawnSync(process.execPath, [executable, 'review-source', 'submit', phaseId,
+    '--report-file', packet.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
+  assert.notEqual(submit.status, 0);
+  const refusal = JSON.parse(submit.stdout);
+  assert.equal(refusal.error.code, 'SOURCE_REVIEW_REPORT_INVALID');
+  assert.match(submit.stdout, /findings\[0\]\.message/u);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(root, 'write-tree'), index);
+  assert.equal(git(root, 'status', '--porcelain'), tracked);
+  assert.deepEqual(await loadSession(root), authorSession, 'failed retention changed the phase author');
+  assert.equal(JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json')).status, 'missing');
+});
+
+test('reviewer cannot prepare or publish a phase under shared authorship, before any Git mutation', async (t) => {
+  const { root, phaseId } = await publishedSpecificationStory(t, { copied: true });
+  cli(root, 'agent', '--agent', 'sflow-source-reviewer');
+  const head = git(root, 'rev-parse', 'HEAD');
+  const tracked = git(root, 'status', '--porcelain');
+  for (const args of [['prepare', phaseId], ['phase', 'publish', phaseId,
+    '--authored', 'governed-agent', '--channel', 'copilot-host']]) {
+    const result = spawnSync(process.execPath, [executable, ...args, '--json'],
+      { cwd: root, encoding: 'utf8', timeout: 30000 });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /read-only source reviewer/u);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), head);
+    assert.equal(git(root, 'status', '--porcelain'), tracked);
+  }
 });
 
 test('legacy/off-policy Story status does not demand a reviewer or published generation', async (t) => {

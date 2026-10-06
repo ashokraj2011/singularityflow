@@ -6,7 +6,8 @@ import path from 'node:path';
 import { copilotAgentStartHook, sessionStartAgentHook, agentGuardHook } from '../src/agent-hooks.mjs';
 import {
   activateWorkItemSession, agentSessionStatus, clearCopilotTurnIntent, loadSession,
-  recordCopilotTurnIntent, requireCopilotWorkItemSelection, sessionOnlyPrompt, setAgentSession
+  recordCopilotTurnIntent, requireCopilotWorkItemSelection, sessionOnlyPrompt, setAgentSession,
+  setNativeCopilotAgentSession
 } from '../src/session.mjs';
 
 const definition = {
@@ -24,6 +25,36 @@ const definition = {
   agentCatalog: []
 };
 definition.agentCatalog = Object.values(definition.agents);
+
+test('native readonly agents preserve author and cannot advance any phase through its identity', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-readonly-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  await setAgentSession(root, definition, { name: 'User', email: 'user@example.test' }, 'architect', 'HOOK-1', { phaseId: 'design' });
+  for (const mode of ['read-only-review', 'read-only']) {
+    await setNativeCopilotAgentSession(root, { copilotAgent: 'peer', source: 'same-name',
+      agent: { id: 'peer', sha256: 'review-sha', metadata: { 'sflow-mode': mode } } });
+    const session = await loadSession(root);
+    assert.equal(session.agent, 'architect');
+    assert.equal(session.agentSha256, 'arch-sha');
+    for (const command of ['singularity-flow phase publish design --authored governed-agent --channel copilot-host',
+      "'singularity-flow' 'submit' 'design'", 'singularity-flow approve design',
+      'singularity-flow story intent-amendment acknowledge AMD-001 --work-id HOOK-1']) {
+      const result = await agentGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command } });
+      assert.equal(result.permissionDecision, 'deny', `${mode}: ${command}`);
+    }
+    for (const command of ['singularity-flow review-source context design --json',
+      'singularity-flow review-source check design --report-file packet.json --json',
+      'singularity-flow review-source submit design --report-file packet.json --json',
+      'singularity-flow status --json']) {
+      const result = await agentGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command } });
+      assert.notEqual(result.permissionDecision, 'deny', `${mode}: ${command}`);
+    }
+    assert.equal((await agentGuardHook(root, definition, current, { toolName: 'edit', toolArgs: { path: 'src/app.js' } })).permissionDecision, 'deny');
+  }
+  await setNativeCopilotAgentSession(root, { copilotAgent: 'architect', source: 'same-name', agent: definition.agents.architect });
+  assert.equal((await loadSession(root)).nativeAgentMode, null);
+  assert.notEqual((await agentGuardHook(root, definition, current, { toolName: 'edit', toolArgs: { path: 'src/app.js' } })).permissionDecision, 'deny');
+});
 
 function workflow(policy = definition.session) {
   return {

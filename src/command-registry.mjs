@@ -1445,11 +1445,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   if (definition.name === 'review-source') {
     const subcommand = positionals[1];
-    if (!['context', 'status', 'submit', 'decide'].includes(subcommand)) {
-      return unknownSubcommand('review-source', subcommand, ['context', 'status', 'submit', 'decide']);
+    if (!['context', 'check', 'status', 'submit', 'decide'].includes(subcommand)) {
+      return unknownSubcommand('review-source', subcommand, ['context', 'check', 'status', 'submit', 'decide']);
     }
     return never(`review-source.${subcommand}`, definition,
-      ['context', 'status'].includes(subcommand) ? 'read' : 'mutation');
+      ['context', 'check', 'status'].includes(subcommand) ? 'read' : 'mutation');
   }
   // These handlers only discover Jira via GET or read the existing audit files. Logging a CLI
   // invocation is incidental diagnostics, not permission to treat the handler as a mutation.
@@ -1689,7 +1689,7 @@ export function operationCatalog() {
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')
     ]),
-    ...['context', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
+    ...['context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
     ...['submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
     never('revise.preview', reviseDefinition, 'read'),
     never('revise.apply', reviseDefinition, 'mutation'),

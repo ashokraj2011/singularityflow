@@ -258,6 +258,8 @@ export interface IntakeForm extends TestRecoveryDraft {
   baseBranchChoices: BaseBranchChoice[];
   /** Configured publication remote returned by the engine's branch catalog. */
   baseRemote: string | null;
+  /** Ledger branch, including repositories that use a non-default name. */
+  baseStateBranch?: string | null;
   /** Why the branches could not be listed, when they could not be. */
   baseBranchReason: string | null;
   /** Branches left out because they share no history with the default branch (orphan branches). */
@@ -923,6 +925,10 @@ function baseBranchHtml(form: IntakeForm): string {
       <p class="meta" role="status">Reading the remote base branches…</p></section>`;
   }
   const total = form.baseBranchChoices[0]?.total ?? 0;
+  // Older CLI builds and cached catalogs may include internal refs in the orphan explanation.
+  // They are intentionally separate from application history, not a user-facing intake problem.
+  const visibleOrphans = form.baseBranchOrphans.filter((name) => name !== 'state'
+    && name !== form.baseStateBranch && !name.startsWith('sflow/') && !name.startsWith('singularity/pins/'));
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
@@ -952,8 +958,8 @@ function baseBranchHtml(form: IntakeForm): string {
     ${form.baseBranchChoices.length ? `<p class="meta" data-base-branch-empty hidden>No matching branches. Try another name or clear the search.</p>
     <p class="meta" data-base-branch-selected>${form.baseBranch ? `Selected base: ${escape(form.baseBranch)}.` : 'No base selected.'}</p>` : ''}
     ${baseStoryNoteHtml(form)}
-    ${form.baseBranchOrphans.length ? `<p class="meta">Not offered: ${form.baseBranchOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
-      — ${form.baseBranchOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${form.baseBranchOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
+    ${visibleOrphans.length ? `<p class="meta">Not offered: ${visibleOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
+      — ${visibleOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${visibleOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
     ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only

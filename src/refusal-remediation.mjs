@@ -776,6 +776,9 @@ export function refusalDetails(details) {
     const kept = Object.fromEntries(Object.entries(value).filter(([, entry]) => entry != null));
     return Object.keys(kept).length ? kept : null;
   };
+  // A JSON field selector is actionable contract information, not an arbitrary filesystem path.
+  const field = (value) => typeof value === 'string' && value.length <= 256
+    && /^(?:\$|[a-zA-Z_$][a-zA-Z0-9_$]*(?:\[\d+\]|\.[a-zA-Z_$][a-zA-Z0-9_$]*)*)$/u.test(value) ? value : null;
   const projected = {};
   for (const key of ['workId', 'phase', 'operation']) if (text(details[key])) projected[key] = text(details[key]);
   const paths = list(details.paths, text);
@@ -783,7 +786,7 @@ export function refusalDetails(details) {
   const authorities = list(details.authorities, text);
   if (authorities.length) projected.authorities = authorities;
   const findings = list(details.findings, (finding) => (finding && typeof finding === 'object' ? compact({
-    code: text(finding.code), category: text(finding.category), phase: text(finding.phase),
+    code: text(finding.code), category: text(finding.category), phase: text(finding.phase), field: field(finding.field),
     message: text(finding.details?.message ?? finding.message), recovery: text(finding.recovery?.command)
   }) : null));
   if (findings.length) projected.findings = findings;

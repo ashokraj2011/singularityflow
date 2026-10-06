@@ -11,8 +11,11 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument } from './document-storage.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
+import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
+import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 
 const REVIEW_AGENT = 'sflow-source-reviewer';
@@ -235,7 +238,10 @@ async function phaseArtifact(root, config, workflow, phaseId) {
   // Bind what the author wrote, not the engine-owned envelope: submission and approval rewrite the
   // metadata block (status, commits), and a review must still describe the artifact afterwards.
   const authored = authoredArtifactText(utf8(file.bytes, `Phase '${phaseId}' artifact`));
-  return { path: relative, text: boundedText(authored, `Phase '${phaseId}' artifact`) };
+  // The full-file digest is display-only. It must not enter the review binding: submit/approve
+  // update managed metadata without invalidating a review of unchanged authored content.
+  return { path: relative, text: boundedText(authored, `Phase '${phaseId}' artifact`),
+    registeredFileSha256: file.sha256 };
 }
 
 /** Exact source bytes and artifact bytes for an independent reviewer. This never writes. */
@@ -268,7 +274,8 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
   const context = {
     kind, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
     sources, ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
-    authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256
+    authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256,
+    recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null
   };
   return { ...context, binding: sourceReviewBinding(context) };
 }
@@ -522,6 +529,7 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
       id, reportSha256, decision, reason, actor: actor.login ?? actor.email
     }))
   });
+  const conflict = sourceReviewAuthorConflict(workflow, workflow.phases[phaseId]);
   return {
     schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, // schema-transient
     phase: phaseId, generation: input.generation, binding: input.binding,
@@ -531,7 +539,9 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
     carriedDecisions: carried.map(({ id, reason, actor, decidedAt, carriedFrom }) => ({
       id, reason, actor: actor.login ?? actor.email ?? actor.name, decidedAt, carriedFrom
     })),
-    ...review
+    ...review,
+    ...(conflict ? { status: 'author-conflict', recovery: phaseGovernanceHold(workflow, workflow.phases[phaseId]),
+      findings: [{ code: 'reviewer-not-independent', message: 'The published author is the required reviewer; re-author a successor under the accepted phase author.' }, ...review.findings] } : {})
   };
 }
 
@@ -540,30 +550,69 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
   const input = await sourceReviewInput(root, config, workflow, phaseId);
   // The report's kind is what the step does (specification or planning), never the step's name:
   // the evaluator compares it with that, so a renamed or copied step's review is accepted too.
-  const reportTemplate = {
-    schemaVersion: currentSchemaVersion('source-grounded-review'), resultType: 'source-grounded-review', kind: input.kind,
-    binding: input.binding, reviewer: { agentId: input.reviewerAgentId, readOnly: true },
-    sourcesReviewed: input.sources.map((source) => source.id), rows: [], findings: []
-  };
+  const reportTemplate = sourceReviewReportTemplate(input);
+  const conflict = sourceReviewAuthorConflict(workflow, workflow.phases[phaseId]);
+  const hashView = (artifact, binding) => ({ path: artifact.path, sha256: binding.sha256,
+    sha256Domain: 'authored-content', authoredContentSha256: binding.sha256,
+    registeredFileSha256: artifact.registeredFileSha256,
+    integrity: { status: 'verified', registeredFileMatches: true,
+      comparison: 'distinct-hash-domains', message: 'The registered digest includes managed metadata; the review binds authored content. Do not compare these digests for equality.' },
+    text: artifact.text });
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
     authorAgentId: input.authorAgentId, requiredReviewerAgentId: input.reviewerAgentId,
     reviewerAgentSha256: input.reviewerAgentSha256,
+    reviewer: { id: input.reviewerAgentId, sha256: input.reviewerAgentSha256,
+      activation: conflict ? 'blocked-author-conflict' : 'automatic', sessionScope: 'review-operation',
+      setupRequired: false, instructions: config.agents?.[input.reviewerAgentId]?.text ?? null },
+    ...(conflict ? { recovery: phaseGovernanceHold(workflow, workflow.phases[phaseId]) } : {}),
     sources: input.sources.map((source) => ({ id: source.id, path: source.path,
       originalSha256: source.originalSha256, textSha256: sha256(Buffer.from(source.text, 'utf8')),
       text: source.text })),
     // Not for the reviewer to cite: each needs a person's recorded decision instead.
     ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
-    artifact: { path: input.artifact.path, sha256: input.binding.artifact.sha256,
-      originalSha256: input.binding.artifact.originalSha256, text: input.artifact.text },
-    ...(input.upstreamSpec ? { upstreamSpec: {
-      path: input.upstreamSpec.path, sha256: input.binding.upstreamSpec.sha256,
-      originalSha256: input.binding.upstreamSpec.originalSha256,
-      text: input.upstreamSpec.text
-    } } : {}),
-    reportTemplate, stagingPath
+    artifact: hashView(input.artifact, input.binding.artifact),
+    ...(input.upstreamSpec ? { upstreamSpec: hashView(input.upstreamSpec, input.binding.upstreamSpec) } : {}),
+    reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath
   };
+}
+
+/** Activate only the exact accepted reviewer for this operation; never write shared session files. */
+export function scopedSourceReviewerSession(input, authorSession) {
+  if (!authorSession?.actor || authorSession.workId !== input.workId
+      || authorSession.phaseId !== input.phase) throw new SingularityFlowError(
+    'Attach the current Story phase before retaining a source review; no agent setup is required.',
+    { code: 'SOURCE_REVIEW_SESSION_SCOPE_INVALID', details: { actions: [{
+      command: `singularity-flow session attach ${input.workId} --json`, skill: '/sf-session',
+      detail: 'Attach the exact Story and current phase, preserving its accepted author.' }] } }
+  );
+  if (input.authorAgentId === input.reviewerAgentId) throw new SingularityFlowError(
+    'The published author is also the pinned reviewer. Re-author and publish a successor under the accepted phase author; do not relabel history or create a replacement reviewer.',
+    { code: 'SOURCE_REVIEW_AUTHOR_COLLISION', details: { workId: input.workId, phase: input.phase,
+      actions: input.recovery?.actions ?? [] } }
+  );
+  return { actor: structuredClone(authorSession.actor), workId: input.workId, phaseId: input.phase,
+    agent: input.reviewerAgentId, agentSha256: input.reviewerAgentSha256 };
+}
+
+/** Read-only format, citation and binding preflight. No reviewer authority or human decision is granted. */
+export function checkSourceReviewReport(report, input) {
+  const format = validateSourceReviewReport(report, input.kind);
+  // The pure evaluator also reads historical, malformed packets. New packets use a strict format
+  // preflight first, so incidental JS errors cannot hide a field-level format error.
+  const evaluation = format.status === 'ready' ? evaluateSourceGroundedReview(report, {
+    ...input, reviewerReadOnly: true
+  }) : null;
+  const invalid = new Set(['review-contract-invalid', 'reviewer-not-independent', 'review-self-disposition',
+    'row-id-invalid', 'attestation-invalid', 'citation-line-invalid', 'citation-quote-invalid',
+    'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
+    'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed']);
+  const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
+  return { format, evaluation,
+    retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,
+    findings: [...format.findings, ...bindingAndCitationFindings],
+    disclaimer: 'This read-only check grants no reviewer provenance, human disposition, phase submission or approval.' };
 }
 
 /** Validate reviewer session provenance before an immutable sidecar is written. */
@@ -577,21 +626,22 @@ export function evaluateSubmittedSourceReview(report, input, session) {
       || session?.agent !== input.reviewerAgentId || session.agent === input.authorAgentId
       || session.agentSha256 !== input.reviewerAgentSha256) {
     throw new SingularityFlowError(
-      `Select the independent '${input.reviewerAgentId}' governed agent for ${input.phase} before submitting a review.`,
+      `Retain the report through review-source submit for ${input.phase}; it scopes the accepted independent '${input.reviewerAgentId}' to that operation without changing the phase author.`,
       { code: 'SOURCE_REVIEW_INDEPENDENT_AGENT_REQUIRED' }
     );
   }
-  const evaluation = evaluateSourceGroundedReview(report, {
-    ...input, reviewerAgentId: session.agent, reviewerReadOnly: true
+  const checked = checkSourceReviewReport(report, { ...input, reviewerAgentId: session.agent });
+  const evaluation = checked.evaluation;
+  if (!evaluation) throw new SingularityFlowError('Source review report format is invalid. Repair the listed fields using review-source context and check again; no review was retained.', {
+    code: 'SOURCE_REVIEW_REPORT_INVALID', details: checked
   });
   if (evaluation.status === 'stale') throw new SingularityFlowError(
     'Review input changed after the report was written. Recreate it from review-source context.',
     { code: 'SOURCE_REVIEW_BINDING_STALE', details: evaluation }
   );
-  if (evaluation.findings.some((entry) => ['review-contract-invalid', 'reviewer-not-independent',
-    'review-self-disposition'].includes(entry.code))) {
-    throw new SingularityFlowError('Reviewer report has an invalid contract or provenance.', {
-      code: 'SOURCE_REVIEW_REPORT_INVALID', details: evaluation
+  if (!checked.retentionReady) {
+    throw new SingularityFlowError('Source review report has invalid fields, citations or provenance. Repair the listed fields and check again; no review was retained.', {
+      code: 'SOURCE_REVIEW_REPORT_INVALID', details: checked
     });
   }
   return evaluation;

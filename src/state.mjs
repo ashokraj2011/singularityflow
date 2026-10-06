@@ -79,7 +79,9 @@ import {
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { sourceReviewRequired } from './source-review-policy.mjs';
+import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
+import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
+import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
   assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
@@ -2320,6 +2322,9 @@ export async function beginPhaseGeneration(root, config, workflow, {
   adoptExisting = false,
   confirm = null
 } = {}) {
+  const session = await loadSession(root, { required: false });
+  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId], session, 'begin');
+  assertIntentAmendmentAcknowledged(workflow);
   await assertNoPendingPublication(root, config, workflow, 'begin code generation');
   const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
   await assertDocumentInputs(root, config, workflow, phase);
@@ -2332,7 +2337,6 @@ export async function beginPhaseGeneration(root, config, workflow, {
   }
   await assertPlannedSpecificationClaims(root, config, workflow, phase);
   await ensureStoryFeatureWorkInterval(root, config, workflow, phase, testAdmission);
-  const session = await loadSession(root, { required: false });
   return beginCodeGeneration(root, config, workflow, phase, {
     adoptExisting,
     confirm,
@@ -2344,6 +2348,11 @@ export async function beginPhaseGeneration(root, config, workflow, {
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, {
   dryRun = false
 } = {}) {
+  const session = await loadSession(root, { required: false });
+  if (!dryRun) assertPhaseAgentMayMutate(config, workflow,
+    workflow.phases?.[requested ?? workflow.currentPhase],
+    session, 'prepare');
+  if (!dryRun) assertIntentAmendmentAcknowledged(workflow);
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
@@ -2423,7 +2432,6 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     preparedArtifactText = repaired.text;
     metadataRepair = repaired.status;
   }
-  const session = await loadSession(root, { required: false });
   const executionCatalog = workflow.workflowSnapshot
     ? await resolveStoryExecutionCatalog(root, config, workflow)
     : null;
@@ -3478,6 +3486,12 @@ export async function publishGeneration(root, config, workflow, {
   architectureCandidateSnapshot = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
+  const selectedSession = await loadSession(root, { required: false });
+  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase],
+    selectedSession, 'publish');
+  assertIntentAmendmentAcknowledged(workflow);
+  if (authorship?.governedAgentContext?.agentId) assertPhaseAgentMayMutate(config, workflow,
+    workflow.phases?.[phaseId ?? workflow.currentPhase], { agent: authorship.governedAgentContext.agentId }, 'publish');
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
@@ -3489,7 +3503,7 @@ export async function publishGeneration(root, config, workflow, {
   // Its explicit authorship still binds the human Git identity that invoked the publication.
   const session = authorship?.producer === 'deterministic'
     ? { actor: authorship.actor ?? identity(root), agent: null }
-    : await loadSession(root);
+    : selectedSession ?? await loadSession(root);
   if (phaseRequiresCodeDelivery(phase)
       && phase.generationIntent?.status === 'consumed'
       && Number(phase.generationIntent.generation) === Number(phase.generation)) {
@@ -4960,6 +4974,9 @@ async function submitPhaseTransition(root, config, workflow, {
   architectureCandidateSnapshot = null, actor = null, agent = undefined, decisionValues = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
+  let session = actor ? { actor, agent: agent ?? null } : await loadSession(root, { required: false });
+  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase], session, 'submit');
+  assertPhaseGovernanceMayAdvance(workflow, workflow.phases?.[phaseId ?? workflow.currentPhase]);
   const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
@@ -4983,29 +5000,12 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
-  const session = actor
-    ? { actor, agent: agent ?? null }
-    : await loadSession(root);
-  if (workflow.resolution?.sourceReview?.mode === 'enforce'
-      && session.agent === workflow.resolution.sourceReview.reviewerAgent) {
-    throw new SingularityFlowError(
-      `The read-only source reviewer '${session.agent}' cannot submit phase '${phase.id}'. Select the configured phase agent, then retry.`,
-      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_SUBMIT' }
-    );
-  }
+  session ??= await loadSession(root);
   recordSubmittedDecisionInputs(workflow, phase, decisionValues, session.actor);
   // Repair legacy generations whose raw reporter output was registered as a phase artifact. The
   // normalized test-execution receipt is durable evidence; `.sflow/results/**` is disposable
   // command transport and commonly changes timestamps on every otherwise identical test run.
   pruneTransientArtifactRegistrations(phase);
-  const unacknowledgedAmendment = pendingIntentAmendmentAcknowledgement(workflow);
-  if (unacknowledgedAmendment) {
-    throw new SingularityFlowError(
-      `Intent amendment '${unacknowledgedAmendment.id}' changed ${unacknowledgedAmendment.changedClauses?.join(', ') || 'the specification'}. `
-      + `Acknowledge it before revalidation with singularity-flow story intent-amendment acknowledge ${unacknowledgedAmendment.id}.`,
-      { code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED' }
-    );
-  }
   assertRequiredAssignment(workflow, phase);
   await assertMcpPhaseReadiness(root, workflow, phase);
   const mcpEvidence = await verifyPhaseMcpRequirements(root, workflow, phase, {
@@ -5026,8 +5026,8 @@ async function submitPhaseTransition(root, config, workflow, {
     if (review.status !== 'ready') {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be submitted until an independent source-grounded review is ready. `
-        + `Run singularity-flow review-source context ${phase.id} --json, select the configured reviewer, `
-        + `submit its report, and resolve the listed findings before retrying.\n- `
+        + `Run singularity-flow review-source context ${phase.id} --json, use its pinned reviewer instructions without changing the shared author, `
+        + `check the staged report with review-source check before retaining it, and resolve the listed findings before retrying.\n- `
         + (review.findings?.map((entry) => entry.message).join('\n- ') || `Review status: ${review.status}.`),
         {
           code: 'SOURCE_REVIEW_REQUIRED',
@@ -5711,6 +5711,9 @@ export async function approvePhase(root, config, workflow, {
   persist = true
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
+  let session = decisionActor ? { actor: decisionActor, agent: decisionAgent ?? null } : await loadSession(root, { required: false });
+  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase], session, 'approve');
+  assertPhaseGovernanceMayAdvance(workflow, workflow.phases?.[phaseId ?? workflow.currentPhase]);
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
@@ -6116,16 +6119,7 @@ export async function approvePhase(root, config, workflow, {
       `Phase ${phase.id} downstream agent-brief review failed:\n- ${briefReview.errors.join('\n- ')}`
     );
   }
-  const session = decisionActor
-    ? { actor: decisionActor, agent: decisionAgent ?? null }
-    : await loadSession(root);
-  if (workflow.resolution?.sourceReview?.mode === 'enforce'
-      && session.agent === workflow.resolution.sourceReview.reviewerAgent) {
-    throw new SingularityFlowError(
-      `The read-only source reviewer '${session.agent}' cannot approve phase '${phase.id}'. Select the phase agent or use an authorized human shell session, then retry.`,
-      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE' }
-    );
-  }
+  session ??= await loadSession(root);
   const actor = session.actor;
   const key = actorKey(actor);
   const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved'
@@ -7084,6 +7078,7 @@ export async function rejectPhase(root, config, workflow, {
   const session = actor
     ? { actor, agent: agent ?? null }
     : await loadSession(root);
+  assertPhaseAgentMayMutate(config, workflow, phase, session, 'reject');
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
@@ -7265,11 +7260,7 @@ async function intentAmendmentPath(root, config, workflow, relative, label, { mu
 }
 
 /** An approved amendment that this checkout has not yet acknowledged. */
-export function pendingIntentAmendmentAcknowledgement(workflow) {
-  return [...(workflow.intentAmendments ?? [])]
-    .reverse()
-    .find((entry) => entry.status === 'approved' && !entry.acknowledgedAt) ?? null;
-}
+export { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 
 async function persistIntentAmendmentRecord(root, config, workflow, summary, record) {
   const file = await intentAmendmentPath(root, config, workflow, summary.recordPath, 'Intent-amendment record');
@@ -8363,6 +8354,7 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   const phase = currentPhase(workflow);
   if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
   const session = await loadSession(root);
+  assertPhaseAgentMayMutate(config, workflow, phase, session, 'cancel');
   const timestamp = nowIso();
   const record = {
     schemaVersion: 1,

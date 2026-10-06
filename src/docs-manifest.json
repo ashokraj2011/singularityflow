@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "cd198ea944d1053929ef88548f3f98ecdf7169be",
+  "sourceCommit": "b8b7c5caf100b2265da793ff76ba0021db6e33fa",
   "topicCount": 76,
-  "contentSha256": "df54d7bc6b0bb12b81d7ddd64ea166fb31fa98a69cb1976a6775bff362998cca",
+  "contentSha256": "df4d5bec742b4b4976b2470ef5eb33ed650d15298ae455444b002f73449dd8f5",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 12,
-      "sha256": "18d653957efcae25f5ba69f9b6ec77150317ace79bcbce0056f8e35c5b2ee34c",
+      "version": 13,
+      "sha256": "3624722a0d1797e4ddaa9d604028b6821e83e01c082f272f8879bb2e5f979110",
       "routingSha256": "e858ea1962d0e273c529409ccaba3c62598ecc238bf7dba15de5e82163ce305b",
       "file": "copilot-and-surfaces.md"
     },
@@ -504,8 +504,8 @@
     {
       "id": "specification-quality",
       "title": "Specification quality and clarification markers",
-      "version": 6,
-      "sha256": "2c6c68ec2913ad914597820f64196a7bcf13f4b87c45e9c8bc92178318ca6a47",
+      "version": 8,
+      "sha256": "2428151df8f271c1d2505f2ef345cfa96945d9729f8eb6e76dc984f89b6f88a3",
       "routingSha256": "6f4200409c982f2aec675cbaf904563a0b014733cbc9e88da82127c4982fdd21",
       "file": "specification-quality.md"
     },

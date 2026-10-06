@@ -167,8 +167,8 @@ import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } 
 import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { capabilityLines } from './verification/capability.mjs';
 import {
-  evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
-  retainSourceReviewDecision, sourceReviewContext, sourceReviewInput
+  checkSourceReviewReport, evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
+  retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
 } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -10379,8 +10379,8 @@ async function reviewCommand(positionals, options) {
 
 async function reviewSourceCommand(positionals, options) {
   const action = requirePositional(positionals, 1, 'source review action');
-  if (!['context', 'submit', 'decide', 'status'].includes(action)) {
-    throw new SingularityFlowError("Source review action must be context, submit, decide, or status.");
+  if (!['context', 'check', 'submit', 'decide', 'status'].includes(action)) {
+    throw new SingularityFlowError("Source review action must be context, check, submit, decide, or status.");
   }
   const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
   const root = repoRoot();
@@ -10419,10 +10419,12 @@ async function reviewSourceCommand(positionals, options) {
     const packet = await sourceReviewContext(root, config, workflow, phaseId, stagingPath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(packet, null, 2));
     console.log(`Source review context: ${packet.workId} ${phaseId} generation ${packet.generation}`);
-    console.log(`Artifact: ${packet.artifact.path} · ${packet.artifact.sha256}`);
+    console.log(`Artifact: ${packet.artifact.path} · authored-content SHA-256 ${packet.artifact.authoredContentSha256}`);
+    console.log(`Registered full-file SHA-256: ${packet.artifact.registeredFileSha256} (includes managed metadata; verified)`);
     for (const source of packet.sources) console.log(`Source: ${source.id} · ${source.path} · ${source.originalSha256}`);
-    if (packet.upstreamSpec) console.log(`Approved specification: ${packet.upstreamSpec.path} · ${packet.upstreamSpec.sha256}`);
-    console.log(`Independent reviewer: ${packet.requiredReviewerAgentId}`);
+    if (packet.upstreamSpec) console.log(`Approved specification: ${packet.upstreamSpec.path} · authored-content SHA-256 ${packet.upstreamSpec.authoredContentSha256} · registered full-file SHA-256 ${packet.upstreamSpec.registeredFileSha256}`);
+    console.log(`Independent reviewer: ${packet.requiredReviewerAgentId} (${packet.reviewer.activation}; operation-scoped; no agent setup)`);
+    for (const action of packet.recovery?.actions ?? []) console.log(`Recovery: ${action.command}`);
     console.log(`Report staging path: ${packet.stagingPath}`);
     return emitReview('context', noop('source-review.context-reported', {
       workId: workflow.workItem.id, phase: phaseId, generation: packet.generation
@@ -10442,15 +10444,14 @@ async function reviewSourceCommand(positionals, options) {
   if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
     throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
   }
-  await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
-  if (action === 'submit') {
+  if (action !== 'check') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  if (action === 'check' || action === 'submit') {
     const reportFile = optionString(options, 'report-file');
     if (!reportFile || path.resolve(reportFile) !== path.resolve(stagingPath)) {
       throw new SingularityFlowError(`Source review report must be staged at ${stagingPath}.`, {
         code: 'SOURCE_REVIEW_REPORT_STAGING_REQUIRED'
       });
     }
-    const session = await loadSession(root);
     const input = await sourceReviewInput(root, config, workflow, phaseId);
     const stagingEntry = await lstat(stagingPath).catch(() => null);
     if (!stagingEntry?.isFile() || stagingEntry.size > 8 * 1024 * 1024) {
@@ -10458,7 +10459,25 @@ async function reviewSourceCommand(positionals, options) {
         code: 'SOURCE_REVIEW_REPORT_STAGING_INVALID'
       });
     }
-    const report = JSON.parse(await readFile(stagingPath, 'utf8'));
+    let report;
+    try { report = JSON.parse(await readFile(stagingPath, 'utf8')); }
+    catch { throw new SingularityFlowError('Staged source review is not valid JSON. Repair the staging file; no review was retained.', {
+      code: 'SOURCE_REVIEW_REPORT_INVALID'
+    }); }
+    if (action === 'check') {
+      const checked = checkSourceReviewReport(report, input);
+      const result = { schemaVersion: 1, resultType: 'source-review-check', // schema-transient
+        workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
+        status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
+        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])] };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'} (no changes).`);
+      for (const finding of result.findings) console.log(`- ${finding.field ?? finding.code}: ${finding.message}`);
+      return emitReview('check', noop('source-review.checked', {
+        workId: workflow.workItem.id, phase: phaseId, retentionReady: result.retentionReady
+      }), false, result);
+    }
+    const session = scopedSourceReviewerSession(input, await loadSession(root));
     const evaluation = evaluateSubmittedSourceReview(report, input, session);
     let retained;
     const { publication } = await transactStory(root, config, workflow, {

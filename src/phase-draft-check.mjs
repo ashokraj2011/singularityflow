@@ -19,6 +19,9 @@ import { inspectCodeDocumentation } from './code-documentation-inspection.mjs';
 import { inspectUnclaimedChangedPaths } from './spec-coverage-preview.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { traceabilityDraftFingerprint, traceabilityRepairProjection } from './traceability-repair.mjs';
+import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
+import { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
+import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -232,7 +235,15 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
-  const repairClass = route?.class ?? correctionClass(producer);
+  const restriction = phaseAgentMutationRestriction(config, workflow, phase, session, 'publish');
+  const hold = pendingIntentAmendmentAcknowledgement(workflow) ? phaseGovernanceHold(workflow, phase) : null;
+  const actorRoute = restriction?.actions[0] ?? hold?.actions[0];
+  if (restriction || hold) findings.push({ code: restriction?.code ?? hold.code,
+    category: restriction ? 'agent-role' : 'amendment', path: null, line: null,
+    message: restriction?.message ?? hold.reason });
+  const nextRoute = actorRoute ? { class: 'human-context', command: actorRoute.command,
+    skill: actorRoute.skill, guidance: restriction?.message ?? hold.reason } : route;
+  const repairClass = nextRoute?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
@@ -243,7 +254,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     publish: clean ? phasePublicationCommandForProducer(phase, configuredProducer, {
       noModel: modelEnabled === false
     }) : null,
-    next: route?.command ?? null
+    next: nextRoute?.command ?? null
   });
   return Object.freeze({
     schemaVersion: 1, // schema-transient: read-only process projection, never persisted
@@ -277,9 +288,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
         && traceabilityRepair?.status !== 'manual-review',
       requiresNewGeneration: awaitingApproval && !clean,
       maximumChangedFingerprints: 3,
-      guidance: clean ? null : route?.guidance
+      guidance: clean ? null : nextRoute?.guidance
         ?? (traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase)),
-      skill: route ? route.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
+      skill: nextRoute ? nextRoute.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands,
     commandGuidance: commandGuidanceForCommands(commands),

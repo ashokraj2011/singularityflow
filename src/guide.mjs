@@ -6,6 +6,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
+import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -21,6 +22,8 @@ function currentPhase(workflow) {
 export function phaseHandoff(workflow, phase, {
   hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path)
 } = {}) {
+  const hold = phaseGovernanceHold(workflow, phase);
+  if (hold) return hold.actions;
   const view = hasDocuments ? copilotAction({
     skill: '/sflow-phase-documents',
     command: `singularity-flow phase show ${phase.id} --show-artifact`,
@@ -53,6 +56,8 @@ function nextActions(workflow, phase) {
   if (workflow.status === 'cancelled') return [
     copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
   ];
+  const hold = phaseGovernanceHold(workflow, phase);
+  if (hold) return hold.actions;
   // A Story waiting for a person moves only by their choice; the approved phase has nothing to submit.
   const pending = workflow.pendingDecision;
   if (pending) return [

@@ -8,6 +8,7 @@ import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
 import { storyRequiresStepActions } from './step-actions.mjs';
+import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -191,6 +192,15 @@ export function submissionReadinessSnapshot(workflow, {
     pendingSynchronization: true,
     command: 'singularity-flow sync',
     reasonCode: 'PUBLICATION_SYNCHRONIZATION_REQUIRED'
+  });
+
+  const governanceHold = phaseGovernanceHold(workflow, phase);
+  if (governanceHold) return result(workflow, phase, {
+    ...draft, classification: governanceHold.classification,
+    reasonCode: governanceHold.code, reason: governanceHold.reason,
+    command: governanceHold.actions[0]?.command ?? null,
+    nextSkill: governanceHold.actions[0]?.skill ?? null,
+    actions: governanceHold.actions
   });
 
   // A Story waiting for a person has nothing to submit; the decision is the next action.

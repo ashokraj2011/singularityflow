@@ -115,6 +115,7 @@ interface EngineStoryWorkflowCatalog {
 interface CatalogListing {
   choices?: BaseBranchChoice[];
   remote?: string;
+  stateBranch?: string;
   unreachable?: { repository: string }[];
   /** Orphan branches per repository, never offered as a base. */
   orphaned?: Record<string, string[]>;
@@ -571,6 +572,7 @@ export class IntakePanel {
         // A Story base is an explicit, permanent choice. Even one available branch must be selected.
         baseBranch,
         baseRemote: listed.remote ?? null,
+        baseStateBranch: listed.stateBranch ?? 'state',
         // Named, because a branch missing from the list because a remote was unreachable looks
         // exactly like a branch that does not exist.
         baseBranchReason: unreachable.length

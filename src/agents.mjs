@@ -291,6 +291,12 @@ export function validateAgentCatalog(agents, definition) {
     definition.worldModel?.format === 'registered-v4' ? view.replace(/@[1-9][0-9]*$/, '') : view
   )));
   for (const agent of agents) {
+    if (['read-only', 'read-only-review'].includes(agent.metadata?.['sflow-mode'])
+        && agent.defaultFor.some((id) => phaseIds.has(id))) {
+      throw new SingularityFlowError(`Read-only agent '${agent.id}' cannot be a phase's default author. Select a writable author and keep reviewer selection operation-scoped.`, {
+        code: 'READ_ONLY_AGENT_DEFAULT_AUTHOR', details: { agentId: agent.id, phases: agent.defaultFor }
+      });
+    }
     // Repository agents are part of this repository's contract, so a misspelled or removed phase
     // must fail validation. Packaged agents are a catalog shared by every valid workflow-v2
     // repository, including repositories created before an optional profile/phase was added to the

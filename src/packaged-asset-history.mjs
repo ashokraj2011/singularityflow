@@ -166,6 +166,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'c0d882e1b6a6a946e4573756aa156e4ca918b578634baa35e6fccb74a595b698'
   ]),
   '.github/agents/poc-analyst.agent.md': Object.freeze([
+    '7f4fe9ad6e2bcf0aeab4aa0e2bb5245b38bb1a0434f23b1b604f2869fd9590e8',
     '1d4e071363256e214a58ab810819218cff8f4d288d571487eb6f18d2bca8b1d2',
     '23f6c7215e1a84e3ce249515e504e74b374dbc59177baf00a1f5b611b832310a',
     '582f046a0912e9d7cd2df1a94cb411d1f24b313b28b91795529e7be99f355d8d',
@@ -176,6 +177,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'b2911fb7034dddec1d44266f83146a0460dc158a3efb6938cdefda2ae0d96086'
   ]),
   '.github/agents/poc-automation.agent.md': Object.freeze([
+    '5c113c502f9e02362ff280947747684130b9f0975391b6cbe27462e1faaac0f6',
     '0b6f0a8866f388767a216438b5bc5280615589fc0da50fd6288cf9388a902ef3',
     '0ed8eae43d116bbe10745d851180d6043a563568635359087da424d67e19aee1',
     '23adcbd69ceef94dba9fc035273cbfa2d878bd72c33c9c3a89ebd1d085a39cd1',
@@ -281,8 +283,8 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/architect.agent.md': '184ad9effaad2977008687601def19a0677bb72c6a02365ef81b945f54ae6443',
   '.github/agents/developer.agent.md': '319bdfa6ac51ff128d8caad683f637f76c04818dc5fc7b05224d5275a76b8c41',
   '.github/agents/mobile-architect.agent.md': '06685d32114d1278a825dfc9313d2c1ca6e4b84de9cf1c112b4b84f82367176d',
-  '.github/agents/poc-analyst.agent.md': '7f4fe9ad6e2bcf0aeab4aa0e2bb5245b38bb1a0434f23b1b604f2869fd9590e8',
-  '.github/agents/poc-automation.agent.md': '5c113c502f9e02362ff280947747684130b9f0975391b6cbe27462e1faaac0f6',
+  '.github/agents/poc-analyst.agent.md': '94623517e943daa5cbab969fa1a50887319e34e68d826d06e23d17bd171ad2d9',
+  '.github/agents/poc-automation.agent.md': 'a45c1645749fe9595d5b8bca9c620583f60a9fa34798e492764932d5411c435f',
   '.github/agents/poc-explorer.agent.md': 'fc8ecbccd7fbfdcfcd318c45a1219bcb3354a09a87a30e941153df43ea390667',
   '.github/agents/poc-lite-implementer.agent.md': 'f97cc8d1cfb1b920e4643337fcc6d5a2b44428249c39a475565015c28ba68a04',
   '.github/agents/poc-lite-planner.agent.md': 'dbe9682cf65511b5d5ea77fecbb2abb1c3ea691c20961ab2faa046924ab16689',

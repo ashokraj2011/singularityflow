@@ -41,6 +41,28 @@ export function sourceReviewRequired(workflow, phaseId) {
     && policy.phases.includes(phaseId);
 }
 
+/** A generation authored by its required reviewer needs an honestly attributed successor. */
+export function sourceReviewAuthorConflict(workflow, phase) {
+  return Boolean(phase?.generation > 0 && sourceReviewRequired(workflow, phase.id)
+    && phase.generatedAgent === workflow.resolution.sourceReview.reviewerAgent);
+}
+
+export function pendingIntentAmendmentAcknowledgement(workflow) {
+  return [...(workflow?.intentAmendments ?? [])].reverse()
+    .find((entry) => entry.status === 'approved' && !entry.acknowledgedAt) ?? null;
+}
+
+export function assertIntentAmendmentAcknowledged(workflow) {
+  const amendment = pendingIntentAmendmentAcknowledgement(workflow);
+  if (!amendment) return;
+  const command = `singularity-flow story intent-amendment acknowledge ${amendment.id} --work-id ${workflow.workItem.id}`;
+  throw new SingularityFlowError(`Intent amendment '${amendment.id}' changed ${amendment.changedClauses?.join(', ') || 'the approved scope'}. Acknowledge it before downstream revalidation with ${command}.`, {
+    code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED',
+    details: { workId: workflow.workItem.id, phase: workflow.currentPhase,
+      actions: [{ command, skill: '/sf-reject', detail: 'Review the amendment and acknowledge only with an explicit human choice.' }] }
+  });
+}
+
 export function assertSourceReviewerAvailable(policy, agents, { workTypeId = 'workflow' } = {}) {
   if (policy?.mode !== 'enforce') return;
   const reviewer = agents?.find((agent) => agent.id === policy.reviewerAgent);
@@ -50,4 +72,9 @@ export function assertSourceReviewerAvailable(policy, agents, { workTypeId = 'wo
       { code: 'SOURCE_REVIEW_AGENT_UNAVAILABLE' }
     );
   }
+  const collisions = (policy.phases ?? []).filter((id) => reviewer.defaultFor?.includes(id));
+  if (collisions.length) throw new SingularityFlowError(
+    `Work type '${workTypeId}' cannot use '${reviewer.id}' as both author and independent reviewer of ${collisions.join(', ')}. Choose a writable default author.`,
+    { code: 'SOURCE_REVIEW_AUTHOR_COLLISION', details: { workTypeId, reviewerAgent: reviewer.id, phases: collisions } }
+  );
 }

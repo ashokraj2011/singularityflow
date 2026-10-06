@@ -167,6 +167,9 @@ workflow resolution pinned when the work started.
 
 ### Lifecycle analytics
 
+Open **Story Analytics** directly from the Navigator's main menu, below **Stories**.
+The existing **Singularity Flow: Lifecycle Analytics** command opens the same view.
+
 Lifecycle Analytics answers **how is this Story moving, and where is time or model
 usage accumulating?** It is a read-only view over the engine's deterministic
 workflow report:

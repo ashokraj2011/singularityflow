@@ -10,14 +10,25 @@ import { buildInbox } from '../apps/vscode/src/views/inbox-model.ts';
 const view = overrides => ({ navigation: { workspace: null, next: null }, freshness: null,
   loading: false, pending: null, active: null, favorites: [], ...overrides });
 
-test('five task destinations have a fixed order and contributed commands', async () => {
-  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Reviews', 'Workspaces', 'Configuration']);
+test('main task destinations have a fixed order and contributed commands', async () => {
+  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Story Analytics', 'Reviews', 'Workspaces', 'Configuration']);
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   for (const item of PRIMARY_NAVIGATION) assert.ok(manifest.contributes.commands.some(command => command.command === item.command));
   const html = sidebarBody(view());
   assert.equal((html.match(/aria-current=/g) ?? []).length, 0);
   assert.match(html, /data-action="configuration-center"/);
   assert.doesNotMatch(html, /Open Configuration Center|More actions/);
+});
+
+test('Story Analytics is a direct main-menu destination even before a Story is selected', () => {
+  const analytics = PRIMARY_NAVIGATION.find(item => item.id === 'story-analytics');
+  assert.equal(analytics.command, 'singularityFlow.openDashboard');
+  const html = sidebarBody(view({ active: 'story-analytics' }));
+  const nav = html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)[1];
+  assert.match(nav, /data-action="story-analytics" aria-current="page"/);
+  assert.match(nav, />Story Analytics<\/span>/);
+  assert.equal((nav.match(/aria-current=/g) ?? []).length, 1);
+  assert.equal((html.match(/data-action="story-analytics"/g) ?? []).length, 1);
 });
 
 test('sidebar has no hover commands, tooltips, automatic help or unsafe markup', () => {
@@ -41,6 +52,8 @@ test('only confirmed pending approvals get a badge, and loading is not green or 
 
 test('selection follows real editor destinations, including clearing a previous selection', () => {
   assert.equal(sidebarDestination('singularityFlow.workspaceStories'), 'stories');
+  assert.equal(sidebarDestination('singularityFlow.dashboard'), 'story-analytics');
+  assert.equal(sidebarDestination('mainThreadWebview-singularityFlow.dashboard'), 'story-analytics');
   assert.equal(sidebarDestination('mainThreadWebview-singularityFlow.reviews'), 'reviews');
   assert.equal(sidebarDestination('singularityFlow.result', true), 'my-work');
   assert.equal(sidebarDestination('singularityFlow.result', false), null);

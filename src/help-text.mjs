@@ -292,9 +292,11 @@ Usage:
   singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow review-source context <specification|planning> [--json]
-      read exact pinned Story sources, attachments, published artifact, and approved specification (planning)
+      read pinned inputs, canonical reportSchema, and reportTemplate (planning mappings are prefilled, not assessed)
+  singularity-flow review-source check <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
+      read-only format, citation and binding preflight; no commit, push, human decision or approval
   singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
-      publish an independent, source-cited review sidecar bound to the current generation
+      reject malformed packets before mutation; retain valid independent review evidence, including real gaps
   singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
       record an authorized human decision on an exclusion or not-applicable test exception
   singularity-flow review-source status <specification|planning> [--json]

@@ -5961,6 +5961,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--description', 'One retry with backoff',
     '--work-type', 'feature',
     '--isolated-worktree',
+    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected',
     '--from-branch', 'main',
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
@@ -5977,7 +5978,9 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.deepEqual(storyPreflightCommand(form), [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
     '--isolated-worktree',
-    '--from-branch', 'main', '--selected-base-only', '--work-type', 'feature', '--mint-intake-receipt'
+    '--from-branch', 'main', '--selected-base-only',
+    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected',
+    '--work-type', 'feature', '--mint-intake-receipt'
   ]);
   // The receipt binds the exact request, so complete reference rows ride along; incomplete ones do not.
   assert.deepEqual(storyPreflightCommand({
@@ -6090,7 +6093,10 @@ test('Story intake shows exact-base pre-code test evidence without changing Star
   assert.match(ready, /unit-tests · mvn · junit-xml/);
   assert.match(ready, /11 passed, 0 failed/);
   assert.match(ready, /reference.*receipt missing/s);
-  assert.match(ready, /Existing test failures are not verified/);
+  assert.match(ready, /Existing failures unknown: baseline not checked/);
+  assert.match(ready, /This is not a test failure or passing evidence/);
+  assert.doesNotMatch(ready, /<button type="button" data-submit="start" disabled>/,
+    'an unobserved test baseline alone is advisory, not a Story-start refusal');
   const blocked = intake({
     shape: 'story', tracker: 'none', id: 'PRE-TEST', title: 'Test tools',
     description: 'Review the exact baseline before code.', baseTestReadiness,
@@ -6175,6 +6181,20 @@ test('the base list says which orphan branches it left out, and never offers the
   const several = intakeHtml({ ...form, baseBranchOrphans: ['gh-pages', 'docs-site'] });
   assert.match(several, /<code>gh-pages<\/code>, <code>docs-site<\/code>\s+— they share no history/);
   assert.doesNotMatch(intakeHtml({ ...form, baseBranchOrphans: [] }), /Not offered/);
+});
+
+test('intake suppresses internal branch noise even from older or cached catalogs', () => {
+  const internal = ['sflow/config', 'sflow/config-change/capability/map-app-12345678',
+    'sflow/config-history/0123456789abcdef', 'state', 'audit-state', 'singularity/pins/approved'];
+  const form = intake({ shape: 'story', tracker: 'none', baseBranch: null,
+    baseStateBranch: 'audit-state', baseBranchOrphans: internal });
+  const html = intakeHtml(form);
+  assert.match(html, /No base selected\./);
+  assert.match(html, /data-base-branch="main"/);
+  assert.doesNotMatch(html, /Not offered:|sflow\/config|singularity\/pins\/approved|audit-state/);
+  const mixed = intakeHtml({ ...form, baseBranchOrphans: [...internal, 'docs-site'] });
+  assert.match(mixed, /Not offered: <code>docs-site<\/code>\s+— it shares/);
+  assert.doesNotMatch(mixed, /sflow\/config|singularity\/pins\/approved|audit-state/);
 });
 
 test('a branch that is a Story\'s own is labelled, and choosing it says what the new Story inherits', () => {
@@ -6296,6 +6316,7 @@ test('a tracked Story is fetched by key', () => {
   assert.deepEqual(intakeCommand(form), [
     'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature',
     '--isolated-worktree',
+    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected',
     '--from-branch', 'main'
   ]);
 });
@@ -6318,7 +6339,8 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
   assert.deepEqual(storyPreflightCommand(missing), [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
     '--isolated-worktree',
-    '--from-branch', 'main', '--selected-base-only'
+    '--from-branch', 'main', '--selected-base-only',
+    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected'
   ], 'the selected base can recover its exact workflow catalog without a launch-checkout choice');
 
   const selected = { ...missing, storyWorkflows: INTAKE_CHOICES.storyWorkflows,

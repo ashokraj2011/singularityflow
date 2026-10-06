@@ -19,7 +19,7 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 6
+version: 8
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one governed model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate.
 
@@ -27,13 +27,30 @@ The current starter workflow keeps those deterministic checks but does not requi
 
 The review and dispositions are retained with hashes in Story Git history. Changing source documents, the Specification, Plan, or generation invalidates the review. The spec-driven starter also checks committed clause-to-source/test coverage before final code-phase approval, instead of waiting until convergence. Every changed application path must be claimed by a clause's planned Expected paths or tests; a file that cannot carry a `@clause` tag (a manifest, a lockfile, CI configuration) is listed in the plan under `## Supporting files`, one backticked exact path per bullet with its reason. While the code generation is open, `phase draft-check` and `phase prepublish` name any changed path approval would refuse, as non-blocking advisories. This proves traceability and executed evidence, not semantic correctness of the code. New Stories pin these policies; existing Stories retain their accepted policy and are not silently upgraded. Custom workflows can opt in with `workTypes.<id>.sourceReview: { mode: enforce, phases: [specification, planning], reviewerAgent: sflow-source-reviewer }`. The six legacy checklist articles remain off by default; a repository can still configure `phases.specification.specificationQuality.approvalChecklist` as `off` or `required` explicitly.
 
+The context packet includes the canonical `reportSchema` and a `reportTemplate`. Planning metadata is prefilled from the exact approved clauses and published plan, with `assessment: unreviewed`; it is not a machine endorsement. Review rows use singular `clauseId`, `expectedPaths` and `plannedTests`. Findings use `id`, `severity: blocking|advisory` and `message`. A pinned `test-only` plan row legitimately has no product paths, but still needs planned tests. Before retaining a report, run `review-source check` at the returned Git-private staging path. It diagnoses format, citations and bindings without commit or push. `retentionReady` means the packet can be retained as evidence, not that the phase can advance: real semantic gaps, unanswered questions and pending human decisions still block phase submission. `submit` repeats validation and refuses malformed packets before creating a transaction. Copilot performs at most two changed-packet format repairs and does not repeatedly publish guesses or mark gaps supported to pass a gate.
+
 ## Purpose and prerequisites
+
+Review context includes the accepted reviewer's instructions; do not create or persistently select
+another agent. Retention scopes the reviewer to that operation and preserves the phase author's
+session. Review instructions prohibit authoring or advancing work; native activation preserves
+the author, while CLI lifecycle guards reject a persistently selected read-only agent.
+Readonly default authors are rejected during configuration validation, including copied steps.
+If an older generation was authored by its required reviewer, the recovery route selects its
+accepted author and prepares an honestly authored successor; it never relabels published history.
+
+Context labels both `authoredContentSha256` (the review binding) and `registeredFileSha256` (the
+full file including managed metadata). The CLI verifies full-file integrity before composing the
+packet. Different hash domains do not indicate stale evidence; submission's metadata rewrite does
+not invalidate unchanged authored content. Pending approved intent amendments route first to an
+explicit human acknowledgement across guide, readiness, fast-path and recovery, before downstream
+authoring, publication or submission. Self-approval warnings remain separate from acknowledgement.
 
 Use this topic when the current goal matches **specification quality**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow review-source context specification --json`, then `singularity-flow review-source submit specification --report-file <staging-path>`; inspect with `review-source status specification --json`. For a proposed exclusion, an authorized human uses `review-source decide specification --finding <id> --reason <text>`. The same forms apply to `planning`. Run `singularity-flow review-source --help` for the exact forms supported by this build.
+- **Shell:** `singularity-flow review-source context specification --json`, then `singularity-flow review-source check specification --report-file <staging-path> --json`, then `singularity-flow review-source submit specification --report-file <staging-path>` when `retentionReady` is true; inspect with `review-source status specification --json`. For a proposed exclusion, an authorized human uses `review-source decide specification --finding <id> --reason <text>`. The same forms apply to `planning`, including renamed steps with these responsibilities. Run `singularity-flow review-source --help` for exact forms.
 - **Copilot:** `/sf-review-source`, followed by `/sf-submit` only when review is ready; `/sf-approve` remains a separate human decision.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 

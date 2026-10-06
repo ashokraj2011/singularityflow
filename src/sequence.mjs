@@ -12,6 +12,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
 import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
+import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -26,6 +27,7 @@ export function sequenceGateMode(workflow, gate) {
 }
 
 export function phaseNeedsGeneration(workflow, phase) {
+  if (sourceReviewAuthorConflict(workflow, phase)) return true;
   // A reviewed skill-version amendment invalidates only its affected phases. Their earlier
   // publication remains in the audit trail but is not fresh evidence under the new WFA pin.
   const amendment = phase?.skillAmendmentRevalidation;

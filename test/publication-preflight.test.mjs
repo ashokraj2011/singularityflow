@@ -26,6 +26,8 @@ import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { recordInjection } from '../src/inject.mjs';
+import { recordClarificationResponses } from '../src/clarifications.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 import { sgosRevisionCandidateReference } from '../src/revision/candidate-adapter.mjs';
 import { computeRevisionPrecheck } from '../src/revision/precheck.mjs';
@@ -1109,6 +1111,49 @@ test('recovery routes exact current-phase draft and preparation changes to revie
   assert.ok(action.expectedPaths.includes('singularity/work-items/PREFLIGHT-1/artifacts/intake/intake.md'));
   assert.match(action.detail, /Review their Git diff, especially workflow\.json/);
   assert.equal(plan.requiresRecovery, false, 'dirty authoring is not a lifecycle recovery gate');
+});
+
+test('new Story recovery preserves composed prompt and clarification records as current-phase authoring', async t => {
+  const { root, config, workflow, phase, target } = await fixture('recovery-generated-context');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const clarification = { mode: 'required', maxQuestions: 5 };
+  phase.clarification = clarification;
+  workflow.resolution.phases.find(entry => entry.id === phase.id).clarification = clarification;
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'baseline new Story');
+  await writeFile(target, `${await readFile(target, 'utf8')}\nAuthoring remains in progress.\n`);
+  const itemRoot = `singularity/work-items/${workflow.workItem.id}`;
+  const prompt = await recordInjection(root, workflow, phase, {
+    agent: 'product-owner', sections: [], renderedText: '# Governed specification prompt\n',
+    groundingAvailability: { status: 'unavailable', reasonCode: 'WORLD_MODEL_UNAVAILABLE' },
+    sourceComparison: { status: 'unavailable', reasonCode: 'WORLD_MODEL_UNAVAILABLE' }
+  }, { workDir: path.join(root, itemRoot) });
+  const answers = await recordClarificationResponses(root, config, workflow, phase, {
+    responses: [{ question: 'What is in scope?', answer: 'The approved Story scope.' }],
+    actor: ACTOR, agent: 'product-owner'
+  });
+  const before = git(root, 'status', '--porcelain=v1', '--untracked-files=all');
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
+  const action = plan.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(action.mode, 'guided');
+  assert.equal(action.confirmation, 'none');
+  assert.equal(action.classification, 'current-phase-review-required');
+  assert.deepEqual(action.unexpectedPaths, []);
+  for (const relative of [prompt.file, prompt.promptFile, answers.path]) {
+    assert.ok(action.expectedPaths.includes(relative), relative);
+  }
+  assert.equal(action.safe, false, 'classification is not authority to publish or adopt changes');
+  assert.equal(action.automatic, false);
+  assert.equal(plan.requiresRecovery, false);
+  assert.equal(git(root, 'status', '--porcelain=v1', '--untracked-files=all'), before,
+    'recovery preserves all bytes and the Git index');
+
+  config.governance ??= {};
+  config.governance.protectedPaths = [answers.path];
+  const protectedPlan = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
+  const protectedAction = protectedPlan.actions.find(entry => entry.id === 'working-tree');
+  assert.equal(protectedAction.mode, 'manual');
+  assert.deepEqual(protectedAction.unexpectedPaths, [answers.path]);
 });
 
 test('recovery ignores only untracked structured test reports without deleting their bytes', async () => {

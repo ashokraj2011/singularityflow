@@ -817,3 +817,19 @@ test('a JSON refusal carries its findings, obligations and coverage gaps, and no
   const quiet = envelopeOf(new FlowError('Nope', { code: 'X', details: { arbitrary: 'value' } }));
   assert.equal(Object.hasOwn(quiet.error, 'details'), false, 'a refusal with no projected facts carries no details');
 });
+
+test('review format refusals preserve bounded JSON field selectors without exposing arbitrary details', async () => {
+  const { refusalEnvelope } = await import('../src/refusal-remediation.mjs');
+  const error = Object.assign(new Error('Invalid review format'), { code: 'SOURCE_REVIEW_REPORT_INVALID', details: {
+    findings: [
+      { code: 'review-format-invalid', field: 'findings[0].message', message: 'Required message', private: 'hidden' },
+      { code: 'review-format-invalid', field: 'rows[18].plannedTests', message: 'Required plannedTests' },
+      { code: 'review-format-invalid', field: '/private/secret.txt', message: 'Bad selector' }
+    ], report: { private: 'hidden' }
+  } });
+  const envelope = refusalEnvelope(error, ['review-source', 'submit', 'custom-plan', '--json']);
+  assert.equal(envelope.error.details.findings[0].field, 'findings[0].message');
+  assert.equal(envelope.error.details.findings[1].field, 'rows[18].plannedTests');
+  assert.ok(!Object.hasOwn(envelope.error.details.findings[2], 'field'));
+  assert.doesNotMatch(JSON.stringify(envelope), /hidden|secret\.txt/u);
+});

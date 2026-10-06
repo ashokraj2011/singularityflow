@@ -62,6 +62,16 @@ test('approved skill where-used stays read-only and cannot invoke a model', () =
   assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.modelPolicy, 'never');
 });
 
+test('source review preflight is model-free and read-only, distinct from retention', () => {
+  for (const action of ['context', 'check', 'status', 'submit', 'decide']) {
+    const operation = resolveOperation({ requestedCommand: 'review-source', positionals: ['review-source', action, 'custom-plan'], options: { json: true } });
+    const expected = ['submit', 'decide'].includes(action) ? 'mutation' : 'read';
+    assert.equal(operation.classification, expected);
+    assert.equal(operation.modelPolicy, 'never');
+    assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.classification, expected);
+  }
+});
+
 test('workspace migrate-schemas is a read-only model-free operation', () => {
   const operation = resolveOperation({
     requestedCommand: 'workspace', positionals: ['workspace', 'migrate-schemas'], options: { json: true }

@@ -21,6 +21,7 @@ import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
@@ -229,6 +230,19 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
   const blockers = [];
   const actions = [];
+  const governance = phaseGovernanceHold(workflow, phase);
+  if (governance) {
+    // Historical reviewer authorship needs an honestly authored successor, not a blanket ban on
+    // preparing/publishing that successor. Pending acknowledgement is an explicit human gate.
+    if (governance.classification === 'amendment-acknowledgement-required') blockers.push({
+      code: governance.code, category: 'amendment', blocking: true, phase: phase.id,
+      generation: nextPhaseGeneration(phase), details: { message: governance.reason }
+    });
+    actions.push(...governance.actions.map((entry, index) => action({
+      id: `${governance.classification}:${phase.id}:${index}`, mode: 'guided',
+      command: entry.command, skill: entry.skill, detail: entry.reason
+    })));
+  }
   const testExecution = {
     status: phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: []
   };

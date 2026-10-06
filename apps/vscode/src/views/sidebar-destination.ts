@@ -7,6 +7,7 @@ export function sidebarDestination(viewType: string | null, home = false): strin
   const routes: Record<string, string> = {
     'singularityFlow.workspaceStories': 'stories',
     'singularityFlow.stories': 'stories',
+    'singularityFlow.dashboard': 'story-analytics',
     'singularityFlow.reviews': 'reviews',
     'singularityFlow.approvals': 'reviews',
     'singularityFlow.capabilityProposals': 'reviews',

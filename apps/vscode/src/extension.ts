@@ -895,6 +895,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork',
+    'singularityFlow.openConfigurationApprovals',
     'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
@@ -7631,6 +7632,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return InboxPanel.show(context, store, onInboxMessage,
         () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding, 'reviews');
     },
+    'singularityFlow.openConfigurationApprovals': async () =>
+      vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>
       vscode.commands.executeCommand('singularityFlow.myWork'),

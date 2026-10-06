@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { stdin, stdout } from 'node:process';
+import { stdin, stdout, stderr } from 'node:process';
 import { isatty } from 'node:tty';
 import { gitDir, identity } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
@@ -100,7 +100,8 @@ export async function issueActionAuthorization(root, plan, action, {
  * named action on the exact card. This is terminal-local review, not authenticated Copilot consent.
  */
 export async function captureTerminalActionAuthorization(root, plan, action, { label = 'Confirm action' } = {}) {
-  if (stdin.isTTY !== true || stdout.isTTY !== true || !isatty(stdin.fd) || !isatty(stdout.fd)) {
+  if (stdin.isTTY !== true || stdout.isTTY !== true || stderr.isTTY !== true
+      || !isatty(stdin.fd) || !isatty(stdout.fd) || !isatty(stderr.fd)) {
     throw new SingularityFlowError('This action requires direct terminal review of its exact current plan.',
       { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
   }
@@ -112,12 +113,21 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
   const reviewedPlan = structuredClone(plan);
   const reviewedAction = structuredClone(action);
   const beforeActor = actorKey(identity(root));
-  stdout.write(`${JSON.stringify({ plan: reviewedPlan, action: reviewedAction }, null, 2)}\n`);
-  const terminal = readline.createInterface({ input: stdin, output: stdout });
-  let answer;
-  try { answer = await terminal.question(`Type ${label} to confirm this exact action, or Enter to cancel: `); }
+  // Live human review must not enter the --json stdout buffer: the handler awaits an answer,
+  // while that buffer flushes only after it returns. stderr remains a real, visible terminal.
+  stderr.write(`${JSON.stringify({ plan: reviewedPlan, action: reviewedAction }, null, 2)}\n`);
+  const terminal = readline.createInterface({ input: stdin, output: stderr });
+  let confirmed = false;
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const answer = (await terminal.question(`Type ${label} to confirm this exact action, or Enter to cancel: `)).trim();
+      if (!answer) break;
+      if (answer === label) { confirmed = true; break; }
+      stderr.write(`Confirmation did not match. Type exactly: ${label}.\n`);
+    }
+  }
   finally { terminal.close(); }
-  if (answer !== label) return null;
+  if (!confirmed) return null;
   if (!beforeActor || beforeActor !== actorKey(identity(root))) {
     throw new SingularityFlowError('Local identity changed during terminal review; review the action again.',
       { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });

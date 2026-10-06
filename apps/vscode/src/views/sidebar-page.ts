@@ -7,6 +7,7 @@ export const PRIMARY_NAVIGATION = [
   { id: 'stories', label: 'Stories', icon: 'story', command: 'singularityFlow.openWorkspaceStories' },
   { id: 'story-analytics', label: 'Story Analytics', icon: 'impact', command: 'singularityFlow.openDashboard' },
   { id: 'reviews', label: 'Reviews', icon: 'approval', command: 'singularityFlow.openReviews' },
+  { id: 'configuration-approvals', label: 'Configuration approvals', icon: 'merge', command: 'singularityFlow.openConfigurationApprovals' },
   { id: 'workspace-manage', label: 'Workspaces', icon: 'workspace', command: 'singularityFlow.openWorkspaces' },
   { id: 'configuration-center', label: 'Configuration', icon: 'configuration', command: 'singularityFlow.openConfigurationCenter' }
 ] as const;

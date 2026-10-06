@@ -540,6 +540,11 @@
         "title": "Singularity Flow: Reviews"
       },
       {
+        "command": "singularityFlow.openConfigurationApprovals",
+        "title": "Singularity Flow: Configuration Approvals",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "singularityFlow.openInbox",
         "title": "Singularity Flow: Inbox (work summary)",
         "icon": "$(inbox)"

@@ -42,7 +42,8 @@ function setActor(root, actor) {
   process.env.SINGULARITY_FLOW_TEST_IDENTITY = actor.name;
 }
 
-async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExplicitTestCommand = false } = {}) {
+async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExplicitTestCommand = false,
+  uncommittedPreparation = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-command-amendment-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'application'); const remote = path.join(base, 'remote.git');
@@ -117,6 +118,18 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
     baseBranch: 'main', baseCommit, workType: 'feature', agent: 'developer', resolved,
     readinessRepositories, repositoryReadiness, testRecoveryPlan: testRecovery ? testRecoveryPlan : null,
     approvedConfigurationSnapshot: approved }));
+  const phasePreparation = {};
+  let preparationReceipt;
+  if (uncommittedPreparation) {
+    for (const field of ['generationIntent', 'authoringBaseline', 'inputContext']) {
+      if (workflow.phases.implementation[field] != null) {
+        phasePreparation[field] = workflow.phases.implementation[field];
+        delete workflow.phases.implementation[field];
+      }
+    }
+    preparationReceipt = await readFile(path.join(root, phasePreparation.generationIntent.path));
+    await rm(path.join(root, phasePreparation.generationIntent.path));
+  }
   await context(root, () => commitAndPublish(root, config, workflow, { type: 'binding' }, 'Bind Story under original approved command'));
   // The route omits scope, plan and review, so the Story can finish only once the reviewers' group
   // has said why they do not apply; it says so once, before any generation is submitted.
@@ -129,6 +142,11 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
         }
       }
     }));
+  if (uncommittedPreparation) {
+    Object.assign(workflow.phases.implementation, phasePreparation);
+    await writeFile(path.join(root, phasePreparation.generationIntent.path), preparationReceipt);
+    await writeFile(path.join(workDir(root, config, workflow.workItem.id), 'workflow.json'), JSON.stringify(workflow, null, 2));
+  }
   assert.equal(workflow.phases.implementation.generation, 0);
   assert.equal(workflow.phases.implementation.generationIntent.status, 'open');
   const artifact = path.join(workDir(root, config, workflow.workItem.id), workflow.phases.implementation.requiredArtifact.path);
@@ -254,7 +272,7 @@ async function runInTerminal(root, code, label) {
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`Amendment PTY timed out: ${transcript.slice(-5000)}`)); }, 45000);
     child.stdout.on('data', bytes => { transcript += bytes; }); child.stderr.on('data', bytes => { transcript += bytes; });
     child.on('error', error => { clearTimeout(timer); reject(error); });
-    child.on('close', status => { clearTimeout(timer); status === 0 ? resolve(transcript) : reject(new Error(transcript.slice(-5000))); });
+    child.on('close', status => { clearTimeout(timer); status === 0 ? resolve(transcript) : reject(new Error(`Amendment terminal '${label}' exited ${status}: ${transcript.slice(-5000)}`)); });
   });
   const match = output.match(/COMMAND_AMENDMENT_RESULT:(\{[^\r\n]+\})/u);
   assert.ok(match, output.slice(-5000));
@@ -415,6 +433,29 @@ test('real dual-authority terminal amendment preserves generated work and publis
   assert.equal(value.workflow.testRecovery.validationEpoch, 2);
   assert.equal(await readFile(path.join(value.root, 'src/service.mjs'), 'utf8'), before.source);
 });
+
+test('amendment replay accepts reviewed first-committed preparation but rejects rewritten intent',
+  { skip: !TRP_TERMINAL_AVAILABLE }, async t => {
+    const value = await fixture(t, { uncommittedPreparation: true });
+    const originalIntent = structuredClone(value.workflow.phases.implementation.generationIntent);
+    const parent = JSON.parse(git(value.root, 'show', 'HEAD:singularity/work-items/COMMAND-FIX-1/workflow.json'));
+    assert.equal(parent.phases.implementation.generationIntent, undefined);
+    const receiptBefore = await readFile(path.join(value.root, originalIntent.path));
+    const candidate = await value.candidate();
+    const plan = await context(value.root, () => previewStoryTestCommandAmendment(value.root, value.config, value.workflow,
+      { approvedConfigurationSnapshot: candidate, reason }));
+    const applied = await confirmInTerminal(value, plan.planSha256, candidate);
+    assert.equal(applied.ok, true, applied.stack ?? applied.message);
+    await value.reload();
+    assert.deepEqual(value.workflow.phases.implementation.generationIntent, originalIntent);
+    assert.deepEqual(await readFile(path.join(value.root, originalIntent.path)), receiptBefore);
+    // A subsequent commit cannot redefine the receipt now accepted with the reviewed amendment.
+    const changed = JSON.parse(receiptBefore);
+    changed.startedAt = '2026-10-06T00:00:00.000Z';
+    await writeFile(path.join(value.root, originalIntent.path), JSON.stringify(changed));
+    git(value.root, 'add', originalIntent.path); git(value.root, 'commit', '-qm', 'Attempt to rewrite accepted authoring receipt');
+    await assert.rejects(value.reload(), error => /receipt|intent|immutable/iu.test(error.message));
+  });
 
 test('stale exact amendment preview refuses without changing authored work or policy',
   { skip: !TRP_TERMINAL_AVAILABLE }, async t => {

@@ -323,8 +323,10 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /resolve missing commands via `\/sf-recover` reviewed adoption/i);
   assert.match(code, /Never edit protected configuration[^.]*disable hooks or fabricate results/i);
-  assert.match(code, /Run configured tests—no skip\/list\/dry-run\/no-tests/i);
-  assert.match(code, /Refresh retains the pin; no amendment approvals here/i);
+  assert.match(code, /Run the resolved tests—no skip\/list\/dry-run\/no-tests/i);
+  assert.match(code, /supported `argvSource: inferred` commands/);
+  assert.match(code, /inferred` commands require no YAML proposal, approval or Story amendment/);
+  assert.match(code, /Refresh retains explicit pins; no amendment approvals here/i);
 });
 
 test('code and verification skills place qualified trace tags in the intended file class', async () => {
@@ -411,7 +413,8 @@ test('recovery skill reviews a dirty consumed-generation rollover with an exact 
   assert.match(content, /git status --porcelain=v1 --untracked-files=all/);
   assert.match(content, /`manual` `working-tree` requires human confirmation of owned, in-scope changes/);
   assert.match(content, /`current-phase-review-required`\/`confirmation: none`/);
-  assert.match(content, /review diff, preserve validated preparation context; continue draft checks/);
+  assert.match(content, /review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks/);
+  assert.match(content, /Unknown evidence remains review-required/);
   assert.match(content, /Stop for protected, unrelated, unowned, conflicted, removed or symlink paths/);
   assert.match(content, /phase rollover <phase> --json/);
   assert.match(content, /Match work ID, phase, command and `confirmation` to recovery; re-inspect mismatches/);
@@ -432,9 +435,11 @@ test('runner policy adoption stays a reviewed recovery action outside the coding
   const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   const recover = await readFile(path.join(pluginRoot, 'skills', 'sflow-recover', 'SKILL.md'), 'utf8');
   assert.match(code, /resolve missing commands via `\/sf-recover` reviewed adoption/);
-  assert.match(code, /Refresh retains the pin; no amendment approvals here/);
+  assert.match(code, /Refresh retains explicit pins; no amendment approvals here/);
   assert.match(recover, /preview `singularity-flow story test-policy amend <WORK-ID> --reason "<reason>" --json`/);
   assert.match(recover, /Returned apply requires live human terminal review/);
+  assert.match(recover, /type `Amend test command` at its prompt, or Enter to cancel/);
+  assert.match(recover, /Never answer it yourself/);
   assert.match(recover, /Relay preparation\/validation only/);
   assert.match(recover, /Approval refusal ends its turn; `\/sf-reject` later for changed bytes/);
   assert.match(recover, /Preserve generations\/bytes\/pins/);

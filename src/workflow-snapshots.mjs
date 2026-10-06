@@ -567,6 +567,12 @@ export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { re
     const before = previous.phases?.[id];
     const after = proposed.phases?.[id];
     if (!before || !after) fail('Test-command amendment lost retained phase state.', 'WFA_AMENDMENT_INVALID');
+    // Preparation is not a publication. A gen-0 draft can first commit its open receipt with
+    // the reviewed amendment. Accepted replay authenticates that receipt against the human
+    // review below; capture still requires the live before/after intent to be byte-identical.
+    const introducedPreparation = replay && decision && testCommandAmendmentVersion(decision) === 1 && id === phaseId
+      && before.generationIntent == null && after.generationIntent?.status === 'open'
+      && after.generationIntent.generation === 1;
     if (id !== phaseId) {
       const beforeStable = { ...before, remoteOutputs: before.remoteOutputs ?? [] };
       const afterStable = { ...after, remoteOutputs: after.remoteOutputs ?? [] };
@@ -574,7 +580,7 @@ export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { re
     } else if ((!published && ((before.generation ?? 0) !== 0 || (after.generation ?? 0) !== 0
         || (before.generationPublications?.length ?? 0) !== 0 || (after.generationPublications?.length ?? 0) !== 0
         || ['approved', 'submitted', 'complete'].includes(before.status)))
-        || canonicalJson(before.generationIntent ?? null) !== canonicalJson(after.generationIntent ?? null)) {
+        || (!introducedPreparation && canonicalJson(before.generationIntent ?? null) !== canonicalJson(after.generationIntent ?? null))) {
       fail('Test-command amendment cannot alter a published generation or authoring intent.', 'WFA_AMENDMENT_UNSUPPORTED');
     } else {
       if (published && (canonicalJson(publishedTestCommandRevalidation(before)) !== canonicalJson(decision.revalidation)
@@ -595,6 +601,12 @@ export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { re
         // Capture checks its live projection exactly; replay authenticates its accepted bytes
         // against the reviewed draft digest below, not the older placeholder registration.
         if (replay && !published) delete value.artifacts;
+        if (introducedPreparation) {
+          delete value.generationIntent;
+          for (const field of ['authoringBaseline', 'inputContext']) {
+            if (before[field] == null) delete value[field];
+          }
+        }
       }
       if (canonicalJson(beforeStable) !== canonicalJson(afterStable)) fail('Test-command amendment changed unrelated current phase state.', 'WFA_AMENDMENT_UNSUPPORTED');
     }
@@ -2166,17 +2178,52 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     { maximumBytes: MAXIMUM_BUNDLE_BYTES, maximumObjectBytes: MAXIMUM_BUNDLE_BYTES }).get(draftPath);
   const intentPath = phase.generationIntent?.path;
   if (!intentPath || !intentPath.startsWith(`${storyRelative(config, workId)}/`)) fail('Test-command review lost its original authoring receipt.', 'WFA_AMENDMENT_INVALID');
-  const originalIntent = readCommittedJson(root, `${acceptanceCommit}^1`, intentPath, 'Original test-command authoring intent');
+  const originalIntent = parent.phases[decision.phaseId].generationIntent
+    ? readCommittedJson(root, `${acceptanceCommit}^1`, intentPath, 'Original test-command authoring intent') : null;
   const retainedIntent = readCommittedJson(root, acceptanceCommit, intentPath, 'Retained test-command authoring intent');
   const intentFirstCommit = firstAddedCommit(root, intentPath, 'Immutable original test-command authoring intent');
   const firstIntent = intentFirstCommit ? readCommittedJson(root, intentFirstCommit, intentPath,
     'First immutable test-command authoring intent') : null;
-  if (!firstIntent || !firstIntent.bytes.equals(retainedIntent.bytes) || !originalIntent.bytes.equals(retainedIntent.bytes)
+  if (!firstIntent || !firstIntent.bytes.equals(retainedIntent.bytes)
+      || (originalIntent ? !originalIntent.bytes.equals(retainedIntent.bytes)
+        : testCommandAmendmentVersion(decision) !== 1 || intentFirstCommit !== acceptanceCommit)
       || qualified(sha256(draftBytes)) !== review.record.preserved.draftSha256
       || testCommandAmendmentDigest(retainedIntent.record) !== review.record.preserved.intentSha256
       || parent.workIntervals?.current?.sourceBaseCommit !== review.record.preserved.sourceBaseCommit
       || workflow.workIntervals?.current?.sourceBaseCommit !== review.record.preserved.sourceBaseCommit) fail('Test-command amendment did not preserve its reviewed draft, authoring receipt and source base.', 'WFA_AMENDMENT_INVALID');
-  const originalAuthor = originalIntent.record.startedBy?.actor
+  if (!originalIntent) {
+    const receipt = readRecord('generation-start', retainedIntent.record).record;
+    const { receiptSha256, ...content } = receipt;
+    const expectedPath = storyRelative(config, workId, `context/generation-start/${phase.id}-gen1.json`);
+    const expectedIntent = { id: receipt.generationIntentId, generation: 1, status: 'open', path: expectedPath,
+      receiptSha256, baseline: receipt.baseline, startedAt: receipt.startedAt,
+      startedBy: receipt.startedBy, publication: null };
+    if (intentPath !== expectedPath || receipt.kind !== 'generation-start' || receipt.task !== 'code'
+        || receipt.workId !== workId || receipt.phase !== phase.id || receipt.generation !== 1
+        || receipt.status !== 'open' || receiptSha256 !== testCommandAmendmentDigest(content)
+        || receipt.baseline?.commit !== review.record.preserved.sourceBaseCommit
+        || canonicalJson(phase.generationIntent) !== canonicalJson(expectedIntent)) {
+      fail('Test-command amendment has an invalid first committed preparation receipt.', 'WFA_AMENDMENT_INVALID');
+    }
+    if (phase.inputContext && parent.phases[phase.id].inputContext == null) {
+      const expectedInputPath = storyRelative(config, workId, `context/inputs-${phase.id}-gen1.json`);
+      const inputs = readCommittedJson(root, acceptanceCommit, expectedInputPath, 'First committed phase input context');
+      if (phase.inputContext.path !== expectedInputPath || phase.inputContext.generation !== 1
+          || phase.inputContext.sha256 !== sha256(inputs.bytes)
+          || inputs.record.workId !== workId || inputs.record.phase !== phase.id || inputs.record.generation !== 1
+          || phase.inputContext.renderedSha256 !== inputs.record.renderedSha256
+          || phase.inputContext.renderedSha256 !== receipt.inputs?.renderedSha256) {
+        fail('Test-command amendment has an invalid first committed input context.', 'WFA_AMENDMENT_INVALID');
+      }
+    }
+    if (phase.authoringBaseline && parent.phases[phase.id].authoringBaseline == null
+        && (phase.authoringBaseline.generation !== 1 || phase.authoringBaseline.path !== phase.requiredArtifact.path
+          || !QUALIFIED_SHA256.test(phase.authoringBaseline.fingerprint ?? '')
+          || !Number.isSafeInteger(phase.authoringBaseline.bytes) || phase.authoringBaseline.bytes < 0)) {
+      fail('Test-command amendment has an invalid first committed draft baseline.', 'WFA_AMENDMENT_INVALID');
+    }
+  }
+  const originalAuthor = retainedIntent.record.startedBy?.actor
     ?? initialSnapshotAuthority(root, config, workId).workflow.workItem?.createdBy;
   validateTestCommandReview(review.record, decision, parent, originalAuthor);
   const expectedSummary = { schemaVersion: testCommandAmendmentVersion(decision), kind: 'test-command-adoption-summary',

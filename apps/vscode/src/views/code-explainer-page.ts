@@ -24,7 +24,7 @@ export const CX_STYLE = `
     --cx-text: var(--sf-text, var(--vscode-foreground)); --cx-mono: var(--sf-font-mono, var(--vscode-editor-font-family, monospace));
     --cx-edge: color-mix(in srgb, var(--cx-text) 30%, transparent); --cx-grid: color-mix(in srgb, var(--cx-text) 9%, transparent);
     --cx-inspector-w: 380px; --cx-outline-w: 250px;
-    display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: calc(100vh - var(--cx-footer, 38px));
+    display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; height: calc(100vh - var(--cx-footer, 38px));
     color: var(--cx-text); background: var(--sf-bg, var(--vscode-editor-background)); font-size: 13px; min-width: 0;
   }
   body.vscode-light #cx-root { --cx-caller: #2f6fbf; --cx-callee: #7a4fc0; --cx-test: #9a6700; --cx-added: #1a7f37; --cx-modified: #9a6700; --cx-removed: #cf222e; --cx-focus: #12877a; --cx-repository: #46698a; }
@@ -323,6 +323,111 @@ export const CX_STYLE = `
     .cx-outline { visibility: hidden; }
     .cx-legend { display: none; }
   }
+
+  /* Lenses: the bar, and the four lens views. */
+  .cx-head { grid-row: 1; } .cx-lenses { grid-row: 2; } .cx-tabs { grid-row: 3; } .cx-main { grid-row: 4; } .cx-status { grid-row: 5; }
+  .cx-lenses { display: flex; gap: .4rem; padding: .45rem 1rem; border-bottom: 1px solid var(--cx-line); overflow-x: auto; min-width: 0; }
+  #cx-root .cx-lens { flex: none; display: grid; gap: .05rem; justify-items: start; padding: .3rem .75rem; border: 1px solid var(--cx-line); border-radius: 6px; background: var(--cx-card); color: var(--cx-dim); }
+  #cx-root .cx-lens b { font-size: 12.5px; font-weight: 650; color: var(--cx-text); }
+  #cx-root .cx-lens small { font-size: 10.5px; color: var(--cx-faint); }
+  #cx-root .cx-lens:hover:not(:disabled) { border-color: var(--cx-line-strong); }
+  #cx-root .cx-lens[aria-selected="true"] { border-color: var(--cx-changed); background: color-mix(in srgb, var(--cx-changed) 10%, var(--cx-card)); }
+  #cx-root .cx-lens[aria-selected="true"] small { color: var(--cx-dim); }
+  .cx-main.lens-mode { grid-template-columns: 0 minmax(0, 1fr) 6px var(--cx-inspector-w); }
+  .cx-main.lens-mode .cx-outline { visibility: hidden; }
+  .cx-select { height: 26px; min-width: 0; max-width: min(520px, 60%); padding: 0 .4rem; border: 1px solid var(--cx-line-strong); border-radius: 4px; background: var(--cx-card); color: var(--cx-text); font-family: var(--cx-mono); font-size: 11.5px; }
+  .cx-lens-body { overflow: auto; min-height: 0; padding: .8rem 1rem 2rem; display: grid; gap: 1.1rem; align-content: start; }
+  .cx-lens-summary { margin: 0; font-size: 13px; line-height: 1.5; color: var(--cx-text); max-width: 72rem; }
+  .cx-lens-section { display: grid; gap: .55rem; min-width: 0; }
+  .cx-lens-section > h3 { display: flex; align-items: baseline; gap: .6rem; margin: 0; font-family: var(--cx-mono); font-size: 10.5px; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; color: var(--cx-dim); }
+  .cx-lens-section > h3 small { font-weight: 500; letter-spacing: .02em; text-transform: none; color: var(--cx-faint); }
+  .cx-lens-scroll { overflow: auto; max-width: 100%; padding-bottom: .5rem; }
+  .cx-lens-world { position: relative; }
+  .cx-lens-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  .cx-lens-links .line, .cx-lens-links .flow-line { fill: none; stroke: var(--cx-edge); stroke-width: 1.4; }
+  .cx-lens-links .dashed { stroke-dasharray: 5 4; }
+  .cx-lens-links .back { stroke: color-mix(in srgb, var(--cx-callee) 70%, transparent); }
+  .cx-lens-links .arrow { fill: none; stroke: var(--cx-edge); stroke-width: 1.5; }
+  .cx-lens-links .hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+  .cx-lens-links .label-bg { fill: var(--sf-bg, var(--vscode-editor-background)); stroke: var(--cx-line); }
+  .cx-lens-links .label, .cx-lens-links .flow-label { fill: var(--cx-dim); font-family: var(--cx-mono); font-size: 10.5px; }
+  .cx-lens-links .lens-link.selected .line { stroke: var(--cx-changed); stroke-width: 2.2; }
+  .cx-lens-links .lens-link.error .line { stroke: color-mix(in srgb, var(--cx-removed) 70%, transparent); }
+  .cx-lens-links .lens-link.writes .line { stroke: color-mix(in srgb, var(--cx-modified) 75%, transparent); }
+  #cx-root .cx-layer { position: absolute; left: 0; top: 0; display: grid; align-content: start; gap: .12rem; padding: .5rem .7rem; border: 1px solid var(--cx-line-strong); border-radius: 8px; background: var(--cx-card); text-align: left; overflow: hidden; justify-items: stretch; }
+  .cx-layer .head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; margin-bottom: .2rem; }
+  .cx-layer .head b { font-size: 12.5px; }
+  .cx-layer .head small, .cx-layer .more { color: var(--cx-faint); font-size: 10.5px; }
+  .cx-layer .file { font-family: var(--cx-mono); font-size: 11px; color: var(--cx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cx-layer.entry { border-top: 3px solid var(--cx-changed); } .cx-layer.ui { border-top: 3px solid var(--cx-caller); } .cx-layer.logic { border-top: 3px solid var(--cx-callee); }
+  .cx-layer.data { border-top: 3px solid var(--cx-test); } .cx-layer.storage { border-top: 3px solid var(--cx-focus); } .cx-layer.cross-cutting { border-top: 3px solid var(--cx-modified); }
+  #cx-root .selected.cx-layer, #cx-root .selected.cx-concept, #cx-root .selected.cx-entity, #cx-root .selected.cx-flow-node, #cx-root .selected.cx-logic-node { outline: 2px solid var(--cx-changed); outline-offset: 1px; }
+  .cx-concepts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .5rem; }
+  #cx-root .cx-concept { display: grid; gap: .3rem; justify-items: start; padding: .55rem .7rem; border: 1px solid var(--cx-line); border-radius: 8px; background: var(--cx-card); text-align: left; }
+  .cx-concept b { font-size: 13px; }
+  .cx-concept .bar { width: 100%; height: 4px; border-radius: 2px; background: var(--cx-grid); overflow: hidden; }
+  .cx-concept .bar i { display: block; height: 100%; background: var(--cx-changed); }
+  .cx-concept small { color: var(--cx-dim); font-size: 11px; }
+  .cx-concept .related { display: flex; flex-wrap: wrap; gap: .25rem; }
+  .cx-tag { display: inline-flex; padding: 0 .35rem; border: 1px solid var(--cx-line-strong); border-radius: 3px; font-family: var(--cx-mono); font-size: 10.5px; color: var(--cx-dim); }
+  .cx-entity { position: absolute; left: 0; top: 0; width: 300px; border: 1px solid var(--cx-line-strong); border-radius: 8px; background: var(--cx-card); cursor: pointer; overflow: hidden; }
+  .cx-entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .6rem; align-items: start; }
+  .cx-entity-grid .cx-entity { position: relative; width: auto; }
+  .cx-entity .head { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .45rem .6rem .1rem; }
+  .cx-entity .head b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cx-entity .where { padding: 0 .6rem .35rem; color: var(--cx-faint); font-family: var(--cx-mono); font-size: 10.5px; border-bottom: 1px solid var(--cx-line); }
+  .cx-entity .fields { display: grid; padding: .25rem 0; }
+  .cx-entity .field { display: flex; align-items: baseline; gap: .45rem; height: 19px; padding: 0 .6rem; font-family: var(--cx-mono); font-size: 11px; white-space: nowrap; overflow: hidden; }
+  #cx-root .cx-fname { text-transform: none; letter-spacing: normal; font-weight: 500; color: var(--cx-text); }
+  #cx-root .cx-ftype { text-transform: none; letter-spacing: normal; font-weight: 400; color: var(--cx-callee); overflow: hidden; text-overflow: ellipsis; }
+  .cx-entity .field .acc { margin-left: auto; color: var(--cx-faint); font-size: 10px; }
+  .cx-entity .field.more { color: var(--cx-faint); }
+  .cx-entity .values { display: flex; flex-wrap: wrap; gap: .25rem; padding: .2rem .6rem .35rem; max-height: 30px; overflow: hidden; }
+  .cx-entity .foot { display: flex; justify-content: space-between; gap: .5rem; padding: .25rem .6rem; border-top: 1px solid var(--cx-line); color: var(--cx-faint); font-size: 10.5px; }
+  .cx-entity.enum { border-top: 3px solid var(--cx-modified); } .cx-entity.props { border-top: 3px solid var(--cx-caller); } .cx-entity.shape { border-top: 3px solid var(--cx-focus); }
+  .cx-field-table { display: grid; gap: .2rem; }
+  .cx-field-table .row { display: flex; align-items: baseline; gap: .5rem; font-size: 11.5px; }
+  .cx-field-table .cx-ftype { font-family: var(--cx-mono); font-size: 11px; }
+  .cx-field-table .acc { color: var(--cx-faint); font-size: 10.5px; }
+  #cx-root .cx-flow-node { position: absolute; left: 0; top: 0; display: grid; align-content: start; justify-items: stretch; gap: .1rem; padding: .4rem .65rem; border: 1px solid var(--cx-line-strong); border-radius: 8px; background: var(--cx-card); text-align: left; overflow: hidden; }
+  .cx-flow-node .kind { color: var(--cx-faint); font-family: var(--cx-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+  .cx-flow-node b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cx-flow-node .detail { color: var(--cx-dim); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cx-flow-node .conv { color: var(--cx-modified); font-family: var(--cx-mono); font-size: 10.5px; }
+  #cx-root .cx-flow-node.entry { border-color: var(--cx-changed); background: color-mix(in srgb, var(--cx-changed) 12%, var(--cx-card)); }
+  #cx-root .cx-flow-node.state { border-color: var(--cx-modified); border-style: dashed; }
+  #cx-root .cx-flow-node.sink { border-color: var(--cx-callee); background: color-mix(in srgb, var(--cx-callee) 10%, var(--cx-card)); }
+  #cx-root .cx-flow-node.source { border-color: var(--cx-focus); background: color-mix(in srgb, var(--cx-focus) 10%, var(--cx-card)); }
+  #cx-root .cx-flow-node.c-error { border-color: var(--cx-removed); }
+  .cx-carries { display: block; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; }
+  .cx-logic-head { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+  .cx-logic-head b { font-size: 13px; }
+  .cx-logic-head .where { color: var(--cx-faint); font-family: var(--cx-mono); font-size: 11px; }
+  #cx-root .cx-logic-node { position: absolute; left: 0; top: 0; display: grid; place-items: center; padding: .25rem .6rem; border: 1px solid var(--cx-line-strong); border-radius: 6px; background: var(--cx-card); text-align: center; overflow: hidden; }
+  .cx-logic-node .text { display: grid; max-width: 100%; position: relative; z-index: 1; }
+  .cx-logic-node .text span { font-family: var(--cx-mono); font-size: 11px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #cx-root .cx-logic-node.decision { border: 0; background: none; padding: .2rem 2.6rem; }
+  #cx-root .cx-logic-node.decision::before { content: ''; position: absolute; inset: 0; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: var(--cx-modified); }
+  #cx-root .cx-logic-node.decision::after { content: ''; position: absolute; inset: 1.5px; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: var(--cx-card); }
+  #cx-root .cx-logic-node.loop { border-color: var(--cx-callee); border-radius: 18px; }
+  #cx-root .cx-logic-node.term { border-radius: 16px; }
+  #cx-root .cx-logic-node.t-return { border-color: var(--cx-added); }
+  #cx-root .cx-logic-node.t-throw { border-color: var(--cx-removed); color: var(--cx-removed); }
+  #cx-root .cx-logic-node.start, #cx-root .cx-logic-node.end { border-radius: 16px; color: var(--cx-dim); }
+  #cx-root .cx-logic-node.t-try { border-style: dashed; }
+  .cx-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: .1rem; }
+  .cx-steps li { display: flex; align-items: baseline; gap: .4rem; padding: .1rem .3rem; border-radius: 3px; font-size: 12px; }
+  .cx-steps li.lit { background: color-mix(in srgb, var(--cx-changed) 16%, transparent); }
+  .cx-steps li .w { color: var(--cx-text); font-weight: 600; white-space: nowrap; }
+  .cx-steps li code { flex: 1 1 auto; min-width: 0; color: var(--cx-dim); font-size: 11px; white-space: pre-wrap; word-break: break-word; background: none; border: 0; padding: 0; }
+  .cx-steps li.decide .w { color: var(--cx-modified); } .cx-steps li.loop .w { color: var(--cx-callee); } .cx-steps li.error .w { color: var(--cx-removed); } .cx-steps li.done .w { color: var(--cx-added); }
+  .cx-steps .d1 { padding-left: 1.1rem; } .cx-steps .d2 { padding-left: 2.2rem; } .cx-steps .d3 { padding-left: 3.3rem; } .cx-steps .d4 { padding-left: 4.4rem; } .cx-steps .d5 { padding-left: 5.5rem; } .cx-steps .d6 { padding-left: 6.6rem; }
+  #cx-root button.ln { margin-left: auto; flex: none; color: var(--cx-faint); font-family: var(--cx-mono); font-size: 10.5px; }
+  #cx-root button.ln:hover:not(:disabled) { color: var(--sf-link, var(--vscode-textLink-foreground)); }
+  .cx-reasons li { flex-wrap: wrap; }
+  .cx-reasons .why, .cx-links .why { color: var(--cx-faint); font-size: 10.5px; }
+  .cx-lens-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cx-dim); font-size: 11.5px; }
+  #cx-root .cx-back { margin-bottom: .4rem; color: var(--sf-link, var(--vscode-textLink-foreground)); font-size: 11.5px; }
 `;
 
 /** The static shell. Every dynamic part is filled by the script from the posted model. */
@@ -349,7 +454,14 @@ export function codeExplainerBody(token: string): string {
         <button class="cx-btn" type="button" data-action="reindex" title="Read the change and ask the language services again">${icon('refresh', { size: 14 })}<span>Re-index</span></button>
       </div>
     </header>
-    <nav class="cx-tabs" role="tablist" aria-label="Explainer views">
+    <nav class="cx-lenses" role="tablist" aria-label="Lenses">
+      <button class="cx-lens" type="button" role="tab" id="cx-lens-code" data-lens="code" aria-selected="true" aria-controls="cx-tabs-row"><b>Code</b><small>functions and calls</small></button>
+      <button class="cx-lens" type="button" role="tab" id="cx-lens-concepts" data-lens="concepts" aria-selected="false" aria-controls="cx-view-concepts" tabindex="-1"><b>Concepts</b><small>what it is about</small></button>
+      <button class="cx-lens" type="button" role="tab" id="cx-lens-entities" data-lens="entities" aria-selected="false" aria-controls="cx-view-entities" tabindex="-1"><b>Entities</b><small>the data it holds</small></button>
+      <button class="cx-lens" type="button" role="tab" id="cx-lens-flow" data-lens="flow" aria-selected="false" aria-controls="cx-view-flow" tabindex="-1"><b>Data flow</b><small>in, through, out</small></button>
+      <button class="cx-lens" type="button" role="tab" id="cx-lens-logic" data-lens="logic" aria-selected="false" aria-controls="cx-view-logic" tabindex="-1"><b>Logic</b><small>steps and decisions</small></button>
+    </nav>
+    <nav class="cx-tabs" id="cx-tabs-row" role="tablist" aria-label="Explainer views">
       <button class="cx-tab" type="button" role="tab" id="cx-tab-graph" data-tab="graph" aria-selected="true" aria-controls="cx-view-graph">Dependency graph <span class="cx-count" id="cx-count-graph">0</span></button>
       <button class="cx-tab" type="button" role="tab" id="cx-tab-trace" data-tab="trace" aria-selected="false" aria-controls="cx-view-trace" tabindex="-1">Requirement → test trace <span class="cx-count" id="cx-count-trace">0</span></button>
       <button class="cx-tab" type="button" role="tab" id="cx-tab-walk" data-tab="walk" aria-selected="false" aria-controls="cx-view-walk" tabindex="-1">Walkthrough <span class="cx-count" id="cx-count-walk">0</span></button>
@@ -399,6 +511,22 @@ export function codeExplainerBody(token: string): string {
             <button class="cx-filter" type="button" data-action="repo-up" title="Back to the enclosing folder">Up</button>
             <button class="cx-filter" type="button" data-action="repo-refresh" title="Explain this scope again">Refresh</button></div>
           <div class="cx-repo" id="cx-repo"></div>
+        </section>
+        <section class="cx-view cx-lens-view" id="cx-view-concepts" role="tabpanel" aria-labelledby="cx-lens-concepts" hidden>
+          <div class="cx-toolbar"><span class="cx-lens-hint">How the code is organised, and the words it is about</span></div>
+          <div class="cx-lens-body" id="cx-concepts"></div>
+        </section>
+        <section class="cx-view cx-lens-view" id="cx-view-entities" role="tabpanel" aria-labelledby="cx-lens-entities" hidden>
+          <div class="cx-toolbar"><span class="cx-lens-hint">The data it works with: fields, links and who uses them</span></div>
+          <div class="cx-lens-body" id="cx-entities"></div>
+        </section>
+        <section class="cx-view cx-lens-view" id="cx-view-flow" role="tabpanel" aria-labelledby="cx-lens-flow" hidden>
+          <div class="cx-toolbar"><span class="cx-label">From</span><select id="cx-flow-entry" class="cx-select" aria-label="Entry point"></select><span class="cx-spacer"></span><span class="cx-lens-hint">each arrow: what the call hands over</span></div>
+          <div class="cx-lens-body" id="cx-flow"></div>
+        </section>
+        <section class="cx-view cx-lens-view" id="cx-view-logic" role="tabpanel" aria-labelledby="cx-lens-logic" hidden>
+          <div class="cx-toolbar"><span class="cx-label">Function</span><select id="cx-logic-fn" class="cx-select" aria-label="Function"></select></div>
+          <div class="cx-lens-body" id="cx-logic"></div>
         </section>
       </div>
       <div class="cx-splitter" id="cx-splitter" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0"></div>
@@ -618,7 +746,269 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     return rows[at + (direction === 'down' ? 1 : -1)] || null;
   }
 
-  window.__codeExplainer = { layout: layout, edgePath: edgePath, loopPath: loopPath, fitTransform: fitTransform, moduleRows: moduleRows, cardHeight: cardHeight, isCollapsed: isCollapsed };
+
+  // ---- Logic flowchart layout (pure) --------------------------------------------------------
+  // A structured layout: a sequence stacks downwards, a decision puts its branches side by side,
+  // a loop draws its body below its head with the way back on the right and the exit on the left.
+  // Coordinates are relative to each block while it is built, then shifted into place.
+  const LG = { W: 232, LINE: 16, PAD: 9, GAP: 30, LANE: 26, DIAMOND: 58, TERM: 32, HEAD: 38, CASE_GAP: 22 };
+  function logicLines(step) {
+    if (step.k === 'step') return step.lines.map(function (entry) { return entry.text; });
+    if (step.k === 'if') return [step.cond];
+    if (step.k === 'loop') return [step.head];
+    if (step.k === 'switch') return ['depending on ' + step.subject];
+    if (step.k === 'try') return ['try'];
+    if (step.k === 'return') return ['return' + (step.text ? ' ' + step.text : '')];
+    if (step.k === 'throw') return ['throw ' + step.text];
+    return [step.text];
+  }
+  /** A condition broken onto at most two lines at a space or an operator, so a diamond can show it. */
+  function wrapCondition(text, width) {
+    if (text.length <= width) return [text];
+    let cut = -1;
+    for (let at = Math.min(text.length - 1, width); at > width / 2; at -= 1) {
+      if (text[at] === ' ' || text[at] === ',') { cut = at; break; }
+    }
+    if (cut < 0) cut = width;
+    const rest = text.slice(cut).trim();
+    return [text.slice(0, cut).trim(), rest.length > width ? rest.slice(0, width - 1) + '…' : rest];
+  }
+  function logicLayout(steps) {
+    let next = 0;
+    function make(kind, step, lines) {
+      if (kind === 'decision' && lines.length === 1) lines = wrapCondition(lines[0], 24);
+      const height = kind === 'decision' ? LG.DIAMOND : kind === 'term' || kind === 'start' || kind === 'end' ? LG.TERM
+        : kind === 'loop' ? LG.HEAD : LG.PAD * 2 + LG.LINE * Math.max(1, Math.min(4, lines.length));
+      const firstLine = step ? (step.line || (step.lines && step.lines[0] ? step.lines[0].line : null)) : null;
+      return { id: 'n' + (next++), kind: kind, tone: step ? step.k : kind, lines: lines, line: firstLine || null,
+        calls: step && step.calls ? step.calls.slice() : [], x: 0, y: 0, w: kind === 'start' || kind === 'end' ? 90 : LG.W, h: height };
+    }
+    function shift(block, dx, dy) {
+      block.nodes.forEach(function (node) { node.x += dx; node.y += dy; });
+      block.edges.forEach(function (edge) { if (edge.rx !== undefined) edge.rx += dx; if (edge.lx !== undefined) edge.lx += dx; if (edge.sx !== undefined) edge.sx += dx; });
+      block.outs.forEach(function (out) { if (out.rx !== undefined) out.rx += dx; if (out.lx !== undefined) out.lx += dx; });
+      return block;
+    }
+    function connect(edges, outs, to) {
+      outs.forEach(function (out) { edges.push({ from: out.id, to: to, label: out.label || null, rx: out.rx, lx: out.lx, dashed: Boolean(out.dashed) }); });
+    }
+    function leaf(node, open) { return { w: node.w, h: node.h, nodes: [node], edges: [], first: node.id, outs: open ? [{ id: node.id, label: null }] : [] }; }
+    function sequence(list) {
+      const blocks = list.map(blockOf);
+      const width = blocks.reduce(function (max, block) { return Math.max(max, block.w); }, LG.W);
+      let y = 0, first = null, outs = null;
+      const nodes = [], edges = [];
+      blocks.forEach(function (block) {
+        shift(block, (width - block.w) / 2, y);
+        if (outs === null) first = block.first; else connect(edges, outs, block.first);
+        block.nodes.forEach(function (node) { nodes.push(node); });
+        block.edges.forEach(function (edge) { edges.push(edge); });
+        outs = block.outs;
+        y += block.h + LG.GAP;
+      });
+      return { w: width, h: Math.max(0, y - LG.GAP), nodes: nodes, edges: edges, first: first, outs: outs || [] };
+    }
+    function columns(head, branches, labelled) {
+      // A head above side-by-side branch blocks; empty branches leave the head open with their label.
+      const width = Math.max(LG.W, branches.reduce(function (sum, branch, index) { return sum + branch.block.w + (index ? LG.CASE_GAP : 0); }, 0));
+      head.x = (width - head.w) / 2;
+      head.y = 0;
+      const top = head.h + LG.GAP;
+      let x = (width - branches.reduce(function (sum, branch, index) { return sum + branch.block.w + (index ? LG.CASE_GAP : 0); }, 0)) / 2;
+      const nodes = [head], edges = [], outs = [];
+      let height = 0;
+      branches.forEach(function (branch) {
+        shift(branch.block, x, top);
+        x += branch.block.w + LG.CASE_GAP;
+        branch.block.nodes.forEach(function (node) { nodes.push(node); });
+        branch.block.edges.forEach(function (edge) { edges.push(edge); });
+        if (branch.block.first) {
+          edges.push({ from: head.id, to: branch.block.first, label: labelled ? branch.label : null, dashed: Boolean(branch.dashed) });
+          branch.block.outs.forEach(function (out) { outs.push(out); });
+        } else outs.push({ id: head.id, label: branch.label });
+        height = Math.max(height, branch.block.h);
+      });
+      return { w: width, h: top + height, nodes: nodes, edges: edges, first: head.id, outs: outs };
+    }
+    function ladder(head, branches) {
+      // Many cases: a spine runs down from the decision and each case hangs off it, one under the
+      // next, so a long switch grows down the page instead of across it. Open ends leave by a lane
+      // on the right.
+      head.x = 0;
+      head.y = 0;
+      const spine = head.w / 2;
+      const left = spine + LG.LANE + 12;
+      const widest = branches.reduce(function (max, branch) { return Math.max(max, branch.block.w); }, LG.W);
+      const width = Math.max(head.w, left + widest) + LG.LANE;
+      const lane = width - LG.LANE / 2;
+      const nodes = [head], edges = [], outs = [];
+      let y = head.h + LG.GAP;
+      branches.forEach(function (branch) {
+        if (!branch.block.first) {
+          outs.push({ id: head.id, label: branch.label, rx: lane });
+          return;
+        }
+        shift(branch.block, left, y);
+        branch.block.nodes.forEach(function (node) { nodes.push(node); });
+        branch.block.edges.forEach(function (edge) { edges.push(edge); });
+        edges.push({ from: head.id, to: branch.block.first, label: branch.label, sx: spine });
+        branch.block.outs.forEach(function (out) { outs.push({ id: out.id, label: out.label, rx: lane }); });
+        y += branch.block.h + LG.GAP;
+      });
+      return { w: width, h: Math.max(head.h, y - LG.GAP), nodes: nodes, edges: edges, first: head.id, outs: outs };
+    }
+    function blockOf(step) {
+      if (step.k === 'step') return leaf(make('step', step, step.lines.map(function (entry) { return entry.text; })), true);
+      if (step.k === 'return' || step.k === 'throw' || step.k === 'jump') return leaf(make('term', step, logicLines(step)), false);
+      if (step.k === 'if') {
+        // An else-if chain is one decision with several outcomes: checked in order, the first that holds wins.
+        const chain = [step];
+        while (chain[chain.length - 1].else && chain[chain.length - 1].else.length === 1 && chain[chain.length - 1].else[0].k === 'if') chain.push(chain[chain.length - 1].else[0]);
+        if (chain.length >= 3) {
+          const head = make('decision', step, ['first that holds']);
+          const tail = chain[chain.length - 1].else;
+          const branches = chain.map(function (entry) { return { block: sequence(entry.then), label: entry.cond }; });
+          branches.push({ block: sequence(tail || []), label: tail && tail.length ? 'otherwise' : 'none holds' });
+          return ladder(head, branches);
+        }
+        const head = make('decision', step, [step.cond]);
+        const yes = sequence(step.then);
+        if (step.else && step.else.length) return columns(head, [{ block: yes, label: 'yes' }, { block: sequence(step.else), label: 'no' }], true);
+        // No else: "no" goes round the right of the "yes" branch to whatever comes next.
+        const block = columns(head, [{ block: yes, label: 'yes' }], true);
+        const lane = block.w + LG.LANE / 2;
+        block.w += LG.LANE;
+        block.outs.push({ id: head.id, label: 'no', rx: lane });
+        return block;
+      }
+      if (step.k === 'switch') {
+        const head = make('decision', step, logicLines(step));
+        const branches = step.cases.map(function (entry) { return { block: sequence(entry.body), label: entry.label }; });
+        return branches.length > 3 ? ladder(head, branches) : columns(head, branches, true);
+      }
+      if (step.k === 'try') {
+        const head = make('step', step, ['try']);
+        const branches = [{ block: sequence(step.body), label: null }].concat(step.catches.map(function (entry) {
+          return { block: sequence(entry.body), label: 'on error: ' + entry.label, dashed: true };
+        }));
+        const block = columns(head, branches, true);
+        if (step.final && step.final.length) {
+          const final = sequence(step.final);
+          shift(final, (Math.max(block.w, final.w) - final.w) / 2, block.h + LG.GAP);
+          if (final.w > block.w) shift(block, (final.w - block.w) / 2, 0);
+          connect(block.edges, block.outs, final.first);
+          return { w: Math.max(block.w, final.w), h: block.h + LG.GAP + final.h, nodes: block.nodes.concat(final.nodes),
+            edges: block.edges.concat(final.edges), first: block.first, outs: final.outs };
+        }
+        return block;
+      }
+      if (step.k === 'loop') {
+        const head = make('loop', step, [step.head]);
+        const body = sequence(step.body);
+        const width = Math.max(LG.W, body.w) + LG.LANE * 2;
+        head.x = (width - head.w) / 2;
+        shift(body, (width - body.w) / 2, head.h + LG.GAP);
+        const nodes = [head].concat(body.nodes);
+        const edges = body.edges.slice();
+        if (body.first) {
+          edges.push({ from: head.id, to: body.first, label: 'each time' });
+          body.outs.forEach(function (out) { edges.push({ from: out.id, to: head.id, label: null, back: true, rx: width - LG.LANE / 2 }); });
+        }
+        return { w: width, h: head.h + LG.GAP + body.h, nodes: nodes, edges: edges, first: head.id, outs: [{ id: head.id, label: 'done', lx: LG.LANE / 2 }] };
+      }
+      return leaf(make('step', step, logicLines(step)), true);
+    }
+    const start = make('start', null, ['start']);
+    const body = sequence(steps);
+    const width = Math.max(body.w, LG.W);
+    start.x = (width - start.w) / 2;
+    shift(body, (width - body.w) / 2, start.h + LG.GAP);
+    const nodes = [start].concat(body.nodes);
+    const edges = body.edges.slice();
+    if (body.first) edges.push({ from: start.id, to: body.first, label: null });
+    let height = start.h + LG.GAP + body.h;
+    const open = body.first ? body.outs : [{ id: start.id, label: null }];
+    if (open.length) {
+      const end = make('end', null, ['end']);
+      end.x = (width - end.w) / 2;
+      end.y = height + LG.GAP;
+      nodes.push(end);
+      connect(edges, open, end.id);
+      height = end.y + end.h;
+    }
+    return { nodes: nodes, edges: edges, width: width, height: height };
+  }
+
+  /**
+   * A top-down layered layout that wraps to the width it is given: what feeds a node sits above it,
+   * and a layer with more nodes than fit in one row continues on the next. Nodes carry their sizes;
+   * a node with no edges goes after the last layer.
+   */
+  function stackLayout(nodes, edges, width, options) {
+    const gapX = (options && options.gapX) || 36, gapY = (options && options.gapY) || 66;
+    const ids = {};
+    nodes.forEach(function (node) { ids[node.id] = true; });
+    const live = edges.filter(function (edge) { return ids[edge.from] && ids[edge.to] && edge.from !== edge.to; });
+    const ranks = layout(nodes.map(function (node) { return { id: node.id, height: 1, rank0: node.rank0 || 0 }; }), live).rank;
+    const connected = {};
+    live.forEach(function (edge) { connected[edge.from] = true; connected[edge.to] = true; });
+    let last = 0;
+    nodes.forEach(function (node) { if (connected[node.id]) last = Math.max(last, ranks[node.id] || 0); });
+    const byRank = {};
+    nodes.forEach(function (node) {
+      const rank = connected[node.id] ? (ranks[node.id] || 0) : last + 1;
+      (byRank[rank] = byRank[rank] || []).push(node);
+    });
+    const positions = {};
+    let y = 0, used = 0;
+    Object.keys(byRank).map(Number).sort(function (a, b) { return a - b; }).forEach(function (rank) {
+      // Under what feeds them: order a layer by where its predecessors already sit.
+      const row = byRank[rank].map(function (node, at) {
+        const above = live.filter(function (edge) { return edge.to === node.id && positions[edge.from]; })
+          .map(function (edge) { return positions[edge.from].x + positions[edge.from].w / 2; });
+        return { node: node, key: above.length ? above.reduce(function (sum, x) { return sum + x; }, 0) / above.length : Infinity, at: at };
+      }).sort(function (a, b) { return a.key - b.key || a.at - b.at; }).map(function (entry) { return entry.node; });
+      let start = 0;
+      while (start < row.length) {
+        let span = 0, count = 0;
+        while (start + count < row.length && (count === 0 || span + gapX + row[start + count].w <= width)) {
+          span += (count ? gapX : 0) + row[start + count].w;
+          count += 1;
+        }
+        const slice = row.slice(start, start + count);
+        let x = Math.max(0, (width - span) / 2);
+        slice.forEach(function (node) { positions[node.id] = { x: x, y: y, w: node.w, h: node.h }; x += node.w + gapX; });
+        used = Math.max(used, span);
+        y += Math.max.apply(null, slice.map(function (node) { return node.h; })) + gapY;
+        start += count;
+      }
+    });
+    return { positions: positions, width: Math.max(width, used), height: Math.max(0, y - gapY) };
+  }
+
+  /** The points of one flowchart edge: down and across, round a lane, or back up to a loop head. */
+  function logicRoute(edge, from, to) {
+    const fx = from.x + from.w / 2, fy = from.y + from.h, tx = to.x + to.w / 2, ty = to.y;
+    if (edge.sx !== undefined) {
+      const my = to.y + Math.min(to.h / 2, 18);
+      return [[edge.sx, fy], [edge.sx, my], [to.x, my]];
+    }
+    if (edge.back) {
+      const hy = to.y + to.h / 2;
+      return [[fx, fy], [fx, fy + 12], [edge.rx, fy + 12], [edge.rx, hy], [to.x + to.w, hy]];
+    }
+    if (edge.rx !== undefined) {
+      const sx = from.kind === 'decision' ? from.x + from.w : fx, sy = from.kind === 'decision' ? from.y + from.h / 2 : fy;
+      return [[sx, sy], [edge.rx, sy], [edge.rx, ty - 14], [tx, ty - 14], [tx, ty]];
+    }
+    if (edge.lx !== undefined) {
+      const sy = from.y + from.h / 2;
+      return [[from.x, sy], [edge.lx, sy], [edge.lx, ty - 14], [tx, ty - 14], [tx, ty]];
+    }
+    return [[fx, fy], [fx, ty - 14], [tx, ty - 14], [tx, ty]];
+  }
+
+  window.__codeExplainer = { layout: layout, edgePath: edgePath, loopPath: loopPath, fitTransform: fitTransform, moduleRows: moduleRows, cardHeight: cardHeight, isCollapsed: isCollapsed, logicLayout: logicLayout, logicRoute: logicRoute, stackLayout: stackLayout };
   if (!vscode || typeof document === 'undefined' || !document.getElementById('cx-root')) return;
 
   // ---- State -------------------------------------------------------------------------------
@@ -628,7 +1018,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   const view = Object.assign({
     tab: 'graph', zoom: 1, x: 40, y: 40, selected: null, selectedModule: null, selectedEdge: null, manual: {},
     collapsed: {}, expanded: {}, filters: Object.assign({}, DEFAULT_FILTERS),
-    isolate: false, outline: null, minimap: true, inspectorWidth: null, gapsOnly: false, walk: 0, fitted: false, modelId: null, query: ''
+    isolate: false, outline: null, minimap: true, inspectorWidth: null, gapsOnly: false, walk: 0, fitted: false, modelId: null, query: '',
+    lens: 'code', lensItem: null, flowEntry: null, logicSymbol: null
   }, saved.view || {});
   // Saved filters predate any role added since; a new role starts at its default instead of hidden.
   view.filters = Object.assign({}, DEFAULT_FILTERS, view.filters || {});
@@ -1242,7 +1633,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     view.selectedModule = null;
     view.selectedEdge = null;
     save();
-    if (view.tab === 'graph') {
+    if (view.lens === 'code' && view.tab === 'graph') {
       const symbol = model.byId[symbolId];
       const module = model.moduleById[symbol.moduleId];
       let rebuild = Boolean(view.isolate);
@@ -1390,6 +1781,10 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   function renderInspector() {
     inspector.replaceChildren();
     if (!model) return;
+    if (view.lens !== 'code' && !view.selected && !view.selectedModule && !view.selectedEdge) return renderLensInspector();
+    if (view.lens !== 'code' && view.lensItem) {
+      inspector.appendChild(button('cx-back', '← Back to ' + LENS_NAME[view.lens], function () { view.selected = null; view.selectedModule = null; view.selectedEdge = null; save(); renderInspector(); }));
+    }
     if (view.selectedEdge) return renderEdgeInspector();
     if (view.selectedModule) return renderModuleInspector();
     const symbol = model.byId[view.selected];
@@ -1868,9 +2263,794 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     renderOutline();
   }
 
+
+  // ---- Lenses ------------------------------------------------------------------------------
+  // The Code lens is the graph, trace, walkthrough and repository; the others draw the same
+  // harvest as concepts, entities, data flow and logic. All of them are built by the host.
+  const LENSES = ['code', 'concepts', 'entities', 'flow', 'logic'];
+  const LENS_NAME = { code: 'Code', concepts: 'Concepts', entities: 'Entities', flow: 'Data flow', logic: 'Logic' };
+  const FLOW_KIND = { entry: 'enters', step: 'step', state: 'state', sink: 'leaves', source: 'read from' };
+  function lenses() { return model && model.lenses ? model.lenses : null; }
+  function paintLensBar() {
+    LENSES.forEach(function (name) {
+      const tab = $('cx-lens-' + name);
+      tab.setAttribute('aria-selected', String(name === view.lens));
+      tab.tabIndex = name === view.lens ? 0 : -1;
+    });
+    const code = view.lens === 'code';
+    $('cx-tabs-row').hidden = !code;
+    $('cx-main').classList.toggle('lens-mode', !code);
+    ['concepts', 'entities', 'flow', 'logic'].forEach(function (name) { $('cx-view-' + name).hidden = name !== view.lens; });
+    if (!code) {
+      ['graph', 'trace', 'walk', 'repo'].forEach(function (name) { $('cx-view-' + name).hidden = true; });
+      $('cx-main').classList.remove('walk-mode');
+    }
+  }
+  function lensWidth(id) {
+    const holder = $(id);
+    return Math.max(260, (holder && holder.clientWidth ? holder.clientWidth : 640) - 36);
+  }
+  function setLens(lens) {
+    const next = LENSES.indexOf(lens) >= 0 ? lens : 'code';
+    if (next !== view.lens) view.lensItem = null;
+    view.lens = next;
+    save();
+    paintLensBar();
+    if (view.lens === 'code') { setTab(view.tab); if (model) renderInspector(); return; }
+    if (!model) return;
+    renderLens();
+    renderInspector();
+  }
+  function renderLens() {
+    if (view.lens === 'concepts') renderConcepts();
+    else if (view.lens === 'entities') renderEntities();
+    else if (view.lens === 'flow') renderFlow();
+    else if (view.lens === 'logic') renderLogic();
+  }
+  function lensUnavailable(holder) {
+    const empty = el('div', 'cx-empty');
+    empty.appendChild(el('h2', '', model && model.intelligence.status === 'pending' ? 'Still reading the code' : 'Nothing to draw yet'));
+    empty.appendChild(el('p', '', model && model.intelligence.status === 'pending'
+      ? 'This lens is drawn from what the language services answer; it fills in as they do.'
+      : 'This lens could not be built for this view. How this view was built (the engine item below) says why.'));
+    holder.appendChild(empty);
+  }
+  function pickLens(kind, id) {
+    view.lensItem = { kind: kind, id: id };
+    view.selected = null; view.selectedModule = null; view.selectedEdge = null;
+    save();
+    paintLensSelection();
+    renderInspector();
+  }
+  function paintLensSelection() {
+    const chosen = view.lensItem ? view.lensItem.id : null;
+    root.querySelectorAll('[data-lens-item]').forEach(function (node) { node.classList.toggle('selected', node.dataset.lensItem === chosen); });
+  }
+  function lensSection(holder, title, note) {
+    const section = el('section', 'cx-lens-section');
+    const heading = el('h3', '', title);
+    if (note) heading.appendChild(el('small', '', note));
+    section.appendChild(heading);
+    holder.appendChild(section);
+    return section;
+  }
+  function moduleName(moduleId) {
+    const module = model.moduleById[moduleId];
+    return module ? module.name : moduleId.replace(/^m:/, '');
+  }
+  /** Arrow paths between absolutely placed boxes, with an optional label at the middle. */
+  function drawLinks(layer, links, boxes, options) {
+    links.forEach(function (link) {
+      const a = boxes[link.from], b = boxes[link.to];
+      if (!a || !b) return;
+      const forward = b.x > a.x + a.w / 2 || (options && options.down && b.y > a.y + a.h / 2);
+      let d, mx, my;
+      if (options && options.down && b.y >= a.y + a.h) {
+        const x1 = a.x + a.w / 2, y1 = a.y + a.h, x2 = b.x + b.w / 2, y2 = b.y;
+        d = 'M' + x1 + ' ' + y1 + ' C' + x1 + ' ' + (y1 + 30) + ' ' + x2 + ' ' + (y2 - 30) + ' ' + x2 + ' ' + y2;
+        // The point 70% along the curve, nearer the target than the shared source.
+        const t = 0.7, u = 1 - t;
+        mx = u * u * u * x1 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x2;
+        my = u * u * u * y1 + 3 * u * u * t * (y1 + 30) + 3 * u * t * t * (y2 - 30) + t * t * t * y2;
+      } else {
+        const x1 = forward ? a.x + a.w : a.x, y1 = a.y + Math.min(a.h / 2, 26), x2 = forward ? b.x : b.x + b.w, y2 = b.y + Math.min(b.h / 2, 26);
+        d = edgePath(x1, y1, x2, y2);
+        mx = (x1 + x2) / 2; my = (y1 + y2) / 2;
+      }
+      const group = svg('g', { class: 'lens-link ' + (link.kind || ''), 'data-lens-item': link.id || '' });
+      group.appendChild(svg('path', { d: d, class: 'line' + (link.dashed ? ' dashed' : ''), 'marker-end': 'url(#cx-lens-arrow)' }));
+      if (link.id) group.appendChild(svg('path', { d: d, class: 'hit' }));
+      if (link.label) {
+        const text = String(link.label);
+        const shown = text.length > 44 ? text.slice(0, 43) + '…' : text;
+        const width = Math.min(300, shown.length * 6.4 + 12);
+        group.appendChild(svg('rect', { x: mx - width / 2, y: my - 9, width: width, height: 18, rx: 4, class: 'label-bg' }));
+        const label = svg('text', { x: mx, y: my + 4, 'text-anchor': 'middle', class: 'label' });
+        label.textContent = shown;
+        group.appendChild(label);
+        const title = svg('title', {});
+        title.textContent = text;
+        group.appendChild(title);
+      }
+      layer.appendChild(group);
+    });
+  }
+  /** A horizontal scroller as tall as its drawing: the lens body scrolls down, this scrolls across. */
+  function lensScroller(world) {
+    const scroller = el('div', 'cx-lens-scroll');
+    scroller.appendChild(world);
+    scroller.style.minHeight = (parseFloat(world.style.height) || 0) + 18 + 'px';
+    return scroller;
+  }
+  function lensWorld(width, height) {
+    const world = el('div', 'cx-lens-world');
+    world.style.width = Math.ceil(width) + 'px';
+    world.style.height = Math.ceil(height) + 'px';
+    const layer = svg('svg', { class: 'cx-lens-links', width: Math.ceil(width), height: Math.ceil(height) });
+    const defs = svg('defs', {});
+    const marker = svg('marker', { id: 'cx-lens-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+    marker.appendChild(svg('path', { d: 'M1 1L9 5L1 9', class: 'arrow' }));
+    defs.appendChild(marker);
+    layer.appendChild(defs);
+    world.appendChild(layer);
+    return { world: world, layer: layer };
+  }
+
+  // Concepts: how the code is organised, and the words it is about.
+  const TIERS = [['entry', 'ui'], ['cross-cutting', 'logic'], ['data', 'storage'], ['config', 'utility', 'other']];
+  function renderConcepts() {
+    const holder = $('cx-concepts');
+    holder.replaceChildren();
+    const data = lenses();
+    if (!data) { lensUnavailable(holder); return; }
+    const lens = data.concepts;
+    holder.appendChild(el('p', 'cx-lens-summary', lens.summary));
+    const arch = lensSection(holder, 'How it is organised', 'each file placed by the evidence it names');
+    const byId = {};
+    lens.layers.forEach(function (layer) { byId[layer.id] = layer; });
+    const W = 230, GAP_X = 40, GAP_Y = 54, HEAD = 40, LINE = 18;
+    const boxes = {};
+    let y = 0, width = 0;
+    const rows = [];
+    TIERS.forEach(function (tier) {
+      const present = tier.filter(function (id) { return byId[id]; });
+      if (!present.length) return;
+      const height = Math.max.apply(null, present.map(function (id) { const n = byId[id].modules.length; return HEAD + LINE * Math.min(5, n) + (n > 5 ? LINE : 0) + 10; }));
+      rows.push({ ids: present, y: y, h: height });
+      width = Math.max(width, present.length * (W + GAP_X) - GAP_X);
+      y += height + GAP_Y;
+    });
+    rows.forEach(function (row) {
+      const offset = (width - (row.ids.length * (W + GAP_X) - GAP_X)) / 2;
+      row.ids.forEach(function (id, index) { boxes[id] = { x: offset + index * (W + GAP_X), y: row.y, w: W, h: row.h }; });
+    });
+    if (rows.length) {
+      const canvasParts = lensWorld(width + 4, y - GAP_Y + 4);
+      drawLinks(canvasParts.layer, lens.layerLinks.filter(function (link) { return link.from !== 'test' && link.to !== 'test'; }).map(function (link) {
+        return { from: link.from, to: link.to, label: link.calls + ' call' + (link.calls === 1 ? '' : 's'), kind: 'layer' };
+      }), boxes, { down: true });
+      Object.keys(boxes).forEach(function (id) {
+        const layer = byId[id], spot = boxes[id];
+        const card = button('cx-layer ' + id, '', function () { pickLens('layer', id); }, layer.label + ': ' + layer.modules.length + ' files');
+        card.dataset.lensItem = 'layer:' + id;
+        card.style.transform = 'translate(' + spot.x + 'px, ' + spot.y + 'px)';
+        card.style.width = spot.w + 'px';
+        card.style.height = spot.h + 'px';
+        const head = el('span', 'head');
+        head.appendChild(el('b', '', layer.label));
+        head.appendChild(el('small', '', layer.modules.length + ' file' + (layer.modules.length === 1 ? '' : 's')));
+        card.appendChild(head);
+        layer.modules.slice(0, 5).forEach(function (entry) { card.appendChild(el('span', 'file', moduleName(entry.id))); });
+        if (layer.modules.length > 5) card.appendChild(el('span', 'more', '+ ' + (layer.modules.length - 5) + ' more'));
+        canvasParts.world.appendChild(card);
+      });
+      const scroller = lensScroller(canvasParts.world);
+      arch.appendChild(scroller);
+    } else arch.appendChild(el('p', 'cx-muted', 'No code files were read.'));
+    if (byId.test) {
+      const tests = button('cx-filter', 'Tests · ' + byId.test.modules.length + ' file' + (byId.test.modules.length === 1 ? '' : 's'), function () { pickLens('layer', 'test'); });
+      tests.dataset.lensItem = 'layer:test';
+      arch.appendChild(tests);
+    }
+    const about = lensSection(holder, 'What it is about', 'the words its declarations use most');
+    const grid = el('div', 'cx-concepts');
+    const top = lens.concepts.length ? lens.concepts[0].score : 1;
+    lens.concepts.forEach(function (concept) {
+      const card = button('cx-concept', '', function () { pickLens('concept', concept.id); });
+      card.dataset.lensItem = concept.id;
+      card.appendChild(el('b', '', concept.label));
+      const bar = el('span', 'bar');
+      const fill = el('i');
+      fill.style.width = Math.max(6, Math.round(concept.score / top * 100)) + '%';
+      bar.appendChild(fill);
+      card.appendChild(bar);
+      card.appendChild(el('small', '', concept.symbols.length + ' declaration' + (concept.symbols.length === 1 ? '' : 's') + ' · ' + concept.modules.length + ' file' + (concept.modules.length === 1 ? '' : 's') + (concept.entities.length ? ' · ' + concept.entities.length + ' entit' + (concept.entities.length === 1 ? 'y' : 'ies') : '')));
+      if (concept.related.length) {
+        const related = el('span', 'related');
+        concept.related.slice(0, 4).forEach(function (entry) { related.appendChild(el('span', 'cx-tag', entry.id.slice(2))); });
+        card.appendChild(related);
+      }
+      grid.appendChild(card);
+    });
+    if (!lens.concepts.length) grid.appendChild(el('p', 'cx-muted', 'No domain words stood out in the declarations read.'));
+    about.appendChild(grid);
+    paintLensSelection();
+  }
+
+  // Entities: declared data, objects built in code and component inputs.
+  const ENTITY_ROW = 19, ENTITY_HEAD = 46;
+  function entityHeight(entity) {
+    const rows = Math.min(12, entity.fields.length) + (entity.fields.length > 12 ? 1 : 0);
+    return ENTITY_HEAD + rows * ENTITY_ROW + (entity.values.length ? 30 : 0) + 26;
+  }
+  function entityCard(entity) {
+    const card = el('div', 'cx-entity ' + entity.kind);
+    card.dataset.lensItem = entity.id;
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    const head = el('div', 'head');
+    head.appendChild(el('b', '', entity.name));
+    head.appendChild(chip(entity.kind, entity.kind === 'enum' ? 'warn' : entity.kind === 'props' ? 'info' : 'dim'));
+    card.appendChild(head);
+    card.appendChild(el('div', 'where', moduleName(entity.moduleId) + (entity.line ? ':' + entity.line : '')));
+    const fields = el('div', 'fields');
+    entity.fields.slice(0, 12).forEach(function (field) {
+      const row = el('div', 'field');
+      row.appendChild(el('span', 'cx-fname', field.name));
+      row.appendChild(el('span', 'cx-ftype', field.type || ''));
+      if (field.accessors.length) row.appendChild(el('span', 'acc', field.accessors.join('/')));
+      fields.appendChild(row);
+    });
+    if (entity.fields.length > 12) fields.appendChild(el('div', 'field more', '+ ' + (entity.fields.length - 12) + ' more'));
+    card.appendChild(fields);
+    if (entity.values.length) {
+      const values = el('div', 'values');
+      entity.values.slice(0, 10).forEach(function (value) { values.appendChild(el('span', 'cx-tag', value)); });
+      if (entity.values.length > 10) values.appendChild(el('span', 'cx-tag', '+' + (entity.values.length - 10)));
+      card.appendChild(values);
+    }
+    const foot = el('div', 'foot');
+    foot.appendChild(el('span', '', entity.usedBy.length ? 'used by ' + entity.usedBy.length : 'no users found'));
+    if (entity.methods.length) foot.appendChild(el('span', '', entity.methods.length + ' method' + (entity.methods.length === 1 ? '' : 's')));
+    card.appendChild(foot);
+    const pick = function () { pickLens('entity', entity.id); };
+    card.addEventListener('click', pick);
+    card.addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { pick(); event.preventDefault(); } });
+    return card;
+  }
+  function renderEntities() {
+    const holder = $('cx-entities');
+    holder.replaceChildren();
+    const data = lenses();
+    if (!data) { lensUnavailable(holder); return; }
+    const lens = data.entities;
+    const declared = lens.entities.filter(function (entity) { return entity.kind !== 'shape' && entity.kind !== 'props'; });
+    const built = lens.entities.filter(function (entity) { return entity.kind === 'shape'; });
+    const inputs = lens.entities.filter(function (entity) { return entity.kind === 'props'; });
+    holder.appendChild(el('p', 'cx-lens-summary', declared.length + ' declared data type' + (declared.length === 1 ? '' : 's') + ', ' + built.length + ' object' + (built.length === 1 ? '' : 's') + ' built in code and ' + inputs.length + ' component input' + (inputs.length === 1 ? '' : 's') + '. ' + (lens.links.length ? lens.links.length + ' link' + (lens.links.length === 1 ? '' : 's') + ' between them.' : 'No field of one names another.')));
+    if (declared.length) {
+      const section = lensSection(holder, 'Declared data', 'fields, how types refer to each other, who uses them');
+      const nodes = declared.map(function (entity) { return { id: entity.id, w: CARD_W, h: entityHeight(entity) }; });
+      const stacked = stackLayout(nodes, lens.links.map(function (link) { return { from: link.from, to: link.to }; }), lensWidth('cx-entities'), { gapY: 56 });
+      const boxes = stacked.positions;
+      const parts = lensWorld(stacked.width + 4, stacked.height + 4);
+      drawLinks(parts.layer, lens.links.map(function (link) {
+        return { from: link.from, to: link.to, label: link.kind === 'is' ? 'is a' : link.label + (link.many ? ' (many)' : ''), dashed: link.kind === 'is', kind: link.kind };
+      }), boxes, { down: true });
+      declared.forEach(function (entity) {
+        const card = entityCard(entity);
+        const spot = boxes[entity.id];
+        card.style.transform = 'translate(' + spot.x + 'px, ' + spot.y + 'px)';
+        parts.world.appendChild(card);
+      });
+      const scroller = lensScroller(parts.world);
+      section.appendChild(scroller);
+    }
+    if (built.length) {
+      const section = lensSection(holder, 'Objects built in code', 'object literals a function returns or names');
+      const grid = el('div', 'cx-entity-grid');
+      built.forEach(function (entity) { grid.appendChild(entityCard(entity)); });
+      section.appendChild(grid);
+    }
+    if (inputs.length) {
+      const section = lensSection(holder, 'Component inputs', 'what each component is given');
+      const grid = el('div', 'cx-entity-grid');
+      inputs.forEach(function (entity) { grid.appendChild(entityCard(entity)); });
+      section.appendChild(grid);
+    }
+    if (!lens.entities.length) holder.appendChild(el('p', 'cx-muted', 'No data types, object shapes or component inputs were found in the files read.'));
+    lens.notes.forEach(function (note) { holder.appendChild(el('p', 'cx-muted', 'Bounded: ' + note + '.')); });
+    paintLensSelection();
+  }
+
+  // Data flow: from one entry point, the steps, state and endpoints its data reaches.
+  function flowEntryId(lens) {
+    if (view.flowEntry && lens.paths[view.flowEntry]) return view.flowEntry;
+    return lens.entries.length ? lens.entries[0].id : null;
+  }
+  function renderFlow() {
+    const holder = $('cx-flow');
+    holder.replaceChildren();
+    const picker = $('cx-flow-entry');
+    picker.replaceChildren();
+    const data = lenses();
+    if (!data) { picker.hidden = true; lensUnavailable(holder); return; }
+    const lens = data.flow;
+    const chosen = flowEntryId(lens);
+    picker.hidden = !lens.entries.length;
+    lens.entries.forEach(function (entry) {
+      const option = el('option', '', entry.label);
+      option.value = entry.id;
+      option.selected = entry.id === chosen;
+      picker.appendChild(option);
+    });
+    if (!chosen) {
+      const empty = el('div', 'cx-empty');
+      empty.appendChild(el('h2', '', 'No entry point found'));
+      lens.notes.forEach(function (note) { empty.appendChild(el('p', '', note)); });
+      holder.appendChild(empty);
+      return;
+    }
+    const entry = lens.entries.find(function (item) { return item.id === chosen; });
+    holder.appendChild(el('p', 'cx-lens-summary', 'Data entering at ' + entry.label + ' (found from ' + entry.reason + '), and every step, state and endpoint it reaches. Read top to bottom; each arrow says what it carries.'));
+    const path = lens.paths[chosen];
+    const nodeById = {};
+    lens.nodes.forEach(function (node) { nodeById[node.id] = node; });
+    const edgeById = {};
+    lens.edges.forEach(function (edge) { edgeById[edge.id] = edge; });
+    // Two nodes fit side by side even in a narrow panel, so one layer does not read as a sequence.
+    const available = lensWidth('cx-flow');
+    const nodeWidth = Math.round(Math.min(240, Math.max(170, (available - 36) / 2)));
+    const nodes = path.nodes.filter(function (id) { return nodeById[id]; }).map(function (id) {
+      const node = nodeById[id];
+      return { id: id, w: nodeWidth, h: 54 + (node.conversions.length ? 18 : 0), rank0: node.kind === 'source' ? -1 : 0 };
+    });
+    const edges = path.edges.map(function (id) { return edgeById[id]; }).filter(Boolean);
+    const stacked = stackLayout(nodes, edges.map(function (edge) { return { from: edge.from, to: edge.to }; }), available, { gapY: 70 });
+    const boxes = stacked.positions;
+    const parts = lensWorld(stacked.width + 4, stacked.height + 4);
+    drawLinks(parts.layer, edges.map(function (edge) {
+      return { id: edge.id, from: edge.from, to: edge.to, label: edge.inferred ? '(by name) ' + (edge.label || '') : edge.label, dashed: edge.kind === 'error' || edge.kind === 'reads' || Boolean(edge.inferred), kind: edge.kind + (edge.inferred ? ' inferred' : '') };
+    }), boxes, { down: true });
+    nodes.forEach(function (item) {
+      const node = nodeById[item.id], spot = boxes[item.id];
+      const card = button('cx-flow-node ' + node.kind + (node.category ? ' c-' + node.category : ''), '', function () { pickLens('flow', node.id); });
+      card.dataset.lensItem = node.id;
+      card.style.transform = 'translate(' + spot.x + 'px, ' + spot.y + 'px)';
+      card.style.width = spot.w + 'px';
+      card.style.height = spot.h + 'px';
+      card.appendChild(el('small', 'kind', FLOW_KIND[node.kind] + (node.category && node.kind !== 'step' ? ' · ' + node.category : '')));
+      card.appendChild(el('b', '', node.label));
+      if (node.detail) card.appendChild(el('span', 'detail', node.detail));
+      if (node.conversions.length) card.appendChild(el('span', 'conv', '⇄ converts ' + node.conversions.length + '×'));
+      parts.world.appendChild(card);
+    });
+    parts.layer.addEventListener('click', function (event) {
+      const hit = event.target.closest('[data-lens-item]');
+      if (hit && hit.dataset.lensItem) pickLens('flow-edge', hit.dataset.lensItem);
+    });
+    const scroller = lensScroller(parts.world);
+    holder.appendChild(scroller);
+    lens.notes.forEach(function (note) { holder.appendChild(el('p', 'cx-muted', note)); });
+    paintLensSelection();
+  }
+
+  // Logic: one function's steps as a flowchart; the inspector reads them as sentences.
+  function logicChoice(data) {
+    const flows = data.logic.flows;
+    if (view.logicSymbol && flows[view.logicSymbol] && model.byId[view.logicSymbol]) return view.logicSymbol;
+    if (view.selected && flows[view.selected]) return view.selected;
+    const entry = data.flow.entries.find(function (item) { return item.symbol && flows[item.symbol]; });
+    if (entry) return entry.symbol;
+    const ids = Object.keys(flows).filter(function (id) { return model.byId[id]; });
+    return ids.length ? ids[0] : null;
+  }
+  function renderLogic() {
+    const holder = $('cx-logic');
+    holder.replaceChildren();
+    const picker = $('cx-logic-fn');
+    picker.replaceChildren();
+    const data = lenses();
+    if (!data) { picker.hidden = true; lensUnavailable(holder); return; }
+    const chosen = logicChoice(data);
+    const ids = Object.keys(data.logic.flows).filter(function (id) { return model.byId[id]; }).sort(function (a, b) {
+      const x = model.byId[a], y = model.byId[b];
+      const fx = x.file || '', fy = y.file || '';
+      return fx < fy ? -1 : fx > fy ? 1 : (x.start || 0) - (y.start || 0);
+    });
+    picker.hidden = !ids.length;
+    let group = null, groupFile = null;
+    ids.forEach(function (id) {
+      const symbol = model.byId[id];
+      if (symbol.file !== groupFile) { groupFile = symbol.file; group = document.createElement('optgroup'); group.label = symbol.file || ''; picker.appendChild(group); }
+      const option = el('option', '', symbol.qualifiedName);
+      option.value = id;
+      option.selected = id === chosen;
+      group.appendChild(option);
+    });
+    if (!chosen) {
+      const empty = el('div', 'cx-empty');
+      empty.appendChild(el('h2', '', 'No function to draw'));
+      empty.appendChild(el('p', '', 'Steps are drawn for functions whose text was read in this view. Choose Full to map the whole worktree.'));
+      holder.appendChild(empty);
+      return;
+    }
+    view.logicSymbol = chosen;
+    const symbol = model.byId[chosen];
+    const flow = data.logic.flows[chosen];
+    const head = el('div', 'cx-logic-head');
+    head.appendChild(el('b', '', symbol.qualifiedName));
+    head.appendChild(el('span', 'where', (symbol.file || '') + (symbol.start ? ' · lines ' + symbol.start + '–' + symbol.end : '')));
+    head.appendChild(chip(flow.decisions + ' decision' + (flow.decisions === 1 ? '' : 's'), flow.decisions > 10 ? 'warn' : 'dim'));
+    if (flow.truncated) head.appendChild(chip('first steps only', 'warn'));
+    head.appendChild(button('cx-btn', 'Open', function () { post('cx.open', { symbol: chosen }); }, 'Open the function in the editor'));
+    holder.appendChild(head);
+    const chart = logicLayout(flow.steps);
+    const byId = {};
+    chart.nodes.forEach(function (node) { byId[node.id] = node; });
+    const pad = 16;
+    const parts = lensWorld(chart.width + pad * 2 + 40, chart.height + pad * 2);
+    parts.world.classList.add('logic');
+    const edgesLayer = svg('g', { transform: 'translate(' + pad + ' ' + pad + ')' });
+    chart.edges.forEach(function (edge) {
+      const from = byId[edge.from], to = byId[edge.to];
+      if (!from || !to) return;
+      const points = logicRoute(edge, from, to);
+      edgesLayer.appendChild(svg('polyline', { points: points.map(function (p) { return p[0] + ',' + p[1]; }).join(' '), class: 'flow-line' + (edge.dashed ? ' dashed' : '') + (edge.back ? ' back' : ''), 'marker-end': 'url(#cx-lens-arrow)' }));
+      if (edge.label) {
+        const at = points[0];
+        const spot = edge.sx !== undefined ? [points[1][0] + 6, points[1][1] - 5] : [at[0] + (edge.rx !== undefined || edge.lx !== undefined ? (edge.lx !== undefined ? -8 : 8) : 6), at[1] + (edge.rx !== undefined || edge.lx !== undefined ? -5 : 14)];
+        const text = svg('text', { x: spot[0], y: spot[1], class: 'flow-label', 'text-anchor': edge.lx !== undefined ? 'end' : 'start' });
+        text.textContent = edge.label.length > 28 ? edge.label.slice(0, 27) + '…' : edge.label;
+        edgesLayer.appendChild(text);
+      }
+    });
+    parts.layer.appendChild(edgesLayer);
+    chart.nodes.forEach(function (node) {
+      const card = button('cx-logic-node ' + node.kind + ' t-' + node.tone, '', function () { pickLens('logic-node', node.id); highlightLine(node.line); });
+      card.dataset.lensItem = node.id;
+      card.style.transform = 'translate(' + (node.x + pad) + 'px, ' + (node.y + pad) + 'px)';
+      card.style.width = node.w + 'px';
+      card.style.height = node.h + 'px';
+      const text = el('span', 'text');
+      node.lines.slice(0, node.kind === 'decision' ? 2 : 4).forEach(function (line) { text.appendChild(el('span', '', line)); });
+      card.appendChild(text);
+      card.title = node.lines.join('\n') + (node.line ? '\nline ' + node.line : '');
+      if (node.line) card.dataset.line = String(node.line);
+      parts.world.appendChild(card);
+    });
+    const scroller = lensScroller(parts.world);
+    holder.appendChild(scroller);
+    const start = chart.nodes[0];
+    if (start) scroller.scrollLeft = Math.max(0, start.x + pad + start.w / 2 - scroller.clientWidth / 2);
+    paintLensSelection();
+  }
+  function highlightLine(line) {
+    inspector.querySelectorAll('.cx-steps li').forEach(function (item) { item.classList.toggle('lit', Boolean(line) && item.dataset.line === String(line)); });
+    const lit = inspector.querySelector('.cx-steps li.lit');
+    if (lit) lit.scrollIntoView({ block: 'nearest' });
+  }
+  /** The steps as sentences a person reads top to bottom, each with the line it is on. */
+  function stepsOutline(steps, symbolId) {
+    const list = el('ol', 'cx-steps');
+    const add = function (depth, words, code, line, tone) {
+      const item = el('li', 'd' + Math.min(depth, 6) + (tone ? ' ' + tone : ''));
+      if (words) item.appendChild(el('span', 'w', words));
+      if (code) item.appendChild(el('code', '', code));
+      if (line) {
+        item.dataset.line = String(line);
+        item.appendChild(button('ln', String(line), function () { post('cx.openLine', { symbol: symbolId, line: line }); }, 'Open line ' + line));
+      }
+      list.appendChild(item);
+    };
+    const branch = function (step, depth, words) {
+      add(depth, words, step.cond, step.line, 'decide');
+      walk(step.then, depth + 1);
+      if (!step.else) return;
+      if (step.else.length === 1 && step.else[0].k === 'if') { branch(step.else[0], depth, 'Otherwise, if'); return; }
+      add(depth, 'Otherwise', '', null, 'decide');
+      walk(step.else, depth + 1);
+    };
+    const walk = function (items, depth) {
+      items.forEach(function (step) {
+        if (step.k === 'step') step.lines.forEach(function (entry) { add(depth, '', entry.text, entry.line, ''); });
+        else if (step.k === 'if') branch(step, depth, 'If');
+        else if (step.k === 'loop') { add(depth, 'Repeat', step.head, step.line, 'loop'); walk(step.body, depth + 1); }
+        else if (step.k === 'switch') {
+          add(depth, 'Depending on', step.subject, step.line, 'decide');
+          step.cases.forEach(function (entry) {
+            add(depth + 1, entry.label === 'otherwise' ? 'Otherwise' : 'When', entry.label === 'otherwise' ? '' : entry.label, entry.line, 'decide');
+            walk(entry.body, depth + 2);
+          });
+        }
+        else if (step.k === 'try') {
+          add(depth, 'Try', '', step.line, '');
+          walk(step.body, depth + 1);
+          step.catches.forEach(function (entry) { add(depth, 'If it fails with', entry.label, entry.line, 'error'); walk(entry.body, depth + 1); });
+          if (step.final) { add(depth, 'Finally', '', null, ''); walk(step.final, depth + 1); }
+        }
+        else if (step.k === 'return') add(depth, 'Return', step.text, step.line, 'done');
+        else if (step.k === 'throw') add(depth, 'Stop with an error:', step.text, step.line, 'error');
+        else add(depth, '', step.text, step.line, 'jump');
+      });
+    };
+    walk(steps, 0);
+    return list;
+  }
+
+  // The inspector for whatever is picked in a lens.
+  function renderLensInspector() {
+    const data = lenses();
+    const item = view.lensItem;
+    const eyebrow = function (label, tone) {
+      const node = el('div', 'cx-ins-eyebrow');
+      node.appendChild(el('span', 'cx-label', label));
+      if (tone) node.appendChild(chip(tone, 'dim'));
+      inspector.appendChild(node);
+    };
+    if (!data) { const empty = el('div', 'cx-empty'); empty.appendChild(el('h2', '', LENS_NAME[view.lens])); empty.appendChild(el('p', '', 'Nothing is drawn yet.')); inspector.appendChild(empty); return; }
+    if (view.lens === 'logic' && (!item || item.kind !== 'logic-node')) {
+      const symbolId = logicChoice(data);
+      const flow = symbolId ? data.logic.flows[symbolId] : null;
+      if (!flow) return;
+      const symbol = model.byId[symbolId];
+      eyebrow('Steps', symbol.kind);
+      inspector.appendChild(el('div', 'cx-ins-title', symbol.qualifiedName));
+      inspector.appendChild(el('div', 'cx-ins-path', (symbol.file || '') + (symbol.start ? ' · lines ' + symbol.start + '–' + symbol.end : '')));
+      const actions = el('div', 'cx-ins-actions');
+      actions.appendChild(button('cx-btn', 'Open', function () { post('cx.open', { symbol: symbolId }); }));
+      actions.appendChild(button('cx-btn', 'Calls and callers', function () { select(symbolId, true); }));
+      inspector.appendChild(actions);
+      const steps = box('What it does, step by step', 'read from its text');
+      steps.appendChild(stepsOutline(flow.steps, symbolId));
+      inspector.appendChild(steps);
+      if (symbol.callees.length) {
+        const calls = box('It calls');
+        const list = el('ul', 'cx-links');
+        symbol.callees.forEach(function (id) {
+          const callee = model.byId[id];
+          if (!callee) return;
+          const li = el('li');
+          li.appendChild(button('go', callee.qualifiedName, function () { if (data.logic.flows[id]) { view.logicSymbol = id; view.lensItem = null; save(); renderLogic(); renderInspector(); } else select(id, true); }, data.logic.flows[id] ? 'Show its steps' : 'Show it'));
+          list.appendChild(li);
+        });
+        calls.appendChild(list);
+        inspector.appendChild(calls);
+      }
+      data.logic.notes.forEach(function (note) { inspector.appendChild(el('p', 'cx-muted', note)); });
+      return;
+    }
+    if (!item) {
+      const empty = el('div', 'cx-empty');
+      empty.appendChild(el('h2', '', LENS_NAME[view.lens]));
+      empty.appendChild(el('p', '', view.lens === 'concepts' ? 'Choose a part of the architecture or a concept to see which code it covers.'
+        : view.lens === 'entities' ? 'Choose an entity to see its fields, what it links to and which functions take, return or build it.'
+          : 'Choose a step, state or endpoint, or an arrow, to see what flows through it.'));
+      inspector.appendChild(empty);
+      return;
+    }
+    if (item.kind === 'layer') {
+      const layer = data.concepts.layers.find(function (entry) { return entry.id === item.id; });
+      if (!layer) return;
+      eyebrow('Part of the code', layer.modules.length + ' files');
+      inspector.appendChild(el('div', 'cx-ins-title', layer.label));
+      const files = box('Files', 'and why each is here');
+      const list = el('ul', 'cx-links cx-reasons');
+      layer.modules.forEach(function (entry) {
+        const li = el('li');
+        li.appendChild(button('go', moduleName(entry.id), function () { post('cx.openModule', { module: entry.id }); }, 'Open the file'));
+        li.appendChild(el('span', 'why', entry.reason));
+        list.appendChild(li);
+      });
+      files.appendChild(list);
+      inspector.appendChild(files);
+      const out = data.concepts.layerLinks.filter(function (link) { return link.from === layer.id || link.to === layer.id; });
+      if (out.length) {
+        const calls = box('Calls with other parts');
+        const callList = el('ul', 'cx-links');
+        out.forEach(function (link) {
+          const other = data.concepts.layers.find(function (entry) { return entry.id === (link.from === layer.id ? link.to : link.from); });
+          callList.appendChild(el('li', '', (link.from === layer.id ? '→ ' : '← ') + (other ? other.label : link.to) + ' · ' + link.calls + ' call' + (link.calls === 1 ? '' : 's')));
+        });
+        calls.appendChild(callList);
+        inspector.appendChild(calls);
+      }
+      return;
+    }
+    if (item.kind === 'concept') {
+      const concept = data.concepts.concepts.find(function (entry) { return entry.id === item.id; });
+      if (!concept) return;
+      eyebrow('Concept', 'score ' + concept.score);
+      inspector.appendChild(el('div', 'cx-ins-title', concept.label));
+      const about = box('Where the word appears');
+      about.appendChild(el('p', 'cx-muted', concept.symbols.length + ' declaration' + (concept.symbols.length === 1 ? '' : 's') + ' and ' + concept.modules.length + ' file name' + (concept.modules.length === 1 ? '' : 's') + ' or folder' + (concept.modules.length === 1 ? '' : 's') + ' use “' + concept.term + '”. A word in a name is a hint of what code is about, not proof of what it does.'));
+      inspector.appendChild(about);
+      const members = box('Declarations');
+      members.appendChild(linkList(concept.symbols, 'Only file and folder names use it.'));
+      inspector.appendChild(members);
+      if (concept.entities.length) {
+        const entities = box('Entities');
+        const list = el('ul', 'cx-links');
+        concept.entities.forEach(function (id) {
+          const entity = data.entities.entities.find(function (entry) { return entry.id === id; });
+          if (!entity) return;
+          const li = el('li');
+          li.appendChild(button('go', entity.name, function () { setLens('entities'); pickLens('entity', id); }, 'Show it among the entities'));
+          list.appendChild(li);
+        });
+        entities.appendChild(list);
+        inspector.appendChild(entities);
+      }
+      const files = box('Files');
+      const fileList = el('ul', 'cx-links');
+      concept.modules.forEach(function (moduleId) {
+        const li = el('li');
+        li.appendChild(button('go', moduleName(moduleId), function () { post('cx.openModule', { module: moduleId }); }, 'Open the file'));
+        fileList.appendChild(li);
+      });
+      files.appendChild(fileList);
+      inspector.appendChild(files);
+      if (concept.related.length) {
+        const related = box('Related concepts', 'shared names, files and calls');
+        const list = el('div', 'cx-badges');
+        concept.related.forEach(function (entry) { list.appendChild(button('cx-filter', entry.id.slice(2) + ' · ' + entry.strength, function () { pickLens('concept', entry.id); })); });
+        related.appendChild(list);
+        inspector.appendChild(related);
+      }
+      return;
+    }
+    if (item.kind === 'entity') {
+      const entity = data.entities.entities.find(function (entry) { return entry.id === item.id; });
+      if (!entity) return;
+      eyebrow('Entity', entity.kind);
+      inspector.appendChild(el('div', 'cx-ins-title', entity.name));
+      inspector.appendChild(el('div', 'cx-ins-path', moduleName(entity.moduleId) + (entity.line ? ':' + entity.line : '') + ' · ' + entity.source));
+      const actions = el('div', 'cx-ins-actions');
+      if (entity.symbol) actions.appendChild(button('cx-btn', 'Open', function () { post(entity.line && model.byId[entity.symbol] && model.byId[entity.symbol].start <= entity.line && entity.line <= model.byId[entity.symbol].end ? 'cx.openLine' : 'cx.open', { symbol: entity.symbol, line: entity.line }); }));
+      inspector.appendChild(actions);
+      if (entity.fields.length) {
+        const fields = box('Fields', entity.fields.length + '');
+        const table = el('div', 'cx-field-table');
+        entity.fields.forEach(function (field) {
+          const row = el('div', 'row');
+          row.appendChild(el('code', 'cx-fname', field.name));
+          row.appendChild(el('span', 'cx-ftype', field.type || 'type not stated'));
+          if (field.accessors.length) row.appendChild(el('span', 'acc', field.accessors.join('/')));
+          if (field.line && entity.symbol) row.appendChild(button('ln', String(field.line), function () { post('cx.openLine', { symbol: entity.symbol, line: field.line }); }, 'Open line ' + field.line));
+          table.appendChild(row);
+        });
+        fields.appendChild(table);
+        inspector.appendChild(fields);
+      }
+      if (entity.values.length) {
+        const values = box('Values', entity.values.length + '');
+        const list = el('div', 'cx-badges');
+        entity.values.forEach(function (value) { list.appendChild(el('span', 'cx-tag', value)); });
+        values.appendChild(list);
+        inspector.appendChild(values);
+      }
+      const links = data.entities.links.filter(function (link) { return link.from === entity.id || link.to === entity.id; });
+      if (links.length || entity.extends.length) {
+        const related = box('Links');
+        const list = el('ul', 'cx-links');
+        links.forEach(function (link) {
+          const otherId = link.from === entity.id ? link.to : link.from;
+          const other = data.entities.entities.find(function (entry) { return entry.id === otherId; });
+          if (!other) return;
+          const li = el('li');
+          li.appendChild(el('span', 'why', link.from === entity.id ? (link.kind === 'is' ? 'is a' : 'has ' + link.label + (link.many ? ' (many)' : '')) : (link.kind === 'is' ? 'is extended by' : 'is held by ' + link.label + ' of')));
+          li.appendChild(button('go', other.name, function () { pickLens('entity', other.id); }));
+          list.appendChild(li);
+        });
+        entity.extends.filter(function (name) { return !links.some(function (link) { return link.kind === 'is' && link.from === entity.id; }); }).forEach(function (name) { list.appendChild(el('li', '', 'extends ' + name + ' (outside this view)')); });
+        related.appendChild(list);
+        inspector.appendChild(related);
+      }
+      const users = box('Used by', 'from declarations and their text');
+      if (entity.usedBy.length) {
+        const list = el('ul', 'cx-links');
+        entity.usedBy.forEach(function (use) {
+          const symbol = model.byId[use.symbol];
+          if (!symbol) return;
+          const li = el('li');
+          li.appendChild(el('span', 'why', use.how));
+          li.appendChild(button('go', symbol.qualifiedName, function () { select(symbol.id, true); }));
+          list.appendChild(li);
+        });
+        users.appendChild(list);
+      } else users.appendChild(el('p', 'cx-muted', 'No function in this view takes, returns or builds it by name.'));
+      inspector.appendChild(users);
+      if (entity.methods.length) {
+        const methods = box('Behaviour', 'methods besides accessors');
+        methods.appendChild(el('p', 'cx-muted', entity.methods.join(', ')));
+        inspector.appendChild(methods);
+      }
+      return;
+    }
+    if (item.kind === 'flow' || item.kind === 'flow-edge') {
+      const lens = data.flow;
+      if (item.kind === 'flow-edge') {
+        const edge = lens.edges.find(function (entry) { return entry.id === item.id; });
+        if (!edge) return;
+        const from = lens.nodes.find(function (node) { return node.id === edge.from; });
+        const to = lens.nodes.find(function (node) { return node.id === edge.to; });
+        eyebrow('What flows', edge.kind);
+        const title = el('div', 'cx-ins-title');
+        title.appendChild(button('cx-ref', from ? from.label : edge.from, function () { pickLens('flow', edge.from); }));
+        title.appendChild(document.createTextNode(' → '));
+        title.appendChild(button('cx-ref', to ? to.label : edge.to, function () { pickLens('flow', edge.to); }));
+        inspector.appendChild(title);
+        const carries = box('It carries', edge.kind === 'call' ? 'parameter ← argument → where the result goes' : '');
+        if (edge.inferred) carries.appendChild(el('p', 'cx-muted', 'Matched by name in the text: the language service did not resolve this call, so it may be a different function with the same name.'));
+        carries.appendChild(edge.label ? el('code', 'cx-carries', edge.label) : el('p', 'cx-muted', 'The text does not say what is passed here.'));
+        inspector.appendChild(carries);
+        if (edge.line && from && from.symbol) {
+          const actions = el('div', 'cx-ins-actions');
+          actions.appendChild(button('cx-btn', 'Open line ' + edge.line, function () { post('cx.openLine', { symbol: from.symbol, line: edge.line }); }));
+          inspector.appendChild(actions);
+        }
+        return;
+      }
+      const node = lens.nodes.find(function (entry) { return entry.id === item.id; });
+      if (!node) return;
+      eyebrow(FLOW_KIND[node.kind], node.category || '');
+      inspector.appendChild(el('div', 'cx-ins-title', node.label));
+      if (node.detail) inspector.appendChild(el('div', 'cx-ins-path', node.detail));
+      const actions = el('div', 'cx-ins-actions');
+      if (node.symbol && model.byId[node.symbol]) {
+        actions.appendChild(button('cx-btn', 'Open', function () { post('cx.open', { symbol: node.symbol }); }));
+        if (data.logic.flows[node.symbol]) actions.appendChild(button('cx-btn', 'Its steps', function () { view.logicSymbol = node.symbol; view.lensItem = null; setLens('logic'); }));
+      }
+      inspector.appendChild(actions);
+      const incoming = lens.edges.filter(function (edge) { return edge.to === node.id; });
+      const outgoing = lens.edges.filter(function (edge) { return edge.from === node.id; });
+      const listOf = function (title, edges, other) {
+        if (!edges.length) return;
+        const section = box(title);
+        const list = el('ul', 'cx-links cx-reasons');
+        edges.slice(0, 30).forEach(function (edge) {
+          const target = lens.nodes.find(function (entry) { return entry.id === edge[other]; });
+          const li = el('li');
+          li.appendChild(button('go', target ? target.label : edge[other], function () { pickLens('flow', edge[other]); }));
+          if (edge.label) li.appendChild(el('span', 'why', edge.label));
+          list.appendChild(li);
+        });
+        section.appendChild(list);
+        inspector.appendChild(section);
+      };
+      listOf(node.kind === 'state' ? 'Written by' : 'Comes from', incoming, 'from');
+      listOf(node.kind === 'state' ? 'Goes to' : 'Goes to', outgoing, 'to');
+      if (node.conversions.length) {
+        const conversions = box('Changes form here', 'where a value becomes another type');
+        const list = el('ul', 'cx-links cx-reasons');
+        node.conversions.forEach(function (conversion) {
+          const li = el('li');
+          if (node.symbol) li.appendChild(button('ln', String(conversion.line), function () { post('cx.openLine', { symbol: node.symbol, line: conversion.line }); }, 'Open line ' + conversion.line));
+          li.appendChild(el('code', '', conversion.text));
+          list.appendChild(li);
+        });
+        conversions.appendChild(list);
+        conversions.appendChild(el('p', 'cx-muted', 'Two values that reach a comparison by different conversions can disagree; check these when a result looks wrong.'));
+        inspector.appendChild(conversions);
+      }
+      return;
+    }
+    if (item.kind === 'logic-node') {
+      const symbolId = logicChoice(data);
+      const flow = symbolId ? data.logic.flows[symbolId] : null;
+      const chart = flow ? logicLayout(flow.steps) : null;
+      const node = chart ? chart.nodes.find(function (entry) { return entry.id === item.id; }) : null;
+      view.lensItem = null;
+      renderLensInspector();
+      if (node) highlightLine(node.line);
+    }
+  }
+
   // ---- Tabs --------------------------------------------------------------------------------
   function setTab(tab) {
     view.tab = tab;
+    // A Code lens tab is asked for (by a click, a message or a link): the Code lens shows it.
+    if (view.lens !== 'code') { view.lens = 'code'; paintLensBar(); }
     // The walkthrough is its own reading view: it takes the inspector's room and starts at the selection.
     $('cx-main').classList.toggle('walk-mode', tab === 'walk');
     if (tab === 'walk' && model && model.walkthrough.indexOf(view.selected) >= 0) view.walk = model.walkthrough.indexOf(view.selected);
@@ -1897,7 +3077,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     renderFilters();
     renderOutline();
     computeLayout();
-    setTab(view.tab);
+    setLens(view.lens);
     renderInspector();
     $('cx-main').classList.toggle('no-outline', !view.outline);
     root.querySelector('[data-action="outline"]').setAttribute('aria-pressed', String(view.outline));
@@ -1925,7 +3105,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       else if (!view.selected && !view.selectedModule && model.focus) view.selected = model.focus;
       render(fresh);
       // With no change to explain, the repository itself is what there is to read; the full view is its map.
-      if (fresh && !viewChosen && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo') setTab('repo');
+      if (fresh && !viewChosen && view.lens === 'code' && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo') setTab('repo');
       else if (view.tab === 'repo' && !repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root');
       if (message.focus && model.byId[message.focus]) { const symbol = model.byId[message.focus]; const rows = moduleRows(model, model.moduleById[symbol.moduleId], view).rows; centreOn(symbol.moduleId, rows.findIndex(function (row) { return row.id === symbol.id; })); }
       save();
@@ -2098,6 +3278,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const depth = event.target.closest('[data-depth]');
     const viewButton = event.target.closest('[data-view]');
     const tab = event.target.closest('[data-tab]');
+    const lensButton = event.target.closest('[data-lens]');
+    if (lensButton) { setLens(lensButton.dataset.lens); return; }
     if (tab) { setTab(tab.dataset.tab); return; }
     if (viewButton && model) {
       if (viewButton.dataset.view !== model.view) post('cx.view', { view: viewButton.dataset.view });
@@ -2133,6 +3315,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     }
   });
 
+  $('cx-flow-entry').addEventListener('change', function (event) { view.flowEntry = event.target.value; view.lensItem = null; save(); renderFlow(); renderInspector(); });
+  $('cx-logic-fn').addEventListener('change', function (event) { view.logicSymbol = event.target.value; view.lensItem = null; save(); renderLogic(); renderInspector(); });
+
   search.value = view.query || '';
   search.addEventListener('input', function () {
     view.query = search.value;
@@ -2157,6 +3342,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (typing) return;
     const key = event.key;
     if (key === '/') { search.focus(); search.select(); event.preventDefault(); return; }
+    if (event.target.closest('[data-lens]') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+      const nextLens = LENSES[(LENSES.indexOf(view.lens) + (key === 'ArrowRight' ? 1 : LENSES.length - 1)) % LENSES.length];
+      setLens(nextLens);
+      $('cx-lens-' + nextLens).focus();
+      event.preventDefault();
+      return;
+    }
     if (event.target.closest('[role="tab"]') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
       const order = ['graph', 'trace', 'walk', 'repo'];
       const next = order[(order.indexOf(view.tab) + (key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
@@ -2170,7 +3362,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       else if (key === 'k' || key === 'ArrowLeft' || key === 'ArrowUp') { stepWalk(-1); event.preventDefault(); }
       return;
     }
-    if (view.tab !== 'graph') return;
+    if (view.lens !== 'code' || view.tab !== 'graph') return;
     if (key === '+' || key === '=') { zoomAt(1.2); event.preventDefault(); }
     else if (key === '-' || key === '_') { zoomAt(1 / 1.2); event.preventDefault(); }
     else if (key === '0' || key === 'f' || key === 'F') { fit(); event.preventDefault(); }
@@ -2223,7 +3415,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   }
   measureFooter();
   window.addEventListener('resize', function () { measureFooter(); renderMinimap(); if (view.tab === 'trace') renderTrace(); });
-  setTab(view.tab);
+  setLens(view.lens);
   vscode.postMessage({ type: 'cx.ready' });
 })();
 `;

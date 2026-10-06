@@ -80,6 +80,26 @@ const SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos', 'worldModel', 'comprehension'
 ]);
 
+/** Slices the engine assembles without the lifecycle, so a lifecycle refusal does not take them down. */
+const INDEPENDENT_SLICES: readonly SnapshotSlice[] = Object.freeze(['comprehension', 'worldModel', 'sgos', 'diagnostics']);
+
+/** A recovery snapshot with independently read slices (and their revisions) laid over it. */
+function withSlices(base: RepositorySnapshot, extra: RepositorySnapshot, slices: readonly SnapshotSlice[]): RepositorySnapshot {
+  const merged = { ...base } as RepositorySnapshot;
+  for (const slice of slices) (merged as unknown as Record<string, unknown>)[slice] = (extra as unknown as Record<string, unknown>)[slice];
+  const revisionSlices = { ...(base.revision?.slices ?? {}) };
+  for (const slice of slices) {
+    const value = extra.revision?.slices?.[slice];
+    if (value !== undefined) revisionSlices[slice] = value;
+  }
+  const revision = base.revision ?? extra.revision;
+  return {
+    ...merged,
+    included: [...new Set([...(base.included ?? []), ...slices])],
+    ...(revision ? { revision: { ...revision, slices: revisionSlices } } : {})
+  };
+}
+
 /** Never restore an unleased heavyweight payload after a process disappeared before panel dispose. */
 function withoutEphemeralSlices(
   snapshot: RepositorySnapshot,
@@ -510,8 +530,13 @@ export class WorkspaceStore {
       // A broken lifecycle definition must block Lifecycle, but it must not hide the files needed
       // to repair it. Ask the engine for its validation-independent configuration inventory.
       try {
-        const recovery = await this.client.configurationSnapshot(controller.signal);
+        const configuration = await this.client.configurationSnapshot(controller.signal);
         if (generation !== this.refreshGeneration) continue;
+        // Nor may one refused domain blank the panels reading another: a Story whose review
+        // evidence the engine refuses still has a captured change, a world model and diagnostics.
+        const independent = await this.independentSlices(controller.signal);
+        if (generation !== this.refreshGeneration) continue;
+        const recovery = independent ? withSlices(configuration, independent.snapshot, independent.slices) : configuration;
         const changedSlices = changedSnapshotSlices(this.state.snapshot, recovery);
         this.publish({ snapshot: recovery, error: failure, loading: false, stale: false }, {
           kind: 'error', revisionChanged: true, changedSlices
@@ -530,6 +555,22 @@ export class WorkspaceStore {
         });
       }
       return;
+    }
+  }
+
+  /**
+   * The leased slices that do not depend on the lifecycle, read on their own after the combined read
+   * was refused. Null when none is leased or this read fails too; the refusal stays the state's error.
+   */
+  private async independentSlices(signal: AbortSignal): Promise<{ snapshot: RepositorySnapshot; slices: SnapshotSlice[] } | null> {
+    const leased = INDEPENDENT_SLICES.filter((slice) => this.loadedSlices.has(slice));
+    if (!leased.length) return null;
+    try {
+      const snapshot = await this.client.snapshot(signal, ['repository', ...leased], null);
+      const slices = leased.filter((slice) => Object.hasOwn(snapshot, slice));
+      return slices.length ? { snapshot, slices } : null;
+    } catch {
+      return null;
     }
   }
 

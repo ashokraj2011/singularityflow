@@ -1,0 +1,2104 @@
+/**
+ * Code Explainer lenses: more ways to read the same harvest.
+ *
+ * The Code lens (dependency graph, trace, walkthrough, repository) shows functions and who calls
+ * whom. These lenses re-read the facts the host already collected (each file's text, the outline
+ * its language service gave, and the call edges with their call sites) and answer the questions a
+ * person asks before that:
+ *
+ * - Concepts: what the repository is about (the words its declarations use most) and how it is
+ *   organised (entry points, UI, logic, data, storage, cross-cutting code), each file placed by the
+ *   evidence it names.
+ * - Entities: the data it works with (classes, records, enums, interfaces, object shapes and
+ *   component inputs) with their fields, how they relate and which functions take or make them.
+ * - Data flow: where data enters (a route, a UI event, program start), the steps it passes through
+ *   with what each call hands over, the state it lands in, and where it leaves (a response,
+ *   storage, the screen, an error).
+ * - Logic: one function's decisions, loops, returns and throws, as a flowchart and as steps.
+ *
+ * Everything is read from text and the language service's answers by pattern, for any language;
+ * nothing here runs the code, reads a file or asks a model. A route annotation is a declaration, a
+ * call edge is static resolution and a flow is what the text shows, so callbacks, reflection and
+ * dynamic dispatch can add paths these lenses cannot see. Each lens says what it rests on.
+ */
+
+import type { CxBuildInput, CxFileInput, CxModel, CxRawSymbol, CxSymbol } from './code-explainer-model.ts';
+import { displayName, isCodeLanguage, isTestPath, leadingStart, looksLikeFunction, maskSource, SYMBOL_KIND, symbolKey, visibleCode } from './code-explainer-model.ts';
+
+export const LENS_LIMITS = Object.freeze({
+  concepts: 14,
+  conceptMembers: 16,
+  entities: 80,
+  fieldsPerEntity: 40,
+  shapesPerFile: 12,
+  flowDepth: 6,
+  flowNodes: 70,
+  logicFunctions: 240,
+  logicStatements: 160,
+  logicLines: 600,
+  labelChars: 72
+});
+
+// ---- Lens shapes -------------------------------------------------------------------------------
+
+export type CxLayerId = 'entry' | 'ui' | 'cross-cutting' | 'logic' | 'data' | 'storage' | 'config' | 'utility' | 'test' | 'other';
+
+export interface CxLayer { id: CxLayerId; label: string; modules: Array<{ id: string; reason: string }> }
+
+export interface CxConcept {
+  id: string;
+  term: string;
+  label: string;
+  score: number;
+  symbols: string[];
+  entities: string[];
+  modules: string[];
+  related: Array<{ id: string; strength: number }>;
+}
+
+export interface CxConceptLens {
+  summary: string;
+  layers: CxLayer[];
+  layerLinks: Array<{ from: CxLayerId; to: CxLayerId; calls: number }>;
+  concepts: CxConcept[];
+}
+
+export interface CxEntityField { name: string; type: string | null; line: number | null; accessors: string[] }
+
+export interface CxEntity {
+  id: string;
+  name: string;
+  kind: 'class' | 'record' | 'interface' | 'struct' | 'enum' | 'type' | 'shape' | 'props';
+  moduleId: string;
+  line: number | null;
+  /** The model symbol that opens it (its class or the function it belongs to). */
+  symbol: string | null;
+  fields: CxEntityField[];
+  values: string[];
+  methods: string[];
+  extends: string[];
+  usedBy: Array<{ symbol: string; how: 'takes' | 'returns' | 'creates' }>;
+  /** What it was read from, in words. */
+  source: string;
+}
+
+export interface CxEntityLink { from: string; to: string; kind: 'has' | 'is'; label: string; many: boolean }
+
+export interface CxEntityLens { entities: CxEntity[]; links: CxEntityLink[]; notes: string[] }
+
+export type CxFlowEntryKind = 'http' | 'ui' | 'program' | 'message' | 'timer';
+
+export interface CxFlowEntry { id: string; kind: CxFlowEntryKind; label: string; symbol: string | null; reason: string }
+
+export interface CxFlowNode {
+  id: string;
+  kind: 'entry' | 'step' | 'state' | 'sink' | 'source';
+  label: string;
+  detail: string | null;
+  symbol: string | null;
+  category: string | null;
+  conversions: Array<{ line: number; text: string }>;
+}
+
+export interface CxFlowEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: 'call' | 'prop' | 'writes' | 'reads' | 'renders' | 'io' | 'error';
+  label: string | null;
+  line: number | null;
+  /** Matched by name in the text, where the language service gave no answer. */
+  inferred?: boolean;
+}
+
+export interface CxFlowLens {
+  entries: CxFlowEntry[];
+  nodes: CxFlowNode[];
+  edges: CxFlowEdge[];
+  /** Per entry: the nodes and edges reachable from it. */
+  paths: Record<string, { nodes: string[]; edges: string[] }>;
+  notes: string[];
+}
+
+export type CxLogicStep =
+  | { k: 'step'; lines: Array<{ text: string; line: number }>; calls: string[] }
+  | { k: 'if'; cond: string; line: number; then: CxLogicStep[]; else: CxLogicStep[] | null }
+  | { k: 'switch'; subject: string; line: number; cases: Array<{ label: string; line: number; body: CxLogicStep[] }> }
+  | { k: 'loop'; head: string; line: number; body: CxLogicStep[] }
+  | { k: 'try'; line: number; body: CxLogicStep[]; catches: Array<{ label: string; line: number; body: CxLogicStep[] }>; final: CxLogicStep[] | null }
+  | { k: 'return'; text: string; line: number; calls: string[] }
+  | { k: 'throw'; text: string; line: number; calls: string[] }
+  | { k: 'jump'; text: string; line: number };
+
+export interface CxLogicFlow { symbol: string; steps: CxLogicStep[]; truncated: boolean; decisions: number }
+
+export interface CxLogicLens { flows: Record<string, CxLogicFlow>; notes: string[] }
+
+export interface CxLenses { concepts: CxConceptLens; entities: CxEntityLens; flow: CxFlowLens; logic: CxLogicLens }
+
+// ---- Text access -------------------------------------------------------------------------------
+
+interface Source { path: string; language: string; lines: string[]; text: string; masked: string; starts: number[] }
+
+const SCRIPT_LIKE = new Set(['javascript', 'javascriptreact', 'typescript', 'typescriptreact', 'vue', 'svelte']);
+const JSX_LANGUAGES = new Set(['javascriptreact', 'typescriptreact', 'javascript', 'typescript']);
+/** Languages whose statements end at a semicolon, so a newline never ends one. */
+const SEMICOLON_LANGUAGES = new Set(['java', 'csharp', 'c', 'cpp', 'php', 'objective-c', 'objective-cpp', 'rust', 'dart']);
+
+/**
+ * Regular-expression literals blanked as strings are, so a `(` inside `/\((.*)\)/` never unbalances
+ * the brackets a parser counts. A slash starts one where an operand is expected.
+ */
+export function maskRegexLiterals(masked: string): string {
+  const out = masked.split('');
+  for (let index = 0; index < out.length; index += 1) {
+    if (out[index] !== '/' || out[index + 1] === '/' || out[index + 1] === '*') continue;
+    let back = index - 1;
+    while (back >= 0 && (out[back] === ' ' || out[back] === '\t')) back -= 1;
+    const previous = back >= 0 ? out[back]! : '\n';
+    let wordStart = back;
+    while (wordStart >= 0 && /[\w$]/.test(out[wordStart]!)) wordStart -= 1;
+    const word = out.slice(wordStart + 1, back + 1).join('');
+    const operand = '(,=:[!&|?{};+-*%<>~^\n'.includes(previous) || /^(return|typeof|case|in|of|delete|void|throw|new|yield|await)$/.test(word);
+    if (!operand) continue;
+    let scan = index + 1;
+    let inClass = false;
+    let closed = -1;
+    while (scan < out.length && out[scan] !== '\n') {
+      const character = out[scan];
+      if (character === '\\') { scan += 2; continue; }
+      if (character === '[') inClass = true;
+      else if (character === ']') inClass = false;
+      else if (character === '/' && !inClass) { closed = scan; break; }
+      scan += 1;
+    }
+    if (closed < 0) continue;
+    for (let blank = index + 1; blank < closed; blank += 1) out[blank] = ' ';
+    index = closed;
+  }
+  return out.join('');
+}
+
+function makeSource(file: CxFileInput): Source | null {
+  if (!file.lines) return null;
+  const text = file.lines.join('\n');
+  const starts: number[] = [];
+  let at = 0;
+  for (const line of file.lines) { starts.push(at); at += line.length + 1; }
+  let masked = maskSource(text, file.language);
+  if (SCRIPT_LIKE.has(file.language)) masked = maskRegexLiterals(masked);
+  return { path: file.path, language: file.language, lines: file.lines, text, masked, starts };
+}
+
+function offsetAt(source: Source, line: number, character = 0): number {
+  const start = source.starts[Math.max(0, line - 1)];
+  return start === undefined ? source.text.length : Math.min(source.text.length, start + character);
+}
+
+function lineAt(source: Source, offset: number): number {
+  let low = 0;
+  let high = source.starts.length - 1;
+  while (low < high) {
+    const middle = (low + high + 1) >> 1;
+    if ((source.starts[middle] ?? 0) <= offset) low = middle;
+    else high = middle - 1;
+  }
+  return low + 1;
+}
+
+const CONTAINER_KINDS = new Set<number>([SYMBOL_KIND.Class, SYMBOL_KIND.Interface, SYMBOL_KIND.Struct, SYMBOL_KIND.Enum]);
+const CALLABLE_KINDS = new Set<number>([SYMBOL_KIND.Method, SYMBOL_KIND.Function, SYMBOL_KIND.Constructor]);
+const FIELD_KINDS = new Set<number>([SYMBOL_KIND.Field, SYMBOL_KIND.Property, SYMBOL_KIND.Variable, SYMBOL_KIND.Constant]);
+const MEMBER_KINDS = new Set<number>([SYMBOL_KIND.Field, SYMBOL_KIND.Property, SYMBOL_KIND.EnumMember, SYMBOL_KIND.Constant]);
+
+const CLOSER: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+
+/** The index of the bracket that closes the one at `open`, or -1 when the text does not balance. */
+function closing(masked: string, open: number, limit = masked.length): number {
+  const stack: string[] = [];
+  for (let index = open; index < limit; index += 1) {
+    const character = masked[index]!;
+    const close = CLOSER[character];
+    if (close) stack.push(close);
+    else if (character === ')' || character === ']' || character === '}') {
+      if (stack.pop() !== character) return -1;
+      if (!stack.length) return index;
+    }
+  }
+  return -1;
+}
+
+/** Ranges of a bracket's contents split at its top-level commas. */
+function splitTop(masked: string, start: number, end: number): Array<[number, number]> {
+  const parts: Array<[number, number]> = [];
+  let depth = 0;
+  let from = start;
+  for (let index = start; index < end; index += 1) {
+    const character = masked[index]!;
+    if (character === '(' || character === '[' || character === '{') depth += 1;
+    else if (character === ')' || character === ']' || character === '}') depth -= 1;
+    else if (character === '<' && /[\w$]/.test(masked[index - 1] ?? '') && /[A-Z\w]/.test(masked[index + 1] ?? '')) depth += 1;
+    else if (character === '>' && depth > 0 && masked[index - 1] !== '=' && masked[index - 1] !== '-') depth -= 1;
+    else if (character === ',' && depth === 0) { parts.push([from, index]); from = index + 1; }
+  }
+  if (masked.slice(from, end).trim()) parts.push([from, end]);
+  return parts;
+}
+
+function flat(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function clip(text: string, limit: number = LENS_LIMITS.labelChars): string {
+  const value = visibleCode(flat(text));
+  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+}
+
+/**
+ * Original text of a range, as one line: a block that is a function body (after `=>` or `)`) or
+ * runs long is folded to `{…}`; a short object literal stays readable.
+ */
+function folded(source: Source, start: number, end: number, limit: number = LENS_LIMITS.labelChars): string {
+  let out = '';
+  let index = start;
+  while (index < end) {
+    const character = source.masked[index]!;
+    if (character === '{') {
+      const close = closing(source.masked, index, end);
+      const before = source.masked.slice(Math.max(start, index - 3), index).trimEnd();
+      const body = /=>$|\)$/.test(before) || source.masked.slice(index, close).includes('\n');
+      if (close > index && ((body && close - index > 2) || close - index > 80)) { out += '{…}'; index = close + 1; continue; }
+    }
+    out += source.text[index];
+    index += 1;
+  }
+  return clip(out, limit);
+}
+
+function capitalise(word: string): string {
+  return word ? word[0]!.toUpperCase() + word.slice(1) : word;
+}
+
+function lastSegment(value: string): string {
+  const parts = value.split(/[.:/\\]/).filter(Boolean);
+  return parts[parts.length - 1] ?? value;
+}
+
+function baseName(file: string): string {
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  const dot = name.indexOf('.');
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+function isCallable(symbol: CxSymbol): boolean {
+  return symbol.kind === 'function' || symbol.kind === 'method' || symbol.kind === 'constructor';
+}
+
+const ESCAPE = /[.*+?^${}()|[\]\\]/g;
+function wordPattern(word: string, flags = ''): RegExp {
+  return new RegExp(`(?<![\\w$])${word.replace(ESCAPE, '\\$&')}(?![\\w$])`, flags);
+}
+
+// ---- Shared harvest view -----------------------------------------------------------------------
+
+interface Harvest {
+  input: CxBuildInput;
+  model: CxModel;
+  sources: Map<string, Source>;
+  byId: Map<string, CxSymbol>;
+  modulePath: Map<string, string>;
+  /** Raw outline per repository file, for fields and containers the graph does not draw. */
+  raws: Map<string, CxRawSymbol[]>;
+  /** Callables per file, innermost last when sorted by start. */
+  callablesByFile: Map<string, CxSymbol[]>;
+  /** Model symbols by display name, for resolving a name in text to code. */
+  byName: Map<string, CxSymbol[]>;
+}
+
+function harvestOf(input: CxBuildInput, model: CxModel): Harvest {
+  const sources = new Map<string, Source>();
+  const raws = new Map<string, CxRawSymbol[]>();
+  for (const file of input.files) {
+    if (file.external || !isCodeLanguage(file.language)) continue;
+    const source = makeSource(file);
+    if (source) sources.set(file.path, source);
+    if (file.symbols?.length) raws.set(file.path, file.symbols);
+  }
+  const byId = new Map(model.symbols.map((symbol) => [symbol.id, symbol]));
+  const modulePath = new Map(model.modules.map((module) => [module.id, module.path]));
+  const callablesByFile = new Map<string, CxSymbol[]>();
+  const byName = new Map<string, CxSymbol[]>();
+  for (const symbol of model.symbols) {
+    if (!symbol.file || symbol.start === null || symbol.end === null) continue;
+    if (isCallable(symbol)) callablesByFile.set(symbol.file, [...(callablesByFile.get(symbol.file) ?? []), symbol]);
+    if (isCallable(symbol) || symbol.kind === 'class') byName.set(symbol.name, [...(byName.get(symbol.name) ?? []), symbol]);
+  }
+  for (const list of callablesByFile.values()) list.sort((a, b) => (a.start! - b.start!) || (b.end! - a.end!));
+  return { input, model, sources, byId, modulePath, raws, callablesByFile, byName };
+}
+
+/** The symbol's own text: its range with every nested callable's range blanked (positions kept). */
+function ownText(harvest: Harvest, symbol: CxSymbol): { source: Source; start: number; end: number; masked: string } | null {
+  if (!symbol.file || symbol.start === null || symbol.end === null) return null;
+  const source = harvest.sources.get(symbol.file);
+  if (!source) return null;
+  const start = offsetAt(source, symbol.start);
+  const end = offsetAt(source, symbol.end + 1) - (symbol.end < source.lines.length ? 1 : 0);
+  let masked = source.masked.slice(start, end);
+  for (const inner of harvest.callablesByFile.get(symbol.file) ?? []) {
+    if (inner.id === symbol.id || inner.start! <= symbol.start || inner.end! > symbol.end) continue;
+    const from = offsetAt(source, inner.start!) - start;
+    const to = Math.min(end, offsetAt(source, inner.end! + 1)) - start;
+    if (from < 0 || to <= from) continue;
+    masked = masked.slice(0, from) + masked.slice(from, to).replace(/[^\n]/g, ' ') + masked.slice(to);
+  }
+  return { source, start, end, masked };
+}
+
+function innermostCallable(harvest: Harvest, file: string, line: number): CxSymbol | null {
+  let best: CxSymbol | null = null;
+  for (const symbol of harvest.callablesByFile.get(file) ?? []) {
+    if (symbol.start! <= line && line <= symbol.end!) {
+      if (!best || (symbol.end! - symbol.start!) <= (best.end! - best.start!)) best = symbol;
+    }
+  }
+  return best;
+}
+
+function resolveName(harvest: Harvest, name: string, preferFile: string | null): CxSymbol | null {
+  const candidates = harvest.byName.get(displayName(name)) ?? [];
+  if (!candidates.length) return null;
+  return candidates.find((symbol) => symbol.file === preferFile) ?? candidates.find((symbol) => isCallable(symbol)) ?? candidates[0]!;
+}
+
+/** Where a declaration's parameter list sits: the first `(` after its name, balanced. */
+function parameterRange(source: Source, symbol: CxSymbol): [number, number] | null {
+  if (symbol.line === null || symbol.start === null) return null;
+  const lineStart = offsetAt(source, symbol.line);
+  const limit = Math.min(source.text.length, offsetAt(source, Math.min(source.lines.length, symbol.line + 40) + 1));
+  const nameAt = source.masked.slice(lineStart, limit).search(wordPattern(symbol.name));
+  let from = nameAt >= 0 ? lineStart + nameAt + symbol.name.length : lineStart;
+  while (from < limit && /\s/.test(source.masked[from]!)) from += 1;
+  // `name = (…) =>`, `name: (…) =>` and `name<T>(…)` all reach their list after one more token.
+  let open = source.masked.indexOf('(', from);
+  if (open < 0 || open > limit) return null;
+  const between = source.masked.slice(from, open);
+  if (/[;{}]/.test(between)) return null;
+  // A function wrapped in a hook or helper (`name = useCallback((x) => …)`) declares its own list inside.
+  if (/=\s*(?:[\w$]+\s*\.\s*)?(?:useCallback|useMemo|memo|forwardRef|debounce|throttle|computed|action)\s*$/.test(between)) {
+    let inner = open + 1;
+    while (inner < limit && /\s/.test(source.masked[inner]!)) inner += 1;
+    if (source.masked.startsWith('async', inner)) inner = source.masked.indexOf('(', inner);
+    else if (source.masked.startsWith('function', inner)) inner = source.masked.indexOf('(', inner);
+    if (inner < 0 || source.masked[inner] !== '(') return null;
+    open = inner;
+  }
+  const close = closing(source.masked, open, limit);
+  return close > open ? [open + 1, close] : null;
+}
+
+/** The type a declaration says it returns: `Type name(` before its name, or `): Type` after its list. */
+function returnTypeOf(source: Source, symbol: CxSymbol): string | null {
+  if (symbol.line === null) return null;
+  const line = source.lines[symbol.line - 1] ?? '';
+  const at = line.search(wordPattern(symbol.name));
+  const before = at > 0 ? line.slice(0, at).trim().replace(/@\w+(?:\([^)]*\))?\s*/g, '').split(/\s+/).pop() ?? '' : '';
+  if (/^[A-Z][\w$.<>[\], ?]*$/.test(before) || /^(?:int|long|double|float|boolean|bool|char|byte|short|string|number)(?:\[\])?$/.test(before)) return before;
+  const range = parameterRange(source, symbol);
+  if (!range) return null;
+  const after = source.text.slice(range[1] + 1, Math.min(source.text.length, range[1] + 120)).match(/^\s*(?::|->)\s*([\w$.<>[\]|, ?]+?)\s*(?:\{|=>|=|:|$|\n)/);
+  return after ? clip(after[1]!, 40) : null;
+}
+
+/** A parameter's name from its declaration text, whatever the language puts around it. */
+function parameterName(text: string, language: string): string {
+  let value = flat(text).replace(/@\w+(?:\([^)]*\))?\s*/g, '').replace(/=.*$/, '').trim();
+  if (/^[{[]/.test(value)) return value.startsWith('{') ? '{…}' : '[…]';
+  value = value.replace(/^\.\.\.|^\*{1,2}/, '');
+  if (language === 'go') return value.match(/^[A-Za-z_]\w*/)?.[0] ?? value;
+  const colon = value.indexOf(':');
+  if (colon > 0 && !value.startsWith('(')) value = value.slice(0, colon);
+  const names = value.match(/[A-Za-z_$][\w$]*/g) ?? [];
+  return names[names.length - 1] ?? value;
+}
+
+interface CallSiteText { args: string[]; target: string | null }
+
+/** What one call site hands over: its argument texts, and the name its result is assigned to. */
+function callSiteText(source: Source, line: number, character: number | null, callee: string): CallSiteText | null {
+  const lineStart = offsetAt(source, line);
+  const lineText = source.masked.slice(lineStart, offsetAt(source, line + 1));
+  let nameAt = -1;
+  if (character !== null && source.masked.startsWith(callee, lineStart + character)) nameAt = lineStart + character;
+  else {
+    const found = lineText.search(new RegExp(`${wordPattern(callee).source}\\s*(?:<[^>()]*>)?\\s*\\(`));
+    if (found >= 0) nameAt = lineStart + found;
+  }
+  if (nameAt < 0) return null;
+  let open = nameAt + callee.length;
+  while (open < source.masked.length && /\s/.test(source.masked[open]!)) open += 1;
+  if (source.masked[open] === '<') {
+    const end = source.masked.indexOf('>', open);
+    if (end > open && end - open < 80) open = end + 1;
+    while (open < source.masked.length && /\s/.test(source.masked[open]!)) open += 1;
+  }
+  if (source.masked[open] !== '(') return null;
+  const close = closing(source.masked, open, Math.min(source.masked.length, open + 4000));
+  if (close < 0) return null;
+  const args = splitTop(source.masked, open + 1, close).map(([from, to]) => folded(source, from, to, 40));
+  // The expression the call belongs to starts at its receiver (`this.service.evaluate(`).
+  let expressionStart = nameAt;
+  while (expressionStart > lineStart && /[\w$.?!]/.test(source.masked[expressionStart - 1]!)) expressionStart -= 1;
+  const prefix = source.text.slice(lineStart, expressionStart);
+  const assigned = prefix.match(/([A-Za-z_$][\w$]*)\s*(?::\s*[^=]+)?=\s*(?:await\s+|new\s+)?$/);
+  const target = /\breturn\s*$/.test(prefix) ? 'returned' : assigned ? assigned[1]! : null;
+  return { args, target };
+}
+
+// ---- Concepts and architecture -----------------------------------------------------------------
+
+const STOP = new Set(`a an the and or not of to in on at by for from with as is are be it its this that if else then do done
+get set has have can should will was use used using new create make build init initialize setup run start stop handle handler
+handlers process execute exec call apply perform invoke dispatch emit trigger fire add remove delete update put patch insert
+find fetch load save read write parse format check verify compute test tests spec specs mock mocks stub fake fixture fixtures
+assert expect before after each all util utils helper helpers impl base abstract default main app application index lib src
+source java kotlin org com net io example examples internal common core shared misc tmp temp api apis js ts jsx tsx py go rb cs
+string str number num int integer long short double float bool boolean char byte object obj array arr list lists map maps dict
+tuple vector collection iterator iterable optional void null none undefined true false any unknown type types class interface
+enum struct func function fn method lambda callback cb arg args argument param params parameter options opts option props prop
+ctx self super val var let const foo bar baz equals hashcode tostring compareto clone valueof accept json xml yaml html css url
+uri path file files dir line lines text id ids key keys info dto vo bean pojo factory provider component components module
+modules package config configuration settings constants env setter getter instance instances util async await promise
+mapping mappings override public private protected static final void`.split(/\s+/));
+
+/** Domain-neutral words: kept, but they count a quarter as much as a word the domain owns. */
+const GENERIC = new Set(`data value item entry element node input output request response result error exception event state
+status message model view page screen service controller handler manager record field group name detail list count total size
+length index level mode kind label title content body header footer row column table form button modal panel card dialog menu
+icon option global setting application program client server enabled disabled active inactive visible hidden open
+closed selected current last first next previous new old`.split(/\s+/));
+
+/** Identifier words: camelCase, PascalCase, snake_case and kebab-case split, lowercased and singular. */
+export function conceptWords(name: string): string[] {
+  return displayName(name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .map((word) => word.toLowerCase())
+    .filter((word) => word.length > 2 && !/^\d+$/.test(word))
+    .map(singular)
+    .filter((word) => !STOP.has(word));
+}
+
+function singular(word: string): string {
+  if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
+  if (word.length > 4 && /(sses|xes|ches|shes)$/.test(word)) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith('s') && !/(ss|us|is|os)$/.test(word)) return word.slice(0, -1);
+  return word;
+}
+
+const LAYER_LABEL: Record<CxLayerId, string> = {
+  entry: 'Entry points', ui: 'User interface', 'cross-cutting': 'Cross-cutting', logic: 'Logic', data: 'Data shapes',
+  storage: 'Storage', config: 'Configuration', utility: 'Utilities', test: 'Tests', other: 'Other code'
+};
+export const LAYER_ORDER: CxLayerId[] = ['entry', 'ui', 'cross-cutting', 'logic', 'data', 'storage', 'config', 'utility', 'other', 'test'];
+
+/** The first match of a pattern, as the evidence a layer is named for. */
+function evidence(text: string, pattern: RegExp): string | null {
+  const match = text.match(pattern);
+  return match ? clip(match[0], 48) : null;
+}
+
+/** Which part of an architecture a file plays, and the evidence: an annotation, a name or a folder. */
+export function classifyModule(path: string, language: string, text: string | null, raws: CxRawSymbol[] | null): { layer: CxLayerId; reason: string } {
+  if (isTestPath(path)) return { layer: 'test', reason: 'a test file by its path' };
+  const base = baseName(path);
+  const folder = path.includes('/') ? `${path.slice(0, path.lastIndexOf('/'))}/` : '';
+  const code = text ?? '';
+  const found = (pattern: RegExp, words: string): { layer: CxLayerId; reason: string } | null => {
+    const hit = evidence(code, pattern);
+    return hit ? { layer: 'entry', reason: `${words} (${hit})` } : null;
+  };
+  const advice = evidence(code, /@(?:Rest)?ControllerAdvice\b|@ExceptionHandler\b|@Aspect\b|\bimplements\s+(?:Filter|HandlerInterceptor)\b|\bapp\.use\s*\(\s*(?:\(|function)/);
+  if (advice || /(Advice|Interceptor|Middleware|ExceptionHandler|ErrorHandler|Filter)$/.test(base)) {
+    return { layer: 'cross-cutting', reason: advice ? `handles errors or requests for every route (${advice})` : `its name ends in ${base.match(/(Advice|Interceptor|Middleware|ExceptionHandler|ErrorHandler|Filter)$/)![1]}` };
+  }
+  const entry = found(/@(?:Rest)?Controller\b|@(?:Get|Post|Put|Delete|Patch|Request)Mapping\b|@Path\s*\(|@WebServlet\b|\[ApiController\]|\[Http(?:Get|Post|Put|Delete|Patch)/, 'declares HTTP routes')
+    ?? found(/\b(?:app|router|server|api|route)\s*\.\s*(?:get|post|put|delete|patch|all|route)\s*\(\s*['"`]\//, 'registers HTTP routes')
+    ?? found(/@(?:app|router|bp|blueprint|api)\.(?:route|get|post|put|delete|patch)\s*\(/, 'declares HTTP routes')
+    ?? found(/\bHandleFunc\s*\(|\bgin\.(?:Default|New)\s*\(|\becho\.New\s*\(/, 'registers HTTP handlers')
+    ?? found(/@(?:KafkaListener|RabbitListener|JmsListener|SqsListener|EventListener|Scheduled)\b/, 'listens for messages or timers')
+    ?? found(/@SpringBootApplication\b|\bpublic\s+static\s+void\s+main\s*\(|\bfun\s+main\s*\(|\bfunc\s+main\s*\(\s*\)|if\s+__name__\s*==\s*['"]__main__['"]|\bcreateRoot\s*\(|\bReactDOM\.render\s*\(|\b(?:app|server)\.listen\s*\(/, 'starts the program');
+  if (entry) return entry;
+  if (/(Controller|Resource|Endpoint|Router|Routes)$/.test(base)) return { layer: 'entry', reason: `its name ends in ${base.match(/(Controller|Resource|Endpoint|Router|Routes)$/)![1]}` };
+  const storage = evidence(code, /@Repository\b|\bextends\s+(?:Jpa|Crud|Mongo|PagingAndSorting)Repository\b|\bmongoose\.model\s*\(|\bprisma\.\w+\.|\bknex\s*\(|\bsequelize\.define\s*\(|\bgetConnection\s*\(|\bcreatePool\s*\(/);
+  if (storage || /(Repository|Repo|Dao|DAO|Store|Storage|Database|Db)$/.test(base) || /(^|\/)(repository|repositories|dao|db|persistence|store|stores)\/$/.test(folder)) {
+    return { layer: 'storage', reason: storage ? `reads or writes stored data (${storage})` : /(Repository|Repo|Dao|DAO|Store|Storage|Database|Db)$/.test(base) ? `its name ends in ${base.match(/(Repository|Repo|Dao|DAO|Store|Storage|Database|Db)$/)![1]}` : `it is in ${folder}` };
+  }
+  const jsx = JSX_LANGUAGES.has(language) && (/<[A-Z][\w.]*[\s/>]|return\s*\(\s*</.test(code)
+    || ((language === 'javascriptreact' || language === 'typescriptreact') && /<[a-z][\w-]*(?:\s[^<>]*)?\/?>/.test(code)));
+  if (language === 'vue' || language === 'svelte' || ((language === 'javascriptreact' || language === 'typescriptreact') && jsx)
+      || (jsx && /(^|\/)(components?|pages?|views?|screens?|ui|widgets?|layouts?)\/$/.test(folder))) {
+    return { layer: 'ui', reason: jsx ? 'it renders markup (JSX)' : `it is a ${language} component` };
+  }
+  const entity = evidence(code, /@(?:Entity|Table|Embeddable|Document)\b|\bdata\s+class\b|@dataclass\b|\bclass\s+\w+\s*\(\s*(?:BaseModel|TypedDict|NamedTuple)\s*\)/);
+  const dataName = /(Dto|DTO|Request|Response|Model|Entity|Record|Payload|Schema|Vo|VO|Bean|Event|Message|Command|Query|Result|Type|Types)$/.test(base);
+  const dataFolder = /(^|\/)(dto|dtos|model|models|entity|entities|domain\/model|schemas?|types?)\/$/.test(folder);
+  const onlyData = raws ? isDataOnly(raws) : /\benum\s+[A-Z]\w*/.test(code) && !/\bclass\s+[A-Z]/.test(code);
+  if (entity || dataName || dataFolder || onlyData) {
+    return { layer: 'data', reason: entity ? `declares a data model (${entity})` : dataName ? `its name ends in ${base.match(/(Dto|DTO|Request|Response|Model|Entity|Record|Payload|Schema|Vo|VO|Bean|Event|Message|Command|Query|Result|Type|Types)$/)![1]}` : dataFolder ? `it is in ${folder}` : 'it only declares fields, values and their accessors' };
+  }
+  const config = evidence(code, /@Configuration(?:Properties)?\b|@EnableAutoConfiguration\b/);
+  if (config || /(Config|Configuration|Settings|Properties|Constants|Env)$/.test(base)) {
+    return { layer: 'config', reason: config ? `configures the program (${config})` : `its name ends in ${base.match(/(Config|Configuration|Settings|Properties|Constants|Env)$/)![1]}` };
+  }
+  const logicName = /(Service|Engine|Calculator|Processor|Manager|Evaluator|Parser|Validator|Resolver|Policy|Rules?|UseCase|Interactor|Workflow|Strategy|Converter|Mapper|Builder|Factory|Handler|Calculation|Compiler|Interpreter|Scheduler|Planner)$/i;
+  const logic = evidence(code, /@Service\b|@Component\b|@Injectable\b/);
+  if (logic || logicName.test(base) || /(^|\/)(services?|domain|core|engine|rules?|logic|usecases?|calc\w*)\/$/.test(folder)) {
+    return { layer: 'logic', reason: logic ? `a service (${logic})` : logicName.test(base) ? `its name ends in ${base.match(logicName)![1]}` : `it is in ${folder}` };
+  }
+  if (/(^|\/)(utils?|helpers?|lib|libs|common|shared|support)\/$/.test(folder) || /(Util|Utils|Helper|Helpers|Common|Support)$/.test(base)) {
+    return { layer: 'utility', reason: /(Util|Utils|Helper|Helpers|Common|Support)$/.test(base) ? `its name ends in ${base.match(/(Util|Utils|Helper|Helpers|Common|Support)$/)![1]}` : `it is in ${folder}` };
+  }
+  return raws && raws.some((raw) => (raw.children ?? []).some((child) => child.kind === SYMBOL_KIND.Method))
+    ? { layer: 'logic', reason: 'it declares behaviour (methods)' }
+    : { layer: 'other', reason: 'no pattern placed it' };
+}
+
+const ACCESSOR = /^(?:get|set|is|has)([A-Z]\w*)$/;
+const OBJECT_METHODS = new Set(['equals', 'hashCode', 'toString', 'compareTo', 'clone', 'finalize', '__init__', '__repr__', '__str__', '__eq__', '__hash__', 'constructor']);
+
+/** Whether a file's containers hold only fields, enum values, constructors and accessors. */
+function isDataOnly(raws: CxRawSymbol[]): boolean {
+  const containers = raws.flatMap((raw) => raw.kind === SYMBOL_KIND.Package || raw.kind === SYMBOL_KIND.Module ? raw.children ?? [] : [raw])
+    .filter((raw) => CONTAINER_KINDS.has(raw.kind));
+  if (!containers.length) return false;
+  return containers.every((container) => {
+    const children = container.children ?? [];
+    const fields = children.filter((child) => MEMBER_KINDS.has(child.kind));
+    const behaviour = children.filter((child) => child.kind === SYMBOL_KIND.Method && !ACCESSOR.test(displayName(child.name)) && !OBJECT_METHODS.has(displayName(child.name)));
+    return (fields.length > 0 || container.kind === SYMBOL_KIND.Enum) && behaviour.length === 0;
+  });
+}
+
+function buildConcepts(harvest: Harvest, entities: CxEntity[]): CxConceptLens {
+  const { model } = harvest;
+  const layers = new Map<CxLayerId, CxLayer>();
+  const layerOf = new Map<string, CxLayerId>();
+  for (const module of model.modules) {
+    if (module.external || module.group || !isCodeLanguage(module.language)) continue;
+    const source = harvest.sources.get(module.path);
+    const placed = classifyModule(module.path, module.language, source?.text ?? null, harvest.raws.get(module.path) ?? null);
+    layerOf.set(module.id, placed.layer);
+    const layer = layers.get(placed.layer) ?? { id: placed.layer, label: LAYER_LABEL[placed.layer], modules: [] };
+    layer.modules.push({ id: module.id, reason: placed.reason });
+    layers.set(placed.layer, layer);
+  }
+  const links = new Map<string, number>();
+  for (const edge of model.edges) {
+    const from = harvest.byId.get(edge.from);
+    const to = harvest.byId.get(edge.to);
+    if (!from || !to) continue;
+    const a = layerOf.get(from.moduleId);
+    const b = layerOf.get(to.moduleId);
+    if (!a || !b || a === b) continue;
+    links.set(`${a}>${b}`, (links.get(`${a}>${b}`) ?? 0) + Math.max(1, edge.sites.length));
+  }
+
+  // Words: weighted by what carries them (a type name says more than a field), across files.
+  interface Term { score: number; symbols: Set<string>; modules: Set<string>; entities: Set<string> }
+  const terms = new Map<string, Term>();
+  const together = new Map<string, number>();
+  const note = (name: string, weight: number, moduleId: string, symbolId: string | null) => {
+    const words = [...new Set(conceptWords(name))];
+    for (const word of words) {
+      const term = terms.get(word) ?? { score: 0, symbols: new Set<string>(), modules: new Set<string>(), entities: new Set<string>() };
+      term.score += weight * (GENERIC.has(word) ? 0.25 : 1);
+      term.modules.add(moduleId);
+      if (symbolId) term.symbols.add(symbolId);
+      terms.set(word, term);
+    }
+    for (let i = 0; i < words.length; i += 1) {
+      for (let j = i + 1; j < words.length; j += 1) {
+        const key = [words[i], words[j]].sort().join('|');
+        together.set(key, (together.get(key) ?? 0) + 2);
+      }
+    }
+  };
+  for (const module of model.modules) {
+    if (module.external || module.group || isTestPath(module.path) || !isCodeLanguage(module.language)) continue;
+    // Tool configuration (`vite.config.js`) names tools, not the domain.
+    if (/\.(?:config|conf|rc|setup)\.[^/]+$|(?:^|\/)(?:setup|setupTests|conftest)\.[^/]+$/.test(module.path)) continue;
+    note(baseName(module.path), 3, module.id, null);
+    for (const segment of module.dir.split('/').slice(-2)) note(segment, 1.5, module.id, null);
+    const visit = (entries: CxRawSymbol[], depth: number) => {
+      for (const raw of entries) {
+        const key = symbolKey(module.path, raw.selection.line, raw.name);
+        const symbolId = harvest.byId.has(`s:${key}`) ? `s:${key}` : null;
+        const container = CONTAINER_KINDS.has(raw.kind);
+        const callable = CALLABLE_KINDS.has(raw.kind);
+        const weight = container ? 4 : callable ? 1.5 : depth === 0 ? 1 : 0.6;
+        if (raw.kind !== SYMBOL_KIND.Package && !/ callback$|^<[^>]*>$/.test(raw.name)) note(raw.name, weight, module.id, symbolId);
+        if (raw.children?.length && depth < 3) visit(raw.children, depth + 1);
+      }
+    };
+    visit(harvest.raws.get(module.path) ?? [], 0);
+    if (!harvest.raws.get(module.path)) {
+      for (const symbolId of module.symbolIds) {
+        const symbol = harvest.byId.get(symbolId);
+        if (symbol && (isCallable(symbol) || symbol.kind === 'class')) note(symbol.name, symbol.kind === 'class' ? 4 : 1.5, module.id, symbol.id);
+      }
+    }
+  }
+  for (const entity of entities) {
+    for (const word of conceptWords(entity.name)) terms.get(word)?.entities.add(entity.id);
+  }
+  // A short stem and its word are one concept (`eval` and `evaluate`, `calc` and `calculator`).
+  for (const word of [...terms.keys()].sort((a, b) => a.length - b.length)) {
+    const term = terms.get(word);
+    if (!term || word.length < 4) continue;
+    const longer = [...terms.keys()].filter((other) => other !== word && other.startsWith(word)).sort((a, b) => (terms.get(b)!.score - terms.get(a)!.score))[0];
+    if (!longer) continue;
+    const target = terms.get(longer)!;
+    target.score += term.score;
+    for (const value of term.symbols) target.symbols.add(value);
+    for (const value of term.modules) target.modules.add(value);
+    terms.delete(word);
+  }
+  const scored = [...terms.entries()]
+    .map(([word, term]) => ({ word, term, score: term.score * (1 + 0.2 * Math.min(5, term.modules.size - 1)) }))
+    .filter((entry) => entry.score >= 3 || entry.term.symbols.size >= 2)
+    .sort((a, b) => b.score - a.score || a.word.localeCompare(b.word));
+  const domain = scored.filter((entry) => !GENERIC.has(entry.word));
+  const ranked = (domain.length >= 6 ? domain : [...domain, ...scored.filter((entry) => GENERIC.has(entry.word))]).slice(0, LENS_LIMITS.concepts);
+  const chosen = new Set(ranked.map((entry) => entry.word));
+  // Edges between concepts: words in one identifier, files they share, and calls between their code.
+  const strength = new Map<string, number>(together);
+  for (const a of ranked) {
+    for (const b of ranked) {
+      if (a.word >= b.word) continue;
+      let shared = 0;
+      for (const module of a.term.modules) if (b.term.modules.has(module)) shared += 1;
+      const key = `${a.word}|${b.word}`;
+      if (shared) strength.set(key, (strength.get(key) ?? 0) + shared);
+    }
+  }
+  for (const edge of model.edges) {
+    const from = harvest.byId.get(edge.from);
+    const to = harvest.byId.get(edge.to);
+    if (!from || !to) continue;
+    const left = conceptWords(from.name).filter((word) => chosen.has(word));
+    const right = conceptWords(to.name).filter((word) => chosen.has(word));
+    for (const a of left) for (const b of right) {
+      if (a === b) continue;
+      const key = [a, b].sort().join('|');
+      strength.set(key, (strength.get(key) ?? 0) + 1);
+    }
+  }
+  const concepts: CxConcept[] = ranked.map(({ word, term, score }) => {
+    const related = ranked.filter((other) => other.word !== word)
+      .map((other) => ({ id: `c:${other.word}`, strength: strength.get([word, other.word].sort().join('|')) ?? 0 }))
+      .filter((entry) => entry.strength > 0)
+      .sort((a, b) => b.strength - a.strength || a.id.localeCompare(b.id))
+      .slice(0, 5);
+    const symbols = [...term.symbols].map((id) => harvest.byId.get(id)!).filter(Boolean)
+      .sort((a, b) => Number(b.kind === 'class') - Number(a.kind === 'class') || a.qualifiedName.localeCompare(b.qualifiedName))
+      .slice(0, LENS_LIMITS.conceptMembers).map((symbol) => symbol.id);
+    return {
+      id: `c:${word}`, term: word, label: capitalise(word), score: Math.round(score * 10) / 10,
+      symbols, entities: [...term.entities].slice(0, 10), modules: [...term.modules].sort().slice(0, 12), related
+    };
+  });
+  const orderedLayers = LAYER_ORDER.map((id) => layers.get(id)).filter((layer): layer is CxLayer => Boolean(layer));
+  for (const layer of orderedLayers) layer.modules.sort((a, b) => a.id.localeCompare(b.id));
+  const count = (id: CxLayerId) => layers.get(id)?.modules.length ?? 0;
+  const noun: Partial<Record<CxLayerId, string>> = { entry: 'entry-point', ui: 'interface', logic: 'logic', data: 'data-shape', storage: 'storage' };
+  const parts = (['entry', 'ui', 'logic', 'data', 'storage'] as CxLayerId[]).filter((id) => count(id))
+    .map((id) => `${count(id)} ${noun[id]} file${count(id) === 1 ? '' : 's'}`);
+  const top = concepts.slice(0, 3).map((concept) => concept.label);
+  const summary = [
+    top.length ? `Its declarations talk most about ${top.length > 1 ? `${top.slice(0, -1).join(', ')} and ${top[top.length - 1]}` : top[0]}.` : 'No domain words stood out in its declarations.',
+    parts.length ? `It has ${parts.join(', ')}.` : ''
+  ].filter(Boolean).join(' ');
+  return {
+    summary,
+    layers: orderedLayers,
+    layerLinks: [...links.entries()].map(([key, calls]) => {
+      const [from, to] = key.split('>') as [CxLayerId, CxLayerId];
+      return { from, to, calls };
+    }).sort((a, b) => LAYER_ORDER.indexOf(a.from) - LAYER_ORDER.indexOf(b.from) || LAYER_ORDER.indexOf(a.to) - LAYER_ORDER.indexOf(b.to)),
+    concepts
+  };
+}
+
+// ---- Entities ----------------------------------------------------------------------------------
+
+const MANY = /\b(?:List|Set|Collection|Iterable|Array|Sequence|Seq|Vec|Slice|Stream|Flux|Page)\b|\[\]|\[\s*\w+\s*\]$/;
+const CONTAINER_ENTITY: Partial<Record<number, CxEntity['kind']>> = {
+  [SYMBOL_KIND.Class]: 'class', [SYMBOL_KIND.Interface]: 'interface', [SYMBOL_KIND.Struct]: 'struct',
+  [SYMBOL_KIND.Enum]: 'enum', [SYMBOL_KIND.TypeParameter]: 'type'
+};
+
+/** A field's type from the language service's detail, or from its declaration line. */
+export function fieldType(lineText: string, name: string, language: string, detail: string | null | undefined): string | null {
+  const fromDetail = detail ? detail.replace(/^\s*:\s*/, '').trim() : '';
+  if (fromDetail && !/[()]/.test(fromDetail) && fromDetail.length < 80) return visibleCode(fromDetail);
+  const line = lineText.replace(/\/\/.*$|#.*$/, '');
+  const escaped = name.replace(ESCAPE, '\\$&');
+  const after = line.match(new RegExp(`(?<![\\w$])${escaped}\\s*[?!]?\\s*:\\s*([^=;,{}]+?)\\s*(?:[=;,]|$)`));
+  if (after && language !== 'go') return clip(after[1]!, 60);
+  if (language === 'go') {
+    const go = line.match(new RegExp(`^\\s*${escaped}\\s+([\\w.*\\[\\]]+)`));
+    if (go) return go[1]!;
+  }
+  const before = line.match(new RegExp(`([\\w$.]+(?:\\s*<[^;=()]*>)?(?:\\s*\\[\\s*\\])*\\??)\\s+${escaped}\\s*(?:[;=,)]|$)`));
+  if (before && !/^(?:private|public|protected|internal|static|final|readonly|const|let|var|val|return)$/.test(before[1]!)) return clip(before[1]!.replace(/\s+/g, ''), 60);
+  return null;
+}
+
+/** The names a class declaration extends or implements, in any of the common syntaxes. */
+function supertypes(source: Source, raw: CxRawSymbol): string[] {
+  const start = offsetAt(source, raw.range.start);
+  const brace = source.masked.indexOf('{', offsetAt(source, raw.selection.line));
+  const colon = source.language === 'python' ? source.masked.indexOf(':', offsetAt(source, raw.selection.line)) : -1;
+  const stop = [brace, colon].filter((value) => value > start).sort((a, b) => a - b)[0] ?? Math.min(source.text.length, start + 400);
+  const head = flat(source.text.slice(offsetAt(source, raw.selection.line), Math.min(stop, offsetAt(source, raw.selection.line) + 400)));
+  const names: string[] = [];
+  const add = (list: string) => {
+    for (const part of list.split(',')) {
+      const name = part.replace(/<.*$|\(.*$/, '').trim().split(/\s+/).pop() ?? '';
+      if (/^[A-Za-z_$][\w$.]*$/.test(name) && !['object', 'Object'].includes(name)) names.push(lastSegment(name));
+    }
+  };
+  const extendsMatch = head.match(/\bextends\s+([^{]+?)(?:\bimplements\b|$)/);
+  if (extendsMatch) add(extendsMatch[1]!);
+  const implementsMatch = head.match(/\bimplements\s+([^{]+)$/);
+  if (implementsMatch) add(implementsMatch[1]!);
+  if (source.language === 'python') {
+    const bases = head.match(/^class\s+\w+\s*\(([^)]*)\)/);
+    if (bases) add(bases[1]!);
+  } else if (!extendsMatch && !implementsMatch) {
+    const colonBases = head.match(/^(?:[\w\s]*\b(?:class|struct|interface|object|record)\s+[\w$]+(?:\s*<[^>]*>)?(?:\s*\([^)]*\))?)\s*:\s*([^{]+)$/);
+    if (colonBases) add(colonBases[1]!);
+  }
+  return [...new Set(names)];
+}
+
+function buildEntities(harvest: Harvest): CxEntityLens {
+  const entities: CxEntity[] = [];
+  const notes: string[] = [];
+  const seen = new Set<string>();
+  const add = (entity: CxEntity) => {
+    if (entities.length >= LENS_LIMITS.entities || seen.has(entity.id)) return;
+    seen.add(entity.id);
+    entities.push(entity);
+  };
+  for (const module of harvest.model.modules) {
+    if (module.external || module.group || isTestPath(module.path) || !isCodeLanguage(module.language)) continue;
+    const source = harvest.sources.get(module.path);
+    const raws = harvest.raws.get(module.path);
+    if (source && raws) {
+      const placed = classifyModule(module.path, module.language, source.text, raws);
+      const visit = (entries: CxRawSymbol[], prefix: string) => {
+        for (const raw of entries) {
+          if (raw.kind === SYMBOL_KIND.Package || raw.kind === SYMBOL_KIND.Module || raw.kind === SYMBOL_KIND.Namespace) {
+            if (raw.children?.length) visit(raw.children, prefix);
+            continue;
+          }
+          const kind = CONTAINER_ENTITY[raw.kind] ?? (isObjectShape(raw, source) ? 'shape' : null);
+          if (!kind) continue;
+          const name = displayName(raw.name);
+          const children = raw.children ?? [];
+          const callables = children.filter((child) => CALLABLE_KINDS.has(child.kind) || (FIELD_KINDS.has(child.kind) && looksCallable(source, child)));
+          const fieldSymbols = children.filter((child) => FIELD_KINDS.has(child.kind) && !looksCallable(source, child));
+          const values = children.filter((child) => child.kind === SYMBOL_KIND.EnumMember).map((child) => visibleCode(child.name));
+          const fields: CxEntityField[] = fieldSymbols.slice(0, LENS_LIMITS.fieldsPerEntity).map((child) => ({
+            name: visibleCode(displayName(child.name)),
+            // An object literal holds values, not declared types: say what the value is.
+            type: kind === 'shape' ? (child.children?.length ? 'object' : shapeValue(source.lines[child.selection.line - 1] ?? '', displayName(child.name)))
+              : fieldType(source.lines[child.selection.line - 1] ?? '', displayName(child.name), source.language, child.detail),
+            line: child.selection.line,
+            accessors: []
+          }));
+          const methods: string[] = [];
+          for (const callable of callables) {
+            const method = displayName(callable.name);
+            const accessor = method.match(ACCESSOR);
+            const field = accessor ? fields.find((entry) => entry.name.toLowerCase() === accessor[1]!.toLowerCase()) : null;
+            if (field) field.accessors.push(method.replace(ACCESSOR, (_, rest: string) => method.slice(0, method.length - rest.length)));
+            else if (callable.kind !== SYMBOL_KIND.Constructor && method !== name && !OBJECT_METHODS.has(method)) methods.push(visibleCode(method));
+          }
+          // Behaviour without data (a controller, a service) is the Logic lens's subject, not an entity.
+          const dataLike = kind === 'enum' || kind === 'type' || kind === 'shape' || (kind === 'interface' && fields.length > 0 && !methods.length)
+            || (fields.length > 0 && methods.length === 0)
+            || (fields.length >= 2 && !['entry', 'cross-cutting', 'logic', 'test'].includes(placed.layer));
+          if (dataLike) {
+            const key = symbolKey(module.path, raw.selection.line, raw.name);
+            const record = kind === 'class' && /\brecord\s+[A-Z]/.test(source.lines[raw.selection.line - 1] ?? '') ? 'record' : kind;
+            add({
+              id: `n:${module.path}:${raw.selection.line}:${name}`, name: prefix ? `${prefix}.${name}` : name, kind: record,
+              moduleId: module.id, line: raw.selection.line, symbol: harvest.byId.has(`s:${key}`) ? `s:${key}` : null,
+              fields, values, methods: methods.slice(0, 12), extends: kind === 'shape' ? [] : supertypes(source, raw), usedBy: [],
+              source: kind === 'shape' ? 'an object literal bound to a name' : `a ${kind} declaration`
+            });
+          }
+          if (kind !== 'shape' && children.some((child) => CONTAINER_ENTITY[child.kind])) visit(children.filter((child) => CONTAINER_ENTITY[child.kind]), name);
+        }
+      };
+      visit(raws, '');
+    }
+    if (source && !raws) for (const entity of textEntities(harvest, module.id, source)) add(entity);
+    if (source) for (const shape of literalShapes(harvest, module.id, source)) add(shape);
+  }
+  // Fold identical object shapes (the same keys returned from several places) into one.
+  const byKeys = new Map<string, CxEntity>();
+  const merged: CxEntity[] = [];
+  for (const entity of entities) {
+    if (entity.kind !== 'shape' || entity.source === 'an object literal bound to a name') { merged.push(entity); continue; }
+    const key = `${entity.moduleId}|${entity.fields.map((field) => field.name).sort().join(',')}`;
+    const existing = byKeys.get(key);
+    if (existing) { if (!existing.name.includes(entity.name)) existing.source = `${existing.source}; also ${entity.name}`; continue; }
+    byKeys.set(key, entity);
+    merged.push(entity);
+  }
+  const names = new Map<string, CxEntity>();
+  for (const entity of merged) if (!names.has(lastSegment(entity.name))) names.set(lastSegment(entity.name), entity);
+  const links: CxEntityLink[] = [];
+  for (const entity of merged) {
+    for (const field of entity.fields) {
+      if (!field.type) continue;
+      for (const [name, target] of names) {
+        if (target.id === entity.id || !wordPattern(name).test(field.type)) continue;
+        links.push({ from: entity.id, to: target.id, kind: 'has', label: field.name, many: MANY.test(field.type) });
+      }
+    }
+    for (const parent of entity.extends) {
+      const target = names.get(parent);
+      if (target && target.id !== entity.id) links.push({ from: entity.id, to: target.id, kind: 'is', label: 'extends', many: false });
+    }
+  }
+  // Which functions take, return or make each entity, from their declarations and their own text.
+  const named = merged.filter((entity) => entity.kind !== 'shape' && entity.kind !== 'props');
+  for (const symbol of harvest.model.symbols) {
+    if (!isCallable(symbol) || !symbol.file) continue;
+    const signature = symbol.signature ?? '';
+    const open = signature.indexOf('(');
+    const close = open >= 0 ? signature.lastIndexOf(')') : -1;
+    const own = named.length ? ownText(harvest, symbol) : null;
+    const body = own ? own.source.text.slice(own.start, own.end) : '';
+    for (const entity of named) {
+      const short = lastSegment(entity.name);
+      const pattern = wordPattern(short);
+      if (entity.symbol && symbol.id === entity.symbol) continue;
+      if (symbol.moduleId === entity.moduleId && entity.symbol && symbol.qualifiedName.startsWith(`${short}.`)) continue;
+      let how: CxEntity['usedBy'][number]['how'] | null = null;
+      if (open >= 0 && close > open && pattern.test(signature.slice(open, close))) how = 'takes';
+      else if (open >= 0 && (pattern.test(signature.slice(0, open).replace(wordPattern(symbol.name), '')) || pattern.test(signature.slice(close + 1)))) how = 'returns';
+      else if (body && new RegExp(`\\bnew\\s+${short.replace(ESCAPE, '\\$&')}\\s*[<(]`).test(body)) how = 'creates';
+      if (how && entity.usedBy.length < 12) entity.usedBy.push({ symbol: symbol.id, how });
+    }
+  }
+  if (entities.length >= LENS_LIMITS.entities) notes.push(`the first ${LENS_LIMITS.entities} entities are shown`);
+  return { entities: merged, links, notes };
+}
+
+const TEXT_FIELD_PATTERNS: Array<{ re: RegExp; name: number; type: number }> = [
+  // Kotlin and Swift: `val total: BigDecimal`, `let name: String`.
+  { re: /^\s*(?:(?:private|public|protected|internal|override|lateinit|open|fileprivate|static)\s+)*(?:val|var|let)\s+([A-Za-z_]\w*)\s*:\s*([^=]+?)\s*(?:=.*)?$/, name: 1, type: 2 },
+  // TypeScript and Python annotations: `name?: string;`, `total: Decimal = 0`.
+  { re: /^\s*(?:(?:private|public|protected|readonly|static|declare)\s+)*([A-Za-z_$][\w$]*)\s*[?!]?\s*:\s*([^;=()]+?)\s*(?:=.*)?;?\s*$/, name: 1, type: 2 },
+  // Java, C#, C++: `private Map<String, Object> data;`.
+  { re: /^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:private|public|protected|internal|static|final|readonly|transient|volatile|const|mutable)\s+)*([\w$.]+(?:\s*<[^;=()]*>)?(?:\s*\[\s*\])*\??)\s+([A-Za-z_$][\w$]*)\s*(?:=[^;]*)?;\s*$/, name: 2, type: 1 }
+];
+
+/**
+ * Classes and enums read from a file's own text when no language service outlined it: the fields its
+ * body declares at its own level, and the values an enum lists.
+ */
+function textEntities(harvest: Harvest, moduleId: string, source: Source): CxEntity[] {
+  const found: CxEntity[] = [];
+  const module = harvest.model.modules.find((entry) => entry.id === moduleId);
+  for (const symbol of harvest.model.symbols) {
+    if (symbol.kind !== 'class' || symbol.moduleId !== moduleId || symbol.start === null || symbol.end === null || symbol.line === null) continue;
+    const header = source.lines[symbol.line - 1] ?? '';
+    const isEnum = /\benum\s+/.test(header);
+    const fields: CxEntityField[] = [];
+    const values: string[] = [];
+    const open = source.masked.indexOf('{', offsetAt(source, symbol.line));
+    const close = open >= 0 && open < offsetAt(source, symbol.end + 1) ? closing(source.masked, open) : -1;
+    if (close > open) {
+      let depth = 0;
+      for (let line = lineAt(source, open); line <= lineAt(source, close); line += 1) {
+        const lineStart = offsetAt(source, line);
+        const masked = source.masked.slice(lineStart, offsetAt(source, line + 1));
+        const atDepth = depth;
+        for (const character of masked) {
+          if (character === '{') depth += 1;
+          else if (character === '}') depth -= 1;
+        }
+        if (atDepth !== 1 || !masked.trim()) continue;
+        const text = (source.lines[line - 1] ?? '').replace(/\/\/.*$/, '');
+        if (isEnum && values.length < LENS_LIMITS.fieldsPerEntity) {
+          for (const value of masked.split(/[;{]/)[0]!.split(',')) {
+            const name = value.trim().match(/^([A-Z_a-z][\w$]*)\s*(?:\(|$)/)?.[1];
+            if (name) values.push(name);
+          }
+          if (masked.includes(';')) break;
+          continue;
+        }
+        for (const pattern of TEXT_FIELD_PATTERNS) {
+          const match = text.match(pattern.re);
+          if (!match) continue;
+          const name = match[pattern.name]!;
+          const type = flat(match[pattern.type]!);
+          if (/^(?:return|throw|new|else|case|import|package)$/.test(type) || /^(?:return|throw)$/.test(name)) break;
+          fields.push({ name: visibleCode(name), type: clip(type, 60), line, accessors: [] });
+          break;
+        }
+        if (fields.length >= LENS_LIMITS.fieldsPerEntity) break;
+      }
+    }
+    const methods: string[] = [];
+    for (const member of harvest.callablesByFile.get(source.path) ?? []) {
+      // A constructor, however the outline names it (a method named after its class), is not behaviour.
+      if (member.start! < symbol.start || member.end! > symbol.end || member.kind === 'constructor' || member.name === symbol.name) continue;
+      const accessor = member.name.match(ACCESSOR);
+      const field = accessor ? fields.find((entry) => entry.name.toLowerCase() === accessor[1]!.toLowerCase()) : null;
+      if (field) field.accessors.push(member.name.slice(0, member.name.length - accessor![1]!.length));
+      else if (!OBJECT_METHODS.has(member.name)) methods.push(member.name);
+    }
+    const placed = module ? classifyModule(module.path, module.language, source.text, null) : null;
+    const dataLike = isEnum || (fields.length > 0 && methods.length === 0)
+      || (fields.length >= 2 && !['entry', 'cross-cutting', 'logic', 'test'].includes(placed?.layer ?? 'other'));
+    if (!dataLike) continue;
+    found.push({
+      id: `n:${source.path}:${symbol.line}:${symbol.name}`, name: symbol.name, kind: isEnum ? 'enum' : /\brecord\s+/.test(header) ? 'record' : /\binterface\s+/.test(header) ? 'interface' : 'class',
+      moduleId, line: symbol.line, symbol: symbol.id, fields, values, methods: methods.slice(0, 12), extends: [], usedBy: [],
+      source: `a ${isEnum ? 'enum' : 'class'} read from the file's text`
+    });
+  }
+  return found;
+}
+
+function looksCallable(source: Source, raw: CxRawSymbol): boolean {
+  if (looksLikeFunction(source.lines, raw)) return true;
+  const line = source.lines[raw.selection.line - 1] ?? '';
+  const rest = line.slice(raw.selection.character + raw.name.length);
+  return /^\s*(?::\s*[^=;]+?)?\s*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*(?::\s*[^=]+?)?=>|[A-Za-z_$][\w$]*\s*=>)/.test(rest)
+    || /^\s*\(/.test(rest) || /^\s*:\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*=>)/.test(rest);
+}
+
+/** A name bound to an object literal with properties of its own (`const UNITS = { … }`). */
+function isObjectShape(raw: CxRawSymbol, source: Source): boolean {
+  if ((raw.kind !== SYMBOL_KIND.Variable && raw.kind !== SYMBOL_KIND.Constant) || !(raw.children?.length)) return false;
+  if (looksCallable(source, raw)) return false;
+  const line = source.lines[raw.selection.line - 1] ?? '';
+  return /=\s*\{/.test(line.slice(raw.selection.character)) && raw.children.filter((child) => child.kind === SYMBOL_KIND.Property || child.kind === SYMBOL_KIND.Field).length >= 2;
+}
+
+/** What an object literal's property holds: its literal kind, or `= value` when it names something. */
+function shapeValue(lineText: string, name: string): string | null {
+  const value = lineText.match(new RegExp(`${wordPattern(name).source}\\s*:\\s*([^,}]+)`))?.[1]?.trim();
+  if (!value) return null;
+  return literalType(value) ?? clip(`= ${value}`, 40);
+}
+
+/** Literal value types where the text says plainly what they are. */
+function literalType(value: string): string | null {
+  const text = value.trim();
+  if (/^['"`]/.test(text)) return 'string';
+  if (/^-?\d/.test(text)) return 'number';
+  if (/^(?:true|false)$/.test(text)) return 'boolean';
+  if (text.startsWith('[')) return 'array';
+  if (text.startsWith('{')) return 'object';
+  if (/^(?:null|undefined|None)$/.test(text)) return 'null';
+  return null;
+}
+
+/**
+ * Data a function builds in place: an object literal it returns or names (`return { result, error }`,
+ * `const entry = { … }`), and a component's destructured inputs (`({ expression, result }) =>`).
+ */
+function literalShapes(harvest: Harvest, moduleId: string, source: Source): CxEntity[] {
+  const shapes: CxEntity[] = [];
+  for (const symbol of harvest.callablesByFile.get(source.path) ?? []) {
+    if (shapes.length >= LENS_LIMITS.shapesPerFile) break;
+    const own = ownText(harvest, symbol);
+    if (!own) continue;
+    const props = parameterRange(source, symbol);
+    if (props && JSX_LANGUAGES.has(source.language) && /^[A-Z]/.test(symbol.name)) {
+      const inside = source.masked.slice(props[0], props[1]).trim();
+      if (inside.startsWith('{')) {
+        const open = source.masked.indexOf('{', props[0]);
+        const close = closing(source.masked, open, props[1] + 1);
+        if (close > open) {
+          const fields = splitTop(source.masked, open + 1, close).map(([from, to]) => {
+            const text = flat(source.text.slice(from, to));
+            const name = text.replace(/^\.\.\./, '').split(/[:=]/)[0]!.trim();
+            return { name: visibleCode(name), type: text.includes('=') ? literalType(text.split('=').slice(1).join('=')) : null, line: lineAt(source, from), accessors: [] as string[] };
+          }).filter((field) => /^[A-Za-z_$][\w$]*$/.test(field.name));
+          if (fields.length) {
+            shapes.push({
+              id: `n:${source.path}:${symbol.line}:${symbol.name}:props`, name: `${symbol.name} props`, kind: 'props', moduleId, line: symbol.line,
+              symbol: symbol.id, fields, values: [], methods: [], extends: [], usedBy: [], source: 'the inputs a component destructures'
+            });
+          }
+        }
+      }
+    }
+    const pattern = /\breturn\s*\(?\s*\{|\b(?:const|let|var|final)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*\{/g;
+    for (let match = pattern.exec(own.masked); match; match = pattern.exec(own.masked)) {
+      const open = own.start + match.index + match[0].lastIndexOf('{');
+      const close = closing(source.masked, open, own.end);
+      if (close < 0) continue;
+      const parts = splitTop(source.masked, open + 1, close);
+      const fields: CxEntityField[] = [];
+      let plain = true;
+      for (const [from, to] of parts) {
+        const text = flat(source.text.slice(from, to));
+        const pair = text.match(/^([A-Za-z_$][\w$]*|['"][^'"]+['"])\s*:\s*([\s\S]*)$/);
+        const shorthand = text.match(/^([A-Za-z_$][\w$]*)$/);
+        if (pair) fields.push({ name: visibleCode(pair[1]!.replace(/['"]/g, '')), type: literalType(pair[2]!), line: lineAt(source, from), accessors: [] });
+        else if (shorthand) fields.push({ name: visibleCode(shorthand[1]!), type: null, line: lineAt(source, from), accessors: [] });
+        else if (!text.startsWith('...')) plain = false;
+      }
+      if (!plain || fields.length < 2) continue;
+      const name = match[1] ? `${symbol.name}: ${match[1]}` : `${symbol.name} result`;
+      shapes.push({
+        id: `n:${source.path}:${lineAt(source, open)}:${name}`, name, kind: 'shape', moduleId, line: lineAt(source, open), symbol: symbol.id,
+        fields: fields.slice(0, LENS_LIMITS.fieldsPerEntity), values: [], methods: [], extends: [], usedBy: [],
+        source: match[1] ? `an object ${symbol.name} builds` : `the object ${symbol.name} returns`
+      });
+      if (shapes.length >= LENS_LIMITS.shapesPerFile) break;
+    }
+  }
+  return shapes;
+}
+
+// ---- Data flow ---------------------------------------------------------------------------------
+
+interface ApiPattern { re: RegExp; category: string; label: string }
+
+const SINKS: ApiPattern[] = [
+  { re: /\b(?:localStorage|sessionStorage)\s*\.\s*(?:setItem|removeItem|clear)\s*\(/g, category: 'storage', label: 'browser storage' },
+  { re: /\b(?:fs|fsp|fsPromises)\s*\.\s*(?:writeFile|appendFile|writeFileSync|appendFileSync|createWriteStream)\s*\(|\bwriteFileSync\s*\(|\bFiles\s*\.\s*(?:write|writeString|newBufferedWriter)\s*\(|\bopen\s*\([^)]*['"][wa]/g, category: 'storage', label: 'files' },
+  { re: /\b\w*(?:[Rr]epository|[Rr]epo|[Dd]ao)\s*\.\s*(?:save|saveAll|saveAndFlush|insert|update|delete\w*|persist|merge|remove)\s*\(|\b(?:session|em|entityManager)\s*\.\s*(?:persist|merge|remove|save)\s*\(|\.(?:insertOne|insertMany|updateOne|updateMany|deleteOne|deleteMany|create|upsert)\s*\(/g, category: 'storage', label: 'the database' },
+  { re: /\bfetch\s*\(|\baxios\s*(?:\.\s*\w+)?\s*\(|\b(?:restTemplate|webClient|httpClient|client)\s*\.\s*(?:post|put|patch|delete|exchange|send|execute)\w*\s*\(|\brequests\s*\.\s*(?:post|put|patch|delete)\s*\(/g, category: 'network', label: 'another service' },
+  { re: /\b(?:kafkaTemplate|rabbitTemplate|jmsTemplate|producer|publisher|eventPublisher|emitter)\s*\.\s*(?:send|publish|convertAndSend|emit)\w*\s*\(/g, category: 'message', label: 'a message queue' },
+  { re: /\bnavigator\s*\.\s*clipboard\s*\.\s*writeText\s*\(/g, category: 'device', label: 'the clipboard' },
+  { re: /\bdocument\s*\.\s*(?:documentElement|body|title)\b[^;\n]*(?:setAttribute|classList|=)/g, category: 'screen', label: 'the page' },
+  { re: /\b(?:new\s+(?:window\.)?(?:AudioContext|webkitAudioContext)\b|\.createOscillator\s*\(|new\s+Audio\s*\()/g, category: 'device', label: 'sound' },
+  { re: /\bconsole\s*\.\s*(?:log|info|warn|error|debug)\s*\(|\b(?:logger|log|LOG|LOGGER)\s*\.\s*(?:info|warn|warning|error|debug|trace)\s*\(|\bSystem\s*\.\s*(?:out|err)\s*\.\s*print\w*\s*\(|\bprint\s*\(/g, category: 'log', label: 'the log' },
+  { re: /\bres\s*\.\s*(?:json|send|status|end|render|redirect)\s*\(|\bResponseEntity\s*\.\s*\w+\s*\(|\breturn\s+(?:jsonify|Response|JSONResponse)\s*\(/g, category: 'response', label: 'HTTP response' }
+];
+
+const SOURCES: ApiPattern[] = [
+  { re: /\b(?:localStorage|sessionStorage)\s*\.\s*getItem\s*\(/g, category: 'storage', label: 'browser storage' },
+  { re: /\b(?:fs|fsp|fsPromises)\s*\.\s*(?:readFile|readFileSync|createReadStream|readdir)\s*\(|\breadFileSync\s*\(|\bFiles\s*\.\s*(?:read\w*|lines|newBufferedReader)\s*\(|\bopen\s*\([^)]*\)\s*(?:as|\.read)/g, category: 'storage', label: 'files' },
+  { re: /\b\w*(?:[Rr]epository|[Rr]epo|[Dd]ao)\s*\.\s*(?:find\w*|get\w*|exists\w*|count\w*|query\w*|search\w*)\s*\(|\.(?:findOne|findMany|findUnique|findById|aggregate)\s*\(/g, category: 'storage', label: 'the database' },
+  { re: /\bprocess\s*\.\s*env\b|\bSystem\s*\.\s*getenv\s*\(|\bos\s*\.\s*(?:environ|getenv)\b|@Value\s*\(/g, category: 'config', label: 'configuration' },
+  { re: /\bnavigator\s*\.\s*clipboard\s*\.\s*readText\s*\(|\bprompt\s*\(|\binput\s*\(|\bScanner\s*\(\s*System\s*\.\s*in\s*\)/g, category: 'device', label: 'user input' }
+];
+
+const CONVERSIONS = /\bnew\s+BigDecimal\s*\(|\bBigDecimal\s*\.\s*valueOf\s*\(|\b(?:Integer|Long|Double|Float|Short|Byte|Boolean)\s*\.\s*(?:parse\w*|valueOf)\s*\(|\bString\s*\.\s*valueOf\s*\(|\b(?:parseFloat|parseInt|Number|String|Boolean|BigInt)\s*\(|\bJSON\s*\.\s*(?:parse|stringify)\s*\(|\b(?:Instant|LocalDate|LocalDateTime|ZonedDateTime|OffsetDateTime|UUID)\s*\.\s*(?:parse|fromString)\s*\(|\.(?:asText|asLong|asInt|asDouble|asBoolean|decimalValue|doubleValue|longValue|intValue|floatValue|toFixed|toExponential|toPrecision)\s*\(|\b(?:int|float|str|bool|Decimal)\s*\(|\.toString\s*\(\s*\)|\bObject\.(?:entries|fromEntries|keys|values)\s*\(/g;
+
+const HTTP_STATUS: Record<string, number> = {
+  OK: 200, CREATED: 201, ACCEPTED: 202, NO_CONTENT: 204, BAD_REQUEST: 400, UNAUTHORIZED: 401, FORBIDDEN: 403, NOT_FOUND: 404,
+  CONFLICT: 409, GONE: 410, UNPROCESSABLE_ENTITY: 422, TOO_MANY_REQUESTS: 429, INTERNAL_SERVER_ERROR: 500, SERVICE_UNAVAILABLE: 503
+};
+
+function annotationBlock(source: Source, line: number): string {
+  const first = leadingStart(source.lines, line, 30);
+  return source.lines.slice(first - 1, line).join('\n');
+}
+
+function routeOf(block: string): { method: string; path: string } | null {
+  const spring = block.match(/@(Get|Post|Put|Delete|Patch|Request)Mapping\b(?:\s*\(([^)]*)\))?/);
+  if (spring) {
+    const args = spring[2] ?? '';
+    const path = args.match(/(?:path|value)\s*=\s*\{?\s*"([^"]*)"/)?.[1] ?? args.match(/^\s*\{?\s*"([^"]*)"/)?.[1] ?? '';
+    const method = spring[1] === 'Request' ? (args.match(/RequestMethod\s*\.\s*(\w+)/)?.[1] ?? 'ANY') : spring[1]!.toUpperCase();
+    return { method, path };
+  }
+  const jaxrs = block.match(/@(GET|POST|PUT|DELETE|PATCH)\b/);
+  if (jaxrs) return { method: jaxrs[1]!, path: block.match(/@Path\s*\(\s*"([^"]*)"/)?.[1] ?? '' };
+  const dotnet = block.match(/\[Http(Get|Post|Put|Delete|Patch)(?:\s*\(\s*"([^"]*)"\s*\))?\]/);
+  if (dotnet) return { method: dotnet[1]!.toUpperCase(), path: dotnet[2] ?? '' };
+  const python = block.match(/@\w+\.(route|get|post|put|delete|patch)\s*\(\s*['"]([^'"]*)['"]([^)]*)\)/);
+  if (python) {
+    const methods = python[3]?.match(/methods\s*=\s*\[\s*['"](\w+)['"]/)?.[1];
+    return { method: python[1] === 'route' ? (methods ?? 'GET').toUpperCase() : python[1]!.toUpperCase(), path: python[2] ?? '' };
+  }
+  return null;
+}
+
+function joinPath(prefix: string, path: string): string {
+  const joined = `/${[prefix, path].map((part) => part.replace(/^\/+|\/+$/g, '')).filter(Boolean).join('/')}`;
+  return joined === '/' && !prefix && !path ? '/' : joined;
+}
+
+/** The class-level route prefix of a handler: the `@RequestMapping` (or `@Path`, `[Route]`) on its class. */
+function routePrefix(harvest: Harvest, source: Source, symbol: CxSymbol): string {
+  let holder: CxSymbol | null = null;
+  for (const candidate of harvest.model.symbols) {
+    if (candidate.kind !== 'class' || candidate.file !== source.path || candidate.start === null || candidate.end === null || candidate.line === null) continue;
+    if (candidate.start <= symbol.start! && symbol.end! <= candidate.end && (!holder || candidate.start >= holder.start!)) holder = candidate;
+  }
+  if (!holder || holder.line === null) return '';
+  const block = annotationBlock(source, holder.line);
+  return block.match(/@RequestMapping\s*\(\s*(?:(?:path|value)\s*=\s*)?\{?\s*"([^"]*)"/)?.[1]
+    ?? block.match(/@Path\s*\(\s*"([^"]*)"/)?.[1]
+    ?? block.match(/\[Route\s*\(\s*"([^"]*)"\s*\)\]/)?.[1] ?? '';
+}
+
+/** Whether a module file imports a name (`import { name }`, `from x import name`, `require(…)`). */
+function importsName(text: string, name: string): boolean {
+  const word = wordPattern(name);
+  return text.split("\n").some((line) => /^\s*(?:import\b|from\b|(?:const|let|var)\b[^=]*=\s*require\s*\()/.test(line) && word.test(line));
+}
+
+function buildFlow(harvest: Harvest): CxFlowLens {
+  const { model } = harvest;
+  const nodes = new Map<string, CxFlowNode>();
+  const edges = new Map<string, CxFlowEdge>();
+  const entries: CxFlowEntry[] = [];
+  const out = new Map<string, string[]>();
+  const notes: string[] = [];
+  const node = (value: CxFlowNode): CxFlowNode => {
+    const existing = nodes.get(value.id);
+    if (existing) return existing;
+    nodes.set(value.id, value);
+    return value;
+  };
+  const edge = (from: string, to: string, kind: CxFlowEdge['kind'], label: string | null, line: number | null) => {
+    if (from === to) return;
+    const id = `f:${from}>${to}:${kind}`;
+    const existing = edges.get(id);
+    if (existing) { if (!existing.label && label) existing.label = label; return; }
+    edges.set(id, { id, from, to, kind, label, line });
+    out.set(from, [...(out.get(from) ?? []), id]);
+  };
+  const step = (symbol: CxSymbol): string => node({
+    id: `step:${symbol.id}`, kind: 'step', label: symbol.qualifiedName, detail: symbol.file, symbol: symbol.id, category: null, conversions: []
+  }).id;
+  const callables = model.symbols.filter((symbol) => isCallable(symbol) && symbol.file && !isTestPath(symbol.file) && symbol.start !== null);
+  const owns = new Map<string, NonNullable<ReturnType<typeof ownText>>>();
+  for (const symbol of callables) {
+    const own = ownText(harvest, symbol);
+    if (own) owns.set(symbol.id, own);
+  }
+
+  // 1. Entry points.
+  const exceptionHandlers = new Map<string, { symbol: CxSymbol; status: number | null }>();
+  for (const symbol of callables) {
+    const own = owns.get(symbol.id);
+    if (!own || symbol.line === null) continue;
+    const block = annotationBlock(own.source, symbol.line);
+    const route = routeOf(block);
+    if (route) {
+      const label = `${route.method} ${joinPath(routePrefix(harvest, own.source, symbol), route.path)}`;
+      const body = harvest.sources.get(symbol.file!)?.text.slice(offsetAt(own.source, symbol.line), own.end) ?? '';
+      const payload = body.match(/@RequestBody\s+(?:@\w+\s+)*([\w$.<>]+)\s+(\w+)/);
+      entries.push({ id: `entry:${symbol.id}`, kind: 'http', label, symbol: symbol.id, reason: `a route annotation on ${symbol.qualifiedName}` });
+      node({ id: `entry:${symbol.id}`, kind: 'entry', label, detail: payload ? `request body: ${payload[1]}` : null, symbol: symbol.id, category: 'http', conversions: [] });
+      edge(`entry:${symbol.id}`, step(symbol), 'call', payload ? `${payload[2]} ← JSON body` : null, symbol.line);
+      const returns = returnTypeOf(own.source, symbol);
+      const response = node({ id: 'sink:response:HTTP response', kind: 'sink', label: 'HTTP response', detail: null, symbol: null, category: 'response', conversions: [] });
+      edge(step(symbol), response.id, 'io', returns && returns !== 'void' ? `returns ${returns}` : null, symbol.end);
+    }
+    const listens = block.match(/@(KafkaListener|RabbitListener|JmsListener|SqsListener|EventListener)\b/);
+    const timer = block.match(/@Scheduled\b/);
+    if (listens || timer) {
+      const id = `entry:${symbol.id}`;
+      entries.push({ id, kind: timer ? 'timer' : 'message', label: `${timer ? 'timer' : 'message'} → ${symbol.qualifiedName}`, symbol: symbol.id, reason: `@${(listens ?? timer)![1] ?? 'Scheduled'} on ${symbol.qualifiedName}` });
+      node({ id, kind: 'entry', label: timer ? 'Timer' : 'Message', detail: symbol.qualifiedName, symbol: symbol.id, category: timer ? 'timer' : 'message', conversions: [] });
+      edge(id, step(symbol), 'call', null, symbol.line);
+    }
+    if (/^(main|Main)$/.test(symbol.name) && /\bstatic\b|\bfun\b|\bfunc\b|\bdef\b|\bint\b/.test(symbol.signature ?? '')) {
+      const id = `entry:${symbol.id}`;
+      entries.push({ id, kind: 'program', label: `program start → ${symbol.qualifiedName}`, symbol: symbol.id, reason: `the ${symbol.name} function` });
+      node({ id, kind: 'entry', label: 'Program start', detail: symbol.qualifiedName, symbol: symbol.id, category: 'program', conversions: [] });
+      edge(id, step(symbol), 'call', null, symbol.line);
+    }
+    const handles = block.match(/@ExceptionHandler\s*\(\s*\{?\s*([\w$.]+)\.class/);
+    if (handles) {
+      const status = own.source.text.slice(own.start, own.end).match(/HttpStatus\s*\.\s*(\w+)/)?.[1];
+      exceptionHandlers.set(lastSegment(handles[1]!), { symbol, status: status ? HTTP_STATUS[status] ?? null : null });
+    }
+  }
+  // Route registrations and handlers named in text (`app.post('/x', handler)`, `HandleFunc("/x", h)`).
+  for (const source of harvest.sources.values()) {
+    if (isTestPath(source.path)) continue;
+    const registration = /\b(?:app|router|server|api|route)\s*\.\s*(get|post|put|delete|patch|all)\s*\(\s*(['"`])([^'"`]+)\2\s*,\s*(?:[\w$.]+\s*,\s*)*([\w$.]+)\s*\)|\bHandleFunc\s*\(\s*"([^"]+)"\s*,\s*([\w$.]+)\s*\)/g;
+    for (let match = registration.exec(source.text); match; match = registration.exec(source.text)) {
+      const handlerName = lastSegment(match[4] ?? match[6] ?? '');
+      const handler = resolveName(harvest, handlerName, source.path);
+      if (!handler || !isCallable(handler)) continue;
+      const id = `entry:${handler.id}`;
+      if (nodes.has(id)) continue;
+      const label = `${(match[1] ?? 'ANY').toUpperCase()} ${match[3] ?? match[5]}`;
+      entries.push({ id, kind: 'http', label, symbol: handler.id, reason: `registered in ${source.path}` });
+      node({ id, kind: 'entry', label, detail: null, symbol: handler.id, category: 'http', conversions: [] });
+      edge(id, step(handler), 'call', null, lineAt(source, match.index));
+    }
+    // A program that starts a UI renders its root component (inside any providers and wrappers).
+    const root = source.masked.search(/\bcreateRoot\s*\(|\bReactDOM\s*\.\s*render\s*\(/);
+    if (root >= 0) {
+      const tags = [...source.text.slice(root, root + 2000).matchAll(/<\s*([A-Z][\w$]*)/g)].map((match) => match[1]!);
+      const tag = tags.find((name) => resolveName(harvest, name, null)) ?? tags[0] ?? null;
+      const component = tag ? resolveName(harvest, tag, null) : null;
+      const id = `entry:program:${source.path}`;
+      entries.push({ id, kind: 'program', label: `app start → ${tag ?? 'root'}`, symbol: component?.id ?? null, reason: `${source.path} renders the root component` });
+      node({ id, kind: 'entry', label: 'App start', detail: source.path, symbol: null, category: 'program', conversions: [] });
+      if (component) edge(id, step(component), 'renders', `renders <${tag}>`, lineAt(source, root));
+    }
+  }
+
+  // 2. Components: the elements each renders, what it hands them, and the UI events it handles.
+  const jsxElements: Array<{ owner: CxSymbol; tag: string; dom: boolean; props: Array<{ name: string; value: string; line: number }> }> = [];
+  for (const symbol of callables) {
+    const own = owns.get(symbol.id);
+    if (!own || !JSX_LANGUAGES.has(own.source.language)) continue;
+    const tagPattern = /<([A-Za-z][\w$.-]*)(?=[\s/>])/g;
+    for (let match = tagPattern.exec(own.masked); match; match = tagPattern.exec(own.masked)) {
+      // `<` opens an element only where an expression may start; after a name it compares or types.
+      let back = match.index - 1;
+      while (back >= 0 && /\s/.test(own.masked[back]!)) back -= 1;
+      const before = back >= 0 ? own.masked[back]! : '(';
+      if (!'(,={}>:?&|['.includes(before) && !/\breturn$/.test(own.masked.slice(Math.max(0, back - 6), back + 1))) continue;
+      const props: Array<{ name: string; value: string; line: number }> = [];
+      let index = own.start + match.index + match[0].length;
+      while (index < own.end) {
+        const character = own.source.masked[index]!;
+        if (character === '>' || (character === '/' && own.source.masked[index + 1] === '>')) break;
+        const attribute = own.source.masked.slice(index, index + 80).match(/^([A-Za-z_$][\w$-]*)\s*=\s*\{/);
+        if (attribute) {
+          const open = index + attribute[0].length - 1;
+          const close = closing(own.source.masked, open, own.end);
+          if (close < 0) break;
+          props.push({ name: attribute[1]!, value: flat(own.source.text.slice(open + 1, close)), line: lineAt(own.source, open) });
+          index = close + 1;
+          continue;
+        }
+        index += 1;
+      }
+      jsxElements.push({ owner: symbol, tag: lastSegment(match[1]!), dom: /^[a-z]/.test(match[1]!), props });
+    }
+  }
+  // State: `const [x, setX] = useState(…)`, where its first value comes from, who writes it, where it goes.
+  const states = new Map<string, { id: string; owner: CxSymbol; name: string; setter: string }>();
+  for (const symbol of callables) {
+    const own = owns.get(symbol.id);
+    if (!own) continue;
+    const pattern = /\bconst\s*\[\s*([A-Za-z_$][\w$]*)\s*,\s*(set[A-Za-z_$][\w$]*)\s*\]\s*=\s*(?:React\s*\.\s*)?useState\s*(?:<[^>]*>)?\s*\(/g;
+    for (let match = pattern.exec(own.masked); match; match = pattern.exec(own.masked)) {
+      const id = `state:${symbol.id}:${match[1]}`;
+      states.set(`${symbol.file}|${match[2]}`, { id, owner: symbol, name: match[1]!, setter: match[2]! });
+      node({ id, kind: 'state', label: match[1]!, detail: `state of ${symbol.qualifiedName}`, symbol: symbol.id, category: 'state', conversions: [] });
+      const open = own.start + match.index + match[0].length - 1;
+      const close = closing(own.source.masked, open, own.end);
+      const initial = close > open ? own.source.masked.slice(open, close) : '';
+      for (const api of SOURCES) {
+        api.re.lastIndex = 0;
+        if (api.re.test(initial)) {
+          const sourceNode = node({ id: `source:${api.category}:${api.label}`, kind: 'source', label: capitalise(api.label), detail: null, symbol: null, category: api.category, conversions: [] });
+          edge(sourceNode.id, id, 'reads', 'initial value', lineAt(own.source, open));
+        }
+      }
+    }
+  }
+  const stateNamed = (file: string | null, name: string) => [...states.values()].find((entry) => entry.owner.file === file && entry.name === name) ?? null;
+  const stateSetBy = (file: string | null, setter: string) => states.get(`${file}|${setter}`) ?? null;
+  // What a parent wires into a component's callback props: its own functions, or state an inline callback sets.
+  type Wire = { symbol: CxSymbol | null; state: string | null; label: string };
+  const wires = new Map<string, Wire[]>();
+  const targetsOf = (owner: CxSymbol, value: string, via: string): Wire[] => {
+    const found: Wire[] = [];
+    for (const name of new Set(value.match(/[A-Za-z_$][\w$]*/g) ?? [])) {
+      const state = stateSetBy(owner.file, name);
+      if (state) { found.push({ symbol: null, state: state.id, label: value.trim() === name ? via : `${via} → ${name}(…)` }); continue; }
+      const local = resolveName(harvest, name, owner.file);
+      if (local && isCallable(local) && local.file === owner.file && local.id !== owner.id) found.push({ symbol: local, state: null, label: via });
+    }
+    return found;
+  };
+  for (const element of jsxElements) {
+    if (element.dom) continue;
+    for (const prop of element.props) {
+      const found = targetsOf(element.owner, prop.value, `${prop.name} (prop)`);
+      if (found.length && (/^[A-Za-z_$][\w$]*$/.test(prop.value) || /=>|\bfunction\b/.test(prop.value))) {
+        wires.set(`${element.tag}|${prop.name}`, [...(wires.get(`${element.tag}|${prop.name}`) ?? []), ...found]);
+      }
+    }
+  }
+  const wire = (from: string, target: Wire, line: number) => {
+    if (target.state) edge(from, target.state, 'writes', target.label, line);
+    else if (target.symbol) edge(from, step(target.symbol), target.symbol.file === null ? 'call' : 'prop', target.label, line);
+  };
+  for (const element of jsxElements) {
+    if (element.dom) {
+      // A UI event on a page element: what its handler calls, the state it sets, and the parent
+      // functions a callback prop leads to.
+      for (const prop of element.props) {
+        const event = prop.name.match(/^on([A-Z]\w*)$/);
+        if (!event) continue;
+        const targets: Wire[] = targetsOf(element.owner, prop.value, 'handler').map((entry) => entry.state ? entry : { ...entry, label: '' });
+        for (const name of new Set(prop.value.match(/[A-Za-z_$][\w$]*/g) ?? [])) {
+          for (const wired of wires.get(`${element.owner.name}|${name}`) ?? []) targets.push(wired);
+        }
+        if (!targets.length) continue;
+        const id = `entry:ui:${element.owner.id}:${event[1]!.toLowerCase()}`;
+        if (!nodes.has(id)) {
+          entries.push({ id, kind: 'ui', label: `${event[1]!.toLowerCase()} in ${element.owner.qualifiedName}`, symbol: element.owner.id, reason: `on${event[1]} attributes in ${element.owner.qualifiedName}` });
+          node({ id, kind: 'entry', label: event[1]!.toLowerCase(), detail: `in ${element.owner.qualifiedName}`, symbol: element.owner.id, category: 'ui', conversions: [] });
+        }
+        for (const target of targets) {
+          if (target.symbol && !target.label) edge(id, step(target.symbol), 'call', null, prop.line);
+          else wire(id, target, prop.line);
+        }
+      }
+      continue;
+    }
+    const child = resolveName(harvest, element.tag, null);
+    if (!child || !isCallable(child)) continue;
+    for (const prop of element.props) {
+      // State the parent hands down is what the child shows.
+      for (const name of new Set(prop.value.match(/[A-Za-z_$][\w$]*/g) ?? [])) {
+        const state = stateNamed(element.owner.file, name);
+        if (state && prop.value.length < 60) edge(state.id, step(child), 'renders', `as ${prop.name}`, prop.line);
+      }
+      for (const target of wires.get(`${element.tag}|${prop.name}`) ?? []) wire(step(child), target, prop.line);
+    }
+  }
+  for (const source of harvest.sources.values()) {
+    if (isTestPath(source.path)) continue;
+    const listener = /\baddEventListener\s*\(\s*['"](\w+)['"]\s*,\s*([A-Za-z_$][\w$.]*)/g;
+    for (let match = listener.exec(source.text); match; match = listener.exec(source.text)) {
+      const handler = resolveName(harvest, lastSegment(match[2]!), source.path);
+      if (!handler || !isCallable(handler)) continue;
+      const id = `entry:ui:${handler.id}:${match[1]}`;
+      if (nodes.has(id)) continue;
+      entries.push({ id, kind: 'ui', label: `${match[1]} → ${handler.qualifiedName}`, symbol: handler.id, reason: `addEventListener('${match[1]}') in ${source.path}` });
+      node({ id, kind: 'entry', label: match[1]!, detail: `listener in ${source.path}`, symbol: handler.id, category: 'ui', conversions: [] });
+      edge(id, step(handler), 'call', null, lineAt(source, match.index));
+    }
+  }
+
+  // 3. Calls between steps, labelled with what each call hands over. A call into code outside the
+  // repository (a library method) is part of its step, not a step of its own.
+  const labelFor = (from: CxSymbol, to: CxSymbol, line: number | null, character: number | null): string | null => {
+    const source = from.file ? harvest.sources.get(from.file) : null;
+    if (!source || line === null) return null;
+    const site = callSiteText(source, line, character, to.name);
+    if (!site) return null;
+    const calleeSource = to.file ? harvest.sources.get(to.file) : null;
+    const range = calleeSource ? parameterRange(calleeSource, to) : null;
+    const params = calleeSource && range ? splitTop(calleeSource.masked, range[0], range[1]).map(([a, b]) => parameterName(calleeSource.text.slice(a, b), calleeSource.language)) : [];
+    const pairs = site.args.map((arg, index) => params[index] && params[index] !== arg ? `${params[index]} ← ${arg}` : arg);
+    return clip(`${pairs.join(', ')}${site.target ? ` → ${site.target}` : ''}`, 90) || null;
+  };
+  const inRepository = (symbol: CxSymbol) => Boolean(symbol.file) && !harvest.model.modules.find((module) => module.id === symbol.moduleId)?.external;
+  const accessor = (symbol: CxSymbol) => ACCESSOR.test(symbol.name) && symbol.start !== null && symbol.end !== null && symbol.end - symbol.start <= 3;
+  const resolved = new Set<string>();
+  for (const call of model.edges) {
+    const from = harvest.byId.get(call.from);
+    const to = harvest.byId.get(call.to);
+    if (!from || !to || !isCallable(from) || !isCallable(to) || !from.file || isTestPath(from.file) || !inRepository(to) || accessor(to)) continue;
+    const first = call.at?.[0] ?? null;
+    const line = first?.line ?? call.sites[0] ?? null;
+    resolved.add(`${from.id}>${to.id}`);
+    edge(step(from), step(to), 'call', labelFor(from, to, line, first ? first.character : null), line);
+  }
+  // Calls the text plainly makes that the language service did not resolve (it may still be
+  // indexing, or have no answer for the language): matched by name, the receiver choosing between
+  // same-named functions, and marked as matched by name wherever they are shown.
+  let byName = 0;
+  for (const symbol of callables) {
+    const own = owns.get(symbol.id);
+    if (!own) continue;
+    const pattern = /(?:\bnew\s+|([A-Za-z_$][\w$]*)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*(?:<[^<>()]*>)?\s*\(/g;
+    const seen = new Set<string>();
+    // Only the body: the declaration's own name and parameter list are not calls.
+    const body = bodyOf(own.source, symbol);
+    pattern.lastIndex = body ? Math.max(0, body.start - own.start) : own.masked.length;
+    for (let match = pattern.exec(own.masked); match; match = pattern.exec(own.masked)) {
+      const name = match[2]!;
+      if (NOT_CALLS.has(name) || seen.has(name)) continue;
+      const candidates = (harvest.byName.get(name) ?? []).filter((candidate) => isCallable(candidate) && candidate.id !== symbol.id && inRepository(candidate) && !isTestPath(candidate.file ?? ''));
+      if (!candidates.length || candidates.every(accessor)) continue;
+      const receiver = match[1] ? match[1].toLowerCase() : null;
+      const creates = /^new\s/.test(match[0]);
+      const owner = (candidate: CxSymbol) => candidate.qualifiedName.split('.').slice(-2, -1)[0]?.toLowerCase() ?? '';
+      // A call with no receiver is to the same class or file (a recursive call names itself), or,
+      // in a module language, to a function the file imports by that name.
+      const imported = (SCRIPT_LIKE.has(own.source.language) || own.source.language === 'python') && importsName(own.source.text, name);
+      if (!receiver && !creates && (harvest.byName.get(name) ?? []).some((candidate) => candidate.id === symbol.id)) continue;
+      const fitting = candidates.filter((candidate) => receiver
+        ? (receiver === 'this' || receiver === 'self' ? candidate.file === symbol.file : owner(candidate) === receiver || receiver.includes(owner(candidate)) || owner(candidate).includes(receiver))
+        : creates ? candidate.kind === 'constructor' || candidate.kind === 'class'
+          : candidate.file === symbol.file || imported);
+      if (fitting.length !== 1 && !(fitting.length > 1 && fitting.every((candidate) => candidate.kind === 'constructor' && candidate.file === fitting[0]!.file))) continue;
+      const target = fitting[0]!;
+      seen.add(name);
+      if (resolved.has(`${symbol.id}>${target.id}`)) continue;
+      const line = lineAt(own.source, own.start + match.index);
+      edge(step(symbol), step(target), 'call', labelFor(symbol, target, line, null), line);
+      const added = edges.get(`f:step:${symbol.id}>step:${target.id}:call`);
+      if (added) { added.inferred = true; byName += 1; }
+    }
+  }
+  if (byName) notes.push(`${byName} call${byName === 1 ? ' was' : 's were'} matched by name in the text where the language service gave no answer; they are marked "by name". A language service still indexing answers fewer calls, so Re-index once it settles.`);
+
+  // 4. What each step writes, reads, converts and throws.
+  for (const symbol of callables) {
+    const own = owns.get(symbol.id);
+    if (!own) continue;
+    const id = `step:${symbol.id}`;
+    const handlesErrors = [...exceptionHandlers.values()].some((entry) => entry.symbol.id === symbol.id);
+    const scan = (patterns: ApiPattern[], sink: boolean) => {
+      for (const api of patterns) {
+        if (handlesErrors && api.category === 'response') continue;
+        api.re.lastIndex = 0;
+        const match = api.re.exec(own.masked);
+        if (!match) continue;
+        const line = lineAt(own.source, own.start + match.index);
+        const text = clip(own.source.text.slice(own.start + match.index, Math.min(own.end, own.start + match.index + 60)).split('\n')[0]!, 48);
+        const target = node({ id: `${sink ? 'sink' : 'source'}:${api.category}:${api.label}`, kind: sink ? 'sink' : 'source', label: capitalise(api.label), detail: null, symbol: null, category: api.category, conversions: [] });
+        step(symbol);
+        if (sink) edge(id, target.id, 'io', text, line);
+        else edge(target.id, id, 'reads', text, line);
+      }
+    };
+    scan(SINKS, true);
+    scan(SOURCES, false);
+    for (const [key, state] of states) {
+      if (!key.startsWith(`${symbol.file}|`)) continue;
+      const writes = wordPattern(state.setter, 'g');
+      const match = writes.exec(own.masked);
+      if (!match) continue;
+      const line = lineAt(own.source, own.start + match.index);
+      const site = callSiteText(own.source, line, null, state.setter);
+      step(symbol);
+      edge(id, state.id, 'writes', site ? clip(`${state.setter}(${site.args.join(', ')})`, 60) : state.setter, line);
+    }
+    // An effect that runs when state changes and sends it somewhere (`useEffect(() => save(x), [x])`).
+    const effect = /\buseEffect\s*\(/g;
+    for (let match = effect.exec(own.masked); match; match = effect.exec(own.masked)) {
+      const open = own.start + match.index + match[0].length - 1;
+      const close = closing(own.source.masked, open, own.end);
+      if (close < 0) continue;
+      const parts = splitTop(own.source.masked, open + 1, close);
+      const deps = parts.length > 1 ? own.source.text.slice(parts[parts.length - 1]![0], parts[parts.length - 1]![1]) : '';
+      const body = own.source.masked.slice(open, close);
+      for (const name of deps.match(/[A-Za-z_$][\w$]*/g) ?? []) {
+        const state = [...states.values()].find((entry) => entry.name === name && entry.owner.file === symbol.file);
+        if (!state) continue;
+        for (const api of SINKS) {
+          api.re.lastIndex = 0;
+          if (!api.re.test(body)) continue;
+          const target = node({ id: `sink:${api.category}:${api.label}`, kind: 'sink', label: capitalise(api.label), detail: null, symbol: null, category: api.category, conversions: [] });
+          edge(state.id, target.id, 'io', 'when it changes (useEffect)', lineAt(own.source, open));
+        }
+      }
+    }
+    const conversions: Array<{ line: number; text: string }> = [];
+    CONVERSIONS.lastIndex = 0;
+    for (let match = CONVERSIONS.exec(own.masked); match && conversions.length < 8; match = CONVERSIONS.exec(own.masked)) {
+      const at = own.start + match.index;
+      const open = own.source.masked.lastIndexOf('(', at + match[0].length - 1);
+      const close = open >= at ? closing(own.source.masked, open, Math.min(own.end, open + 120)) : -1;
+      conversions.push({ line: lineAt(own.source, at), text: clip(own.source.text.slice(at, close > at ? close + 1 : at + match[0].length), 56) });
+    }
+    if (conversions.length) {
+      const target = nodes.get(id) ?? nodes.get(step(symbol))!;
+      target.conversions = conversions;
+    }
+    const throws = /\bthrow\s+new\s+([A-Z][\w$.]*)|\braise\s+([A-Z][\w$.]*)/g;
+    for (let match = throws.exec(own.masked); match; match = throws.exec(own.masked)) {
+      const type = lastSegment(match[1] ?? match[2]!);
+      const line = lineAt(own.source, own.start + match.index);
+      const handler = exceptionHandlers.get(type);
+      step(symbol);
+      if (handler) {
+        edge(id, step(handler.symbol), 'error', `throws ${type}`, line);
+        const response = node({ id: `sink:response:HTTP ${handler.status ?? 'error'} response`, kind: 'sink', label: `HTTP ${handler.status ?? 'error'} response`, detail: null, symbol: null, category: 'response', conversions: [] });
+        edge(`step:${handler.symbol.id}`, response.id, 'io', handler.status ? `status ${handler.status}` : null, handler.symbol.line);
+      } else {
+        const error = node({ id: `sink:error:${type}`, kind: 'sink', label: type, detail: 'thrown', symbol: null, category: 'error', conversions: [] });
+        edge(id, error.id, 'error', 'throws', line);
+      }
+    }
+    if (JSX_LANGUAGES.has(own.source.language) && /^[A-Z]/.test(symbol.name) && /\breturn\s*\(?\s*</.test(own.masked)) {
+      const screen = node({ id: 'sink:screen:the screen', kind: 'sink', label: 'The screen', detail: null, symbol: null, category: 'screen', conversions: [] });
+      step(symbol);
+      edge(id, screen.id, 'renders', 'renders', symbol.end);
+    }
+  }
+
+  // 5. Paths: everything reachable from each entry, nearest first, bounded.
+  const paths: Record<string, { nodes: string[]; edges: string[] }> = {};
+  for (const entry of entries) {
+    const seenNodes = new Set<string>([entry.id]);
+    const seenEdges: string[] = [];
+    let frontier = [entry.id];
+    for (let depth = 0; depth < LENS_LIMITS.flowDepth && frontier.length; depth += 1) {
+      const next: string[] = [];
+      for (const current of frontier) {
+        for (const edgeId of out.get(current) ?? []) {
+          const value = edges.get(edgeId)!;
+          if (!seenNodes.has(value.to)) {
+            if (seenNodes.size >= LENS_LIMITS.flowNodes) continue;
+            seenNodes.add(value.to);
+            next.push(value.to);
+          }
+          seenEdges.push(edgeId);
+        }
+      }
+      frontier = next;
+    }
+    // Where a step reads from (storage, configuration) belongs on its path too.
+    for (const value of edges.values()) {
+      if (value.kind === 'reads' && seenNodes.has(value.to) && !seenNodes.has(value.from) && seenNodes.size < LENS_LIMITS.flowNodes) {
+        seenNodes.add(value.from);
+        seenEdges.push(value.id);
+      }
+    }
+    paths[entry.id] = { nodes: [...seenNodes], edges: [...new Set(seenEdges)] };
+  }
+  const order: Record<CxFlowEntryKind, number> = { http: 0, ui: 1, program: 2, message: 3, timer: 4 };
+  entries.sort((a, b) => order[a.kind] - order[b.kind] || a.label.localeCompare(b.label));
+  if (!entries.length) notes.push('No entry point was recognised: no route annotation or registration, UI event handler, listener or program start in the files read.');
+  notes.push('Entry points come from route annotations and registrations, UI event attributes, listeners and program starts; what a call hands over is read from its call site; storage, network, screen and log endpoints from a list of well-known APIs. Static only: callbacks, reflection and dynamic dispatch can add flows this cannot see.');
+  return { entries, nodes: [...nodes.values()], edges: [...edges.values()], paths, notes };
+}
+
+// ---- Logic -------------------------------------------------------------------------------------
+
+interface LogicCtx { source: Source; count: number; truncated: boolean; decisions: number; names: Map<string, string>; self: string | null }
+
+const NOT_CALLS = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'sizeof', 'when', 'match', 'elif', 'and', 'or', 'not', 'in', 'super', 'this', 'print']);
+
+function skipSpace(ctx: LogicCtx, pos: number, end: number): number {
+  while (pos < end && /\s/.test(ctx.source.masked[pos]!)) pos += 1;
+  return pos;
+}
+
+function wordAt(ctx: LogicCtx, pos: number): string {
+  return ctx.source.masked.slice(pos, pos + 24).match(/^[A-Za-z_$][\w$]*/)?.[0] ?? '';
+}
+
+function callsIn(ctx: LogicCtx, start: number, end: number): string[] {
+  const found: string[] = [];
+  const pattern = /([A-Za-z_$][\w$]*)\s*\(/g;
+  const text = ctx.source.masked.slice(start, end);
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const name = match[1]!;
+    if (NOT_CALLS.has(name)) continue;
+    const id = ctx.names.get(name);
+    if (id && id !== ctx.self && !found.includes(id)) found.push(id);
+  }
+  return found;
+}
+
+function pushStep(steps: CxLogicStep[], step: CxLogicStep): void {
+  const last = steps[steps.length - 1];
+  if (step.k === 'step' && last?.k === 'step' && last.lines.length + step.lines.length <= 4) {
+    last.lines.push(...step.lines);
+    for (const call of step.calls) if (!last.calls.includes(call)) last.calls.push(call);
+    return;
+  }
+  steps.push(step);
+}
+
+/** Where a simple statement ends: its semicolon, or its line when the language lets a line end it. */
+function statementEnd(ctx: LogicCtx, pos: number, end: number): number {
+  const masked = ctx.source.masked;
+  const semicolons = SEMICOLON_LANGUAGES.has(ctx.source.language);
+  let depth = 0;
+  for (let index = pos; index < end; index += 1) {
+    const character = masked[index]!;
+    if (character === '(' || character === '[' || character === '{') { depth += 1; continue; }
+    if (character === ')' || character === ']' || character === '}') {
+      if (depth === 0) return index;
+      depth -= 1;
+      continue;
+    }
+    if (depth > 0) continue;
+    if (character === ';') return index + 1;
+    if (character === '\n' && !semicolons) {
+      const before = masked.slice(pos, index).trimEnd();
+      if (!before) continue;
+      const after = masked.slice(index + 1, Math.min(end, index + 120)).trimStart();
+      if (/[+\-*/%&|^=<>!?:.,([{]$/.test(before) && !/(\+\+|--)$/.test(before)) continue;
+      if (/^(?:[.?:+\-*/%&|^=<>]|\?\.)/.test(after) && !/^(?:\+\+|--)/.test(after)) continue;
+      return index;
+    }
+  }
+  return end;
+}
+
+function simple(ctx: LogicCtx, pos: number, stop: number): CxLogicStep | null {
+  const text = folded(ctx.source, pos, stop);
+  if (!text || text === ';') return null;
+  return { k: 'step', lines: [{ text: text.replace(/;$/, ''), line: lineAt(ctx.source, pos) }], calls: callsIn(ctx, pos, stop) };
+}
+
+/** A condition: the balanced parentheses after a keyword, or (Go, Swift, Rust) the text up to the block. */
+function head(ctx: LogicCtx, pos: number, end: number): { text: string; next: number } | null {
+  const at = skipSpace(ctx, pos, end);
+  if (ctx.source.masked[at] === '(') {
+    const close = closing(ctx.source.masked, at, end);
+    if (close < 0) return null;
+    return { text: folded(ctx.source, at + 1, close), next: close + 1 };
+  }
+  let depth = 0;
+  for (let index = at; index < end; index += 1) {
+    const character = ctx.source.masked[index]!;
+    if (character === '(' || character === '[') depth += 1;
+    else if (character === ')' || character === ']') depth -= 1;
+    else if (character === '{' && depth === 0) return { text: folded(ctx.source, at, index), next: index };
+    else if (character === '\n' && depth === 0 && ctx.source.language === 'kotlin') break;
+  }
+  return null;
+}
+
+function blockOrStatement(ctx: LogicCtx, pos: number, end: number): { steps: CxLogicStep[]; next: number } {
+  const at = skipSpace(ctx, pos, end);
+  if (ctx.source.masked[at] === '{') {
+    const close = closing(ctx.source.masked, at, end);
+    if (close < 0) return { steps: [], next: end };
+    return { steps: statements(ctx, at + 1, close), next: close + 1 };
+  }
+  const one = statement(ctx, at, end);
+  return { steps: one.step ? [one.step] : [], next: one.next };
+}
+
+function statements(ctx: LogicCtx, pos: number, end: number): CxLogicStep[] {
+  const steps: CxLogicStep[] = [];
+  let at = pos;
+  for (;;) {
+    at = skipSpace(ctx, at, end);
+    if (at >= end) break;
+    if (ctx.count >= LENS_LIMITS.logicStatements) { ctx.truncated = true; break; }
+    const { step, next } = statement(ctx, at, end);
+    if (step) pushStep(steps, step);
+    if (next <= at) break;
+    at = next;
+  }
+  return steps;
+}
+
+function caseBodies(ctx: LogicCtx, open: number, close: number, arrow: '->' | '=>' | null): Array<{ label: string; line: number; body: CxLogicStep[] }> {
+  const cases: Array<{ label: string; line: number; body: CxLogicStep[] }> = [];
+  const masked = ctx.source.masked;
+  let at = open + 1;
+  let current: { label: string; line: number; body: CxLogicStep[] } | null = null;
+  while (at < close) {
+    at = skipSpace(ctx, at, close);
+    if (at >= close) break;
+    const word = wordAt(ctx, at);
+    const labelled = arrow ? (() => {
+      // `when`/`match` entries: everything up to the arrow at depth zero is the label.
+      let depth = 0;
+      for (let index = at; index < close - 1; index += 1) {
+        const character = masked[index]!;
+        if (character === '(' || character === '[' || character === '{') depth += 1;
+        else if (character === ')' || character === ']' || character === '}') depth -= 1;
+        else if (depth === 0 && masked.startsWith(arrow, index)) return index;
+        else if (depth === 0 && character === '\n' && index > at && arrow === '->') break;
+      }
+      return -1;
+    })() : -1;
+    if (word === 'case' || word === 'default' || labelled > at) {
+      let labelEnd = labelled;
+      let bodyStart = labelled + (arrow?.length ?? 0);
+      if (labelled < 0) {
+        let depth = 0;
+        for (let index = at; index < close; index += 1) {
+          const character = masked[index]!;
+          if (character === '(' || character === '[') depth += 1;
+          else if (character === ')' || character === ']') depth -= 1;
+          else if (depth === 0 && masked.startsWith('->', index)) { labelEnd = index; bodyStart = index + 2; break; }
+          else if (depth === 0 && character === ':' && masked[index + 1] !== ':' && masked[index - 1] !== ':') { labelEnd = index; bodyStart = index + 1; break; }
+        }
+      }
+      if (labelEnd < 0) break;
+      const raw = flat(ctx.source.text.slice(at, labelEnd)).replace(/^case\s+/, '');
+      current = { label: clip(raw === 'default' || raw === 'else' || raw === '_' ? 'otherwise' : raw, 40), line: lineAt(ctx.source, at), body: [] };
+      cases.push(current);
+      ctx.decisions += 1;
+      if (arrow || masked.startsWith('->', labelEnd)) {
+        const part = blockOrStatement(ctx, bodyStart, close);
+        current.body.push(...part.steps);
+        at = part.next;
+        if (masked[skipSpace(ctx, at, close)] === ',') at = skipSpace(ctx, at, close) + 1;
+        continue;
+      }
+      at = bodyStart;
+      continue;
+    }
+    const { step, next } = statement(ctx, at, close);
+    if (!current) { current = { label: '(before the cases)', line: lineAt(ctx.source, at), body: [] }; cases.push(current); }
+    if (step) pushStep(current.body, step);
+    if (next <= at) break;
+    at = next;
+  }
+  return cases;
+}
+
+function statement(ctx: LogicCtx, pos: number, end: number): { step: CxLogicStep | null; next: number } {
+  const masked = ctx.source.masked;
+  const word = wordAt(ctx, pos);
+  const line = lineAt(ctx.source, pos);
+  const fallback = () => {
+    const stop = statementEnd(ctx, pos, end);
+    ctx.count += 1;
+    return { step: simple(ctx, pos, stop), next: Math.max(stop, pos + 1) };
+  };
+  if (masked[pos] === '{') {
+    const part = blockOrStatement(ctx, pos, end);
+    const steps = part.steps;
+    return { step: steps.length === 1 ? steps[0]! : steps.length ? { k: 'step', lines: steps.flatMap((entry) => entry.k === 'step' ? entry.lines : []), calls: [] } : null, next: part.next };
+  }
+  switch (word) {
+    case 'if': {
+      ctx.count += 1;
+      ctx.decisions += 1;
+      const condition = head(ctx, pos + 2, end);
+      if (!condition) return fallback();
+      const thenPart = blockOrStatement(ctx, condition.next, end);
+      let next = thenPart.next;
+      let elseSteps: CxLogicStep[] | null = null;
+      const after = skipSpace(ctx, thenPart.next, end);
+      if (wordAt(ctx, after) === 'else') {
+        const elsePart = blockOrStatement(ctx, after + 4, end);
+        elseSteps = elsePart.steps;
+        next = elsePart.next;
+      }
+      return { step: { k: 'if', cond: condition.text, line, then: thenPart.steps, else: elseSteps }, next };
+    }
+    case 'for': case 'foreach': case 'while': {
+      ctx.count += 1;
+      ctx.decisions += 1;
+      const condition = head(ctx, pos + word.length, end);
+      if (!condition) return fallback();
+      const body = blockOrStatement(ctx, condition.next, end);
+      return { step: { k: 'loop', head: clip(`${word} ${condition.text}`), line, body: body.steps }, next: body.next };
+    }
+    case 'do': {
+      ctx.count += 1;
+      const body = blockOrStatement(ctx, pos + 2, end);
+      const after = skipSpace(ctx, body.next, end);
+      if (wordAt(ctx, after) === 'catch') {
+        // Swift's `do { … } catch { … }` is a try.
+        return tryStatement(ctx, line, body.steps, after, end);
+      }
+      ctx.decisions += 1;
+      if (wordAt(ctx, after) === 'while') {
+        const condition = head(ctx, after + 5, end);
+        let next = condition ? condition.next : after + 5;
+        const semicolon = skipSpace(ctx, next, end);
+        if (masked[semicolon] === ';') next = semicolon + 1;
+        return { step: { k: 'loop', head: clip(`repeat while ${condition?.text ?? '…'}`), line, body: body.steps }, next };
+      }
+      return { step: { k: 'loop', head: 'repeat', line, body: body.steps }, next: body.next };
+    }
+    case 'switch': case 'when': case 'match': case 'select': {
+      ctx.count += 1;
+      const subject = head(ctx, pos + word.length, end);
+      const open = subject ? skipSpace(ctx, subject.next, end) : -1;
+      if (!subject || masked[open] !== '{') return fallback();
+      const close = closing(masked, open, end);
+      if (close < 0) return fallback();
+      const cases = caseBodies(ctx, open, close, word === 'when' ? '->' : word === 'match' ? '=>' : null);
+      return { step: { k: 'switch', subject: subject.text, line, cases }, next: close + 1 };
+    }
+    case 'try': {
+      ctx.count += 1;
+      const body = blockOrStatement(ctx, pos + 3, end);
+      return tryStatement(ctx, line, body.steps, body.next, end);
+    }
+    case 'return': case 'throw': case 'yield': {
+      ctx.count += 1;
+      const stop = statementEnd(ctx, pos, end);
+      const text = folded(ctx.source, pos + word.length, stop).replace(/;$/, '').trim();
+      const calls = callsIn(ctx, pos, stop);
+      return { step: word === 'throw' ? { k: 'throw', text, line, calls } : { k: 'return', text, line, calls }, next: Math.max(stop, pos + word.length) };
+    }
+    case 'break': case 'continue': {
+      ctx.count += 1;
+      const stop = statementEnd(ctx, pos, end);
+      return { step: { k: 'jump', text: folded(ctx.source, pos, stop).replace(/;$/, ''), line }, next: Math.max(stop, pos + word.length) };
+    }
+    case 'else':
+      return { step: null, next: pos + 4 };
+    default:
+      return fallback();
+  }
+}
+
+function tryStatement(ctx: LogicCtx, line: number, body: CxLogicStep[], pos: number, end: number): { step: CxLogicStep; next: number } {
+  const catches: Array<{ label: string; line: number; body: CxLogicStep[] }> = [];
+  let final: CxLogicStep[] | null = null;
+  let at = skipSpace(ctx, pos, end);
+  for (;;) {
+    const word = wordAt(ctx, at);
+    if (word === 'catch') {
+      ctx.decisions += 1;
+      let next = skipSpace(ctx, at + 5, end);
+      let label = 'any error';
+      if (ctx.source.masked[next] === '(') {
+        const close = closing(ctx.source.masked, next, end);
+        if (close < 0) break;
+        label = flat(ctx.source.text.slice(next + 1, close)).replace(/\s+\w+$/, '') || label;
+        next = close + 1;
+      } else if (ctx.source.masked[next] !== '{') {
+        const brace = ctx.source.masked.indexOf('{', next);
+        if (brace < 0 || brace > end) break;
+        label = flat(ctx.source.text.slice(next, brace)) || label;
+        next = brace;
+      }
+      const part = blockOrStatement(ctx, next, end);
+      catches.push({ label: clip(label, 40), line: lineAt(ctx.source, at), body: part.steps });
+      at = skipSpace(ctx, part.next, end);
+      continue;
+    }
+    if (word === 'finally') {
+      const part = blockOrStatement(ctx, at + 7, end);
+      final = part.steps;
+      at = part.next;
+    }
+    break;
+  }
+  return { step: { k: 'try', line, body, catches, final }, next: at };
+}
+
+interface PyLine { indent: number; text: string; masked: string; line: number }
+
+/** Python's logical lines: physical lines joined while brackets stay open or a line ends in `\`. */
+function pythonLines(source: Source, startLine: number, endLine: number): PyLine[] {
+  const lines: PyLine[] = [];
+  let index = startLine;
+  while (index <= endLine) {
+    const first = index;
+    let text = source.lines[index - 1] ?? '';
+    let masked = source.masked.slice(offsetAt(source, index), offsetAt(source, index + 1)).replace(/\n$/, '');
+    let depth = 0;
+    const balance = (value: string) => { for (const character of value) { if ('([{'.includes(character)) depth += 1; else if (')]}'.includes(character)) depth -= 1; } };
+    balance(masked);
+    while ((depth > 0 || /\\\s*$/.test(masked)) && index < endLine) {
+      index += 1;
+      const nextMasked = source.masked.slice(offsetAt(source, index), offsetAt(source, index + 1)).replace(/\n$/, '');
+      text += ` ${(source.lines[index - 1] ?? '').trim()}`;
+      masked += ` ${nextMasked.trim()}`;
+      balance(nextMasked);
+    }
+    index += 1;
+    if (!masked.trim()) continue;
+    lines.push({ indent: (text.match(/^[ \t]*/)?.[0] ?? '').replace(/\t/g, '    ').length, text: text.trim(), masked: masked.trim(), line: first });
+  }
+  return lines;
+}
+
+function pythonBlock(ctx: LogicCtx, lines: PyLine[], start: number, indent: number): { steps: CxLogicStep[]; next: number } {
+  const steps: CxLogicStep[] = [];
+  let index = start;
+  const body = (at: number, header: PyLine): { steps: CxLogicStep[]; next: number } => {
+    const inline = header.text.slice(header.masked.indexOf(':', header.masked.search(/\S/)) + 1).trim();
+    const colon = header.masked.lastIndexOf(':');
+    const rest = colon >= 0 ? header.text.slice(colon + 1).trim() : inline;
+    if (rest) return { steps: [{ k: 'step', lines: [{ text: clip(rest), line: header.line }], calls: [] }], next: at + 1 };
+    const next = lines[at + 1];
+    if (!next || next.indent <= header.indent) return { steps: [], next: at + 1 };
+    return pythonBlock(ctx, lines, at + 1, next.indent);
+  };
+  const headText = (entry: PyLine, keyword: string) => clip(entry.text.slice(keyword.length, entry.text.lastIndexOf(':') > 0 ? entry.text.lastIndexOf(':') : undefined).trim());
+  while (index < lines.length) {
+    const entry = lines[index]!;
+    if (entry.indent < indent) break;
+    if (entry.indent > indent) { index += 1; continue; }
+    if (ctx.count >= LENS_LIMITS.logicStatements) { ctx.truncated = true; break; }
+    ctx.count += 1;
+    const keyword = entry.masked.match(/^(?:async\s+)?(if|elif|else|for|while|try|except|finally|with|match|case|return|raise|break|continue|pass|def|class)\b/)?.[1] ?? '';
+    if (keyword === 'if') {
+      ctx.decisions += 1;
+      const thenPart = body(index, entry);
+      const root: Extract<CxLogicStep, { k: 'if' }> = { k: 'if', cond: headText(entry, 'if'), line: entry.line, then: thenPart.steps, else: null };
+      let tail = root;
+      index = thenPart.next;
+      for (;;) {
+        const next = lines[index];
+        if (!next || next.indent !== indent) break;
+        const word = next.masked.match(/^(elif|else)\b/)?.[1];
+        if (word === 'elif') {
+          ctx.decisions += 1;
+          const part = body(index, next);
+          const branch: Extract<CxLogicStep, { k: 'if' }> = { k: 'if', cond: headText(next, 'elif'), line: next.line, then: part.steps, else: null };
+          tail.else = [branch];
+          tail = branch;
+          index = part.next;
+        } else if (word === 'else') {
+          const part = body(index, next);
+          tail.else = part.steps;
+          index = part.next;
+          break;
+        } else break;
+      }
+      steps.push(root);
+      continue;
+    }
+    if (keyword === 'for' || keyword === 'while') {
+      ctx.decisions += 1;
+      const part = body(index, entry);
+      steps.push({ k: 'loop', head: clip(`${keyword} ${headText(entry, keyword)}`), line: entry.line, body: part.steps });
+      index = part.next;
+      const next = lines[index];
+      if (next && next.indent === indent && /^else\b/.test(next.masked)) index = body(index, next).next;
+      continue;
+    }
+    if (keyword === 'try') {
+      const part = body(index, entry);
+      const catches: Array<{ label: string; line: number; body: CxLogicStep[] }> = [];
+      let final: CxLogicStep[] | null = null;
+      index = part.next;
+      for (;;) {
+        const next = lines[index];
+        if (!next || next.indent !== indent) break;
+        const word = next.masked.match(/^(except|finally|else)\b/)?.[1];
+        if (!word) break;
+        const inner = body(index, next);
+        if (word === 'except') { ctx.decisions += 1; catches.push({ label: clip(headText(next, 'except') || 'any error', 40), line: next.line, body: inner.steps }); }
+        else if (word === 'finally') final = inner.steps;
+        index = inner.next;
+      }
+      steps.push({ k: 'try', line: entry.line, body: part.steps, catches, final });
+      continue;
+    }
+    if (keyword === 'match') {
+      const cases: Array<{ label: string; line: number; body: CxLogicStep[] }> = [];
+      const first = lines[index + 1];
+      index += 1;
+      while (first && index < lines.length && lines[index]!.indent === first.indent && /^case\b/.test(lines[index]!.masked)) {
+        const caseLine = lines[index]!;
+        ctx.decisions += 1;
+        const part = body(index, caseLine);
+        const label = headText(caseLine, 'case');
+        cases.push({ label: label === '_' ? 'otherwise' : label, line: caseLine.line, body: part.steps });
+        index = part.next;
+      }
+      steps.push({ k: 'switch', subject: headText(entry, 'match'), line: entry.line, cases });
+      continue;
+    }
+    if (keyword === 'with') {
+      const part = body(index, entry);
+      pushStep(steps, { k: 'step', lines: [{ text: clip(entry.text.replace(/:$/, '')), line: entry.line }], calls: [] });
+      for (const inner of part.steps) pushStep(steps, inner);
+      index = part.next;
+      continue;
+    }
+    if (keyword === 'def' || keyword === 'class') {
+      const part = body(index, entry);
+      pushStep(steps, { k: 'step', lines: [{ text: clip(`defines ${entry.text.replace(/:$/, '')}`), line: entry.line }], calls: [] });
+      index = part.next;
+      continue;
+    }
+    if (keyword === 'return' || keyword === 'raise') {
+      const text = clip(entry.text.slice(keyword.length).trim());
+      const at = offsetAt(ctx.source, entry.line);
+      const calls = callsIn(ctx, at, offsetAt(ctx.source, entry.line + 1));
+      steps.push(keyword === 'raise' ? { k: 'throw', text, line: entry.line, calls } : { k: 'return', text, line: entry.line, calls });
+      index += 1;
+      continue;
+    }
+    if (keyword === 'break' || keyword === 'continue') { steps.push({ k: 'jump', text: keyword, line: entry.line }); index += 1; continue; }
+    if (keyword === 'pass') { index += 1; continue; }
+    const at = offsetAt(ctx.source, entry.line);
+    pushStep(steps, { k: 'step', lines: [{ text: clip(entry.text), line: entry.line }], calls: callsIn(ctx, at, offsetAt(ctx.source, entry.line + 1)) });
+    index += 1;
+  }
+  return { steps, next: index };
+}
+
+/** Where a function's body starts: after its parameter list, at its block, arrow or colon. */
+function bodyOf(source: Source, symbol: CxSymbol): { kind: 'block' | 'expression' | 'python'; start: number; end: number } | null {
+  const end = offsetAt(source, symbol.end! + 1) - (symbol.end! < source.lines.length ? 1 : 0);
+  const params = parameterRange(source, symbol);
+  let at = params ? params[1] + 1 : offsetAt(source, symbol.line ?? symbol.start!);
+  if (source.language === 'python') {
+    const colon = source.masked.indexOf(':', at);
+    if (colon < 0 || colon > end) return null;
+    return { kind: 'python', start: colon + 1, end };
+  }
+  for (; at < end; at += 1) {
+    const character = source.masked[at]!;
+    if (character === '{') return { kind: 'block', start: at, end };
+    if (character === '=' && source.masked[at + 1] === '>') {
+      let next = at + 2;
+      while (next < end && /\s/.test(source.masked[next]!)) next += 1;
+      return source.masked[next] === '{' ? { kind: 'block', start: next, end } : { kind: 'expression', start: next, end };
+    }
+    if (character === '=' && source.masked[at + 1] !== '=' && source.language === 'kotlin') return { kind: 'expression', start: at + 1, end };
+    if (character === ';') return null;
+  }
+  return null;
+}
+
+export function logicOf(source: Source, symbol: CxSymbol, names: Map<string, string>): CxLogicFlow | null {
+  if (symbol.start === null || symbol.end === null || symbol.end - symbol.start > LENS_LIMITS.logicLines) return null;
+  const body = bodyOf(source, symbol);
+  if (!body) return null;
+  const ctx: LogicCtx = { source, count: 0, truncated: false, decisions: 0, names, self: symbol.id };
+  let steps: CxLogicStep[];
+  if (body.kind === 'python') {
+    const first = lineAt(source, body.start);
+    const trailing = source.masked.slice(body.start, offsetAt(source, first + 1)).trim();
+    const lines = pythonLines(source, trailing ? first : first + 1, symbol.end);
+    if (trailing) lines[0] = { indent: Number.MAX_SAFE_INTEGER, text: source.text.slice(body.start, offsetAt(source, first + 1)).trim(), masked: trailing, line: first };
+    steps = lines.length ? pythonBlock(ctx, lines, trailing ? 0 : 0, lines[0]!.indent).steps : [];
+  } else if (body.kind === 'expression') {
+    const stop = statementEnd(ctx, body.start, body.end);
+    steps = [{ k: 'return', text: folded(source, body.start, stop).replace(/[;,]$/, ''), line: lineAt(source, body.start), calls: callsIn(ctx, body.start, stop) }];
+  } else {
+    const close = closing(source.masked, body.start, body.end + 1);
+    if (close < 0) return null;
+    steps = statements(ctx, body.start + 1, close);
+  }
+  return { symbol: symbol.id, steps, truncated: ctx.truncated, decisions: ctx.decisions };
+}
+
+function buildLogic(harvest: Harvest): CxLogicLens {
+  const flows: Record<string, CxLogicFlow> = {};
+  const notes: string[] = [];
+  let made = 0;
+  for (const symbol of harvest.model.symbols) {
+    if (!isCallable(symbol) || !symbol.file) continue;
+    const source = harvest.sources.get(symbol.file);
+    if (!source) continue;
+    if (made >= LENS_LIMITS.logicFunctions) { notes.push(`steps are drawn for the first ${LENS_LIMITS.logicFunctions} functions`); break; }
+    const names = new Map<string, string>();
+    for (const calleeId of symbol.callees) {
+      const callee = harvest.byId.get(calleeId);
+      if (callee && !names.has(callee.name)) names.set(callee.name, callee.id);
+    }
+    for (const other of harvest.callablesByFile.get(symbol.file) ?? []) if (!names.has(other.name)) names.set(other.name, other.id);
+    const flow = logicOf(source, symbol, names);
+    if (!flow) continue;
+    flows[symbol.id] = flow;
+    made += 1;
+  }
+  notes.push('Steps are read from each function\'s own text: its decisions, loops, returns and throws in order. It reads text, not a syntax tree, so unusual syntax can be drawn as a plain step.');
+  return { flows, notes };
+}
+
+// ---- All lenses --------------------------------------------------------------------------------
+
+export function buildLenses(input: CxBuildInput, model: CxModel): CxLenses {
+  const harvest = harvestOf(input, model);
+  const entities = buildEntities(harvest);
+  return {
+    concepts: buildConcepts(harvest, entities.entities),
+    entities,
+    flow: buildFlow(harvest),
+    logic: buildLogic(harvest)
+  };
+}

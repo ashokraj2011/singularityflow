@@ -11,6 +11,8 @@
  * function implements it). Complexity is estimated from the symbol's own text and says so.
  */
 
+import type { CxLenses } from './code-explainer-lenses.ts';
+
 export const CX_SCHEMA = 1;
 
 /** Bounds that keep one build interactive on a large change. The host enforces the request ones. */
@@ -91,7 +93,8 @@ export interface CxCallEnd {
   detail?: string | null;
 }
 
-export interface CxCallInput { from: CxCallEnd; to: CxCallEnd; sites: number[] }
+/** One reported call; `positions` are its call sites with columns, when the service gave them. */
+export interface CxCallInput { from: CxCallEnd; to: CxCallEnd; sites: number[]; positions?: CxPoint[] }
 
 export interface CxDiffLine { k: '+' | '-' | ' '; a: number | null; b: number | null; t: string }
 export interface CxDiffHunk { header: string; beforeStart: number; afterStart: number; lines: CxDiffLine[] }
@@ -243,7 +246,7 @@ export interface CxModule {
   collapsed: boolean;
 }
 
-export interface CxEdge { id: string; from: string; to: string; sites: number[] }
+export interface CxEdge { id: string; from: string; to: string; sites: number[]; at?: CxPoint[] }
 
 export interface CxTrace {
   available: boolean;
@@ -294,6 +297,8 @@ export interface CxModel {
   /** The symbol at the line a person asked about, when the request found one. */
   requested: string | null;
   modelEnabled: boolean;
+  /** The other lenses on the same harvest (concepts, entities, data flow, logic), when the host built them. */
+  lenses?: CxLenses;
 }
 
 const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
@@ -529,6 +534,16 @@ function anchors(hunk: CxDiffHunk): number[] {
   return result;
 }
 
+/**
+ * The name a person reads. Some services put a method's parameter types or return type in its name
+ * (`evaluate(Map<String, Object>, JsonNode)`, `testIsNull() : void`); a test case's title in
+ * parentheses (`test('adds')`) is kept, since it is the name.
+ */
+export function displayName(name: string): string {
+  const match = name.match(/^\s*([A-Za-z_$][\w$]*)\s*\(([^'"`]*)\)\s*(?::\s*[^()]*)?$/);
+  return match ? match[1]! : name;
+}
+
 export function symbolKey(file: string, line: number, name: string): string {
   return `${file}:${line}:${name}`;
 }
@@ -546,13 +561,32 @@ interface FlatSymbol {
  * `= function`, `= (…) =>`, `= x =>` or `: (…) =>` (an optional type annotation allowed), not just
  * any line that happens to contain an arrow.
  */
-function looksLikeFunction(lines: string[] | null, symbol: CxRawSymbol): boolean {
+export function looksLikeFunction(lines: string[] | null, symbol: CxRawSymbol): boolean {
   if (!lines) return false;
   const line = lines[symbol.selection.line - 1] ?? '';
   const rest = `${line.slice(symbol.selection.character + symbol.name.length)} ${lines[symbol.selection.line] ?? ''}`;
+  // A parameter list that runs over several lines (a component destructuring its props one per
+  // line): balance it, then the arrow must follow.
+  if (/^\s*(?::\s*[^=;]+?)?\s*=\s*(?:async\s+)?\(/.test(rest)) {
+    const text = [line.slice(symbol.selection.character + symbol.name.length), ...lines.slice(symbol.selection.line, symbol.selection.line + 60)].join('\n');
+    let depth = 0;
+    for (let index = text.indexOf('('); index >= 0 && index < text.length; index += 1) {
+      const character = text[index];
+      if (character === '(' || character === '[' || character === '{') depth += 1;
+      else if (character === ')' || character === ']' || character === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          if (/^\s*(?::\s*[^=;{]+?)?\s*=>/.test(text.slice(index + 1, index + 200))) return true;
+          break;
+        }
+      }
+    }
+  }
   return /^\s*(?::\s*[^=;]+?)?\s*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*(?::\s*[^=]+?)?=>|[A-Za-z_$][\w$]*\s*=>)/.test(rest)
     || /^\s*:\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/.test(rest)
-    || /^\s*=\s*lambda\b/.test(rest);
+    || /^\s*=\s*lambda\b/.test(rest)
+    // A function wrapped in a hook or helper that returns it: `= useCallback((x) => …)`, `= memo(…)`.
+    || /^\s*(?::\s*[^=;]+?)?\s*=\s*(?:[\w$]+\s*\.\s*)?(?:useCallback|memo|forwardRef|debounce|throttle)\s*\(/.test(rest);
 }
 
 function symbolKindName(raw: CxRawSymbol, callable: boolean, parentKind: number | null): CxSymbolKind {
@@ -650,17 +684,27 @@ export function flattenSymbols(symbols: CxRawSymbol[], lines: string[] | null, l
   const visit = (entries: CxRawSymbol[], prefix: string, parentKind: number | null, insideCallable: boolean) => {
     for (const raw of [...entries].sort((a, b) => a.range.start - b.range.start || a.selection.character - b.selection.character)) {
       if (result.length >= limit) return;
+      // A package declaration (Java's `package a.b;`) says where the file lives; it is not code.
+      if (raw.kind === SYMBOL_KIND.Package) {
+        if (raw.children?.length) visit(raw.children, prefix, parentKind, insideCallable);
+        continue;
+      }
       const container = CONTAINER_KINDS.has(raw.kind);
       const callable = CALLABLE_KINDS.has(raw.kind) || (MAYBE_CALLABLE_KINDS.has(raw.kind) && looksLikeFunction(lines, raw));
-      // An anonymous callback inside a function is part of that function, not a row of its own.
-      if (insideCallable && anonymousName(raw.name)) continue;
+      // An anonymous callback inside a function is part of that function, not a row of its own; the
+      // functions it declares by name (a handler inside an effect) still are.
+      if (insideCallable && anonymousName(raw.name)) {
+        if (raw.children?.length) visit(raw.children, prefix, parentKind, insideCallable);
+        continue;
+      }
       // A symbol that is the file itself (some services wrap a module in one) is transparent.
       if ((raw.kind === SYMBOL_KIND.File || raw.kind === SYMBOL_KIND.Module) && fileName && (raw.name === fileName || /^["'].*["']$/.test(raw.name))) {
         if (raw.children?.length) visit(raw.children, prefix, parentKind, insideCallable);
         continue;
       }
       // A flat symbol list (SymbolInformation) names its container instead of nesting under it.
-      const qualifiedName = prefix ? `${prefix}.${raw.name}` : raw.container ? `${raw.container}.${raw.name}` : raw.name;
+      const own = displayName(raw.name);
+      const qualifiedName = prefix ? `${prefix}.${own}` : raw.container ? `${raw.container}.${own}` : own;
       // Locals inside a function are part of it; only its nested functions are worth a row.
       if ((callable || container) && !(insideCallable && !callable)) {
         result.push({ raw, qualifiedName, kind: symbolKindName(raw, callable, parentKind), callable, container });
@@ -1098,7 +1142,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
       const end = entry.raw.range.end;
       const line = entry.raw.selection.line;
       addSymbol(emptySymbol({
-        id: `s:${key}`, key, moduleId: module.id, file: file.path, name: visibleCode(entry.raw.name), qualifiedName: visibleCode(entry.qualifiedName),
+        id: `s:${key}`, key, moduleId: module.id, file: file.path, name: visibleCode(displayName(entry.raw.name)), qualifiedName: visibleCode(entry.qualifiedName),
         kind: entry.kind, start, end, line, flat: entry,
         signature: declarationText(file.lines, { start, end, line }), signatureSource: file.lines ? 'declaration' : null,
         metrics: entry.kind === 'class' ? null : metricsFor(file, start, end, line, null)
@@ -1147,7 +1191,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     const removedDeclarations = new Map<CxDiffLine, string>();
     if (change.operation !== 'deleted') {
       // A name is gone only when neither the outline nor the working text still declares it.
-      const present = new Set([...flat.map((entry) => entry.raw.name),
+      const present = new Set([...flat.map((entry) => displayName(entry.raw.name)),
         ...(fileInput?.lines ?? []).map((line) => declaredName(line)).filter((name): name is string => Boolean(name))]);
       if (!fileInput?.lines) present.add('*');
       for (const hunk of change.hunks) {
@@ -1281,6 +1325,8 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
   }
 
   // 3. Calls: both ends become symbols (creating those outside the harvested files), then edges.
+  const endsSeen = new Map<string, WorkingSymbol>();
+  const lastPart = (value: string) => value.split(/[./\\]/).filter(Boolean).pop() ?? value;
   const ensureEnd = (end: CxCallEnd): WorkingSymbol => {
     // A call from a file's top level (a test file's `test(…)` calls) names the file itself.
     const fileName = end.path.slice(end.path.lastIndexOf('/') + 1);
@@ -1309,21 +1355,36 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
         const folded = byKey.get(symbolKey(end.path, container.raw.selection.line, container.raw.name));
         if (folded) return folded;
       }
+      // A lambda or anonymous function reported on its own (Java's `Outer$1.accept`, a `map() callback`)
+      // is part of the function that contains it.
+      if (/\$\d/.test(`${end.name} ${end.detail ?? ''}`) || anonymousName(displayName(end.name))) {
+        const owner = innermost(flat, end.range.start);
+        const folded = owner ? byKey.get(symbolKey(end.path, owner.raw.selection.line, owner.raw.name)) : undefined;
+        if (folded) return folded;
+      }
     }
+    // Some services move an item's selection to each call site; one range and name is one function.
+    const shown = displayName(end.name);
+    const sameRange = `${end.path}#${end.range.start}-${end.range.end}#${shown}`;
+    const sameName = `${end.path}#${end.detail ?? ''}#${shown}#${end.kind}`;
+    const again = endsSeen.get(sameRange) ?? (flat ? undefined : endsSeen.get(sameName));
+    if (again) return again;
     const file = filesByPath.get(end.path);
     const external = Boolean(file?.external);
     const module = moduleFor(end.path, external, file?.label ?? null);
     const kind: CxSymbolKind = end.kind === SYMBOL_KIND.Constructor ? 'constructor'
       : end.kind === SYMBOL_KIND.Method ? 'method' : CONTAINER_KINDS.has(end.kind) ? 'class' : 'function';
     const symbol = emptySymbol({
-      id: `s:${key}`, key, moduleId: module.id, file: external ? null : end.path, name: visibleCode(end.name),
-      qualifiedName: visibleCode(end.detail && kind === 'method' ? `${end.detail}.${end.name}` : end.name), kind,
+      id: `s:${key}`, key, moduleId: module.id, file: external ? null : end.path, name: visibleCode(shown),
+      qualifiedName: visibleCode(end.detail && kind === 'method' ? `${lastPart(end.detail)}.${shown}` : shown), kind,
       start: end.range.start, end: end.range.end, line: end.selection.line,
       signature: declarationText(file?.lines ?? null, { start: end.range.start, end: end.range.end, line: end.selection.line }),
       signatureSource: file?.lines ? 'declaration' : null,
       metrics: external ? null : metricsFor(file, end.range.start, end.range.end, end.selection.line, null)
     });
     addSymbol(symbol);
+    endsSeen.set(sameRange, symbol);
+    if (!flat) endsSeen.set(sameName, symbol);
     return symbol;
   };
   const edges = new Map<string, CxEdge>();
@@ -1334,6 +1395,11 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     const edgeId = `e:${from.id}>${to.id}`;
     const edge = edges.get(edgeId) ?? { id: edgeId, from: from.id, to: to.id, sites: [] };
     edge.sites = [...new Set([...edge.sites, ...call.sites])].sort((a, b) => a - b);
+    if (call.positions?.length) {
+      const at = [...(edge.at ?? []), ...call.positions];
+      edge.at = at.filter((point, index) => at.findIndex((other) => other.line === point.line && other.character === point.character) === index)
+        .sort((a, b) => a.line - b.line || a.character - b.character);
+    }
     edges.set(edgeId, edge);
   }
   for (const edge of edges.values()) {

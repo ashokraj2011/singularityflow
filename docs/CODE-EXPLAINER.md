@@ -46,6 +46,81 @@ function at the cursor (and works on code the change did not touch). The sidebar
 - **Walkthrough.** The changed functions in reading order (callers before the functions they call,
   code before tests, whole-file changes last), one step at a time, each with its explanation and diff.
 
+## Lenses
+
+The bar under the header chooses how to look at the code. **Code** is everything above: the
+dependency graph, the trace, the walkthrough and the repository. The other four lenses read the same
+harvest (each file's text, the outline its language service gave and the calls it resolved) and
+answer the questions a person asks first. They work for any language; nothing runs the code or asks
+a model, and each says what it rests on.
+
+- **Concepts** shows how the code is organised and what it is about.
+  - *How it is organised* places each file in one part of an architecture, by the evidence it names:
+    - **entry points**: route annotations or registrations, listeners, `main`, a UI root;
+    - **user interface**: files that render markup;
+    - **cross-cutting**: exception handlers, advice, middleware;
+    - **logic**: services, engines, calculators;
+    - **data shapes**: DTOs, models, records, files that only declare fields;
+    - **storage**: repositories, DAOs, ORM models;
+    - **configuration**, **utilities** and **tests**.
+
+    Arrows count the calls between parts, and choosing a part lists its files with the reason each
+    is there.
+  - *What it is about* lists the words the declarations use most, weighted by what carries them
+    (a type name counts more than a field). It folds `eval` into `evaluate`, counts plumbing words
+    (`handler`, `request`, `data`) a quarter, and drops grammar words. Related words are those
+    sharing names, files and calls.
+- **Entities** shows the data the code works with.
+  - Declared types: classes, records, structs, interfaces, enums and type aliases, with their fields
+    and types. Accessors fold into their field (`data · get/set`) and enums list their values.
+    Controllers and services are behaviour, so they are left out.
+  - Objects built in code: an object literal a function returns or names, such as
+    `{ result, error }`.
+  - Component inputs: the props a component destructures.
+  - Links: a field whose type names another entity is a *has* link (*many* for a collection), and
+    `extends` or `implements` is an *is* link. *Used by* lists the functions whose declarations take
+    or return the entity, or whose text builds it with `new`.
+- **Data flow** follows data from one entry point, chosen from the list, to everything it reaches.
+  - Entry points are found from:
+    - a route (`@PostMapping`, `app.post('/x', …)`, `@app.route`, `[HttpPost]`, `HandleFunc`);
+    - a UI event (an element's `onClick`, `addEventListener`);
+    - a listener or timer;
+    - a program start.
+  - Steps are the functions the data reaches. A call arrow says what the call hands over,
+    `parameter ← argument → where the result goes`, read from the call site and the callee's own
+    parameter list.
+  - State is `useState` values: who writes them, which components they render as props, and the
+    effects that save them.
+  - Endpoints are the HTTP response (including the status an exception handler returns for a thrown
+    type), browser storage, files, the database, another service, the screen, the clipboard, sound
+    and the log.
+  - *Changes form here* lists conversions such as `new BigDecimal(n.doubleValue())` or `parseFloat(…)`.
+    Two values that reach a comparison by different conversions can disagree.
+  - A call into a library is part of its step, and a trivial getter or setter is part of the call
+    that reads it.
+- **Logic** draws one function's own text as a flowchart, and the inspector reads it as numbered
+  sentences ("If …", "Otherwise, if …", "Repeat …", "When …", "If it fails with …", "Return …",
+  "Stop with an error: …"). Each sentence links to its line.
+  - A decision puts its branches side by side.
+  - An else-if chain is one decision whose outcomes are tried in order.
+  - A switch or `when` with more than three cases hangs its cases down a spine.
+  - A loop draws its way back.
+  - It reads brace languages and Python's indentation.
+
+**Matched by name.** When the language service resolves no call between two functions the text
+plainly connects, Data flow matches the call by name: by its receiver (`orderService.place(…)` is
+`OrderService.place`), within the same file, or through an import of that name. These arrows are
+dashed and labelled *(by name)*. A language service still indexing after start-up answers fewer
+calls, so **Re-index** once it settles. A Java server often does.
+
+**What the lenses do not mean.**
+- A route or event entry is the annotation or attribute the text declares, not a request anyone made.
+- A layer is a name, annotation or folder pattern, not a design rule.
+- A concept is a word in names.
+- An entity link is a type named in a field.
+- Data flow is static. Callbacks, reflection, dependency injection and dynamic dispatch can add
+  flows it cannot see.
+
 Interaction: drag to pan, ⌘/Ctrl + wheel (or pinch) to zoom, drag a card's header to move it, click a
 row to inspect it, double-click (or Enter) to open it in the editor, ←/→ to move to a caller or
 callee, ↑/↓ within a card, `/` to find, `I` to isolate the selection's neighbourhood, `F` to fit,
@@ -71,13 +146,20 @@ language-service requests were answered, empty or failed.
 
 ## Boundaries
 
-- **Bounded.** At most 40 changed code files are analysed, 120 call-hierarchy requests and 240
-  functions per build, and 40 reference and hover lookups. The full view maps up to 60 code files and
-  traces calls from up to 100 functions within 360 requests. Anything cut is named in the view.
+- **Bounded.** Anything cut is named in the view.
+  - Per build: at most 40 changed code files, 120 call-hierarchy requests, 240 functions, and 40
+    reference and hover lookups.
+  - The full view maps up to 60 code files and traces calls from up to 100 functions within 360
+    requests.
+  - The lenses show 14 concepts and 80 entities. A data-flow path has at most 70 nodes, 6 steps deep.
+    Logic is drawn for 240 functions of up to 600 lines, 160 statements each.
 - **Live but pinned.** A build describes one moment. Saving a file shown, or a newer capture, raises
   *The repository changed since this view was built* with **Refresh**; nothing rebuilds under the reader.
-- **Closed messages.** The page sends a model id and a symbol, file or call id; the host resolves it
-  against its own harvest. It never opens a path, runs a command or follows a URL from the page, and a
+- **Refusals stay where they belong.** When the engine refuses one domain (a Story whose review
+  evidence it cannot bind, for example), Lifecycle shows that error. The captured change, the world
+  model and the diagnostics are still read on their own, so the explainer keeps its Delta.
+- **Closed messages.** The page sends a model id and a symbol, file or call id (and, to open a step
+  of a function's logic, a line inside that function); the host resolves it against its own harvest. It never opens a path, runs a command or follows a URL from the page, and a
   repository file opens only when it stays inside the repository.
 - **Inert page.** Every name, path and source line is set as text under a nonce-only policy.
 - **Export.** *Export JSON* saves the model (functions, calls, metrics, explanations, trace) to a file the
@@ -86,6 +168,7 @@ language-service requests were answered, empty or failed.
   Explorer does.
 
 The engine half lives in `apps/vscode/src/views/code-explainer-model.ts` (pure, tested by
-`test/vscode-code-explainer-model.test.mjs`), the page in `code-explainer-page.ts` (tested by
+`test/vscode-code-explainer-model.test.mjs`), the lenses in `code-explainer-lenses.ts` (pure, tested
+by `test/vscode-code-explainer-lenses.test.mjs`), the page in `code-explainer-page.ts` (tested by
 `test/vscode-code-explainer-page.test.mjs`) and the host in `code-explainer.ts`. The evidence-centred
 view of the same capture is the Change Explorer ([Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md)).

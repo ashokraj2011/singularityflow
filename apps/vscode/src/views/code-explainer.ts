@@ -28,6 +28,7 @@ import {
   type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
   type CxView
 } from './code-explainer-model.ts';
+import { buildLenses } from './code-explainer-lenses.ts';
 import { CODE_EXPLAINER_SCRIPT, codeExplainerBody } from './code-explainer-page.ts';
 import { commandData } from './surface-adapters.ts';
 import { enumField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -246,6 +247,7 @@ export class CodeExplainerPanel {
     'cx.openModule': (message) => { if (this.accept(message)) void this.openModule(stringField(message, 'module')); },
     'cx.openTest': (message) => { if (this.accept(message)) void this.openTest(stringField(message, 'symbol'), integerField(message, 'index')); },
     'cx.openSite': (message) => { if (this.accept(message)) void this.openSite(stringField(message, 'edge'), integerField(message, 'line')); },
+    'cx.openLine': (message) => { if (this.accept(message)) void this.openLine(stringField(message, 'symbol'), integerField(message, 'line')); },
     'cx.diff': (message) => { if (this.accept(message)) void this.openDiff(stringField(message, 'symbol')); },
     'cx.ask': (message) => { if (this.accept(message, { allowStale: true })) void this.ask(stringField(message, 'symbol')); },
     'cx.copy': (message) => { if (this.accept(message, { allowStale: true })) void this.copy(stringField(message, 'symbol')); },
@@ -558,7 +560,11 @@ export class CodeExplainerPanel {
     const publish = (reset: boolean, progress: string | null) => {
       if (!current()) return;
       if (input.story) input.story.gates = this.services.gates?.() ?? null;
-      this.model = buildCodeExplainerModel({ ...input, durationMs: input.status === 'pending' ? null : Date.now() - started }, `cx-${generation}`);
+      const built = { ...input, durationMs: input.status === 'pending' ? null : Date.now() - started };
+      this.model = buildCodeExplainerModel(built, `cx-${generation}`);
+      // The other lenses read the same harvest; one that fails leaves the Code lens as it is.
+      try { this.model.lenses = buildLenses(built, this.model); }
+      catch (error) { this.model.intelligence.notes.push(`The concept, entity, data-flow and logic lenses could not be built: ${error instanceof Error ? error.message : String(error)}`); }
       this.locations = locations;
       this.request = 0;
       const focusId = this.focusPending ? this.model.requested : null;
@@ -665,7 +671,7 @@ export class CodeExplainerPanel {
             const to = await endFor(entry.item);
             for (const call of incoming.slice(0, 40)) {
               const from = await endFor(call.from);
-              calls.push({ from, to, sites: call.fromRanges.map((range) => range.start.line + 1) });
+              calls.push({ from, to, sites: call.fromRanges.map((range) => range.start.line + 1), positions: call.fromRanges.map((range) => ({ line: range.start.line + 1, character: range.start.character })) });
               const key = itemKey(call.from);
               if (entry.depth < this.depth && !seen.has(key) && !from.path.startsWith('external:')) {
                 if (seen.size >= CX_LIMITS.symbols) { bounded = true; continue; }
@@ -687,7 +693,7 @@ export class CodeExplainerPanel {
                 if (externalCallees.length >= 6) continue;
                 externalCallees.push(to.name);
               }
-              calls.push({ from, to, sites: call.fromRanges.map((range) => range.start.line + 1) });
+              calls.push({ from, to, sites: call.fromRanges.map((range) => range.start.line + 1), positions: call.fromRanges.map((range) => ({ line: range.start.line + 1, character: range.start.character })) });
               const key = itemKey(call.to);
               if (entry.depth < this.depth && !seen.has(key) && !to.path.startsWith('external:')) {
                 if (seen.size >= CX_LIMITS.symbols) { bounded = true; continue; }
@@ -722,7 +728,7 @@ export class CodeExplainerPanel {
     const detailed = this.model!.symbols.filter((symbol) => (symbol.role === 'changed' || symbol.role === 'focus' || symbol.role === 'repository')
       && rawByKey.has(symbol.key) && ['function', 'method', 'constructor', 'class'].includes(symbol.kind));
     const referenceTargets = detailed.slice(0, CX_LIMITS.referenceRequests);
-    if (detailed.length > referenceTargets.length) truncated.push(`test references were looked up for the first ${referenceTargets.length} changed symbols`);
+    if (detailed.length > referenceTargets.length) truncated.push(`test references were looked up for the first ${referenceTargets.length} ${graphView === 'full' ? 'functions' : 'changed symbols'}`);
     await mapLimit(referenceTargets, 3, async (symbol) => {
       const located = rawByKey.get(symbol.key)!;
       const uri = vscode.Uri.file(path.join(root, located.relative));
@@ -804,6 +810,18 @@ export class CodeExplainerPanel {
     const edge = this.model?.edges.find((entry) => entry.id === edgeId);
     if (!edge || line === null || !edge.sites.includes(line)) { this.notice('That call site is not in this view.', 'warn'); return; }
     const located = this.locate(edge.from);
+    if (!located) return;
+    await this.openAt(located.file, line);
+  }
+
+  /** A line inside a symbol the host harvested (a step of its logic, a field, a call it makes). */
+  private async openLine(symbolId: string | null, line: number | null): Promise<void> {
+    const symbol = this.model?.symbols.find((entry) => entry.id === symbolId);
+    if (!symbol || line === null || symbol.start === null || symbol.end === null || line < symbol.start || line > symbol.end) {
+      this.notice('That line is not in this view.', 'warn');
+      return;
+    }
+    const located = this.locate(symbol.id);
     if (!located) return;
     await this.openAt(located.file, line);
   }

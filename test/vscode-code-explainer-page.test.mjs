@@ -106,7 +106,7 @@ test('the host accepts a closed set of messages, each naming ids, never a path, 
   const router = source.slice(source.indexOf("registerMessageRouter('singularityFlow.codeExplainer'"), source.indexOf('private accept('));
   const accepted = [...router.matchAll(/'(cx\.[A-Za-z]+)':/g)].map((match) => match[1]);
   assert.deepEqual(accepted, ['cx.ready', 'cx.reindex', 'cx.depth', 'cx.view', 'cx.open', 'cx.openModule', 'cx.openTest', 'cx.openSite',
-    'cx.diff', 'cx.ask', 'cx.copy', 'cx.export', 'cx.changeExplorer', 'cx.repository', 'cx.repoOpen', 'cx.story']);
+    'cx.openLine', 'cx.diff', 'cx.ask', 'cx.copy', 'cx.export', 'cx.changeExplorer', 'cx.repository', 'cx.repoOpen', 'cx.story']);
   const fields = [...router.matchAll(/(?:string|integer|enum)Field\(message, '([a-z]+)'/g)].map((match) => match[1]);
   assert.deepEqual([...new Set(fields)].sort(), ['depth', 'edge', 'index', 'line', 'module', 'symbol', 'to', 'view']);
   assert.match(source, /navigationTarget\(raw\)/, 'the footer navigation is handled');
@@ -128,7 +128,7 @@ test('the graph offers a delta and a full view, and the page asks the host for t
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(viewButton\.dataset\.view !== model\.view\) post\('cx\.view', \{ view: viewButton\.dataset\.view \}\);/);
   assert.match(CODE_EXPLAINER_SCRIPT, /node\.setAttribute\('aria-pressed', String\(node\.dataset\.view === model\.view\)\)/);
   assert.match(CODE_EXPLAINER_SCRIPT, /Choose Full to map every function in the current worktree/, 'an empty delta says where the map is');
-  assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !viewChosen && model\.view !== 'full' && model\.change\.status === 'empty'/, 'the full view stays on its map instead of jumping to Repository');
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !viewChosen && view\.lens === 'code' && model\.view !== 'full' && model\.change\.status === 'empty'/, 'the full view stays on its map instead of jumping to Repository, and another lens stays where it is');
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.tab !== 'graph'\) setTab\('graph'\);/, 'choosing a view shows the graph');
   assert.match(CODE_EXPLAINER_SCRIPT, /view\.filters = Object\.assign\(\{\}, DEFAULT_FILTERS, view\.filters \|\| \{\}\);/, 'a role added after state was saved is not hidden');
   assert.match(CODE_EXPLAINER_SCRIPT, /repository: 'Repository'/);
@@ -138,4 +138,51 @@ test('the graph offers a delta and a full view, and the page asks the host for t
     'a Story that has not changed code opens on the full view');
   assert.match(host, /\['explain', 'code', '--repository', '--json'\]/, 'the full view reads the worktree at every build, so Re-index sees it as it is');
   assert.match(host, /hasScriptProject\(root\)/, 'a project-less JavaScript service is given the rest of the code before callers are asked for');
+});
+
+test('the lens bar offers Code and four more lenses, each with its own view', () => {
+  const body = codeExplainerBody('nonce');
+  assert.match(body, /<nav class="cx-lenses" role="tablist" aria-label="Lenses">/);
+  const lenses = [...body.matchAll(/data-lens="([a-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(lenses, ['code', 'concepts', 'entities', 'flow', 'logic']);
+  for (const id of ['cx-view-concepts', 'cx-view-entities', 'cx-view-flow', 'cx-view-logic', 'cx-flow-entry', 'cx-logic-fn', 'cx-tabs-row']) {
+    assert.match(body, new RegExp(`id="${id}"`), id);
+  }
+  // The Code lens keeps its own tabs; another lens hides them and keeps its own selection.
+  assert.match(CODE_EXPLAINER_SCRIPT, /\$\('cx-tabs-row'\)\.hidden = !code;/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(next !== view\.lens\) view\.lensItem = null;/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.lens !== 'code'\) \{ view\.lens = 'code'; paintLensBar\(\); \}/, 'a Code tab asked for from anywhere shows the Code lens');
+});
+
+test('lens layouts: stacked top-down and wrapped to the panel; flowcharts never overlap and long switches grow downwards', () => {
+  const { stackLayout, logicLayout } = helpers();
+  const nodes = ['entry', 'a', 'b', 'c', 'd', 'sink', 'alone'].map((id) => ({ id, w: 200, h: 50 }));
+  const edges = [{ from: 'entry', to: 'a' }, { from: 'entry', to: 'b' }, { from: 'entry', to: 'c' }, { from: 'entry', to: 'd' }, { from: 'a', to: 'sink' }, { from: 'd', to: 'sink' }];
+  const stacked = stackLayout(nodes, edges, 450);
+  const at = stacked.positions;
+  for (const edge of edges) assert.ok(at[edge.from].y < at[edge.to].y, `${edge.from} above ${edge.to}`);
+  assert.equal(new Set(['a', 'b', 'c', 'd'].map((id) => at[id].y)).size, 2, 'four in a layer wrap to two rows of two in 450px');
+  for (const node of nodes) assert.ok(at[node.id].x + node.w <= 450 + 1, `${node.id} stays inside the width`);
+  assert.ok(at.alone.y > at.sink.y, 'a node with no edges goes after the last layer');
+  const step = (text) => ({ k: 'step', lines: [{ text, line: 1 }], calls: [] });
+  const cases = Array.from({ length: 8 }, (_, index) => ({ label: `case ${index}`, line: index + 2, body: [step(`work ${index}`), { k: 'return', text: String(index), line: 3, calls: [] }] }));
+  const flow = [
+    step('start work'),
+    { k: 'if', cond: 'a > 1', line: 2, then: [step('yes branch')], else: [{ k: 'if', cond: 'a > 2', line: 3, then: [step('second')], else: [{ k: 'if', cond: 'a > 3', line: 4, then: [step('third')], else: [step('otherwise')] }] }] },
+    { k: 'loop', head: 'for item of items', line: 5, body: [step('handle item'), { k: 'if', cond: 'item.bad', line: 6, then: [{ k: 'throw', text: 'new Error()', line: 6, calls: [] }], else: null }] },
+    { k: 'switch', subject: 'kind', line: 7, cases },
+    { k: 'try', line: 9, body: [step('save')], catches: [{ label: 'IOError', line: 10, body: [step('log')] }], final: null }
+  ];
+  const chart = logicLayout(flow);
+  for (let i = 0; i < chart.nodes.length; i += 1) {
+    for (let j = i + 1; j < chart.nodes.length; j += 1) {
+      const a = chart.nodes[i], b = chart.nodes[j];
+      assert.ok(!(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h), `${a.lines[0]} overlaps ${b.lines[0]}`);
+    }
+  }
+  assert.ok(chart.width < 900, `eight cases and an else-if chain stay narrow (${chart.width}px)`);
+  assert.ok(chart.nodes.some((node) => node.lines[0] === 'first that holds'), 'an else-if chain is one decision with several outcomes');
+  assert.equal(chart.nodes[0].kind, 'start');
+  assert.ok(chart.edges.some((edge) => edge.back), 'a loop draws its way back');
+  assert.ok(chart.edges.some((edge) => edge.label === 'on error: IOError' && edge.dashed), 'a catch is a dashed branch');
 });

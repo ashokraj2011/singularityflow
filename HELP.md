@@ -380,6 +380,18 @@ confirmation, and authority checks. Use the inline unpin button to remove a shor
 Lifecycle open by default; other sections stay collapsed until needed, and later choices are
 preserved.
 
+Use **Artifacts** in the main sidebar to browse the attached Story by its workflow's phase order.
+Select **Draft** for current working files or **Approved** for the currently approved generation's
+verified published bytes. Approved previews never substitute later draft edits, and invalidated
+approvals are not presented as current. Documents open as read-only rendered Markdown; JSON and
+source artifacts are fenced inside that preview. Binary artifacts report that a text preview is
+unavailable. Viewing does not run tests, publish, submit, approve, or change files.
+
+The read-only CLI catalog is `singularity-flow documents artifacts --work-id WORK-ID --json`.
+Open one returned ID with `singularity-flow documents artifacts ARTIFACT-ID --version draft|approved
+--work-id WORK-ID --json`. A missing local approved publication is reported rather than replaced
+with the working draft. Refresh the attached Story's history to retrieve its retained publication.
+
 The guidance role chosen during onboarding can filter instructions, but workflow
 phases choose governed agents. It never grants approval authority. The active
 workspace and native Copilot handoff sit together in the

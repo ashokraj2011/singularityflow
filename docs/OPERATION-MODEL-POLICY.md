@@ -216,6 +216,7 @@ Every public operation is classified before its implementation module is importe
 | doctor.fix.telemetry | mutation | never | — | — |
 | doctor.inspect | read | never | — | — |
 | documents.add | mutation | never | — | — |
+| documents.artifacts | read | never | — | — |
 | documents.browse | read | never | — | — |
 | documents.detach | mutation | never | — | — |
 | documents.fetch | mutation | never | — | — |

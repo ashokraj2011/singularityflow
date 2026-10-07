@@ -6,6 +6,7 @@ import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 export const PRIMARY_NAVIGATION = [
   { id: 'my-work', label: 'My Work', icon: 'home', command: 'singularityFlow.myWork' },
   { id: 'stories', label: 'Stories', icon: 'story', command: 'singularityFlow.openWorkspaceStories' },
+  { id: 'artifacts', label: 'Artifacts', icon: 'document', command: 'singularityFlow.openPhaseArtifacts' },
   { id: 'story-analytics', label: 'Story Analytics', icon: 'impact', command: 'singularityFlow.openDashboard' },
   { id: 'reviews', label: 'Reviews', icon: 'approval', command: 'singularityFlow.openReviews' },
   { id: 'configuration-approvals', label: 'Configuration approvals', icon: 'merge', command: 'singularityFlow.openConfigurationApprovals' },

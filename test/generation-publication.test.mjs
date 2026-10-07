@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { publishedGenerationCommit } from '../src/generation-publication-store.mjs';
+import { phaseArtifactCatalog, viewPhaseArtifact } from '../src/phase-artifact-browser.mjs';
+import { exactFileAtObject } from '../src/git.mjs';
 import { beginCodeGeneration, verifyOpenGenerationIntent } from '../src/generation-boundary.mjs';
 import { lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-event.mjs';
 import { recordSha256 } from '../src/records.mjs';
@@ -188,6 +190,38 @@ test('legacy subject text only enumerates candidates and exposes one verified ca
     assert.equal(error.details.candidates.length, 2);
     return true;
   });
+});
+
+test('approved artifact previews retain exact published bytes despite edited or missing working drafts', async t => {
+  const { root, workflow, phase, commit } = await committedGenerationPublicationV1();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const config = { workItemRoot: 'singularity/work-items' };
+  phase.status = 'approved';
+  const entry = phaseArtifactCatalog(config, workflow).phases[0].artifacts[0];
+  const file = path.join(root, entry.path);
+  await writeFile(file, '# This is an unapproved edit\n');
+  const before = git(root, ['status', '--porcelain']);
+  const approved = await viewPhaseArtifact(root, config, workflow, entry.id, 'approved');
+  assert.equal(approved.commit, commit);
+  assert.equal(approved.content, '# Intake\n\nPublished by a v1 runtime.\n');
+  assert.equal(git(root, ['status', '--porcelain']), before, 'viewing does not mutate the working tree');
+  assert.match((await viewPhaseArtifact(root, config, workflow, entry.id)).content, /unapproved edit/);
+  await rm(file);
+  assert.equal((await viewPhaseArtifact(root, config, workflow, entry.id, 'approved')).content, approved.content);
+  phase.status = 'stale';
+  await assert.rejects(viewPhaseArtifact(root, config, workflow, entry.id, 'approved'), { code: 'PHASE_ARTIFACT_NOT_APPROVED' });
+});
+
+test('exact regular-file reads reject committed symlinks rather than treating their target as document content', async t => {
+  const { root } = await committedGenerationPublicationV1();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  // index mode models a symlink even on hosts without native symlink creation permission.
+  const oid = git(root, ['hash-object', 'README.md']);
+  git(root, ['update-index', '--add', '--cacheinfo', `120000,${oid},alias.md`]);
+  git(root, ['commit', '-qm', 'symlink fixture']);
+  const commit = git(root, ['rev-parse', 'HEAD']);
+  assert.equal(exactFileAtObject(root, commit, 'alias.md', { regularOnly: true }), null);
+  assert.ok(exactFileAtObject(root, commit, 'README.md', { regularOnly: true }));
 });
 
 test('a genuine committed generation-publication v1 verifies before its v2 projection', async () => {

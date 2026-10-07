@@ -660,6 +660,11 @@
         "title": "Singularity Flow: Open Artifact"
       },
       {
+        "command": "singularityFlow.openPhaseArtifacts",
+        "title": "Singularity Flow: Artifacts by Phase",
+        "icon": "$(files)"
+      },
+      {
         "command": "singularityFlow.openStoryIntake",
         "title": "Singularity Flow: View Story Intake Details",
         "icon": "$(book)"

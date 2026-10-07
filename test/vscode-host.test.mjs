@@ -1189,7 +1189,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-    ['my-work', 'stories', 'story-analytics', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center']);
+      ['my-work', 'stories', 'artifacts', 'story-analytics', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -1859,6 +1859,73 @@ test('a failing shared destination reports an actionable error instead of becomi
   await panel.post({ type: 'navigate', to: 'journey' });
   await until(() => registered.errors.find((message) => message.includes('journey data is unavailable')));
   assert.match(registered.errors.at(-1), /Could not open the Singularity Flow view/);
+});
+
+test('phase artifact main-menu browsing opens rendered Markdown without changing Story state', async t => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  run('git', ['switch', 'main'], { cwd: root });
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '--allow-empty', '-m', 'Artifact browser fixture'], { cwd: root });
+  run('git', ['push', 'origin', 'main'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), 'start', 'ARTIFACT-HOST',
+    '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--agent', 'product-owner',
+    '--title', 'Browse documents', '--description', 'Read draft and approved phase documents', '--json'],
+    { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  const file = path.join(root, 'singularity/work-items/ARTIFACT-HOST/artifacts/specification/spec.md');
+  await writeFile(file, '# Artifact browser fixture\n\n**Rendered**, not raw.\n');
+  const before = { head: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout,
+    status: run('git', ['status', '--porcelain'], { cwd: root }).stdout };
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const providers = new Map();
+  api.Uri.from = components => {
+    const uri = new api.Uri(components.path, components.scheme);
+    uri.query = components.query ?? '';
+    uri.toString = () => `${uri.scheme}:${uri.fsPath}?${uri.query}`;
+    return uri;
+  };
+  api.workspace.registerTextDocumentContentProvider = (scheme, provider) => { providers.set(scheme, provider); return { dispose() {} }; };
+  api.workspace.onDidCloseTextDocument = () => ({ dispose() {} });
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openPhaseArtifacts')();
+  const panel = registered.panels.find(item => item.id === 'singularityFlow.artifacts');
+  assert.ok(panel, registered.panels.map(item => item.webview.html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gu, '')
+    .replace(/<[^>]+>/gu, ' ').replace(/\s+/gu, ' ')).join('\n'));
+  assert.match(panel.webview.html, /ARTIFACT-HOST/);
+  assert.match(panel.webview.html, /data-phase="specification" aria-current="step"/);
+  const id = panel.webview.html.match(/data-artifact="([^"]+)"/)[1];
+  const rawBefore = registered.openedDocuments.length;
+  await panel.post({ type: 'open', id: '../../README.md', path: '/etc/passwd' });
+  assert.equal(registered.executedCommands.filter(item => item.id === 'markdown.showPreview').length, 0);
+  await panel.post({ type: 'open', id });
+  const opened = registered.executedCommands.find(item => item.id === 'markdown.showPreview');
+  assert.ok(opened, 'the built-in rendered Markdown preview was requested');
+  const uri = opened.args[0];
+  assert.equal(uri.scheme, 'sflow-review');
+  assert.match(providers.get(uri.scheme).provideTextDocumentContent(uri), /# Artifact browser fixture/);
+  assert.equal(registered.openedDocuments.length, rawBefore, 'no raw editor was opened');
+  await panel.post({ type: 'version', version: 'approved' });
+  assert.match(panel.webview.html, /No currently approved artifacts/);
+  await panel.post({ type: 'open', id, version: 'draft' });
+  assert.equal(registered.executedCommands.filter(item => item.id === 'markdown.showPreview').length, 1,
+    'a forged version cannot open a draft through the Approved view');
+  await registered.commands.get('singularityFlow.openArtifact')({ path: path.relative(root, file) });
+  assert.equal(registered.executedCommands.filter(item => item.id === 'markdown.showPreview').length, 2,
+    'existing artifact links also open rendered Markdown');
+  assert.equal(registered.openedDocuments.length, rawBefore);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout, before.head);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout, before.status);
+  panel.dispose();
+  await panel.post({ type: 'open', id });
+  assert.equal(registered.executedCommands.filter(item => item.id === 'markdown.showPreview').length, 2);
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {

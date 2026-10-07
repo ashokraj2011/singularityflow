@@ -636,6 +636,7 @@ Usage:
   singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
   singularity-flow wm design-inventory --from-records [--json]
   singularity-flow documents list [WORK-ID] [--phase PHASE] [--active|--all] [--json]
+  singularity-flow documents artifacts [ARTIFACT-ID] [--version draft|approved] [--work-id ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|NAME|PATH> [--work-id ID] [--all] [--json]
   singularity-flow documents preview <DOCUMENT-ID|NAME|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...|all] [--store git|local] [--kind KIND] [--json]

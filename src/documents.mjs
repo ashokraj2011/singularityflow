@@ -881,7 +881,7 @@ function assertDocumentInputContainsNoSecret(input, captured) {
   );
 }
 
-async function governedDocumentPath(root, config, workflow, record) {
+export async function governedDocumentPath(root, config, workflow, record) {
   if (!record.path) throw new SingularityFlowError(`Document '${record.id}' has no repository path.`);
   // Published code/test artifacts belong to the repository, not the Story's document folder.
   // Only a catalog entry backed by this phase's exact registered path/hash gets that scope.

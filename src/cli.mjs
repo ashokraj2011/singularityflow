@@ -126,6 +126,7 @@ import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
+import { phaseArtifactCatalog, viewPhaseArtifact } from './phase-artifact-browser.mjs';
 import { documentStorageChoices } from './document-storage-policy.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import {
@@ -4943,6 +4944,7 @@ function startDocumentPhaseList(value) {
 // Options every documents subcommand accepts. A near miss of anything else is refused below.
 const DOCUMENTS_COMMON_OPTIONS = Object.freeze(['json', 'verbose', 'work-id']);
 const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
+  artifacts: ['version'],
   list: ['active', 'all', 'phase'],
   view: ['all'],
   preview: [],
@@ -5022,6 +5024,12 @@ function documentTitle(record) {
 async function documentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot();
   refuseNearMissDocumentOptions(subcommand, options);
+  if (subcommand === 'artifacts') {
+    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+    const result = positionals[2] ? await viewPhaseArtifact(root, config, workflow, positionals[2], optionString(options, 'version', 'draft'))
+      : phaseArtifactCatalog(config, workflow);
+    return console.log(JSON.stringify(result, null, 2));
+  }
   if (subcommand === 'list') {
     if (optionBoolean(options, 'active') && optionBoolean(options, 'all')) throw new SingularityFlowError('Choose either --active or --all, not both.');
     const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[2] ?? optionString(options, 'work-id'));

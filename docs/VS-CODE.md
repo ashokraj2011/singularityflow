@@ -9,6 +9,12 @@ database.
 
 ## Navigation model
 
+**Artifacts** is a main-menu destination for the attached Story. Choose a workflow phase, then
+**Draft** or **Approved**, and **View Markdown**. Draft shows current working bytes; Approved
+opens verified publication bytes for the currently approved generation, even when its working file
+has changed. Invalidated approvals are not offered as current. Previews are read-only and rendered,
+not raw Markdown editors. Missing local history is reported without substituting a draft.
+
 The Singularity Flow activity bar contains one compact Navigator with Favorites, Inbox, Workspaces,
 Lifecycle, Configuration, Help, and Logs sections.
 

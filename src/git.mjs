@@ -1465,9 +1465,16 @@ export function proposalGitLineageCommit(root, {
 const EXACT_LOCAL_OBJECT_ID = /^[a-f0-9]{40,64}$/iu;
 
 /** Read one blob from an exact local object without replace refs or a promisor-network fallback. */
-export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 1024 } = {}) {
+export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 1024, regularOnly = false } = {}) {
   invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git object ID is invalid.');
   invariant(typeof file === 'string' && file.length > 0 && !file.includes('\0'), 'Exact Git path is invalid.');
+  if (regularOnly) {
+    const entry = git(['--literal-pathspecs', 'ls-tree', '-z', objectId, '--', file], {
+      cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true, maxBuffer: Buffer.byteLength(file) + 512
+    });
+    const match = String(entry.stdout ?? '').match(/^(100644|100755) blob [a-f0-9]{40,64}\t([^\0]+)\0$/u);
+    if (entry.status !== 0 || !match || match[2] !== file) return null;
+  }
   const result = git(['show', `${objectId}:${file}`], {
     cwd: root,
     env: immutableLocalGitEnvironment(),

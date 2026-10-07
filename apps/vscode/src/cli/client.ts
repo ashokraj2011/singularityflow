@@ -336,7 +336,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return args[1] === 'cache' && (args[2] ?? 'status') === 'clear' ? 'mutation' : 'read';
   }
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
-  if (args[0] === 'documents') return ['list', 'browse'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'documents') return ['list', 'browse', 'artifacts'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
   if (args[0] === 'mcp' && args[1] === 'sources') return 'read';
   // A preview fetches and stages bytes and a check re-reads sources; neither changes governed state.

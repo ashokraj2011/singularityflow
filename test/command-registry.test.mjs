@@ -83,6 +83,17 @@ test('workspace migrate-schemas is a read-only model-free operation', () => {
   assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.classification, 'read');
 });
 
+test('phase artifact browsing is a cataloged read-only operation that cannot invoke a model', () => {
+  for (const positionals of [['documents', 'artifacts'], ['documents', 'artifacts', 'ART-123']]) {
+    const operation = resolveOperation({ requestedCommand: 'documents', positionals,
+      options: { version: 'approved', 'work-id': 'STORY-1', json: true } });
+    assert.equal(operation.id, 'documents.artifacts');
+    assert.equal(operation.classification, 'read');
+    assert.equal(operation.modelPolicy, 'never');
+    assert.equal(operationCatalog().find(entry => entry.id === operation.id)?.classification, 'read');
+  }
+});
+
 test('phase review and prepublish commands remain reads while publication remains a mutation', () => {
   const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
   for (const subcommand of ['show', 'draft-check', 'prepublish']) {

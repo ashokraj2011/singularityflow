@@ -908,7 +908,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
     'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
     'singularityFlow.detachEvidence', 'singularityFlow.addSource',
-    'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.openStoryIntake', 'singularityFlow.runAction',
+    'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.openPhaseArtifacts', 'singularityFlow.openStoryIntake', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
@@ -7396,11 +7396,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const reviewDocuments = new Map<string, string>();
   let storyIntakePanel: vscode.WebviewPanel | null = null;
   let storyIntakeRequest = 0;
+  let phaseArtifactsPanel: vscode.WebviewPanel | null = null;
+  let phaseArtifactsRequest = 0;
   let reviewDocumentProvider: vscode.Disposable | null = null;
   const showReviewDocument = async (name: string, content: string): Promise<void> => {
     if (!reviewDocumentProvider) {
       reviewDocumentProvider = vscode.workspace.registerTextDocumentContentProvider('sflow-review', {
-        provideTextDocumentContent: (uri) => reviewDocuments.get(uri.toString()) ?? 'This review is no longer open. Start it again from Workflow Studio.'
+        provideTextDocumentContent: (uri) => reviewDocuments.get(uri.toString()) ?? 'This preview is no longer open. Reopen it from its original view.'
       });
       context.subscriptions.push(reviewDocumentProvider, vscode.workspace.onDidCloseTextDocument((document) => {
         if (document.uri.scheme === 'sflow-review') reviewDocuments.delete(document.uri.toString());
@@ -7408,7 +7410,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const uri = vscode.Uri.from({ scheme: 'sflow-review', path: `/${name.replace(/[^A-Za-z0-9._/ -]/g, '-')}`, query: String(Date.now()) });
     reviewDocuments.set(uri.toString(), content);
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true });
+    if (/\.md$/iu.test(name)) await vscode.commands.executeCommand('markdown.showPreview', uri);
+    else await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true });
   };
   // Governed workflow configuration routines: review and activate a configuration proposal, propose
   // a change after previewing it, and export, import or copy workflows. Workflow Studio calls them;
@@ -7752,6 +7755,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const evidence = resolveEvidenceNode(node);
         return evidence ? openEvidence(evidence) : openArtifact(repository, node, cliPackageRoot);
       }) as never,
+    'singularityFlow.openPhaseArtifacts': async () => {
+      await reconcileActiveWorkspaceSelection();
+      const workId = store.current.snapshot?.workflow?.workItem.id;
+      if (!repository || !workId) { void showCompactWarningMessage('Select and attach a Story from Stories to browse its phase artifacts.'); return; }
+      const checkedRepository = repository;
+      const scope = repositoryEpoch.capture();
+      const request = ++phaseArtifactsRequest;
+      let alive = true;
+      const stillCurrent = (): boolean => alive && request === phaseArtifactsRequest
+        && repositoryEpoch.isCurrent(scope) && repository === checkedRepository
+        && store.current.snapshot?.workflow?.workItem.id === workId;
+      try {
+        const catalog = await client.run<import('./views/phase-artifacts-page.ts').PhaseArtifactCatalog>(
+          ['documents', 'artifacts', '--work-id', workId, '--json'], undefined, { priority: 'interactive' });
+        if (!stillCurrent() || catalog.workId !== workId) return;
+        const { showPhaseArtifacts, artifactPreviewMarkdown } = await lazyPanels();
+        if (!stillCurrent()) return;
+        phaseArtifactsPanel?.dispose();
+        const panel = showPhaseArtifacts(catalog, async (id, version) => {
+          if (!stillCurrent()) return;
+          const phase = catalog.phases.find(item => item.artifacts.some(artifact => artifact.id === id));
+          if (!phase) return;
+          try {
+            const preview = await client.run<import('./views/phase-artifacts-page.ts').PhaseArtifactPreview>(
+              ['documents', 'artifacts', id, '--version', version, '--work-id', workId, '--json'], undefined, { priority: 'interactive' });
+            if (!stillCurrent()) return;
+            if (preview.workId !== workId || preview.record?.id !== id || preview.phase !== phase.id
+                || preview.version !== version || preview.generation !== phase.generation) {
+              void showCompactWarningMessage('Artifact generation changed. Refresh Artifacts before opening this version.'); return;
+            }
+            await showReviewDocument(`${workId}/${phase.id}/${version}/${id}.md`, artifactPreviewMarkdown(preview));
+          } catch (error) { if (stillCurrent()) showRefusal(error, { headline: 'Artifact preview unavailable' }); }
+        }, () => { if (stillCurrent()) void vscode.commands.executeCommand('singularityFlow.openPhaseArtifacts'); });
+        phaseArtifactsPanel = panel;
+        const selection = store.onDidChange(() => { if (!stillCurrent()) panel.dispose(); });
+        panel.onDidDispose(() => { alive = false; selection.dispose(); if (phaseArtifactsPanel === panel) phaseArtifactsPanel = null; });
+        context.subscriptions.push(panel);
+      } catch (error) { if (stillCurrent()) showRefusal(error, { headline: 'Could not read phase artifacts' }); }
+    },
     'singularityFlow.openStoryIntake': async () => {
       const snapshot = store.current.snapshot;
       const workflow = snapshot?.workflow;
@@ -8642,7 +8684,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 /**
- * Open an artifact as a normal editor tab.
+ * Open Markdown artifacts rendered by default; other formats use their normal editor.
  *
  * The path comes from the snapshot rather than from anything a view constructed, and it is resolved
  * and then checked to be inside the repository — a `..` that escaped the workspace would be a
@@ -8678,8 +8720,13 @@ async function openArtifact(
 
   const uri = vscode.Uri.file(absolute);
   try {
-    const document = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(document, { preview: true });
+    const [info, realBase, realFile] = await Promise.all([lstat(absolute), fsRealpath(base), fsRealpath(absolute)]);
+    const realRelative = path.relative(realBase, realFile);
+    if (!info.isFile() || info.isSymbolicLink() || realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+      throw new Error('Artifact path is not a regular file inside its repository.');
+    }
+    if (/\.(md|markdown)$/iu.test(absolute)) await vscode.commands.executeCommand('markdown.showPreview', uri);
+    else await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true });
     if (node.readOnly) {
       const message = node.packagePath
         ? '$(lock-small) This resource ships with Singularity Flow and is read-only. Copy it into the repository to customize it.'

@@ -15,6 +15,7 @@ import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionCo
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
+import { phaseContextAdmission, phaseAdmissionActions } from './phase-entry-admission.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -63,6 +64,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     effects: { contextCompositionRequested: compose, testsRun: false, storyAdvanced: false,
       committed: false, pushed: false }, modelInvocations: 0 };
   if (!base.ready) return { ...base, status: 'binding-required', context: null,
+    contextAdmission: phaseContextAdmission({ ready: false }),
     next: session.phaseAgent?.handoff ? [recoveryActionGuidance(session.phaseAgent.handoff)] : [], authoringAllowed: false };
   const authoring = await phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true });
   const recovery = await recoveryPlan(root, definition, workflow, {
@@ -72,9 +74,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     await storyReferenceRepositories(root, definition, workflow));
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
-  const canCompose = authoring.entry?.status === 'authoring-entry' && !phaseUsesDeterministicGeneration(phase)
-    && authoring.policyVerified && authoring.effectiveAuthoringSkill
-    && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
+  const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
+    deterministic: phaseUsesDeterministicGeneration(phase) });
+  const canCompose = contextAdmission.allowed;
   let context = null;
   if (compose && canCompose) {
     // The existing composer owns pinned inputs, immutable reuse, authority replay and locking.
@@ -92,14 +94,15 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
   const status = authoring.entry?.status === 'retained-generation' ? 'retained-generation'
     : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry' : 'attention-required';
-  return { ...base, status, authoringAllowed,
+  const next = preparationAdmitted ? authoring.entry.actions
+    : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
+    : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+  return { ...base, status, authoringAllowed, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
-    next: (preparationAdmitted ? authoring.entry.actions
-      : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
-      : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions).map(recoveryActionGuidance),
+    next: phaseAdmissionActions(next, contextAdmission, { authoring, recovery }).map(recoveryActionGuidance),
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
       documents: `singularity-flow phase show ${phase.id} --json` } };
 }

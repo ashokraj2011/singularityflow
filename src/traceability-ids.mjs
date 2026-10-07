@@ -26,6 +26,23 @@ export function qualifiedClauseIds(text) {
   return new Set(qualifiedClauseMatches(text).map(match => match[0].toUpperCase()));
 }
 
+/** Shared marker vocabulary; callers must establish comment provenance separately. */
+export function clauseTagsInComment(text, { legacy = false } = {}) {
+  const types = legacy ? `${GOVERNED_CLAUSE_TYPE_PATTERN}|NFR` : GOVERNED_CLAUSE_TYPE_PATTERN;
+  const identity = legacy ? `(?:${NAMESPACE}:)?(?:${types})-\\d{3}` : `${NAMESPACE}:(?:${types})-\\d{3}`;
+  const marker = new RegExp(`(?:^|[\\s*/#!-])@(ac|clause)\\s*:\\s*(${identity})(?![A-Za-z0-9._:-])`, 'giu');
+  const result = [];
+  const seen = new Set();
+  for (const match of String(text ?? '').matchAll(marker)) {
+    const tag = match[1].toLowerCase();
+    const clauseId = match[2].toUpperCase();
+    if (tag === 'ac' && !/(?:^|:)AC-\d{3}$/u.test(clauseId)) continue;
+    const key = `${tag}:${clauseId}`;
+    if (!seen.has(key)) { seen.add(key); result.push({ tag, clauseId }); }
+  }
+  return result;
+}
+
 /**
  * Read explicit source-comment witnesses, never identifiers from executable text or strings.
  * Legacy bare and NFR annotations remain observable to older World Models, but only the
@@ -33,14 +50,6 @@ export function qualifiedClauseIds(text) {
  */
 export function scanSourceClauseTags(source, { legacy = false, sourcePath = null } = {}) {
   const text = String(source ?? '');
-  const typePattern = legacy ? `${GOVERNED_CLAUSE_TYPE_PATTERN}|NFR` : GOVERNED_CLAUSE_TYPE_PATTERN;
-  const identity = legacy
-    ? `(?:${NAMESPACE}:)?(?:${typePattern})-\\d{3}`
-    : `${NAMESPACE}:(?:${typePattern})-\\d{3}`;
-  const annotation = new RegExp(
-    `^\\s*(?:(?:\\/\\/|#|\\/\\*+|\\*|<!--|--)\\s*)(?:[-*]\\s*)?@(ac|clause)\\s*:\\s*(${identity})(?![A-Za-z0-9._:-])`,
-    'i'
-  );
   // Preserve polyglot comment syntax. JavaScript/JSX gets lexical provenance so literal text
   // cannot become a witness, including multiline templates and JSX attributes/children.
   const javascript = /\.(?:[cm]?[jt]sx?|[cm][jt]s)$/iu.test(sourcePath ?? '')
@@ -52,31 +61,20 @@ export function scanSourceClauseTags(source, { legacy = false, sourcePath = null
   const seen = new Set();
   const lineOffsets = [];
   let offset = 0;
-  let commentIndex = 0;
-  const decode = (match, line) => {
-    const clauseId = match[2].toUpperCase();
-    if (match[1].toLowerCase() === 'ac' && !/(?:^|:)AC-\d{3}$/.test(clauseId)) return;
-    if (!legacy && !normalizeQualifiedClauseId(clauseId)) return;
-    const tag = match[1].toLowerCase();
+  const decode = ({ clauseId, tag }, line) => {
     const key = `${line}:${clauseId}:${tag}`;
     if (seen.has(key)) return;
     seen.add(key);
     result.push({ clauseId, line, tag });
   };
   const lines = text.split('\n');
-  for (const [index, line] of lines.entries()) {
+  for (const line of lines) {
     lineOffsets.push(offset);
-    const match = annotation.exec(line);
-    const at = offset + (match ? match[0].indexOf('@') : 0);
-    while (comments && comments[commentIndex]?.end <= at) commentIndex += 1;
-    const comment = comments?.[commentIndex];
-    if (match && (!comments || (comment?.start <= at && at < comment.end))) decode(match, index + 1);
     offset += line.length + 1;
   }
-  // A JSX expression has a real block-comment token, not a leading '/' on its source line.
-  // Read only its comment bytes; markup after the closing brace is never evidence.
+  // Parse every marker in each lexical comment, never bytes following its closing delimiter.
+  // Keep the leading-comment convention; comment-only JSX containers also permit inline tags.
   for (const comment of comments ?? []) {
-    if (!comment.jsxContainer) continue;
     let low = 0;
     let high = lineOffsets.length;
     while (low < high) {
@@ -86,9 +84,17 @@ export function scanSourceClauseTags(source, { legacy = false, sourcePath = null
     }
     const firstLine = low;
     text.slice(comment.start, comment.end).split('\n').forEach((line, index) => {
-      const match = annotation.exec(line);
-      if (match) decode(match, firstLine + index);
+      if (index === 0 && !comment.jsxContainer
+          && !/^\s*$/u.test(text.slice(lineOffsets[firstLine - 1], comment.start))) return;
+      for (const tag of clauseTagsInComment(line, { legacy })) decode(tag, firstLine + index);
     });
   }
+  if (!comments) lines.forEach((line, index) => {
+    const prefix = /^\s*(\/\/|#|\/\*+|\*|<!--|--)/u.exec(line);
+    if (!prefix) return;
+    const close = prefix[1] === '<!--' ? '-->' : /^\*/u.test(prefix[1]) || prefix[1].startsWith('/*') ? '*/' : null;
+    const end = close ? line.indexOf(close, prefix[0].length) : -1;
+    for (const tag of clauseTagsInComment(end < 0 ? line : line.slice(0, end), { legacy })) decode(tag, index + 1);
+  });
   return result.sort((left, right) => left.line - right.line);
 }

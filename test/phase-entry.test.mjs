@@ -14,6 +14,7 @@ import { phaseAgentResult } from '../src/phase-agent-result.mjs';
 import { snapshot } from '../src/util.mjs';
 import { validatePhaseEntryRequest } from '../src/commands/phase.mjs';
 import { validateAgentEntryRequest } from '../src/agent-entry-options.mjs';
+import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -141,6 +142,8 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(entry.phaseAgent.valid, true);
   assert.equal(entry.context, null);
   assert.equal(entry.contextComposition, 'not-requested');
+  assert.equal(entry.contextAdmission.allowed, true);
+  assert.deepEqual(entry.contextAdmission.blockers, []);
   assert.equal(entry.modelInvocations, 0);
   assert.equal(entry.effects.testsRun, false);
   assert.equal(entry.effects.storyAdvanced, false);
@@ -280,6 +283,7 @@ test('a missing session only returns its verified attach route, never composes c
   assert.equal(entry.status, 'binding-required');
   assert.equal(entry.ready, false);
   assert.equal(entry.authoringAllowed, false);
+  assert.equal(entry.contextAdmission.blockers[0].code, 'PHASE_CONTEXT_BINDING_REQUIRED');
   assert.equal(entry.context, null);
   assert.equal(entry.phaseAgent.valid, false);
   assert.equal(entry.phaseAgent.reason, 'active-session-missing');
@@ -300,8 +304,46 @@ test('manual worktree review prevents composition while preserving changes and e
   assert.equal(entry.authoringAllowed, false);
   assert.equal(entry.context, null);
   assert.equal(entry.contextComposition, 'not-admitted');
+  assert.equal(entry.contextAdmission.allowed, false);
+  assert.deepEqual(entry.contextAdmission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
+  assert.deepEqual(entry.contextAdmission.blockers[0].paths, ['README.md']);
+  assert.equal(entry.next[0].id, 'working-tree');
   assert.ok(entry.recovery.actions.some(action => action.id === 'working-tree' && action.confirmation === 'human-authority'));
   assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Unrelated native work\n');
+});
+
+test('composition admission distinguishes repairable draft findings from the real human boundary', () => {
+  const authoring = { entry: { status: 'authoring-entry' }, policyVerified: true, effectiveAuthoringSkill: '/sf-code' };
+  const recovery = { requiresRecovery: false, blockers: [{ code: 'code.delivery.incomplete' }], actions: [
+    { id: 'complete-code-delivery:custom-build', confirmation: 'none' },
+    { id: 'working-tree', confirmation: 'human-authority', unexpectedPaths: ['team/stories/E/evidence/screen.png'] },
+    { id: 'review-evidence-contract:custom-build:screen.png', command: 'review exact contract' },
+    { id: 'commit-reviewed-worktree' }
+  ] };
+  const admission = phaseContextAdmission({ authoring, recovery });
+  assert.deepEqual(admission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
+  assert.deepEqual(admission.blockers[0].paths, ['team/stories/E/evidence/screen.png']);
+  assert.deepEqual(phaseAdmissionActions(recovery.actions, admission, { authoring, recovery }).map(action => action.id),
+    ['review-evidence-contract:custom-build:screen.png', 'working-tree', 'complete-code-delivery:custom-build', 'commit-reviewed-worktree']);
+  const owned = { ...recovery, actions: [{ id: 'working-tree', confirmation: 'none' }] };
+  assert.equal(phaseContextAdmission({ authoring, recovery: owned }).allowed, true, 'incomplete owned drafts can be composed for repair');
+  assert.equal(recovery.actions[0].id, 'complete-code-delivery:custom-build', 'presentation never changes the recovery plan');
+});
+
+test('admission diagnostics preserve every existing composition guard for arbitrary phases', () => {
+  for (const bits of Array.from({ length: 64 }, (_, index) => index)) {
+    const entry = Boolean(bits & 1), deterministic = Boolean(bits & 2), verified = Boolean(bits & 4);
+    const recoveryRequired = Boolean(bits & 8), decision = Boolean(bits & 16), referencesBlocked = Boolean(bits & 32);
+    const authoring = { entry: { status: entry ? 'authoring-entry' : 'retained-generation' },
+      policyVerified: verified, effectiveAuthoringSkill: '/sf-code' };
+    const recovery = { requiresRecovery: recoveryRequired, actions: decision
+      ? [{ id: 'working-tree', confirmation: 'human-authority' }] : [] };
+    const actual = phaseContextAdmission({ authoring, recovery, deterministic,
+      references: { status: referencesBlocked ? 'blocked' : 'not-configured' } });
+    assert.equal(actual.allowed, entry && !deterministic && verified && !recoveryRequired && !decision && !referencesBlocked);
+    assert.equal(actual.allowed, actual.blockers.length === 0);
+  }
+  assert.equal(phaseContextAdmission({ authoring: { entry: { status: 'authoring-entry' }, policyVerified: true } }).allowed, false);
 });
 
 test('explicit entry composition returns the governed prompt once and reuses immutable bytes', async t => {

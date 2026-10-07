@@ -6,6 +6,37 @@ import {
 } from '../src/traceability-ids.mjs';
 import { isQualifiedAcceptanceId, acceptanceTagsInComment } from '../src/verification/tags.mjs';
 import { javascriptSourceComments } from '../src/javascript-source-comments.mjs';
+import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
+
+test('delivery and test declarations share every marker in a multi-tag comment', () => {
+  const comment = '// @ac:A-HEX:AC-001 @ac:a-hex:AC-005 @ac:A-HEX:AC-006 @ac:a-hex:ac-006';
+  const source = `${comment}\nit('converts the displayed integer', () => { expect(convert('255')).toBe('0xFF'); });`;
+  const expected = ['A-HEX:AC-001', 'A-HEX:AC-005', 'A-HEX:AC-006'];
+  assert.deepEqual(scanSourceClauseTags(source, { sourcePath: 'src/App.test.jsx' }).map(tag => tag.clauseId), expected);
+  assert.deepEqual(acceptanceTagsInComment(comment), expected);
+  const declarations = scanJavaScriptDeclarations(source, { sourcePath: 'src/App.test.jsx', framework: 'vitest' });
+  assert.deepEqual(declarations.declarations[0].clauseIds, expected);
+});
+
+test('multi-tag scanning retains line/provenance/exact identity in JS, JSX and polyglot comments', () => {
+  for (const [sourcePath, source] of [
+    ['test/value.test.ts', '// @ac:ORDER:AC-001 @ac:ORDER:AC-002\r\nit("value", () => {});'],
+    ['src/App.jsx', 'const node = <>{/* @clause:ORDER:REQ-001 @clause:ORDER:REQ-002 */}</>;'],
+    ['test/value.py', '# @ac:ORDER:AC-001 @ac:ORDER:AC-002'],
+    ['test/value.go', '/* @ac:ORDER:AC-001 @ac:ORDER:AC-002 */ "@ac:ORDER:AC-003"'],
+    ['test/ValueTest.java', '/*\n * @ac:ORDER:AC-001 @ac:ORDER:AC-002\n */'],
+    ['src/rule.sql', '-- @clause:ORDER:REQ-001 @clause:ORDER:REQ-002']
+  ]) {
+    const tags = scanSourceClauseTags(source, { sourcePath });
+    assert.equal(tags.length, 2, sourcePath);
+    assert.deepEqual(tags.map(tag => tag.clauseId.slice(-3)), ['001', '002'], sourcePath);
+    assert.deepEqual(tags.map(tag => tag.line), sourcePath.endsWith('.java') ? [2, 2] : [1, 1]);
+  }
+  const source = ['/* @ac:ORDER:AC-001 */ const fake = "// @ac:ORDER:AC-002";',
+    'const str = `// @ac:ORDER:AC-003 @ac:ORDER:AC-004`;',
+    '// @ac:ORDER:AC-005-extra @ac:ORDER:REQ-006 @sflow-ac:ORDER:AC-007 @ac:ORDER:AC-008:forged @ac:ORDER:AC-009'].join('\n');
+  assert.deepEqual(scanSourceClauseTags(source, { sourcePath: 'test/value.test.mjs' }).map(tag => tag.clauseId), ['ORDER:AC-001', 'ORDER:AC-009']);
+});
 
 test('governed clause identity is qualified, exact, and case-insensitive', () => {
   assert.deepEqual(GOVERNED_CLAUSE_TYPES, ['REQ', 'BEH', 'IFC', 'AC', 'CON']);

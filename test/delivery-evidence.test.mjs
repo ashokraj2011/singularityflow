@@ -327,6 +327,23 @@ test('each criterion tag keeps its own line for a refusal to name', async (t) =>
   ]);
 });
 
+test('publication recognizes every acceptance marker on one real test comment, not literal copies', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-multitag-delivery-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'tests'));
+  const testSource = 'tests/hex.test.jsx';
+  await writeFile(path.join(root, testSource), [
+    'const fake = "// @ac:A-HEX:AC-009";',
+    '// @ac:A-HEX:AC-001 @ac:a-hex:AC-005 @ac:A-HEX:AC-006',
+    'it("converts the displayed result", () => { expect(convert("255")).toBe("0xFF"); });'
+  ].join('\n'));
+  const found = await taggedAcceptanceIds(root, [testSource]);
+  assert.deepEqual(found.ids, ['A-HEX:AC-001', 'A-HEX:AC-005', 'A-HEX:AC-006']);
+  assert.deepEqual(found.locations.map(({ clauseId, line }) => [clauseId, line]),
+    found.ids.map(id => [id, 2]));
+  assert.ok(found.bindings.every(entry => entry.testSource === testSource));
+});
+
 test('blocking conformance verdicts are parsed from comparison table rows only', () => {
   const report = [
     'The prose may discuss missing context without declaring a verdict.',

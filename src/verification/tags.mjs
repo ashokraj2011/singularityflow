@@ -8,10 +8,7 @@
  * not directly above a declaration ties the criterion to nothing exact.
  */
 
-import { normalizeQualifiedClauseId } from '../traceability-ids.mjs';
-
-const NAMESPACE = '[A-Z0-9][A-Z0-9._-]{0,63}';
-const AC_MARKER = new RegExp(`(?:^|[\\s*/#!-])@ac\\s*:\\s*(${NAMESPACE}:AC-\\d{3})(?![A-Za-z0-9._:-])`, 'giu');
+import { normalizeQualifiedClauseId, clauseTagsInComment } from '../traceability-ids.mjs';
 
 /** True for a namespace-qualified acceptance-criterion ID such as `PAY-1:AC-001`. */
 export function isQualifiedAcceptanceId(value) {
@@ -20,9 +17,7 @@ export function isQualifiedAcceptanceId(value) {
 
 /** The qualified criterion IDs named by `@ac:` markers in one comment's text. */
 export function acceptanceTagsInComment(text) {
-  const ids = [];
-  for (const match of String(text ?? '').matchAll(AC_MARKER)) ids.push(match[1].toUpperCase());
-  return [...new Set(ids)];
+  return clauseTagsInComment(text).filter(entry => entry.tag === 'ac').map(entry => entry.clauseId);
 }
 
 /** Whether a whitespace run between two comments, or a comment and code, keeps them adjacent. */

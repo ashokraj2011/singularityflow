@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 4
+version: 5
 ---
 # Compact phase entry for Copilot
 
@@ -20,6 +20,14 @@ commands are never interpreted as implicit permission or guessed slash commands.
 retained screenshot has a scoped evidence-contract review route, not a request to delete it or
 commit unrelated source merely to clear the worktree. The reviewed correction can restore draft
 ownership without changing prior publications or claiming that visual acceptance passed.
+
+`contextAdmission.allowed` and `contextAdmission.blockers` report the actual composition guards.
+They are distinct from `recovery.blockers`, which can contain incomplete draft/tag findings that
+an admitted author may repair. A manual worktree review lists the exact unexpected paths;
+its evidence-contract route is presented before document inspection and optional source commits.
+Do not claim tags are the sole admission blocker while that human boundary remains pending.
+When composition is not admitted, relay these blockers and the returned `next` route rather than
+repeat document viewing or the unchanged authoring skill. No guard or human confirmation is waived.
 
 After reviewing that entry packet, use:
 

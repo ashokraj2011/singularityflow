@@ -113,6 +113,17 @@ const CODEOWNERS_FIXTURE = [
   ''
 ].join('\n');
 
+const JSX_CLAUSE_FIXTURE = [
+  'const view = <div title="',
+  '// @clause:ORDER:REQ-999',
+  '">',
+  '/* @clause:ORDER:REQ-998 */',
+  '{/* @clause:order:req-001 connects the shared conversion control */}',
+  '</div>;',
+  '// @clause:ORDER:REQ-002 preserves the decimal value',
+  ''
+].join('\n');
+
 const EDGE_FIXTURE = [
   'export function target() { return 1; }',
   'export function invoke() { return target(); }',
@@ -198,9 +209,10 @@ const SUITES = Object.freeze({
       version: CLAUSE_CODE_BINDING_VERSION,
       implementationSha256: CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256
     }),
-    parser: Object.freeze({ id: 'explicit-clause-comment-tags', version: '1.1.0', grammarSha256: sha256('explicit-source-comment-governed-and-legacy-clause-tags-v2') }),
+    parser: Object.freeze({ id: 'explicit-clause-comment-tags', version: '1.2.0', grammarSha256: sha256('explicit-source-comment-qualified-polyglot-and-jsx-provenance-v3') }),
     fixtures: Object.freeze([
-      { id: 'explicit-tags-and-string-decoy', class: 'positive-security', inputSha256: sha256(CLAUSE_FIXTURE), expected: ['AC-001:1', 'REQ-002:3', 'ORDER:BEH-003:4', 'ORDER:IFC-004:5', 'ORDER:CON-005:6', 'ORDER:NFR-006:7'] }
+      { id: 'explicit-tags-and-string-decoy', class: 'positive-security', inputSha256: sha256(CLAUSE_FIXTURE), expected: ['AC-001:1', 'REQ-002:3', 'ORDER:BEH-003:4', 'ORDER:IFC-004:5', 'ORDER:CON-005:6', 'ORDER:NFR-006:7'] },
+      { id: 'jsx-comments-and-literal-decoys', class: 'positive-security', inputSha256: sha256(JSX_CLAUSE_FIXTURE), expected: ['ORDER:REQ-001:5', 'ORDER:REQ-002:7'] }
     ])
   }),
   'change-region': Object.freeze({
@@ -435,7 +447,10 @@ function observedFixtureOutputs() {
     'call-reference-edge': [scanLocalCallAndReferenceEdges(
       EDGE_FIXTURE, 'src/edge.ts', 'typescript'
     ).edges.map((item) => `${item.edgeKind}:${item.name}:${item.referenceLine}`)],
-    'clause-code-binding': [scanClauseBindings(CLAUSE_FIXTURE).map((item) => `${item.clause}:${item.line}`)],
+    'clause-code-binding': [
+      scanClauseBindings(CLAUSE_FIXTURE).map((item) => `${item.clause}:${item.line}`),
+      scanClauseBindings(JSX_CLAUSE_FIXTURE, { sourcePath: 'src/App.jsx' }).map((item) => `${item.clause}:${item.line}`)
+    ],
     'change-region': [parseUnifiedZeroContextDiff(CHANGE_DIFF_FIXTURE).map((item) => (
       `${item.startLine}-${item.endLine}`
     ))],

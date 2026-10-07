@@ -10,7 +10,7 @@ test('phase issue screen escapes repository text and provides only fixed host ac
     appeals: { items: [{ id: attack, phaseId: attack, status: attack }] } } });
   assert.doesNotMatch(html, /<img|<script|data-action="execute|onclick=/);
   assert.match(html, /&lt;img/);
-  assert.deepEqual([...html.matchAll(/data-action="([^"]+)"/gu)].map(value => value[1]), ['appeal', 'review', 'tests', 'repair', 'resume', 'refresh']);
+  assert.deepEqual([...html.matchAll(/data-action="([^"]+)"/gu)].map(value => value[1]), ['appeal', 'review', 'tests', 'repair', 'resume', 'checkpoint', 'refresh']);
   assert.match(html, /No automatic risk acceptance or phase advance/);
   for (const input of [null, [], { data: [] }, { data: { resolution: { issues: 'invalid' } } }]) assert.doesNotThrow(() => phaseIssuesBody(input));
 });

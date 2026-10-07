@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { head } from '../git.mjs';
 import { activeQualityRisks } from '../phase-quality-risk.mjs';
+import { approvedArtifactQualityFindings } from '../phase-artifact-risk.mjs';
 import { evidenceProvenance } from './provenance.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -319,6 +320,9 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
   const graph = evidenceGraph({ workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, scope });
   try {
     graph.qualityRisks = await activeQualityRisks(root, definition, workflow, 'terminal');
+    graph.findings.push(...(await approvedArtifactQualityFindings(root, definition, workflow, { transition: 'terminal' }))
+      .map(finding => ({ ...finding, code: 'PHASE_ARTIFACT_QUALITY_REQUIRED', category: 'quality',
+        details: { sourceCode: finding.code }, blocking: true, obligationIds: [] })));
     if (workflow.qualityRiskDecisions?.length) {
       graph.inputSha256 = `sha256:${recordSha256({ input: graph.inputSha256, qualityRisks: graph.qualityRisks,
         decisions: workflow.qualityRiskDecisions.map(record => recordSha256(record)) })}`;

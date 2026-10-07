@@ -378,7 +378,7 @@ export async function taggedAcceptanceIds(root, testPaths) {
     });
     if (!secured.exists) continue;
     const text = await readFile(secured.absolute, 'utf8');
-    for (const item of scanSourceClauseTags(text).filter((entry) => entry.tag === 'ac')) {
+    for (const item of scanSourceClauseTags(text, { sourcePath: relative }).filter((entry) => entry.tag === 'ac')) {
       if (!sources.has(item.clauseId)) sources.set(item.clauseId, new Set());
       sources.get(item.clauseId).add(relative);
       locations.push({ clauseId: item.clauseId, testSource: relative, line: item.line });
@@ -464,8 +464,8 @@ function carriedTags(root, changeSet, occurrences, kind, reads) {
     .map((entry) => ({ key: entry.oldPath, ref: changeSet.base.commit, path: entry.oldPath })), {
     maximumObjectBytes: MAX_BOUND_SOURCE_BYTES, maximumBytes: 4 * MAX_BOUND_SOURCE_BYTES
   });
-  for (const bytes of earlier.values()) {
-    for (const tag of scanSourceClauseTags(bytes.toString('utf8'))) {
+  for (const [relative, bytes] of earlier) {
+    for (const tag of scanSourceClauseTags(bytes.toString('utf8'), { sourcePath: relative })) {
       if (tag.tag === kind) carried.add(tag.clauseId);
     }
   }
@@ -824,7 +824,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
         { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
       );
     }
-    tagsByPath.set(relative, scanSourceClauseTags(sourceBytes.toString('utf8'))
+    tagsByPath.set(relative, scanSourceClauseTags(sourceBytes.toString('utf8'), { sourcePath: relative })
       .filter((tag) => tag.tag === 'clause' && normalizeQualifiedClauseId(tag.clauseId)));
   }
   const approved = new Set(clauseIds.map(normalizeQualifiedClauseId));
@@ -1739,7 +1739,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
             fail(`planned deletion ${sourcePath} for ${clauseId} still exists in the generation commit`);
           }
         } else if (!historical
-            || !scanSourceClauseTags(historical.toString('utf8')).some((tag) =>
+            || !scanSourceClauseTags(historical.toString('utf8'), { sourcePath }).some((tag) =>
               tag.clauseId === clauseId && tag.line === binding.line && tag.tag === 'clause')) {
           fail(`source-clause binding ${clauseId} at ${sourcePath}:${binding.line} does not replay from the generation commit`);
         }

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   auditReviewedImplementationSourceManifest
@@ -14,7 +14,7 @@ import {
 } from '../src/world-model/history/persisted-view-source-manifests.mjs';
 import { reviewedImplementationSourceManifest } from '../src/world-model/source-digest.mjs';
 
-const packageRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('installed persisted-view manifests exactly cover their TypeScript-AST source closures', () => {
   for (const manifest of [

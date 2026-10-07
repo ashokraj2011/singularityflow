@@ -251,7 +251,7 @@ import {
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
-  inspectPhaseAuthoredReviewContent, inspectRequiredArtifactText, requiredArtifactRepoPath,
+  inspectPhaseAuthoredReviewContent, inspectPhaseArtifactQuality, inspectRequiredArtifactText, requiredArtifactRepoPath,
   repairPreparedArtifactMetadata,
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
@@ -3027,9 +3027,9 @@ function pruneTransientArtifactRegistrations(phase) {
   return [...transient].sort();
 }
 
-async function validatePhase(root, config, workflow, phase, { placeholders = true, content = true } = {}) {
+async function validatePhase(root, config, workflow, phase, { placeholders = true, content = true, generation = null, transition = null } = {}) {
   const errors = content
-    ? await validatePhaseAuthoredReviewContentPreflight(root, config, workflow, phase, { placeholders })
+    ? await validatePhaseAuthoredReviewContentPreflight(root, config, workflow, phase, { placeholders, generation, ...(transition ? { transition } : {}) })
     : [];
   if (content && !errors.length) {
     errors.push(...(await inspectPhaseQualifiedConformance(root, config, workflow, phase))
@@ -3582,7 +3582,8 @@ export async function publishGeneration(root, config, workflow, {
   // placeholder heuristics; asking a user to edit those bytes would itself violate the contract.
   const contentFindings = deterministicConvergence
     ? []
-    : await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
+    : await inspectPhaseAuthoredReviewContent(root, config, workflow, phase,
+      { transition: 'publish', generation: publicationTransaction?.publicationEvent?.generation ?? null });
   if (contentFindings.length) {
     throw new SingularityFlowError(
       `Phase ${phase.id} generation is not publishable:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
@@ -4127,7 +4128,7 @@ export async function publishGeneration(root, config, workflow, {
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase, {
     placeholders: !deterministicConvergence,
-    content: true
+    content: true, generation: targetGeneration, transition: 'publish'
   });
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   // This is an evidence check only. Host admission above remains closed until a qualified
@@ -5775,11 +5776,15 @@ export async function approvePhase(root, config, workflow, {
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
   if (isConvergencePhase(phase)) {
     await assertConvergencePublicationReady(root, config, workflow, phase);
-  } else {
+  }
+  let approvedArtifactQualityRisks = [];
+  if (!isConvergencePhase(phase)) {
     // Submission binds exact hashes, but approval is a separate trust boundary and must also prove
     // that every reviewable document is complete now. This is intentionally content-only: source,
     // tests and machine evidence remain governed by their exact hash/schema validators below.
-    const contentFindings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
+    const content = await inspectPhaseArtifactQuality(root, config, workflow, phase, { transition: 'approve' });
+    const contentFindings = content.findings;
+    approvedArtifactQualityRisks = (content.risks?.items ?? []).filter(item => item.status === 'active');
     if (contentFindings.length) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved while review artifacts are incomplete:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
@@ -6264,7 +6269,9 @@ export async function approvePhase(root, config, workflow, {
     // regenerated underneath it — the bundle it named no longer exists.
     ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
     reviewPacketSha256: submittedReview.packetSha256,
-    ...(approvalQualityRisk ? { qualityRisks: approvalQualityRisk.items.filter(item => item.status === 'active') } : {}),
+    ...((approvalQualityRisk || approvedArtifactQualityRisks.length) ? { qualityRisks: [
+      ...(approvalQualityRisk?.items ?? []).filter(item => item.status === 'active'), ...approvedArtifactQualityRisks
+    ] } : {}),
     ...(skillApprovalEvidence ? { skillEvidenceSha256: skillApprovalEvidence.evidenceSha256 } : {}),
     evidenceCommit: submittedReview.evidenceCommit,
     artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
@@ -9440,7 +9447,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             workDirRelative(config, workflow.workItem.id),
             requestedPhase.requiredArtifact.path
           ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind, config });
-          const designValidation = await validatePhase(root, config, workflow, requestedPhase);
+          const designValidation = await validatePhase(root, config, workflow, requestedPhase,
+            { generation: publicationEvent.generation, transition: 'publish' });
           if (designValidation.length) {
             throw new SingularityFlowError(`Phase ${requestedPhase.id} design-source binding is not publishable:\n- ${designValidation.join('\n- ')}`);
           }

@@ -651,6 +651,49 @@ The owner suites passed on the review boundary (28 files, 288/288):
   admission;
 - Story-activation, phase-generation, persisted-contract, polyglot and environment-exclusion.
 
+## JSX comment provenance acceptance
+
+Review boundary: `main@8ccb822ad1ec2933c0a0550e088ae0ed1e317b9a` plus the
+`codex/jsx-clause-bindings` parser patch. This is a **source-admission** transition, not a
+mechanical transition: real JSX comment containers become observable, while JavaScript/TypeScript
+strings, template text, regex bodies, JSX attributes and child text no longer supply fake tags.
+Earlier reviewed models remain readable but require a rebuild before their clause facts are current.
+This does not mutate any Story, published code-delivery receipt, approval or configuration authority.
+
+The kernel-source changes are bounded to:
+
+- `src/traceability-ids.mjs`: exact line/identity matching over real JS/TS/JSX comment ranges;
+  existing non-JavaScript polyglot and legacy comment forms stay available.
+- `src/javascript-source-comments.mjs`: bounded, local lexical provenance; no code execution,
+  model, network, filesystem reads or behavioral-proof claim.
+- `world-model/source-digest.mjs`: adds that transitive parser dependency to the kernel digest.
+- `extract/adapters/closed-structure.mjs` and `clause-code-binding.mjs`: pass the actual source
+  path and declare clause extractor version `1.2.0`.
+- `registry/extractors.mjs` and `extractor-conformance.mjs`: declare grammar/parser version
+  `1.2.0`, algorithm `explicit-source-comment-qualified-polyglot-and-jsx-provenance-v3`, and an
+  executed JSX-positive/attribute-and-child-text-negative conformance fixture.
+
+`required-fact-coverage.mjs`, the View Registry, fact vocabulary, candidate schema, permissions,
+and validation check IDs are unchanged. Coverage remains `1.0.1`; its implementation/receipt/
+manifest move because those identities intentionally hash the complete kernel. Delivery and
+comprehension use this same grammar, and committed receipt replay reads only generation bytes.
+Line/identity binding is association evidence, never proof that behavior or a test passed.
+
+The identities below are calculated from the reviewed packaged modules and conformance corpus,
+not copied from a failed test. Verification covers source-tag and explanation parsing, built-in
+and custom code-step draft/prepublish coverage, committed replay, polyglot/extractor conformance,
+the registry/digest/retained-owner/runtime/publication/command boundaries and reviewed old-model
+admission. Literal decoys, wrong lines, mixed-case IDs, malformed/deep JSX and working-tree drift
+are explicit negative cases.
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:f4ec77a2e660afcf350e139c60969bf8571850d4b5d0609b44703955421109b0` | `sha256:6e3f8f9e8474bb464aa0140f07cb64ee92a6d5d6a4a4423ea5f2eda3baf36f46` |
+| Coverage implementation | `sha256:a05ba3b488ba293c8a9799bd7c7715fa7558ee8dad28bae93bf2979308202c3b` | `sha256:7dec03387c61681dc2adcefc042d07823b0865a640e462cc1c5612ee0aa96caa` |
+| Coverage conformance receipt | `sha256:e7c3c792e2f0896d58d754768505446fb767ab03ba62cef1722b9ccdfcc89441` | `sha256:1b3a63b4a39b61a7c0cad3049f3ad4ae34b442f196144d4ba0a548a3143e1ddc` |
+| Coverage manifest | `sha256:47463e38790ee1f715e7674fd5b61b869683ff2c2f6649412d2ca8109a603be3` | `sha256:d5249513a9b31a2350265fb1564eca75fae33521ec04732d801e508d7aac5fca` |
+| Built-in Extractor Registry | `sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115` | `sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550` |
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

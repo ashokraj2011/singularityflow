@@ -2,9 +2,12 @@ import { conformancePhasesOf } from './phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { activeQualityRisks } from './phase-quality-risk.mjs';
+import { approvedArtifactQualityFindings } from './phase-artifact-risk.mjs';
+import { terminalTransitionAt } from './workflow-terminal-time.mjs';
+export { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state-stores.mjs';
-import { exists, gitHeadIsUnborn, gitReadOutput, nowIso, posix, snapshot, run } from './util.mjs';
+import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
@@ -87,18 +90,6 @@ export async function terminalPublicationObservation(root, remote, publicationBr
   const remoteHead = observed.stdout.trim().split(/\s+/)[0];
   const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   return { published: remoteHead === localHead, reason: null };
-}
-
-/**
- * When the Story reached its end, or now if it has not. Accepted risk and witness exceptions are
- * judged at this moment, so a later audit of a finished Story still sees what held when it finished.
- */
-export function terminalTransitionAt(workflow) {
-  if (workflow?.status !== 'closed') return nowIso();
-  const settled = (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])
-    .flatMap((phase) => [phase?.approvedAt, phase?.skippedAt])
-    .map((value) => Date.parse(value ?? '')).filter(Number.isFinite);
-  return settled.length ? new Date(Math.max(...settled)).toISOString() : nowIso();
 }
 
 /**
@@ -227,6 +218,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   };
   const refuseEach = (code, messages, options) => { for (const message of messages ?? []) refuse(code, message, options); };
   const base = await validateWorkflow(root, config, workflow, { strict: true }); refuseEach('gate.state.invalid', base.errors); warnings.push(...base.warnings);
+  try {
+    for (const finding of await approvedArtifactQualityFindings(root, config, workflow,
+      { transition: terminal ? 'terminal' : 'consume' })) {
+      refuse(finding.code, finding.message, { phase: finding.phaseId, path: finding.path });
+    }
+  } catch (error) {
+    refuse(error.code ?? 'PHASE_QUALITY_RISK_INSPECTION_UNAVAILABLE', error.message);
+  }
   for (const override of workflow.sequenceOverrides ?? []) {
     warnings.push(`soft sequence gate '${override.gate}' was overridden for ${override.requestedPhase ?? override.before?.currentPhase ?? 'workflow'} during ${override.action}`);
   }
@@ -639,10 +638,18 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         return { ...observedCoverage, unimplemented: [], complete, severity: complete ? 'pass' : observedCoverage.severity };
       })();
       const qualityRisks = await activeQualityRisks(root, config, workflow, terminal ? 'terminal' : 'consume');
-      const carried = new Set(qualityRisks.flatMap(risk => risk.clauses));
+      const carried = new Set(qualityRisks.flatMap(risk => risk.clauses ?? []));
       const unimplemented = coverage.unimplemented.filter(id => !carried.has(id))
         .map((id) => ({ code: 'gate.clause.unimplemented', message: `clause ${id} is not fully implemented` }));
-      for (const risk of qualityRisks) warnings.push(`Accepted pilot quality risk ${risk.id}: ${risk.clauses.join(', ')}; expires ${risk.expiresAt}. Coverage is excepted, not satisfied.`);
+      for (const risk of qualityRisks) {
+        const scope = risk.gate === 'PHASE_ARTIFACT_QUALITY'
+          ? (risk.findings ?? []).map(finding => `${finding.code} (${finding.path})`).join(', ')
+          : (risk.clauses ?? []).join(', ');
+        const disposition = risk.gate === 'PHASE_ARTIFACT_QUALITY'
+          ? 'Document quality remains unmet, accepted risk; this is not passing evidence.'
+          : 'Coverage is excepted, not satisfied.';
+        warnings.push(`Accepted pilot quality risk ${risk.id}: ${scope}; expires ${risk.expiresAt}. ${disposition}`);
+      }
       const unclaimed = coverage.unclaimedChangedPaths.map((file) => ({ code: 'gate.clause.unclaimed-path', message: `changed path is not claimed by a clause: ${file}`, path: file }));
       const withdrawn = coverage.withdrawnButClaimed.map((id) => ({ code: 'gate.clause.withdrawn-claimed', message: `withdrawn clause still has an observed claim: ${id}` }));
       const invalid = coverage.invalidEvidence.map((message) => ({ code: 'gate.clause.invalid-evidence', message: `invalid clause evidence: ${message}` }));

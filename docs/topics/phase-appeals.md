@@ -1,5 +1,6 @@
 ---
 id: phase-appeals
+version: 2
 title: Phase appeals and recoverable blockers
 summary: Preserve and review exact extra work without silently bypassing tests, intent or configuration authority.
 audience: [developer, approver, administrator]
@@ -10,6 +11,32 @@ skills: [sf-appeal, sf-recover]
 # Phase appeals and recovery
 
 Every phase prepublish projection now names a resolution owner and choices. An unsupported check has an explicit maintainer/external-prerequisite route, not a fabricated pass. These previews never run tests, invoke models, install tools, discard changes, accept risk or advance the Story.
+
+The installed finding policy separates author-owned correction, current-phase preparation, worktree review, operational prerequisites, and integrity/authority. Error text and repository hints cannot register an executable repair or broaden risk eligibility. This contract applies by phase responsibility to packaged and user-created workflows, not a list of built-in phase IDs. It does not promise progress while a runner, authorized reviewer or remote is unavailable: it promises preserved work and an honest next route.
+
+## Preserve before repair
+
+`singularity-flow appeal checkpoint --phase PHASE --json` makes content-addressed private recovery copies of dirty files, the primary phase draft, deletion markers and the exact Git index. It does not stage, commit, stash, push, restore files or advance the phase. Owned-producer `repair-run` captures a checkpoint before reserving its repair; the journal retains its ID so interruption does not lose the recovery route. `repair-status` shows retained checkpoint commands.
+
+Inspect a returned ID with `singularity-flow appeal checkpoint-show PCP-ID --phase PHASE --json`. Compare verified recovery copies before a human-reviewed restoration of selected authored files. Never automatically overwrite a current draft, approved record or index. The copies live privately in the Git common directory, scoped to the checkout, Story and phase; Git does not share them. Bounds are 512 paths, 16 MiB per file, 128 MiB total dirty-file bytes and a 64 MiB index. Links, hard links, non-files and larger changes keep their originals and require owner-reviewed backup. No retention pruning or automatic deletion is performed.
+
+## Exact review-document risk
+
+Every authored phase can preview an explicitly scoped pilot exception for observed unresolved placeholders, empty headings or minimum-length shortfalls:
+
+```sh
+singularity-flow appeal risk-prepare --phase PHASE --gate-mode soft \
+  --finding artifact.placeholder.unresolved --expires YYYY-MM-DD \
+  --reason "The exact explanatory shortfall is deferred; tests and review remain required." --json
+```
+
+Use only returned finding codes. Review the packet, then an authorized human runs `appeal risk-accept` with identical options and the returned `--confirm PACKET_SHA256` in a live terminal. Copilot's `/sf-appeal` and VS Code's **Resolve phase issues** prepare this review; neither answers the human confirmation.
+
+These version-two packets are a distinct closed document-quality variant, not a migration or blanket expansion of old coverage decisions. They bind the complete authored review-document set, generation, prior phase records and pinned policy. By default they cover publication, submission, approval checks, consumption and terminal quality checks for those unchanged bytes; `--transition` narrows that scope. Engine metadata/publication bookkeeping does not demand repeated acceptance. An authored edit, changed upstream approval or policy, successor generation, expiry, revocation or missing local human-review witness invalidates the decision. A new machine requires `risk-attest` with the exact retained decision hash and live review.
+
+Expired or out-of-scope document decisions cannot silently satisfy downstream or terminal checks. The returned correction/risk route names the approved input's owning phase, not permission for the consuming phase to edit it. A closed Story's historical terminal audit judges expiry at its recorded closing moment; an unfinished Story must still have a currently valid decision.
+
+Readiness displays **accepted-risk**, not a passing quality proof. Missing artifacts or required headings, malformed metadata/contracts, unsafe paths, deterministic Convergence projections and integrity/authority failures cannot use this exception. Tests, source/claim evidence, independent reviews and ordinary human phase approval remain required. Existing exact coverage/test exceptions retain their separate eligibility and transitions; selecting soft mode alone waives nothing.
 
 In VS Code, use **Resolve phase issues** beneath the current phase, or **Reviews → Appeals and phase issues**. `/sf-appeal` provides the same guided journey in Copilot. Human decisions open a prefilled terminal command; they are not executed by the webview or agent.
 
@@ -31,7 +58,8 @@ On a new checkout, Git carries the decision but not the local live-review witnes
 |---|---|
 | Extra location/supporting work for existing intent | Exact-diff scope appeal |
 | New requirements or changed acceptance criteria | Existing Story intent-amendment and affected-phase acknowledgement/revalidation |
-| Eligible observed test or document shortfall | Existing `story test-policy risks` preview and exact authorized risk decision, with scope/expiry/remediation |
+| Eligible observed test shortfall | Existing `story test-policy risks` preview and exact authorized risk decision, with scope/expiry/remediation |
+| Eligible authored-document quality shortfall | `appeal risk-prepare --finding EXACT-CODE`; exact human review, transitions and expiry |
 | Runner configuration error | Approved configuration proposal and bounded Story test-command adoption |
 | Protected paths, changed source boundary, identity or provenance | Original configuration/integrity authority; no ordinary waiver |
 | Changes after publication or while awaiting approval | Authorized successor/return through recovery; old packets remain immutable |

@@ -191,6 +191,12 @@ export const WMB_V4_KERNEL_SOURCE_SHA256 = implementationSourceSha256({
       path: path.join(PACKAGE_ROOT, 'src', 'traceability-ids.mjs')
     },
     {
+      // The shared clause parser delegates JS/TS/JSX literal/comment provenance to this lexer.
+      // Bind the transitive executable dependency, not just the importing parser's bytes.
+      label: 'src/javascript-source-comments.mjs',
+      path: path.join(PACKAGE_ROOT, 'src', 'javascript-source-comments.mjs')
+    },
+    {
       label: 'schemas/world-model-composition-candidate.schema.json',
       path: path.join(PACKAGE_ROOT, 'schemas', 'world-model-composition-candidate.schema.json')
     }

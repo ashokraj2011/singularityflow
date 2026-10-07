@@ -74,6 +74,15 @@ test('World Model source witnesses share governed clause types while preserving 
   ]);
 });
 
+test('World Model JSX bindings use the same exact comment provenance as delivery', () => {
+  assert.deepEqual(scanClauseBindings([
+    'const view = <div title="/* @clause:ORDER:REQ-999 */">',
+    '/* @clause:ORDER:REQ-998 */',
+    '{/* @clause:order:req-001 wires the conversion action */}',
+    '</div>;'
+  ].join('\n'), { sourcePath: 'src/App.jsx' }), [{ clause: 'ORDER:REQ-001', line: 3 }]);
+});
+
 test('Java, Kotlin, Python, and Go produce evidence-bound structural facts', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-polyglot-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -567,7 +567,7 @@ export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase
  * artifacts are deliberately excluded: those can contain source, test fixtures, or machine
  * evidence where strings such as `TODO` are data rather than an unfinished review document.
  */
-export async function inspectPhaseAuthoredReviewContent(root, config, workflow, phase, {
+async function inspectRawPhaseAuthoredReviewContent(root, config, workflow, phase, {
   placeholders = true, minimumBytes = true
 } = {}) {
   const findings = await inspectRequiredArtifactContent(root, config, workflow, phase, {
@@ -609,6 +609,24 @@ export async function inspectPhaseAuthoredReviewContent(root, config, workflow, 
     || left.path.localeCompare(right.path)
     || (left.line ?? Number.MAX_SAFE_INTEGER) - (right.line ?? Number.MAX_SAFE_INTEGER));
   return findings;
+}
+
+/** Every lifecycle boundary consumes the same exceptions, never a host-supplied ready result. */
+export async function inspectPhaseArtifactQuality(root, config, workflow, phase, options = {}) {
+  const findings = await inspectRawPhaseAuthoredReviewContent(root, config, workflow, phase, options);
+  if (options.resolveRisks === false || !(workflow.qualityRiskDecisions ?? []).some(record =>
+    record?.gate === 'PHASE_ARTIFACT_QUALITY' && record.binding?.phaseId === phase.id)) {
+    return { findings, acceptedFindings: [], risks: null };
+  }
+  const { resolveArtifactQualityFindings } = await import('./phase-artifact-risk.mjs');
+  const transition = options.transition ?? (phase.status === 'awaiting_approval' ? 'approve'
+    : Number(phase.generation) > 0 && phase.generationIntent?.status !== 'open' ? 'submit' : 'publish');
+  return resolveArtifactQualityFindings(root, config, workflow, phase, findings,
+    { transition, generation: options.generation ?? null });
+}
+
+export async function inspectPhaseAuthoredReviewContent(root, config, workflow, phase, options = {}) {
+  return (await inspectPhaseArtifactQuality(root, config, workflow, phase, options)).findings;
 }
 
 export function artifactFindingMessage(finding) {

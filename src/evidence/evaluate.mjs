@@ -500,7 +500,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     for (const [index, obligation] of obligations.entries()) {
       const pilot = !graph.untrusted && obligation.responsibility === 'implement'
         && ['missing', 'partial'].includes(obligation.status) && obligation.facets?.freshness !== 'stale'
-        ? (graph.qualityRisks ?? []).find(risk => risk.clauses.includes(id)
+        ? (graph.qualityRisks ?? []).find(risk => (risk.clauses ?? []).includes(id)
           && obligation.owningSteps.includes(risk.phaseId)) : null;
       if (pilot) {
         obligations[index] = { ...obligation, status: 'excepted',

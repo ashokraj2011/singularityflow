@@ -55,6 +55,28 @@ test('only the patch\'s own added lines count as written by the change', () => {
   assert.equal(patchAddedLines({ status: 'unavailable', patch: null, files: [] }).size, 0);
 });
 
+test('change explanations retain real JSX clause notes without treating rendered text as tags', async (t) => {
+  const { root } = await createChangeRepository(t, {
+    baseline: { 'src/App.jsx': 'export const App = () => <div />;\n' },
+    change: { 'src/App.jsx': [
+      'export const App = () => <div title="/* @clause:FIX-1:REQ-999 */">',
+      '/* @clause:FIX-1:REQ-998 rendered text is not a comment */',
+      '{/* @clause:fix-1:req-001 connects the shared conversion control */}<Keypad />',
+      '</div>;',
+      ''
+    ].join('\n') }
+  });
+  const slice = await comprehensionSlice(root);
+  const view = slice.explanationView;
+  const notes = view.statements.filter(entry => entry.kind === 'clause-tag');
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].arguments.clauseId, 'FIX-1:REQ-001');
+  assert.equal(notes[0].arguments.path, 'src/App.jsx');
+  assert.equal(notes[0].arguments.line, 3);
+  assert.match(notes[0].text, /author's note “connects the shared conversion control”/u);
+  assert.equal(notes[0].text.includes('Keypad'), false);
+});
+
 test('tags in the changed files link code and tests to clauses, with the author\'s note', async (t) => {
   const { root } = await taggedChange(t);
   const slice = await comprehensionSlice(root);

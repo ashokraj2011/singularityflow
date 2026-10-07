@@ -18,6 +18,7 @@ import { beginCodeGeneration } from '../src/generation-boundary.mjs';
 import { buildSpecIndex } from '../src/specifications.mjs';
 import { inspectUnclaimedChangedPaths, assertStrictCandidateSpecificationCoverage } from '../src/spec-coverage-preview.mjs';
 import { inspectPhaseRecovery } from '../src/recovery-plan.mjs';
+import { bindingsDigest } from '../src/implementation-bindings.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -72,6 +73,56 @@ const planned = (expectedPaths, tests = ['tests/payment.test.js'], testDispositi
   testDisposition, testReason: testDisposition === 'not-applicable' ? 'No executable behavior is asserted by this clause.' : null,
   deviation: null
 });
+
+for (const phaseId of ['implementation', 'custom-web-code']) {
+  test(phaseId + ' accepts real JSX bindings through draft-check and strict delivery coverage', async (t) => {
+    const item = await fixture({ 'BIND-1:REQ-001': planned(['src/App.jsx']) });
+    t.after(() => rm(item.root, { recursive: true, force: true }));
+    await bindApprovedIndex(item);
+    item.phase.id = phaseId;
+    item.workflow.phaseOrder = ['planning', phaseId];
+    item.workflow.phases = { planning: item.workflow.phases.planning, [phaseId]: item.phase };
+    item.workflow.resolution.plannedClaims.owners = { [phaseId]: 'planning' };
+    await openCodeGeneration(item, { 'src/App.jsx': 'export const App = () => <div />;\n' });
+    await readyForDraftCheck(item);
+    await writeFile(path.join(item.root, 'src/App.jsx'), [
+      'export const App = () => <div>',
+      '  {/* @clause:bind-1:req-001 connects the shared keypad to the conversion action */}<Keypad onConvert={convert} />',
+      '</div>;',
+      ''
+    ].join('\n'));
+    await writeFile(path.join(item.root, 'tests/payment.test.js'),
+      'import test from "node:test"; test("conversion", () => {});\n');
+    const delivery = await evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase);
+    assert.deepEqual(delivery.sourceBindings.missing, []);
+    assert.deepEqual(delivery.sourceBindings.bindings, [{
+      clauseId: 'BIND-1:REQ-001', sourcePath: 'src/App.jsx', line: 2, tag: 'clause'
+    }]);
+    assert.deepEqual(delivery.implementationBindings.bindings[0].explanation, {
+      text: 'connects the shared keypad to the conversion action', path: 'src/App.jsx', line: 2
+    });
+    assert.equal((await assertStrictCandidateSpecificationCoverage(
+      item.root, item.config, item.workflow, item.phase, delivery)).complete, true);
+    const draft = await draftCheck(item);
+    assert.equal(draft.status, 'ready', JSON.stringify(draft.findings));
+    assert.equal(draft.traceabilityRepair, null);
+    const prepublish = await phasePrepublish(item.root, item.config, item.workflow, item.phase, {
+      session: { workId: 'BIND-1', phaseId, agent: 'developer' }
+    });
+    assert.equal(prepublish.status, 'ready', JSON.stringify(prepublish.findings));
+    assert.ok(prepublish.commands.publish, 'a recognized JSX witness must not create a publication dead end');
+    assert.equal(prepublish.mutates, false);
+
+    await writeFile(path.join(item.root, 'src/App.jsx'), [
+      'export const App = () => <div title="',
+      '{/* @clause:BIND-1:REQ-001 connects the shared keypad to the conversion action */}',
+      '"><Keypad onConvert={convert} /></div>;',
+      ''
+    ].join('\n'));
+    await assert.rejects(evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase),
+      error => ['SPEC_COVERAGE_INCOMPLETE', 'CODE_DELIVERY_EVIDENCE_REQUIRED'].includes(error.code));
+  });
+}
 
 test('source-bound clauses require an exact qualified comment in a planned changed source path', async (t) => {
   const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
@@ -874,4 +925,61 @@ test('committed receipt replay verifies exact comment witnesses and planned dele
     sourceBindingPolicy: 'enforce'
   });
   assert.equal(unprovenDeletion.errors.some((message) => /outside the reviewed delivery/.test(message)), true);
+});
+
+test('JSX source bindings and clean explanations replay only from the committed generation', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/App.jsx']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  git(item.root, 'init', '-b', 'main');
+  git(item.root, 'config', 'user.name', 'Source Binding Test');
+  git(item.root, 'config', 'user.email', 'source-binding@example.invalid');
+  const source = [
+    'export const App = () => <div>',
+    '{/* @clause:bind-1:req-001 connects the shared conversion control */}<Keypad />',
+    '</div>;',
+    ''
+  ].join('\n');
+  await writeFile(path.join(item.root, 'src/App.jsx'), source);
+  git(item.root, 'add', '.');
+  git(item.root, 'commit', '-m', 'bound JSX source');
+  const commit = git(item.root, 'rev-parse', 'HEAD');
+  const bindings = [{
+    clauseId: 'BIND-1:REQ-001', regions: [],
+    explanation: { text: 'connects the shared conversion control', path: 'src/App.jsx', line: 2 }
+  }];
+  const receipt = {
+    schemaVersion: 2, kind: 'code-delivery', status: 'ready', phase: 'implementation', generation: 1,
+    tree: { generationCommit: commit, generationTree: git(item.root, 'rev-parse', commit + '^{tree}') },
+    changeSet: { sourcePaths: ['src/App.jsx'], deletedSourcePaths: [] },
+    traceability: {
+      required: [], bound: [], bindings: [], missing: [], ambiguous: [],
+      sourceRequired: [{ clauseId: 'BIND-1:REQ-001', expectedPaths: ['src/App.jsx'] }],
+      sourceBindings: [{ clauseId: 'BIND-1:REQ-001', sourcePath: 'src/App.jsx', line: 2, tag: 'clause' }]
+    },
+    implementationBindings: { bindings, bindingsSha256: bindingsDigest(bindings) },
+    testExecutions: []
+  };
+  const verify = () => verifyCodeDeliveryReceipt(item.root, receipt, { sourceBindingPolicy: 'enforce' });
+  const bindingErrors = result => result.errors.filter(message => /source-clause|planned clause|explanation/.test(message));
+  assert.deepEqual(bindingErrors(await verify()), []);
+
+  // Uncommitted source drift cannot rewrite retained evidence.
+  await writeFile(path.join(item.root, 'src/App.jsx'), 'export const App = () => <div />;\n');
+  assert.deepEqual(bindingErrors(await verify()), []);
+  receipt.traceability.sourceBindings[0].line = 3;
+  assert.match(bindingErrors(await verify()).join('\n'), /does not replay from the generation commit/);
+  receipt.traceability.sourceBindings[0].line = 2;
+
+  // A receipt pointing to a new commit with only literal tag text must fail, despite an exact ID.
+  await writeFile(path.join(item.root, 'src/App.jsx'), [
+    'export const App = () => <div title="',
+    '{/* @clause:bind-1:req-001 connects the shared conversion control */}',
+    '"><Keypad /></div>;',
+    ''
+  ].join('\n'));
+  git(item.root, 'add', 'src/App.jsx');
+  git(item.root, 'commit', '-m', 'literal text is not a binding');
+  receipt.tree.generationCommit = git(item.root, 'rev-parse', 'HEAD');
+  receipt.tree.generationTree = git(item.root, 'rev-parse', 'HEAD^{tree}');
+  assert.match(bindingErrors(await verify()).join('\n'), /does not replay from the generation commit/);
 });

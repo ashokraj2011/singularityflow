@@ -47,6 +47,9 @@ export function phasePrepublishDecision(
   if (Array.isArray(warnings)) advisories.push(...warnings.slice(0, 10)
     .map((warning) => line(warning)).filter((message): message is string => Boolean(message)));
   const documentation = record(projection.documentation);
+  if (projection.qualityDisposition === 'accepted-risk') {
+    advisories.push('This phase has an authorized document-quality exception. The shortfall remains unmet, not a passing proof; tests and approval still apply.');
+  }
   if (documentation?.status === 'unavailable') {
     advisories.push(`The documentation check could not run (${line(documentation.reason, 80) ?? 'unknown reason'}); it never blocks publication.`);
   }

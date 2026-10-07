@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from '../src/package-root.mjs';
 
 import {
   implementationSourceSha256, WMB_V4_CANDIDATE_SCHEMA_SOURCE_SHA256,
@@ -48,4 +49,16 @@ test('the packaged WMB kernel and candidate schema expose mechanical SHA-256 ide
   assert.match(WMB_V4_KERNEL_SOURCE_SHA256, /^sha256:[a-f0-9]{64}$/);
   assert.match(WMB_V4_CANDIDATE_SCHEMA_SOURCE_SHA256, /^sha256:[a-f0-9]{64}$/);
   assert.notEqual(WMB_V4_KERNEL_SOURCE_SHA256, WMB_V4_CANDIDATE_SCHEMA_SOURCE_SHA256);
+});
+
+test('WMB pins the shared clause lexer as a transitive executable grammar dependency', () => {
+  const files = [
+    'src/configuration-assets.mjs', 'src/repository-facts.mjs', 'src/traceability-ids.mjs',
+    'src/javascript-source-comments.mjs', 'schemas/world-model-composition-candidate.schema.json'
+  ].map(label => ({ label, path: path.join(PACKAGE_ROOT, ...label.split('/')) }));
+  const directories = [{ label: 'src/world-model', path: path.join(PACKAGE_ROOT, 'src/world-model') }];
+  assert.equal(implementationSourceSha256({ directories, files }), WMB_V4_KERNEL_SOURCE_SHA256);
+  assert.notEqual(implementationSourceSha256({
+    directories, files: files.filter(file => file.label !== 'src/javascript-source-comments.mjs')
+  }), WMB_V4_KERNEL_SOURCE_SHA256);
 });

@@ -13,7 +13,7 @@ import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
 import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import {
-  artifactFindingMessage, inspectPhaseAuthoredReviewContent, phaseAuthoredReviewArtifacts
+  artifactFindingMessage, inspectPhaseArtifactQuality, phaseAuthoredReviewArtifacts
 } from './publication-preflight.mjs';
 import { inspectCodeDocumentation } from './code-documentation-inspection.mjs';
 import { inspectUnclaimedChangedPaths } from './spec-coverage-preview.mjs';
@@ -105,6 +105,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let codeEvidenceRepair = null;
   let traceabilityRepair = null;
   let verifiedCodeIntent = false;
+  let artifactQuality = { acceptedFindings: [], risks: null };
   const editableCode = workflow.currentPhase === phase.id && phase.status === 'in_progress'
     && phase.generationIntent?.status === 'open';
 
@@ -120,7 +121,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       }];
     }
   } else {
-    findings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
+    artifactQuality = await inspectPhaseArtifactQuality(root, config, workflow, phase);
+    findings = artifactQuality.findings;
   }
 
   try {
@@ -272,6 +274,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     phaseStatus: phase.status,
     configuredProducer,
     producer,
+    qualityDisposition: artifactQuality.acceptedFindings.length ? 'accepted-risk' : 'checked',
+    acceptedQualityRisks: artifactQuality.risks,
     ownership,
     draftFingerprint: traceabilityDraftFingerprint(reviewDraft.fingerprint, traceabilityRepair),
     artifact,

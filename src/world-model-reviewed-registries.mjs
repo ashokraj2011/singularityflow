@@ -146,6 +146,14 @@ export const REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS = Object.freeze([
     to: 'sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115',
     kernelFrom: 'sha256:9eef2d9ef8aba21f15c993c2f1b47d6870b0cacdae9f41d2f8eefd25c755206e',
     kernelTo: 'sha256:f4ec77a2e660afcf350e139c60969bf8571850d4b5d0609b44703955421109b0'
+  }),
+  Object.freeze({
+    review: 'JSX comment provenance acceptance',
+    effect: 'source-admission',
+    from: 'sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115',
+    to: 'sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550',
+    kernelFrom: 'sha256:f4ec77a2e660afcf350e139c60969bf8571850d4b5d0609b44703955421109b0',
+    kernelTo: 'sha256:6e3f8f9e8474bb464aa0140f07cb64ee92a6d5d6a4a4423ea5f2eda3baf36f46'
   })
 ]);
 

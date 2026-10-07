@@ -310,7 +310,7 @@ async function tagsIn(root, inventory, limits) {
     const bytes = await readFile(path.join(root, ...file.split('/'))).catch(() => null);
     if (!bytes || bytes.includes(0)) continue;
     const text = bytes.toString('utf8');
-    const found = scanSourceClauseTags(text);
+    const found = scanSourceClauseTags(text, { sourcePath: file });
     if (!found.length) continue;
     const lines = text.split(/\r?\n/u);
     for (const item of found) {

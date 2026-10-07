@@ -7,11 +7,11 @@ import {
 import { scanClauseBindings } from './closed-structure.mjs';
 
 export const CLAUSE_CODE_BINDING_ID = 'clause-code-binding';
-export const CLAUSE_CODE_BINDING_VERSION = '1.1.0';
+export const CLAUSE_CODE_BINDING_VERSION = '1.2.0';
 export const CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256 = implementationSha256(
   CLAUSE_CODE_BINDING_ID,
   CLAUSE_CODE_BINDING_VERSION,
-  'explicit-source-comment-governed-and-legacy-clause-tags-v2'
+  'explicit-source-comment-qualified-polyglot-and-jsx-provenance-v3'
 );
 
 export function extractClauseCodeBindings(context) {
@@ -34,7 +34,7 @@ export function extractClauseCodeBindings(context) {
       }));
       continue;
     }
-    for (const item of scanClauseBindings(source)) {
+    for (const item of scanClauseBindings(source, { sourcePath: file.path })) {
       const subject = {
         kind: 'contract', id: `${item.clause}@${file.path}:${item.line}`
       };

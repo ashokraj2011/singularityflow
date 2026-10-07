@@ -154,12 +154,18 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   },
   'sflow-review-source': {
     required: [
+      /reviewGuide\.readOrder/,
+      /reportTemplate\.binding/,
       /reportTemplate.*reportSchema/,
       /review-source check <phase> --report-file/,
       /at most two changed-packet repair attempts/,
       /Never mark a real gap supported merely to pass validation/,
       /`retentionReady` is false.*stop without commit\/push/s
     ]
+  },
+  'sflow-phase': {
+    required: [/successor-preparation-required/, /successor\.preparation\.command/,
+      /preserve private drafts\/publications/, /refresh entry once/, /unless prepared in step 2/]
   },
   'sflow-code': {
     required: [
@@ -260,6 +266,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
 });
 
 function executionBoundary(kind = 'story', name = '') {
+  if (name === 'sflow-review-source') return '**Boundary:** reuse this invocation\'s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`.';
   if (['sflow-next', 'sflow-inputs'].includes(name)) return '**Boundary:** reuse this invocation\'s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.';
   if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse the entry packet: require `ready`/`workId` and valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths within this Story; never `$HOME`.';
   if (kind === 'machine') {

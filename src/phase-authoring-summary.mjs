@@ -4,6 +4,7 @@ import { pinnedResolutionVerification } from './state-stores.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { reviewContinuation } from './review-continuation.mjs';
+import { phaseAuthoringEntry } from './phase-authoring-entry.mjs';
 
 /**
  * A pinned drafting route and its post-publication handoff. That handoff is not the next action
@@ -11,7 +12,7 @@ import { reviewContinuation } from './review-continuation.mjs';
  * continuation; publication/approval displays do not pay for an extra readiness inspection.
  */
 export async function phaseAuthoringSummary(root, config, workflow, phase, {
-  documents = null, includeContinuation = false
+  documents = null, includeContinuation = false, includeEntry = false
 } = {}) {
   const route = authoringRoute(phase, workflow);
   const policy = await pinnedResolutionVerification(root, config, workflow);
@@ -22,14 +23,20 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
       ...(includeContinuation ? { handoffScope: 'after-publication', continuation: null } : {})
     };
   }
+  let reviewError = null;
   const sourceReviewEvidence = phase.status === 'in_progress' && phase.generation > 0 && sourceReviewRequired(workflow, phase.id)
-    ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(() => null) : null;
+    ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(error => {
+      reviewError = { code: error.code ?? null, message: error.message }; return null;
+    }) : null;
   return {
     authoringSkill: route.authoringSkill,
     effectiveAuthoringSkill: route.effectiveAuthoringSkill,
     authoringSkillSource: route.authoringSkillSource,
     ...(route.authoringSkillWarning ? { authoringSkillWarning: route.authoringSkillWarning } : {}),
     policyVerified: true,
+    ...(includeEntry ? { entry: phaseAuthoringEntry(workflow, phase, {
+      review: sourceReviewEvidence, reviewError
+    }) } : {}),
     handoff: phase.status === 'in_progress'
       ? phaseHandoff(workflow, phase, { sourceReviewEvidence, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
         .map(({ skill, command, copilotCommand, reason, optional }) => ({ skill, command, copilotCommand, reason, ...(optional ? { optional } : {}) }))

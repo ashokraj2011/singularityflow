@@ -30,7 +30,9 @@ function git(root, ...args) {
 
 function cli(root, ...args) {
   const result = spawnSync(process.execPath, [executable, ...args], {
-    cwd: root, encoding: 'utf8', timeout: 30000
+    cwd: root, encoding: 'utf8', timeout: 30000,
+    env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/test-workspace-registry.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/test-active-workspace.json') }
   });
   assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}\n${result.stdout}`);
   return result.stdout.trim();
@@ -68,6 +70,7 @@ async function publishedSpecificationStory(t, { copied = false, humanAnswers = f
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const authored = YAML.parse(await readFile(workflowFile, 'utf8'));
   authored.git.publish = 'off';
+  authored.session.workItemSelection = 'reuse';
   if (humanAnswers) authored.worldModel.grounding = 'off';
   for (const authority of Object.values(authored.approvalAuthorities)) {
     authority.allowAnyGitIdentity = true;
@@ -250,6 +253,83 @@ test('real and copied workflow preparation returns authoring instead of reviewin
       `singularity-flow review-source context ${phaseId} --json`);
     assert.notEqual(git(root, 'rev-parse', 'HEAD'), head);
   });
+});
+
+test('a retained correction routes compact phase entry to explicit successor preparation without a self-loop', async t => {
+  for (const copied of [false, true]) await t.test(copied ? 'copied scope' : 'seeded scope', async t => {
+    const { root, phaseId } = await publishedSpecificationStory(t, { copied });
+    const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const report = reviewReport(packet);
+    report.findings = [{ id: 'F-001', severity: 'blocking', clauseId: `${WORK_ID}:REQ-001`,
+      message: 'The save behavior needs a precise persisted-status requirement.' }];
+    await mkdir(path.dirname(packet.stagingPath), { recursive: true });
+    await writeFile(packet.stagingPath, JSON.stringify(report));
+    const retained = JSON.parse(cli(root, 'review-source', 'submit', phaseId,
+      '--report-file', packet.stagingPath, '--json'));
+    assert.equal(retained.status, 'correction-required');
+    const artifact = path.join(root, packet.artifact.path);
+    const bytes = await readFile(artifact, 'utf8');
+    const state = path.join(root, 'singularity/work-items', WORK_ID, 'workflow.json');
+    const stateBytes = await readFile(state, 'utf8');
+    const before = git(root, 'rev-parse', 'HEAD');
+    for (const options of [[], ['--compose']]) {
+      const entry = JSON.parse(cli(root, 'phase', 'enter', phaseId, ...options, '--for-agent', '--json'));
+      assert.equal(entry.status, 'successor-preparation-required');
+      assert.equal(entry.authoringAllowed, false, 'preparation must precede composition');
+      assert.equal(entry.context, null);
+      assert.equal(entry.generation, 1);
+      assert.equal(entry.inspectionGeneration, 1);
+      assert.equal(entry.successor.targetGeneration, 2);
+      assert.equal(entry.successor.automatic, false);
+      assert.equal(entry.successor.preparation.command, `singularity-flow prepare ${phaseId}`);
+      assert.equal(entry.next[0].command, retained.continuation.nextCommand);
+      assert.equal(await readFile(state, 'utf8'), stateBytes);
+      assert.equal(await readFile(artifact, 'utf8'), bytes);
+      assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+      assert.equal(git(root, 'status', '--short'), '');
+    }
+    const corrected = `${bytes}\nThe saved status is displayed only after durable persistence.\n`;
+    await writeFile(artifact, corrected);
+    cli(root, 'prepare', phaseId, '--no-model', '--json');
+    const prepared = JSON.parse(cli(root, 'phase', 'enter', phaseId, '--for-agent', '--json'));
+    assert.notEqual(prepared.status, 'retained-generation');
+    assert.notEqual(prepared.status, 'successor-preparation-required');
+    assert.equal(prepared.inspectionGeneration, 2);
+    assert.equal(prepared.generation, 1, 'prepare is not publication');
+    assert.equal(await readFile(artifact, 'utf8'), corrected, 'explicit prepare preserves private corrected drafts');
+    assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+  });
+});
+
+test('compact review entry binds once and preserves every exact review material and report contract', async t => {
+  const { root, phaseId } = await publishedSpecificationStory(t, { copied: true, humanAnswers: true });
+  const full = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const before = git(root, 'status', '--short');
+  const head = git(root, 'rev-parse', 'HEAD');
+  const compact = JSON.parse(cli(root, 'review-source', 'context', '--for-agent', '--json'));
+  assert.equal(compact.ready, true);
+  assert.equal(compact.workId, WORK_ID);
+  assert.equal(compact.phase, phaseId);
+  assert.equal(compact.repositoryPath, git(root, 'rev-parse', '--show-toplevel'));
+  assert.equal(compact.bindingPath, 'reportTemplate.binding');
+  assert.equal(Object.hasOwn(compact, 'binding'), false);
+  assert.deepEqual(compact.reportTemplate.binding, full.binding);
+  for (const key of ['sources', 'clarifications', 'clarificationGuidance', 'artifact', 'upstreamSpec',
+    'reviewer', 'reportTemplate', 'reportSchema', 'stagingPath', 'continuation']) {
+    assert.deepEqual(compact[key], full[key], `compact entry lost ${key}`);
+  }
+  assert.equal(compact.reviewer.setupRequired, false);
+  assert.equal(compact.canReview, true);
+  assert.equal(JSON.parse(cli(root, 'review-source', 'context', phaseId, '--for-agent', '--json')).phase, phaseId);
+  const report = reviewReport(compact);
+  report.clarificationsReviewed = compact.clarifications.map(record => record.id);
+  await mkdir(path.dirname(compact.stagingPath), { recursive: true });
+  await writeFile(compact.stagingPath, JSON.stringify(report));
+  const checked = JSON.parse(cli(root, 'review-source', 'check', phaseId,
+    '--report-file', compact.stagingPath, '--json'));
+  assert.equal(checked.retentionReady, true, 'compact template remains accepted by the full retention validator');
+  assert.equal(git(root, 'status', '--short'), before);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), head);
 });
 
 test('real Story CLI retains pinned reviewer report and separate human disposition before submission', async (t) => {

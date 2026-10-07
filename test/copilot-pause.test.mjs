@@ -73,6 +73,14 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(invoke(['nextsteps', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['inputs', '--dry-run', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['inputs', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['review-source', 'context', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['review-source', 'context', 'custom-plan', '--for-agent', '--json']).nativeCopilot, true);
+  for (const args of [['review-source', 'context', '--for-agent', '--allow-dirty', '--json'],
+    ['review-source', 'submit', '--for-agent', '--json'], ['review-source', 'decide', '--for-agent', '--json']]) {
+    const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+    assert.notEqual(invalid.status, 0);
+    assert.equal(JSON.parse(invalid.stdout).error.code, 'REVIEW_SOURCE_OPTIONS_INVALID');
+  }
   for (const command of ['inputs', 'nextsteps']) {
     const invalid = spawnSync(process.execPath, [cli, command, '--for-agent', '--allow-dirty', '--json'],
       { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });

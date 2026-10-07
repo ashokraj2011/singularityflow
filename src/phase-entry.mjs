@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { recoveryPlan } from './collaboration.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
-import { phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
+import { phaseInspectionGeneration } from './code-submission-evidence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { branch, head, repoRoot } from './git.mjs';
@@ -63,16 +63,15 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
       committed: false, pushed: false }, modelInvocations: 0 };
   if (!base.ready) return { ...base, status: 'binding-required', context: null,
     next: session.phaseAgent?.handoff ? [session.phaseAgent.handoff] : [], authoringAllowed: false };
-  const authoring = await phaseAuthoringSummary(root, definition, workflow, phase);
+  const authoring = await phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true });
   const recovery = await recoveryPlan(root, definition, workflow, {
     phaseId: phase.id, inspectActivePhase: true, modelEnabled
   });
   const references = await verifyReferenceRepositories(root,
     await storyReferenceRepositories(root, definition, workflow));
-  const prospective = requiresProspectivePhaseInspection(workflow, phase);
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
-  const canCompose = prospective && !phaseUsesDeterministicGeneration(phase)
+  const canCompose = authoring.entry?.status === 'authoring-entry' && !phaseUsesDeterministicGeneration(phase)
     && authoring.policyVerified && authoring.effectiveAuthoringSkill
     && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
   let context = null;
@@ -87,11 +86,19 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     generation: base.inspectionGeneration
   });
   const authoringAllowed = Boolean(canCompose && clarification.errors.length === 0);
-  return { ...base, status: !prospective ? 'retained-generation' : authoringAllowed
-    ? 'authoring-entry' : 'attention-required', authoringAllowed,
+  const preparationAdmitted = authoring.policyVerified
+    && authoring.entry?.status === 'successor-preparation-required'
+    && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
+  const status = authoring.entry?.status === 'retained-generation' ? 'retained-generation'
+    : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry' : 'attention-required';
+  return { ...base, status, authoringAllowed,
+    ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
+      preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
-    next: !prospective ? authoring.handoff : recovery.actions,
+    next: preparationAdmitted ? authoring.entry.actions
+      : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
+      : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
       documents: `singularity-flow phase show ${phase.id} --json` } };
 }

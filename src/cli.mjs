@@ -10295,6 +10295,12 @@ async function reviewCommand(positionals, options) {
 }
 
 async function reviewSourceCommand(positionals, options) {
+  if (options['for-agent'] !== undefined) {
+    const { validateAgentEntryRequest } = await import('./agent-entry-options.mjs');
+    validateAgentEntryRequest('review-source', { positionals, options });
+    const { sourceReviewAgentContext } = await import('./source-review-agent-context.mjs');
+    return console.log(JSON.stringify(await sourceReviewAgentContext({ phaseId: positionals[2] ?? null }), null, 2));
+  }
   const action = requirePositional(positionals, 1, 'source review action');
   if (!['context', 'check', 'submit', 'decide', 'status'].includes(action)) {
     throw new SingularityFlowError("Source review action must be context, check, submit, decide, or status.");

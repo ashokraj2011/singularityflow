@@ -7122,7 +7122,7 @@ argument-hint: &quot;[on|off|status]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~992 body tokens</span>
+          <span class="pill">~998 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -7152,16 +7152,16 @@ First run `singularity-flow phase enter --for-agent --json` once. It checks paus
 **Boundary:** reuse the entry packet: require `ready`/`workId` and valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths within this Story; never `$HOME`.
 Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/expiry and authorized human confirmation. Never auto-accept risk.
 
-1. Use entry `authoring`; false `policyVerified`: show `policyReason`, stop. If `effectiveAuthoringSkill` is not `/sf-phase`, relay it as `Next in Copilot:` and `Terminal equivalent: singularity-flow prepare &lt;phase&gt;`; null drafts nothing; stop. Retained generation: relay `next`, stop; never compose a new unpublished successor implicitly.
-2. Inspect entry `recovery` actions. Review listed diffs; stop for human confirmation/protected or unowned edits. Do not repeat pause/session/status/recovery.
+1. Use entry `authoring`; false `policyVerified`: show `policyReason`, stop. If `effectiveAuthoringSkill` is not `/sf-phase`, relay it as `Next in Copilot:` and `Terminal equivalent: singularity-flow prepare &lt;phase&gt;`; null drafts nothing; stop. `retained-generation`: relay `next`, stop.
+2. Review `recovery` diffs; stop for human confirmation/protected or unowned edits. `successor-preparation-required`: run `successor.preparation.command` once; preserve private drafts/publications, refresh entry once, continue. Still blocked: relay diagnostics, never repeat the `/sf-phase` loop or implicitly compose successors. No duplicate pause/session/status/recovery.
 3. Run `singularity-flow phase enter &lt;phase&gt; --work-id &lt;WORK-ID&gt; --compose --for-agent --json` once. Use `context.text` without rereading the prompt; `contextComposition: not-admitted`: follow returned actions, stop. Never infer `--task`; missing intelligence adds zero bytes.
 4. Use its `clarification`: For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, use `ask_user`, wait and record before preparation; if unavailable, display the questions and stop. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`, never in Story context. Delete on success; never pass Markdown.
-5. Read verified `references.repositories[].localPath`. Run exact `singularity-flow prepare &lt;phase&gt;` action. Stop on placeholders, templates, padding.
-6. Preserve qualified REQ/AC identities through conformance. `/sf-code`: `@clause:WORK-ID:REQ-001` in product source, `@ac:WORK-ID:AC-001` in executable tests.
-7. Preserve validated preparation context. Prepublish rechecks recovery; follow its current findings, not an earlier entry packet. Review diffs; stop for required human confirmation, protected config or another producer.
+5. Read `references.repositories[].localPath`. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 2; reuse its result. Stop on placeholders/templates/padding.
+6. Preserve qualified REQ/AC identities through conformance; `/sf-code` owns code/test tags.
+7. Preserve preparation context. Prepublish rechecks recovery; use current findings, not old entry. Review diffs; stop for human confirmation, protected config or another producer.
 8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Correct every agent finding now from approved evidence. Obey `correction.class`/`sameTurn`; route non-agent work to its owner and code repair to `/sf-code`. Never invent, pad, delete markers blindly, nest models or overwrite producers. Follow returned `repairLoop.protocol` for persistent correction/resume; stop unchanged.
 9. Use returned `commands.publish` when `ready`; absent: relay `commands.next`, stop. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once; retry once if ready. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit/approve.
-10. Run `singularity-flow phase show &lt;phase&gt; --json`; report evidence, commit/push, model/cost and hash-bound document references. Show a bounded preview once; relay each `handoff`&#39;s `copilotCommand`/`command` as Copilot/Shell. Publication is not submission/review readiness. Never submit/approve.
+10. Run `singularity-flow phase show &lt;phase&gt; --json`; report evidence, commit/push, model/cost, hash-bound documents and one bounded preview. Relay each `handoff`&#39;s `copilotCommand`/`command` pair. Publication is not submission/review readiness.
 
 TRP: `singularity-flow explain test-recovery`; returned legal actions only.
 </code></pre>
@@ -8815,7 +8815,7 @@ Run `singularity-flow review &lt;phase&gt; --format json` for the explicit or ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~984 body tokens</span>
+          <span class="pill">~986 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
@@ -8838,22 +8838,22 @@ argument-hint: &quot;[context|status|decide] &lt;phase&gt; [decision arguments]&
 # Review source coverage
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.
+Review: first run `singularity-flow review-source context --for-agent --json` once; it checks pause before Git and returns the current binding and exact review material. Explicit `status`/`decide`: first run `singularity-flow pause status --json`, then verify `singularity-flow session current --json`. If `paused`/`data.paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use returned `personalization.replyName` once per reply/suggestion group, never in artifacts or approval identity.
 
 &lt;!-- sflow-output-contract: governed-review --&gt;
 **Output contract:** Show the exact reviewed hashes, cited gaps, exclusions, questions, and test exceptions before any human approval. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say &quot;Copilot: no verified equivalent&quot;; never invent a slash command.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse this invocation&#39;s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`.
 
-Explicit `status`: only `singularity-flow review-source status &lt;phase&gt; --json` and handoff. Explicit `decide`: read status, show pending finding, generation, report hash, authority/reason; confirm with the human before that exact decision. Never decide as reviewer or rerun review instead. Unknown forms stop with help. Otherwise review below.
+`status`: only `singularity-flow review-source status &lt;phase&gt; --json` and handoff. `decide`: read status, show finding/generation/report hash/authority/reason; obtain human confirmation. Never decide as reviewer or rerun review instead. Unknown forms: help, stop.
 
-Read `clarifications`/`clarificationGuidance`, including approved scope answers; acknowledge `clarificationsReviewed` IDs with phase/generation/question. Never re-ask settled answers. Deferred answers cannot waive gates/amend intent. Retain a corrected review of this generation for mistaken findings; real gaps need a successor.
+Read pinned `clarifications`/`clarificationGuidance`; acknowledge `clarificationsReviewed` IDs with phase/generation/question. Never re-ask settled answers. Deferred answers cannot waive gates/amend intent. Correct mistaken reviews in this generation; real gaps need successors.
 
-1. Run `singularity-flow review-source context &lt;phase&gt; --json`. If `canReview: false`, stop and relay `continuation.actions`. Only the author prepares/checks/publishes the preserved private successor. Require `kind: specification|planning`, publication and pinned inventory. Stop on unavailable/truncated sources. Never cite `unreadableSources`; each needs an `unreadable:&lt;DOC-id&gt;` human decision, carried while unchanged.
-2. Use pinned `reviewer.instructions`; never set up/create/select an agent. Retention scopes `requiredReviewerAgentId` to this operation, preserving the author. On `blocked-author-conflict`, relay `recovery.actions`; never relabel history. Compare authored-content, not full-file hashes. Never edit source, artifacts, tests, workflow or approvals.
-3. Fill `reportTemplate` against `reportSchema`, preserving exact `binding`/metadata. Cite readable sources; attest only unreadable sources. Planning: preserve singular `clauseId`, `expectedPaths`, `plannedTests`; test-only rows need no product paths. Replace `unreviewed` honestly. Findings: `id`, `severity`, `message`, not `explanation`. Never mark a real gap supported merely to pass validation.
+1. Consume entry in `reviewGuide.readOrder`; texts/schema/template are complete. No key-enumeration, repeated hash/inventory queries or rescans. Include explicit phase in the first call. `canReview: false`: relay `continuation.actions`, stop; only the author prepares/publishes successors. Require `kind: specification|planning`, publication and inventory at `reportTemplate.binding`. Stop on unavailable/truncated sources. Never cite `unreadableSources`; each needs an `unreadable:&lt;DOC-id&gt;` human decision, carried while unchanged.
+2. Use pinned `reviewer.instructions`; never set up/create/select an agent. Retention scopes `requiredReviewerAgentId` to this operation, preserving author. `blocked-author-conflict`: relay `recovery.actions`, never relabel history. Compare authored-content, not full-file hashes. Never edit source, artifacts, tests, workflow or approvals.
+3. Fill `reportTemplate` against `reportSchema`, preserving its exact `binding`/metadata. Cite readable sources; attest only unreadable sources. Planning: preserve singular `clauseId`, `expectedPaths`, `plannedTests`; test-only rows need no product paths. Replace `unreviewed` honestly. Findings: `id`, `severity`, `message`, not `explanation`. Never mark a real gap supported merely to pass validation.
 4. Stage at the returned Git-private path. Run `singularity-flow review-source check &lt;phase&gt; --report-file &lt;that-path&gt; --json`; repair format only, at most two changed-packet repair attempts. If `retentionReady` is false, relay fields and stop without commit/push. Retain valid packets, including honest gaps, with `singularity-flow review-source submit &lt;phase&gt; --report-file &lt;that-path&gt;`, once. Neither check nor retention approves or submits the phase.
-5. Show hashes, source/clause/clarification IDs, questions, gaps and exceptions. Only `pendingDispositions` IDs allow authorized human `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`; never waive questions/blockers. End with `continuation.actions`: exact Shell/Copilot pair, target generation and owner. If absent, run `singularity-flow review-source status &lt;phase&gt; --json`. Never publish/advance. Relay amendment acknowledgement first; never acknowledge for the person.
+5. Show hashes, source/clause/clarification IDs, questions, gaps/exceptions. Only `pendingDispositions` allow authorized human `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`; never waive blockers. End with `continuation.actions`: Shell/Copilot pair, target generation/owner. If absent: `singularity-flow review-source status &lt;phase&gt; --json`. Never publish/advance. Relay amendment acknowledgement first; never acknowledge for the person.
 </code></pre>
       </div>
     </details>

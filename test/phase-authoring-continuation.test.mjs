@@ -8,6 +8,7 @@ import { sourceReviewContinuation } from '../src/source-review-continuation.mjs'
 import { nextStepsSnapshot } from '../src/nextsteps.mjs';
 import { planFastPath } from '../src/fast-path.mjs';
 import { phaseContinuation, phaseContinuationLines } from '../src/phase-continuation.mjs';
+import { phaseAuthoringEntry } from '../src/phase-authoring-entry.mjs';
 
 function story(id) {
   const phase = { id, label: id, status: 'in_progress', generation: 1,
@@ -57,7 +58,7 @@ test('preparation cannot reopen code, sign-off-only, inactive or submitted publi
 });
 
 test('planner, fast path and review status agree on a retained source-review correction', () => {
-  for (const id of ['specification', 'planning', 'customer-scope']) {
+  for (const id of ['specification', 'planning', 'verification', 'convergence', 'release', 'design', 'customer-scope']) {
     const workflow = story(id), phase = workflow.phases[id];
     const sourceReviewEvidence = { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }], pendingDispositions: [] };
     const expected = `singularity-flow prepare ${id}`;
@@ -68,6 +69,14 @@ test('planner, fast path and review status agree on a retained source-review cor
     const fast = planFastPath(workflow, definition, 'specify', { sourceReviewEvidence });
     assert.equal(fast.next[0].command, expected);
     assert.equal(fast.checkpoint.kind, 'model-generation');
+    const before = JSON.stringify(workflow);
+    const entry = phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence });
+    assert.equal(entry.status, 'successor-preparation-required');
+    assert.equal(entry.targetGeneration, 2);
+    assert.equal(entry.preparation.command, expected);
+    assert.equal(JSON.stringify(workflow), before, 'entry cannot reserve or compose a successor');
+    reservePreparedDocumentSuccessor(workflow, phase, 'now');
+    assert.equal(phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence }).status, 'authoring-entry');
     assert.equal(phase.generation, 1, 'routing is not publication or approval');
   }
 });
@@ -78,9 +87,23 @@ test('human dispositions, stale bindings and submitted phases never become autom
     pendingDispositions: [{ id: 'exclusion:row-1' }] };
   assert.match(sourceReviewContinuation(workflow, phase, pending).nextCommand, /review-source decide custom-scope --finding exclusion:row-1/);
   assert.equal(sourceReviewContinuation(workflow, phase, { status: 'stale', findings: [{ code: 'review-binding-stale' }] }).nextSkill, '/sf-review-source');
+  assert.equal(phaseAuthoringEntry(workflow, phase, { review: pending }).status, 'retained-generation');
+  assert.equal(phaseAuthoringEntry(workflow, phase, { review: { status: 'stale' } }).status, 'retained-generation');
+  assert.equal(phaseAuthoringEntry(workflow, phase, { reviewError: { code: 'SOURCE_REVIEW_INPUT_UNPUBLISHED' } }).status, 'attention-required');
   phase.status = 'awaiting_approval';
   assert.equal(sourceReviewContinuation(workflow, phase, { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] }).nextSkill, '/sf-nextsteps');
   assert.equal(phase.reworkRevalidation, undefined);
+  assert.equal(phaseAuthoringEntry(workflow, phase, { review: { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] } }).status, 'retained-generation');
+});
+
+test('code and sign-off phases never receive implicit document successor preparation', () => {
+  for (const change of [p => { p.generationPolicy.task = 'code'; p.generationIntent = { status: 'consumed', generation: 1 }; },
+    p => { p.generationPolicy.requirement = 'none'; }]) {
+    const workflow = story('custom-step'), phase = workflow.phases['custom-step']; change(phase);
+    const entry = phaseAuthoringEntry(workflow, phase, { review: { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] } });
+    assert.equal(entry.status, 'retained-generation');
+    assert.equal(entry.preparation, undefined);
+  }
 });
 
 test('custom code successors keep guarded rollover and ready reviews keep decision inputs', () => {
@@ -90,11 +113,27 @@ test('custom code successors keep guarded rollover and ready reviews keep decisi
   phase.reworkRevalidation = { generation: 1, invalidatedAt: 'now' };
   const before = JSON.stringify(workflow);
   assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow phase rollover custom-code --json');
+  const entry = phaseAuthoringEntry(workflow, phase);
+  assert.equal(entry.status, 'attention-required');
+  assert.equal(entry.reason, 'code-rollover-required');
+  assert.equal(entry.actions[0].command, 'singularity-flow phase rollover custom-code --json');
   assert.equal(JSON.stringify(workflow), before);
   const scoped = story('scope'), scope = scoped.phases.scope;
   scoped.resolution.decisions = [{ id: 'risk', mode: 'auto', after: 'scope', inputs: [{ name: 'risk', type: 'enum', values: ['low', 'high'] }] }];
   const next = sourceReviewContinuation(scoped, scope, { status: 'ready' });
   assert.match(next.nextCommand, /submit scope --work-id ROUTE-1 --decision risk=<risk>/);
+});
+
+test('a later document correction advances only its explicit reservation, never an earlier publication', () => {
+  const workflow = story('custom-plan'), phase = workflow.phases['custom-plan'];
+  phase.generation = 7;
+  phase.generationPublications = [{ generation: 7, record: { path: 'context/custom-plan-gen7.json' } }];
+  const review = { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] };
+  assert.equal(phaseAuthoringEntry(workflow, phase, { review }).targetGeneration, 8);
+  reservePreparedDocumentSuccessor(workflow, phase, 'now');
+  assert.equal(phaseAuthoringEntry(workflow, phase, { review }).status, 'authoring-entry');
+  assert.equal(phaseInspectionGeneration(workflow, phase), 8);
+  assert.equal(phase.generation, 7);
 });
 
 test('phase continuation selects NOW, never an optional assignment or a later approval', () => {

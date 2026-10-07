@@ -1,10 +1,10 @@
 ---
 id: compact-phase-entry
 title: Compact phase entry for Copilot
-commands: [phase, nextsteps, inputs]
+commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 2
+version: 3
 ---
 # Compact phase entry for Copilot
 
@@ -26,6 +26,14 @@ Composition is an explicit mutation of preparation context/audit only, through t
 composer. It returns `context.text` once and reuses verified immutable prompts when unchanged.
 It does not begin or prepare a generation, run tests, commit, push or advance a phase. A retained
 publication is not implicitly replaced by a successor. A different Story must be attached first.
+
+A current, verified source review requiring author correction returns
+`status: successor-preparation-required`, `successor.targetGeneration` and the exact
+`successor.preparation.command`. `/sf-phase` reviews recovery/diffs, executes that explicit
+preparation once and refreshes entry before composing. Read-only entry, including `--compose`,
+cannot reserve the successor or edit the retained publication. Submitted phases, pending human
+dispositions, unverifiable bindings and consumed code intents keep their guarded routes.
+This classification uses phase policy, not built-in phase names, including copied/custom workflows.
 
 `/sf-code` and `/sf-phase` consume these packets instead of separate pause/session/status,
 recovery, clarification and reference commands. Standalone agents retain a boundary fallback;
@@ -59,3 +67,11 @@ still run freshly at the governed execution transition, not during these read-on
 No production token-reduction composer or unqualified cache policy is enabled by this change.
 Existing approved-input briefs and exact clause capsules remain the context authority. Token and
 Git-call savings depend on workflow content; fewer CLI calls are not a claim of fewer validators.
+
+`/sf-review-source` starts review with `singularity-flow review-source context --for-agent --json`
+(optionally name the current phase). The packet includes pause/session binding and every exact
+source, approved clarification, upstream specification, published artifact, pinned reviewer,
+schema and report template. The authoritative inventory appears once at `reportTemplate.binding`;
+no review material is summarized or truncated. `reviewGuide.readOrder` avoids key-enumeration and
+repeated inventory/hash lookups. The ordinary context JSON stays unchanged. Explicit status and
+human decisions retain their pause/session checks; compact entry cannot make either decision.

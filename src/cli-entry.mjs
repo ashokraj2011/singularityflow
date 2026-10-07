@@ -634,7 +634,9 @@ async function runMain(argv) {
       argvHash: `sha256:${argvSha256}`, command: 'pause', startedAt: new Date().toISOString() },
     async () => (await import('./commands/pause.mjs')).run(effectiveArgv, { positionals, options, operation }));
   }
-  if (['hook', 'home'].includes(definition.name)) {
+  const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
+  if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
+  if (['hook', 'home'].includes(definition.name) || phaseEntry) {
     const mode = readCopilotMode();
     if (mode.paused) {
       if (definition.name === 'hook') return console.log('{}');

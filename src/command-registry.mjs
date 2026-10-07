@@ -12,7 +12,7 @@ MODEL_FREE_MIXED_COMMANDS.add('appeal');
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
 ]);
-const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish']);
+const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish', 'enter']);
 // Skill packages are only inspected; the skill master also has edits, which --dry-run previews.
 const SKILL_READ_SUBCOMMANDS = Object.freeze(['inspect', 'approved', 'doctor', 'list', 'show']);
 const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
@@ -21,6 +21,7 @@ const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 const LAZY_MODULES = Object.freeze({
   appeal: './commands/appeal.mjs',
   pause: './commands/pause.mjs',
+  phase: './commands/phase.mjs',
   // The five verbs share one dispatcher; each is a registered command in its own right so the
   // registry, tripwires and help treat it like any other [SPK:REQ-010].
   specify: './commands/fast-path.mjs',
@@ -1443,6 +1444,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       : never(`skill.${action}`, definition, 'mutation');
   }
   if (definition.name === 'phase') {
+    if (positionals[1] === 'enter' && optionBoolean(options, 'compose')) return never('phase.enter.compose', definition, 'mutation');
     return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
       ? never(`phase.${positionals[1]}`, definition, 'read')
       : never('phase', definition, 'mutation');
@@ -1694,6 +1696,7 @@ export function operationCatalog() {
   const modelFreeMixed = [
     ...['on', 'off', 'status'].map((action) => never(`pause.${action}`, commandDefinition('pause'), action === 'status' ? 'read' : 'mutation')),
     never('phase', commandDefinition('phase'), 'mutation'),
+    never('phase.enter.compose', commandDefinition('phase'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [

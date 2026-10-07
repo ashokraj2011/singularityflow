@@ -16,6 +16,12 @@ import { createHash } from 'node:crypto';
  * governed agent to remain registered.
  */
 const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
+  '.github/agents/demo-web-analyst.agent.md': Object.freeze(['4bf52173acab7a379c75157795e1a37ff5deb8154dd88894d60f0e4fde857e3f']),
+  '.github/agents/demo-web-developer.agent.md': Object.freeze(['1f6b44af2a0b2e15c8f8c39fd44812055baeda5fdb9faf6073b4aab1ee03684f']),
+  '.github/agents/demo-web-tester.agent.md': Object.freeze(['33cd834531b9bada674063a86c6d0569e4ec0103926ae044b115544e9f6a480c']),
+  '.github/agents/document-analyst.agent.md': Object.freeze(['d889e7a7ea57b049a0a1a97f778cfbcc66d22f8a2f1768ee36b2e87849b5431c']),
+  '.github/agents/scenario-developer.agent.md': Object.freeze(['3e17401a1e2aaa531456145dfa765445cc937e210ede38fad08d89c10185133b']),
+  '.github/agents/scenario-tester.agent.md': Object.freeze(['075a2f13c8867245d11729dc9c0b304a40683d88424c8bed9587d7a4dc1aa3f1']),
   // Before the planned-evidence table asked for each row's fulfillment and observable result.
   'singularity/templates/figma-mobile/mobile-spec.md': Object.freeze([
     '18c583c10c597c595cd0be9c11ddf16e92a0b85147efcd4fd3fb1a9bbd96fc44',
@@ -141,6 +147,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453'
   ]),
   '.github/agents/architect.agent.md': Object.freeze([
+    '184ad9effaad2977008687601def19a0677bb72c6a02365ef81b945f54ae6443',
     '0c8630b4f5d3bf2bbdabc4f67f4619caa7e537a566111cef40440c6c7abce016',
     '188198ceb7da73ef10814aaea2426dea127442f199fa16939f84a95415547ee5',
     '28dceea24f5990cb48decf09cff11b29071febdf58a64f9253a09ec19e99d58b',
@@ -154,6 +161,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'da4f136ae11c0cb459500d4008a5629797f168ec4df87ba807da31c12a59c467'
   ]),
   '.github/agents/developer.agent.md': Object.freeze([
+    '319bdfa6ac51ff128d8caad683f637f76c04818dc5fc7b05224d5275a76b8c41',
     '08a26b9ab8dfed985a6bce5d470c1cb1732f8546a1c3c49360005aa42a728105',
     '274adbcae64ecb9896bd9f53ef8c21a3109918fb7015496e0a8d8b5f57cc143b',
     '2e3911baaf60b85330b3dd3eb251bb2dc2c86b10851a16d826452a51064ccb73',
@@ -168,6 +176,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'edfba1ce014ba9a5cf379303efa3841eb4345dd1602f2b2566c8e5001d4c99d1'
   ]),
   '.github/agents/mobile-architect.agent.md': Object.freeze([
+    '06685d32114d1278a825dfc9313d2c1ca6e4b84de9cf1c112b4b84f82367176d',
     '1cc19f6ab0b71a6c3296e8993c3610570c9ccfe82dc30308e5393e7e36f5ac33',
     '22e5fe1e93ff229de7bcc51b70078d8d4f48b925c0ef802a8ab20d1127883128',
     '25c97dee212791eaeff956b0b32c756272c1e0b9a8bf94819a4bb70c81956a00',
@@ -181,6 +190,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'c0d882e1b6a6a946e4573756aa156e4ca918b578634baa35e6fccb74a595b698'
   ]),
   '.github/agents/poc-analyst.agent.md': Object.freeze([
+    '94623517e943daa5cbab969fa1a50887319e34e68d826d06e23d17bd171ad2d9',
     '7f4fe9ad6e2bcf0aeab4aa0e2bb5245b38bb1a0434f23b1b604f2869fd9590e8',
     '1d4e071363256e214a58ab810819218cff8f4d288d571487eb6f18d2bca8b1d2',
     '23f6c7215e1a84e3ce249515e504e74b374dbc59177baf00a1f5b611b832310a',
@@ -192,6 +202,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'b2911fb7034dddec1d44266f83146a0460dc158a3efb6938cdefda2ae0d96086'
   ]),
   '.github/agents/poc-automation.agent.md': Object.freeze([
+    'a45c1645749fe9595d5b8bca9c620583f60a9fa34798e492764932d5411c435f',
     '5c113c502f9e02362ff280947747684130b9f0975391b6cbe27462e1faaac0f6',
     '0b6f0a8866f388767a216438b5bc5280615589fc0da50fd6288cf9388a902ef3',
     '0ed8eae43d116bbe10745d851180d6043a563568635359087da424d67e19aee1',
@@ -205,6 +216,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'ec5709c720d979d389ebb20cb73977f0efc485d87781b62135857c622c625a7c'
   ]),
   '.github/agents/poc-explorer.agent.md': Object.freeze([
+    'fc8ecbccd7fbfdcfcd318c45a1219bcb3354a09a87a30e941153df43ea390667',
     '5b863a56b6d645a71c858afd8edd29b6f7cbc60b441d4b3b2df513826611ee18',
     '6c471ac9d6bf14f865e73cd1a39a3cef635e3bdc7c4f455d182ae9b0845b7277',
     '73135df4f261fa3e08f8f5676f985da4f3c4b139833413c9d6ffd7db0c6d9a07',
@@ -216,17 +228,21 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'e20eb9f019128dce8d1a92842e19b368b012965c1abc5322ae22e57e223abcb8'
   ]),
   '.github/agents/poc-lite-implementer.agent.md': Object.freeze([
+    'f97cc8d1cfb1b920e4643337fcc6d5a2b44428249c39a475565015c28ba68a04',
     '8fa2344494618a1200b987aec80600b8d05cde24c3dee57e7ef6934fdd42e064'
   ]),
   '.github/agents/poc-lite-planner.agent.md': Object.freeze([
+    'dbe9682cf65511b5d5ea77fecbb2abb1c3ea691c20961ab2faa046924ab16689',
     '13269e0e0dd315c053c81d50d0de27a94a7e1a8621ea1230b24d3a3a53d6c2e1',
     '85b821ac88fb52eb7972f1026f605f04144fb27df5afc2e42fc0c06212562a9b'
   ]),
   '.github/agents/poc-lite-verifier.agent.md': Object.freeze([
+    'e6d98806f989c1d6e284223d97725cfc69523ef531c0d2805b32b71d8a42bbc6',
     '32cea87f319945c6ef3963aebf92e55ee15a291f8d7cf5691ca28a38fe68dd42',
     'd2a01fd1beebae0b2399d0a2908d4ac0db5ad8cbc803020f40697914a2b7ee60'
   ]),
   '.github/agents/poc-test-developer.agent.md': Object.freeze([
+    'da7785d620f669c41fa07921bcc6ef8bb26bc5fbb7eaca81f470b3fdf1feef8c',
     '20a6a09cc14dac8fd7cb461d412fe708eeaeaf3be55c3787212f4a09bed7e17d',
     '4c82f12e6642c42e60ef6b0e4a19b9c37b70a73c2089b8dfd2c525858d7a4681',
     'c0ac831ab7d1131c361528624e52a06066bbdc2da1ea726e7d089d06c6b37dae',
@@ -235,6 +251,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'dc91d663a83017267c7366a3ac3e903e7b4fd803af2284b9c7d252bf61c2c8a0'
   ]),
   '.github/agents/poc-validator.agent.md': Object.freeze([
+    'b2bed98021cfb9dd5a9b8ae31d9f0fbea0fee920d0bf968f7d3f9217dd89719d',
     '083dd2ee6f941c5f873f9b42d4ec50faf450cb703fd55951dd55244d1bc1d82e',
     '0d391149188a912560efb6e5d750c06c63c92d8442c474dfbb6a036c7dbfd7e5',
     '28e7ed2f6291a837aaa251a2dd7cf3c2575fca60bfa27bf630f45295a59dc37c',
@@ -246,6 +263,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'c4b60bf225a36ed4e44d00cfa6c28442eaf4ccc212dfdc0cc7ffdaf33ada0328'
   ]),
   '.github/agents/product-designer.agent.md': Object.freeze([
+    '0f5fe7ec6f8e75d85493266f0982db49bac9fb20673867d119ff8e65cc3b54cf',
     '1103db033c0acf04448e1794c40296d50c0794c6860ff5be0b11b258998e230e',
     '2a347736d3ffa58635617b47721c4306d4cb3979af9101a08cb0604b03fe37ec',
     '330f43cec8f05c22cef3fcec99be31daab818b36c2e7dabd25293c95b05acea4',
@@ -261,6 +279,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'e71a3a77592c53010b2de7f107d64f8e401514215e891e37af9660a7ef8fc945'
   ]),
   '.github/agents/product-owner.agent.md': Object.freeze([
+    '84bba38e1fe4dfa812b213255283c202c8a96b81179841bb3cb909f073b99b39',
     '491241469786c77bf5f99384fdb7f9c0da7abf637fb5e8fc531992a6168f0027',
     '54c7240d0b81c04e47c453fd19a29caf358c07d3d36a93b84ff84541e7f9aeb0',
     '5e134b783407788f9c5f42f20bbe8b43fef252a4105f04aa18868a611a2922fd',
@@ -295,9 +314,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
-  '.github/agents/demo-web-analyst.agent.md': '4bf52173acab7a379c75157795e1a37ff5deb8154dd88894d60f0e4fde857e3f',
-  '.github/agents/demo-web-developer.agent.md': '1f6b44af2a0b2e15c8f8c39fd44812055baeda5fdb9faf6073b4aab1ee03684f',
-  '.github/agents/demo-web-tester.agent.md': '33cd834531b9bada674063a86c6d0569e4ec0103926ae044b115544e9f6a480c',
+  '.github/agents/demo-web-analyst.agent.md': 'a06f1b514eec22d8e75b2d8b609348f3d43b118f00e456de5b1c3e25ca72e2b1',
+  '.github/agents/demo-web-developer.agent.md': '30572f81d47c0c9274872153f93d9313884713c6b25411967468307da703cdfa',
+  '.github/agents/demo-web-tester.agent.md': 'effdbb363713e11ebcf06df83c7258dada6ef5b28e7ba012dd3e2f9e74611af3',
   'singularity/skill-library/attachments.yml': '34bb3311f72976388ce8279974354142ccffff182da90ceb7c0cef033bedd027',
   'singularity/skill-library/demo-web-defect-repair/SKILL.md': 'c968f300ac02c798ec54a9b7c83744534b529372fdb60539f164effd251416fb',
   'singularity/skill-library/demo-web-screenshot-check/SKILL.md': '77a7ca8a6afb9a73cbbfda626ce72cec6d07d6b82287b3deaf61159785b0ee5f',
@@ -305,23 +324,23 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
   'singularity/templates/demo-web-e2e-testing/intake.md': '937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
   'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
-  '.github/agents/architect.agent.md': '184ad9effaad2977008687601def19a0677bb72c6a02365ef81b945f54ae6443',
-  '.github/agents/developer.agent.md': '319bdfa6ac51ff128d8caad683f637f76c04818dc5fc7b05224d5275a76b8c41',
-  '.github/agents/document-analyst.agent.md': 'd889e7a7ea57b049a0a1a97f778cfbcc66d22f8a2f1768ee36b2e87849b5431c',
-  '.github/agents/mobile-architect.agent.md': '06685d32114d1278a825dfc9313d2c1ca6e4b84de9cf1c112b4b84f82367176d',
-  '.github/agents/poc-analyst.agent.md': '94623517e943daa5cbab969fa1a50887319e34e68d826d06e23d17bd171ad2d9',
-  '.github/agents/poc-automation.agent.md': 'a45c1645749fe9595d5b8bca9c620583f60a9fa34798e492764932d5411c435f',
-  '.github/agents/poc-explorer.agent.md': 'fc8ecbccd7fbfdcfcd318c45a1219bcb3354a09a87a30e941153df43ea390667',
-  '.github/agents/poc-lite-implementer.agent.md': 'f97cc8d1cfb1b920e4643337fcc6d5a2b44428249c39a475565015c28ba68a04',
-  '.github/agents/poc-lite-planner.agent.md': 'dbe9682cf65511b5d5ea77fecbb2abb1c3ea691c20961ab2faa046924ab16689',
-  '.github/agents/poc-lite-verifier.agent.md': 'e6d98806f989c1d6e284223d97725cfc69523ef531c0d2805b32b71d8a42bbc6',
-  '.github/agents/poc-test-developer.agent.md': 'da7785d620f669c41fa07921bcc6ef8bb26bc5fbb7eaca81f470b3fdf1feef8c',
-  '.github/agents/poc-validator.agent.md': 'b2bed98021cfb9dd5a9b8ae31d9f0fbea0fee920d0bf968f7d3f9217dd89719d',
-  '.github/agents/product-designer.agent.md': '0f5fe7ec6f8e75d85493266f0982db49bac9fb20673867d119ff8e65cc3b54cf',
-  '.github/agents/product-owner.agent.md': '84bba38e1fe4dfa812b213255283c202c8a96b81179841bb3cb909f073b99b39',
-  '.github/agents/qa.agent.md': '1e1500d7ce6ccf22197bf77d7983f16ac7ad2617de2fa6bcd9dd08aae02ddf71',
-  '.github/agents/scenario-developer.agent.md': '3e17401a1e2aaa531456145dfa765445cc937e210ede38fad08d89c10185133b',
-  '.github/agents/scenario-tester.agent.md': '075a2f13c8867245d11729dc9c0b304a40683d88424c8bed9587d7a4dc1aa3f1',
+  '.github/agents/architect.agent.md': '6b04a0161f445d0d585933d3891e07522cd652683e580752b5497f14ac86deb0',
+  '.github/agents/developer.agent.md': 'e58aa358944af2247810f2f272d6571c253d43709da34b0ec7f012083a233606',
+  '.github/agents/document-analyst.agent.md': '03c307bb9396ec71ea8af1a347c45cae82c2e5cb04197588c24ce48ea6559d37',
+  '.github/agents/mobile-architect.agent.md': 'fee53598c1cf2aa27a365979df06c7bd3f42e3d1b7994b9ecfc2214f31772478',
+  '.github/agents/poc-analyst.agent.md': '4df9fb95469acfa0a036d44d47ac93a2f2a21a9a70703c98abd43d8460e4442d',
+  '.github/agents/poc-automation.agent.md': 'fe311f2172c31133608d1a9d2f2a6afc9229fcec124e05bbd62080ee5b9ec99d',
+  '.github/agents/poc-explorer.agent.md': '839a0e22f66192fe3ff5cb503a211e6baec05760c0463da97a6651071508fcdb',
+  '.github/agents/poc-lite-implementer.agent.md': '9d907a1f75e54b75a0a581843aa1195c6635e72a351e54e3de0763daeeec0c29',
+  '.github/agents/poc-lite-planner.agent.md': '74b564d5ca0063954fedf554d9c2350a9eebf78deef212ed2c6907283f35fdae',
+  '.github/agents/poc-lite-verifier.agent.md': '14fe9eb15692eac47922cbc61de3686aec2eedf447544ae6ab6901c70995d33e',
+  '.github/agents/poc-test-developer.agent.md': '6576545a8047586326e2b48a77d8b92c5325807de7f717a636962eeef0622644',
+  '.github/agents/poc-validator.agent.md': '0d02fd985d4948ce8a4d3a1145f7334decf60e8d09f4869a9d05fe02715dbd1a',
+  '.github/agents/product-designer.agent.md': '93eec54ac8b0d671804123ee20bdcd67155a02cb274b5168380f7a77db2f1a11',
+  '.github/agents/product-owner.agent.md': '62c866c5545c95b789bdaa7d279b19074f5d19d690c9a09501dc6464c7506882',
+  '.github/agents/qa.agent.md': 'de84f6854724abbda3ba42c8040fdb710147f1574862ea04c8311628ece4e53c',
+  '.github/agents/scenario-developer.agent.md': '9fc0f10ebd86aa0f3efb30414b5523fa8afc5732ffaa3402a1387bac671b4c26',
+  '.github/agents/scenario-tester.agent.md': '3f9ea64bd093f5fd63c7d7c5837313deff922feae22c5a5b5e76bed6a131d3be',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
   'singularity/modelTiers.yml': '9c829dea6676d1ad6066197a582125ec049a7e42c62300736ec83cb2ba563449',

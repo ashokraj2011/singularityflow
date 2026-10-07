@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  COPILOT_PAUSE_GUARD, COPILOT_PAUSE_MARKER, copilotModeFile, readCopilotMode, setCopilotPaused
+  copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, copilotModeFile, readCopilotMode, setCopilotPaused
 } from '../src/copilot-mode.mjs';
 import { copilotAgentStartHook, sessionStartAgentHook, agentGuardHook } from '../src/agent-hooks.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
@@ -68,6 +68,8 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(paused.storyStateChanged, false);
   assert.equal(paused.repositoryChanged, false);
   assert.equal(invoke(['home', '--json', '--request', 'write ordinary code']).nativeCopilot, true);
+  assert.equal(invoke(['phase', 'enter', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['phase', 'enter', '--compose', '--for-agent', '--json']).nativeCopilot, true);
   for (const event of ['agent-start', 'session-start', 'agent-guard', 'turn-intent', 'turn-end']) {
     assert.deepEqual(invoke(['hook', event]), {});
   }
@@ -104,7 +106,7 @@ test('every packaged and direct skill is explicit-only and guards pause before b
     const source = await readFile(path.join(sourceRoot, name, 'SKILL.md'), 'utf8');
     assert.match(source, /^disable-model-invocation: true$/mu, name);
     if (name !== 'sflow-pause' && entry.class !== 'delegation') {
-      assert.ok(source.includes(COPILOT_PAUSE_GUARD), name);
+      assert.ok(source.includes(copilotPauseGuardForSkill(name)), name);
       assert.ok(source.indexOf(COPILOT_PAUSE_MARKER) < source.indexOf('<!-- sflow-execution-boundary -->'), name);
     }
     assert.match(renderDirectSkill(source, name), /^disable-model-invocation: true$/mu);

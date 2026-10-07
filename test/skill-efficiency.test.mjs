@@ -140,8 +140,9 @@ test('generative requirements retains interactive clarification and governed pub
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-requirements', 'SKILL.md'), 'utf8');
   assert.match(content, /sflow-output-contract: clarification-and-artifact/);
   assert.match(content, /Human clarification checkpoint|ask_user/);
-  assert.match(content, /phase publish <phase>/);
-  assert.match(content, /reproduce every published text document in full/);
+  assert.match(content, /Use returned `commands\.publish` when `ready`; absent: relay `commands\.next`, stop/);
+  assert.match(content, /matching non-null `displayBinding`; else display every published text document in full/);
+  assert.match(content, /reuse never carries approval consent/);
 });
 
 test('phase handoffs always show the Copilot action and terminal equivalent', async () => {
@@ -160,7 +161,8 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
     } else {
       // Dynamic handoffs retain exact decision arguments; a literal slash command is not required.
       const boundHandoff = /`handoff`[^\n]*`copilotCommand`[^\n]*`command`/.test(content)
-        || /relay the returned handoff[^\n]*Copilot\/Shell pairs/.test(content);
+        || /relay the returned handoff[^\n]*Copilot\/Shell pairs/.test(content)
+        || /Relay `continuation\.actions`: phase and Shell\/Copilot pair/.test(content);
       assert.ok(boundHandoff || /Next in Copilot: \/sf-|next: Copilot `\/sf-/.test(content), `${name} must relay the verified Copilot command`);
       assert.ok(boundHandoff || /Terminal equivalent: singularity-flow |Shell `singularity-flow /.test(content), `${name} must include the terminal equivalent`);
     }

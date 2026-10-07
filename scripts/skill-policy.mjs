@@ -3,7 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { operationCatalog } from '../src/command-registry.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
-import { COPILOT_PAUSE_GUARD, COPILOT_PAUSE_MARKER } from '../src/copilot-mode.mjs';
+import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 
 export const COMMAND_PRESENTATION_CONTRACT = 'For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.';
 
@@ -260,6 +260,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
 });
 
 function executionBoundary(kind = 'story', name = '') {
+  if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse the entry packet: require `ready`/`workId` and valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths within this Story; never `$HOME`.';
   if (kind === 'machine') {
     return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';
   }
@@ -325,6 +326,9 @@ function withAutomaticPolicy(text, automatic, description, file) {
 
 function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind) {
   const skill = splitSkill(text, file);
+  // Additional blocked/risk prose can separate the generated contract from its boundary. Strip
+  // all maintained boundaries first so repeated generation never appends a second lookup.
+  const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${COMMAND_PRESENTATION_CONTRACT}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
@@ -333,21 +337,21 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
   const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
   let body;
-  if (existing.test(skill.body)) {
-    body = skill.body.replace(existing, rendered);
+  if (existing.test(sourceBody)) {
+    body = sourceBody.replace(existing, rendered);
   } else {
-    const heading = skill.body.match(/^# .+$/m);
+    const heading = sourceBody.match(/^# .+$/m);
     if (!heading) throw new Error(`${file}: missing H1 heading for output contract`);
     const end = heading.index + heading[0].length;
-    body = `${skill.body.slice(0, end)}\n\n${rendered}${skill.body.slice(end)}`;
+    body = `${sourceBody.slice(0, end)}\n\n${rendered}${sourceBody.slice(end)}`;
   }
   return `---\n${skill.frontmatterSource}\n---\n${body}`;
 }
 
-function withCopilotPauseGuard(text, enabled, file) {
+function withCopilotPauseGuard(text, enabled, file, name) {
   const skill = splitSkill(text, file);
   let body = skill.body.replace(/<!-- sflow-copilot-pause -->\r?\n[^\r\n]*\r?\n\r?\n?/gu, '');
-  if (enabled) body = body.replace(/^(# .+)$/mu, `$1\n\n${COPILOT_PAUSE_MARKER}\n${COPILOT_PAUSE_GUARD}`);
+  if (enabled) body = body.replace(/^(# .+)$/mu, `$1\n\n${COPILOT_PAUSE_MARKER}\n${copilotPauseGuardForSkill(name)}`);
   return `---\n${skill.frontmatterSource}\n---\n${body}`;
 }
 
@@ -368,7 +372,7 @@ export function authoringSkillContractErrors(entry, body) {
   const steps = [...body.matchAll(/^(\d+)\. (.*)$/gmu)];
   const first = steps.find((match) => match[1] === '1')?.[2] ?? '';
   const last = steps.at(-1)?.[2] ?? '';
-  for (const required of ['singularity-flow phase show <phase> --json', '`policyVerified`', '`policyReason`']) {
+  for (const required of [entry.id === 'sf-phase' ? 'entry `authoring`' : 'singularity-flow phase show <phase> --json', '`policyVerified`', '`policyReason`']) {
     if (!first.includes(required)) errors.push(`step 1 of a selectable authoring skill must include '${required}'`);
   }
   if (entry.id === 'sf-phase') {
@@ -464,7 +468,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
       text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind);
-      text = withCopilotPauseGuard(text, pauseGuardRequired, file);
+      text = withCopilotPauseGuard(text, pauseGuardRequired, file, name);
       await writeFile(file, text);
     }
     const skill = splitSkill(text, file);
@@ -474,14 +478,15 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     // The shared command-presentation requirement is fixed engine-owned overhead, not an
     // allowance to grow per-skill prose. Report both budgets and keep the existing domain cap.
     const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
-    const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${COPILOT_PAUSE_GUARD}\n\n`) : 0;
+    const pauseGuard = copilotPauseGuardForSkill(name);
+    const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
     const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + pauseGuardTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
     const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
-    if (pauseGuardRequired && (!skill.body.includes(COPILOT_PAUSE_GUARD)
+    if (pauseGuardRequired && (!skill.body.includes(pauseGuard)
         || skill.body.indexOf(COPILOT_PAUSE_MARKER) > skill.body.indexOf(boundaryMarker))) {
       errors.push(`${name}: pause guard must precede all repository/Story boundary lookups`);
     }
@@ -502,6 +507,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (!skill.body.includes(marker)) errors.push(`${name}: missing '${classPolicy.outputContract}' output contract`);
     if (!skill.body.includes(COMMAND_PRESENTATION_CONTRACT)) errors.push(`${name}: missing Shell/Copilot presentation contract`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
+    if (skill.body.split(boundaryMarker).length !== 2) errors.push(`${name}: exactly one generated execution boundary is required`);
     if (skill.body.includes('singularity/work-items/<WORK-ID>')) {
       errors.push(`${name}: hard-codes the default Story root instead of using immutable workflow.resolution.workItemRoot or a CLI-returned path`);
     }

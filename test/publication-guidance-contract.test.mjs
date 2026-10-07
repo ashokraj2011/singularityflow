@@ -96,6 +96,9 @@ test('every published convergence route stops at explicit human advancement', as
   const convergence = resolved.phases.find((phase) => phase.id === 'convergence');
   const workflow = runtimeWorkflow('spec-driven-standard', convergence);
   workflow.phases.convergence.generation = 1;
+  workflow.phases.convergence.generationPublications = [{ generation: 1, record: {
+    path: 'singularity/work-items/GUIDANCE-1/context/publications/convergence-gen1.json', sha256: 'sha256:' + 'a'.repeat(64)
+  } }];
 
   const surfaces = {
     guide: workflowGuide(workflow).nextActions,

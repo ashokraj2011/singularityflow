@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 3
+version: 4
 ---
 # Compact phase entry for Copilot
 
@@ -15,6 +15,11 @@ model-free read. Pause is checked before Git, workspace discovery or loading Sto
 `ready` describes the checkout/session binding, not publication, passing tests or approval.
 Inspect the returned recovery actions and clarification status. Protected/unrelated changes,
 required human confirmations and immutable-generation repair still use their exact existing routes.
+Recovery and entry actions include verified `commandGuidance`/`copilotCommand` centrally; shell
+commands are never interpreted as implicit permission or guessed slash commands. A misclassified
+retained screenshot has a scoped evidence-contract review route, not a request to delete it or
+commit unrelated source merely to clear the worktree. The reviewed correction can restore draft
+ownership without changing prior publications or claiming that visual acceptance passed.
 
 After reviewing that entry packet, use:
 

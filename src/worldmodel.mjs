@@ -57,6 +57,7 @@ import {
 import { resolveCurrentArchitectureProjectionInputs } from './world-model/projections/calm/authority.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
+import { stepResponsibilities } from './phase-roles.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import {
@@ -4423,6 +4424,8 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
   const clarification = resolvedClarificationPolicy(definition, workflow, phase);
   const allowedProducers = publication.allowedProducers;
   const deterministicOnly = allowedProducers.length === 1 && allowedProducers[0] === 'deterministic';
+  const ownsPlan = Object.values(workflow?.resolution?.plannedClaims?.owners ?? {}).includes(phase.id)
+    || stepResponsibilities(workflow, phase.id).includes('plan');
   const command = publication.command;
   const lines = [
     `- Generation requirement: \`${generationPolicy.requirement}\``,
@@ -4433,6 +4436,10 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     '- Clarification authority: this pinned mode overrides generic skill, agent, and template guidance.',
     `- Exact publication command: \`${command}\``,
     '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
+    ...(ownsPlan ? [
+      '- Evidence planning: retained screenshots/documents need their exact Story evidence path in the planned row with Fulfillment `evidence`; source and test paths have separate roles.',
+      '- Verification contracts: use the actual `## Verification contracts` table (Criterion | Slot | Method | Witness) for primary visual/inspection proof. Prose alone cannot change the default test contract. Planned tests may be supporting; file presence never proves acceptance.'
+    ] : []),
     ...(deterministicOnly ? [
       '- Deterministic-only generation: do not author or edit the phase artifact with a model, governed agent, or human. Run only the deterministic kernel action returned by the router; the kernel owns artifact generation.'
     ] : [])

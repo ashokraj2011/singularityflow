@@ -79,6 +79,30 @@ function visibleLines(markdown) {
   });
 }
 
+/** Explicit prose contracts must not silently fall back to the default automated-test slot. */
+export function proseVerificationDeclarations(markdown) {
+  return visibleLines(markdown).flatMap((line, index) => {
+    const method = line.match(/\bprimary\s+(visual|inspection)\s+verification\s+contract\b/iu)?.[1]?.toLowerCase();
+    if (!method) return [];
+    const clauseIds = [...line.matchAll(/\b([A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3})\b/giu)]
+      .map(match => match[1].toUpperCase());
+    return [{ method, clauseIds: [...new Set(clauseIds)], line: index + 1 }];
+  });
+}
+
+/** The machine-readable row, not a paragraph, owns each retained file. */
+export function validateRetainedEvidenceDeclarations(markdown, plannedClaims, { evidenceRoot } = {}) {
+  if (!evidenceRoot) return;
+  const declared = new Set(Object.values(plannedClaims).filter(claim => claim.fulfillment === 'evidence')
+    .flatMap(claim => claim.expectedPaths ?? []));
+  for (const match of visibleLines(markdown).join('\n').matchAll(/`([^`\n]+)`/gu)) {
+    const candidate = match[1];
+    if (candidate.startsWith(`${evidenceRoot}/`) && !declared.has(candidate)) throw invalid(
+      `Retained file ${candidate} is named outside a typed evidence row. Put its exact path in Expected paths with Fulfillment evidence, and define a primary visual/inspection slot in the Verification contracts table.`,
+      { path: candidate, correction: 'type-retained-evidence' });
+  }
+}
+
 function witnessCell(method, cell, label) {
   const source = String(cell ?? '').trim();
   const values = [...source.matchAll(/`([^`\n]+)`/gu)].map((match) => match[1]);
@@ -193,6 +217,14 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     if (!contracts.find((contract) => contract.clauseId === id)?.slots.some((slot) =>
       slot.role === 'primary' && ['inspection', 'visual'].includes(slot.method))) {
       throw invalid(`${id} delivers retained evidence: name a primary visual or inspection contract; file presence alone cannot verify the criterion.`);
+    }
+  }
+  for (const declaration of proseVerificationDeclarations(markdown)) {
+    for (const clauseId of declaration.clauseIds) {
+      if (!contracts.some(contract => contract.clauseId === clauseId && contract.slots.some(slot =>
+        slot.role === 'primary' && slot.method === declaration.method))) throw invalid(
+        `${clauseId} declares a primary ${declaration.method} contract in prose, but has no matching primary slot in the Verification contracts table. Prose never replaces the structured verification contract.`,
+        { clauseId, line: declaration.line, correction: 'register-verification-contract' });
     }
   }
   return contracts;

@@ -720,6 +720,7 @@
       "description": "Append-only narrow plan amendments: a changed path accounted for as part of one row's delivery, or listed as a supporting change of a closed class, recorded by someone in the group that approves the plan.",
       "type": "array",
       "items": {
+        "oneOf": [{ "$ref": "plan-evidence-amendment.schema.json" }, {
         "type": "object",
         "required": ["id", "changes", "reason", "actor", "authorityGroup", "at"],
         "properties": {
@@ -747,6 +748,7 @@
           "at": { "type": "string", "format": "date-time" }
         },
         "additionalProperties": false
+        }]
       }
     },
     "completenessReviews": {

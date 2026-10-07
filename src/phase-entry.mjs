@@ -14,6 +14,7 @@ import { resolvePersonalization } from './personalization.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from './workspace-context.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -62,7 +63,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     effects: { contextCompositionRequested: compose, testsRun: false, storyAdvanced: false,
       committed: false, pushed: false }, modelInvocations: 0 };
   if (!base.ready) return { ...base, status: 'binding-required', context: null,
-    next: session.phaseAgent?.handoff ? [session.phaseAgent.handoff] : [], authoringAllowed: false };
+    next: session.phaseAgent?.handoff ? [recoveryActionGuidance(session.phaseAgent.handoff)] : [], authoringAllowed: false };
   const authoring = await phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true });
   const recovery = await recoveryPlan(root, definition, workflow, {
     phaseId: phase.id, inspectActivePhase: true, modelEnabled
@@ -96,9 +97,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
-    next: preparationAdmitted ? authoring.entry.actions
+    next: (preparationAdmitted ? authoring.entry.actions
       : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
-      : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions,
+      : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions).map(recoveryActionGuidance),
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
       documents: `singularity-flow phase show ${phase.id} --json` } };
 }

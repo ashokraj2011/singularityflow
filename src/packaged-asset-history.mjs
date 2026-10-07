@@ -136,7 +136,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     '251df4ed09c44844edabf7a097d7cdb443f88e9eb66b94716b9ead1ca97498fd',
     '5e70231c6271f9b637f876862847c10ad938bafcab33ad56cdb1d3ad8e5bee5f',
     'bbe153af31a1554ae96d3b3e0314e40d5bc543eb501fd6d18e7dd3f5e619a064',
-    'd18e7af418ac8b89af1df8214c015d23828e5c0d9cfad65123c1d37579f295e5'
+    'd18e7af418ac8b89af1df8214c015d23828e5c0d9cfad65123c1d37579f295e5',
+    'ea181c89f78780be53165f1fbb4436efd4d5ed888e1286765f1bcb938bd06d21'
   ]),
   // Before the specification cited its supporting documents under Sources.
   'singularity/templates/spec-driven/spec.md': Object.freeze([
@@ -446,7 +447,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-code-test-loop/specification.md': 'cc407b7192e181456f1ba6e8af2ddfb81ae4329efa2dc829d2aa060cd4e66c1d',
   'singularity/templates/spec-code-test-loop/testing.md': 'eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
-  'singularity/templates/spec-driven/plan.md': 'ea181c89f78780be53165f1fbb4436efd4d5ed888e1286765f1bcb938bd06d21',
+  'singularity/templates/spec-driven/plan.md': '66fecb17e2ee3397909ca79f2834e445b27050f2d67d066b434deb589f5ffa04',
   'singularity/templates/spec-driven/release.md': '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe',
   'singularity/templates/spec-driven/spec.md': '55b0d6c4c9aa5ba19739493825f6c993f03d63bed9e1a5e2bb7d5c099b8b91bb',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',

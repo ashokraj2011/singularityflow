@@ -26,6 +26,8 @@ import { artifactQualityStatus, approvedArtifactQualityFindings } from '../src/p
 import { inspectPhaseAuthoredReviewContent } from '../src/publication-preflight.mjs';
 import { publishedGenerationCommit } from '../src/generation-publication-store.mjs';
 import { runGovernanceGate } from '../src/governance.mjs';
+import { readBoundSpecificationClaimMap } from '../src/specifications.mjs';
+import { recoveryPlan } from '../src/collaboration.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -168,6 +170,52 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, intak
   return { root, remote, git, cli, write, item, summary, load: () => loadAcceptedStoryExecution(root, WORK) };
 }
 const request = { phaseId: 'implementation', changes: [{ kind: 'add-location', clauseId: `${WORK}:AC-001`, path: 'src/helper.mjs' }], reason: 'The small helper implements the already approved return value.' };
+
+test('reviewed evidence typing preserves the draft/index and clears only exact screenshot ownership', { timeout: 180000 }, async t => {
+  const f = await fixture(t, { directCoverage: true });
+  const evidencePath = `${f.item}/evidence/value.png`;
+  await f.write(evidencePath, Buffer.from('retained visual proof, not a passing adjudication'));
+  const options = ['--phase', 'implementation', '--clause', `${WORK}:AC-001`, '--path', evidencePath,
+    '--method', 'visual', '--reason', 'This approved visual value obligation was incorrectly typed as product-source delivery.'];
+  let { workflow, definition } = await f.load();
+  const owner = workflow.phases[workflow.resolution.plannedClaims.owners.implementation];
+  const ownerBytes = await readFile(path.join(f.root, owner.claimMaps.planned.path));
+  const codeBytes = await readFile(path.join(f.root, 'src/value.mjs'));
+  const imageBytes = await readFile(path.join(f.root, evidencePath));
+  f.git('add', 'src/value.mjs');
+  const indexBefore = f.git('ls-files', '--stage').stdout;
+  const recovery = await recoveryPlan(f.root, definition, workflow, { phaseId: 'implementation', inspectActivePhase: true });
+  assert.deepEqual(recovery.actions.find(action => action.id === 'working-tree').unexpectedPaths, [evidencePath]);
+  const route = recovery.actions.find(action => action.id.startsWith('review-evidence-contract:'));
+  assert.match(route.copilotCommand, /^\/sf-appeal evidence-prepare/u);
+  const packet = JSON.parse(f.cli('appeal', 'evidence-prepare', ...options, '--json').stdout).data.packet;
+  const id = `PEA-${packet.packetSha256.slice(7, 31)}`;
+  const stale = run(process.execPath, [CLI, '--no-model', 'appeal', 'evidence-accept', ...options, '--confirm', 'sha256:' + '0'.repeat(64), '--json'], f.root, true);
+  assert.equal(JSON.parse(stale.stdout).error.code, 'PLAN_EVIDENCE_CORRECTION_STALE');
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
+  const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PEA_NODE) $env(PEA_CLI) --no-model appeal evidence-accept --phase implementation --clause $env(PEA_CLAUSE) --path $env(PEA_PATH) --method visual --reason $env(PEA_REASON) --confirm $env(PEA_CONFIRM) --json\nexpect "Type Correct evidence ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Correct evidence ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
+    { cwd: f.root, encoding: 'utf8', timeout: 60000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+      PEA_NODE: process.execPath, PEA_CLI: CLI, PEA_CLAUSE: `${WORK}:AC-001`, PEA_PATH: evidencePath, PEA_REASON: options.at(-1), PEA_CONFIRM: packet.packetSha256 } });
+  assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
+  assert.match(ceremony.stdout, /evidence-contract-corrected/u);
+  ({ workflow, definition } = await f.load());
+  const plan = await readBoundSpecificationClaimMap(f.root, path.join(f.root, f.item), workflow, workflow.phases[owner.id], 'planned', { requireCommitted: true });
+  assert.equal(plan.claims[`${WORK}:AC-001`].fulfillment, 'evidence');
+  assert.deepEqual(plan.claims[`${WORK}:AC-001`].expectedPaths, [evidencePath]);
+  assert.deepEqual(plan.claims[`${WORK}:AC-001`].tests, ['test/value.test.mjs']);
+  const restored = await recoveryPlan(f.root, definition, workflow, { phaseId: 'implementation', inspectActivePhase: true });
+  const dirty = restored.actions.find(action => action.id === 'working-tree');
+  assert.deepEqual(dirty.unexpectedPaths, []);
+  assert.equal(dirty.confirmation, 'none');
+  assert.equal(workflow.phases.implementation.generation, 0, 'correction neither publishes nor advances');
+  assert.equal(workflow.phases.implementation.status, 'in_progress');
+  assert.deepEqual(await readFile(path.join(f.root, owner.claimMaps.planned.path)), ownerBytes);
+  assert.deepEqual(await readFile(path.join(f.root, 'src/value.mjs')), codeBytes);
+  assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);
+  assert.equal(f.git('ls-files', '--stage').stdout.split('\n').find(line => line.endsWith('\tsrc/value.mjs')),
+    indexBefore.split('\n').find(line => line.endsWith('\tsrc/value.mjs')), 'unrelated staged source survives the exact decision commit');
+  assert.match(f.git('status', '--porcelain=v1', '--untracked-files=all').stdout, /value\.png/u, 'screenshot stays private until normal publication');
+});
 
 test('publication stage follows policy and generation rather than a built-in phase name', () => {
   for (const id of ['implementation', 'verification', 'custom-code', 'specification']) {

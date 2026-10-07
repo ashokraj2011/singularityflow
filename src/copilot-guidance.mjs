@@ -64,9 +64,14 @@ function approvalSelectors(command) {
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
   const explicit = directCopilotSkill(skill);
   if (explicit && /\s/u.test(explicit)
-      && !['/sf-approve', '/sf-worldmodel', '/sf-review-source'].includes(directCopilotSkillId(explicit))) return explicit;
+      && !['/sf-approve', '/sf-worldmodel', '/sf-review-source', '/sf-appeal'].includes(directCopilotSkillId(explicit))) return explicit;
   const selected = directCopilotSkillId(explicit) ?? explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
+  if (selected === '/sf-appeal') {
+    const match = !/[\u0000-\u001f\u007f]/u.test(value)
+      && value.match(/^(?:singularity-flow|sflow)\s+appeal\s+(evidence-prepare|evidence-accept)(?:\s+(.+))?$/u);
+    return match ? `${selected} ${match[1]}${match[2] ? ` ${match[2]}` : ''}` : selected;
+  }
   if (selected === '/sf-worldmodel') {
     // Bare worldmodel is inspection, not an interchangeable substitute for compose/build/doctor.
     // The shell action owns its operation and selectors; an asserted skill cannot change them.

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9fba51130d4209855398506bcf6b72c6ba408275",
+  "sourceCommit": "74e9df533d6765f805bd3e6ed3f43aef409f3c83",
   "topicCount": 81,
-  "contentSha256": "4f6f2eeee016bb9eb1ba1963832c90135b2d887e7086880651537ae332994837",
+  "contentSha256": "2329fd1d1816bcc61e19f9fa35bb83541e705ecc3c664211ff6b2b8699361894",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,8 +112,8 @@
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 3,
-      "sha256": "33c6762f486c808190397da23145120713c92a3a6f92bd7235e784ed9aa955bb",
+      "version": 4,
+      "sha256": "a4217316b3f912dc9a0ab9236f8c8627fbe8416082d89ad7cd4e611a4bb49780",
       "routingSha256": "f3f91248858b483c276225037aa2cfb5e5f05530385dba62614ecfe8c4a8a1e6",
       "file": "compact-phase-entry.md"
     },
@@ -392,8 +392,8 @@
     {
       "id": "phase-appeals",
       "title": "Phase appeals and recoverable blockers",
-      "version": 2,
-      "sha256": "39cbbc869c5dfc455e1d0eb4c8f3c3d6e2d386270af51ada788f0d33ce74a901",
+      "version": 3,
+      "sha256": "7762d9f0b759fe2c3a82db716e4616e3aa2c6e36cd15dbafebf5beed018aab2d",
       "routingSha256": "10bdea3b1c2cf7abfb8fff98ab9bca35ed4e2fad27caa60f4f572d10684d6a28",
       "file": "phase-appeals.md"
     },

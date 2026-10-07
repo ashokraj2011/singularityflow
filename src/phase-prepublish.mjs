@@ -165,7 +165,8 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         });
         const sourceSnapshot = await snapshot(source.absolute);
         const authored = authoredArtifactText(await readFile(source.absolute, 'utf8'));
-        const derived = derivePlannedClaimMap(authored, { clauseIds, policy: specPolicy });
+        const derived = derivePlannedClaimMap(authored, { clauseIds, policy: specPolicy,
+          evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` });
         // Verification contracts are checked here too, so a defect shows before publishing [E2G-013].
         let contracts = [];
         try {

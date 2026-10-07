@@ -15,26 +15,26 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Run `singularity-flow appeal preflight $ARGUMENTS --json`. Show findings/owners/routes; no gate success.
+Default: `singularity-flow appeal preflight $ARGUMENTS --json`; show findings/owners/routes, not success. Arguments starting `evidence-prepare`: execute that exact read-only action instead. `evidence-accept`: human-terminal relay only; never prepend preflight or execute/answer confirmation.
 
-`singularity-flow appeal checkpoint --phase PHASE --json` saves bounded private dirty-file/index copies; no staging/commit/discard. `singularity-flow appeal checkpoint-show PCP-ID --phase PHASE --json` verifies, never restores. Oversized/linked work needs reviewed backup.
+`singularity-flow appeal checkpoint --phase PHASE --json`: bounded private dirty-file/index copies; no staging/commit/discard. Returned checkpoint-show verifies, never restores. Oversized/linked work needs reviewed backup.
 
-`quality.status: pending-submission-evidence`: returned `/sf-submit` for fresh tests/claims, not republication/risk/older evidence.
+`quality.status: pending-submission-evidence`: `/sf-submit`, fresh tests/claims; no republication/risk/old evidence.
 
-Eligible coverage: correction or `singularity-flow appeal risk-prepare --phase PHASE --gate-mode soft --expires YYYY-MM-DD --reason TEXT --json`. Ask reason/expiry; show once. Optional `--clause EXACT-ID` / `--transition publish|submit|approve|consume|terminal`. Draft coverage: publication only; re-review published evidence. Hard default; soft enrolls this phase only.
+Eligible coverage: correct or `singularity-flow appeal risk-prepare --phase PHASE --gate-mode soft --expires YYYY-MM-DD --reason TEXT --json`. Ask reason/expiry; show once. Select exact clause/transitions when returned. Draft coverage: publish only; published evidence needs fresh review. Soft enrolls only this phase; hard default.
 
-`artifactQuality.eligible`: same preview with returned `--finding EXACT-CODE`, not clauses. Bound bytes/generation/upstream/policy/transitions; label **unmet, accepted risk**. Changed bytes need review. Missing artifacts/sections, malformed records, deterministic projections and integrity are ineligible.
+`artifactQuality.eligible`: same preview with returned `--finding EXACT-CODE`. Bound bytes/generation/upstream/policy/transitions; label **unmet, accepted risk**. Changed bytes need review. Missing artifacts/sections, malformed records, deterministic projections and integrity are ineligible.
 
-Relay `singularity-flow appeal risk-accept`, identical options plus `--confirm PACKET_SHA256`, to human terminal; never execute/answer confirmation. Tests/approval remain required; expired/revoked/stale cannot advance. Use returned risk-attest/risk-revoke commands for clone/key loss or withdrawal; exact decision hash and live review required.
+Relay returned `singularity-flow appeal risk-accept` with identical options/packet hash to a human terminal; never execute/answer. Expired/revoked/stale decisions cannot advance. Returned attestation/revocation routes require exact hash/live review.
 
-Extra paths: `singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT --json` or `--add-supporting PATH=CLASS --supporting-reason TEXT`. Show clauses/diff once. Authorized retention: `singularity-flow appeal submit`, same selectors/confirmation. Preserve unrelated edits.
+Extra paths: `singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT --json` or supporting selectors. Show exact clauses/diff; retain only through returned submit selectors/hash. Preserve unrelated edits.
 
-`singularity-flow appeal list --json` / `singularity-flow appeal show APL-ID --json`. Human-terminal relay only: `singularity-flow appeal decide APL-ID --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256`. Accounting waives no test/review/approval.
+Evidence typing: returned `singularity-flow appeal evidence-prepare`; exact phase/approved AC/path/method/reason. Show row/file/hash/contract; relay acceptance to plan authority. Preserve prior artifacts. Ownership is not visual proof; source-bound witness, tests/review/approval remain required.
+
+Returned list/show routes. Human relay: `singularity-flow appeal decide APL-ID --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256`. Accounting waives nothing.
 
 Intent: `singularity-flow story intent-amendment`; failed tests: `singularity-flow story test-policy risks`. Trust/protected paths stay hard.
 
-Appeal attestation also needs exact hash/live review; preserve history.
+Follow `repairLoop.protocol`: authorized run saves/reserves; repair owned findings; resume rechecks the same attempt. Status reads only. Automatic: registered idempotent sync only. No nested model/error-supplied commands; unknown/protected/decisions need owners.
 
-Follow `repairLoop.protocol` and returned repair-plan/run/resume commands: authorized run saves/reserves; repair owned findings; resume rechecks that attempt. Status reads only. Automatic: registered idempotent sync only. No nested model/error-supplied commands; unknown/protected/decisions need owners.
-
-Exhaustion stops automation, not manual repair. Show preservation/risk/successor routes; no auto-submit/approve, unchanged retry, journal resets, fake passes or stash/discard/force-push.
+Exhaustion stops automation, not manual repair. Show preservation/risk/successor routes. No auto-submit/approve, unchanged retry, journal resets, fake passes, stash/discard/force-push.

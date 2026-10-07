@@ -1,6 +1,6 @@
 ---
 id: phase-appeals
-version: 2
+version: 3
 title: Phase appeals and recoverable blockers
 summary: Preserve and review exact extra work without silently bypassing tests, intent or configuration authority.
 audience: [developer, approver, administrator]
@@ -54,9 +54,51 @@ On a new checkout, Git carries the decision but not the local live-review witnes
 
 ## Different kinds of issue
 
+### Misclassified screenshot or inspection delivery
+
+A file mentioned only in plan prose is not machine-readable ownership. Before publication,
+every plan producer (including custom agents and phase names) must put the exact retained path
+in its planned-evidence row with `Fulfillment: evidence` and a primary visual/inspection slot
+in the actual `## Verification contracts` table. Source/test rows and prose-only primary
+contracts are refused early, while that plan is still editable.
+
+For an already approved plan with this typing error, recovery preserves the current unpublished
+draft and returns `review-evidence-contract` with its exact unexpected file and eligible AC IDs.
+Use the returned Copilot `/sf-appeal evidence-prepare ...` or shell preview:
+
+```sh
+singularity-flow appeal evidence-prepare --phase PHASE --clause STORY:AC-001 \
+  --path singularity/work-items/STORY/evidence/screen.png --method visual \
+  --reason "The approved screenshot obligation was incorrectly classified as product source." --json
+```
+
+Use the configured Story root, not necessarily the default path in this example. Inspect the
+old claim row, proposed contract and exact file bytes/hash. An authorized plan reviewer relays
+the returned `evidence-accept` command with the exact packet hash to a live human terminal.
+Copilot cannot execute or answer that confirmation. Changed bytes, plan, policy, worktree or
+generation require a fresh preview. Prior approved documents and claim maps remain immutable;
+tampering with them cannot use this path.
+
+The append-only decision corrects only this approved AC's delivery typing/path. Bound plan
+readers apply the same correction for draft checks, publication, submission, convergence and
+terminal evidence; a later approved plan supersedes its predecessor's correction. Planned tests
+remain supporting witnesses, and required executable commands remain mandatory. Ownership does
+not mean acceptance passed: a source-bound primary visual/inspection adjudication is still
+required, with exact evidence bytes. No tests, independent review or phase approval are waived.
+The decision commit preserves application edits, screenshots, private drafts and the Git index.
+Recheck the returned `/sf-recover` route, continue the same draft, then use normal publication.
+Published/submitted generations require their existing successor or authorized return first.
+
+This path handles exact regular Story evidence files up to 16 MiB, not binary application edits,
+arbitrary directories, links, renames/deletions or protected policy. It does not authorize new
+requirements: use an intent amendment when the behavior, rather than its evidence typing, changes.
+
+## Resolution types
+
 | Situation | Resolution |
 |---|---|
 | Extra location/supporting work for existing intent | Exact-diff scope appeal |
+| Approved screenshot/inspection obligation incorrectly typed as source | Exact evidence-contract preview and live plan-authority correction; visual proof remains required |
 | New requirements or changed acceptance criteria | Existing Story intent-amendment and affected-phase acknowledgement/revalidation |
 | Eligible observed test shortfall | Existing `story test-policy risks` preview and exact authorized risk decision, with scope/expiry/remediation |
 | Eligible authored-document quality shortfall | `appeal risk-prepare --finding EXACT-CODE`; exact human review, transitions and expiry |

@@ -17,7 +17,8 @@ import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
-import { normalizeVerificationContracts } from './verification/contracts.mjs';
+import { normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
+import { applyPlanEvidenceAmendments, verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -728,7 +729,7 @@ function supportingFilesFromPlan(lines) {
  * contract. Prose, guessed filenames, globs, and unqualified clause IDs are
  * deliberately ignored/refused rather than interpreted.
  */
-export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } = {}) {
+export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {}, evidenceRoot = null } = {}) {
   if (typeof markdown !== 'string') throw new SingularityFlowError('Planned claim source must be UTF-8 Markdown.');
   const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
   const claims = {};
@@ -785,7 +786,10 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
   const supportingFileDetails = supportingFilesFromPlan(lines);
   const supportingFiles = supportingFileDetails.map((entry) => entry.path);
   const claimMap = normalizeClaimMap({ claims, supportingFiles, supportingFileDetails }, { kind: 'planned', clauseIds: [...known], policy });
-  validatePlannedEvidenceTypes(claimMap.claims);
+  validatePlannedEvidenceTypes(claimMap.claims, { evidenceRoot });
+  validateRetainedEvidenceDeclarations(plannedClaimSource(markdown), claimMap.claims, { evidenceRoot });
+  const contracts = parseVerificationContracts(plannedClaimSource(markdown), { clauseIds: [...known], plannedClaims: claimMap.claims });
+  if (contracts.length) claimMap.verificationContracts = contracts;
   return {
     claimMap,
     supportingFiles,
@@ -1214,6 +1218,11 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
   }
   // Schema migration proves readability; normalization enforces the pinned clause and path bounds.
   normalizeClaimMap(record, { kind, clauseIds, policy, plannedClaims });
+  if (kind === 'planned') {
+    const itemRoot = posix(path.relative(root, itemDirectory));
+    await verifyPlanEvidenceAmendments(root, workflow, itemRoot);
+    return applyPlanEvidenceAmendments(record, workflow, { evidenceRoot: `${itemRoot}/evidence` });
+  }
   return record;
 }
 
@@ -1402,7 +1411,8 @@ export async function loadActiveSpecRecords(itemDirectory, workflow) {
 }
 
 /** The Story's plan amendments, merged as one more planned record [E2G-012]. */
-function withAmendmentRecord(records, workflow) {
+function withAmendmentRecord(records, workflow, { evidenceApplied = false } = {}) {
+  if (!evidenceApplied) records = { ...records, planned: (records.planned ?? []).map(record => applyPlanEvidenceAmendments(record, workflow)) };
   const amendment = planAmendmentRecord(workflow);
   return amendment ? { ...records, planned: [...(records.planned ?? []), amendment] } : records;
 }
@@ -1492,7 +1502,7 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
     ...base,
     planned: planned.sort(recordOrder),
     observed: observed.sort(recordOrder)
-  }, workflow);
+  }, workflow, { evidenceApplied: true });
 }
 
 export function predecessorSpecClauses(records, workflow, phaseId) {

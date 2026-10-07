@@ -223,6 +223,15 @@ test('phase prompts bind deterministic convergence to its exact publication and 
   assert.match(rendered, /do not author or edit the phase artifact with a model, governed agent, or human/i);
 });
 
+test('evidence-planning instructions follow ownership for custom agents/phases, not a built-in planner name', () => {
+  const phase = { id: 'team-solution', generationPolicy: { requirement: 'required', producer: 'governed-agent', allowedProducers: ['governed-agent'] } };
+  const workflow = { phases: { 'team-solution': phase }, resolution: { phases: [], plannedClaims: { owners: { 'team-build': phase.id } } } };
+  assert.match(phasePromptExecutionContract({ phases: {} }, workflow, phase).lines.join('\n'), /Fulfillment `evidence`/u);
+  assert.match(phasePromptExecutionContract({ phases: {} }, workflow, phase).lines.join('\n'), /actual `## Verification contracts` table/u);
+  workflow.resolution.plannedClaims.owners = {};
+  assert.doesNotMatch(phasePromptExecutionContract({ phases: {} }, workflow, phase).lines.join('\n'), /Evidence planning/u);
+});
+
 test('a phase gets the views it declared, and the agent prompt, but not the agent’s extra views', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-'));
   run('git', ['init', '-b', 'main'], root);

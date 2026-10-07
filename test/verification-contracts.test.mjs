@@ -60,6 +60,16 @@ test('mixed-case contract criteria use canonical identity without changing witne
     error => error.code === 'SPEC_VERIFICATION_CONTRACT_INVALID');
 });
 
+test('explicit prose visual or inspection contracts require actual primary table slots', () => {
+  for (const method of ['visual', 'inspection']) {
+    const prose = `Primary ${method} verification contract for [vc-1:ac-001].`;
+    assert.throws(() => parse(prose), error => error.code === 'SPEC_VERIFICATION_CONTRACT_INVALID' && /no matching primary/u.test(error.message));
+    assert.throws(() => parse(prose + '\n' + table(`| \`${AC1}\` | unit | test | \`test/value.test.js\` | | | | |`)), { code: 'SPEC_VERIFICATION_CONTRACT_INVALID' });
+    assert.equal(parse(prose + '\n' + table(`| \`${AC1}\` | evidence | ${method} | \`screen.png\` | | | | |`)).length, 1);
+    assert.deepEqual(parse('```\n' + prose + '\n```'), [], 'fenced prose examples are not authoritative');
+  }
+});
+
 test('a criterion without a contract keeps the default one test slot; only test slots need an @ac tag', () => {
   const contracts = mergedVerificationContracts([{ verificationContracts: parse(table(`| \`${AC1}\` | review | inspection | \`docs/value.md\` | | | | |`)) }]);
   const stated = effectiveContract(AC1, contracts, planned[AC1]);

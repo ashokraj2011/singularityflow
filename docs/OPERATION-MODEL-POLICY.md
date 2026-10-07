@@ -36,6 +36,8 @@ Every public operation is classified before its implementation module is importe
 | appeal.checkpoint | mutation | never | — | — |
 | appeal.checkpoint-show | read | never | — | — |
 | appeal.decide | mutation | never | — | — |
+| appeal.evidence-accept | mutation | never | — | — |
+| appeal.evidence-prepare | read | never | — | — |
 | appeal.list | read | never | — | — |
 | appeal.preflight | read | never | — | — |
 | appeal.prepare | read | never | — | — |

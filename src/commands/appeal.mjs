@@ -18,8 +18,9 @@ import { createPhaseCheckpoint, inspectPhaseCheckpoint } from '../phase-checkpoi
 import { inspectPhaseAuthoredReviewContent } from '../publication-preflight.mjs';
 import { artifactQualityStatus } from '../phase-artifact-risk.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
+import { prepareEvidenceContractCorrection, acceptEvidenceContractCorrection } from '../phase-evidence-amendment.mjs';
 
-const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show'];
+const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
 function riskRequest(options) {
   return { phaseId: optionString(options, 'phase') ?? undefined, gateMode: optionString(options, 'gate-mode') ?? undefined,
     clauses: optionStrings(options, 'clause'), transitions: optionStrings(options, 'transition').length
@@ -52,6 +53,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       + 'checkpoint: --phase ID saves private dirty-file/index recovery copies; checkpoint-show PCP-ID verifies them without restoring files\n'
       + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
       + 'risk-attest/risk-revoke PQR-ID: --confirm DECISION_SHA256; revoke also --reason TEXT\n'
+      + 'evidence-prepare/evidence-accept: --phase ID --clause EXACT-AC --path STORY/evidence/FILE --method visual|inspection --reason TEXT; accept also --confirm PACKET_SHA256 (live plan-authority review). No tests or visual checks are waived.\n'
       + 'Extra behaviour: story intent-amendment; eligible failed checks: story test-policy risks. Neither is waived by accounting for scope.');
     return;
   }
@@ -60,6 +62,8 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (['prepare', 'submit'].includes(action)) ['add-location', 'add-supporting', 'supporting-reason', 'reason', ...(action === 'submit' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (action === 'decide') ['decision', 'reason', 'confirm'].forEach(key => allowed.add(key));
   if (action === 'attest') allowed.add('confirm');
+  if (['evidence-prepare', 'evidence-accept'].includes(action)) ['clause', 'path', 'method', 'reason',
+    ...(action === 'evidence-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (action === 'repair-run') allowed.add('confirm');
   if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'finding', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (['risk-attest', 'risk-revoke'].includes(action)) ['confirm', ...(action === 'risk-revoke' ? ['reason'] : [])].forEach(key => allowed.add(key));
@@ -70,6 +74,17 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if ((action !== 'list' || optionString(options, 'phase')) && !phase) throw new SingularityFlowError('Choose an existing phase with --phase.');
   let data;
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
+  if (action.startsWith('evidence-')) {
+    for (const key of ['work-id', 'phase', 'clause', 'path', 'method', 'reason', 'confirm']) {
+      if (optionStrings(options, key).length > 1) throw new SingularityFlowError(`Choose one exact --${key} for this evidence correction.`, { code: 'PHASE_APPEAL_OPTIONS_INVALID' });
+    }
+    const request = { phaseId: phase.id, clauseId: optionString(options, 'clause'),
+      evidencePath: optionString(options, 'path'), method: optionString(options, 'method') ?? 'visual',
+      reason: optionString(options, 'reason'), confirm: optionString(options, 'confirm') };
+    data = action === 'evidence-prepare'
+      ? { status: 'review-required', stateChanged: false, packet: await prepareEvidenceContractCorrection(root, config, workflow, request) }
+      : await acceptEvidenceContractCorrection(root, config, workflow, request);
+  }
   if (action === 'checkpoint') data = await withSubjectLock(root, { kind: 'story', id: workflow.workItem.id },
     () => createPhaseCheckpoint(root, config, workflow, phase));
   if (action === 'checkpoint-show') data = await inspectPhaseCheckpoint(root, workflow, phase, positionals[2]);
@@ -118,9 +133,9 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   const changed = data.stateChanged === true;
   if (!optionBoolean(options, 'json')) console.log(JSON.stringify(data, null, 2));
   return emitCommandResult(commandResult({
-    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'checkpoint'].includes(action) ? 'mutation' : 'read' },
+    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded(['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
+    outcome: succeeded(['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'evidence-accept'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true,
       externalSystemsChanged: Boolean(data.publication?.pushed) }) : data.journalChanged ? effects({ filesChanged: true,
       externalSystemsChanged: data.registeredOperationExecuted === true }) : data.localFilesChanged ? effects({ filesChanged: true }) : noEffects(), data

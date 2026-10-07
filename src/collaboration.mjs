@@ -15,6 +15,8 @@ import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
+import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
+import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -239,7 +241,10 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   const worktreeInspection = inspectLifecycleWorktree(root, config, workflow);
   if (worktreeStatus.trim()) {
     const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery, worktreeInspection);
-    if (worktreeAction) actions.push(worktreeAction);
+    if (worktreeAction) {
+      actions.push(worktreeAction);
+      actions.push(...await evidenceContractRecoveryActions(root, config, workflow, phase ?? activePhase, worktreeAction));
+    }
     if (pending.status === 'absent') {
       const commitAction = await reviewedWorktreeCommitAction(root, config, workflow, phase ?? activePhase,
         worktreeInspection, worktreeAction?.applicationScope);
@@ -293,7 +298,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   const plan = { ...core, planId: `sha256:${recordSha256(core)}` };
   return { ...plan, actions: plan.actions.map(action => action.id === 'commit-reviewed-worktree'
     ? { ...action, command: `singularity-flow recover ${plan.workId}${plan.phaseId ? ` --phase ${plan.phaseId}` : ''} --commit-reviewed --confirm ${plan.planId} --json${plan.modelEnabled === false ? ' --no-model' : ''}` }
-    : action), applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
+    : action).map(recoveryActionGuidance), applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
 }
 
 function recoveryApplyCommand(plan) {

@@ -111,6 +111,9 @@ export function planAmendmentRecord(workflow) {
       supportingFileDetails.push({ path: change.path, class: change.class, reason: change.reason });
     }
   }
+  // Evidence corrections are applied to their exact owner's record by the shared plan reader,
+  // not merged as extra obligations (which would leave the wrong source obligation in force).
+  if (!Object.keys(accountedPaths).length && !supportingFileDetails.length) return null;
   supportingFileDetails.sort((left, right) => left.path.localeCompare(right.path));
   const owners = Object.values(workflow.resolution?.plannedClaims?.owners ?? {});
   const owner = owners[0] ?? workflow.phaseOrder?.find((id) => stepResponsibilities(workflow, id).includes('plan')) ?? null;

@@ -283,7 +283,9 @@ test('a missing session only returns its verified attach route, never composes c
   assert.equal(entry.context, null);
   assert.equal(entry.phaseAgent.valid, false);
   assert.equal(entry.phaseAgent.reason, 'active-session-missing');
-  assert.deepEqual(entry.next, [entry.phaseAgent.handoff]);
+  assert.equal(entry.next.length, 1);
+  assert.equal(entry.next[0].command, entry.phaseAgent.handoff.command);
+  assert.ok(Object.hasOwn(entry.next[0], 'copilotCommand'), 'entry exposes verified command routing instead of making the model guess');
   assert.equal(entry.next[0].command, 'singularity-flow session attach ENTRY-1 --json');
   assert.equal(entry.next[0].copilotCommand, '/sf-session');
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');

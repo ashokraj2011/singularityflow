@@ -1820,8 +1820,9 @@ function plannedClaimContract(phase, authored, {
   clauseIds, policy, enforce, artifactPath, codeSteps = [],
   subject = `Phase ${phase.id} cannot publish`, where = `in ${artifactPath}`, again = 'publish again'
 }) {
-  const derived = derivePlannedClaimMap(authored, { clauseIds, policy });
   const evidenceRoot = artifactPath?.split('/artifacts/')[0];
+  const derived = derivePlannedClaimMap(authored, { clauseIds, policy,
+    evidenceRoot: evidenceRoot ? `${evidenceRoot}/evidence` : null });
   if (evidenceRoot) validatePlannedEvidenceTypes(derived.claimMap.claims, { evidenceRoot: `${evidenceRoot}/evidence` });
   const placeholderReasons = Object.entries(derived.claimMap.claims)
     .filter(([, claim]) => claim.testDisposition === 'not-applicable' && placeholderTestReason(claim.testReason))

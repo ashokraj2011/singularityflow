@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
@@ -107,7 +107,11 @@ test('linked source never escapes preservation and unsafe IDs cannot select anot
 
 test('preservation does not refresh the index when a clean tracked file has new filesystem metadata', async t => {
   const f = await fixture(t);
+  f.git('config', 'diff.autoRefreshIndex', 'true');
   await writeFile(path.join(f.root, 'source.txt'), 'Original source\n');
+  // Make the stat mismatch deterministic, rather than relying on same-second racy-index timing.
+  const oldTime = new Date(Date.now() - 60_000);
+  await utimes(path.join(f.root, 'source.txt'), oldTime, oldTime);
   const before = await readFile(path.join(f.root, '.git/index'));
   await createPhaseCheckpoint(f.root, f.config, f.workflow, f.phase);
   assert.deepEqual(await readFile(path.join(f.root, '.git/index')), before);

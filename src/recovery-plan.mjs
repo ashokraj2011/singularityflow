@@ -11,6 +11,7 @@ import {
 import {
   normalizeRequiredTestCommand, structuredTestCommandRequiredError
 } from './code-delivery-tests.mjs';
+import { projectTestExecutionCommand, testExecutionHandoff } from './test-execution-handoff.mjs';
 import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
 import { authoredArtifactFingerprint, inspectPhaseAuthoredReviewContent } from './publication-preflight.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
@@ -410,25 +411,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       testExecution.status = 'not-run';
       if (deliveryErrors.length) testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
       testExecution.commands = normalized.map((command, index) => {
-        // Native inference emits a bounded, known argv. Approved configured argv can contain
-        // arbitrary positional secrets, so the read-only JSON projection never echoes it.
         const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
-        const configured = configuredIndex >= 0;
-        return {
-          id: configured ? `qualityCommands[${configuredIndex}]` : command.id,
-          argv: configured ? null : command.argv,
-          argvSource: configured ? 'approved-configuration' : 'inferred',
-          workingDirectory: command.workingDirectory,
-          affectedRoots: command.affectedRoots,
-          result: {
-            adapter: command.result.adapter,
-            path: command.result.path,
-            minimumDiscovered: Math.max(command.result.minimumDiscovered,
-              testPolicy?.minimumDiscovered ?? 1),
-            minimumPassed: Math.max(command.result.minimumPassed,
-              testPolicy?.minimumPassed ?? 1)
-          }
-        };
+        return projectTestExecutionCommand(command, { configuredIndex, testPolicy });
       });
     } catch (error) {
       testExecution.reason = error.code ?? 'TEST_COMMAND_UNAVAILABLE';
@@ -541,6 +525,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
     actions: uniqueActions,
     warnings: dependencies?.warnings ?? [],
     requiresLifecycleRecovery: blockers.some((finding) => finding.category === 'lifecycle'),
-    testExecution
+    testExecution: { ...testExecution, handoff: testExecutionHandoff(testExecution, {
+      published: phase.generationIntent?.status === 'consumed'
+    }) }
   };
 }

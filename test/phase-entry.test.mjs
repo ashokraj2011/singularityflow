@@ -335,7 +335,10 @@ test('compact checks preserve every finding, risk choice, command guard and fres
     correction: { sameTurn: false, class: 'phase-recovery' },
     commands: { publish: null, next: 'singularity-flow recover E --phase custom-code --json' },
     commandGuidance: { publish: null },
-    testExecution: { status: 'not-run', commands: [{ id: 'qualityCommands[0]', argv: null }] },
+    testExecution: { status: 'not-run', commands: [{ id: 'qualityCommands[0]', argv: null,
+      availability: 'ready', argvWithheld: true, argvSource: 'approved-configuration' }],
+    handoff: { runnerStatus: 'ready', configurationRequired: false,
+      executionOwner: 'publication', onSuccess: 'continue-publication', command: null } },
     coverage: { status: 'incomplete', unclaimed: 1, blocking: true, paths: Array(100).fill('observations') },
     warnings: ['An authority pin is unavailable.'] };
   const compact = phaseAgentResult(full);

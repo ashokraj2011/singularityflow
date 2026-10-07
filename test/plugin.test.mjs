@@ -398,12 +398,23 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
 test('code skill distinguishes read-only readiness from publication-time test execution', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   assert.match(content, /`ready` is not test success/i);
-  assert.match(content, /Match argv\/cwd\/adapter\/report/i);
+  assert.match(content, /Follow `testExecution.handoff`/);
+  assert.match(content, /`argvWithheld: true` means configured, hidden argv—not missing/);
+  assert.match(content, /No adoption\/amendment for redaction\/inference/);
+  assert.match(content, /required tests continue publication on success/);
   assert.match(content, /command ID \(not shell command\), argv\/cwd, exit, bounded stderr and guidance/);
-  assert.match(content, /Before authoring require an open intent/);
+  assert.match(content, /Require an open intent/);
   assert.match(content, /proven runtime repair permits retry without source changes/i);
   assert.match(content, /Nonzero exit fails despite passing JUnit/);
-  assert.match(content, /Never edit protected configuration, disable hooks or fabricate results/);
+  assert.match(content, /never edit protected config, disable hooks or fabricate results/);
+});
+
+test('runner redaction is not configuration adoption in code, recovery and test setup guidance', async () => {
+  for (const name of ['sflow-code', 'sflow-recover', 'sflow-test-setup']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /argvWithheld: true/);
+    assert.match(content, /(?:[Nn]o adoption|needs? no (?:adoption|YAML proposal))/);
+  }
 });
 
 test('recovery skill reviews a dirty consumed-generation rollover with an exact digest', async () => {

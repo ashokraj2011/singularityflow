@@ -34,11 +34,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
    Only after explicit consent delegate the exact proposal save to `/sf-configuration`.
    Do not rewrite the application's checkout, run tests, merge, or push without the corresponding request.
-6. Supported inference needs no YAML proposal or amendment; existing Stories retain explicit pins.
-   Only for an explicit command revision approved in sflow/config,
+6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
+   Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
    use `singularity-flow story test-policy amend <WORK-ID> --phase <CURRENT-CODE-PHASE>
-   --reason "Configure the previously undetected test runner" --json` for preview only.
-   Preserve code/documents and show the exact digest and authority requirements. Human confirmation
-   and apply belong to `/sf-recover`; do not approve on the user's behalf. Fresh tests are required.
+   --reason "<reason>" --json` for preview only. Preserve code/documents; show digest/authority.
+   Human confirmation/apply belong to `/sf-recover`; never approve for the user. Fresh tests required.
 7. Report what was inspected, configured, adopted, or not done. Pair the inspection Shell command
    with Copilot `/sf-test-setup`; use `/sf-ready` for an explicitly requested baseline run.

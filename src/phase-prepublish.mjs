@@ -19,6 +19,7 @@ import { inspectPhasePublicationReadiness } from './phase-publication-readiness.
 import { authoredArtifactFingerprint, authoredArtifactText } from './publication-preflight.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
+import { testExecutionHandoff } from './test-execution-handoff.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { MARKER_FINDING_KINDS } from './specification-quality.mjs';
@@ -40,6 +41,10 @@ function findingKey(finding) {
 export function prepublishTestExecutionLines(testExecution) {
   if (testExecution?.status !== 'not-run') return [];
   const lines = ['Required tests: planned, not run by prepublish.'];
+  if (testExecution.handoff?.runnerStatus === 'ready') {
+    lines.push('Runner: ready; hidden approved arguments do not require configuration adoption.');
+    lines.push(`Required tests run during ${testExecution.handoff.executionOwner}; passing fresh results continue that operation automatically.`);
+  }
   for (const command of testExecution.commands ?? []) {
     const argv = command.argvSource === 'inferred' && Array.isArray(command.argv)
       ? JSON.stringify(command.argv.map((argument) => redactDiagnosticText(argument)))
@@ -511,7 +516,13 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       status: testExecution.status,
       ...(testExecution.blockedBy ? { blockedBy: testExecution.blockedBy } : {}),
       ...(testExecution.reason ? { reason: testExecution.reason } : {}),
-      commands: Object.freeze(testExecution.commands.map((command) => Object.freeze(command)))
+      commands: Object.freeze(testExecution.commands.map((command) => Object.freeze(command))),
+      handoff: Object.freeze(testExecutionHandoff(testExecution, {
+        published: retained,
+        command: retained
+          ? ready && retainedReadiness?.classification === 'ready-to-attempt' ? commands.next : null
+          : commands.publish
+      }))
     }),
     correction: Object.freeze({
       ...draft.correction,

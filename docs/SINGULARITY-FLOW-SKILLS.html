@@ -2004,7 +2004,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1265 body tokens</span>
+          <span class="pill">~1276 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -2040,9 +2040,9 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 4. Use its `clarification`: For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before code mutation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
 5. Use verified `references.repositories[].localPath`; refuse invalid/dirty. `singularity-flow revision status --json` only when `generation &gt; 0`; first-generation authoring creates that candidate. Require an open intent; absent: `singularity-flow phase begin &lt;phase&gt; --json`, honoring adoption/confirmation. Consumed intent requires `/sf-recover`.
 6. Implement code/tests, not README. Doc-comment APIs; tags are not docs. Exclude fixtures/docs/deletions/symlinks. In the planned product-source path: `// @clause:ORDER:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); executable tests: `// @ac:ORDER:AC-001` above its test. Honor pinned test-only planned-claims opt-outs.
-7. Intake tests are advisory. Use `testExecution.commands`: inferred runners need no YAML proposal/approval/amendment. Match argv/cwd/adapter/report; prefer `.venv`. Missing/invalid/ambiguous/policy-blocked runners: `/sf-recover` reviewed adoption. Run resolved tests—no skip/list/dry-run/no-tests; submission runs fresh tests independently. Repair dependencies only when authorized. Failures need repair or eligible human risk review. Never edit protected config, disable hooks or fabricate results. Explicit pins survive refresh; no amendment approvals here.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Obey `correction.class`/`sameTurn`, `traceabilityRepair.actions`: verify behavior/assertions/hashes; repair owned tags without per-tag confirmation. Implement missing behavior; clarify ambiguity. Rerun tests. Repair other agent findings. Never invent, pad, blindly delete markers, nest models or overwrite producers. `ready` is not test success. Follow returned `repairLoop.protocol` for persistent correction/resume; stop unchanged.
-9. Use returned `commands.publish` once when `ready`; absent: relay `commands.next`, stop. On refusal report `requiredTestExecution`: command ID (not shell command), argv/cwd, exit, bounded stderr and guidance. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes. Source mutation requires review/rollover when consumed. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
+7. Intake tests advisory. Follow `testExecution.handoff`: ready + `argvWithheld: true` means configured, hidden argv—not missing. No adoption/amendment for redaction/inference. Publication runs resolved tests/fresh reports; no duplicate pre-run. Missing/invalid/ambiguous/policy-blocked runner: returned recovery/adoption. No skip/list/dry-run/no-tests. Submission runs fresh tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Obey `correction.class`/`sameTurn`, `traceabilityRepair.actions`: verify behavior/assertions/hashes; repair owned tags without per-tag confirmation. Implement missing behavior; clarify ambiguity. Publication runs fresh tests for repaired code. Repair other agent findings. Never invent, pad, blindly delete markers, nest models or overwrite producers. `ready` is not test success. Follow returned `repairLoop.protocol` for persistent correction/resume; stop unchanged.
+9. Use returned `commands.publish` once when `ready`; required tests continue publication on success. Absent: relay `commands.next`, stop. On refusal report `requiredTestExecution`: command ID (not shell command), argv/cwd, exit, bounded stderr and guidance; hidden argv is not missing configuration. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes. Source mutation requires review/rollover when consumed. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
 10. `singularity-flow phase show &lt;phase&gt; --json` is artifact review, not readiness or task policy. Show bounded preview, hash-bound references and handoff.
 
 TRP: `singularity-flow explain test-recovery`.
@@ -7930,7 +7930,7 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~985 body tokens</span>
+          <span class="pill">~986 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recover</code></dd></div>
@@ -7960,7 +7960,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. `singularity-flow recover $ARGUMENTS --fetch --json` (`--phase &lt;phase&gt;` optional): retain `planId`; no `--apply` for inspection.
 2. Follow action classifications, not blanket dirty-tree stops. `requiresRecovery: false`/no blockers: no gate. `current-phase-review-required`/`confirmation: none`: review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks. Preserve untracked `.sflow/results/**`; tracked/staged reports and source require review. Stop for divergence/transport/authority. Diagnose `repair-publication-authority:&lt;phase&gt;`/`repair-generation-change-set:&lt;phase&gt;` before rollover; never waive.
-3. Preserve generations/bytes/pins. Inference needs no proposal. `repair-repository-test-runner:&lt;phase&gt;` → `/sf-code`. Missing policy: `singularity-flow story test-policy amend &lt;WORK-ID&gt; --reason &quot;&lt;reason&gt;&quot; --json` adopts an approved pin, not config repair. Returned apply needs live human review: `Amend test command` or Enter to cancel; never answer it. Relay preparation/validation only. Approval refusal ends turn; `/sf-reject` later for changed bytes. Telemetry/session are advisory.
+3. Preserve generations/bytes/pins. Hidden argv (`argvWithheld: true`) needs no adoption; follow `testExecution.handoff`. No inference proposal. Runner repair → `/sf-code`. Missing policy: `singularity-flow story test-policy amend &lt;WORK-ID&gt; --reason &quot;&lt;reason&gt;&quot; --json` previews approved-pin adoption, not config repair. Apply: live human review: `Amend test command` or Enter cancels; never answer it. Approval refusal ends turn; `/sf-reject` later for changed bytes. Telemetry/session advisory.
 4. Human amendment acknowledgement. Author/reviewer conflict needs successor, not history edits. Unlike hash domains are not staleness. Automatic: human-confirm `planId`, use `applyCommand`; guided/manual never `--apply`. Reinspect stale plans.
 5. Review diffs/untracked bytes. `commit-reviewed-worktree`: human consent to exact `paths`/`planId`; returned command only, no unlisted files/`--allow-dirty`. Preserve reports/index; no gate waiver. Revalidate source and approval review/consent. Reinspect stale plans. Protected/unrelated/conflicted/removed/symlink paths stay separate.
 6. `begin-new-generation:&lt;phase&gt;` needs matching branch/phase, authenticated changed publication, no lifecycle/transport blocker. Preview `singularity-flow phase rollover &lt;phase&gt; --json`; match identity/confirmation to recovery. Human-confirm then run returned command once. Never route to `/sf-code` before rollover succeeds.
@@ -10578,7 +10578,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~980 body tokens</span>
+          <span class="pill">~966 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-test-setup</code></dd></div>
@@ -10626,12 +10626,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
    Only after explicit consent delegate the exact proposal save to `/sf-configuration`.
    Do not rewrite the application&#39;s checkout, run tests, merge, or push without the corresponding request.
-6. Supported inference needs no YAML proposal or amendment; existing Stories retain explicit pins.
-   Only for an explicit command revision approved in sflow/config,
+6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
+   Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
    use `singularity-flow story test-policy amend &lt;WORK-ID&gt; --phase &lt;CURRENT-CODE-PHASE&gt;
-   --reason &quot;Configure the previously undetected test runner&quot; --json` for preview only.
-   Preserve code/documents and show the exact digest and authority requirements. Human confirmation
-   and apply belong to `/sf-recover`; do not approve on the user&#39;s behalf. Fresh tests are required.
+   --reason &quot;&lt;reason&gt;&quot; --json` for preview only. Preserve code/documents; show digest/authority.
+   Human confirmation/apply belong to `/sf-recover`; never approve for the user. Fresh tests required.
 7. Report what was inspected, configured, adopted, or not done. Pair the inspection Shell command
    with Copilot `/sf-test-setup`; use `/sf-ready` for an explicitly requested baseline run.
 </code></pre>

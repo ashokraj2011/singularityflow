@@ -140,7 +140,7 @@ async function createSymlinkOrSkip(t, target, link) {
 async function codeFixture(name, {
   acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured',
   configuredResult = null, configuredProvenance = null, preexistingResult = null, sourceBoundary = null,
-  phaseId = 'implementation'
+  phaseId = 'implementation', requiresHumanApproval = false
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
@@ -249,7 +249,8 @@ async function codeFixture(name, {
     order: acceptance ? 1 : 0,
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
-    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: [phaseId] },
+    approval: requiresHumanApproval ? { ...implementation.approval, rejectTo: [phaseId] }
+      : { mode: 'none', authorities: [], minimum: 0, rejectTo: [phaseId] },
     qualityCommands: angularProfile || playwrightProfile || testProfile === 'maven' ? [] : [{
       id: 'fixture-tests', kind: 'test',
       argv: [process.execPath, 'test-runner.mjs',
@@ -2398,6 +2399,7 @@ test('prepublish previews the inferred Maven command and report without claiming
   assert.equal(checked.readiness.requiredTests, 'not-run');
   assert.deepEqual(checked.testExecution.commands, [{
     id: 'module-maven-tests', argv: ['mvn', 'test'], argvSource: 'inferred',
+    availability: 'ready', argvWithheld: false,
     workingDirectory: 'module', affectedRoots: ['module'],
     result: { adapter: 'junit-xml', path: 'target/surefire-reports',
       minimumDiscovered: 1, minimumPassed: 1 }
@@ -2422,7 +2424,66 @@ test('prepublish withholds configured test argv from its JSON projection', async
   assert.equal(checked.testExecution.status, 'not-run', JSON.stringify(checked.findings));
   assert.equal(checked.testExecution.commands[0].argv, null);
   assert.equal(checked.testExecution.commands[0].argvSource, 'approved-configuration');
+  assert.equal(checked.testExecution.commands[0].availability, 'ready');
+  assert.equal(checked.testExecution.commands[0].argvWithheld, true);
+  assert.equal(checked.testExecution.handoff.configurationRequired, false);
   assert.doesNotMatch(JSON.stringify(checked), /hidden-configured-secret/u);
+});
+
+test('resolved hidden runners continue publication and submission in built-in and custom code phases', async t => {
+  for (const phaseId of ['implementation', 'verification', 'team-custom-delivery']) await t.test(phaseId, async t => {
+    const context = await codeFixture(`runner-handoff-${phaseId}`, {
+      acceptance: false, phaseId, testProfile: 'configured-secret',
+      requiresHumanApproval: phaseId === 'team-custom-delivery'
+    });
+    t.after(() => rm(context.root, { recursive: true, force: true }));
+    await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId });
+    await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+    await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
+    await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'),
+      'int main() { return answer() == 42 ? 0 : 1; }\n');
+    const summary = (await readFile(context.target, 'utf8')).replace('# Implementation\n',
+      '# Implementation\n\n## Summary\n');
+    await writeFile(context.target, 'TODO write the implementation summary.\n');
+    const blocked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+      session: { workId: 'DELIVERY-1', phaseId, agent: 'developer' }
+    });
+    assert.equal(blocked.status, 'correction-required');
+    assert.equal(blocked.testExecution.handoff.runnerStatus, 'ready');
+    assert.equal(blocked.testExecution.handoff.command, null,
+      'valid runner availability must not bypass other publication findings');
+    await writeFile(context.target, summary);
+    const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+      session: { workId: 'DELIVERY-1', phaseId, agent: 'developer' }
+    });
+    assert.equal(checked.status, 'ready', JSON.stringify(checked.findings));
+    assert.equal(checked.testExecution.handoff.runnerStatus, 'ready');
+    assert.equal(checked.testExecution.handoff.configurationRequired, false);
+    assert.equal(checked.testExecution.handoff.command, checked.commands.publish);
+    assert.equal(checked.testExecution.handoff.onSuccess, 'continue-publication');
+    assert.doesNotMatch(JSON.stringify(checked), /hidden-configured-secret/u);
+    await assert.rejects(readFile(path.join(context.root, '.sflow/results/unit.json')), { code: 'ENOENT' });
+
+    await inContext(context.root, () => publishCodeGoverned(context.root, context.config, context.workflow, phaseId));
+    assert.equal(context.phase.generation, 1, 'passing tests did not continue publication');
+    assert.equal(context.phase.status, 'in_progress', 'publication cannot grant approval');
+    const retained = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+      session: { workId: 'DELIVERY-1', phaseId, agent: 'developer' }
+    });
+    assert.equal(retained.status, 'ready', JSON.stringify(retained.findings));
+    assert.equal(retained.commands.publish, null, 'unchanged publication must not run again');
+    assert.equal(retained.testExecution.handoff.onSuccess, 'continue-submission');
+    assert.equal(retained.testExecution.handoff.command, retained.commands.next);
+
+    await inContext(context.root, () => submitPhase(context.root, context.config, context.workflow, {
+      phaseId, persist: false
+    }));
+    assert.equal(context.phase.deliveryEvidence.testExecutions[0].status, 'passed');
+    assert.equal(context.phase.status, phaseId === 'team-custom-delivery' ? 'awaiting_approval' : 'approved',
+      'submission must continue according to the configured approval policy');
+    assert.deepEqual(context.phase.approvals, [], 'automatic completion cannot fabricate human approval');
+    assert.equal(context.phase.generation, 1, 'submission must not republish the generation');
+  });
 });
 
 test('Angular Karma publication infers tests, captures stdout, and leaves protected workflow untouched', async (t) => {

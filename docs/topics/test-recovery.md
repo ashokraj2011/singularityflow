@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 13
+version: 14
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -76,6 +76,18 @@ The engine may resolve a supported test command directly from the affected modul
 use the returned argv, working directory and structured reporter. Publication independently runs
 the required tests and records their evidence. Only missing, invalid, ambiguous or explicitly
 policy-blocked runners require configuration repair.
+
+Configured commands are available even when read-only output shows `argv: null`:
+`availability: ready`, `argvWithheld: true` and `argvSource: approved-configuration` mean the
+arguments were deliberately withheld to avoid exposing positional secrets. Do not propose a
+runner adoption or Story amendment just because those arguments are hidden.
+`testExecution.handoff` identifies the execution owner and, only after readiness permits it,
+the exact continuation command. Prepublish remains read-only. Publication executes the resolved
+tests, validates fresh reports and continues publication when they pass; submission independently
+executes its required checks and continues when they pass. There is no extra runner-configuration
+decision or mandatory duplicate test run between those steps. Other findings, independent review
+and required human approval remain separate. This contract follows code-delivery semantics,
+including custom and future workflow phases, rather than a hardcoded phase name.
 
 VS Code's main Navigator has **Configuration approvals**, opening Workflow Studio's **Changes**
 queue for workflow, agent and test-configuration proposals. **Reviews** separately links both that

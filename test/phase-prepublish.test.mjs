@@ -9,6 +9,7 @@ import { phasePrepublish, prepublishTestExecutionLines } from '../src/phase-prep
 import { buildSpecIndex, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { coordinatePhaseRepair } from '../src/phase-repair-runtime.mjs';
 import { restoreAgentSession } from '../src/session.mjs';
+import { testExecutionHandoff } from '../src/test-execution-handoff.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prepublish-'));
@@ -32,19 +33,22 @@ async function fixture(t) {
 }
 
 test('human prepublish test preview prints inferred argv and withholds configured secrets', () => {
-  const lines = prepublishTestExecutionLines({
+  const plan = {
     status: 'not-run', commands: [
-      { id: 'maven-tests', argvSource: 'inferred', argv: ['mvn', 'test'],
+      { id: 'maven-tests', availability: 'ready', argvSource: 'inferred', argv: ['mvn', 'test'],
         workingDirectory: 'module', result: { adapter: 'junit-xml', path: 'target/surefire-reports' } },
-      { id: 'qualityCommands[0]', argvSource: 'approved-configuration',
+      { id: 'qualityCommands[0]', availability: 'ready', argvSource: 'approved-configuration',
         argv: ['node', 'tests.mjs', '--token', 'hidden-configured-secret'],
         workingDirectory: '.', result: { adapter: 'node-tap', path: '.sflow/results/tests.tap' } }
     ]
-  });
+  };
+  const lines = prepublishTestExecutionLines({ ...plan, handoff: testExecutionHandoff(plan) });
   assert.match(lines.join('\n'), /argv=\["mvn","test"\] cwd=module report=junit-xml:target\/surefire-reports/u);
   assert.match(lines.join('\n'), /planned, not run by prepublish/u);
   assert.match(lines.join('\n'), /argv=\[see approved qualityCommands configuration\]/u);
   assert.doesNotMatch(lines.join('\n'), /hidden-configured-secret/u);
+  assert.match(lines.join('\n'), /Runner: ready; hidden approved arguments/u);
+  assert.match(lines.join('\n'), /passing fresh results continue that operation automatically/u);
 });
 
 test('prepublish routes authored findings to same-phase correction, then enables publication only when ready', async (t) => {
@@ -60,6 +64,8 @@ test('prepublish routes authored findings to same-phase correction, then enables
   assert.equal(red.correction.sameTurn, true);
   assert.equal(red.commands.publish, null);
   assert.equal(red.commandGuidance.publish, null);
+  assert.equal(red.testExecution.handoff.command, null);
+  assert.equal(red.testExecution.handoff.runnerStatus, 'not-required');
   assert.equal(red.commandGuidance.recheck.copilotCommand, null);
   assert.match(red.commandGuidance.recheck.copilotReason, /No dedicated Copilot equivalent/);
   assert.equal(red.commandGuidance.recover.copilotCommand, '/sf-recover');

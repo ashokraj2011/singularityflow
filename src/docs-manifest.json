@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "288abd397fde137b0feb93774dec9d6bf37dfc08",
-  "topicCount": 78,
-  "contentSha256": "124e08e935f4ae7bfd4c0be095dcc375ee5e854d17e3199b2b00643320e1ae66",
+  "sourceCommit": "90e8f457c4c8daac0d837982e79a9ae8f589f52f",
+  "topicCount": 79,
+  "contentSha256": "aa3632178e523586f378db046df0dabcd174355e87138727fc2116120796958e",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -140,6 +140,14 @@
       "sha256": "b238f4a2b3616da21b0bf809fef29506c9a2d149dc593983fb1ca1410e193938",
       "routingSha256": "50fe51fde59f58a3a2685e84eb13987d273f1b70e6f4dd46f32df823e3d8f341",
       "file": "delivery-and-proof.md"
+    },
+    {
+      "id": "demo-web-e2e-testing",
+      "title": "Demo Web E2E Testing starter",
+      "version": 1,
+      "sha256": "1883e2543a802a0f6819b53a0f34a488f4f3a43b37c266a9d3e3dd0f97e9ca0e",
+      "routingSha256": "8c6c3fda058b00f112dfbe50f35ecc483d64754062529ebb58db5e13da9decff",
+      "file": "demo-web-e2e-testing.md"
     },
     {
       "id": "developer-home",

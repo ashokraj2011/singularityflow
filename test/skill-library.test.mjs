@@ -61,6 +61,8 @@ async function temporary(t, prefix) {
 async function repository(t, prefix = 'sflow-skill-master-') {
   const root = await temporary(t, prefix);
   await initializeDefinition(root);
+  // These tests author an isolated skill master; starter dependencies have their own suite.
+  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
   await repositoryOwnedWorkflows(root);
   return root;
 }
@@ -619,6 +621,7 @@ async function cliRepository(t) {
   git(root, 'config', 'user.email', 'skills@example.invalid');
   await writeFile(path.join(root, 'README.md'), '# Skills\n');
   flow(root, ['init']);
+  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
   await repositoryOwnedWorkflows(root);
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'initialize');
@@ -858,6 +861,7 @@ async function seededRepository(t, prefix) {
   // A repository as init leaves it: its workflows are seeded, so they and their agents are read-only.
   const root = await temporary(t, prefix);
   await initializeDefinition(root);
+  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
   return root;
 }
 

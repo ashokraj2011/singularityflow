@@ -13,6 +13,7 @@ export const INITIALIZATION_MAPPINGS = Object.freeze([
   Object.freeze(['artifacts', 'singularity/templates']),
   Object.freeze(['starter-packs', 'singularity/templates/starter-packs']),
   Object.freeze(['agents', '.github/agents']),
+  Object.freeze(['skill-library', 'singularity/skill-library']),
   Object.freeze(['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md']),
   Object.freeze(['copilot-planning.md', 'singularity/prompts/copilot-planning.md'])
 ]);

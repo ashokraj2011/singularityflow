@@ -87,6 +87,7 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   mcpServers: Object.freeze({
     // Reviewed predecessor before browser evidence was enabled for the Testing phase.
     playwright: Object.freeze([
+      'c5717793fcbb8aaa6626801da1a478cd757b5b96713adf2a02b87948c0babb63',
       'dc0952904a8d2944f3e66dd72eddd4e47c0f8827b98325b0f7f00734602b8ee1',
       'd5dcb613feed5a69dda1123ac922435fa130bc8e7cd9ab6845726c420c0757cc'
     ])
@@ -102,6 +103,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     chore: '7d55217aa976c51a702616daeccd8829ca91778839985ae8c4dabc3336645597',
     'classic-delivery': '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
     'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
+    'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
     feature: 'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3',
     'figma-mobile': '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
@@ -112,6 +114,10 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'spec-driven-standard': '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf'
   }),
   phases: Object.freeze({
+    'demo-web-intake': 'd9abac5eacdd842b6361b17facd4beed73633608e251ba6b0f45b9fb8174dd47',
+    'demo-web-check': '6cab0053c02979c59a906963125d3e9e1c55b39bcb4ae8742c95e9892eeedab4',
+    'demo-web-repair': '8cee05f255b622fad5795ecdcb2b1bc1e1c4d48eabcb8afa83aa7f98defc144e',
+    'demo-web-retest': 'f35baf9d1b99c67df246120818f3bd0840917d4684911becda0c12dd45c94d23',
     'component-mapping': '35e812770061284af78d1c9bac956ced7f331ca184cb4bea7f3ca04d7f9c95eb',
     conformance: '32fcd6ab14993013675265d3244d9682538373bc8f7ca30f99ec5940a706b02e',
     convergence: '1fd5cf156969db6a33e686376399f0d2c3368c7f5ad1c9d229704190a5745e48',
@@ -156,7 +162,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   }),
   mcpServers: Object.freeze({
     figma: '30ef371d29021a7f50a1c5bda73f022c727998a6ae99fd57a3e51335ccaad9fb',
-    playwright: 'c5717793fcbb8aaa6626801da1a478cd757b5b96713adf2a02b87948c0babb63'
+    playwright: 'f5021e802e3a858f38ed9d966cc0f074d0ec7635b1c15d8288331900b4f0b508'
   })
 });
 

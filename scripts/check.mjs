@@ -1089,6 +1089,8 @@ for (const absolute of allFiles) {
       `singularity/templates/starter-packs/${relative.slice('templates/starter-packs/'.length)}`);
   } else if (relative.startsWith('templates/agents/')) {
     packagedAssetSources.set(relative, `.github/agents/${relative.slice('templates/agents/'.length)}`);
+  } else if (relative.startsWith('templates/skill-library/')) {
+    packagedAssetSources.set(relative, `singularity/skill-library/${relative.slice('templates/skill-library/'.length)}`);
   }
 }
 const currentAssetPaths = [...packagedAssetSources.values()].sort();

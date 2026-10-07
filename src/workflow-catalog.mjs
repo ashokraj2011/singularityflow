@@ -11,6 +11,7 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { simulateResolvedWorkflowLifecycle } from './workflow-lifecycle-simulation.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
+import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
 const OPTIONAL_CATALOG_REASON_MAX_CHARS = 512;
@@ -232,21 +233,25 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   }
   // Copy the default packaged agent modules that make the new phases immediately selectable.
   // Existing repository agents always win discovery and are never overwritten by workflow install.
+  const agentIds = new Set();
   for (const entry of await readdir(path.join(PACKAGE_ROOT, 'templates', 'agents'), { withFileTypes: true })) {
     if (!entry.isFile() || !/(?:\.agent)?\.md$/i.test(entry.name)) continue;
     const source = path.join(PACKAGE_ROOT, 'templates', 'agents', entry.name);
     const agent = parseAgentDependencies(await readFile(source, 'utf8'), { source });
     if (agent.defaultFor.some((phase) => phaseIds.has(phase))) {
+      agentIds.add(agent.id);
       files.push({ source, target: path.join(root, '.github', 'agents', entry.name), overwrite: false });
     }
   }
   const copied = [];
   for (const file of files) if (file.overwrite || !(await exists(file.target))) copied.push(path.relative(root, file.target).replaceAll(path.sep, '/'));
-  const changedFiles = [WORKFLOW_PATH, ...copied];
+  const skills = await packagedWorkflowSkills(root, id, agentIds);
+  const changedFiles = [WORKFLOW_PATH, ...copied, ...skills.map((file) => file.path)];
   if (!dryRun) {
     const file = path.join(root, WORKFLOW_PATH);
     await writeText(file, await installedWorkflowText(file, installed, next, packagedEntries));
     for (const file of files) if (file.overwrite || !(await exists(file.target))) { await mkdir(path.dirname(file.target), { recursive: true }); await cp(file.source, file.target); }
+    for (const file of skills) await writeText(path.join(root, file.path), file.text);
   }
   return { id, dryRun, replace, files: changedFiles };
 }

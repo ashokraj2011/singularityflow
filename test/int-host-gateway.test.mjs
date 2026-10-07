@@ -116,6 +116,26 @@ test('the binding names the repository and branch it was computed in', async (t)
   assert.equal(binding.worktreeAlgorithm, 'sflow-worktree-v2');
 });
 
+test('profile name changes affect replies, not signed binding or the Git decision actor', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let replyProfileName = 'Grace Hopper';
+  const host = createHostGateway({ root, hostSessionId: 'profile-session',
+    planners: gatewayPlanners(), plannerContext: () => ({ replyProfileName }) });
+  const before = host.binding();
+  const selection = await host.kernel.resolve({ utterance: 'home' });
+  const handle = selection.next[0].handle;
+  const first = await host.kernel.read({ resolutionId: handle });
+  assert.equal(first.data.personalization.replyName, 'Grace');
+  replyProfileName = 'Ada Lovelace';
+  const second = await host.kernel.read({ resolutionId: handle });
+  assert.equal(second.kind, 'read', 'a presentation change must not stale an existing read handle');
+  assert.equal(second.data.personalization.replyName, 'Ada');
+  assert.deepEqual(host.binding(), before);
+  assert.equal(before.actorId, 'dev@example.test');
+  assert.equal(run('git', ['config', 'user.name'], { cwd: root }).stdout.trim(), 'Dev');
+});
+
 test('a host session requires the session it is issuing handles for', () => {
   // A default would be a shared session ID, under which a handle issued in one window verifies in
   // another — the confusion binding exists to prevent.

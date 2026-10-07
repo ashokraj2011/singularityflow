@@ -2,7 +2,7 @@ import path from 'node:path';
 
 export const MACHINE_STATE_REGISTRY_NAMES = [
   'workspaces.json', 'active-workspace.json', 'leads.json',
-  'repository-onboarding-cleanup-v1'
+  'repository-onboarding-cleanup-v1', 'presentation-profile.json'
 ];
 
 function uniqueResolved(paths) {

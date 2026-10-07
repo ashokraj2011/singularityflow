@@ -178,6 +178,7 @@ const HOST_SESSION_ID = `vscode_${Date.now().toString(36)}_${Math.random().toStr
  */
 let acknowledgedAtProvider: () => string | null = () => null;
 let homeLensProvider: () => string = () => 'developer';
+let chatProfileNameProvider: () => string | undefined = () => undefined;
 
 export function provideAcknowledgedAt(provider: () => string | null): void {
   acknowledgedAtProvider = provider;
@@ -189,6 +190,10 @@ export function provideAcknowledgedAt(provider: () => string | null): void {
 /** Presentation lens only; governed authority continues to come from pinned workflow records. */
 export function provideHomeLens(provider: () => string): void {
   homeLensProvider = provider;
+}
+
+export function provideChatProfileName(provider: () => string): void {
+  chatProfileNameProvider = provider;
 }
 
 export function gatewaySession(context: GatewayRepositoryContext): GatewaySession {
@@ -219,6 +224,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
     plannerContext: () => ({
       acknowledgedAt: acknowledgedAtProvider(),
       lens: homeLensProvider(),
+      replyProfileName: chatProfileNameProvider(),
       repositoryId: repositoryId ?? root,
       leadRepositoryPath,
       bootstrap,

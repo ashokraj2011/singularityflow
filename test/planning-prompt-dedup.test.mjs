@@ -122,6 +122,10 @@ test('planning projects a prepared draft before budgeting without changing raw s
   assert.equal(occurrences(result.context, '<!-- singularity-flow:inputs:start -->'), 1);
   assert.equal(occurrences(result.context, draftMarker), 1);
   assert.equal(result.manifest.context.truncated, false);
+  const retainedContext = await readFile(result.contextPath, 'utf8');
+  assert.doesNotMatch(retainedContext, /# Reply personalization/);
+  assert.equal(digest(retainedContext), result.manifest.context.sha256,
+    'the host reply overlay is outside the retained planning prompt hash');
   const approvedSource = result.manifest.sources.find((source) => source.kind === 'approved-input');
   const draftSource = result.manifest.sources.find((source) => source.kind === 'current-draft');
   assert.equal(approvedSource.sha256, inputSnapshot.sha256);

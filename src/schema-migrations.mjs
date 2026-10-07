@@ -3383,6 +3383,7 @@ const families = [
   }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({ id: 'copilot-mode-preference', currentVersion: 1, paths: [/^\$local\/copilot-mode\.json$/] }),
+  family({ id: 'presentation-profile', currentVersion: 1, paths: [/^\$local\/presentation-profile\.json$/] }),
   family({
     // v1 predates packet confirmation and remains archival. A v2 Plan is readable for active-flight
     // compatibility only; migration clamps repair to never/zero and retains its historical digest.

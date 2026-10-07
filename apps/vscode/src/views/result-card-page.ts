@@ -564,7 +564,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
     : '';
 
   const gates = view.checklist.length
-    ? `<ul class="sf-gates">${view.checklist.map(gateRow).join('')}</ul>`
+    ? `${view.replyName && view.checklist.some((row) => row.action) ? `<p class="sf-card-greeting">${escape(view.replyName)}, here are your next steps:</p>` : ''}<ul class="sf-gates">${view.checklist.map(gateRow).join('')}</ul>`
     : '';
 
   /**
@@ -586,7 +586,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   const onRows = new Set(view.checklist.map((row) => row.action?.id).filter(Boolean));
   const footerActions = view.actions.filter((action) => !onRows.has(action.id));
   const actions = footerActions.length
-    ? `<div class="sf-card-actions">${footerActions.map((action) =>
+    ? `${view.replyName ? `<p class="sf-card-greeting">${escape(view.replyName)}, here are your next steps:</p>` : ''}<div class="sf-card-actions">${footerActions.map((action) =>
       `<span class="sf-card-action">${button(action, action.emphasis === 'primary' ? 'primary' : action.emphasis === 'link' ? 'link' : '')}${actionRoutes(action)}</span>`).join('')}</div>`
     : '';
 

@@ -99,7 +99,7 @@ export type HomeProjectionView = {
 export type ResultCardView = {
   readonly tone: 'refusal' | 'clarification' | 'ceremony' | 'read';
   readonly headline: string;
-  /** Presentation-only name from the local Git identity; never an authority or binding input. */
+  /** Presentation-only profile/Git name; never an authority or binding input. */
   readonly replyName: string | null;
   readonly why: readonly Message[];
   readonly warnings: readonly Message[];
@@ -339,8 +339,7 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
   return Object.freeze({
     tone,
     headline: headlineOf(result, gates),
-    replyName: ['home.overview', 'developer.next'].includes(result.operation?.id)
-      && typeof result.data?.personalization?.replyName === 'string'
+    replyName: typeof result.data?.personalization?.replyName === 'string'
       ? result.data.personalization.replyName
       : null,
     why,

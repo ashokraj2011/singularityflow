@@ -87,7 +87,7 @@
         "singularityFlow.userName": {
           "type": "string",
           "default": "",
-          "description": "Display name used for local guidance. Governed decisions continue to use Git and provider identities."
+          "description": "Preferred name for SFlow Copilot replies and suggestions. Falls back to the active repository's Git name. Stored locally; governed decisions still use Git and provider identities."
         },
         "singularityFlow.role": {
           "type": "string",

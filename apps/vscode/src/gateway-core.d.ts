@@ -29,6 +29,24 @@ declare module '*/gateway/host.mjs' {
   export function hostBinding(root: string | null, options: Record<string, unknown>): Record<string, unknown>;
 }
 
+declare module '*/personalization.mjs' {
+  export type ReplyPersonalization = {
+    readonly schemaVersion: number; readonly source: 'vscode-profile' | 'git-identity';
+    readonly displayName: string | null; readonly replyName: string | null;
+  };
+  export function personalizationFromProfile(name: string): ReplyPersonalization;
+  export function presentationProfileFile(env?: NodeJS.ProcessEnv, home?: string): string;
+  export function savePresentationProfile(name: string, file?: string): Promise<string | null>;
+  export function resolvePersonalization(options?: {
+    root?: string | null; actor?: { name?: string | null } | null; env?: NodeJS.ProcessEnv;
+    profileFile?: string; profileName?: string; allowGit?: boolean;
+  }): ReplyPersonalization;
+}
+
+declare module '*/copilot-mode.mjs' {
+  export function readCopilotMode(file?: string): { paused: boolean; stateAvailable: boolean; changedAt: string | null };
+}
+
 /** Only the two entry points a read-only host calls, and what they hand back. */
 interface GatewayKernel {
   resolve(request: { utterance?: string; goalHint?: string; selectionHandle?: string; arguments?: unknown },

@@ -35,6 +35,7 @@ import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mj
 import { operationContext, withOperationContext } from '../operation-context.mjs';
 import { worktreeFingerprint } from '../worktree-fingerprint.mjs';
 import { withReadScope } from '../read-scope.mjs';
+import { resolvePersonalization } from '../personalization.mjs';
 
 /**
  * Run one host handler inside the exact registered gateway operation.
@@ -79,7 +80,12 @@ function contextualHandlers(handlers, root, policy, options = {}) {
   return new Map([...handlers].map(([name, handler]) => [
     name,
     typeof handler === 'function'
-      ? (request) => runHostOperation(root, policy, request, () => handler(request), options)
+      ? (request) => runHostOperation(root, policy, request, async () => {
+          const result = await handler(request);
+          return options.presentation && result?.data
+            ? { ...result, data: { ...result.data, personalization: request.context?.personalization } }
+            : result;
+        }, options)
       : handler
   ]));
 }
@@ -168,7 +174,7 @@ export function createHostGateway({
   }
   const registry = gatewayRegistry();
   const policy = resolveGatewayPolicy(policyLayers, { registry });
-  const contextualPlanners = contextualHandlers(planners, root, policy);
+  const contextualPlanners = contextualHandlers(planners, root, policy, { presentation: true });
   const contextualPlanBuilders = contextualHandlers(planBuilders, root, policy);
   // Only execution occurs after the exact confirmation receipt has redeemed. Planning stages get
   // the registered identity for provenance, but remain model-disabled even under a permissive
@@ -198,10 +204,11 @@ export function createHostGateway({
      */
     const identityRoot = root ?? process.cwd();
     const actor = identity(identityRoot, { offline: true });
+    const gitName = localGitDisplayName(identityRoot);
     const supplied = typeof plannerContext === 'function' ? plannerContext() : plannerContext;
     return {
       actor: {
-        name: localGitDisplayName(identityRoot),
+        name: gitName,
         email: actor.email ?? (current.actorId?.includes('@') ? current.actorId : null),
         login: actor.login ?? (!current.actorId?.includes('@') ? current.actorId : null)
       },
@@ -211,7 +218,9 @@ export function createHostGateway({
       storyId: current.subjectId,
       workId: current.subjectId,
       workKind: current.subjectKind,
-      ...(supplied ?? {})
+      ...(supplied ?? {}),
+      personalization: resolvePersonalization({ actor: { name: gitName },
+        profileName: supplied?.replyProfileName, allowGit: false })
     };
   };
 

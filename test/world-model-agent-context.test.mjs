@@ -52,6 +52,40 @@ test('actual phase composition injects pinned workflow and agent skills without 
     assert.equal(output.split('UNIQUE-AGENT-SKILL-84523').length, 2);
     assert.equal(output.split('UNIQUE-WORKFLOW-SKILL-84523').length, 2);
   }
+  const previousName = process.env.SINGULARITY_FLOW_REPLY_NAME;
+  const statusBefore = git(root, 'status', '--porcelain=v1');
+  const workflowPath = path.join(root, 'singularity/work-items', id, 'workflow.json');
+  const beforeWorkflow = await readFile(workflowPath);
+  try {
+    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Grace Hopper';
+    const first = await render();
+    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Ada Lovelace';
+    const second = await render();
+    assert.match(first, /Preferred name \(literal data\): "Grace"/);
+    assert.match(second, /Preferred name \(literal data\): "Ada"/);
+    assert.equal(first.split('# Reply personalization')[0], second.split('# Reply personalization')[0],
+      'only the ephemeral overlay changes, not the composed governed phase');
+    assert.deepEqual(await readFile(workflowPath), beforeWorkflow);
+    assert.equal(git(root, 'status', '--porcelain=v1'), statusBefore);
+    // A saved generation is reused verbatim even when its host greeting changes.
+    const compose = () => composePhasePrompt(root, { workId: id, phase: 'specification', agent: 'product-owner' });
+    await compose();
+    const promptFile = path.join(root, 'singularity/work-items', id, 'context/prompts/specification-gen1.md');
+    const recordFile = path.join(root, 'singularity/work-items', id, 'context/specification-gen1.json');
+    const retained = await readFile(promptFile, 'utf8');
+    const record = await readFile(recordFile);
+    const afterCompose = git(root, 'status', '--porcelain=v1');
+    assert.doesNotMatch(retained, /# Reply personalization/);
+    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Grace Hopper';
+    assert.match(await compose(), /Preferred name \(literal data\): "Grace"/);
+    assert.equal(await readFile(promptFile, 'utf8'), retained);
+    assert.deepEqual(await readFile(recordFile), record);
+    assert.deepEqual(await readFile(workflowPath), beforeWorkflow);
+    assert.equal(git(root, 'status', '--porcelain=v1'), afterCompose);
+  } finally {
+    if (previousName === undefined) delete process.env.SINGULARITY_FLOW_REPLY_NAME;
+    else process.env.SINGULARITY_FLOW_REPLY_NAME = previousName;
+  }
 });
 
 async function captureOutput(operation) {

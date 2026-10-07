@@ -103,6 +103,18 @@ test('an unfilled slot keeps its name rather than vanishing', () => {
   assert.equal(fill('{files} file(s) changed', {}), '{files} file(s) changed');
 });
 
+test('any phase read or refusal can address its reader and suggestions without modifying actions', () => {
+  const result = blocked(['required-artifact-missing']);
+  const before = structuredClone(result.next);
+  const card = buildResultCard({ ...result, data: { ...result.data,
+    personalization: { source: 'vscode-profile', displayName: 'Grace Hopper', replyName: 'Grace' } } });
+  assert.equal(card.replyName, 'Grace');
+  const html = resultCardHtml(card);
+  assert.match(html, /Hello, Grace\./);
+  assert.match(html, /Grace, here are your next steps:/);
+  assert.deepEqual(result.next, before, 'presentation does not change action selectors or signed handles');
+});
+
 test('a code with no wording renders as itself, not as nothing', () => {
   const unknown = message('readiness.from-the-future');
   assert.equal(unknown.label, 'readiness.from-the-future');

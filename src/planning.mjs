@@ -1,4 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -837,7 +838,7 @@ export async function createPlanningContext(root, {
     sessionId,
     contextPath,
     manifestPath,
-    context: rendered,
+    context: withReplyPersonalization(rendered, resolvePersonalization({ root })),
     manifest,
     phase: parts.phase,
     target: parts.target,

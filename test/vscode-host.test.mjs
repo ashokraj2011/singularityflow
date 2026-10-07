@@ -51,6 +51,8 @@ process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= path.join(machineState, 'leads.js
 process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER = path.join(machineState, 'vscode-fresh-reset-pending.json');
 process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = path.join(machineState, 'ast-preference.json');
 process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = path.join(machineState, 'transport-outbox');
+process.env.SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE = path.join(machineState, 'presentation-profile.json');
+process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(machineState, 'copilot-mode.json');
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
@@ -1438,6 +1440,46 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   await until(() => registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open').length >= 2);
   const latest = registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open').at(-1);
   assert.deepEqual(latest.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
+});
+
+test('@sflow uses the current profile for guidance and never personalizes or runs actions while paused', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  let displayName = 'Grace Hopper';
+  api.workspace.workspaceFolders = undefined;
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'userName' ? displayName : '' });
+  const extension = loadExtension(api);
+  const hostContext = context();
+  t.after(() => { for (const disposable of hostContext.subscriptions) disposable.dispose?.(); });
+  t.after(() => rm(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, { force: true }));
+  await extension.activate(hostContext);
+  assert.deepEqual(JSON.parse(await readFile(process.env.SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE, 'utf8')),
+    { schemaVersion: 1, displayName: 'Grace Hopper' });
+  const participant = registered.chatParticipants[0];
+  const invoke = async () => {
+    const output = [];
+    const answer = await participant.handler({ prompt: '', references: [],
+      get model() { throw new Error('profile guidance must not read the chat model'); }
+    }, {}, { markdown: (value) => output.push(String(value)), button() {}, reference() {}, progress() {} },
+    { isCancellationRequested: false });
+    return { output: output.join(''), answer };
+  };
+  assert.match((await invoke()).output, /^Grace, here’s your SFlow guidance\./);
+  displayName = 'Ada Lovelace';
+  assert.match((await invoke()).output, /^Ada, here’s your SFlow guidance\./,
+    'an active chat reads this window setting, not another window’s mirrored name');
+  displayName = '';
+  assert.doesNotMatch((await invoke()).output, /Grace,|Ada,/,
+    'clearing the setting must not restore an old profile name');
+  await writeFile(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, '{"schemaVersion":1,"paused":true}');
+  const before = registered.executedCommands.length;
+  displayName = 'Grace Hopper';
+  const paused = await invoke();
+  assert.equal(paused.answer.metadata.intent, 'paused');
+  assert.match(paused.output, /SFlow guidance is paused/);
+  assert.doesNotMatch(paused.output, /Grace|SFlow guidance\./);
+  assert.equal(registered.executedCommands.length, before);
+  assert.equal(registered.terminals.length, 0);
 });
 
 test('@sflow deterministic commands use bounded CLI reads and unmatched text never guesses', async (t) => {

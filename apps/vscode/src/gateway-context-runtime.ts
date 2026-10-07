@@ -17,12 +17,14 @@ let runtime: Runtime | null = null;
 let activeContext: ActiveRepositoryContext | null = null;
 let acknowledgedAtProvider: () => string | null = () => null;
 let homeLensProvider: () => string = () => 'developer';
+let chatProfileNameProvider: (() => string) | null = null;
 
 function loadRuntime(): Runtime {
   if (runtime) return runtime;
   const loaded = require(path.join(__dirname, 'gateway-runtime.cjs')) as Runtime;
   loaded.provideAcknowledgedAt(acknowledgedAtProvider);
   loaded.provideHomeLens(homeLensProvider);
+  if (chatProfileNameProvider) loaded.provideChatProfileName(chatProfileNameProvider);
   loaded.setActiveRepositoryContext(activeContext);
   runtime = loaded;
   return loaded;
@@ -40,6 +42,11 @@ export function provideAcknowledgedAt(provider: () => string | null): void {
 export function provideHomeLens(provider: () => string): void {
   homeLensProvider = provider;
   runtime?.provideHomeLens(provider);
+}
+
+export function provideChatProfileName(provider: () => string): void {
+  chatProfileNameProvider = provider;
+  runtime?.provideChatProfileName(provider);
 }
 
 export function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {

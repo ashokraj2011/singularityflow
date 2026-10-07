@@ -16,6 +16,7 @@ import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 import { identity, localGitDisplayName } from '../git.mjs';
 import { copilotModePresentation, readCopilotMode } from '../copilot-mode.mjs';
+import { nextSuggestionsHeading } from '../personalization.mjs';
 
 function renderConversation(conversation, homeEnvelope) {
   if (!conversation) return;
@@ -25,7 +26,7 @@ function renderConversation(conversation, homeEnvelope) {
     ? `${current.id}${current.title ? ` — ${current.title}` : ''}${current.phase ? ` · ${current.phase}` : ''}`
     : `${homeEnvelope.data?.workspace?.name ?? 'This workspace'} · no current governed work on this branch`);
 
-  console.log('\nNext');
+  console.log(`\n${nextSuggestionsHeading(homeEnvelope.data?.personalization)}`);
   if (conversation.route) {
     console.log(`${conversation.route.label} (${conversation.route.recommendedSkill})`);
   } else if (conversation.choices.length) {

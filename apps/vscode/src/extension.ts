@@ -23,6 +23,7 @@ import {
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import { synchronizeChatProfile } from './personalization.ts';
 import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
@@ -115,7 +116,7 @@ import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
 import {
-  activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens,
+  activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens, provideChatProfileName,
   latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext as setGatewayRepositoryContext,
   type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-runtime-client.ts';
@@ -403,6 +404,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return ['developer', 'qa', 'architect', 'product-owner', 'admin'].includes(role) ? role : 'developer';
   };
   provideHomeLens(currentHomeLens);
+  provideChatProfileName(() => vscode.workspace.getConfiguration('singularityFlow').get<string>('userName', ''));
 
   onHomeRequest(async ({ request }) => {
     if (!lastHome) return;
@@ -680,6 +682,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const secureCredentials = new SecureCredentials(context.secrets);
   const resolvedCliEnvironment = async (): Promise<NodeJS.ProcessEnv> => {
     const environment = await secureCredentials.environment();
+    const name = vscode.workspace.getConfiguration('singularityFlow').get<string>('userName', '');
+    const mirrored = await synchronizeChatProfile(name, environment);
+    if (!mirrored) output.appendLine('Chat profile could not be shared with shell skills; this window still uses its configured name.');
     const mode = vscode.workspace.getConfiguration('singularityFlow').get<'auto' | 'disabled'>('modelMode', 'auto');
     if (mode === 'disabled') environment.SINGULARITY_FLOW_NO_MODEL = '1';
     else delete environment.SINGULARITY_FLOW_NO_MODEL;
@@ -724,7 +729,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   let refreshPersonaMenus = (): void => {};
   const configurationListener = vscode.workspace.onDidChangeConfiguration?.(async (event) => {
-    if (event.affectsConfiguration('singularityFlow.modelMode')) cliEnvironment = await resolvedCliEnvironment();
+    if (event.affectsConfiguration('singularityFlow.modelMode')
+      || event.affectsConfiguration('singularityFlow.userName')) cliEnvironment = await resolvedCliEnvironment();
     if (event.affectsConfiguration('singularityFlow.role')
       || event.affectsConfiguration('singularityFlow.userName')) refreshPersonaMenus();
   });

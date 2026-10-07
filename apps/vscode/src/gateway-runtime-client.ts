@@ -31,6 +31,10 @@ export function provideHomeLens(provider: () => string): void {
   sharedRuntime().provideHomeLens(provider);
 }
 
+export function provideChatProfileName(provider: () => string): void {
+  sharedRuntime().provideChatProfileName(provider);
+}
+
 export function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
   sharedRuntime().setActiveRepositoryContext(next);
 }

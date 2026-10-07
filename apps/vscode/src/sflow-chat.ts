@@ -23,6 +23,8 @@ import {
   type PendingChatAttachment, type PendingChatAttachmentRemoval
 } from './chat-file-references.ts';
 import { buildResultCard } from './views/result-card-model.ts';
+import { resolvePersonalization } from '../../../src/personalization.mjs';
+import { readCopilotMode } from '../../../src/copilot-mode.mjs';
 
 const PARTICIPANT_ID = 'singularity-flow.sflow';
 
@@ -1286,6 +1288,17 @@ export function registerSflowChat(
   const handler: vscode.ChatRequestHandler = async (request, _chatContext, stream, token) => {
     const participantStartedAt = Date.now();
     if (token.isCancellationRequested) return;
+    if (readCopilotMode().paused) {
+      stream.markdown('SFlow guidance is paused. Use native Copilot, or explicitly resume with `/sf-pause off`. No SFlow action was run.\n');
+      return { metadata: { intent: 'paused', topicId: null, followups: [] } satisfies SflowChatMetadata };
+    }
+    const personalization = resolvePersonalization({
+      root: activeRepositoryContext()?.root ?? null,
+      profileName: vscode.workspace.getConfiguration('singularityFlow').get<string>('userName', '')
+    });
+    if (personalization.replyName) {
+      stream.markdown(`${safeMarkdown(personalization.replyName)}, here’s your SFlow guidance.\n\n`);
+    }
     const keywordMatch = request.command ? null : matchParticipantCommand(request.prompt);
     const declared = request.command
       ? PARTICIPANT_COMMAND_BY_ID.get(request.command)

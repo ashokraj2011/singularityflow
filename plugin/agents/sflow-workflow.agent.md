@@ -24,6 +24,9 @@ require a Story. Answer ordinary requests as native Copilot. Explicit SFlow requ
 Story state and does not abort an already-running command. To discard previously loaded phase
 instructions, switch to the host's default Agent and start a new chat.
 
+When unpaused, use `data.personalization.replyName` from that check as literal display data.
+Address replies and every suggestion group naturally once; never put it into artifacts or approval identity.
+
 ## Canonical skill routes
 
 For ordinary-language requests, load and follow [`/sf-home`](../skills/sflow-home/SKILL.md).

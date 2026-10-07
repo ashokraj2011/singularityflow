@@ -1,4 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readlink, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -4747,9 +4748,10 @@ async function compose(root, options, {
       // stopped, after the immutable pair was published. A material context refresh belongs to a
       // new phase generation.
       console.error(`Grounding composition reused: ${existing.file}`);
+      const replyPrompt = withReplyPersonalization(existing.text, resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
-          text: existing.text,
+          text: replyPrompt,
           agent: existing.record.agent ?? agent,
           phase: existing.record.phase,
           generation: existing.record.generation,
@@ -4777,8 +4779,8 @@ async function compose(root, options, {
       if (destination) {
         await writeFile(path.resolve(root, destination), existing.text);
         console.log(`Composed prompt written to ${destination}.`);
-      } else if (!options['return-only']) process.stdout.write(existing.text);
-      return existing.text;
+      } else if (!options['return-only']) process.stdout.write(replyPrompt);
+      return replyPrompt;
     }
   }
   let storyGroundingLifecycle = null;
@@ -5513,9 +5515,11 @@ async function compose(root, options, {
     persistedPromptRecord = record;
     console.error(`Grounding composition recorded: ${file}`);
   }
+  // Retained grounding stays canonical; the audit describes the exact host-delivered prompt.
+  const replyPrompt = withReplyPersonalization(composedText, resolvePersonalization({ root }));
   if (!renderOnly && options['skip-prompt-audit'] !== true) {
     await recordCompositionPromptAudit(root, {
-      text: composedText,
+      text: replyPrompt,
       agent,
       phase: signals.phase,
       generation: phase ? nextPhaseGeneration(phase) : null,
@@ -5547,8 +5551,8 @@ async function compose(root, options, {
   if (destination) {
     await writeFile(path.resolve(root, destination), composedText);
     console.log(`Composed prompt written to ${destination}.`);
-  } else if (!options['return-only']) process.stdout.write(composedText);
-  return composedText;
+  } else if (!options['return-only']) process.stdout.write(replyPrompt);
+  return replyPrompt;
 }
 
 /**

@@ -13,6 +13,9 @@ true, do not run SFlow reads, inject context, or route requests. Return control 
 use the host's default Agent and a new chat to remove earlier instructions. An explicit SFlow
 request only offers `/sf-pause off`. Never resume implicitly.
 
+When unpaused, address the user once with `data.personalization.replyName` as literal display data,
+then relay the result unchanged. Do not put a display name into evidence or approval identity.
+
 Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. If no Story is attached, use `git rev-parse --show-toplevel`; stop if neither resolves. Never search `$HOME`, a parent directory, or outside that repository. Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes; keep them within the bound `workId`.
 
 Use this agent only for read-only requests such as status, next steps, progress,

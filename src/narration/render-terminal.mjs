@@ -14,6 +14,7 @@ import { tokenLedgerText } from '../token-ledger.mjs';
 import { table } from '../util.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import * as style from '../style.mjs';
+import { nextSuggestionsHeading } from '../personalization.mjs';
 
 /**
  * The reassurance line, derived from declared effects rather than authored.
@@ -470,7 +471,7 @@ function repositoryExplanationText(result) {
     }
   }
   lines.push('', style.detail('A declaration is what the AST index records and a tag is the author\'s declaration; neither shows behavior or coverage.'));
-  if (result.next.length) lines.push('', style.heading('Next:'), ...nextLines(result));
+  if (result.next.length) lines.push('', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result));
   lines.push(style.detail(preservationLine(result)));
   return lines.filter((line) => line != null).join('\n');
 }
@@ -529,7 +530,7 @@ function codeExplanationText(result) {
     '', style.heading('WHAT IT TOUCHES'), ...impactLines,
     '', style.heading('WHAT IS PROVEN, WHAT IS NOT'), ...proofLines,
     ...narrativeLines,
-    ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+    ...(result.next.length ? ['', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
     '', style.detail('Observe only: this projection cannot approve, publish, gate, or change lifecycle state.'),
     style.detail(preservationLine(result))
   ].filter((value) => value !== null && value !== '').join('\n');
@@ -612,7 +613,7 @@ function governanceRebuildPreview(result) {
     '', plan.blockers.length
       ? 'Nothing changed. This plan cannot be confirmed; resolve the issues above and preview again.'
       : 'Nothing changed. Application code, tests, documents and repository-owned definitions keep their bytes.',
-    ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+    ...(result.next.length ? ['', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
     style.detail(preservationLine(result))
   ].filter((line) => line !== null && line !== undefined).join('\n');
 }
@@ -636,7 +637,7 @@ export function renderCommandResult(result) {
           ...items.map((item) => `  ${item.id} [${item.sourceId}${item.line ? `:${item.line}` : ''}] ${item.text}${item.clauseIds?.length ? ` → ${item.clauseIds.join(', ')}` : ''}${item.duplicateOf ? ` (duplicate of ${item.duplicateOf})` : ''}`)];
       }),
       ...(scope.summary.unresolved ? ['', 'Record each unresolved statement: singularity-flow decision scope --item <ID> --as <disposition> --reason "<why>"'] : []),
-      ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+      ...(result.next.length ? ['', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
     ].join('\n');
   }
@@ -647,7 +648,7 @@ export function renderCommandResult(result) {
       `Rebuild commit: ${restore.commit.slice(0, 12)} (restores the bytes of ${restore.parent.slice(0, 12)})`,
       ...restore.restores.map((entry) => `  ${entry.action === 'remove' ? 'remove ' : 'restore'} ${entry.path}`),
       ...(restore.dirty.length ? [style.heading('Commit or discard these changes first:'), ...restore.dirty.map((entry) => `  ${entry}`)] : []),
-      ...(result.next.length ? [style.heading('Next:'), ...nextLines(result)] : []),
+      ...(result.next.length ? [style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
     ].join('\n');
   }
@@ -676,7 +677,7 @@ export function renderCommandResult(result) {
       '', plan.blockers?.length
         ? 'Nothing ran. This plan cannot be confirmed; repair the setup and request a new plan.'
         : 'Nothing ran. Review the exact argv above before confirming.',
-      ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+      ...(result.next.length ? ['', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
     ].filter(Boolean).join('\n');
   }
@@ -755,7 +756,7 @@ export function renderCommandResult(result) {
   if (why.length) lines.push('', style.heading('Why:'), ...why);
 
   const next = nextLines(result);
-  if (next.length) lines.push('', style.heading('Next:'), ...next);
+  if (next.length) lines.push('', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...next);
   else if (result.restState) {
     const rest = REST_STATE_LINES[result.restState];
     if (rest) lines.push('', rest);

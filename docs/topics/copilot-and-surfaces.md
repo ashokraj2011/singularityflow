@@ -17,7 +17,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 13
+version: 14
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into governance. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -32,6 +32,25 @@ Instructions already loaded in a chat cannot be unloaded by a CLI preference. Sw
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **copilot and surfaces**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+
+## Personalize SFlow replies and suggestions
+
+In VS Code, run **Singularity Flow: Configure User Profile**, or set `singularityFlow.userName`.
+SFlow uses this preferred name first, then the active repository's configured Git `user.name`.
+If neither supplies a usable name, replies remain neutral. Names are never inferred from email,
+login, the OS account or chat memory. Clear the profile name to return to the Git fallback.
+
+The extension shares the name with shell skills through a bounded, private machine-local
+`~/.singularity-flow/presentation-profile.json` preference. CLI children also receive the current
+window's setting directly. Missing, corrupt or inaccessible preferences never block a Story.
+There is no account lookup or network request for personalization, and no additional Copilot
+command: the existing pause check returns the reply name. Replies and suggestion groups address
+the user naturally, once per group, without adding their name to every bullet or command.
+
+Presentation overlays are separate from retained phase/planning prompt bytes, approved artifacts,
+Story snapshots, signed handles, tests and authorization. A display-name change does not stale
+governed inputs or change the Git identity used for decisions. Paused SFlow emits no personalized
+Copilot guidance and leaves ordinary Copilot requests alone.
 
 ## Use it from each surface
 

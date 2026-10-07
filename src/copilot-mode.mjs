@@ -6,9 +6,10 @@ import path from 'node:path';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { resolvePersonalization } from './personalization.mjs';
 
 export const COPILOT_PAUSE_MARKER = '<!-- sflow-copilot-pause -->';
-export const COPILOT_PAUSE_GUARD = 'Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly.';
+export const COPILOT_PAUSE_GUARD = 'Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.';
 
 export function copilotModeFile(env = process.env, home = os.homedir()) {
   return path.resolve(env.SINGULARITY_FLOW_COPILOT_MODE_FILE
@@ -76,6 +77,7 @@ export function copilotModePresentation(mode = readCopilotMode()) {
     schemaVersion: 1, resultType: 'sflow-copilot-mode', ...mode, // schema-transient: computed local mode projection, never persisted
     scope: 'machine-local', storyStateChanged: false, repositoryChanged: false,
     nativeCopilot: mode.paused,
+    personalization: mode.paused ? null : resolvePersonalization({ root: process.cwd() }),
     message: mode.paused
       ? 'SFlow Copilot guidance is paused. Use native Copilot. No Story, approval, branch, or checkout was changed.'
       : 'SFlow Copilot guidance is available through explicit skills or the selected SFlow agent. No Story was advanced.',

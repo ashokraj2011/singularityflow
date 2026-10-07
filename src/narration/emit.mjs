@@ -9,8 +9,21 @@ import { assertContinuation, validateCommandResult } from './command-result.mjs'
 import { renderCommandResult } from './render-terminal.mjs';
 import { renderCommandResultJson } from './render-json.mjs';
 import { markCommandFeedback } from '../dx-timing-context.mjs';
+import { resolvePersonalization } from '../personalization.mjs';
+import { operationContext } from '../operation-context.mjs';
 
 export function emitCommandResult(result, { json = false, postState = null, publicationPending = false, modelMode, restStateWhenIdle = null, stepActionHold = null } = {}) {
+  // Presentation is attached only at delivery, after planning/confirmation digests were computed.
+  // A paused or failed pause preference must not load SFlow personalization or query Git.
+  if (result.data?.paused !== true) {
+    const existing = result.data?.personalization;
+    const personalization = resolvePersonalization({
+      actor: existing?.source === 'git-identity' ? { name: existing.displayName } : null,
+      root: operationContext()?.root ?? null,
+      allowGit: !result.operation?.id.startsWith('copilot.')
+    });
+    result = { ...result, data: { ...result.data, personalization } };
+  }
   const complete = assertContinuation(validateCommandResult(
     attachContinuation(result, { postState, publicationPending, modelMode, restStateWhenIdle, stepActionHold }),
     { requireEnvelope: true }

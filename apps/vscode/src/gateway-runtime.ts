@@ -6,7 +6,7 @@
  * Work or asks `@sflow` a question.
  */
 export {
-  gatewaySession, provideAcknowledgedAt, provideHomeLens, resetGatewaySession,
+  gatewaySession, provideAcknowledgedAt, provideHomeLens, provideChatProfileName, resetGatewaySession,
   setActiveRepositoryContext
 } from './gateway-session.ts';
 // Rootless Home is an interactive gateway concern too. Keeping bootstrap discovery here avoids

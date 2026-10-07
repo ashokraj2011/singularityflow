@@ -272,6 +272,7 @@ export function homeOverviewResult({
   workspace = null,
   repository = null,
   actor = null,
+  personalization = personalizationFromGitIdentity(actor),
   records = null,
   state = null,
   current = {},
@@ -348,7 +349,7 @@ export function homeOverviewResult({
         currentWork: null, activeWork: null, attentionWork: null,
         actor: actorProjection(actor), lens: normalizeHomeLens(lens), today: null, yesterday: null,
         journalAvailable: false, recent: [], latestReceipt: null,
-        personalization: personalizationFromGitIdentity(actor),
+        personalization,
         bootstrap: bootstrap ? {
           bootstrapId: bootstrap.bootstrapId,
           status: bootstrap.status,
@@ -602,7 +603,7 @@ export function homeOverviewResult({
       recent: homeState.ordered
         .filter((work) => work.id !== currentWork?.id || work.repositoryId !== currentWork?.repositoryId)
         .slice(0, 5).map(projectWork),
-      personalization: personalizationFromGitIdentity(actor),
+      personalization,
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
       repository: repository ? {
         id: repository.id ?? null,
@@ -691,6 +692,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
   if (!root) return homeOverviewResult({
     workspace: null,
     actor: context.actor ?? null,
+    personalization: context.personalization,
     subject,
     bootstrap: context.bootstrap ?? null,
     lens: context.lens ?? 'developer'
@@ -784,6 +786,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       resolvedFrom: context.repositoryResolvedFrom ?? null
     },
     actor: context.actor ?? null,
+    personalization: context.personalization,
     records,
     current,
     state: homeState,

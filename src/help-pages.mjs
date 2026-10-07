@@ -1162,6 +1162,10 @@ const PAGES = Object.freeze({
   phase: {
     summary: 'Check, begin, inspect, safely roll over, or publish a governed phase generation.',
     description: [
+      '`phase enter` bundles pause, active checkout/agent binding, pinned phase policy, recovery,',
+      'clarification and reference verification into one model-free entry packet. It is read-only.',
+      '`--compose` explicitly records/reuses the governed prompt when entry is admitted; it never',
+      'begins a generation, runs tests, commits, submits or approves. Prompt text is returned once.',
       '`phase draft-check` validates the current artifact without mutation and returns structured',
       'correction findings before any publication attempt.',
       '`phase begin` establishes a code-generation boundary before source mutation. `phase publish`',
@@ -1175,6 +1179,8 @@ const PAGES = Object.freeze({
       'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'
     ],
     options: [
+      ['enter [PHASE] [--compose]', 'Inspect the current phase; optionally compose its prompt through the existing kernel.'],
+      ['--for-agent', 'Compact entry/draft-check/prepublish JSON; retain blockers/actions and expose full inspection routes.'],
       ['draft-check PHASE', 'Read-only authored-content validation with stable correction findings and a fingerprint.'],
       ['--adopt-existing --confirm DIGEST', 'Explicitly adopt reviewed source that predates begin when Story policy permits it.'],
       ['rollover PHASE [--confirm DIGEST]', 'Preview, then open, a successor generation without discarding the published generation.'],

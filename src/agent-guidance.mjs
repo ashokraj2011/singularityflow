@@ -3,7 +3,7 @@
  * each profile can be selected without another agent or skill already loaded. Studio uses the
  * same source, and the guidance contract test catches drift in the shipped profiles.
  */
-const STORY_CHECKOUT = 'Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool.';
+const STORY_CHECKOUT = 'Resolve the active Story checkout from this invocation\'s verified phase-entry packet; otherwise run `singularity-flow session current --json`. Do not repeat a supplied boundary lookup. Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool.';
 const REPOSITORY_SCOPE = 'Never search `$HOME`, a parent directory, or outside that repository. Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes; keep them within the bound `workId`.';
 
 export const STORY_AGENT_BOUNDARY = `${STORY_CHECKOUT} ${REPOSITORY_SCOPE}`;

@@ -6900,6 +6900,10 @@ async function phaseCommand(positionals, options) {
       modelEnabled: operationContext()?.modelMode.enabled !== false,
       session
     });
+    if (optionBoolean(options, 'for-agent')) {
+      const { phaseAgentResult } = await import('./phase-agent-result.mjs');
+      return console.log(JSON.stringify(phaseAgentResult(result)));
+    }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     const pendingTests = subcommand === 'prepublish'
       && result.testExecution?.status === 'not-run';

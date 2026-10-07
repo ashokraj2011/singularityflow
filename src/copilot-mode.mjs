@@ -10,6 +10,11 @@ import { resolvePersonalization } from './personalization.mjs';
 
 export const COPILOT_PAUSE_MARKER = '<!-- sflow-copilot-pause -->';
 export const COPILOT_PAUSE_GUARD = 'Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.';
+export const PHASE_ENTRY_SKILLS = Object.freeze(['sflow-code', 'sflow-phase']);
+export const PHASE_ENTRY_PAUSE_GUARD = 'First run `singularity-flow phase enter --for-agent --json` once. It checks pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.';
+export function copilotPauseGuardForSkill(name) {
+  return PHASE_ENTRY_SKILLS.includes(name) ? PHASE_ENTRY_PAUSE_GUARD : COPILOT_PAUSE_GUARD;
+}
 
 export function copilotModeFile(env = process.env, home = os.homedir()) {
   return path.resolve(env.SINGULARITY_FLOW_COPILOT_MODE_FILE

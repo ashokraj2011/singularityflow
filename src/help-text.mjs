@@ -678,8 +678,9 @@ Usage:
   singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --marker TEXT --answer TEXT | --response-file FILE)
     [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json]
+  singularity-flow phase enter [PHASE] [--work-id WORK-ID] [--compose] [--for-agent] [--json]
   singularity-flow phase draft-check [PHASE] [--json]
-  singularity-flow phase prepublish [PHASE] [--json]
+  singularity-flow phase prepublish [PHASE] [--json] [--for-agent]
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
   singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]

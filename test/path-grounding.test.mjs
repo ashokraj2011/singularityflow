@@ -19,7 +19,7 @@ import { removeTemporaryTree, snapshot } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
-const boundary = 'Resolve the active Story checkout with `singularity-flow session current --json`';
+const boundary = 'Resolve the active Story checkout from this invocation\'s verified phase-entry packet';
 
 function git(repository, ...args) {
   const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
@@ -53,7 +53,8 @@ test('every packaged and template agent rebinds tools to the active repository a
     for (const name of names) {
       const content = await readFile(path.join(directory, name), 'utf8');
       assert.match(content, new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), name);
-      assert.match(content, /require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool/, name);
+      assert.match(content, /Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool/, name);
+      assert.match(content, /otherwise run `singularity-flow session current --json`/, name);
       assert.match(content, /Never search `\$HOME`, a parent directory, or outside that repository/, name);
       assert.match(content, /Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes/, name);
       assert.match(content, /keep them within the bound `workId`/, name);
@@ -68,7 +69,8 @@ test('broad reads retain their repository fence and implementation aliases deleg
   assert.match(epicStories, /singularity\/initiatives\/<EPIC-ID>\/artifacts\/epic-planning\/story-plan\.yml/);
   assert.match(implement, /Run `\/sflow-code` once/);
   const code = await readFile(path.join(root, 'plugin', 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
-  assert.match(code, /session current --json.*repositoryPath/);
+  assert.match(code, /singularity-flow phase enter --for-agent --json/);
+  assert.match(code, /cwd=`repositoryPath`/);
   assert.doesNotMatch(implement, /`singularity-flow /, 'the canonical code skill owns executable preflight');
 });
 
@@ -134,8 +136,13 @@ test('every generated skill boundary forbids home search and uses only its decla
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else {
       assert.equal(executionBoundary, 'story', `${name} declares an unknown execution boundary`);
-      assert.match(declared, /`singularity-flow session current --json` → `ready`\/`workId`, cwd=`repositoryPath`/, name);
-      assert.match(declared, /use CLI\/`workItemRoot` paths/, name);
+      if (['sflow-code', 'sflow-phase'].includes(name)) {
+        assert.match(declared, /reuse the entry packet.*`ready`\/`workId`.*cwd=`repositoryPath`/, name);
+        assert.match(declared, /returned `workItemRoot`\/artifact paths/, name);
+      } else {
+        assert.match(declared, /`singularity-flow session current --json` → `ready`\/`workId`, cwd=`repositoryPath`/, name);
+        assert.match(declared, /use CLI\/`workItemRoot` paths/, name);
+      }
       assert.doesNotMatch(content, /singularity\/work-items\/<WORK-ID>/, name);
     }
   }

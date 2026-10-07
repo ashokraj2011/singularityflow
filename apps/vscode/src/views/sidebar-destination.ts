@@ -14,6 +14,7 @@ export function sidebarDestination(viewType: string | null, home = false): strin
     'singularityFlow.capabilityProposals': 'reviews',
     'singularityFlow.workspaces': 'workspace-manage',
     'singularityFlow.configurationCenter': 'configuration-center',
+    'singularityFlow.afterInstall': 'after-install',
     'singularityFlow.helpCenter': 'help-tools',
     'singularityFlow.workspaceLogs': 'activity-tools'
   };

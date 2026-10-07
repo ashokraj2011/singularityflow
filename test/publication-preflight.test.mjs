@@ -858,6 +858,44 @@ test('qualified ADD clause tags survive prepublish, recovery and actual publicat
   });
 });
 
+test('successful document successor preparation makes draft checks prospective without changing the publication', async t => {
+  const item = await fixture('document-successor');
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await writeFile(item.target, [
+    '# Intake', '', '## Requested outcome', '', 'Deliver the requested operation for calculator users.', '',
+    '## Scope and constraints', '', 'Keep existing arithmetic and decimal operations intact.', '',
+    '## Evidence', '', 'Verify the requested example and regression behavior before release.', ''
+  ].join('\n'));
+  await inContext(item.root, async () => {
+    await scanArtifacts(item.root, item.config, item.workflow, 'intake');
+    await commitAndPublish(item.root, item.config, item.workflow,
+      { type: 'artifact-generated', phaseId: 'intake', generation: 1 },
+      '[PREFLIGHT-1][phase:intake][generated:1] publish', item.phase.artifacts.map(entry => entry.path), {
+        beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(item.root, item.config, item.workflow, {
+          phaseId: 'intake', authorship: AUTHORSHIP, persist: false,
+          publicationTransaction: { publicationEvent, transactionId: transactionContext.transactionId,
+            expectedHead: transactionContext.expectedHead }
+        })
+      });
+    const bytes = await readFile(item.target, 'utf8');
+    const publication = JSON.stringify(item.phase.generationPublications);
+    await preparePhaseInputs(item.root, item.config, item.workflow, 'intake', { dryRun: true });
+    assert.equal(item.phase.reworkRevalidation, undefined, 'dry run cannot reopen authoring');
+    await preparePhaseInputs(item.root, item.config, item.workflow, 'intake');
+    const reservation = JSON.stringify(item.phase.reworkRevalidation);
+    assert.equal(item.phase.reworkRevalidation.generation, 1);
+    assert.equal(item.phase.generation, 1);
+    await preparePhaseInputs(item.root, item.config, item.workflow, 'intake');
+    assert.equal(JSON.stringify(item.phase.reworkRevalidation), reservation, 'a retry keeps the authoring reservation');
+    assert.equal(await readFile(item.target, 'utf8'), bytes);
+    assert.equal(JSON.stringify(item.phase.generationPublications), publication);
+    const prepublish = await phasePrepublish(item.root, item.config, item.workflow, item.phase);
+    assert.equal(prepublish.generation, 2, 'inspect the draft successor rather than re-authenticating old evidence');
+    assert.ok(prepublish.commands.publish, 'a ready prospective draft has its guarded publication route');
+    assert.equal(item.phase.generation, 1, 'inspection does not publish');
+  });
+});
+
 test('only governed supporting Markdown is placeholder-checked without scanning advisory or arbitrary evidence', async (t) => {
   const context = await fixture('supporting-review-artifact', { artifactSet: 'review-bundle', artifactSets: {
     'review-bundle': {

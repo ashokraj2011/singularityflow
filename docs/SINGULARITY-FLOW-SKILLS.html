@@ -8803,7 +8803,7 @@ First run `singularity-flow review`; show its artifact, provenance, checks, deci
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~975 body tokens</span>
+          <span class="pill">~986 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
@@ -8833,17 +8833,17 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Read packet `clarifications`/`clarificationGuidance`, including planning&#39;s approved scope answers;
-acknowledge each ID in `clarificationsReviewed` after reading it. Cite phase/generation/question ID.
-Reconcile wording with answered checkpoints; do not re-ask settled questions. Deferred answers are
-not decisions; clarification neither waives gates nor silently amends intent. If the artifact
-already follows an answer, retain a corrected review of this generation; real gaps need a successor.
+Read `clarifications`/`clarificationGuidance`, including planning&#39;s approved scope answers;
+acknowledge IDs in `clarificationsReviewed`. Cite phase/generation/question ID. Reconcile wording
+with answered checkpoints; never re-ask settled questions. Deferred answers are not decisions;
+clarification cannot waive gates or amend intent. Retain a corrected review of this generation
+for mistaken findings; real artifact gaps need a successor.
 
-1. Run `singularity-flow review-source context &lt;phase&gt; --json`. Require `kind: specification|planning`, a current published generation and complete pinned inventory. Stop on unavailable/truncated readable sources. `unreadableSources` cannot be cited; each needs an `unreadable:&lt;DOC-id&gt;` human decision, carried across reports/generations while unchanged.
-2. Use pinned `reviewer.instructions`; no agent setup, creation, or persistent agent selection is needed. Retention scopes `requiredReviewerAgentId` to this review, preserving the author. On `blocked-author-conflict`, relay `recovery.actions`: honestly publish a successor, never relabel history. Compare authored-content hashes only; registered-file integrity is separately verified. Do not edit source, artifacts, tests, workflow or approvals.
+1. Run `singularity-flow review-source context &lt;phase&gt; --json`. If `canReview: false`, stop and relay `continuation.actions`. Only the author prepares/checks/publishes the preserved private successor. Otherwise require `kind: specification|planning`, a published generation and pinned inventory. Stop on unavailable/truncated readable sources. Never cite `unreadableSources`; each needs an `unreadable:&lt;DOC-id&gt;` human decision, carried while unchanged.
+2. Use pinned `reviewer.instructions`; never set up/create/select an agent. Retention scopes `requiredReviewerAgentId` to this operation, preserving the author. On `blocked-author-conflict`, relay `recovery.actions`; never relabel history. Compare authored-content, not full-file hashes. Never edit source, artifacts, tests, workflow or approvals.
 3. Author `reportTemplate` against `reportSchema`, preserving exact `binding`. Specification rows: `id`, `sourceId`, `line`, `quote`, `outcome`; covered: `scenarioId`/`clauseIds`; excluded: `reason`; question: `question`; unreadable coverage: `attestation`, not line/quote. Planning: preserve singular `clauseId`, `expectedPaths`, `plannedTests` and all pinned metadata. Replace `unreviewed` with honest `supported`/`unsupported`; test-only rows need no product paths. Findings: `id`, `severity` (`blocking`/`advisory`), `message`, not `explanation`. Never mark a real gap supported merely to pass validation.
 4. Stage at the returned Git-private path. Run `singularity-flow review-source check &lt;phase&gt; --report-file &lt;that-path&gt; --json`; repair format only, at most two changed-packet repair attempts. If `retentionReady` is false, relay fields and stop without commit/push. Retain valid packets, including honest gaps, with `singularity-flow review-source submit &lt;phase&gt; --report-file &lt;that-path&gt;`, once. Neither check nor retention approves or submits the phase.
-5. Show hashes, source/clause/clarification IDs, questions, gaps and exceptions. Only `pendingDispositions` IDs permit authorized human `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`; questions/blockers cannot be waived there. Return to the author; review corrected generations again, never advance. Relay amendment acknowledgement first; never acknowledge for the person.
+5. Show hashes, source/clause/clarification IDs, questions, gaps and exceptions. Only `pendingDispositions` IDs allow authorized human `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`; never waive questions/blockers. End with `continuation.actions`: exact Shell/Copilot pair, target generation and owner. If absent, run `singularity-flow review-source status &lt;phase&gt; --json`. Never publish/advance. Relay amendment acknowledgement first; never acknowledge for the person.
 </code></pre>
       </div>
     </details>

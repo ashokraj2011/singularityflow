@@ -7,6 +7,7 @@ import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { sourceReviewContinuation } from './source-review-continuation.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -20,7 +21,7 @@ function currentPhase(workflow) {
  * it, so a skill's closing handoff is the engine's own next action instead of text it hard-codes.
  */
 export function phaseHandoff(workflow, phase, {
-  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path)
+  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null
 } = {}) {
   const hold = phaseGovernanceHold(workflow, phase);
   if (hold) return hold.actions;
@@ -34,6 +35,11 @@ export function phaseHandoff(workflow, phase, {
   const noApproval = phase.approvalPolicy?.mode === 'none';
   const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
   if (convergenceRoute) return withView([copilotAction(convergenceRoute)]);
+  // A phase document display must not send reopened authoring back to its old review.
+  if (workflow.currentPhase === phase.id && phase.status === 'in_progress'
+      && (phaseNeedsGeneration(workflow, phase) || sourceReviewEvidence)) {
+    return withView(sourceReviewContinuation(workflow, phase, sourceReviewEvidence).actions);
+  }
   const submit = copilotAction({
     skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
     reason: noApproval
@@ -52,7 +58,7 @@ export function phaseHandoff(workflow, phase, {
   return withView([submit]);
 }
 
-function nextActions(workflow, phase) {
+function nextActions(workflow, phase, sourceReviewEvidence) {
   if (workflow.status === 'cancelled') return [
     copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
   ];
@@ -85,10 +91,10 @@ function nextActions(workflow, phase) {
         : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
     })
   ];
-  return phaseHandoff(workflow, phase);
+  return phaseHandoff(workflow, phase, { sourceReviewEvidence });
 }
 
-export function workflowGuide(workflow) {
+export function workflowGuide(workflow, { sourceReviewEvidence = null } = {}) {
   const active = currentPhase(workflow);
   return {
     workId: workflow.workItem.id,
@@ -110,7 +116,7 @@ export function workflowGuide(workflow) {
       };
     }),
     nextActions: [
-      ...nextActions(workflow, active),
+      ...nextActions(workflow, active, sourceReviewEvidence),
       ...(intentAmendmentSource(workflow) ? [copilotAction({
         skill: '/sflow-reject',
         command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,

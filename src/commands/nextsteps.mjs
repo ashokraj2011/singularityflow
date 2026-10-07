@@ -12,6 +12,8 @@ import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
+import { sourceReviewRequired } from '../source-review-policy.mjs';
+import { readSourceReviewStatus } from '../source-review-lifecycle.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -151,11 +153,20 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
   const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference, required: false });
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
   if (selected?.kind !== 'story') return nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
-  const workflow = selected.state;
+  let workflow = selected.state;
+  let reviewDefinition = null;
+  if (sourceReviewRequired(workflow, workflow.currentPhase)) {
+    const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+    const accepted = await loadAcceptedStoryExecution(root, selected.id);
+    workflow = accepted.workflow; reviewDefinition = accepted.definition;
+  }
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   const active = activePhase(workflow);
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
+  const sourceReviewEvidence = active?.status === 'in_progress' && active.generation > 0
+    && sourceReviewRequired(workflow, active.id)
+    ? await readSourceReviewStatus(root, reviewDefinition, workflow, active.id).catch(() => null) : null;
   // Full publication preflight can inspect a large source change set. `nextsteps` only needs it
   // automatically at the lifecycle state that otherwise causes the retry loop: a consumed code
   // generation whose bytes may have changed. Ordinary authoring readiness stays with /sf-phase.
@@ -184,6 +195,7 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
     ...nextStepsSnapshot({
       branch: branch(root),
       workflow,
+      sourceReviewEvidence,
       stepActionHold,
       publicationPending: Boolean(await readPendingPublication(root, {
         kind: 'story', id: selected.id, migrate: false,

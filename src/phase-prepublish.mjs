@@ -434,6 +434,11 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     : dependencies.blockers.length ? dependencies.actions[0]
     : draft.status !== 'ready'
       ? draftRoute ?? recovery.actions[0] ?? actions[0] ?? null
+      // A retained packet can be individually ready while changed application bytes require a
+      // reviewed successor. Recovery owns that boundary; never advertise submission first.
+      : retained && recovery.requiresLifecycleRecovery
+        ? { command: draft.commands.recover, skill: '/sf-recover',
+            detail: 'Inspect the reported lifecycle recovery and its exact successor/return plan before submitting this retained generation.' }
       : actions[0] ?? recovery.actions[0] ?? null;
   const briefOnly = recovery.actions.length > 0
     && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);

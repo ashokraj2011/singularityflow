@@ -12,6 +12,8 @@ export { CapabilityProposalPanel } from './views/capability-proposal.ts';
 export { CapabilityProposalsPanel } from './views/capability-proposals.ts';
 export { SetupProposalPanel } from './views/setup-proposal.ts';
 export { WorkspacesPanel } from './views/workspaces-panel.ts';
+export { AfterInstallPanel } from './views/after-install-panel.ts';
+export { collectReviewConfirmation } from './views/review-confirmation.ts';
 export { DiagnosticsPanel } from './views/diagnostics.ts';
 export { ComprehensionCenterPanel } from './views/comprehension-center.ts';
 export { CodeExplainerPanel } from './views/code-explainer.ts';

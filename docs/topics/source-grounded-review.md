@@ -7,7 +7,7 @@ questions:
   - What human clarification does the reviewer read?
 commands: [review-source]
 related: [approvals, workflow-authoring, story-lifecycle]
-version: 1
+version: 2
 ---
 
 `/sf-review-source <phase>` independently reviews a published scope or planning generation;
@@ -45,3 +45,20 @@ author correction and another review, not a fabricated pass. Only an ID actually
 Use `review-source check <phase> --report-file <stagingPath> --json` before retaining a packet,
 then the supported `review-source submit` form. Reading answers or retaining a review is not
 phase submission or approval. `/sf-review-source` is the Copilot route for this review flow.
+
+## A concrete next action, including successor drafts
+
+Review context and status include `continuation`: the exact Shell and Copilot action, its owner,
+published generation and target generation. A real artifact correction returns to the phase author
+with `singularity-flow prepare <phase>` and that phase's configured authoring skill. A pending human
+disposition instead names the exact finding to decide; a ready review names submission. The fast
+path, phase document display, submission readiness and next-step planner use the same handoff.
+
+Successfully preparing an in-progress document successor reserves authoring without incrementing
+the published generation. Draft checks and prepublication inspect the prospective generation,
+not the retained publication. Prepare retries keep the reservation and preserve existing content.
+No private draft is reviewed as a publication: context returns `canReview: false` and the authoring
+handoff until the successor is published, and review check/retention refuse old-generation packets.
+Earlier publications and reviews remain preserved. Submitted evidence still needs an authorized
+return, and code successors retain their guarded generation boundary. These rules use the phase's
+contract, including copied, renamed and future custom phases, rather than built-in phase names.

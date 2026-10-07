@@ -11,11 +11,11 @@
  * answer, which is what keeps `[SPK:REQ-180]` — identical authoritative state between the fast path
  * and the advanced operations — achievable rather than aspirational.
  */
-import { loadDefinition } from '../config.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { repoRoot } from '../git.mjs';
 // Through the revisioned state store, never `state.mjs` directly: application surfaces load and
 // mutate aggregates across that boundary so the revision guard cannot be bypassed.
-import { loadStoryAggregate, storyPublicationPending } from '../state-stores.mjs';
+import { storyPublicationPending } from '../state-stores.mjs';
 import { FAST_PATH_VERBS, planFastPath } from '../fast-path.mjs';
 import {
   action, because, commandResult, noEffects, refused, succeeded
@@ -25,6 +25,8 @@ import { operationById } from '../command-registry.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 import * as style from '../style.mjs';
+import { sourceReviewRequired } from '../source-review-policy.mjs';
+import { readSourceReviewStatus } from '../source-review-lifecycle.mjs';
 
 /** Map a checkpoint to the NCL rest state, or null when the journey continues. */
 function restStateFor(result) {
@@ -54,15 +56,19 @@ export function fastPathCommandAction(entry) {
 
 export async function runVerb(verb, argv, { positionals, options }) {
   const root = repoRoot();
-  const definition = await loadDefinition(root);
   // `loadWorkflow` resolves the active Story when no id is given, which is the common case for a
   // verb typed with no arguments.
-  const workflow = await loadStoryAggregate(root, definition, optionString(options, 'work-id') ?? positionals[1]);
+  const { definition, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? positionals[1]);
   const pending = await storyPublicationPending(root, definition, workflow.workItem.id);
   const json = optionBoolean(options, 'json');
+  const active = workflow.phases?.[workflow.currentPhase];
+  const sourceReviewEvidence = active?.status === 'in_progress' && active.generation > 0
+    && sourceReviewRequired(workflow, active.id)
+    ? await readSourceReviewStatus(root, definition, workflow, active.id).catch(() => null) : null;
 
   const plan = planFastPath(workflow, definition, verb, {
     publicationPending: Boolean(pending),
+    sourceReviewEvidence,
     modelMode: operationContext()?.modelMode ?? { enabled: true }
   });
 

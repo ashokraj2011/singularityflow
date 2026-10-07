@@ -207,6 +207,11 @@
         "icon": "$(sync)"
       },
       {
+        "command": "singularityFlow.afterInstall",
+        "title": "Singularity Flow: After Install — Guided Upgrade",
+        "icon": "$(sync)"
+      },
+      {
         "command": "singularityFlow.reinitializeWorkspaces",
         "title": "Singularity Flow: Upgrade Framework Seeds (Safe Preview)",
         "icon": "$(sync)"

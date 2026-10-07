@@ -610,7 +610,9 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'source-review.context-reported': {
-    headline: (s) => `Pinned source review context for ${slot(s.workId)} / ${slot(s.phase)} generation ${slot(s.generation)} is ready.`,
+    headline: (s) => s.canReview === false
+      ? `Source review for ${slot(s.workId)} / ${slot(s.phase)} is blocked; follow the returned author or recovery handoff.`
+      : `Pinned source review context for ${slot(s.workId)} / ${slot(s.phase)} generation ${slot(s.generation)} is ready.`,
     preserves: true
   },
   'source-review.status-reported': {

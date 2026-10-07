@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "d23e25c26e0762bd8d07bac01789c7e1ea5bda9a",
+  "sourceCommit": "cb20ac3ca7d7ef58fe16b85943ae2cb186d6a028",
   "topicCount": 80,
-  "contentSha256": "a9801d6ec4b801027ee36b7dd93390c8d658b6dd5374e6a992b1effc35dd8a62",
+  "contentSha256": "bc02e688a0b1d7c7ce5a586caf5c1fe6bd8a83836c4773b4d0e97ea4acea5b11",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -312,8 +312,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 30,
-      "sha256": "de2d9cdca62d4907146e6493cf49d0c5cf1d1b8829f8f23bf5398500fd720d7d",
+      "version": 31,
+      "sha256": "75288759b77d6d5aa25a61f9c112b8b32f798c60e6f6f9fa2e71c8ed0734aa5d",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
@@ -528,8 +528,8 @@
     {
       "id": "source-grounded-review",
       "title": "Independent source-grounded review",
-      "version": 1,
-      "sha256": "ecd52375bec587e08ded3fe61cdfa1e043f2e86f8cda9ecbe44c5928460e529c",
+      "version": 2,
+      "sha256": "92eb5af12891aa186d6b1368e30b9e69b617ffb72d0d8b0f8b808081f72e78a3",
       "routingSha256": "0c3fb5640f1493f14d8795c3e77b63917c630b28fba11bb13f20bb2add4d808c",
       "file": "source-grounded-review.md"
     },

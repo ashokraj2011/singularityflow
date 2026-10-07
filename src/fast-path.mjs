@@ -161,7 +161,7 @@ function checkpointFor(workflow, phase, { publicationPending }) {
  * kernel operation ran is a vocabulary that can quietly stop matching it.
  */
 export function planFastPath(workflow, definition, verb, {
-  publicationPending = false, modelMode = { enabled: true }
+  publicationPending = false, modelMode = { enabled: true }, sourceReviewEvidence = null
 } = {}) {
   if (!FAST_PATH_VERBS.includes(verb)) {
     throw new SingularityFlowError(`Unknown fast-path verb '${verb}'. Use one of ${FAST_PATH_VERBS.join(', ')}.`);
@@ -232,7 +232,7 @@ export function planFastPath(workflow, definition, verb, {
   }
 
   // Everything below is the ordinary case: the verb owns the active phase and has work to route.
-  const planned = workflowGuide(workflow).nextActions ?? [];
+  const planned = workflowGuide(workflow, { sourceReviewEvidence }).nextActions ?? [];
   const stop = checkpoint ?? generationCheckpoint(planned, phase, modelMode)
     ?? nonGenerativeCheckpoint(planned, phase);
   return result({

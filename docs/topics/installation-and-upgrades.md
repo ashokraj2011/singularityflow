@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 30
+version: 31
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -195,6 +195,30 @@ review only the selected workspace and applies only a plan bound to that preview
 Intake reloads the approved workflow catalog after a successful apply without clearing its authored
 draft. **Factory Reset Local SFlow Data (Destructive)** remains a separately named operation and is
 never selected by the normal Reinitialize action.
+
+### Guided after-install upgrade in VS Code
+
+Open **After install** in the main SFlow menu, or run **Singularity Flow: After Install — Guided
+Upgrade** from the Command Palette. The same entry is in **Configuration → After install**.
+Opening it runs only a build-alignment check and a local workspace listing. Select an existing
+workspace explicitly; the guide never chooses the active or first workspace on your behalf.
+
+1. Check that the terminal, VS Code and Copilot surfaces run the installed build. If repairable,
+   explicitly review alignment to the installer's retained build, reload VS Code, and reopen the
+   guide. Split or unverified installs need a matching complete package before repository upgrade.
+2. Choose one saved workspace. The read-only workspace check shows its exact repository paths.
+3. Preview safe reinitialization for that workspace, review the preserved customizations and schema
+   findings, then confirm the exact returned plan. A stale plan needs a new preview. Protected Git
+   publication retains its reported review branch; merge it normally and preview again. No force
+   push, factory reset, or application-branch switch is part of this journey.
+4. After verified upgrade completion, review **Refresh & verify this workspace**. It refreshes
+   only existing checkouts' previously selected authority pins, then rereads workspace and build
+   status. Missing/deferred checkouts are not cloned. A failed pin refresh or unavailable checkout
+   remains visible with **Open workspace maintenance** and repository setup recovery as next steps.
+
+Completion applies only to the selected workspace and local machine. Repeat for other workspaces
+and laptops. Workspace mappings remain intact and existing Stories keep their pinned configuration;
+new Stories consume the upgraded approved authority. This is not test or release qualification.
 
 `spec-driven-standard` and `reference-driven-build` remain standard product contracts rather than
 optional catalog samples during ordinary refresh. Safe reinitialize restores them only when they

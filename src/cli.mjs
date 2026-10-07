@@ -174,6 +174,7 @@ import {
   retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
 } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
+import { sourceReviewContextText } from './source-review-context-display.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
   materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions,
@@ -5553,7 +5554,7 @@ async function prepareCommand(positionals, options) {
     outcome: succeeded('prepare.succeeded', { phase, path: artifact }),
     // Materialises the artifact from its template and captures the interval baseline. Nothing is
     // committed or pushed: preparing is not a governed transition.
-    effects: effects({ filesChanged: true }),
+    effects: effects({ filesChanged: true, stateChanged: true }),
     next: preparedPhaseNextActions(workflow, phaseContract, prepared),
     data: prepared.convergence ? { convergence: convergencePreparationState(prepared.convergence) } : {}
   }), { json: optionBoolean(options, 'json'), postState: workflow });
@@ -6680,6 +6681,8 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, { doc
       policyVerified: false, policyReason: policy.reason, handoff: []
     };
   }
+  const sourceReviewEvidence = phase.status === 'in_progress' && phase.generation > 0 && sourceReviewRequired(workflow, phase.id)
+    ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(() => null) : null;
   return {
     authoringSkill: route.authoringSkill,
     effectiveAuthoringSkill: route.effectiveAuthoringSkill,
@@ -6687,7 +6690,7 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, { doc
     ...(route.authoringSkillWarning ? { authoringSkillWarning: route.authoringSkillWarning } : {}),
     policyVerified: true,
     handoff: phase.status === 'in_progress'
-      ? phaseHandoff(workflow, phase, documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 })
+      ? phaseHandoff(workflow, phase, { sourceReviewEvidence, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
         .map(({ skill, command, copilotCommand, reason, optional }) => ({ skill, command, copilotCommand, reason, ...(optional ? { optional } : {}) }))
       : []
   };
@@ -10414,7 +10417,8 @@ async function reviewSourceCommand(positionals, options) {
     operation: { id: `review-source.${operation}`, classification: changed ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id }, outcome,
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true }) : noEffects(),
-    restState: changed ? 'complete' : 'informational', data
+    restState: changed ? 'complete' : 'informational', data,
+    next: (data?.continuation?.actions ?? []).map((entry, index) => narrationAction({ id: `source-review.next.${index}`, command: entry.command, skill: entry.skill, label: entry.reason, rank: 'NOW' }))
   }), { postState: workflow });
   if (action === 'status' && !sourceReviewRequired(workflow, phaseId)) {
     const result = { schemaVersion: 1, resultType: 'source-review-status',
@@ -10434,16 +10438,9 @@ async function reviewSourceCommand(positionals, options) {
     }
     const packet = await sourceReviewContext(root, config, workflow, phaseId, stagingPath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(packet, null, 2));
-    console.log(`Source review context: ${packet.workId} ${phaseId} generation ${packet.generation}`);
-    console.log(`Artifact: ${packet.artifact.path} · authored-content SHA-256 ${packet.artifact.authoredContentSha256}`);
-    console.log(`Registered full-file SHA-256: ${packet.artifact.registeredFileSha256} (includes managed metadata; verified)`);
-    for (const source of packet.sources) console.log(`Source: ${source.id} · ${source.path} · ${source.originalSha256}`);
-    if (packet.upstreamSpec) console.log(`Approved specification: ${packet.upstreamSpec.path} · authored-content SHA-256 ${packet.upstreamSpec.authoredContentSha256} · registered full-file SHA-256 ${packet.upstreamSpec.registeredFileSha256}`);
-    console.log(`Independent reviewer: ${packet.requiredReviewerAgentId} (${packet.reviewer.activation}; operation-scoped; no agent setup)`);
-    for (const action of packet.recovery?.actions ?? []) console.log(`Recovery: ${action.command}`);
-    console.log(`Report staging path: ${packet.stagingPath}`);
+    console.log(sourceReviewContextText(packet));
     return emitReview('context', noop('source-review.context-reported', {
-      workId: workflow.workItem.id, phase: phaseId, generation: packet.generation
+      workId: workflow.workItem.id, phase: phaseId, generation: packet.generation, canReview: packet.canReview
     }), false, packet);
   }
   if (action === 'status') {

@@ -324,6 +324,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   extensionLifetime.abort();
   extensionLifetime = new AbortController();
   const activationSignal = extensionLifetime.signal;
+  // Capture before activation yields: post-install maintenance must not mix the loaded old
+  // extension with a replacement bundle already on disk, even without a governed repo open.
+  const loadedBundle = new LoadedBundle(path.join(context.extensionPath, 'dist', 'extension.cjs'));
   // Optional work (Story discovery, product checks) waits while the intake form is on screen.
   const backgroundWork = new BackgroundWorkGovernor();
   // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
@@ -2924,7 +2927,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     upgradeScope, attachScope, requestedRepositoryId);
   }));
 
-  /** One discoverable post-install entry point: open the reviewed UI and check every workspace. */
+  /** One post-install entry point: review the build and upgrade an explicitly selected workspace. */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.afterInstall', async () => {
+      try {
+        const location = resolveCli({ extensionPath: context.extensionPath });
+        const launcher = codeLauncher(vscode.env?.appRoot);
+        const registry = new SingularityFlowClient({
+          location, repository: os.tmpdir(),
+          environment: { ...cliEnvironment, ...(launcher ? { SINGULARITY_FLOW_CODE_CLI: launcher } : {}) },
+          onOutput: text => output.append(text)
+        });
+        const { AfterInstallPanel, collectReviewConfirmation, IntakePanel } = lazyPanels();
+        AfterInstallPanel.show(context, {
+          extensionPath: context.extensionPath,
+          confirm: collectReviewConfirmation,
+          run: async <T>(argv: string[]): Promise<T> => {
+            if (loadedBundle.reloadPending()) throw new Error(
+              'SFlow was updated while this window was open. Reload VS Code, then reopen After install before upgrading.'
+            );
+            try { return await registry.run<T>(argv); }
+            catch (error) {
+              // A partial/blocked upgrade exits nonzero but still has repository-specific results.
+              // Preserve them rather than losing protected-branch and schema recovery guidance.
+              const result = (error as { result?: unknown }).result;
+              if (argv[0] === 'workspace' && argv[1] === 'reinitialize'
+                && result && typeof result === 'object'
+                && Array.isArray((result as { results?: unknown }).results)) return result as T;
+              throw error;
+            }
+          },
+          configurationChanged: async () => {
+            await IntakePanel.configurationChanged();
+            await refreshWorkspaceTree();
+          }
+        });
+      } catch (error) { showRefusal(error, { headline: 'After-install upgrade is unavailable' }); }
+    }
+  ));
+
+  /** Compatibility commands continue to open the existing reviewed workspace upgrade UI. */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.upgradeWorkspaces',
     () => vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgrade: true })
@@ -3873,7 +3915,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // One build on every product surface. Checked after the first paint, repaired from the build this
   // machine retains, and a reload offered once this window's own files have been replaced.
-  const loadedBundle = new LoadedBundle(path.join(context.extensionPath, 'dist', 'extension.cjs'));
   const launcher = codeLauncher(vscode.env?.appRoot);
   const productClient = new SingularityFlowClient({
     location: surfaceLocation, repository: os.tmpdir(),
@@ -7185,7 +7226,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
 
-    if (message.action === 'repository-setup') await vscode.commands.executeCommand(
+    if (message.action === 'after-install') await vscode.commands.executeCommand('singularityFlow.afterInstall');
+    else if (message.action === 'repository-setup') await vscode.commands.executeCommand(
       'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
     );
     else if (message.action === 'capability-refresh') await vscode.commands.executeCommand(

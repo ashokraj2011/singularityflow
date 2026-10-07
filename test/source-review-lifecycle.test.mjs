@@ -160,7 +160,58 @@ test('review context binds Story snapshot, exact attachment bytes, and published
   assert.equal(packet.authorAgentId, 'sflow-product-owner');
   assert.equal(packet.reportTemplate.binding.sources.length, 2);
   assert.equal(packet.reportSchema.properties.kind.const, 'specification');
+  assert.equal(packet.canReview, true);
+  assert.equal(packet.continuation.nextSkill, '/sf-review-source');
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'missing');
+});
+
+test('reopened successor returns an explicit author handoff without reading the old artifact as new evidence', async t => {
+  const { root, config, workflow } = await fixture(t);
+  const phase = workflow.phases.specification;
+  phase.reworkRevalidation = { generation: 1, invalidatedAt: '2026-10-07T09:00:00Z' };
+  phase.generationHighWatermark = 3;
+  // A corrected unpublished draft must not make review compare its bytes to generation one.
+  await put(root, `${ITEM}/artifacts/spec.md`, '# Corrected private draft\n');
+  const before = JSON.stringify(workflow);
+  const packet = await sourceReviewContext(root, config, workflow, phase.id, '.git/report.json');
+  assert.equal(packet.canReview, false);
+  assert.equal(packet.reviewer.activation, 'awaiting-successor-publication');
+  assert.equal(packet.binding, null);
+  assert.equal(packet.reportTemplate, undefined, 'no template can accidentally retain an old-generation review');
+  assert.equal(packet.stagingPath, null);
+  assert.equal(packet.continuation.publishedGeneration, 1);
+  assert.equal(packet.continuation.targetGeneration, 4);
+  assert.equal(packet.continuation.nextCommand, 'singularity-flow prepare specification');
+  assert.equal(packet.continuation.copilotCommand, '/sf-phase');
+  assert.match(packet.continuation.actions[0].reason, /private corrected draft/);
+  const status = await readSourceReviewStatus(root, config, workflow, phase.id);
+  assert.equal(status.status, 'successor-publication-required');
+  assert.deepEqual(status.continuation, packet.continuation);
+  await assert.rejects(sourceReviewInput(root, config, workflow, phase.id), error => {
+    assert.equal(error.code, 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED');
+    assert.equal(error.details.continuation.targetGeneration, 4);
+    assert.equal(error.details.actions[0].command, 'singularity-flow prepare specification');
+    return true;
+  });
+  assert.equal(JSON.stringify(workflow), before);
+  assert.equal(await readFile(path.join(root, `${ITEM}/artifacts/spec.md`), 'utf8'), '# Corrected private draft\n');
+});
+
+test('a real retained blocker names authoring; a corrected same-generation review can still clear it', async t => {
+  const { root, config, workflow } = await fixture(t);
+  const input = await sourceReviewInput(root, config, workflow, 'specification');
+  const report = review(input);
+  report.findings = [{ id: 'F-001', severity: 'blocking', message: 'Negative integer behavior needs an answer.' }];
+  await retainReport(root, config, workflow, report, input);
+  const status = await readSourceReviewStatus(root, config, workflow, 'specification');
+  assert.equal(status.status, 'correction-required');
+  assert.equal(status.continuation.nextCommand, 'singularity-flow prepare specification');
+  assert.equal((await sourceReviewContext(root, config, workflow, 'specification', '.git/review.json')).canReview, true,
+    'a mistaken reviewer finding may be corrected against the unchanged pinned publication');
+  await retainReport(root, config, workflow, review(input), input);
+  const ready = await readSourceReviewStatus(root, config, workflow, 'specification');
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.continuation.nextCommand, `singularity-flow submit specification --work-id ${ID}`);
 });
 
 async function pinClarification(root, workflow, phaseId, { answer = 'Provide one desktop screenshot and one automated positive-value test.', status = 'answered', mutate = () => {} } = {}) {

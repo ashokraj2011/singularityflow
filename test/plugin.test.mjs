@@ -1006,15 +1006,18 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(agent, /never examples from other Stories/);
   assert.match(agent, /Test-only rows need tests, not product paths/);
   assert.match(agent, /Repair format\s+only, at most twice/);
-  assert.match(skill, /no agent setup, creation, or persistent agent selection is needed/);
-  assert.match(skill, /authored-content hashes only/);
+  assert.match(skill, /never set up\/create\/select an agent/);
+  assert.match(skill, /authored-content, not full-file hashes/);
+  assert.match(skill, /`canReview: false`.*stop and relay `continuation.actions`/);
+  assert.match(skill, /Only the author prepares\/checks\/publishes the preserved private successor/);
+  assert.match(skill, /End with `continuation.actions`: exact Shell\/Copilot pair, target generation and owner/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {
     assert.match(instructions, /clarificationsReviewed/);
     assert.match(instructions, /pendingDispositions/);
     assert.match(instructions, /deferred|Deferred/);
   }
-  assert.match(skill, /retain a corrected review of this generation/);
+  assert.match(skill, /retain a corrected review of this generation/i);
   assert.match(agent, /rather than demanding a successor/);
 });
 

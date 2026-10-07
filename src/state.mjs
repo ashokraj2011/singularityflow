@@ -3,6 +3,7 @@ import {
   convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, scopeStepOf
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { reservePreparedDocumentSuccessor } from './prepared-document-successor.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -2528,6 +2529,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
           itemDirectory, generation: nextPhaseGeneration(phase)
         });
       }
+      reservePreparedDocumentSuccessor(workflow, phase, nowIso());
       return {
         phase,
         path: posix(path.relative(root, target)),
@@ -2640,6 +2642,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       await updateArtifactMetadata(root, config, workflow, phase);
       await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory, generation: nextPhaseGeneration(phase) });
     }
+    reservePreparedDocumentSuccessor(workflow, phase, nowIso());
   }
   return {
     phase, path: posix(path.relative(root, target)), ...inputs,

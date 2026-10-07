@@ -6,6 +6,7 @@ import { phaseAuthoredReviewArtifacts } from './publication-preflight.mjs';
 import { changedFiles } from './git.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
+import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
 import { storyRequiresStepActions } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
@@ -333,6 +334,7 @@ export function submissionReadinessSnapshot(workflow, {
   });
 
   if (sourceReviewRequired(workflow, phase.id) && sourceReviewEvidence?.status !== 'ready') {
+    const continuation = sourceReviewContinuation(workflow, phase, sourceReviewEvidence);
     return result(workflow, phase, {
       ...draft,
       classification: 'source-review-required',
@@ -340,9 +342,11 @@ export function submissionReadinessSnapshot(workflow, {
       validation: 'source-review-pending',
       sourceReviewStatus: sourceReviewEvidence?.status ?? 'unverified',
       sourceReviewFindings: sourceReviewEvidence?.findings ?? [],
-      command: `singularity-flow review-source context ${phase.id} --json`,
-      nextSkill: '/sf-review-source',
-      reasonCode: 'SOURCE_REVIEW_REQUIRED'
+      command: continuation.nextCommand,
+      nextSkill: continuation.nextSkill,
+      continuation,
+      reasonCode: continuation.classification === 'successor-publication-required'
+        ? 'SOURCE_REVIEW_CORRECTION_REQUIRED' : 'SOURCE_REVIEW_REQUIRED'
     });
   }
 

@@ -1,5 +1,7 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { sourceReviewContinuation } from './source-review-continuation.mjs';
+import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -84,7 +86,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
 }
 
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -112,7 +114,7 @@ export function workflowNextSteps(workflow, {
   ];
 
   const undecided = phase.status === 'awaiting_approval' ? applicabilityActions(workflow, phase) : [];
-  let immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
+  let immediate = workflowGuide(workflow, { sourceReviewEvidence }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
     item.skill,
@@ -124,7 +126,7 @@ export function workflowNextSteps(workflow, {
   // A required after-step action of an earlier step holds this one until its approved delivery has
   // a receipt, so that delivery comes first and the step's own work follows it.
   if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence });
     const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [
       action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
@@ -133,7 +135,8 @@ export function workflowNextSteps(workflow, {
     ];
   }
 
-  const needsGeneration = phaseNeedsGeneration(workflow, phase);
+  const needsGeneration = phaseNeedsGeneration(workflow, phase)
+    || (sourceReviewEvidence && sourceReviewContinuation(workflow, phase, sourceReviewEvidence).classification === 'successor-publication-required');
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
   const effectiveProducer = effectivePhasePublicationProducer(phase, { modelEnabled: modelMode.enabled });
   const convergenceProjectionRequired = isConvergencePhase(phase)
@@ -194,7 +197,10 @@ export function workflowNextSteps(workflow, {
         'then', '/sflow-submit', `singularity-flow story advance --work-id ${workId}`,
         'After deterministic publication, review every convergence disposition and explicitly confirm advancement before submission.'
       )
-    : action(
+    : sourceReviewRequired(workflow, phase.id) ? action(
+        'then', '/sf-review-source', `singularity-flow review-source context ${phase.id} --json`,
+        'After successor publication, independently review its exact source and artifact bindings before submission.'
+      ) : action(
         'then', '/sflow-submit', `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
         noApproval
           ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
@@ -211,7 +217,7 @@ export function workflowNextSteps(workflow, {
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -248,7 +254,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     modelMode: modelMode.enabled ? 'auto' : 'disabled',
     recovery: recovery?.requiresRecovery ? recovery : null,
     ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
-    actions: workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold })
+    actions: workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence })
   };
 }
 

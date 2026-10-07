@@ -14,6 +14,8 @@ import { authoredArtifactText, inspectManagedArtifactMetadata } from './publicat
 import { clarificationRecordRelative } from './clarifications.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
+import { sourceReviewContinuation } from './source-review-continuation.mjs';
+import { phaseNeedsGeneration } from './sequence.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
 import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport } from './source-review-contract.mjs';
@@ -291,6 +293,9 @@ async function publishedClarification(root, config, workflow, phase, artifact, r
 /** Exact source bytes and artifact bytes for an independent reviewer. This never writes. */
 export async function sourceReviewInput(root, config, workflow, phaseId) {
   const phase = checkPublishedGeneration(workflow, phaseId);
+  // Author-collision inspection still explains the honest re-author route. Retention and
+  // scoped reviewer validation forbid using this diagnostic packet as independent evidence.
+  if (!sourceReviewAuthorConflict(workflow, phase)) assertSourceReviewPublicationCurrent(workflow, phase);
   const reviewerAgentId = workflow.resolution?.sourceReview?.reviewerAgent ?? REVIEW_AGENT;
   const reviewerProfile = config.agents?.[reviewerAgentId];
   const reviewerAgentSha256 = reviewerProfile?.sha256;
@@ -324,6 +329,17 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
     recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null
   };
   return { ...context, binding: sourceReviewBinding(context) };
+}
+
+function assertSourceReviewPublicationCurrent(workflow, phase) {
+  if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress'
+      || !phaseNeedsGeneration(workflow, phase)) return;
+  const continuation = sourceReviewContinuation(workflow, phase);
+  throw new SingularityFlowError(
+    `Source review cannot retain generation ${phase.generation} while ${phase.id} generation ${continuation.targetGeneration} is being authored. Preserve the draft and follow the phase-author handoff; review only after successor publication.`,
+    { code: 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED', details: { workId: workflow.workItem.id,
+      phase: phase.id, continuation, actions: continuation.actions } }
+  );
 }
 
 export function sourceReviewReportPath(root, config, workflow, phaseId, reportSha256) {
@@ -558,7 +574,21 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
 
 /** Read current review and decisions, then recompute all source and artifact bindings. */
 export async function readSourceReviewStatus(root, config, workflow, phaseId) {
+  const phase = checkPublishedGeneration(workflow, phaseId);
+  if (workflow.currentPhase === phaseId && phase.status === 'in_progress'
+      && phaseNeedsGeneration(workflow, phase) && !sourceReviewAuthorConflict(workflow, phase)) {
+    // A new draft cannot be authenticated against the old publication or independently reviewed.
+    return { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, // schema-transient
+      phase: phaseId, generation: phase.generation, status: 'successor-publication-required',
+      reportPath: null, reportSha256: null, binding: null, pendingDispositions: [],
+      findings: [{ code: 'source-review-successor-unpublished', message: 'Publish the prepared successor before independently reviewing it. Earlier review evidence remains preserved.' }],
+      continuation: sourceReviewContinuation(workflow, phase) };
+  }
   const input = await sourceReviewInput(root, config, workflow, phaseId);
+  return evaluateRetainedSourceReview(root, config, workflow, phaseId, input);
+}
+
+async function evaluateRetainedSourceReview(root, config, workflow, phaseId, input) {
   const current = await readCurrentRecord(root, config, workflow, phaseId);
   const retained = current ?? await readPriorGenerationRecord(root, config, workflow, phaseId);
   const decisions = current
@@ -586,6 +616,7 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
       id, reason, actor: actor.login ?? actor.email ?? actor.name, decidedAt, carriedFrom
     })),
     ...review,
+    continuation: sourceReviewContinuation(workflow, workflow.phases[phaseId], review),
     ...(conflict ? { status: 'author-conflict', recovery: phaseGovernanceHold(workflow, workflow.phases[phaseId]),
       findings: [{ code: 'reviewer-not-independent', message: 'The published author is the required reviewer; re-author a successor under the accepted phase author.' }, ...review.findings] } : {})
   };
@@ -593,7 +624,17 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
 
 /** Build the JSON payload a reviewer authors, with no lifecycle or filesystem mutation. */
 export async function sourceReviewContext(root, config, workflow, phaseId, stagingPath) {
+  const phase = checkPublishedGeneration(workflow, phaseId);
+  if (workflow.currentPhase === phaseId && phase.status === 'in_progress'
+      && phaseNeedsGeneration(workflow, phase) && !sourceReviewAuthorConflict(workflow, phase)) {
+    return { schemaVersion: 1, resultType: 'source-review-context', workId: workflow.workItem.id, // schema-transient
+      phase: phaseId, kind: sourceReviewKind(workflow, phaseId), generation: phase.generation,
+      canReview: false, binding: null, stagingPath: null,
+      reviewer: { activation: 'awaiting-successor-publication', setupRequired: false },
+      continuation: sourceReviewContinuation(workflow, phase) };
+  }
   const input = await sourceReviewInput(root, config, workflow, phaseId);
+  const status = await evaluateRetainedSourceReview(root, config, workflow, phaseId, input);
   // The report's kind is what the step does (specification or planning), never the step's name:
   // the evaluator compares it with that, so a renamed or copied step's review is accepted too.
   const reportTemplate = sourceReviewReportTemplate(input);
@@ -607,6 +648,7 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
+    canReview: !conflict, continuation: status.continuation,
     authorAgentId: input.authorAgentId, requiredReviewerAgentId: input.reviewerAgentId,
     reviewerAgentSha256: input.reviewerAgentSha256,
     reviewer: { id: input.reviewerAgentId, sha256: input.reviewerAgentSha256,
@@ -698,6 +740,7 @@ export function evaluateSubmittedSourceReview(report, input, session) {
 
 /** Call inside a Story publication transaction, after its lock and recovery journal exist. */
 export async function retainSourceReview(root, config, workflow, phaseId, report, evaluation, session, publicationEvent) {
+  assertSourceReviewPublicationCurrent(workflow, checkPublishedGeneration(workflow, phaseId));
   if (!publicationEvent?.eventId) throw new SingularityFlowError(
     'Source review report requires a governed lifecycle event.', { code: 'SOURCE_REVIEW_EVENT_REQUIRED' }
   );

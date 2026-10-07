@@ -8,13 +8,13 @@
 import * as vscode from 'vscode';
 import { navigationPlan } from './webview.ts';
 
-export async function navigateTo(command: string): Promise<void> {
+export async function navigateTo(command: string, ...args: unknown[]): Promise<void> {
   try {
     // `true` filters to commands registered right now, rather than everything the manifest declares —
     // which is exactly the distinction that matters for the three destinations that register late.
     const plan = navigationPlan(command, await vscode.commands.getCommands(true));
     if (plan.kind === 'execute') {
-      await vscode.commands.executeCommand(plan.command);
+      await vscode.commands.executeCommand(plan.command, ...args);
       return;
     }
     const choice = await vscode.window.showInformationMessage(plan.message, plan.action);

@@ -86,6 +86,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
   { id: 'configuration-approvals', label: 'Configuration approvals', description: 'review and activate workflow, agent and test-configuration proposals', icon: 'merge', command: ACTION_COMMANDS['configuration-approvals']! },
   { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },
+  { id: 'after-install', label: 'After install', description: 'guided build check, safe repository upgrade and workspace refresh', icon: 'configuration', command: ACTION_COMMANDS['after-install']! },
   { id: 'setup-wizard', label: 'Guided start', description: 'capability → workspace → first work item', icon: 'start', command: ACTION_COMMANDS['setup-wizard']! },
   { id: 'goals', label: 'Goals', description: 'outcomes linked to governed work', icon: 'impact', command: ACTION_COMMANDS.goals! },
   { id: 'fault-repairs', label: 'Faults & Repairs', description: 'diagnose and recover safely', icon: 'warning', command: ACTION_COMMANDS['fault-repairs']! },

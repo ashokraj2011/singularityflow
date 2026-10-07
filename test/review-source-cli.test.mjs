@@ -182,6 +182,53 @@ function reviewReport(packet) {
   };
 }
 
+test('real and copied workflow preparation returns authoring instead of reviewing a retained generation', async t => {
+  for (const copied of [false, true]) await t.test(copied ? 'copied scope' : 'seeded scope', async t => {
+    const { root, phaseId } = await publishedSpecificationStory(t, { copied });
+    const old = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    await mkdir(path.dirname(old.stagingPath), { recursive: true });
+    await writeFile(old.stagingPath, JSON.stringify(reviewReport(old)));
+    const head = git(root, 'rev-parse', 'HEAD');
+    const artifactBefore = await readFile(path.join(root, old.artifact.path), 'utf8');
+    cli(root, 'prepare', phaseId, '--no-model', '--json');
+    const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    assert.equal(packet.canReview, false);
+    assert.equal(packet.generation, 1, 'preparation is not publication');
+    assert.equal(packet.binding, null);
+    assert.equal(packet.stagingPath, null);
+    assert.equal(packet.continuation.targetGeneration, 2);
+    assert.equal(packet.continuation.nextCommand, `singularity-flow prepare ${phaseId}`);
+    assert.ok(packet.continuation.copilotCommand);
+    const status = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
+    assert.equal(status.status, 'successor-publication-required');
+    assert.deepEqual(status.continuation, packet.continuation);
+    assert.match(cli(root, 'review-source', 'context', phaseId), /generation 2 publication/);
+    assert.match(cli(root, 'review-source', 'context', phaseId), new RegExp(`prepare ${phaseId}`));
+    for (const action of ['check', 'submit']) {
+      const refused = spawnSync(process.execPath, [executable, 'review-source', action, phaseId,
+        '--report-file', old.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
+      assert.notEqual(refused.status, 0);
+      assert.equal(JSON.parse(refused.stdout).error.code, 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED');
+    }
+    const fast = JSON.parse(cli(root, 'specify', '--json'));
+    assert.equal(fast.data.fastPath.next[0].command, `singularity-flow prepare ${phaseId}`);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), head, 'no Story publication or review was retained');
+    assert.equal(await readFile(path.join(root, old.artifact.path), 'utf8'), artifactBefore,
+      'the published document is not replaced or edited by preparation');
+    // Only a real governed successor publication restores a reviewable packet. It does not
+    // borrow a review, approval or human disposition from the retained generation.
+    cli(root, 'phase', 'publish', phaseId, '--authored', 'human', '--channel', 'manual-in-place',
+      '--external-ai', 'none', '--no-model', '--json');
+    const successor = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    assert.equal(successor.generation, 2);
+    assert.equal(successor.canReview, true);
+    assert.equal(successor.binding.generation, 2);
+    assert.match(successor.stagingPath, /gen2\.json$/);
+    assert.equal(successor.continuation.nextSkill, '/sf-review-source');
+    assert.notEqual(git(root, 'rev-parse', 'HEAD'), head);
+  });
+});
+
 test('real Story CLI retains pinned reviewer report and separate human disposition before submission', async (t) => {
   const { root, authorAgent } = await publishedSpecificationStory(t);
   const packet = JSON.parse(cli(root, 'review-source', 'context', 'specification', '--json'));

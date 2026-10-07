@@ -507,6 +507,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     }),
     testExecution: Object.freeze({
       status: testExecution.status,
+      ...(testExecution.blockedBy ? { blockedBy: testExecution.blockedBy } : {}),
+      ...(testExecution.reason ? { reason: testExecution.reason } : {}),
       commands: Object.freeze(testExecution.commands.map((command) => Object.freeze(command)))
     }),
     correction: Object.freeze({

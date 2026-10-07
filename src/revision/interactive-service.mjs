@@ -10,6 +10,8 @@ import {
   freezeSgosCandidate, listSgosCandidates, readSgosRetainedCandidate
 } from '../sgos/candidate-lifecycle.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { generationSkillForPhase } from '../code-delivery-policy.mjs';
+import { directCopilotSkill } from '../copilot-guidance.mjs';
 import { sgosRevisionCandidateReference, verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';
 import {
   confirmManualRevision, confirmRevisionLoopOpen, confirmRevisionPacket,
@@ -1503,7 +1505,23 @@ export async function resumeInteractiveRevision(root, intervalId = null) {
 
 export async function inspectInteractiveRevision(root) {
   assertGuardedRevisionCapability('inspect');
-  const active = await loadActiveRevisionStory(root);
+  const active = await loadActiveRevisionStory(root, { allowUnpublishedInspection: true });
+  if (active.phase.generation === 0) {
+    // Read-only status cannot demand the candidate that first-generation authoring creates.
+    // Never open a positive-generation revision store, nor relax mutation entry points.
+    const skill = directCopilotSkill(generationSkillForPhase(active.phase, active.workflow));
+    return Object.freeze({
+      active: { subject: active.subject, phaseStatus: active.phase.status }, state: null,
+      status: { state: 'not-applicable', reason: 'no-parent-candidate', intervalSequence: 0 },
+      interval: null, precheck: null, freshness: { status: 'not-applicable', code: null },
+      recovery: { required: false },
+      card: { headline: 'No revision candidate yet; complete the first code generation.',
+        candidate: null, publicationEligible: false, remainingObligations: ['first-code-generation'],
+        next: 'phase.author-code' },
+      next: [{ id: 'revision.first-generation', label: 'Continue the registered code-generation action.',
+        command: `singularity-flow prepare ${active.phaseId}`, skill, modelPolicy: 'required' }]
+    });
+  }
   const state = await readRevisionInteractiveState(root, active.subject, { optional: true });
   const store = revisionLoopStore(active);
   const status = await readRevisionLoopStatus({ loopStore: store });

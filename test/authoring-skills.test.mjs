@@ -193,7 +193,9 @@ test('the authoring contract audit checks the route, the built-in steps and the 
     assert.ok(errors(`${body}\n\nAlso run ${literal}.`).some((error) => error.includes("built-in step id 'design'")), literal);
   }
   assert.deepEqual(errors(`${body}\n\nAlso run \`singularity-flow prepare design-review\`.`), [], 'a longer step id is not a built-in one');
-  assert.ok(errors(body.replace(/End with each returned `handoff`.*$/m, 'End with `Next in Copilot: /sf-submit`.')).some((error) => error.includes('handoff')));
+  const fixedHandoff = body.replace(/^\d+\. .*each (?:returned )?`handoff`.*$/m, 'End with `Next in Copilot: /sf-submit`.');
+  assert.notEqual(fixedHandoff, body, 'the adversarial test must actually replace the returned handoff');
+  assert.ok(errors(fixedHandoff).some((error) => error.includes('handoff')));
   // A future selectable skill without built-in steps is checked too.
   const future = { id: 'sf-review-plan', sourceId: 'sflow-review-plan', produces: ['document'], legacyPhases: [] };
   assert.ok(errors('1. Draft the document.\n2. Publish it.', future).length >= 3);

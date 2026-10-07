@@ -1,13 +1,20 @@
 /** Shared, read-only recovery choices. A route is not authority or a successful check. */
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './records.mjs';
-import { renderPlatformCommand } from './safe-command-guidance.mjs';
+import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
-const route = (kind, owner, argv, detail, skill = '/sf-recover') => ({
-  kind, owner, argv, command: renderPlatformCommand(['singularity-flow', ...argv]),
-  skill, detail, automatic: false
-});
+const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
+  // Guidance consumes a registered command line, not a platform-executable string with a
+  // quoted executable (or PowerShell '&'). Quote only literal values that need it; placeholders
+  // remain display-only and safeCommandGuidance supplies platform forms for copyable actions.
+  const command = ['singularity-flow', ...argv].map(value =>
+    /^[A-Za-z0-9._:/-]+$/u.test(value) || /^<[A-Za-z][A-Za-z0-9._/|-]*>$/u.test(value)
+      ? value : renderPlatformCommand([value], 'darwin')).join(' ');
+  const commandGuidance = safeCommandGuidance({ command, skill });
+  return { kind, owner, argv, command, skill, detail, automatic: false,
+    commandGuidance, copilotCommand: commandGuidance?.copilotCommand ?? null };
+};
 
 /** Closed dispositions, including an honest owner route for an unknown/unsupported blocker. */
 export function phaseResolutionChoices(workflow, phase, finding) {

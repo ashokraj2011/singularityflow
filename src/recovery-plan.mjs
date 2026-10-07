@@ -373,121 +373,138 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       }));
     }
 
-    const publishedCodeGeneration = phaseRequiresCodeDelivery(phase)
-      && phase.generationIntent?.status === 'consumed';
-    if (phaseRequiresCodeDelivery(phase)
-        && ((phase.generationIntent?.status === 'open' && !generation)
-          || publishedCodeGeneration)) {
-      let testCommands = [];
-      try {
-        // An already published generation has no open intent. Its retained delivery paths are
-        // sufficient for a read-only runner preview; prospective change-set preflight would
-        // incorrectly reject that lifecycle state before showing the command. Publication still
-        // requires a guarded rollover and a fresh test execution for the successor generation.
-        const deliveryEvidence = publishedCodeGeneration
-          ? phase.deliveryEvidence
-          : await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
-        testCommands = (await resolveDeliveryQualityCommands(root, {
-          ...phase, deliveryEvidence
-        }, { executionMode: workflow.resolution?.testExecutionMode })).filter((command) => command && typeof command === 'object'
-          && !Array.isArray(command) && command.kind === 'test');
-        const normalized = testCommands.map((command, index) =>
-          normalizeRequiredTestCommand(command, index));
-        if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
-        const testPolicy = workflow.resolution?.codeDelivery?.tests;
-        testExecution.status = 'not-run';
-        testExecution.commands = normalized.map((command, index) => {
-          // Native inference emits a bounded, known argv. Approved configured argv can contain
-          // arbitrary positional secrets, so the read-only JSON projection never echoes it.
-          const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
-          const configured = configuredIndex >= 0;
-          return {
-            id: configured ? `qualityCommands[${configuredIndex}]` : command.id,
-            argv: configured ? null : command.argv,
-            argvSource: configured ? 'approved-configuration' : 'inferred',
-            workingDirectory: command.workingDirectory,
-            affectedRoots: command.affectedRoots,
-            result: {
-              adapter: command.result.adapter,
-              path: command.result.path,
-              minimumDiscovered: Math.max(command.result.minimumDiscovered,
-                testPolicy?.minimumDiscovered ?? 1),
-              minimumPassed: Math.max(command.result.minimumPassed,
-                testPolicy?.minimumPassed ?? 1)
-            }
-          };
-        });
-      } catch (error) {
-        if (publishedCodeGeneration) {
-          // The published generation is preserved. A changed or unavailable current checkout
-          // cannot retroactively invalidate its retained test receipt; the guarded rollover is
-          // responsible for validating any new generation against current repository inputs.
-          testExecution.status = 'unavailable';
-        } else {
-          const missingRepositoryRunner = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
-          const failingCommand = testCommands[error.details?.commandIndex];
-          const pinnedCommand = (phase.qualityCommands ?? []).includes(failingCommand);
-          const invalidPinnedCommand = error.details?.configurationDependency === true
-            && pinnedCommand
-            && ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(error.code);
-          const unsupportedRuntimeAdapter = error.code === 'RUST_TEST_ADAPTER_REQUIRED';
-          const configurationDependency = missingRepositoryRunner || invalidPinnedCommand
-            || unsupportedRuntimeAdapter;
-          blockers.push({
-            code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
-            phase: phase.id, generation: inspectionGeneration,
-            path: null, line: null, value: null,
-            details: {
-              sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
-              ...(invalidPinnedCommand ? {
-                recoveryBoundary: {
-                  kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
-                  retryRequiresChangedRuntimeOrPolicy: true
-                }
-              } : missingRepositoryRunner ? {
-                recoveryBoundary: {
-                  kind: 'repository-test-runner', currentStoryConfigurationRefresh: false,
-                  retryRequiresChangedRuntimeOrPolicy: true,
-                  inScopeRepositoryRepair: true
-                }
-              } : unsupportedRuntimeAdapter ? {
-                recoveryBoundary: {
-                  kind: 'unsupported-runtime-adapter', currentStoryConfigurationRefresh: false,
-                  retryRequiresChangedRuntimeOrPolicy: true
-                }
-              } : {})
-            }
-          });
-          actions.push(action({
-            id: missingRepositoryRunner
-              ? `repair-repository-test-runner:${phase.id}`
-              : invalidPinnedCommand
-                ? `resolve-code-delivery-test-policy:${phase.id}`
-                : unsupportedRuntimeAdapter
-                  ? `resolve-code-delivery-runtime-adapter:${phase.id}`
-                  : `complete-code-delivery:${phase.id}`,
-            mode: invalidPinnedCommand || unsupportedRuntimeAdapter ? 'manual' : 'guided',
-            detail: missingRepositoryRunner
-              ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If in-scope runner repair is unavailable, an authorized reviewer can preview story test-policy amend --reason TEXT to adopt a newly approved explicit runner from the original configuration authority. Follow the engine's eligibility and returned route; unsupported native runners still need a supported adapter.`
-              : invalidPinnedCommand
-                ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config alone does not change it. Do not replace or suppress the command in Story state. An authorized reviewer can preview story test-policy amend --reason TEXT to adopt a corrected structured test command from the original approved configuration authority for the current active phase. ${Number(phase.generation) === 0 ? 'It preserves code and prior phases and still requires fresh tests.' : 'The old publication and evidence remain historical; fresh validation and submission are required in the new policy epoch, without republishing unchanged code.'} Do not repeat publication against the unchanged blocker.`
-                : unsupportedRuntimeAdapter
-                  ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
-                  : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
-            // Repository-owned runner declarations are ordinary in-scope application edits. A
-            // malformed pinned command is not: it requires a distinct reviewed policy amendment.
-            command: configurationDependency
-              ? missingRepositoryRunner
-                ? `singularity-flow phase show ${phase.id} --json`
-                : invalidPinnedCommand && Number(phase.generation) === 0
-                  ? 'singularity-flow explain test-recovery'
-                  : null
-              : `singularity-flow phase show ${phase.id} --json`,
-            skill: configurationDependency
-              ? missingRepositoryRunner ? '/sf-phase-documents' : null
-              : '/sf-phase-documents'
-          }));
+  }
+
+  // Runner availability is a separate observation from prose/coverage readiness.
+  const publishedCodeGeneration = phaseRequiresCodeDelivery(phase)
+    && phase.generationIntent?.status === 'consumed';
+  if (phaseRequiresCodeDelivery(phase)
+      && ((phase.generationIntent?.status === 'open' && !generation)
+        || publishedCodeGeneration)) {
+    let testCommands = [];
+    const deliveryErrors = [];
+    try {
+      // An already published generation has no open intent. Its retained delivery paths are
+      // sufficient for a read-only runner preview; prospective change-set preflight would
+      // incorrectly reject that lifecycle state before showing the command. Publication still
+      // requires a guarded rollover and a fresh test execution for the successor generation.
+      let deliveryEvidence = publishedCodeGeneration ? phase.deliveryEvidence : null;
+      if (!publishedCodeGeneration) {
+        try {
+          deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+        } catch (error) {
+          deliveryErrors.push(error);
+          // This candidate has passed the intent/scope checks. Incomplete coverage must not
+          // hide its affected-module runner. No execution or passing receipt is implied.
+          deliveryEvidence = error.qualityRiskCandidate ?? null;
         }
+      }
+      testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
+        ...phase, deliveryEvidence
+      }, { executionMode: workflow.resolution?.testExecutionMode }) : phase.qualityCommands ?? []).filter((command) => command && typeof command === 'object'
+        && !Array.isArray(command) && command.kind === 'test');
+      const normalized = testCommands.map((command, index) =>
+        normalizeRequiredTestCommand(command, index));
+      if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
+      const testPolicy = workflow.resolution?.codeDelivery?.tests;
+      testExecution.status = 'not-run';
+      if (deliveryErrors.length) testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
+      testExecution.commands = normalized.map((command, index) => {
+        // Native inference emits a bounded, known argv. Approved configured argv can contain
+        // arbitrary positional secrets, so the read-only JSON projection never echoes it.
+        const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
+        const configured = configuredIndex >= 0;
+        return {
+          id: configured ? `qualityCommands[${configuredIndex}]` : command.id,
+          argv: configured ? null : command.argv,
+          argvSource: configured ? 'approved-configuration' : 'inferred',
+          workingDirectory: command.workingDirectory,
+          affectedRoots: command.affectedRoots,
+          result: {
+            adapter: command.result.adapter,
+            path: command.result.path,
+            minimumDiscovered: Math.max(command.result.minimumDiscovered,
+              testPolicy?.minimumDiscovered ?? 1),
+            minimumPassed: Math.max(command.result.minimumPassed,
+              testPolicy?.minimumPassed ?? 1)
+          }
+        };
+      });
+    } catch (error) {
+      testExecution.reason = error.code ?? 'TEST_COMMAND_UNAVAILABLE';
+      deliveryErrors.push(error);
+    }
+    for (const error of deliveryErrors) {
+      if (publishedCodeGeneration) {
+        // The published generation is preserved. A changed or unavailable current checkout
+        // cannot retroactively invalidate its retained test receipt; the guarded rollover is
+        // responsible for validating any new generation against current repository inputs.
+        testExecution.status = 'unavailable';
+      } else {
+        const missingRepositoryRunner = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+        const failingCommand = testCommands[error.details?.commandIndex];
+        const pinnedCommand = (phase.qualityCommands ?? []).includes(failingCommand);
+        const invalidPinnedCommand = error.details?.configurationDependency === true
+          && pinnedCommand
+          && ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(error.code);
+        const unsupportedRuntimeAdapter = error.code === 'RUST_TEST_ADAPTER_REQUIRED';
+        const configurationDependency = missingRepositoryRunner || invalidPinnedCommand
+          || unsupportedRuntimeAdapter;
+        blockers.push({
+          code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
+          phase: phase.id, generation: inspectionGeneration,
+          path: null, line: null, value: null,
+          details: {
+            sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
+            ...(invalidPinnedCommand ? {
+              recoveryBoundary: {
+                kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
+                retryRequiresChangedRuntimeOrPolicy: true
+              }
+            } : missingRepositoryRunner ? {
+              recoveryBoundary: {
+                kind: 'repository-test-runner', currentStoryConfigurationRefresh: false,
+                retryRequiresChangedRuntimeOrPolicy: true,
+                inScopeRepositoryRepair: true
+              }
+            } : unsupportedRuntimeAdapter ? {
+              recoveryBoundary: {
+                kind: 'unsupported-runtime-adapter', currentStoryConfigurationRefresh: false,
+                retryRequiresChangedRuntimeOrPolicy: true
+              }
+            } : {})
+          }
+        });
+        actions.push(action({
+          id: missingRepositoryRunner
+            ? `repair-repository-test-runner:${phase.id}`
+            : invalidPinnedCommand
+              ? `resolve-code-delivery-test-policy:${phase.id}`
+              : unsupportedRuntimeAdapter
+                ? `resolve-code-delivery-runtime-adapter:${phase.id}`
+                : `complete-code-delivery:${phase.id}`,
+          mode: invalidPinnedCommand || unsupportedRuntimeAdapter ? 'manual' : 'guided',
+          detail: missingRepositoryRunner
+            ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If in-scope runner repair is unavailable, an authorized reviewer can preview story test-policy amend --reason TEXT to adopt a newly approved explicit runner from the original configuration authority. Follow the engine's eligibility and returned route; unsupported native runners still need a supported adapter.`
+            : invalidPinnedCommand
+              ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config alone does not change it. Do not replace or suppress the command in Story state. An authorized reviewer can preview story test-policy amend --reason TEXT to adopt a corrected structured test command from the original approved configuration authority for the current active phase. ${Number(phase.generation) === 0 ? 'It preserves code and prior phases and still requires fresh tests.' : 'The old publication and evidence remain historical; fresh validation and submission are required in the new policy epoch, without republishing unchanged code.'} Do not repeat publication against the unchanged blocker.`
+              : unsupportedRuntimeAdapter
+                ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
+                : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
+          // Repository-owned runner declarations are ordinary in-scope application edits. A
+          // malformed pinned command is not: it requires a distinct reviewed policy amendment.
+          command: configurationDependency
+            ? missingRepositoryRunner
+              ? `singularity-flow phase show ${phase.id} --json`
+              : invalidPinnedCommand && Number(phase.generation) === 0
+                ? 'singularity-flow explain test-recovery'
+                : null
+            : `singularity-flow phase show ${phase.id} --json`,
+          skill: configurationDependency
+            ? missingRepositoryRunner ? '/sf-phase-documents' : null
+            : '/sf-phase-documents',
+          authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
+        }));
       }
     }
   }

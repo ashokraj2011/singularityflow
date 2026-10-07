@@ -21,6 +21,7 @@ import {
   mergePlannedClaimRecords,
   normalizeClaimMap,
   normalizeSpecPolicy,
+  plannedProductSourcePaths,
   renderClauseContext,
   runSpecAcceptance, selectActiveSpecRecords, specificationSourceTreeHash,
   selectClauseContext, traceClause
@@ -91,6 +92,58 @@ test('a clause body is the statement its anchor identifies, wherever the anchor 
   // A guidance paragraph with an example citation is not part of any clause, so it is no dependency.
   const guided = extractClauses('- Real requirement. [W-1:REQ-001]\n\nUse anchors here too (for example `[W-1:REQ-003]`).\n');
   assert.deepEqual(guided[0].dependsOn, []);
+});
+
+test('clause references normalize mixed case without matching another identity suffix', () => {
+  const clauses = extractClauses('[Hex-Last:req-001] Convert signed integers.\n\n[hex-last:ac-001] Depends on HeX-LaSt:rEq-001. Ignore OTHER:REQ-001-extra.\n');
+  assert.deepEqual(clauses.map(clause => clause.id), ['HEX-LAST:REQ-001', 'HEX-LAST:AC-001']);
+  assert.deepEqual(clauses[1].dependsOn, ['HEX-LAST:REQ-001']);
+  assert.throws(() => extractClauses('[Hex-Last:REQ-001] First.\n[hex-last:req-001] Duplicate.\n'), /duplicated/);
+  assert.throws(() => extractClauses('[hex-last:ac-001] Depends on hex-last:req-999.\n'), /missing dependency/);
+});
+
+test('approved source/test overlaps project exact test roles without rewriting the plan', () => {
+  const id = 'APP:AC-001';
+  const map = { claims: { [id]: { expectedPaths: ['src/app.mjs', 'test/app.test.mjs'],
+    tests: ['test/app.test.mjs'], fulfillment: 'new' } } };
+  const original = structuredClone(map);
+  const delivery = { sourcePaths: ['src/app.mjs'], testPaths: ['test/app.test.mjs'], traceability: {
+    sourceBindings: [{ clauseId: 'app:ac-001', sourcePath: 'src/app.mjs' }],
+    bindings: [{ clauseId: 'App:ac-001', testSource: 'test/app.test.mjs' }]
+  } };
+  const observed = deriveObservedClaimMap(map, delivery, { requireSourceBindings: true });
+  assert.equal(observed.claims[id].verdict, 'matched');
+  assert.deepEqual(observed.claims[id].observedPaths, ['src/app.mjs']);
+  assert.equal(mergeObservedClaimRecords([observed], map.claims)[id].verdict, 'matched');
+  assert.deepEqual(map, original, 'approved bytes/identity are not rewritten');
+  const noTests = deriveObservedClaimMap(map, { ...delivery, testPaths: [] }, { requireSourceBindings: true });
+  assert.equal(noTests.claims[id].verdict, 'partial', 'product source is not test execution or even test presence');
+  const noSource = deriveObservedClaimMap(map, { ...delivery, sourcePaths: [] }, { requireSourceBindings: true });
+  assert.equal(noSource.claims[id].verdict, 'partial');
+  assert.equal(mergeObservedClaimRecords([noSource], map.claims)[id].verdict, 'partial');
+  const testsOnly = { claims: { [id]: { expectedPaths: ['test/app.test.mjs'],
+    tests: ['test/app.test.mjs'], fulfillment: 'new' } } };
+  const invalid = deriveObservedClaimMap(testsOnly, delivery, { requireSourceBindings: true });
+  assert.equal(invalid.claims[id].verdict, 'partial', 'new delivery cannot become test-only implicitly');
+  assert.equal(mergeObservedClaimRecords([invalid], testsOnly.claims)[id].verdict, 'partial');
+  assert.deepEqual(plannedProductSourcePaths({ expectedPaths: ['src/app.mjs'], tests: ['src/app.mjs'] }), ['src/app.mjs'],
+    'declaring product code a test cannot erase its source obligation');
+});
+
+test('new planning tables reject role collisions before any code generation', () => {
+  const table = paths => '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |\n'
+    + '|---|---|---|---|---|\n'
+    + `| app:req-001 | ${paths} | \`test/app.test.mjs\` | new | Conversion works |\n`;
+  assert.throws(() => derivePlannedClaimMap(table('`src/app.mjs`, `test/app.test.mjs`'), {
+    clauseIds: ['APP:REQ-001']
+  }), error => error.code === 'SPEC_PLANNED_PATH_ROLE_INVALID');
+  assert.throws(() => derivePlannedClaimMap(table('`test/helper.mjs`'), {
+    clauseIds: ['APP:REQ-001']
+  }), error => error.code === 'SPEC_PLANNED_PATH_ROLE_INVALID');
+  const { claimMap: map } = derivePlannedClaimMap(table('`src/app.mjs`'), { clauseIds: ['APP:REQ-001'] });
+  assert.deepEqual(map.claims['APP:REQ-001'].expectedPaths, ['src/app.mjs']);
+  const { claimMap: testOnly } = derivePlannedClaimMap(table('-').replace('| new |', '| test-only |'), { clauseIds: ['APP:REQ-001'] });
+  assert.equal(testOnly.claims['APP:REQ-001'].fulfillment, 'test-only');
 });
 
 test('a later phase cannot redefine a clause an earlier phase defined', () => {
@@ -311,6 +364,23 @@ test('test-only requirements reload in workflows with custom plan and code phase
   assert.equal(records.planned[0].phase, 'custom-test-plan');
   assert.equal(records.observed[0].phase, 'custom-test-authoring');
   assert.equal(records.observed[0].claims['APP:REQ-001'].verdict, 'matched');
+});
+
+test('planned-only draft inspection needs no first-generation observed map but retains plan integrity', async (t) => {
+  const fixture = await boundClaimFixture({ planPhase: 'my-plan', codePhase: 'my-build' });
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  fixture.workflow.phases['my-build'].generation = 0;
+  delete fixture.workflow.phases['my-build'].claimMaps;
+  const load = options => loadBoundActiveSpecRecords(fixture.root, fixture.itemDirectory, fixture.workflow,
+    { mode: 'enforce' }, options);
+  await assert.rejects(load(), error => error.code === 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED');
+  const records = await load({ plannedOnly: true });
+  assert.equal(records.planned[0].phase, 'my-plan');
+  assert.deepEqual(records.observed, []);
+  await assert.rejects(load({ plannedOnly: true, requireCommitted: true }),
+    error => error.code === 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED');
+  fixture.workflow.phases['my-plan'].claimMaps.planned.sha256 = 'f'.repeat(64);
+  await assert.rejects(load({ plannedOnly: true }), error => error.code === 'SPECIFICATION_CLAIM_MAP_BINDING_STALE');
 });
 
 test('bound claim readers honor only the observed phase owner, not a stray test-only plan', async (t) => {

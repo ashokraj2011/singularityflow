@@ -17,7 +17,7 @@ import {
 import {
   confirmInteractiveCapture, confirmInteractiveRevision, previewInteractiveCapture,
   previewInteractiveRevision, renderRevisionCard, resolveIntervalRecordChain,
-  replayInteractiveRevisionConfirmation, resumeInteractiveRevision
+  replayInteractiveRevisionConfirmation, resumeInteractiveRevision, inspectInteractiveRevision
 } from '../src/revision/interactive-service.mjs';
 import {
   readRevisionInteractiveState, writeRevisionInteractivePayload,
@@ -136,6 +136,31 @@ async function completeInteractiveRevision(root, id) {
   });
   return { startOptions, startPlan, started, captureOptions, capturePlan, completed };
 }
+
+test('read-only revision status does not demand a parent for initial code authoring', async (t) => {
+  const { root, git, config, workflow } = await interactiveRevisionRepository(t, 'REV-FIRST-1');
+  workflow.phases.implementation.generation = 0;
+  await saveWorkflow(root, config, workflow);
+  const before = git('status', '--porcelain=v1', '--untracked-files=all');
+  const status = await inspectInteractiveRevision(root);
+  assert.equal(status.status.state, 'not-applicable');
+  assert.equal(status.status.reason, 'no-parent-candidate');
+  assert.equal(status.card.publicationEligible, false);
+  assert.equal(status.next[0].skill, '/sf-code');
+  assert.equal(status.next[0].command, 'singularity-flow prepare implementation');
+  assert.equal(git('status', '--porcelain=v1', '--untracked-files=all'), before);
+  await assert.rejects(loadActiveRevisionStory(root), error => error.code === 'REV_PARENT_CANDIDATE_MISSING');
+  await assert.rejects(previewInteractiveRevision(root, { feedbackText: 'Fix the code.', savedBuffersConfirmed: true }),
+    error => error.code === 'REV_PARENT_CANDIDATE_MISSING');
+  const result = spawnSync(process.execPath, [CLI, 'revision', 'status', '--json'], { cwd: root, encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.active-workspace.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.workspaces.json') } });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.data.status.reason, 'no-parent-candidate');
+  assert.equal(output.next[0].copilotCommand, '/sf-code');
+  assert.deepEqual(output.effects, { stateChanged: false, filesChanged: false, publicationCreated: false, externalSystemsChanged: false });
+});
 
 test('guarded REV cards expose publication only for an eligible exact current precheck', () => {
   const current = renderRevisionCard({

@@ -4,10 +4,16 @@ import test from 'node:test';
 import {
   GOVERNED_CLAUSE_TYPES, normalizeQualifiedClauseId, scanSourceClauseTags
 } from '../src/traceability-ids.mjs';
+import { isQualifiedAcceptanceId, acceptanceTagsInComment } from '../src/verification/tags.mjs';
 
 test('governed clause identity is qualified, exact, and case-insensitive', () => {
   assert.deepEqual(GOVERNED_CLAUSE_TYPES, ['REQ', 'BEH', 'IFC', 'AC', 'CON']);
   assert.equal(normalizeQualifiedClauseId('work-1:beh-003'), 'WORK-1:BEH-003');
+  assert.equal(isQualifiedAcceptanceId('hEx-LaSt:ac-001'), true);
+  assert.deepEqual(acceptanceTagsInComment('// @ac:hEx-LaSt:aC-001'), ['HEX-LAST:AC-001']);
+  for (const invalid of ['OTHER-HEX-LAST:AC-001-extra', 'HEX-LAST:REQ-001', 'AC-001']) {
+    assert.equal(isQualifiedAcceptanceId(invalid), false);
+  }
   for (const invalid of ['REQ-001', 'WORK-1:NFR-001', 'WORK-1:REQ-1', 'WORK-1:REQ-001-extra']) {
     assert.equal(normalizeQualifiedClauseId(invalid), null);
   }

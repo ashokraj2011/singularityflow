@@ -25,7 +25,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
   SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, mergePlannedClaimRecords, predecessorSpecClauses,
-  readBoundSpecificationClaimMap
+  readBoundSpecificationClaimMap, plannedProductSourcePaths
 } from './specifications.mjs';
 import {
   commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
@@ -799,7 +799,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
           code: 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID'
         });
       }
-      return { clauseId, expectedPaths: [...claim.expectedPaths].sort() };
+      return { clauseId, expectedPaths: plannedProductSourcePaths(claim).sort() };
     })
     .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
   const candidates = [...new Set(sourcePaths)]

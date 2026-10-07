@@ -14,7 +14,7 @@
 import { approvalRequirementsMet } from '../approval-authority.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
-import { mergeObservedClaimRecords, mergePlannedClaimRecords, testOnlyClaimEvidence } from '../specifications.mjs';
+import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
@@ -334,7 +334,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       rowFindings.push(finding(observed.verdict === 'deviated' ? 'EVIDENCE_IMPLEMENTATION_DEVIATED' : 'EVIDENCE_IMPLEMENTATION_PARTIAL',
         observed.verdict === 'deviated'
           ? `${id} was implemented differently from its plan${observed.deviation ? `: ${observed.deviation}` : ''}.`
-          : `${id} changed ${observed.observedPaths?.length ?? 0} of ${planned?.expectedPaths?.length ?? 0} planned path(s).`,
+          : `${id} changed ${observed.observedPaths?.length ?? 0} of ${plannedProductSourcePaths(planned ?? {}).length} planned product-source path(s).`,
         { obligationIds: [implementId] }));
     }
     if (implementStatus === 'missing') rowFindings.push(finding('EVIDENCE_IMPLEMENTATION_MISSING', `No delivered change implements ${id}.`, { obligationIds: [implementId] }));

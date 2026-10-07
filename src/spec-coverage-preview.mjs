@@ -12,7 +12,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import {
   deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
-  normalizeSpecPolicy, plannedSupportingFiles
+  normalizeSpecPolicy, plannedSupportingFiles, plannedProductSourcePaths
 } from './specifications.mjs';
 import { workDir } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
@@ -51,11 +51,28 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
     ...records.observed.filter((record) => record.phase !== phase.id), { ...observed, phase: phase.id }
   ] }, changed, policy, { workflow });
   const open = coverage.unimplemented.filter((id) => final || allocated[id]);
+  const claimGaps = open.map(clauseId => {
+    const plan = allocated[clauseId];
+    const claim = observed.claims[clauseId];
+    const expected = plan && (!plan.fulfillment || ['new', 'modified'].includes(plan.fulfillment))
+      ? plannedProductSourcePaths(plan) : plan?.expectedPaths ?? [];
+    const missingSourcePaths = expected.filter(candidate => !(claim?.observedPaths ?? []).includes(candidate));
+    const sourcePaths = new Set([...(delivery.sourcePaths ?? []), ...(delivery.deletedSourcePaths ?? [])]);
+    return { clauseId, verdict: claim?.verdict ?? 'missing',
+      missingSourcePaths: missingSourcePaths.filter(candidate => !sourcePaths.has(candidate)),
+      missingSourceBindings: missingSourcePaths.filter(candidate => sourcePaths.has(candidate)),
+      missingTestPaths: (plan?.tests ?? []).filter(candidate => !(claim?.testResults ?? []).includes(candidate)) };
+  });
+  const gapText = claimGaps.map(gap => `${gap.clauseId} (${[
+    ...(gap.missingSourcePaths.length ? [`source paths: ${gap.missingSourcePaths.join(', ')}`] : []),
+    ...(gap.missingSourceBindings.length ? [`source bindings: ${gap.missingSourceBindings.join(', ')}`] : []),
+    ...(gap.missingTestPaths.length ? [`test paths/bindings: ${gap.missingTestPaths.join(', ')}`] : [])
+  ].join('; ') || gap.verdict})`).join('; ');
   if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
-    `Phase '${phase.id}' has incomplete planned delivery before publication: ${open.join(', ') || coverage.invalidEvidence.join('; ')}. `
-    + 'Repair the exact planned source, tests or retained evidence while this generation is editable. If the approved plan misclassifies a screenshot, return to its planning owner for a reviewed plan correction; preserve application code. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',
+    `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}. `
+    + 'Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction. Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',
     { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,
-      coverage, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } });
+      coverage, claimGaps, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } });
   return coverage;
 }
 
@@ -80,7 +97,7 @@ export async function inspectUnclaimedChangedPaths(root, config, workflow, phase
     }
     // Only the planned maps matter here; the open generation's own records are not committed yet.
     const records = await loadBoundActiveSpecRecords(
-      root, workDir(root, config, workflow.workItem.id), workflow, policy, { requireCommitted: false }
+      root, workDir(root, config, workflow.workItem.id), workflow, policy, { requireCommitted: false, plannedOnly: true }
     );
     const planned = mergePlannedClaimRecords(records.planned ?? []);
     const accounted = new Set([

@@ -204,7 +204,7 @@ export function normalizeVerificationContracts(value) {
   if (!Array.isArray(value) || value.length > MAX_ROWS) throw invalid('verificationContracts must be a list.');
   const seen = new Set();
   return value.map((contract) => {
-    const clauseId = String(contract?.clauseId ?? '');
+    const clauseId = String(contract?.clauseId ?? '').toUpperCase();
     if (!AC_ID.test(clauseId) || seen.has(clauseId)) throw invalid(`verificationContracts names ${clauseId || 'a criterion'} invalidly or twice.`);
     seen.add(clauseId);
     if (!['all', 'any'].includes(contract.combination) || (contract.combination === 'any' && !contract.reason)) {
@@ -222,7 +222,7 @@ export function normalizeVerificationContracts(value) {
       }
       names.add(entry.slot);
     }
-    return structuredClone(contract);
+    return { ...structuredClone(contract), clauseId };
   });
 }
 

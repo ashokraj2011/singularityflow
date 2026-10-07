@@ -48,6 +48,18 @@ test('contracts that could never verify honestly are refused with what to change
   refused(table(`| \`${AC1}\` | unit | test | \`test/*.test.js\` | | | | |`), /one exact repository-relative path/);
 });
 
+test('mixed-case contract criteria use canonical identity without changing witness paths or source objects', () => {
+  const canonical = parse(table(`| \`vc-1:ac-001\` | unit | test | \`test/value.test.js\` | | | | |`));
+  assert.equal(canonical[0].clauseId, AC1);
+  const input = [{ ...canonical[0], clauseId: 'Vc-1:aC-001' }];
+  assert.deepEqual(normalizeVerificationContracts(input), canonical);
+  assert.equal(input[0].clauseId, 'Vc-1:aC-001');
+  assert.throws(() => normalizeVerificationContracts([...canonical, ...input]),
+    error => error.code === 'SPEC_VERIFICATION_CONTRACT_INVALID');
+  assert.throws(() => normalizeVerificationContracts([{ ...canonical[0], clauseId: 'vc-1:ac-001-extra' }]),
+    error => error.code === 'SPEC_VERIFICATION_CONTRACT_INVALID');
+});
+
 test('a criterion without a contract keeps the default one test slot; only test slots need an @ac tag', () => {
   const contracts = mergedVerificationContracts([{ verificationContracts: parse(table(`| \`${AC1}\` | review | inspection | \`docs/value.md\` | | | | |`)) }]);
   const stated = effectiveContract(AC1, contracts, planned[AC1]);

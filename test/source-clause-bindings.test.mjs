@@ -15,6 +15,9 @@ import { canonicalJson } from '../src/records.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { ensureWorkIntervalBaseline } from '../src/work-intervals.mjs';
 import { beginCodeGeneration } from '../src/generation-boundary.mjs';
+import { buildSpecIndex } from '../src/specifications.mjs';
+import { inspectUnclaimedChangedPaths, assertStrictCandidateSpecificationCoverage } from '../src/spec-coverage-preview.mjs';
+import { inspectPhaseRecovery } from '../src/recovery-plan.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -235,6 +238,108 @@ async function readyForDraftCheck(item) {
 
 const draftCheck = (item) => phaseDraftCheck(item.root, item.config, item.workflow, item.phase, {
   session: { workId: 'BIND-1', phaseId: item.phase.id, agent: 'developer' }
+});
+
+async function bindApprovedIndex(item) {
+  const phase = item.workflow.phases.planning;
+  phase.status = 'approved';
+  phase.requiredArtifact = { kind: 'requirements', path: 'artifacts/planning/plan.md' };
+  const relative = 'singularity/work-items/BIND-1/artifacts/planning/plan.md';
+  await mkdir(path.dirname(path.join(item.root, relative)), { recursive: true });
+  const claims = JSON.parse(await readFile(path.join(item.root, item.relative), 'utf8')).claims;
+  await writeFile(path.join(item.root, relative), Object.keys(claims).map(id => `[${id}] Payment is implemented.`).join('\n\n'));
+  const index = await buildSpecIndex(item.root, relative, { workId: 'BIND-1', phase: 'planning', generation: 1,
+    outputPath: 'singularity/work-items/BIND-1/context/spec-indexes/planning-gen1.json', policy: { mode: 'enforce' } });
+  phase.specIndex = { path: 'singularity/work-items/BIND-1/context/spec-indexes/planning-gen1.json',
+    generation: 1, indexSha256: index.indexSha256, sourceSha256: index.source.sha256, clauses: index.clauses.length };
+  phase.artifacts = [{ path: relative, sha256: index.source.sha256, status: 'approved' }];
+}
+
+test('first-generation coverage inspection loads the plan only and keeps source/test roles separate', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js', 'tests/payment.test.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await bindApprovedIndex(item);
+  await openCodeGeneration(item);
+  item.workflow.workItem.baseCommit = git(item.root, 'rev-parse', 'main');
+  await writeFile(path.join(item.root, 'src/payment.js'),
+    '// @clause:bind-1:req-001 marks an accepted payment as paid\nexport const payment = true;\n');
+  await writeFile(path.join(item.root, 'tests/payment.test.js'),
+    'import test from "node:test"; test("pays", () => {});\n');
+  const bindings = await plannedSourceClauseBindings(item.root, item.config, item.workflow, item.phase, ['src/payment.js']);
+  assert.deepEqual(bindings.required[0].expectedPaths, ['src/payment.js']);
+  const preview = await inspectUnclaimedChangedPaths(item.root, item.config, item.workflow, item.phase);
+  assert.equal(preview.coverage.status, 'ready');
+  const delivery = await evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase);
+  assert.deepEqual(delivery.sourcePaths, ['src/payment.js']);
+  assert.deepEqual(delivery.testPaths, ['tests/payment.test.js']);
+});
+
+test('coverage refusal identifies the missing product binding and does not hide an inferred test runner', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js', 'src/other.js', 'tests/payment.test.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await bindApprovedIndex(item);
+  await openCodeGeneration(item, { 'src/other.js': 'export const other = false;\n' });
+  await readyForDraftCheck(item);
+  await writeFile(path.join(item.root, 'src/payment.js'),
+    '// @clause:BIND-1:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n');
+  await writeFile(path.join(item.root, 'src/other.js'), 'export const other = true;\n');
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'import test from "node:test"; test("pays", () => {});\n');
+  await assert.rejects(evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase), error => {
+    assert.equal(error.code, 'SPEC_COVERAGE_INCOMPLETE');
+    assert.deepEqual(error.details.claimGaps, [{ clauseId: 'BIND-1:REQ-001', verdict: 'partial',
+      missingSourcePaths: [], missingSourceBindings: ['src/other.js'], missingTestPaths: [] }]);
+    assert.match(error.message, /source bindings: src\/other.js/);
+    return true;
+  });
+  const result = await inspectPhaseRecovery(item.root, item.config, item.workflow, item.phase, {
+    publicationReadiness: { blockers: [], actions: [] }
+  });
+  assert.equal(result.testExecution.status, 'not-run');
+  assert.deepEqual(result.testExecution.blockedBy, ['SPEC_COVERAGE_INCOMPLETE']);
+  assert.equal(result.testExecution.commands[0].argvSource, 'inferred');
+  assert.equal(result.testExecution.commands[0].result.adapter, 'node-tap');
+  assert.ok(result.blockers.some(finding => finding.details?.sourceCode === 'SPEC_COVERAGE_INCOMPLETE'));
+  assert.ok(result.actions.some(action => action.authoringSkill === '/sf-code'));
+  const report = path.join(item.root, '.sflow/results/node-tests.tap');
+  await assert.rejects(readFile(report), { code: 'ENOENT' }, 'recovery does not run tests or create reports');
+  await writeFile(path.join(item.root, 'src/other.js'),
+    '// @clause:BIND-1:REQ-001 records the same approved payment result\nexport const other = true;\n');
+  const repaired = await evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase);
+  assert.equal((await assertStrictCandidateSpecificationCoverage(item.root, item.config, item.workflow, item.phase, repaired)).complete, true);
+});
+
+test('custom code-phase runner preview survives unfinished prose and coverage without echoing configured argv', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js', 'src/other.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await bindApprovedIndex(item);
+  item.phase.id = 'build-web';
+  item.workflow.phaseOrder = ['planning', 'build-web'];
+  item.workflow.phases = { planning: item.workflow.phases.planning, 'build-web': item.phase };
+  item.workflow.resolution.plannedClaims.owners = { 'build-web': 'planning' };
+  item.phase.qualityCommands = [{
+    id: 'configured-tests', kind: 'test', argv: ['node', '--test', 'private-positional-test-key'],
+    affectedRoots: ['.'], workingDirectory: '.', modelPolicy: 'never',
+    result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 }
+  }];
+  await openCodeGeneration(item, { 'src/other.js': 'export const other = false;\n' });
+  await readyForDraftCheck(item);
+  await writeFile(path.join(item.root, 'src/payment.js'),
+    '// @clause:BIND-1:REQ-001 implements the approved payment rule\nexport const payment = true;\n');
+  await writeFile(path.join(item.root, 'src/other.js'), 'export const other = true;\n');
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), 'import test from "node:test"; test("pays", () => {});\n');
+  await writeFile(path.join(item.root, 'singularity/work-items/BIND-1', item.phase.requiredArtifact.path), '# Draft\n');
+  const result = await inspectPhaseRecovery(item.root, item.config, item.workflow, item.phase, {
+    publicationReadiness: { blockers: [], actions: [] }
+  });
+  assert.ok(result.blockers.some(finding => finding.code === 'artifact.heading.missing'));
+  assert.ok(result.blockers.some(finding => finding.details?.sourceCode === 'SPEC_COVERAGE_INCOMPLETE'));
+  assert.equal(result.testExecution.status, 'not-run');
+  assert.deepEqual(result.testExecution.blockedBy, ['SPEC_COVERAGE_INCOMPLETE']);
+  assert.equal(result.testExecution.commands[0].id, 'qualityCommands[0]');
+  assert.equal(result.testExecution.commands[0].argvSource, 'approved-configuration');
+  assert.equal(result.testExecution.commands[0].argv, null);
+  assert.equal(JSON.stringify(result).includes('private-positional-test-key'), false);
+  assert.ok(result.actions.some(action => action.authoringSkill === '/sf-code'));
 });
 
 test('the existing repair loop surfaces missing and unattached acceptance tags with exact planned test paths', async (t) => {

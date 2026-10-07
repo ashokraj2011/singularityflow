@@ -145,7 +145,8 @@ export function revisionEffectPolicy(active) {
 }
 
 export async function loadActiveRevisionStory(root, {
-  definition = null, workflow: selectedWorkflow = null, workId = null
+  definition = null, workflow: selectedWorkflow = null, workId = null,
+  allowUnpublishedInspection = false
 } = {}) {
   const session = await loadSession(root);
   const config = definition ?? await loadConfig(root);
@@ -183,7 +184,8 @@ export async function loadActiveRevisionStory(root, {
       ? 'REV_PHASE_PUBLISHED' : 'REV_PHASE_NOT_OPEN',
     `Phase '${phaseId}' is '${phase.status}' and cannot open an implementation revision.`);
   }
-  if (!Number.isSafeInteger(phase.generation) || phase.generation < 1) {
+  if (!Number.isSafeInteger(phase.generation) || phase.generation < 0
+      || (phase.generation === 0 && !allowUnpublishedInspection)) {
     fail('REV_PARENT_CANDIDATE_MISSING',
       `Phase '${phaseId}' has no generated implementation candidate yet. Run the registered code-generation action first.`);
   }

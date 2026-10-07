@@ -346,7 +346,9 @@ async function runInteractive(positionals, options) {
       succeeded('revision.status-reported', {
         state: inspected.state?.status ?? inspected.status.state,
         intervalSequence: inspected.status.intervalSequence
-      }), noEffects(), inspected, options, { restState: 'informational' }
+      }), noEffects(), inspected, options, {
+        next: (inspected.next ?? []).map(entry => nextAction(entry)), restState: 'informational'
+      }
     );
   }
   if (action === 'card') {
@@ -359,7 +361,9 @@ async function runInteractive(positionals, options) {
       succeeded('revision.card-reported', {
         candidateId: inspected.card.candidate?.id ?? inspected.card.candidate?.candidateId ?? 'none',
         publicationEligible: inspected.card.publicationEligible
-      }), noEffects(), inspected, options, { restState: 'informational' }
+      }), noEffects(), inspected, options, {
+        next: (inspected.next ?? []).map(entry => nextAction(entry)), restState: 'informational'
+      }
     );
   }
   if (action === 'show') {

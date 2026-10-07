@@ -52,6 +52,7 @@ async function currentPackagedAssets() {
     path.join(PACKAGE_TEMPLATES, 'starter-packs'), 'singularity/templates/starter-packs', assets
   );
   await walkAssets(path.join(PACKAGE_TEMPLATES, 'agents'), '.github/agents', assets);
+  await walkAssets(path.join(PACKAGE_TEMPLATES, 'skill-library'), 'singularity/skill-library', assets);
   return new Map([...assets.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 
@@ -130,6 +131,25 @@ test('starter pack assets install, restore when missing, and preserve repository
   const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
   assert.equal(repeated.changed, false, 'repeat reinitialization is idempotent');
   assert.deepEqual(await readFile(target), repositoryBytes);
+});
+
+test('planning path-role fixes retain exact upgrade provenance without claiming customized templates', async () => {
+  for (const [name, priorDigest] of [
+    ['spec-driven/plan.md', 'd18e7af418ac8b89af1df8214c015d23828e5c0d9cfad65123c1d37579f295e5'],
+    ['bugfix/fix-spec.md', 'fceed5a1f12fc2be09ec56f0bd1c165efabe8f335df4cf88e6258694bb513e18'],
+    ['feature/implementation-spec.md', '033e2f8d2af5e8d762fb1cdbd1bcb5fcb8ba7ec629d158761be832f875cc6014'],
+    ['benchmark/design.md', '9c06dcf0182701345b6f4f6af8fe4b7740fc080afe23776d4a6d8749196cca26'],
+    ['figma-mobile/mobile-spec.md', '9a8203f044109f068ea6282a7352ac6a69eb8cc90139252610f60e106cb6b521'],
+    ['poc-workflow/ui-exploration.md', '43e53c4476249bdd4a9b8af681ca77529d163ec66680d6c4514b0731b9cb1182']
+  ]) {
+    const relative = `singularity/templates/${name}`;
+    const bytes = await readFile(path.join(PACKAGE_TEMPLATES, 'artifacts', name));
+    assert.equal(isRetiredPackagedAssetHash(relative, priorDigest), true, name);
+    assert.equal(isCurrentPackagedAssetHash(relative, packagedAssetSha256(bytes)), true, name);
+    assert.equal(isKnownPackagedAssetHash(relative, packagedAssetSha256(
+      Buffer.concat([bytes, Buffer.from('\nTeam-specific plan.\n')])
+    )), false, 'repository customization remains owned by its team');
+  }
 });
 
 test('the first released starter remains an exact upgradeable package revision', () => {

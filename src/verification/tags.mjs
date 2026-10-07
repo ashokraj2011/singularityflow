@@ -8,13 +8,14 @@
  * not directly above a declaration ties the criterion to nothing exact.
  */
 
+import { normalizeQualifiedClauseId } from '../traceability-ids.mjs';
+
 const NAMESPACE = '[A-Z0-9][A-Z0-9._-]{0,63}';
 const AC_MARKER = new RegExp(`(?:^|[\\s*/#!-])@ac\\s*:\\s*(${NAMESPACE}:AC-\\d{3})(?![A-Za-z0-9._:-])`, 'giu');
-const QUALIFIED_AC = new RegExp(`^${NAMESPACE}:AC-\\d{3}$`, 'u');
 
 /** True for a namespace-qualified acceptance-criterion ID such as `PAY-1:AC-001`. */
 export function isQualifiedAcceptanceId(value) {
-  return QUALIFIED_AC.test(String(value ?? ''));
+  return /:AC-\d{3}$/u.test(normalizeQualifiedClauseId(value) ?? '');
 }
 
 /** The qualified criterion IDs named by `@ac:` markers in one comment's text. */

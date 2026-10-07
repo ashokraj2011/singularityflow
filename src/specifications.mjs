@@ -13,7 +13,8 @@ import {
 } from './application-paths.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
-import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN } from './traceability-ids.mjs';
+import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './traceability-ids.mjs';
+import { isTestAutomationPath } from './source-boundary.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
 import { normalizeVerificationContracts } from './verification/contracts.mjs';
@@ -207,11 +208,7 @@ export function isIgnored(index, ranges) {
 }
 
 function dependencies(body) {
-  const ids = new Set();
-  const reference = new RegExp(`\\b(${NAMESPACE}:(?:REQ|BEH|IFC|AC|CON)-\\d{3})\\b`, 'g');
-  let match;
-  while ((match = reference.exec(body))) ids.add(match[1].toUpperCase());
-  return [...ids].sort();
+  return [...qualifiedClauseIds(body)].sort();
 }
 
 /**
@@ -545,6 +542,18 @@ function parseBacktickedPathCell(cell, label) {
 export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration', 'evidence']);
 /** Fulfillment types that change product source, so the delivery carries the clause in that source. */
 export const SOURCE_CHANGING_FULFILLMENT = Object.freeze(['new', 'modified']);
+
+/**
+ * Product paths for a source obligation. Older approved plans sometimes repeated an exact test
+ * path in both columns. Its explicit test role and the collector's test boundary agree, so it is
+ * still owed as a test, never as product source. Do not rewrite the hash-bound approved map, infer
+ * a test-only fulfillment, or excuse an absent product path/test result.
+ */
+export function plannedProductSourcePaths(claim = {}) {
+  const tests = new Set(claim.tests ?? []);
+  return (claim.expectedPaths ?? []).filter(candidate =>
+    !(tests.has(candidate) && isTestAutomationPath(candidate)));
+}
 const PLANNED_OPTIONAL_COLUMNS = Object.freeze(['fulfillment', 'steps', 'observable result']);
 const PLANNED_STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const MAX_OBSERVABLE_RESULT = 500;
@@ -554,6 +563,13 @@ const DELIVERY_MEDIA = /\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|webm|mov|zip)$/iu;
 /** Authoring-time typing, not a reinterpretation of an already approved legacy plan. */
 export function validatePlannedEvidenceTypes(claims, { evidenceRoot = null } = {}) {
   for (const [id, claim] of Object.entries(claims)) {
+    if (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment)) {
+      const tests = new Set(claim.tests ?? []);
+      const misplaced = (claim.expectedPaths ?? []).filter(candidate => tests.has(candidate) || isTestAutomationPath(candidate));
+      if (misplaced.length) throw new SingularityFlowError(
+        `${id}: Expected paths for new/modified delivery must contain product source only; ${misplaced.join(', ')} belongs in Planned tests. Use fulfillment test-only with no Expected paths when tests are the entire delivery.`,
+        { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: misplaced, expectedRole: 'product-source', correction: 'separate-source-and-test-paths' } });
+    }
     const evidencePath = (candidate) => DELIVERY_MEDIA.test(candidate) || (evidenceRoot
       ? candidate.startsWith(`${evidenceRoot}/`) : /(?:^|\/)work-items\/[^/]+\/evidence\//u.test(candidate));
     const misplacedTest = (claim.tests ?? []).find(evidencePath);
@@ -993,7 +1009,8 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     // observed by its exact planned path changing. Requiring a binding here as well left such a row
     // unobservable, so its clause could never be implemented.
     const bindingRequired = requireSourceBindings && plan.testDisposition !== 'not-applicable';
-    const observedPaths = plan.expectedPaths.filter((candidate) =>
+    const productPaths = plannedProductSourcePaths(plan);
+    const observedPaths = productPaths.filter((candidate) =>
       changedPaths.has(candidate) && (!bindingRequired || sourceBindings.get(candidate)?.has(id)));
     const testResults = plan.tests.filter((candidate) => {
       if (!testPaths.has(candidate)) return false;
@@ -1004,8 +1021,8 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
       return !boundIds?.size || boundIds.has(id);
     });
     if (!observedPaths.length && !testResults.length) continue;
-    const sourceComplete = plan.expectedPaths.length > 0
-      && observedPaths.length === plan.expectedPaths.length;
+    const sourceComplete = productPaths.length > 0
+      && observedPaths.length === productPaths.length;
     const testsComplete = plan.tests.length === 0 || testResults.length === plan.tests.length;
     const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
     claims[id] = {
@@ -1316,7 +1333,7 @@ export function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workf
       verdict = evidence.length && expected.every((candidate) => evidence.includes(candidate)) ? 'matched'
         : evidence.length ? 'partial' : 'missing';
     } else if (plan) {
-      const expectedPaths = plan.expectedPaths ?? [];
+      const expectedPaths = plannedProductSourcePaths(plan);
       const sourceComplete = expectedPaths.length > 0
         && expectedPaths.every((candidate) => observedPaths.includes(candidate));
       const testsComplete = !(plan.tests ?? []).length
@@ -1325,7 +1342,7 @@ export function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workf
       verdict = observedPaths.length
         ? (sourceComplete && testsComplete ? 'matched' : 'partial')
         : acceptanceTestOnly
-          ? (!expectedPaths.length && testsComplete ? 'matched' : 'partial')
+          ? (!(plan.expectedPaths ?? []).length && testsComplete ? 'matched' : 'partial')
           // Preserve an invalid producer verdict when it has no source path. Convergence and
           // terminal coverage must expose that stale binding; normalizing it to `missing` here
           // would erase the stronger integrity defect from the fact set.
@@ -1396,12 +1413,13 @@ function withAmendmentRecord(records, workflow) {
  * through the exact current-generation bindings in the workflow aggregate.
  */
 export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy = {}, {
-  requireCommitted = false, throughPhase = null, excludeObservedPhase = null
+  requireCommitted = false, throughPhase = null, excludeObservedPhase = null, plannedOnly = false
 } = {}) {
-  if (requireCommitted && excludeObservedPhase) throw new SingularityFlowError('Committed coverage cannot omit an observed phase.', { code: 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED' });
+  if (requireCommitted && (excludeObservedPhase || plannedOnly)) throw new SingularityFlowError('Committed coverage cannot omit an observed phase.', { code: 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED' });
   const plannedPolicy = workflow?.resolution?.plannedClaims;
   if (!requireCommitted && plannedPolicy?.mode !== 'required') {
-    return loadActiveSpecRecords(itemDirectory, workflow);
+    const records = await loadActiveSpecRecords(itemDirectory, workflow);
+    return plannedOnly ? { ...records, observed: [], acceptance: [] } : records;
   }
   const phaseOrder = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
   const indexes = [];
@@ -1413,7 +1431,7 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
       requireCommitted
     }));
   }
-  for (const phaseId of phaseOrder) {
+  for (const phaseId of plannedOnly ? [] : phaseOrder) {
     const phase = workflow.phases?.[phaseId];
     if (!phase || !(phase.generation > 0)) continue;
     const relative = posix(path.relative(root, path.join(
@@ -1463,7 +1481,7 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
     .filter((phaseId) => workflow.phases?.[phaseId]?.status !== 'skipped'
       && phaseId !== excludeObservedPhase
       && (limit < 0 || phaseOrder.indexOf(phaseId) <= limit));
-  for (const codePhaseId of codePhaseIds) {
+  for (const codePhaseId of plannedOnly ? [] : codePhaseIds) {
     const codePhase = workflow.phases?.[codePhaseId];
     observed.push(await readBoundSpecificationClaimMap(
       root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy, requireCommitted,

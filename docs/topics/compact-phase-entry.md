@@ -1,10 +1,10 @@
 ---
 id: compact-phase-entry
 title: Compact phase entry for Copilot
-commands: [phase]
+commands: [phase, nextsteps, inputs]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 1
+version: 2
 ---
 # Compact phase entry for Copilot
 
@@ -30,6 +30,25 @@ publication is not implicitly replaced by a successor. A different Story must be
 `/sf-code` and `/sf-phase` consume these packets instead of separate pause/session/status,
 recovery, clarification and reference commands. Standalone agents retain a boundary fallback;
 they reuse only a verified packet from the current invocation, never an earlier chat's selection.
+
+`/sf-next` begins with `singularity-flow nextsteps --for-agent --json`. That read checks pause
+before routing and returns the active binding plus the first enforced-input preview, without
+searching skill directories or reading draft documents. Its delegated `/sf-inputs` action uses
+that preview and runs `singularity-flow inputs PHASE --for-agent --json` once. Standalone
+`/sf-inputs` first previews with `singularity-flow inputs --dry-run --for-agent --json`.
+
+Recording still revalidates the active binding, approved hashes, sequence, agents and preparation
+gates. The response identifies the exact audit and artifact paths, hashes and managed-block
+verification. Input `generation` is the upcoming preparation generation; `phaseGeneration` is
+the retained published generation. A smaller approved summary is labeled as a summary, not
+truncation; exact source expansion remains available through its hash-bound reference.
+
+Inputs and nextsteps use one prerequisite resolver. Full CLI guidance retains explicit grounding
+composition. Compact guidance delegates composition to `/sf-phase` or `/sf-code` entry only;
+custom drafting skills, integrity recovery and other prerequisites keep their explicit routes.
+Use the returned continuation instead of another nextsteps or phase-show call. This does not
+authorize another lifecycle action in the same turn. Repeated identical budget warnings print
+once per CLI operation; different observations and later invocations retain their warnings.
 
 Authoring skills use `phase prepublish PHASE --for-agent --json` once. Prepublish already runs
 draft-check internally. Compact checks preserve all findings, correction/repair/risk choices,

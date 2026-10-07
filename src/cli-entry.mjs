@@ -636,7 +636,9 @@ async function runMain(argv) {
   }
   const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
   if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
-  if (['hook', 'home'].includes(definition.name) || phaseEntry) {
+  const agentEntry = ['inputs', 'nextsteps'].includes(definition.name) && options['for-agent'] !== undefined;
+  if (agentEntry) (await import('./agent-entry-options.mjs')).validateAgentEntryRequest(definition.name, { positionals, options });
+  if (['hook', 'home'].includes(definition.name) || phaseEntry || agentEntry) {
     const mode = readCopilotMode();
     if (mode.paused) {
       if (definition.name === 'hook') return console.log('{}');

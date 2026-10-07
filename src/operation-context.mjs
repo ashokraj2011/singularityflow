@@ -18,6 +18,7 @@ export function withOperationContext(context, callback) {
     schemaVersion: 1,
     ...context,
     rootOperationId: parent?.rootOperationId ?? context.operation.id,
+    emittedWarnings: parent?.emittedWarnings ?? new Set(),
     stack: Object.freeze(stack),
     operationStack: Object.freeze(stack.map((operation) => operation.id)),
     modelPolicy: context.operation.modelPolicy,
@@ -39,6 +40,15 @@ export function runOperation(operation, callback) {
 
 export function operationContext() {
   return storage.getStore() ?? null;
+}
+
+/** Deduplicate presentation only, within one root operation; validation still runs every time. */
+export function warnOnce(message, { key = message, emit = console.warn } = {}) {
+  const warnings = operationContext()?.emittedWarnings;
+  if (warnings?.has(key)) return false;
+  warnings?.add(key);
+  emit(message);
+  return true;
 }
 
 export function requireOperationContext() {

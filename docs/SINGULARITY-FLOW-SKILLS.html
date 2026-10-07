@@ -5601,7 +5601,7 @@ Keep this operation read-only and preserve the `configured-local` identity-assur
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~597 body tokens</span>
+          <span class="pill">~757 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-inputs</code></dd></div>
@@ -5623,23 +5623,23 @@ argument-hint: &quot;[phase]&quot;
 # Inspect phase inputs
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.
+Reuse the input preview from a verified current-invocation `/sf-next` packet when present; otherwise first run `singularity-flow inputs --dry-run --for-agent --json`. Both check pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
 **Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say &quot;Copilot: no verified equivalent&quot;; never invent a slash command.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse this invocation&#39;s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.
 
 Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `--dry-run` only for read-only inspection and never edit managed input records to bypass a gate.
 
-1. Run `singularity-flow status --json` and use only the active phase.
-2. Preview resolution with `singularity-flow inputs &lt;phase&gt; --dry-run`.
+1. Use only the active phase in the verified entry/preview. A delegated `/sf-next` preview is reusable only in this invocation, before another mutation; never use an earlier chat&#39;s binding. No separate pause/session/status, repository search or artifact inspection.
+2. Inspect preview `records`, `errors` and `warnings`; never infer truncation from a smaller byte count or `representation.complete: false`.
 3. Explain every missing, unapproved, truncated, hash-mismatched, missing-brief, stale-brief, or
    missing-expansion condition before continuing. When the record reports `approved-summary`, name
    the brief hash and source-bound expansion handle. Expand an exact source section only when the
    task requires its wording; never replace the governed brief by an agent-authored summary.
-4. Run `singularity-flow inputs &lt;phase&gt;` to write the next-generation audit record and render the managed input block.
-5. Read the returned artifact and preserve the marker-delimited managed block.
+4. Run `singularity-flow inputs &lt;phase&gt; --for-agent --json` once to write the next-generation audit record and render the managed input block. The command revalidates the current binding and approved inputs; never self-confirm a sequence warning.
+5. Use returned `audit` and `artifact.managedBlock` metadata; preserve the marker-delimited managed block. `matchesRendered: false`: stop and relay the mismatch. Do not reread the audit, brief or artifact merely to locate markers. Read an exact returned path only when source wording is needed. Input `generation` is the preparation generation, not a published `phaseGeneration`.
 6. Relay returned `continuation.actions` as exact Shell/Copilot pairs. Never replace a compose action with bare `/sf-worldmodel`, or guess a next step. Do not submit, approve, or reject automatically.
 </code></pre>
       </div>
@@ -6956,12 +6956,12 @@ For Playwright, honor the repository or corporate `.npmrc`; do not override the 
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~983 body tokens</span>
+          <span class="pill">~936 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-next</code></dd></div>
           <div><dt>Arguments</dt><dd><code>none</code></dd></div>
-          <div><dt>Model-capable operations</dt><dd>next.orchestrate, wm.ensure</dd></div>
+          <div><dt>Model-capable operations</dt><dd>next.orchestrate</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-next/SKILL.md</code></dd></div>
         </dl>
         <div class="source-heading">
@@ -6977,20 +6977,20 @@ disable-model-invocation: true
 # Execute the next workflow action
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.
+First run `singularity-flow nextsteps --for-agent --json` once. It checks pause before Git or Story discovery and returns the verified binding and actions. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say &quot;Copilot: no verified equivalent&quot;; never invent a slash command.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse this invocation&#39;s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.
 
-1. First run `singularity-flow session current --json`; require `ready`/`workId` and use its returned `repositoryPath` as cwd for every subsequent command. There run `singularity-flow nextsteps &lt;WORK-ID&gt; --json`; refuse `ACTIVE_SUBJECT_MISMATCH`. Use the shared repository model; `singularity-flow wm ensure` needs explicit consent. Do not start it while waiting. Never derive `--task`.
+1. Use the returned binding, active phase, and first `NOW` action; refuse `ACTIVE_SUBJECT_MISMATCH`. No separate pause/session/status calls. Never derive `--task` or silently select another Story. `preparation` delegates composition to the entry-capable authoring skill; it does not waive grounding or permit a rebuild.
 2. Never run `singularity-flow next`. Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action, and stop. Before approval run `singularity-flow phase show &lt;phase&gt; --json`; validate authority, report the automatic phase agent, and require the exact phase name. Every recorded approval must produce its own commit and push.
 3. Sole no-skill exception: when snapshot `state=publication_pending` and its first `NOW` command equals `singularity-flow sync`, show it and explain it retries only the retained commit. Run `singularity-flow sync &lt;WORK-ID&gt;` once in the verified cwd, then stop; never follow `THEN`, invoke `/sf-nextsteps` or `/sf-next`, or retry.
-4. Follow the selected skill; never rewrite it to `/sf-phase`. If the selected action is `/sf-code`, do not imitate or inline it: report `Next in Copilot: /sf-code` and stop; preserve `/sflow-code` likewise. The selected skill must run draft-check and correct every agent finding. Never publish a delegated action.
+4. Follow the selected skill; never rewrite it to `/sf-phase`. Pass only this invocation&#39;s verified packet and its input preview to the selected skill; do not repeat its boundary lookup. If the selected action is `/sf-code`, do not imitate or inline it: report `Next in Copilot: /sf-code` and stop; preserve `/sflow-code` likewise. Never publish a delegated action or chain another lifecycle action.
 5. On failure run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`. Never add `--apply` without the reviewed plan and exact confirmation. `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and correction handoff, not a retry loop.
-6. Run `singularity-flow phase show &lt;phase&gt; --json`; show bounded previews, hash-bound references, and binary metadata.
-7. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`; report resolved model and token/cost status, action, commit/push, authority, and agent. Separate **Completed action** from **Next action**; never claim the next action was taken. After mutation rerun `singularity-flow nextsteps &lt;WORK-ID&gt; --json` once. Copy the first `NOW` action&#39;s `copilotCommand` and `command` from that same action object and render `Next action (choose one surface):`, `Copilot: /sf-...`, `Shell: singularity-flow ...`. Never mix action fields: `/sf-next` pairs with `singularity-flow next`; `/sf-phase` pairs with returned `prepare` or `phase` command. Never pair `/sf-phase` with `singularity-flow next`. Do not automatically submit a generation you just published.
+6. Input/audit actions use returned metadata, not phase show or marker searches. Read exact returned paths only when needed; no broad repository/skill searches or tool-output archaeology.
+7. Preserve returned telemetry, warnings, hashes and effects. Separate **Completed action** from **Next action**; never claim the next action was taken. Use the action result&#39;s `continuation`; only if absent run `singularity-flow nextsteps &lt;WORK-ID&gt; --for-agent --json` once. Copy the first `NOW` action&#39;s `copilotCommand` and `command` from that same action object and render `Next action (choose one surface):`, `Copilot: /sf-...`, `Shell: singularity-flow ...`. Never pair `/sf-phase` with `singularity-flow next`. Do not automatically submit a generation you just published.
 8. After approval context `new`, run `/clear` and then `/sf-next`; after `compact`, run `/compact` and then `/sf-next`. After either reset, reapply the Boundary before artifact reads.
 </code></pre>
       </div>

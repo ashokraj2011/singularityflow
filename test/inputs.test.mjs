@@ -9,6 +9,7 @@ import {
 } from '../src/inputs.mjs';
 import { createAgentBriefs, planAgentBriefs, verifyAgentBriefsForReview } from '../src/agent-briefs.mjs';
 import { exists, snapshot } from '../src/util.mjs';
+import { inputRepresentationLabel, phaseInputArtifacts } from '../src/phase-input-presentation.mjs';
 
 async function fixture(mode = 'record', declaration = { phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inputs-'));
@@ -140,6 +141,39 @@ test('explicit input budgets truncate safely while omitted budgets do not', asyn
   value.workflow.resolution.phases[0].inputs[0].maxBytes = null;
   const complete = await collectInputs(value.root, value.workflow, value.phase, value);
   assert.equal(complete.records[0].bytes, complete.records[0].injectedBytes);
+});
+
+test('input presentation distinguishes summaries, selected clauses and actual byte-limit truncation', () => {
+  const record = { status: 'captured', bytes: 17291, authoredBytes: 7573, injectedBytes: 6680,
+    truncated: false, representation: { kind: 'summary', complete: false } };
+  assert.equal(inputRepresentationLabel(record), 'approved summary: 6680 bytes; authored source: 7573 bytes');
+  assert.doesNotMatch(inputRepresentationLabel(record), /truncated|6680\/17291/);
+  assert.match(inputRepresentationLabel({ ...record, representation: { kind: 'clauses' } }), /selected clauses/);
+  assert.match(inputRepresentationLabel({ ...record, truncated: true, representation: { kind: 'truncated' } }), /\(truncated\)/);
+});
+
+test('rendered input metadata identifies the audit and managed block without exposing their content', async () => {
+  const value = await fixture();
+  const result = await collectInputs(value.root, value.workflow, value.phase, value);
+  const rendered = renderInputsBlock(result);
+  const relative = `${value.itemRelative}/${value.phase.requiredArtifact.path}`;
+  const artifactPath = path.join(value.root, relative);
+  await mkdir(path.dirname(artifactPath), { recursive: true });
+  await writeFile(artifactPath, applyInputsBlock('# Design\n', rendered.text, result.mode));
+  const recorded = await recordInputs(value.root, value.workflow, value.phase, result, value);
+  value.phase.inputContext = { generation: 1, path: recorded.path, sha256: recorded.sha256 };
+  const presentation = await phaseInputArtifacts(value.root, value.phase,
+    { ...result, path: relative, renderedSha256: rendered.sha256 }, false);
+  assert.equal(presentation.artifact.path, relative);
+  assert.equal(presentation.artifact.managedBlock.matchesRendered, true);
+  assert.equal(presentation.artifact.managedBlock.sha256, rendered.sha256);
+  assert.equal(presentation.audit.path, recorded.path);
+  assert.equal(presentation.artifact.sha256, (await snapshot(artifactPath)).sha256);
+  assert.doesNotMatch(JSON.stringify(presentation), /AC-001 complete behavior/);
+  await writeFile(artifactPath, '# Changed managed block\n');
+  const mismatch = await phaseInputArtifacts(value.root, value.phase,
+    { ...result, path: relative, renderedSha256: rendered.sha256 }, false);
+  assert.equal(mismatch.artifact.managedBlock.matchesRendered, false);
 });
 
 test('record warns and enforce fails for required unavailable or tampered inputs', async () => {

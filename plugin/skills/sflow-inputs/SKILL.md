@@ -8,21 +8,21 @@ argument-hint: "[phase]"
 # Inspect phase inputs
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.
+Reuse the input preview from a verified current-invocation `/sf-next` packet when present; otherwise first run `singularity-flow inputs --dry-run --for-agent --json`. Both check pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse this invocation's entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.
 
 Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `--dry-run` only for read-only inspection and never edit managed input records to bypass a gate.
 
-1. Run `singularity-flow status --json` and use only the active phase.
-2. Preview resolution with `singularity-flow inputs <phase> --dry-run`.
+1. Use only the active phase in the verified entry/preview. A delegated `/sf-next` preview is reusable only in this invocation, before another mutation; never use an earlier chat's binding. No separate pause/session/status, repository search or artifact inspection.
+2. Inspect preview `records`, `errors` and `warnings`; never infer truncation from a smaller byte count or `representation.complete: false`.
 3. Explain every missing, unapproved, truncated, hash-mismatched, missing-brief, stale-brief, or
    missing-expansion condition before continuing. When the record reports `approved-summary`, name
    the brief hash and source-bound expansion handle. Expand an exact source section only when the
    task requires its wording; never replace the governed brief by an agent-authored summary.
-4. Run `singularity-flow inputs <phase>` to write the next-generation audit record and render the managed input block.
-5. Read the returned artifact and preserve the marker-delimited managed block.
+4. Run `singularity-flow inputs <phase> --for-agent --json` once to write the next-generation audit record and render the managed input block. The command revalidates the current binding and approved inputs; never self-confirm a sequence warning.
+5. Use returned `audit` and `artifact.managedBlock` metadata; preserve the marker-delimited managed block. `matchesRendered: false`: stop and relay the mismatch. Do not reread the audit, brief or artifact merely to locate markers. Read an exact returned path only when source wording is needed. Input `generation` is the preparation generation, not a published `phaseGeneration`.
 6. Relay returned `continuation.actions` as exact Shell/Copilot pairs. Never replace a compose action with bare `/sf-worldmodel`, or guess a next step. Do not submit, approve, or reject automatically.

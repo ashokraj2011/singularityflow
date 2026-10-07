@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { nextStepsSnapshot, nextStepsText, workflowNextSteps } from '../src/nextsteps.mjs';
-import { storyPrerequisites } from '../src/commands/nextsteps.mjs';
+import { agentNextSteps, storyPrerequisites, snapshotContinuation } from '../src/commands/nextsteps.mjs';
 
 function workflow({ status = 'in_progress', phaseStatus = 'in_progress', generation = 0, currentPhase = 'intake', history = [] } = {}) {
   return {
@@ -173,6 +173,35 @@ test('agent trust and synchronization prerequisites precede generation', () => {
   assert.deepEqual(snapshot.actions.slice(0, 2).map((item) => item.command), prerequisites.map((item) => item.command));
   assert.deepEqual(snapshot.actions.slice(0, 2).map((item) => item.skill), ['/sf-agents', '/sf-agents']);
   assert.equal(snapshot.actions[2].skill, '/sf-phase');
+});
+
+test('compact routing folds composition only into entry-capable authoring; other gates and custom skills survive', () => {
+  const state = workflow();
+  const compose = { timing: 'now', command: 'singularity-flow wm compose --phase intake',
+    route: 'grounding-composition' };
+  const snapshot = nextStepsSnapshot({ workflow: state, prerequisites: [compose] });
+  const projected = agentNextSteps(snapshot);
+  assert.equal(projected.actions.some(action => action.route === 'grounding-composition'), false);
+  assert.equal(projected.actions[0].copilotCommand, '/sf-phase');
+  assert.deepEqual(projected.preparation.actions, [snapshot.actions[0]]);
+  assert.equal(snapshot.actions[0].route, 'grounding-composition', 'projection cannot mutate full routing');
+  assert.equal(snapshotContinuation(state, projected).nextAction, projected.actions[0]);
+  for (const copilotCommand of ['/sf-design', '/sf-custom-draft']) {
+    const custom = { ...snapshot, actions: snapshot.actions.map(action => action.argv?.[0] === 'prepare'
+      ? { ...action, copilotCommand } : action) };
+    assert.equal(agentNextSteps(custom), custom, 'custom skills need their own explicit compose route');
+  }
+  const integrity = { ...snapshot, actions: [{ ...snapshot.actions[0], route: 'integrity-repair' }, ...snapshot.actions.slice(1)] };
+  assert.equal(agentNextSteps(integrity), integrity);
+  const foreign = { ...snapshot, actions: [{ ...snapshot.actions[0],
+    command: 'singularity-flow wm compose --phase planning' }, ...snapshot.actions.slice(1)] };
+  assert.equal(agentNextSteps(foreign), foreign, 'composition must match the active phase');
+  const invalid = { ...snapshot, actions: [{ ...snapshot.actions[0],
+    command: 'singularity-flow wm compose --phase intake; echo injected' }, ...snapshot.actions.slice(1)] };
+  assert.equal(agentNextSteps(invalid), invalid, 'unsafe presentation cannot become inline preparation');
+  const held = nextStepsSnapshot({ workflow: state, prerequisites: [compose],
+    stepActionHold: { missing: [{ action: 'audit' }], nextAction: 'singularity-flow integrations status --all' } });
+  assert.equal(agentNextSteps(held), held, 'a held THEN authoring action cannot swallow a prerequisite');
 });
 
 test('a consumed generation with changed bytes suppresses ordinary lifecycle retries', () => {

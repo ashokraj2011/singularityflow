@@ -1372,7 +1372,10 @@ const PAGES = Object.freeze({
       'Reads the governed state and reports only transitions the Story can actually take, so it is',
       'the fastest way out of "what am I allowed to do here".'
     ],
-    examples: [['singularity-flow nextsteps PAY-1', 'Valid next actions for PAY-1.']],
+    examples: [
+      ['singularity-flow nextsteps PAY-1', 'Valid next actions for PAY-1.'],
+      ['singularity-flow nextsteps --for-agent --json', 'One pause-safe verified Story binding, ordered actions and enforced-input preview.']
+    ],
     seeAlso: ['status', 'next', 'doctor']
   },
   recommend: {

@@ -15,16 +15,17 @@ import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionCo
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 
-/** One model-free entry packet; no tests, begin, prepare, commit, push or lifecycle decisions. */
-export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId = null,
-  compose = false, modelEnabled = true } = {}) {
+/** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
+export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
+  allowTerminal = false } = {}) {
   const mode = readCopilotMode();
-  if (mode.paused) return copilotModePresentation(mode);
+  if (mode.paused) return { packet: copilotModePresentation(mode) };
   const selected = await resolveWorkspaceExecutionContext(activeWorkspaceFile(), workspaceRegistryFile(), { cwd });
   const root = path.resolve(selected?.repositoryPath ?? repoRoot(cwd));
   // Keep the exact effective definition: operation-local catalog verification is reusable.
   // Explicit ids verify, never silently select a different Story in this checkout.
-  const { definition, workflow } = await loadAcceptedStoryExecution(root);
+  const accepted = await loadAcceptedStoryExecution(root);
+  const { definition, workflow } = accepted;
   const actualId = workflow.workItem.id;
   if ([workId, selected?.storyId].some(id => id && id !== actualId)) throw new SingularityFlowError(
     'Requested or selected Story does not match the active checkout. Attach it explicitly.', {
@@ -32,23 +33,35 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
         actualWorkId: actualId, repositoryPath: root }
     });
   const phase = workflow.phases?.[phaseId ?? workflow.currentPhase];
-  if (!phase || phase.id !== workflow.currentPhase) throw new SingularityFlowError(
+  if ((!phase && !(allowTerminal && !workflow.currentPhase && !phaseId))
+      || (phase && phase.id !== workflow.currentPhase)) throw new SingularityFlowError(
     'Phase entry must name the current Story phase; historical inspection uses phase show.',
     { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } });
   const session = await agentSessionStatus(root, definition, workflow);
-  const ready = (selected?.selectionStatus ?? 'ready') === 'ready' && session.ready;
+  const ready = (selected?.selectionStatus ?? 'ready') === 'ready' && (phase ? session.ready : true);
   const binding = { ready, repositoryPath: root, workItemRoot: definition.workItemRoot,
-    workId: actualId, phase: phase.id, phaseStatus: phase.status, generation: phase.generation,
-    inspectionGeneration: phaseInspectionGeneration(workflow, phase),
+    workId: actualId, phase: phase?.id ?? null, phaseStatus: phase?.status ?? null, generation: phase?.generation ?? null,
+    inspectionGeneration: phase ? phaseInspectionGeneration(workflow, phase) : null,
     activeAgent: session.activeAgent, phaseAgent: session.phaseAgent,
     selectionSource: selected?.selectionSource ?? 'cwd', branch: branch(root), head: head(root) };
-  const base = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
+  const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
-    generationPolicy: phase.generationPolicy, generatesCode: phaseRequiresCodeDelivery(phase),
-    intent: phase.generationIntent ?? null,
+    generationPolicy: phase?.generationPolicy ?? null, generatesCode: phase ? phaseRequiresCodeDelivery(phase) : false,
+    intent: phase?.generationIntent ?? null };
+  return { packet, root, ...accepted, phase, session };
+}
+
+/** One model-free entry packet; no tests, begin, prepare, commit, push or lifecycle decisions. */
+export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId = null,
+  compose = false, modelEnabled = true } = {}) {
+  const entry = await phaseEntryContext({ cwd, phaseId, workId });
+  if (entry.packet.paused) return entry.packet;
+  const { root, definition, workflow, phase, session } = entry;
+  const actualId = workflow.workItem.id;
+  const base = { ...entry.packet,
     effects: { contextCompositionRequested: compose, testsRun: false, storyAdvanced: false,
       committed: false, pushed: false }, modelInvocations: 0 };
-  if (!ready) return { ...base, status: 'binding-required', context: null,
+  if (!base.ready) return { ...base, status: 'binding-required', context: null,
     next: session.phaseAgent?.handoff ? [session.phaseAgent.handoff] : [], authoringAllowed: false };
   const authoring = await phaseAuthoringSummary(root, definition, workflow, phase);
   const recovery = await recoveryPlan(root, definition, workflow, {
@@ -68,10 +81,10 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     const { composePhasePrompt } = await import('./worldmodel.mjs');
     const text = await composePhasePrompt(root, { workId: actualId, phase: phase.id });
     context = { text, deliveredSha256: createHash('sha256').update(text).digest('hex'),
-      generation: binding.inspectionGeneration };
+      generation: base.inspectionGeneration };
   }
   const clarification = await verifyClarificationRecord(root, definition, workflow, phase, {
-    generation: binding.inspectionGeneration
+    generation: base.inspectionGeneration
   });
   const authoringAllowed = Boolean(canCompose && clarification.errors.length === 0);
   return { ...base, status: !prospective ? 'retained-generation' : authoringAllowed

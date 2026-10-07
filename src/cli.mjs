@@ -141,7 +141,7 @@ import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
-import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
+import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './agents.mjs';
 import {
   attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus,
   playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile,
@@ -167,7 +167,7 @@ import {
   redactDiagnosticText
 } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, reviewContinuationLines, witnessMappingReview } from './review.mjs';
-import { phaseContinuation, phaseContinuationLines } from './phase-continuation.mjs';
+import { phaseContinuationLines } from './phase-continuation.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
@@ -4397,114 +4397,8 @@ async function acceptedStoryExecutionIfPresent(root, reference = null) {
 }
 
 async function resolveNextStepsSnapshot(positionals, options) {
-  const root = repoRoot();
-  return withApprovedConfigurationRead(root, (authority) => resolveNextStepsSnapshotInScope(
-    root, positionals, options, Boolean(authority)
-  ));
-}
-
-async function resolveNextStepsSnapshotInScope(root, positionals, options, approvedConfigurationAvailable) {
-  const initialized = approvedConfigurationAvailable
-    || existsSync(path.join(root, WORKFLOW_PATH))
-    || existsSync(path.join(root, 'singularity/config.json'));
-  let snapshot;
-  if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
-  else {
-    const requestedWorkId = positionals[1] ?? null;
-    const id = requestedWorkId ?? branch(root);
-    const accepted = await acceptedStoryExecutionIfPresent(root, id);
-    const config = accepted?.definition ?? await loadConfig(root);
-    const portfolio = await loadPortfolio(root, { required: false });
-    const index = accepted ? null : await buildRepositorySubjectIndex(root, { definition: config, portfolio });
-    const selected = accepted
-      ? { kind: 'story', id: accepted.workflow.workItem.id, state: accepted.workflow }
-      : resolveContext(index, { reference: id, required: false });
-    if (selected?.kind === 'initiative') {
-      const initiative = selected.state;
-      snapshot = {
-        schemaVersion: 1,
-        state: initiative.status ?? 'active',
-        subject: { kind: 'initiative', id: selected.id },
-        initiativeId: selected.id,
-        currentPhase: initiative.currentPhase ?? null,
-        actions: (await initiativeNextActions(root, selected.id)).map((item) => ({
-          timing: 'now',
-          skill: null,
-          command: item.command,
-          reason: item.reason
-        }))
-      };
-    } else if (selected?.kind === 'story') {
-      const workflow = accepted?.workflow ?? await loadStoryAggregate(root, config, selected.id);
-      const prerequisites = [];
-      const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
-      const activeSessionAgent = session?.workId === workflow.workItem.id
-          && session?.phaseId === active?.id
-        ? session.agent
-        : null;
-      const activeAgent = activeSessionAgent ?? active?.defaultAgent ?? null;
-      const modelMode = operationContext()?.modelMode ?? { enabled: optionBoolean(options, 'model', true) };
-      const deterministicConvergence = isConvergencePhase(active)
-        && effectivePhasePublicationProducer(active, { modelEnabled: modelMode.enabled }) === 'deterministic';
-      if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
-      else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
-      if (active?.status === 'in_progress' && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
-        timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
-        reason: 'Select the governed agent that will remain active for this terminal session before generation.'
-      });
-      const groundingMode = workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off';
-      if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active)
-          && groundingMode !== 'off' && !deterministicConvergence) {
-        const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
-          agent: activeAgent
-        });
-        if (!readiness.availability.ready) {
-          const integrityBlocks = groundingMode === 'enforce'
-            && readiness.availability.failureClass === 'integrity';
-          prerequisites.push({
-            timing: integrityBlocks ? 'now' : 'optional',
-            skill: '/sf-worldmodel', command: readiness.command,
-            reason: integrityBlocks
-              ? `${readiness.reason} Enforced context integrity must be repaired before these bytes can be used.`
-              : `${readiness.reason} World-model recovery is optional and does not block phase work.`
-          });
-        } else {
-          if (readiness.availability.staleness?.warns) prerequisites.push({
-            timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
-            reason: readiness.availability.staleness.message
-          });
-          const grounding = await verifyGroundingRecord(root, config, workflow, active, {
-            agent: activeAgent
-          });
-          if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-            timing: grounding.errors.length ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
-            reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
-          });
-        }
-      }
-      if (active?.status === 'in_progress' && activeSessionAgent && !deterministicConvergence) {
-        // Accepted Story agents execute from their verified portable closure. Reopening the live
-        // pack status here would turn an intentionally removed/updated live agent into a false
-        // blocker. Legacy Stories retain the existing synchronizer diagnostics.
-        if (!accepted?.executionCatalog?.agents?.[activeSessionAgent]) {
-          const status = (await agentStatus(root, activeSessionAgent))[0];
-          if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
-          else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
-          else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
-          if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
-        }
-        for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
-      }
-      snapshot = nextStepsSnapshot({
-        branch: branch(root),
-        workflow,
-        publicationPending: await storyPublicationPending(root, config, workflow.workItem.id),
-        prerequisites,
-        modelMode
-      });
-    } else snapshot = nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
-  }
-  return snapshot;
+  const { resolveSnapshot } = await import('./commands/nextsteps.mjs');
+  return resolveSnapshot(positionals);
 }
 
 async function nextStepsCommand(positionals, options) {
@@ -5686,9 +5580,20 @@ async function clarificationCommand(positionals, options) {
 }
 
 async function inputsCommand(positionals, options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config);
+  const forAgent = optionBoolean(options, 'for-agent');
+  if (forAgent) (await import('./agent-entry-options.mjs')).validateAgentEntryRequest('inputs', { positionals, options });
+  const { phaseEntryContext } = await import('./phase-entry.mjs');
+  const entry = forAgent ? await phaseEntryContext({ phaseId: positionals[1] ?? null }) : null;
+  if (entry?.packet.paused || (entry && !entry.packet.ready)) {
+    console.log(JSON.stringify(entry.packet));
+    return;
+  }
+  const root = entry?.root ?? repoRoot();
+  const { loadAcceptedStoryExecution } = await import('./accepted-story-execution.mjs');
+  const accepted = entry ?? await loadAcceptedStoryExecution(root);
+  const { definition: config, workflow } = accepted;
+  const { resolveStorySnapshot, agentNextSteps, snapshotContinuation } = await import('./commands/nextsteps.mjs');
+  const { inputRepresentationLabel, phaseInputArtifacts, compactInputContinuation } = await import('./phase-input-presentation.mjs');
   const dryRun = optionBoolean(options, 'dry-run');
   const prepareInputs = async () => {
     const prepared = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
@@ -5702,18 +5607,28 @@ async function inputsCommand(positionals, options) {
     );
   const workItemDirectory = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
   const records = result.records.map(({ content, ...entry }) => entry);
+  const nextSnapshot = await resolveStorySnapshot(root, accepted);
+  const continuation = snapshotContinuation(workflow, forAgent ? agentNextSteps(nextSnapshot) : nextSnapshot);
+  const artifacts = await phaseInputArtifacts(root, result.phase, result, dryRun);
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify({
+      ...(entry?.packet ?? {}),
+      resultType: 'sflow-phase-inputs',
       phase: result.phase.id,
       mode: result.mode,
       dryRun,
       generation: result.generation,
-      continuation: phaseContinuation(workflow),
+      phaseGeneration: result.phase.generation,
+      ...(forAgent ? { intent: result.phase.generationIntent ?? null,
+        effects: { inputAuditRecorded: Boolean(artifacts.audit), artifactRendered: !dryRun,
+          testsRun: false, storyAdvanced: false, committed: false, pushed: false }, modelInvocations: 0 } : {}),
+      continuation: forAgent ? compactInputContinuation(continuation) : continuation,
       workItemDirectory,
+      ...artifacts,
       records,
       warnings: result.warnings,
       remoteWarnings: result.remoteWarnings
-    }, null, 2));
+    }, null, forAgent ? undefined : 2));
     return;
   }
   console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
@@ -5724,20 +5639,20 @@ async function inputsCommand(positionals, options) {
     status: entry.status,
     optional: entry.optional ? 'yes' : 'no',
     sha256: entry.sha256?.slice(0, 12) ?? '',
-    bytes: entry.status === 'captured' ? `${entry.injectedBytes}/${entry.bytes}${entry.truncated ? ' truncated' : ''}` : '',
+    bytes: inputRepresentationLabel(entry),
     path: entry.repositoryPath ?? entry.path ?? ''
   })), [
     { key: 'phase', label: 'INPUT' },
     { key: 'status', label: 'STATUS' },
     { key: 'optional', label: 'OPTIONAL' },
     { key: 'sha256', label: 'SHA256' },
-    { key: 'bytes', label: 'BYTES' },
+    { key: 'bytes', label: 'REPRESENTATION' },
     { key: 'path', label: 'PATH', kind: 'path' }
   ]));
   result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   result.remoteWarnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
-  if (!dryRun) console.log(phaseContinuationLines(phaseContinuation(workflow)).join('\n'));
+  if (!dryRun) console.log(phaseContinuationLines(continuation).join('\n'));
 }
 
 /**

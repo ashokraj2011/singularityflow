@@ -70,6 +70,15 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(invoke(['home', '--json', '--request', 'write ordinary code']).nativeCopilot, true);
   assert.equal(invoke(['phase', 'enter', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['phase', 'enter', '--compose', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['nextsteps', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['inputs', '--dry-run', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['inputs', '--for-agent', '--json']).nativeCopilot, true);
+  for (const command of ['inputs', 'nextsteps']) {
+    const invalid = spawnSync(process.execPath, [cli, command, '--for-agent', '--allow-dirty', '--json'],
+      { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+    assert.notEqual(invalid.status, 0);
+    assert.equal(JSON.parse(invalid.stdout).error.code, `${command.toUpperCase()}_OPTIONS_INVALID`);
+  }
   for (const event of ['agent-start', 'session-start', 'agent-guard', 'turn-intent', 'turn-end']) {
     assert.deepEqual(invoke(['hook', event]), {});
   }

@@ -139,6 +139,10 @@ test('every generated skill boundary forbids home search and uses only its decla
       if (['sflow-code', 'sflow-phase'].includes(name)) {
         assert.match(declared, /reuse the entry packet.*`ready`\/`workId`.*cwd=`repositoryPath`/, name);
         assert.match(declared, /returned `workItemRoot`\/artifact paths/, name);
+      } else if (['sflow-next', 'sflow-inputs'].includes(name)) {
+        assert.match(declared, /reuse this invocation's entry.*`ready`\/`workId`.*cwd=`repositoryPath`/, name);
+        assert.match(declared, /valid `phaseAgent` for active phases/, name);
+        assert.match(declared, /returned `workItemRoot`\/artifact paths/, name);
       } else {
         assert.match(declared, /`singularity-flow session current --json` → `ready`\/`workId`, cwd=`repositoryPath`/, name);
         assert.match(declared, /use CLI\/`workItemRoot` paths/, name);

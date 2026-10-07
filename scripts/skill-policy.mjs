@@ -225,14 +225,14 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   },
   'sflow-next': {
     required: [
-      /First run `singularity-flow session current --json`[^.]*returned `repositoryPath` as cwd for every subsequent command/i,
+      /First run `singularity-flow nextsteps --for-agent --json`/i,
       /Never run `singularity-flow next`/,
       /returned SFlow skill route \(any `\/sf-\*` or `\/sflow-\*` route\)/i,
       /complete its preflight[^.]*execute at most its one authorized action/i,
       /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i,
       /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i,
       /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i,
-      /singularity-flow phase show <phase> --json/i,
+      /Before approval run `singularity-flow phase show <phase> --json`/i,
       /singularity-flow recover <WORK-ID> --phase <phase> --json/i,
       /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i,
       /never pair `\/sf-phase` with `singularity-flow next`/i
@@ -260,6 +260,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
 });
 
 function executionBoundary(kind = 'story', name = '') {
+  if (['sflow-next', 'sflow-inputs'].includes(name)) return '**Boundary:** reuse this invocation\'s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.';
   if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse the entry packet: require `ready`/`workId` and valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths within this Story; never `$HOME`.';
   if (kind === 'machine') {
     return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';

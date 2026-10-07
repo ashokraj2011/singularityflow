@@ -24,6 +24,7 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { warnOnce } from './operation-context.mjs';
 import {
   loadEnvironmentDeclaration, loadEnvironmentDeclarationSync, matchEnvironmentLocalPath
 } from './environment-declaration.mjs';
@@ -756,7 +757,7 @@ export async function validateWorldModelDirectory(directory, {
     if (total > budget.totalBytes) exceeded.push(`${total} total bytes, advisory ceiling ${budget.totalBytes}`);
     if (exceeded.length) warnings.push(`World-model budget warning: ${relative} (${exceeded.join('; ')}).`);
   }
-  for (const warning of warnings) console.warn(`Warning: ${warning} Consider moving detail into a domain file or evidence ledger.`);
+  for (const warning of warnings) warnOnce(`Warning: ${warning} Consider moving detail into a domain file or evidence ledger.`);
   return {
     manifest, normalizedManifest, manifestContentSha256,
     repositoryCommit, registered: [...registered].sort(),

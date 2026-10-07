@@ -6,6 +6,7 @@ import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
+import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
@@ -14,6 +15,9 @@ import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { readSourceReviewStatus } from '../source-review-lifecycle.mjs';
+import { phaseContinuation } from '../phase-continuation.mjs';
+import { collectInputs } from '../inputs.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -64,7 +68,9 @@ async function initiativeSnapshot(root, selected) {
   };
 }
 
-export async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }) {
+export async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }, {
+  definition = null, executionCatalog = null
+} = {}) {
   const prerequisites = [];
   const active = activePhase(workflow);
   const authoring = Boolean(active) && requiresProspectivePhaseInspection(workflow, active);
@@ -97,7 +103,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
     const { loadDefinition } = await import('../config.mjs');
     const { verifyGroundingRecord } = await import('../grounding.mjs');
     const { inspectWorkflowGrounding } = await import('../worldmodel.mjs');
-    const definition = await loadDefinition(root);
+    definition ??= await loadDefinition(root);
     const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
       agent: activeAgent
     });
@@ -121,17 +127,21 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
       });
       if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
         timing: grounding.errors.length ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
+        route: 'grounding-composition',
         reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
       });
     }
   }
   if (authoring && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');
-    const status = (await agentStatus(root, activeSessionAgent))[0];
-    if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
-    else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
-    else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
-    if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
+    // Accepted agents execute their verified closure, not today's mutable live catalog.
+    if (!executionCatalog?.agents?.[activeSessionAgent]) {
+      const status = (await agentStatus(root, activeSessionAgent))[0];
+      if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
+      else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
+      else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
+      if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
+    }
     const itemDirectory = path.join(root, path.dirname(selected.location.path));
     for (const conflict of await remoteOutputConflicts(active, { itemDirectory })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
   }
@@ -150,23 +160,29 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
   if (!initialized) return nextStepsSnapshot({ initialized: false, branch: branch(root) });
   const requestedWorkId = positionals[1] ?? null;
   const reference = requestedWorkId ?? branch(root);
+  const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+  // Try the accepted checkout before reopening today's mutable workflow/agent catalog.
+  let accepted = null;
+  try { accepted = await loadAcceptedStoryExecution(root, reference); }
+  catch (error) { if (error?.code !== 'STORY_NOT_FOUND') throw error; }
+  if (accepted) return resolveStorySnapshot(root, accepted);
   const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference, required: false });
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
   if (selected?.kind !== 'story') return nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
-  let workflow = selected.state;
-  let reviewDefinition = null;
-  if (sourceReviewRequired(workflow, workflow.currentPhase)) {
-    const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
-    const accepted = await loadAcceptedStoryExecution(root, selected.id);
-    workflow = accepted.workflow; reviewDefinition = accepted.definition;
-  }
+  return resolveStorySnapshot(root, await loadAcceptedStoryExecution(root, selected.id));
+}
+
+/** Canonical prerequisites and lifecycle routing, also used by the inputs continuation. */
+export async function resolveStorySnapshot(root, { workflow, definition, executionCatalog = null }) {
+  const selected = { id: workflow.workItem.id,
+    location: { path: path.join(definition.workItemRoot, workflow.workItem.id, 'workflow.json') } };
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   const active = activePhase(workflow);
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
   const sourceReviewEvidence = active?.status === 'in_progress' && active.generation > 0
     && sourceReviewRequired(workflow, active.id)
-    ? await readSourceReviewStatus(root, reviewDefinition, workflow, active.id).catch(() => null) : null;
+    ? await readSourceReviewStatus(root, definition, workflow, active.id).catch(() => null) : null;
   // Full publication preflight can inspect a large source change set. `nextsteps` only needs it
   // automatically at the lifecycle state that otherwise causes the retry loop: a consumed code
   // generation whose bytes may have changed. Ordinary authoring readiness stays with /sf-phase.
@@ -174,21 +190,16 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
   if (consumedGenerationChanged) {
     // Keep the normal next-step path lightweight. These domains reach configuration, delivery,
     // projection, and agent code and are needed only for this exceptional lifecycle state.
-    const [{ recoveryPlan }, { loadDefinition }] = await Promise.all([
-      import('../collaboration.mjs'),
-      import('../config.mjs')
-    ]);
-    recovery = await recoveryPlan(root, await loadDefinition(root), workflow, {
+    const { recoveryPlan } = await import('../collaboration.mjs');
+    recovery = await recoveryPlan(root, definition, workflow, {
       phaseId: active.id
     });
   }
   // Receipts are read from this checkout, so only the Story checked out here can be held by one.
   let stepActionHold = null;
   if (storyRequiresStepActions(workflow) && workflow.workItem?.branch === branch(root)) {
-    const [{ requiredStepActionHold, stepActionHoldSentence }, { loadDefinition }] = await Promise.all([
-      import('../step-action-receipts.mjs'), import('../config.mjs')
-    ]);
-    const hold = await requiredStepActionHold(root, await loadDefinition(root), workflow).catch(() => null);
+    const { requiredStepActionHold, stepActionHoldSentence } = await import('../step-action-receipts.mjs');
+    const hold = await requiredStepActionHold(root, definition, workflow).catch(() => null);
     stepActionHold = hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
   }
   return {
@@ -202,15 +213,66 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
       })),
       recovery,
-      prerequisites: await storyPrerequisites(root, workflow, selected, modelMode),
+      prerequisites: await storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog }),
       modelMode
     }),
     evidence: evidenceSummary(workflow)
   };
 }
 
+/** Only entry-capable authoring skills can compose inline; every other prerequisite survives. */
+export function agentNextSteps(snapshot) {
+  const draft = snapshot.actions.find(action => action.timing === 'now'
+    && ['/sf-phase', '/sf-code'].includes(action.copilotCommand)
+    && action.argv?.[0] === 'prepare');
+  if (!draft) return snapshot;
+  const compose = snapshot.actions.filter(action => {
+    if (action.route !== 'grounding-composition') return false;
+    // Prerequisite producers may supply a command without argv; validate its canonical form
+    // instead of assuming every durable/presentation action has already been normalized.
+    const argv = safeCommandGuidance(action)?.argv;
+    return argv?.length === 4 && argv[0] === 'wm' && argv[1] === 'compose'
+      && argv[2] === '--phase' && argv[3] === snapshot.currentPhase;
+  });
+  if (!compose.length) return snapshot;
+  return { ...snapshot, actions: snapshot.actions.filter(action => !compose.includes(action)),
+    preparation: { compositionRequired: true, actions: compose,
+      fulfilledBy: draft.copilotCommand, automaticAdvance: false } };
+}
+
+export function snapshotContinuation(workflow, snapshot) {
+  return phaseContinuation(workflow, { snapshot });
+}
+
+export async function nextStepsAgentPacket(workId = null) {
+  const { phaseEntryContext } = await import('../phase-entry.mjs');
+  const entry = await phaseEntryContext({ workId, allowTerminal: true });
+  const { packet } = entry;
+  if (packet.paused) return packet;
+  if (!packet.ready) return { ...packet, resultType: 'sflow-nextsteps', state: 'binding-required',
+    actions: packet.phaseAgent?.handoff ? [{ timing: 'now', ...packet.phaseAgent.handoff }] : [] };
+  const snapshot = agentNextSteps(await resolveStorySnapshot(entry.root, entry));
+  const first = snapshot.actions.find(action => action.timing === 'now');
+  let inputs = null;
+  if (first?.argv?.[0] === 'inputs' && first.argv[1] === packet.phase) {
+    const resolved = await collectInputs(entry.root, entry.workflow, entry.phase, {
+      definition: entry.definition,
+      itemDirectory: path.join(entry.root, entry.definition.workItemRoot, packet.workId),
+      itemRelative: path.posix.join(entry.definition.workItemRoot, packet.workId)
+    });
+    inputs = { phase: packet.phase, dryRun: true, ...resolved,
+      records: resolved.records.map(({ content, ...record }) => record) };
+  }
+  return { ...packet, ...snapshot, resultType: 'sflow-nextsteps', inputs,
+    actions: snapshot.actions.filter(action => action.timing !== 'then'),
+    projection: { kind: 'agent', omitted: ['actions[timing=then]'],
+      fullCommand: `singularity-flow nextsteps ${packet.workId} --json` } };
+}
+
 export async function run(_argv, { positionals, options }) {
-  const snapshot = await resolveSnapshot(positionals);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2));
+  const forAgent = optionBoolean(options, 'for-agent');
+  if (forAgent) validateAgentEntryRequest('nextsteps', { positionals, options });
+  const snapshot = forAgent ? await nextStepsAgentPacket(positionals[1] ?? null) : await resolveSnapshot(positionals);
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, forAgent ? undefined : 2));
   else process.stdout.write(nextStepsText(snapshot));
 }

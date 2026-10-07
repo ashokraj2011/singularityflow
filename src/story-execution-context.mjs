@@ -184,7 +184,7 @@ function pinnedAttachedSkills(closure, agentId) {
 function parsedSnapshotAgents(closure) {
   const parserProfile = closure.semantics?.agentDocumentParser ?? AGENT_PARSER;
   const composerProfile = closure.semantics?.promptComposer ?? COMPOSER;
-  if (parserProfile !== AGENT_PARSER || composerProfile !== COMPOSER) {
+  if (parserProfile !== AGENT_PARSER || ![COMPOSER, 'story-snapshot-agent-v2'].includes(composerProfile)) {
     fail(
       `Story snapshot requires unsupported execution interpretation '${parserProfile}/${composerProfile}'.`,
       'WFA_RUNTIME_INCOMPATIBLE',
@@ -523,7 +523,14 @@ export async function resolveStoryExecutionContext(root, definition, workflow, {
     : `Agent '${selectedId}' is not declared for phase '${phaseId}'. Continuing with an audited compatibility override.`;
   const closure = catalog[VERIFIED_CLOSURE];
   if (!closure) fail('Verified Story execution bytes were not retained for selection.', 'WFA_SNAPSHOT_INVALID');
-  const dependencies = Object.freeze(dependenciesForAgent(closure, selectedId, agent)
+  const workflowSkills = (closure.policy.workflowSkills ?? []).map((entry) => ({
+    id: entry.id, kind: 'skill', source: 'library', scope: 'workflow', workflowId: workflow.workItem.workType,
+    phases: [...entry.phases], use: entry.use, logicalId: entry.logicalId,
+    optional: false, inclusion: 'included', sha256: entry.sha256,
+    text: utf8(closure.assetBytes.get(entry.logicalId), `Workflow skill '${entry.id}'`),
+    blobPath: closure.manifest.assets.find((asset) => asset.logicalId === entry.logicalId).blob.path
+  }));
+  const dependencies = Object.freeze([...dependenciesForAgent(closure, selectedId, agent), ...workflowSkills]
     .map((entry) => Object.freeze(entry)));
   const identity = Object.freeze({
     mode: 'workflow-snapshot',

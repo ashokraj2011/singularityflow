@@ -662,6 +662,26 @@ export async function renderAgentSkills(root, workflow, phase, session, {
     selected.push({ ...dependency, content });
   }
   const library = await attachedLibrarySkills(root, phase, saved ? executionContext : null, synced.agent, session.agent);
+  if (!saved) {
+    for (const entry of (await readSkillAttachments(configurationReadRoot(root)))
+      .filter((entry) => entry.workflow === workflow?.workItem?.workType && matches(phase.id, entry.phases))) {
+      const skill = await readLibrarySkill(configurationReadRoot(root), entry.id);
+      if (!skill) throw new SingularityFlowError(`Workflow '${entry.workflow}' attaches missing skill '${entry.id}'.`, { code: 'SKILL_LIBRARY_MISSING' });
+      library.skills.push({ ...skill, use: entry.use, scopes: [`workflow ${entry.workflow}`] });
+    }
+  }
+  // Same bytes can be attached through both scopes. Render once, preserving both use conditions.
+  const unique = new Map();
+  for (const entry of library.skills) {
+    const prior = unique.get(entry.id);
+    if (prior) {
+      if (prior.sha256 !== entry.sha256) throw new SingularityFlowError(`Attached skill '${entry.id}' has conflicting retained bytes.`, { code: 'SKILL_ATTACHMENT_CONFLICT' });
+      prior.scopes = [...new Set([...prior.scopes, ...entry.scopes])];
+      // An unrestricted attachment must not become restricted by the other scope's condition.
+      prior.use = [...new Set([prior.use || 'Whenever this step needs it', entry.use || 'Whenever this step needs it'])].join('; ');
+    } else unique.set(entry.id, { ...entry, scopes: entry.scopes ?? [`agent ${session.agent}`] });
+  }
+  library.skills = [...unique.values()];
   const text = [
     selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n'),
     renderLibrarySkills(session.agent, library.skills)
@@ -713,7 +733,8 @@ async function attachedLibrarySkills(root, phase, executionContext, agent, agent
         continue;
       }
       const parsed = parseLibrarySkill(entry.text, { id: entry.id });
-      skills.push({ ...parsed, sha256: parsed.sha256, use: entry.use ?? '', path: entry.blobPath ?? null });
+      skills.push({ ...parsed, sha256: parsed.sha256, use: entry.use ?? '', path: entry.blobPath ?? null,
+        scopes: [entry.scope === 'workflow' ? `workflow ${entry.workflowId}` : `agent ${agentId}`] });
     }
     return { skills, warnings };
   }
@@ -725,7 +746,7 @@ async function attachedLibrarySkills(root, phase, executionContext, agent, agent
         code: 'SKILL_LIBRARY_MISSING', details: { agentId, skillId: attachment.id }
       });
     }
-    skills.push({ ...skill, use: attachment.use });
+    skills.push({ ...skill, use: attachment.use, scopes: [`agent ${agentId}`] });
   }
   return { skills, warnings };
 }

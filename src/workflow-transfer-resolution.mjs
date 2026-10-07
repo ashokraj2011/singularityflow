@@ -282,11 +282,11 @@ function eachObject(value, visit, key = null) {
   visit(value, key);
   for (const [childKey, child] of Object.entries(value)) eachObject(child, visit, childKey);
 }
-/** Each listed step, followed by its new name: the repository's own step keeps what it had. */
-function withRenamed(list, map) {
+/** Keep original steps only where they exist in the destination, alongside their new names. */
+function withRenamed(list, map, targetPhases = null) {
   const result = [];
   for (const id of list) {
-    if (!result.includes(id)) result.push(id);
+    if ((!map.has(id) || targetPhases == null || targetPhases.has(id)) && !result.includes(id)) result.push(id);
     if (map.has(id) && !result.includes(map.get(id)) && !list.includes(map.get(id))) result.push(map.get(id));
   }
   return result;
@@ -479,9 +479,9 @@ function rewriteTable(body, heading, rewriteCells) {
   return changed ? lines.join(newline) : body;
 }
 
-function phaseCell(cell, map) {
+function phaseCell(cell, map, targetPhases) {
   const list = phaseListText(cell);
-  return list ? withRenamed(list, map).join(',') : cell;
+  return list ? withRenamed(list, map, targetPhases).join(',') : cell;
 }
 
 function generatedPlace(phase, target, map) {
@@ -610,6 +610,12 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
 
   // Skills from the skill master: their file, the name in their front matter, and their label.
   const skillMap = map('skill');
+  const changedSkills = new Map();
+  for (const entry of bundle.workflowSkillAttachments ?? []) {
+    entry.workflow = map('workflow').get(entry.workflow) ?? entry.workflow;
+    entry.id = skillMap.get(entry.id) ?? entry.id;
+    entry.phases = entry.phases.map((id) => phaseMap.get(id) ?? id);
+  }
   for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'skill' && skillMap.has(candidate.id))) {
     const from = asset.id; const to = skillMap.get(from);
     movedPaths.set(asset.path, librarySkillPath(to));
@@ -622,6 +628,7 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
       if (!named.endsWith(IMPORTED_LABEL)) document.setIn(['metadata', 'sflow-label'], `${named}${IMPORTED_LABEL}`);
       return body;
     });
+    changedSkills.set(to, asset.content);
   }
 
   // Agents: their files, locks, imported copies and what they draft.
@@ -648,23 +655,23 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
         }
       }
       const attached = (text) => (skillMap.size || phaseMap.size ? rewriteTable(text, 'Attached skills', (cells) => {
-        cells[0] = swapValue(cells[0], skillMap); cells[1] = phaseCell(cells[1], phaseMap); return cells;
+        cells[0] = swapValue(cells[0], skillMap); cells[1] = phaseCell(cells[1], phaseMap, targetPhases); return cells;
       }) : text);
       const setMetadata = (key, value) => {
         const node = document.getIn(['metadata', key], true);
         if (YAML.isScalar(node)) node.value = value;
       };
       const phases = phaseListText(document.getIn(['metadata', 'sflow-phases']));
-      if (phases && phaseMap.size) setMetadata('sflow-phases', withRenamed(phases, phaseMap).join(','));
+      if (phases && phaseMap.size) setMetadata('sflow-phases', withRenamed(phases, phaseMap, targetPhases).join(','));
       // An agent under a new name drafts only steps new here, whether or not any step was renamed.
       const defaults = phaseListText(document.getIn(['metadata', 'sflow-default-for']));
       if (defaults && (phaseMap.size || renamed)) {
-        setMetadata('sflow-default-for', (existing ? withRenamed(defaults, phaseMap)
+        setMetadata('sflow-default-for', (existing ? withRenamed(defaults, phaseMap, targetPhases)
           : defaults.map((phase) => phaseMap.get(phase) ?? phase).filter((phase) => !renamed || !targetPhases.has(phase))).join(','));
       }
       if (!phaseMap.size) return attached(body);
-      let next = rewriteTable(body, 'Remote skills', (cells) => { cells[2] = phaseCell(cells[2], phaseMap); return cells; });
-      next = rewriteTable(next, 'Remote artifact templates', (cells) => { cells[2] = phaseCell(cells[2], phaseMap); return cells; });
+      let next = rewriteTable(body, 'Remote skills', (cells) => { cells[2] = phaseCell(cells[2], phaseMap, targetPhases); return cells; });
+      next = rewriteTable(next, 'Remote artifact templates', (cells) => { cells[2] = phaseCell(cells[2], phaseMap, targetPhases); return cells; });
       if (!existing) {
         next = rewriteTable(next, 'Remote generated artifacts', (cells) => {
           const place = generatedPlace(cells[2], cells[3], phaseMap);
@@ -676,7 +683,7 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
     });
     const lock = bundle.agentLocks[from];
     for (const dependency of lock?.dependencies ?? []) {
-      if (Array.isArray(dependency.phases)) dependency.phases = withRenamed(dependency.phases, phaseMap);
+      if (Array.isArray(dependency.phases)) dependency.phases = withRenamed(dependency.phases, phaseMap, targetPhases);
       if (dependency.type === 'generated' && !existing) Object.assign(dependency, generatedPlace(dependency.phase, dependency.target, phaseMap));
       const prefix = `${AGENT_VENDOR_ROOT}/${from}/`;
       if (renamed && typeof dependency.vendored === 'string' && dependency.vendored.startsWith(prefix)) {
@@ -734,13 +741,16 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
       if (record.kind === 'template' && templateMap.has(target.id)) { target.id = templateMap.get(target.id); next = `template:${target.id}`; }
       if (record.kind === 'library-skill' && skillMap.has(target.id)) { target.id = skillMap.get(target.id); next = `library-skill:${target.id}`; }
       for (const [from, to] of movedPaths) if (target.path === from) { target.path = to; break; }
-      if (Array.isArray(target.phases)) target.phases = withRenamed(target.phases, phaseMap);
+      if (Array.isArray(target.phases)) target.phases = withRenamed(target.phases, phaseMap, targetPhases);
       if (record.kind === 'generated' && !existsHere(target.agent)) Object.assign(target, generatedPlace(target.phase, target.path, phaseMap));
       if (Array.isArray(target.agents)) target.agents = target.agents.map((id) => agentMap.get(id) ?? id);
       if (Array.isArray(target.tools)) target.tools = target.tools.map((tool) => swapCompound(tool, hostMap));
-      // An imported agent whose file changed with the new names: record what is on disk now.
-      if (record.kind === 'agent' && changedAgents.has(target.id)) {
-        record.fileSha256 = sha256Hex(changedAgents.get(target.id));
+      // Keep the source hash unchanged; separately pin the exact destination bytes after
+      // a reviewed rename. Otherwise imports status mistakes our own transformation for edits.
+      const changed = record.kind === 'agent' ? changedAgents
+        : record.kind === 'library-skill' ? changedSkills : null;
+      if (changed?.has(target.id)) {
+        record.fileSha256 = sha256Hex(changed.get(target.id));
         record.transforms = [...new Set([...(Array.isArray(record.transforms) ? record.transforms : []), 'renamed-on-import'])];
       }
       return [next, record];

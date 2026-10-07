@@ -627,7 +627,7 @@ async function workItemPlanningParts(root, definition, {
   const inputBlock = renderInputsBlock(inputs).text;
   const session = await loadSession(root, { required: false });
   const remote = await renderAgentSkills(
-    root, workflow, phase, session?.workId === id ? { ...session, agent } : null,
+    root, workflow, phase, { ...(session?.workId === id ? session : {}), agent },
     { record: false, itemDirectory, executionContext }
   );
   const supportingDocuments = await workItemSupportingDocuments(root, definition, workflow, phase.id);

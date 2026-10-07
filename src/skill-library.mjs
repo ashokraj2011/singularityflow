@@ -47,7 +47,7 @@ export function librarySkillPath(id) { return `${SKILL_LIBRARY_ROOT}/${id}/${SKI
 
 /** Skill attachments kept apart from the agents (see the module comment). */
 export const SKILL_ATTACHMENTS_PATH = `${SKILL_LIBRARY_ROOT}/attachments.yml`;
-const ATTACHMENT_KEYS = new Set(['skill', 'agent', 'steps', 'use']);
+const ATTACHMENT_KEYS = new Set(['skill', 'agent', 'workflow', 'steps', 'use']);
 
 /** What a library skill dependency names as its source: never fetched, read from the library. */
 export function librarySkillReference(id) { return `library:${id}`; }
@@ -148,9 +148,8 @@ export async function loadSkillLibrary(configRoot) {
 }
 
 /**
- * The attachments file: one list of { skill, agent, steps, use }. `steps` names the steps the skill
- * applies in (none: every step the agent drafts); `use` says when to use it. An agent is attached a
- * skill at most once here, and step IDs are checked against the workflow when configuration loads.
+ * A list of {skill, agent OR workflow, steps, use}. Agent skills follow the agent; workflow
+ * skills are local to that workflow. Step membership is checked when configuration loads.
  */
 export function parseSkillAttachments(text, source = SKILL_ATTACHMENTS_PATH) {
   let value;
@@ -164,21 +163,24 @@ export function parseSkillAttachments(text, source = SKILL_ATTACHMENTS_PATH) {
   const seen = new Set();
   return Object.freeze(list.map((entry, index) => {
     const where = `${source} attachment ${index + 1}`;
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${where} must be a map with skill, agent, steps and use.`, 'SKILL_ATTACHMENTS_INVALID');
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${where} must be a map with skill, agent or workflow, steps and use.`, 'SKILL_ATTACHMENTS_INVALID');
     const extra = Object.keys(entry).filter((key) => !ATTACHMENT_KEYS.has(key));
     if (extra.length) fail(`${where} has unknown key(s) ${extra.join(', ')}.`, 'SKILL_ATTACHMENTS_INVALID');
     const skill = typeof entry.skill === 'string' ? entry.skill : '';
     const agent = typeof entry.agent === 'string' ? entry.agent : '';
+    const workflow = typeof entry.workflow === 'string' ? entry.workflow : '';
     if (!ID.test(skill)) fail(`${where} needs the skill's lower-case kebab-case ID.`, 'SKILL_ATTACHMENTS_INVALID');
-    if (!ID.test(agent)) fail(`${where} needs the agent's lower-case kebab-case ID.`, 'SKILL_ATTACHMENTS_INVALID');
+    if (Object.hasOwn(entry, 'agent') === Object.hasOwn(entry, 'workflow')
+        || !ID.test(agent || workflow)) fail(`${where} needs exactly one agent or workflow lower-case kebab-case ID.`, 'SKILL_ATTACHMENTS_INVALID');
     const steps = entry.steps ?? [];
     if (!Array.isArray(steps) || steps.some((step) => typeof step !== 'string' || !ID.test(step))) {
-      fail(`${where} steps must be a list of step IDs (none: every step the agent drafts).`, 'SKILL_ATTACHMENTS_INVALID');
+      fail(`${where} steps must be a list of step IDs (none: every step of the target).`, 'SKILL_ATTACHMENTS_INVALID');
     }
     if (new Set(steps).size !== steps.length) fail(`${where} lists a step more than once.`, 'SKILL_ATTACHMENTS_INVALID');
-    if (seen.has(`${agent}\0${skill}`)) fail(`${source} attaches skill '${skill}' to agent '${agent}' more than once.`, 'SKILL_ATTACHMENTS_INVALID');
-    seen.add(`${agent}\0${skill}`);
-    return Object.freeze({ agent, id: skill, phases: Object.freeze([...steps]), use: normalizeSkillUse(entry.use) });
+    const target = agent ? `agent:${agent}` : `workflow:${workflow}`;
+    if (seen.has(`${target}\0${skill}`)) fail(`${source} attaches skill '${skill}' to ${target} more than once.`, 'SKILL_ATTACHMENTS_INVALID');
+    seen.add(`${target}\0${skill}`);
+    return Object.freeze({ ...(agent ? { agent } : { workflow }), id: skill, phases: Object.freeze([...steps]), use: normalizeSkillUse(entry.use) });
   }));
 }
 
@@ -192,16 +194,18 @@ export async function readSkillAttachments(configRoot) {
 /** The attachments file's text in a stable order, or null when nothing is attached (no file). */
 export function skillAttachmentsText(entries) {
   if (!entries.length) return null;
-  const sorted = [...entries].sort((a, b) => a.agent.localeCompare(b.agent) || a.id.localeCompare(b.id));
+  const target = (entry) => entry.agent ? `agent:${entry.agent}` : `workflow:${entry.workflow}`;
+  const sorted = [...entries].sort((a, b) => target(a).localeCompare(target(b)) || a.id.localeCompare(b.id));
   const body = YAML.stringify({
     attachments: sorted.map((entry) => ({
-      skill: entry.id, agent: entry.agent, ...(entry.phases.length ? { steps: [...entry.phases] } : {}), ...(entry.use ? { use: entry.use } : {})
+      skill: entry.id, ...(entry.agent ? { agent: entry.agent } : { workflow: entry.workflow }),
+      ...(entry.phases.length ? { steps: [...entry.phases] } : {}), ...(entry.use ? { use: entry.use } : {})
     }))
   }, { lineWidth: 0 });
   return [
-    '# Which agents use which skills from the skill master. Kept apart from the agents, so a skill',
-    "# attaches to any agent, a framework workflow's included, without changing that agent.",
-    '# steps: the steps it applies in (none: every step the agent drafts). use: when to use it.',
+    '# Attach skills to exactly one agent OR workflow. Agent skills follow the agent everywhere;',
+    '# workflow skills apply only in that workflow, independently of its selected agent.',
+    '# steps: restrict to these steps (omitted: all target steps). use: when to use it.',
     body
   ].join('\n');
 }
@@ -221,9 +225,18 @@ export function effectiveLibrarySkills(agent) {
  * file names is here, and no skill attached to an agent shares the ID of one of its remote
  * resources (a Story keeps both under that ID). Checked when configuration loads.
  */
-export async function assertAttachedLibrarySkills(configRoot, agents) {
+export async function assertAttachedLibrarySkills(configRoot, agents, definition = {}) {
   const known = new Map(agents.map((agent) => [agent.id, agent]));
-  for (const attachment of await readSkillAttachments(configRoot)) {
+  const attachments = await readSkillAttachments(configRoot);
+  for (const attachment of attachments) {
+    if (attachment.workflow) {
+      const type = definition.workTypes?.[attachment.workflow];
+      if (!type) fail(`Skill '${attachment.id}' names unknown workflow '${attachment.workflow}'.`, 'SKILL_ATTACHMENT_WORKFLOW_UNKNOWN');
+      for (const phase of attachment.phases) {
+        if (!type.phases.includes(phase)) fail(`Skill '${attachment.id}' names step '${phase}' outside workflow '${attachment.workflow}'.`, 'SKILL_ATTACHMENT_PHASE_UNKNOWN');
+      }
+      continue;
+    }
     if (!known.has(attachment.agent)) {
       fail(`${SKILL_ATTACHMENTS_PATH} attaches skill '${attachment.id}' to agent '${attachment.agent}', which is not an agent here.`,
         'SKILL_ATTACHMENT_AGENT_UNKNOWN', { agentId: attachment.agent, skillId: attachment.id });
@@ -235,6 +248,9 @@ export async function assertAttachedLibrarySkills(configRoot, agents) {
     }
   }
   const problems = new Map();
+  for (const attachment of attachments.filter((entry) => entry.workflow)) {
+    if (!await readLibrarySkill(configRoot, attachment.id)) fail(`Workflow '${attachment.workflow}' attaches missing skill '${attachment.id}'.`, 'SKILL_LIBRARY_MISSING');
+  }
   for (const agent of agents) {
     for (const attachment of effectiveLibrarySkills(agent)) {
       if (!problems.has(attachment.id)) {
@@ -288,6 +304,7 @@ export function renderLibrarySkills(agentId, entries) {
     `### Skill: ${entry.label ?? defaultSkillLabel(entry.id)} (\`${entry.id}\`)`,
     '',
     entry.description ? `${entry.description}` : null,
+    entry.scopes?.length ? `\nApplies through: ${entry.scopes.join('; ')}.` : null,
     entry.use ? `\nWhen to use it: ${entry.use}` : null,
     '',
     entry.instructions.trim()
@@ -295,7 +312,9 @@ export function renderLibrarySkills(agentId, entries) {
   return [
     '## Attached skill instructions',
     '',
-    `These skills from the skill master are attached to ${agentId}. Read each one before you start this step.`
+    (entries.some((entry) => entry.scopes?.some((scope) => scope.startsWith('workflow ')))
+      ? 'These skills apply to this workflow step. Read each one before you start this step.'
+      : `These skills from the skill master are attached to ${agentId}. Read each one before you start this step.`)
       + ' When your instructions or a skill\'s "When to use it" call for it, carry the skill out as written,'
       + ' in that order, and say in your work which skills you applied.',
     '',

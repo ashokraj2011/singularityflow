@@ -5002,7 +5002,7 @@ async function compose(root, options, {
     });
   }
   const { text, injection } = agentPrompt;
-  const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, agent } : null, {
+  const remote = phase ? await renderAgentSkills(root, workflow, phase, { ...(session ?? {}), agent }, {
     record: !dryRun && !renderOnly,
     itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),
     executionContext: config.executionContext

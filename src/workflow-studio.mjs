@@ -375,6 +375,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const discovered = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
   const library = await loadSkillLibrary(configRoot);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
+  const workflowAttachments = (await readSkillAttachments(configRoot)).filter((entry) => entry.workflow);
   const security = normalizeApprovalSecurity(raw.approvalSecurity ?? {});
   const starter = await packagedDefinition();
   const bundled = await bundledAgents();
@@ -390,6 +391,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     try { resolved = definition ? resolveWorkType(definition, id) : null; } catch (error) { resolved = null; failure = error?.message ?? null; }
     const packaged = starter.workTypes[id];
     return {
+      skills: workflowAttachments.filter((entry) => entry.workflow === id).map(({ id: skillId, phases, use }) => ({ id: skillId, phases: [...phases], use })),
       id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])], readOnly: protection.workflows.includes(id),
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
@@ -418,7 +420,10 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           effectiveAuthoringSkill: route.effectiveAuthoringSkill,
           authoringSkillSource: route.authoringSkillSource,
           afterStep: (phase.afterStep ?? []).map((action) => ({ id: action.id, on: [...(action.on ?? [])], target: action.target, send: action.send ?? 'event', ...(action.required === true ? { required: true } : {}) })),
-          skills: stepSkills(discovered.find((agent) => agent.id === (phase.defaultAgent ?? defaultAgentOf(phase.id))), phase.id),
+          skills: [...stepSkills(discovered.find((agent) => agent.id === (phase.defaultAgent ?? defaultAgentOf(phase.id))), phase.id)
+            .map((entry) => ({ ...entry, scope: 'agent' })),
+          ...workflowAttachments.filter((entry) => entry.workflow === id && (!entry.phases.length || entry.phases.includes(phase.id)))
+            .map(({ id: skillId, use }) => ({ id: skillId, use, origin: 'attachments', scope: 'workflow' }))],
           afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
@@ -488,6 +493,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, path: skill.path,
       usedBy: discovered.flatMap((agent) => skillUses(agent).filter((entry) => entry.id === skill.id)
         .map((entry) => ({ agent: agent.id, phases: entry.phases, use: entry.use, origin: entry.origin })))
+        .concat(workflowAttachments.filter((entry) => entry.id === skill.id)
+          .map((entry) => ({ workflow: entry.workflow, phases: [...entry.phases], use: entry.use, origin: 'attachments' })))
     })),
     skillProblems: library.problems,
     skillAttachmentsPath: SKILL_ATTACHMENTS_PATH,
@@ -952,7 +959,7 @@ class StudioCandidate {
     }
     const kept = this.attachments.filter((entry) => entry.id !== skill.id);
     if (kept.length !== this.attachments.length) {
-      for (const entry of this.attachments) if (entry.id === skill.id && !detached.includes(this.agentLabel(entry.agent))) detached.push(this.agentLabel(entry.agent));
+      for (const entry of this.attachments) if (entry.id === skill.id) detached.push(entry.workflow ?? this.agentLabel(entry.agent));
       this.setFileAttachments(kept);
     }
     this.skills.delete(skill.id);
@@ -961,8 +968,20 @@ class StudioCandidate {
     this.summary.push(`Skill ${skill.label} removed from the skill master${detached.length ? ` and from ${detached.join(', ')}` : ''}.`);
   }
 
-  attachSkill({ skill: skillId, agent: agentId, phases = [], use = '' }) {
+  attachSkill({ skill: skillId, agent: agentId, workflow: workflowId, phases = [], use = '' }) {
     const skill = this.requireSkill(skillId);
+    if (Boolean(agentId) === Boolean(workflowId)) throw new SingularityFlowError('Attach a skill to exactly one agent or workflow.', { code: 'STUDIO_SKILL_TARGET_INVALID' });
+    if (workflowId) {
+      const id = requireId(workflowId, 'A workflow ID');
+      const type = this.content.workTypes?.[id];
+      if (!type) throw new SingularityFlowError(`Unknown workflow '${id}'.`, { code: 'SKILL_ATTACHMENT_WORKFLOW_UNKNOWN' });
+      const steps = this.requirePhases(phases);
+      if (steps.some((step) => !type.phases.includes(step))) throw new SingularityFlowError(`Skill steps must belong to workflow '${id}'.`, { code: 'SKILL_ATTACHMENT_PHASE_UNKNOWN' });
+      this.setFileAttachments([...this.attachments.filter((entry) => !(entry.workflow === id && entry.id === skill.id)),
+        { workflow: id, id: skill.id, phases: steps, use: normalizeSkillUse(use) }]);
+      this.summary.push(`Workflow ${id} uses skill ${skill.label}${steps.length ? ` in ${steps.join(', ')}` : ' in every step'}; other workflows are unchanged.`);
+      return;
+    }
     const agent = this.requireAgent(requireId(agentId, 'An agent ID'));
     const steps = this.requirePhases(phases);
     const when = normalizeSkillUse(use);
@@ -988,8 +1007,15 @@ class StudioCandidate {
     return `${withoutAttachedSkills(body).replace(/\s+$/, '')}\n`;
   }
 
-  detachSkill({ skill: skillId, agent: agentId }) {
+  detachSkill({ skill: skillId, agent: agentId, workflow: workflowId }) {
     const id = requireId(skillId, 'A skill ID');
+    if (Boolean(agentId) === Boolean(workflowId)) throw new SingularityFlowError('Detach from exactly one agent or workflow.', { code: 'STUDIO_SKILL_TARGET_INVALID' });
+    if (workflowId) {
+      if (!this.attachments.some((entry) => entry.workflow === workflowId && entry.id === id)) throw new SingularityFlowError(`Workflow '${workflowId}' does not use skill '${id}'.`, { code: 'STUDIO_SKILL_NOT_ATTACHED' });
+      this.setFileAttachments(this.attachments.filter((entry) => !(entry.workflow === workflowId && entry.id === id)));
+      this.summary.push(`Skill ${id} detached from workflow ${workflowId}.`);
+      return;
+    }
     const agent = this.requireAgent(requireId(agentId, 'An agent ID'));
     if (this.fileAttachment(agent.id, id)) {
       this.setFileAttachments(this.attachments.filter((entry) => !(entry.agent === agent.id && entry.id === id)));
@@ -2169,6 +2195,12 @@ class StudioCandidate {
       copied = source.label ?? sourceId;
     }
     this.document.setIn(['workTypes', workflowId], this.document.createNode(node));
+    if (copyOf) {
+      const copiedSkills = this.attachments.filter((entry) => entry.workflow === copyOf)
+        .filter((entry) => !entry.phases.length || entry.phases.some((phase) => ids.includes(phase)))
+        .map((entry) => ({ ...entry, workflow: workflowId, phases: entry.phases.filter((phase) => ids.includes(phase)) }));
+      if (copiedSkills.length) this.setFileAttachments([...this.attachments, ...copiedSkills]);
+    }
     this.workflows.set(workflowId, { newlyCreated: true });
     this.summary.push(`New workflow ${name}${copied ? `, a copy of ${copied}` : ''}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
@@ -2190,6 +2222,11 @@ class StudioCandidate {
       if (!ids.length) throw new SingularityFlowError(`${name} needs at least one step.`, { code: 'STUDIO_WORKFLOW_EMPTY' });
       if (new Set(ids).size !== ids.length) throw new SingularityFlowError(`${name} lists a step more than once.`, { code: 'STUDIO_WORKFLOW_DUPLICATE' });
       this.document.setIn(['workTypes', workflowId, 'phases'], this.document.createNode(ids));
+      this.setFileAttachments(this.attachments.flatMap((entry) => {
+        if (entry.workflow !== workflowId || !entry.phases.length) return [entry];
+        const remaining = entry.phases.filter((id) => ids.includes(id));
+        return remaining.length ? [{ ...entry, phases: remaining }] : [];
+      }));
       // A per-workflow override for a step that left the workflow would refuse to load.
       for (const overridden of Object.keys(current.phaseOverrides ?? {})) {
         if (!ids.includes(overridden)) this.document.deleteIn(['workTypes', workflowId, 'phaseOverrides', overridden]);
@@ -2384,8 +2421,9 @@ class StudioCandidate {
     this.rewireCopies();
     for (const [skillId, index] of this.updatedSkills) {
       const skill = this.skills.get(skillId);
-      const users = skill ? [...this.agents.values()].filter((agent) => this.usesSkill(agent, skillId)) : [];
-      if (users.length) this.summary[index] = `Skill ${skill.label} updated; ${users.map((agent) => agent.label).join(', ')} use${users.length === 1 ? 's' : ''} the new text in Stories started from now on.`;
+      const users = skill ? [...this.agents.values()].filter((agent) => this.usesSkill(agent, skillId)).map((agent) => agent.label) : [];
+      users.push(...this.attachments.filter((entry) => entry.workflow && entry.id === skillId).map((entry) => `workflow ${entry.workflow}`));
+      if (users.length) this.summary[index] = `Skill ${skill.label} updated; ${users.join(', ')} use${users.length === 1 ? 's' : ''} the new text in Stories started from now on.`;
     }
     for (const [workflowId, { newlyCreated }] of this.workflows) {
       try { pinAuthoredStoryPlannedClaims(this.document, STORES.story, workflowId, { newlyCreated }); }

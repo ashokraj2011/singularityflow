@@ -45,7 +45,9 @@ export type WorkflowTransferIdentity = {
   renameable: boolean; reason?: string | null; occupiedIds: string[];
   label?: string; description?: string; action?: string;
   skills?: Array<{ id: string; phases?: string[] }>;
-  resources?: Array<{ id: string; type: string; url?: string }>;
+  resources?: Array<{ id: string; type: string; url?: string; phases?: string[]; targetPhases?: string[] }>;
+  attachments?: Array<{ scope: 'workflow' | 'agent'; ownerId: string; targetOwnerId: string;
+    phases: string[]; targetPhases: string[]; use: string }>;
 };
 
 type WorkflowOperationKind = 'add' | 'reuse' | 'replace' | 'keep' | 'conflicts';

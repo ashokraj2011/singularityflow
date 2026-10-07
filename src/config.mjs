@@ -1842,7 +1842,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     }
     if (!storyBootstrap) {
       validateAgentCatalog(agents, definition);
-      await assertAttachedLibrarySkills(definitionRoot, agents);
+      await assertAttachedLibrarySkills(definitionRoot, agents, definition);
     }
     const portfolio = await loadPortfolio(definitionRoot, { required: false });
     const governedRoots = [...new Set([

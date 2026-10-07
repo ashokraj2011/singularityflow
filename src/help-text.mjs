@@ -335,8 +335,10 @@ Usage:
   singularity-flow skill create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--dry-run] [--propose] [--json]
   singularity-flow skill edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--dry-run] [--propose] [--json]
   singularity-flow skill attach <ID> --agent AGENT [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow skill attach <ID> --workflow WORKFLOW [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
                                                         the agent reads and applies the skill in those steps (all steps by default)
   singularity-flow skill detach <ID> --agent AGENT [--dry-run] [--propose] [--json]
+  singularity-flow skill detach <ID> --workflow WORKFLOW [--dry-run] [--propose] [--json]
   singularity-flow skill remove <ID> [--dry-run] [--propose] [--json]    also detaches it from every agent
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
   singularity-flow workflow studio [show] [--json]

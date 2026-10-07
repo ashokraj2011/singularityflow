@@ -24,12 +24,12 @@ import {
   defaultSkillLabel, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, parseSkillAttachments,
   skillAttachmentsText, withoutAttachedSkills
 } from '../src/skill-library.mjs';
-import { readStagedImport, stageImport } from '../src/asset-import.mjs';
+import { importsStatus, readStagedImport, stageImport } from '../src/asset-import.mjs';
 import { buildStudioModel, planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import { captureWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
-import { applyWorkflowImport, exportWorkflowBundle, planWorkflowImport } from '../src/workflow-transfer.mjs';
+import { applyWorkflowImport, copyWorkflow, exportWorkflowBundle, planWorkflowCopy, planWorkflowImport } from '../src/workflow-transfer.mjs';
 import { addReleaseWorkflow, LIBRARY_SKILL_PATH, librarySkillText as releaseSkill } from './helpers/release-workflow-fixture.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -80,6 +80,154 @@ function git(root, ...args) {
   assert.equal(result.status, 0, `git ${args.join(' ')}\n${result.stderr}`);
   return result.stdout;
 }
+
+test('workflow skills are isolated from shared phases; agent skills follow the selected agent', async (t) => {
+  const root = await seededRepository(t, 'sflow-workflow-skill-scope-');
+  const beforeAgent = await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8');
+  const beforeDefinition = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
+  const plan = await planStudioChangeSet(root, changeSet([
+    { op: 'skill.create', ...SECURITY_REVIEW },
+    { op: 'skill.attach', skill: 'security-review', workflow: 'feature', phases: ['implementation'], use: 'Review workflow changes' }
+  ]), { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  await loadDefinition(root);
+  const render = (workType, agent, phase = 'implementation') => renderAgentSkills(root, { workItem: { id: 'SCOPE-1', workType } }, { id: phase }, { agent });
+  assert.equal((await render('feature', 'developer')).skills.length, 1);
+  assert.equal((await render('spec-driven-standard', 'developer')).skills.length, 0, 'shared phase does not inherit workflow skill');
+  assert.equal((await render('feature', 'qa')).skills.length, 1, 'workflow skill is independent of agent selection');
+  assert.equal((await render('feature', 'developer', 'verification')).skills.length, 0, 'step restriction is respected');
+  assert.equal(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), beforeAgent);
+  assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), beforeDefinition, 'seeded definitions remain immutable');
+  const global = await planStudioChangeSet(root, changeSet([{ op: 'skill.attach', skill: 'security-review', agent: 'developer', use: 'Review agent changes' }]), { write: true });
+  assert.equal(global.valid, true, JSON.stringify(global.problems));
+  assert.equal((await render('spec-driven-standard', 'developer')).skills.length, 1, 'agent skills apply across workflows');
+  const both = await render('feature', 'developer');
+  assert.equal(both.skills.length, 1, 'same exact skill is rendered once');
+  assert.match(both.text, /agent developer; workflow feature/);
+  assert.match(both.text, /Review agent changes; Review workflow changes/);
+  await planStudioChangeSet(root, changeSet([{ op: 'skill.attach', skill: 'security-review', agent: 'developer' }]), { write: true });
+  assert.match((await render('feature', 'developer')).text, /Whenever this step needs it; Review workflow changes/, 'workflow condition never narrows the unrestricted agent attachment');
+  const model = await buildStudioModel(root);
+  assert.deepEqual(model.workflows.find((entry) => entry.id === 'feature').skills.map((entry) => entry.id), ['security-review']);
+  for (const changes of [
+    [{ op: 'skill.attach', skill: 'security-review', agent: 'developer', workflow: 'feature' }],
+    [{ op: 'skill.attach', skill: 'security-review', workflow: 'not-here' }],
+    [{ op: 'skill.attach', skill: 'security-review', workflow: 'feature', phases: ['store-submission'] }]
+  ]) assert.equal((await planStudioChangeSet(root, changeSet(changes))).valid, false);
+});
+
+test('pinned workflow skills retain their exact bytes, separately from agent skills, offline', async (t) => {
+  const story = await storyFixture(t);
+  await writeAttachments(story.root, skillAttachmentsText([{ workflow: 'feature', id: 'security-review', phases: ['implementation'], use: 'Before publish' }]));
+  story.workflow.workflowSnapshot = await captureWorkflowSnapshot(story.root, story.config, story.workflow);
+  await accept(story);
+  const manifest = JSON.parse(await readFile(path.join(story.root, story.workflow.workflowSnapshot.manifestPath), 'utf8'));
+  assert.equal(manifest.semantics.promptComposer, 'story-snapshot-agent-v2');
+  assert.ok(manifest.assets.some((entry) => entry.logicalId === 'workflow:feature:skill:security-review'));
+  await rm(path.join(story.root, 'singularity/skill-library'), { recursive: true });
+  const context = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  assert.equal(context.dependencies.filter((entry) => entry.source === 'library').length, 2);
+  const rendered = await renderAgentSkills(story.root, story.workflow, { id: 'implementation' }, { agent: 'developer' }, { executionContext: context, fetchImpl: () => { throw new Error('No network'); } });
+  assert.equal(rendered.skills.length, 1);
+  assert.match(rendered.text, /workflow feature/);
+  assert.match(rendered.text, /1\. List every input/);
+});
+
+test('workflow skill import, export and duplication preserve scope and follow identity renames', async (t) => {
+  const source = await repository(t, 'sflow-workflow-skills-export-');
+  await addReleaseWorkflow(source, 'source');
+  const stagedSkill = await staged(source, librarySkillText(SECURITY_REVIEW));
+  const attached = await planStudioChangeSet(source, changeSet([
+    { op: 'import.librarySkill', id: 'security-review', sha256: stagedSkill.sha },
+    { op: 'skill.attach', skill: 'security-review', workflow: 'mobile-release', phases: ['store-submission'], use: 'Before release' },
+    { op: 'skill.attach', skill: 'security-review', agent: 'release-manager', phases: ['store-submission'], use: 'Before agent publication' }
+  ]), { write: true, imports: stagedSkill.imports });
+  assert.equal(attached.valid, true, JSON.stringify(attached.problems));
+  const bundle = await exportWorkflowBundle(source, ['mobile-release']);
+  assert.equal(bundle.schemaVersion, 7);
+  assert.deepEqual(bundle.workflowSkillAttachments, [{ workflow: 'mobile-release', id: 'security-review', phases: ['store-submission'], use: 'Before release' }]);
+  assert.equal(bundle.assets.find((asset) => asset.kind === 'skill').content, librarySkillText(SECURITY_REVIEW));
+  const target = await repository(t, 'sflow-workflow-skills-import-');
+  const plan = await planWorkflowImport(target, bundle, { resolutions: {
+    'workflow:mobile-release': { action: 'rename', to: 'my-release' },
+    'skill:security-review': { action: 'rename', to: 'my-review' },
+    'agent:release-manager': { action: 'rename', to: 'my-manager' },
+    'phase:store-submission': { action: 'rename', to: 'publish-build' }
+  } });
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));
+  assert.deepEqual(plan.identities.find((entry) => entry.subject === 'skill:security-review').attachments, [
+    { scope: 'workflow', ownerId: 'mobile-release', targetOwnerId: 'my-release', phases: ['store-submission'], targetPhases: ['publish-build'], use: 'Before release' },
+    { scope: 'agent', ownerId: 'release-manager', targetOwnerId: 'my-manager', phases: ['store-submission'], targetPhases: ['publish-build'], use: 'Before agent publication' }
+  ]);
+  assert.ok(plan.changedPaths.includes('singularity/skill-library/attachments.yml'));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256, resolutions: plan.resolutions });
+  await loadDefinition(target);
+  const entries = parseSkillAttachments(await readFile(path.join(target, 'singularity/skill-library/attachments.yml'), 'utf8'));
+  assert.deepEqual(entries, [{ workflow: 'my-release', id: 'my-review', phases: ['publish-build'], use: 'Before release' }]);
+  const provenance = YAML.parse(await readFile(path.join(target, 'singularity/imports.lock.yml'), 'utf8')).imports['library-skill:my-review'];
+  assert.equal(provenance.sha256, stagedSkill.sha, 'the original URL bytes remain independently pinned');
+  const importedFile = path.join(target, provenance.target.path);
+  assert.equal(provenance.fileSha256, sha256(await readFile(importedFile)));
+  assert.ok(provenance.transforms.includes('renamed-on-import'));
+  assert.equal((await importsStatus(target)).find((entry) => entry.key === 'library-skill:my-review').status, 'current');
+  const reexported = await exportWorkflowBundle(target, ['my-release']);
+  const third = await repository(t, 'sflow-workflow-skills-round-trip-');
+  const again = await planWorkflowImport(third, reexported);
+  assert.equal(again.status, 'ready', JSON.stringify(again.unresolved));
+  await applyWorkflowImport(third, reexported, { expectedPlanSha256: again.planSha256 });
+  await loadDefinition(third);
+  assert.equal((await importsStatus(third)).find((entry) => entry.key === 'library-skill:my-review').status, 'current');
+  for (const independent of [false, true]) {
+    const id = independent ? 'independent-release' : 'linked-release';
+    const copy = await planWorkflowCopy(target, { sourceId: 'my-release', targetId: id, label: id, independent });
+    assert.equal(copy.status, 'ready', JSON.stringify(copy.unresolved));
+    await copyWorkflow(target, { sourceId: 'my-release', targetId: id, label: id, independent, expectedPlanSha256: copy.planSha256, resolutions: copy.resolutions });
+    const model = await buildStudioModel(target);
+    assert.equal(model.workflows.find((entry) => entry.id === id).skills.length, 1);
+    assert.equal(model.workflows.find((entry) => entry.id === 'my-release').skills[0].id, 'my-review', 'original remains unchanged');
+  }
+  await writeFile(importedFile, `${await readFile(importedFile, 'utf8')}\nUnreviewed local change.\n`);
+  assert.equal((await importsStatus(target)).find((entry) => entry.key === 'library-skill:my-review').status, 'edited here', 'actual edits are still detected');
+});
+
+test('a reviewed v7 replacement removes obsolete workflow skills and preserves unrelated attachments', async (t) => {
+  const source = await repository(t, 'sflow-workflow-skills-replacement-');
+  await addReleaseWorkflow(source, 'source');
+  const created = await planStudioChangeSet(source, changeSet([
+    { op: 'skill.create', ...SECURITY_REVIEW },
+    { op: 'workflow.create', id: 'second-release', label: 'Second release', copyOf: 'mobile-release', phases: ['intake', 'release-plan', 'store-submission'] },
+    { op: 'skill.attach', skill: 'security-review', workflow: 'mobile-release', phases: ['store-submission'] }
+  ]), { write: true });
+  assert.equal(created.valid, true, JSON.stringify(created.problems));
+  const initial = await exportWorkflowBundle(source, ['mobile-release', 'second-release']);
+  const target = await repository(t, 'sflow-workflow-skills-replaced-');
+  const first = await planWorkflowImport(target, initial);
+  assert.equal(first.status, 'ready', JSON.stringify(first.unresolved));
+  await applyWorkflowImport(target, initial, { expectedPlanSha256: first.planSha256 });
+  const changed = await planStudioChangeSet(source, changeSet([
+    { op: 'skill.detach', skill: 'security-review', workflow: 'mobile-release' },
+    { op: 'skill.attach', skill: 'security-review', workflow: 'second-release' }
+  ]), { write: true });
+  assert.equal(changed.valid, true, JSON.stringify(changed.problems));
+  const incoming = await exportWorkflowBundle(source, ['mobile-release', 'second-release']);
+  const reviewed = await planWorkflowImport(target, incoming, { resolutions: { 'workflow:mobile-release': { action: 'replace' } } });
+  assert.equal(reviewed.status, 'ready', JSON.stringify(reviewed.unresolved));
+  assert.ok(reviewed.operations.replace.some((entry) => entry.kind === 'workflow-skill-attachments' && entry.id === 'mobile-release'));
+  await applyWorkflowImport(target, incoming, { expectedPlanSha256: reviewed.planSha256, resolutions: reviewed.resolutions });
+  await loadDefinition(target);
+  assert.deepEqual((await buildStudioModel(target)).workflows.find((entry) => entry.id === 'mobile-release').skills, []);
+  assert.deepEqual(parseSkillAttachments(await readFile(path.join(target, 'singularity/skill-library/attachments.yml'), 'utf8')).map((entry) => entry.workflow), ['second-release']);
+  // Even an export with no workflow attachments declares the empty set, rather than downgrading
+  // to a historical format that cannot express removing old target-local attachments.
+  await planStudioChangeSet(source, changeSet([{ op: 'skill.detach', skill: 'security-review', workflow: 'second-release' }]), { write: true });
+  const empty = await exportWorkflowBundle(source, ['second-release']);
+  assert.equal(empty.schemaVersion, 7);
+  assert.deepEqual(empty.workflowSkillAttachments, []);
+  const cleared = await planWorkflowImport(target, empty, { resolutions: { 'workflow:second-release': { action: 'replace' } } });
+  assert.equal(cleared.status, 'ready', JSON.stringify(cleared.unresolved));
+  await applyWorkflowImport(target, empty, { expectedPlanSha256: cleared.planSha256, resolutions: cleared.resolutions });
+  assert.deepEqual(parseSkillAttachments(await readFile(path.join(target, 'singularity/skill-library/attachments.yml'), 'utf8')), []);
+});
 
 test('a skill is a SKILL.md that names itself, says what it does and when, and has instructions', () => {
   const text = librarySkillText(SECURITY_REVIEW);
@@ -194,7 +342,7 @@ test('an attached skill is in the agent\'s prompt for the steps it applies in, a
   const workflow = { workItem: { id: 'SEC-1', workType: 'feature' } };
   const rendered = await renderAgentSkills(root, workflow, { id: 'implementation', generation: 0 }, { agent: 'developer' }, { record: true, itemDirectory });
   assert.match(rendered.text, /^## Attached skill instructions\n\nThese skills from the skill master are attached to developer\. Read each one before you start this step\./);
-  assert.match(rendered.text, /### Skill: Security pass \(`security-review`\)\n\nChecks a change for common security mistakes\. Use it before code is published\.\n\nWhen to use it: After you write the code, before you publish it\n\n1\. List every input/);
+  assert.match(rendered.text, /### Skill: Security pass \(`security-review`\)\n\nChecks a change for common security mistakes\. Use it before code is published\.\n\nApplies through: agent developer\.\n\nWhen to use it: After you write the code, before you publish it\n\n1\. List every input/);
   assert.deepEqual(rendered.skills.map((skill) => skill.id), ['security-review']);
   assert.deepEqual(rendered.warnings, []);
 
@@ -505,6 +653,11 @@ test('the command line lists, shows, creates, attaches, detaches and removes ski
   assert.match(shown, /^Security pass \(security-review\) · singularity\/skill-library\/security-review\/SKILL\.md\n/);
   assert.match(shown, /in implementation: After you write the code, before you publish it\n/);
   assert.match(shown, /in every step it drafts\n/);
+  flow(root, ['skill', 'attach', 'security-review', '--workflow', 'repo-feature', '--phases', 'implementation', '--use', 'Workflow-only review']);
+  const scoped = JSON.parse(flow(root, ['skill', 'show', 'security-review', '--json']).stdout);
+  assert.ok(scoped.skill.usedBy.some((use) => use.workflow === 'repo-feature' && use.phases[0] === 'implementation'));
+  flow(root, ['skill', 'detach', 'security-review', '--workflow', 'repo-feature']);
+  assert.ok(!JSON.parse(flow(root, ['skill', 'show', 'security-review', '--json']).stdout).skill.usedBy.some((use) => use.workflow));
   flow(root, ['workflow', 'validate']);
 
   flow(root, ['skill', 'edit', 'security-review', '--instructions', 'Check every input.']);
@@ -517,7 +670,7 @@ test('the command line lists, shows, creates, attaches, detaches and removes ski
 
   const refusals = [
     [['skill', 'create', 'Security_Review', '--description', 'x', '--instructions', 'y'], /one skill ID in lower-case kebab-case/],
-    [['skill', 'attach', 'security-review'], /needs --agent <AGENT>/],
+    [['skill', 'attach', 'security-review'], /needs exactly one --agent <AGENT> or --workflow <WORKFLOW>/],
     [['skill', 'show', 'security-review'], /There is no skill 'security-review' in the skill master/],
     [['skill', 'create', 'security-review', '--description', 'x'], /needs its instructions/],
     [['skill', 'list', '--agent', 'qa'], /does not support '--agent'/]
@@ -569,7 +722,7 @@ test('a workflow bundle carries the skills its agents attach, and nothing else f
   await addReleaseWorkflow(source, 'source', { librarySkill: true });
   await writeSkill(source);
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 6);
+  assert.equal(bundle.schemaVersion, 7);
   const skills = bundle.assets.filter((asset) => asset.kind === 'skill');
   assert.deepEqual(skills.map((asset) => [asset.id, asset.path]), [['store-review', LIBRARY_SKILL_PATH]],
     'security-review is in the skill master but no carried agent attaches it');
@@ -589,7 +742,7 @@ test('a workflow bundle carries the skills its agents attach, and nothing else f
       copy.assets.find((asset) => asset.kind === 'skill').content = releaseSkill('source').replace('name: store-review', 'name: other');
       return copy;
     }, 'WORKFLOW_BUNDLE_INVALID'],
-    ['a version-4 bundle that carries a skill', (copy) => { copy.schemaVersion = 4; return copy; }, 'WORKFLOW_BUNDLE_INVALID']
+    ['a version-4 bundle that carries a skill', (copy) => { copy.schemaVersion = 4; delete copy.workflowSkillAttachments; return copy; }, 'WORKFLOW_BUNDLE_INVALID']
   ]) {
     await assert.rejects(() => planWorkflowImport(target, variant(edit)), (error) => error.code === code, label);
   }
@@ -601,6 +754,41 @@ test('a workflow bundle carries the skills its agents attach, and nothing else f
   assert.equal(await readFile(path.join(target, LIBRARY_SKILL_PATH), 'utf8'), releaseSkill('source'));
   const definition = await loadDefinition(target);
   assert.deepEqual(definition.agents['release-manager'].librarySkills.map((entry) => entry.id), ['store-review']);
+});
+
+test('agent-file attachments exported onto a locked agent retain a valid exact-byte lock', async (t) => {
+  const source = await repository(t, 'sflow-locked-agent-attachments-');
+  await addReleaseWorkflow(source, 'source');
+  await writeSkill(source);
+  await writeAttachments(source, skillAttachmentsText([{ agent: 'release-manager', id: 'security-review', phases: ['store-submission'], use: 'Before release' }]));
+  const beforeAgent = await readFile(path.join(source, '.github/agents/release-manager.agent.md'), 'utf8');
+  const beforeLock = await readFile(path.join(source, 'singularity/agents.lock.yml'), 'utf8');
+  const ledgerPath = path.join(source, 'singularity/imports.lock.yml');
+  const sourceLedger = YAML.parse(await readFile(ledgerPath, 'utf8'));
+  sourceLedger.imports['agent:release-manager'] = { kind: 'agent',
+    target: { id: 'release-manager', path: '.github/agents/release-manager.agent.md' },
+    source: { kind: 'url', url: 'https://skills.example.org/release-manager.agent.md' },
+    sha256: sha256(beforeAgent), bytes: Buffer.byteLength(beforeAgent), fetchedAt: '2026-10-05T00:00:00.000Z' };
+  await writeFile(ledgerPath, YAML.stringify(sourceLedger));
+  const beforeLedger = await readFile(ledgerPath, 'utf8');
+  const bundle = await exportWorkflowBundle(source, ['mobile-release']);
+  const exported = bundle.assets.find((entry) => entry.kind === 'agent' && entry.id === 'release-manager');
+  assert.match(exported.content, /\| security-review \| store-submission \| Before release \|/);
+  assert.equal(bundle.agentLocks['release-manager'].sourceSha256, sha256(exported.content));
+  assert.equal(bundle.imports['agent:release-manager'].sha256, sha256(beforeAgent));
+  assert.equal(bundle.imports['agent:release-manager'].fileSha256, sha256(exported.content));
+  assert.deepEqual(bundle.imports['agent:release-manager'].transforms, ['materialized-skill-attachments']);
+  assert.deepEqual(bundle.agentLocks['release-manager'].dependencies, YAML.parse(beforeLock).agents['release-manager'].dependencies);
+  assert.equal(await readFile(path.join(source, '.github/agents/release-manager.agent.md'), 'utf8'), beforeAgent);
+  assert.equal(await readFile(path.join(source, 'singularity/agents.lock.yml'), 'utf8'), beforeLock);
+  assert.equal(await readFile(ledgerPath, 'utf8'), beforeLedger);
+  const target = await repository(t, 'sflow-locked-agent-attachments-import-');
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  const definition = await loadDefinition(target);
+  assert.equal(definition.agents['release-manager'].librarySkills[0].id, 'security-review');
+  assert.equal((await importsStatus(target)).find((entry) => entry.key === 'agent:release-manager').status, 'current');
 });
 
 test('a same-name skill is kept, replaced or imported under a new name that the agents follow', async (t) => {
@@ -689,7 +877,7 @@ test('the attachments file lists which agents use which skills, in which steps a
     { agent: 'architect', id: 'api-style', phases: [], use: '' }
   ]);
   const text = skillAttachmentsText(entries);
-  assert.match(text, /^# Which agents use which skills from the skill master\./);
+  assert.match(text, /^# Attach skills to exactly one agent OR workflow\./);
   assert.deepEqual(parseSkillAttachments(text).map((entry) => entry.agent), ['architect', 'developer'], 'sorted by agent, then skill');
   assert.equal(skillAttachmentsText([]), null, 'nothing attached: no file');
   assert.deepEqual(parseSkillAttachments(''), []);
@@ -698,10 +886,10 @@ test('the attachments file lists which agents use which skills, in which steps a
     ['not a list', 'attachments: 3', /attachments must be a list/],
     ['another key', 'skills: []', /unknown key\(s\) skills/],
     ['a bad skill ID', 'attachments:\n  - skill: Security_Review\n    agent: developer', /needs the skill's lower-case kebab-case ID/],
-    ['no agent', 'attachments:\n  - skill: security-review', /needs the agent's lower-case kebab-case ID/],
+    ['no target', 'attachments:\n  - skill: security-review', /needs exactly one agent or workflow/],
     ['a step twice', 'attachments:\n  - skill: a\n    agent: b\n    steps: [x, x]', /lists a step more than once/],
     ['an unknown field', 'attachments:\n  - skill: a\n    agent: b\n    phases: [x]', /unknown key\(s\) phases/],
-    ['the same attachment twice', 'attachments:\n  - skill: a\n    agent: b\n  - skill: a\n    agent: b', /attaches skill 'a' to agent 'b' more than once/],
+    ['the same attachment twice', 'attachments:\n  - skill: a\n    agent: b\n  - skill: a\n    agent: b', /attaches skill 'a' to agent:b more than once/],
     ['a | in when to use it', 'attachments:\n  - skill: a\n    agent: b\n    use: before | after', /cannot contain "\|"/],
     ['not YAML', 'attachments: [', /is not valid YAML/]
   ];
@@ -775,18 +963,20 @@ test('Workflow Studio attaches a skill to a seeded workflow\'s agents in the att
   // The board shows each step's skills, and the skill master says where each use is kept.
   const after = await buildStudioModel(root);
   const steps = after.workflows.find((workflow) => workflow.id === 'feature').steps;
-  assert.deepEqual(steps.find((step) => step.id === 'implementation').skills, [{ id: 'security-review', use: 'Before you publish', origin: 'attachments' }]);
-  assert.deepEqual(steps.find((step) => step.id === 'verification').skills, [{ id: 'security-review', use: '', origin: 'attachments' }], 'QA uses it in every step it drafts');
+  assert.deepEqual(steps.find((step) => step.id === 'implementation').skills, [{ id: 'security-review', use: 'Before you publish', origin: 'attachments', scope: 'agent' }]);
+  assert.deepEqual(steps.find((step) => step.id === 'verification').skills, [{ id: 'security-review', use: '', origin: 'attachments', scope: 'agent' }], 'QA uses it in every step it drafts');
   assert.deepEqual(steps.find((step) => step.id === 'intake').skills, []);
   assert.deepEqual(after.skills[0].usedBy, [
     { agent: 'developer', phases: ['implementation'], use: 'Before you publish', origin: 'attachments' },
     { agent: 'qa', phases: [], use: '', origin: 'attachments' }
   ]);
 
-  // Exporting Feature says the bundle does not carry these attachments.
+  // Both attachments-file agent skills now travel with the agent, without editing the source.
   const exported = await exportWorkflowBundle(root, ['feature'], path.join(await temporary(t, 'sflow-skill-export-'), 'bundle.json'));
-  assert.equal(exported.notes.length, 1);
-  assert.match(exported.notes[0], /^singularity\/skill-library\/attachments\.yml attaches security-review to developer, security-review to qa\. The bundle does not carry those attachments/);
+  assert.deepEqual(exported.notes, []);
+  const bundle = JSON.parse(await readFile(exported.outputPath, 'utf8'));
+  assert.ok(bundle.assets.some((asset) => asset.kind === 'skill' && asset.id === 'security-review'));
+  assert.match(bundle.assets.find((asset) => asset.kind === 'agent' && asset.id === 'developer').content, /security-review \| implementation \| Before you publish/);
 
   // A Studio opened before these attachments changed is told to reload.
   await assert.rejects(() => planStudioChangeSet(root, { ...changeSet([{ op: 'skill.detach', skill: 'security-review', agent: 'qa' }]), base: model.base }),

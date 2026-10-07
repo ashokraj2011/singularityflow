@@ -27,17 +27,53 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
       if (seen[key]) errors.push('Duplicate destination: ' + key); seen[key] = true;
       if (target !== row.sourceId && (row.occupiedIds || []).indexOf(target) >= 0) errors.push('Already exists: ' + key);
     }); return errors; }
-  function render() {
-    var rows = plan.identities || [], inventory = document.getElementById('transfer-inventory'); inventory.replaceChildren();
+  function destination(rows, kind, id) {
+    var choice = choices[kind + ':' + id], row = rows.find(function (entry) { return entry.kind === kind && entry.sourceId === id; });
+    return choice && choice.to || row && row.targetId || id;
+  }
+  function phaseDestination(rows, id) {
+    return destination(rows, rows.some(function (row) { return row.kind === 'phase' && row.sourceId === id; }) ? 'phase' : 'initiative-phase', id);
+  }
+  function attachmentPhases(rows, binding) {
+    var source = binding.phases || [], edited = source.some(function (id) {
+      var kind = rows.some(function (row) { return row.kind === 'phase' && row.sourceId === id; }) ? 'phase' : 'initiative-phase';
+      var subject = kind + ':' + id;
+      return (choices[subject] || {}).to !== ((plan.resolutions || {})[subject] || {}).to;
+    });
+    var phases = edited ? source.map(function (id) { return phaseDestination(rows, id); })
+      : binding.targetPhases || source.map(function (id) { return phaseDestination(rows, id); });
+    return phases.length ? phases.join(', ') : 'All owner phases';
+  }
+  function ownerDestination(rows, kind, id) { var to = destination(rows, kind, id); return id === to ? id : id + ' → ' + to; }
+  function renderInventory(rows) {
+    var inventory = document.getElementById('transfer-inventory'); inventory.replaceChildren();
     inventory.appendChild(table('Agents included', ['Agent', 'Source ID', 'Attached skills', 'Remote resources'], rows.filter(function (row) { return row.kind === 'agent'; }).map(function (row) {
-      return [row.label || row.sourceId, row.sourceId, (row.skills || []).map(function (skill) { return skill.id; }).join(', '),
+      return [row.label || row.sourceId, row.sourceId, (row.skills || []).map(function (skill) { return ownerDestination(rows, 'skill', skill.id); }).join(', '),
         (row.resources || []).map(function (resource) { return resource.type + ': ' + resource.id + (resource.url ? ' — ' + resource.url : ''); }).join('\n')]; })));
-    var skills = rows.filter(function (row) { return row.kind === 'skill' || row.kind === 'compiled-skill'; }).map(function (row) { return [row.label || row.sourceId, row.sourceId, row.description || row.reason]; });
+    var skills = [];
+    rows.filter(function (row) { return row.kind === 'skill' || row.kind === 'compiled-skill'; }).forEach(function (row) {
+      if (row.kind === 'compiled-skill') {
+        skills.push([row.label || row.sourceId, 'Compiled package', 'Hash-bound contract', 'Declared by package', row.targetId || row.sourceId, row.description || row.reason]); return;
+      }
+      var attachments = row.attachments || [];
+      if (!attachments.length) skills.push([row.label || row.sourceId, 'Not provided', 'See exact plan', 'See exact plan', destination(rows, 'skill', row.sourceId), row.description]);
+      attachments.forEach(function (binding) {
+        skills.push([row.label || row.sourceId, binding.scope === 'workflow' ? 'Workflow' : 'Agent',
+          ownerDestination(rows, binding.scope, binding.ownerId),
+          attachmentPhases(rows, binding),
+          destination(rows, 'skill', row.sourceId), binding.use || row.description]);
+      });
+    });
     rows.filter(function (row) { return row.kind === 'agent'; }).forEach(function (row) { (row.resources || []).filter(function (resource) { return resource.type === 'skill'; }).forEach(function (resource) {
-      var agent = choices[row.subject] && choices[row.subject].to || row.sourceId;
-      skills.push([resource.id, row.sourceId + '/' + resource.id, 'Agent-scoped → ' + agent + '/' + resource.id + '. ' + (resource.url || '')]);
+      var agent = destination(rows, 'agent', row.sourceId);
+      skills.push([resource.id, 'Agent', ownerDestination(rows, 'agent', row.sourceId),
+        attachmentPhases(rows, resource),
+        agent + '/' + resource.id, resource.url || 'Pinned remote skill']);
     }); });
-    inventory.appendChild(table('Skills included', ['Skill', 'Source ID', 'Purpose / destination'], skills));
+    inventory.appendChild(table('Skills included', ['Skill', 'Scope', 'Owner / destination', 'Phases', 'Skill destination', 'Purpose / when'], skills));
+  }
+  function render() {
+    var rows = plan.identities || []; renderInventory(rows);
     var identities = document.getElementById('transfer-identities'); identities.replaceChildren();
     identities.appendChild(table('Destination identities', ['Object', 'Source identity', 'Rename to', 'Disposition'], rows.map(function (row) {
       var value = row.renameable ? choices[row.subject] && choices[row.subject].to || row.sourceId : row.targetId || row.sourceId;
@@ -46,6 +82,7 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
       input.addEventListener('input', function () { var to = input.value.trim();
         if (to === row.sourceId) delete choices[row.subject]; else choices[row.subject] = { action: 'rename', to: to };
         pending = true; apply.disabled = true; revision += 1;
+        renderInventory(rows);
         var errors = validation(rows); status.textContent = errors.length ? errors.join('; ') : 'Names changed. Validate the plan before continuing.';
       });
       return [row.kind, row.sourceId, input, !row.renameable ? row.reason || 'Shared, read-only contract' : value !== row.sourceId ? 'Independent identity' : (row.occupiedIds || []).indexOf(value) >= 0 ? 'Reuse exact only; rename to keep independent' : 'Will add'];

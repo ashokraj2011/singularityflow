@@ -11,7 +11,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
 import { syncAgent } from './agents.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill } from './skill-library.mjs';
+import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill, readSkillAttachments } from './skill-library.mjs';
 import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
@@ -315,6 +315,23 @@ async function captureAgentExecutionDependencies(root, config, workId, agent) {
   const library = await captureAttachedLibrarySkills(root, config, workId, agent);
   const remote = await captureRemoteAgentDependencies(root, config, workId, agent);
   return { assets: [...remote.assets, ...library.assets], dependencies: [...remote.dependencies, ...library.dependencies] };
+}
+
+async function captureWorkflowLibrarySkills(root, config, workflow) {
+  const assets = []; const attachments = [];
+  const workflowId = workflow.workItem.workType;
+  for (const entry of (await readSkillAttachments(configurationReadRoot(root))).filter((item) => item.workflow === workflowId)) {
+    const logicalId = `workflow:${workflowId}:skill:${entry.id}`;
+    // installBlob must target the Story repository, not an approved-configuration read checkout.
+    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(entry.id), { mustExist: true, type: 'file' });
+    const captured = await stableFile(source.absolute, `Workflow skill '${entry.id}'`);
+    parseLibrarySkill(captured.bytes.toString('utf8'), { id: entry.id });
+    const blob = await installBlob(root, config, workflow.workItem.id, { ...captured, mediaType: 'text/markdown; charset=utf-8' });
+    assets.push({ logicalId, purpose: 'workflow-skill', dependencies: [], blob,
+      source: { kind: 'reviewed-workflow-skill', workflowId, skillId: entry.id, sha256: blob.sha256 } });
+    attachments.push({ id: entry.id, phases: [...entry.phases], use: entry.use, logicalId, sha256: blob.sha256 });
+  }
+  return { assets, attachments };
 }
 
 async function captureRemoteAgentDependencies(root, config, workId, agent) {
@@ -1055,6 +1072,10 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   }
   if (Object.keys(skillAttachments).length) workflow.resolution.skillAttachments = skillAttachments;
   else delete workflow.resolution.skillAttachments;
+  const workflowSkills = await captureWorkflowLibrarySkills(root, config, workflow);
+  assets.push(...workflowSkills.assets);
+  if (workflowSkills.attachments.length) workflow.resolution.workflowSkills = workflowSkills.attachments;
+  else delete workflow.resolution.workflowSkills;
   const assetLimit = selectedSkills.length ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS;
   if (assets.length > assetLimit) fail('Workflow snapshot has too many assets.', 'WFA_LIMIT_REACHED');
   const capturedAssetIndex = new Map();
@@ -1118,7 +1139,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
       canonicalJson: 'singularity-flow-canonical-json-v1',
       policyReaderMinimum: selectedSkills.length ? 9 : 5,
       agentDocumentParser: 'sflow-agent-document-v1',
-      promptComposer: 'story-snapshot-agent-v1',
+      promptComposer: workflowSkills.attachments.length ? 'story-snapshot-agent-v2' : 'story-snapshot-agent-v1',
       ...(workflow.resolution.phaseSemantics ? { phaseSemantics: workflow.resolution.phaseSemantics.profile } : {}),
       ...(selectedSkills.length ? {
         skillPackageReader: SKP_PACKAGE_FORMAT,
@@ -1132,6 +1153,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
     snapshotHash: null
   };
   if (selectedSkills.length) manifest.skillPackages = skillClosure.skillPackages;
+  assertWorkflowSkillClosure(manifest, workflow.resolution, capturedAssetIndex);
   manifest.snapshotHash = domainHash(
     selectedSkills.length ? 'wfa.snapshot.v2' : 'wfa.snapshot.v1', manifestCore(manifest)
   );
@@ -2590,6 +2612,33 @@ function assertDependencyClosure(manifest, assetByLogicalId) {
   for (const logicalId of assetByLogicalId.keys()) walk(logicalId);
 }
 
+function assertWorkflowSkillClosure(manifest, policy, assetByLogicalId) {
+  const entries = policy.workflowSkills ?? [];
+  const claimed = new Set();
+  if (!Array.isArray(entries) || (entries.length && manifest.semantics?.promptComposer !== 'story-snapshot-agent-v2')) {
+    fail('Workflow skills require the workflow-scoped prompt composer.', 'WFA_RUNTIME_INCOMPATIBLE');
+  }
+  for (const entry of entries) {
+    assertExactFields(entry, ['id', 'phases', 'use', 'logicalId', 'sha256'], 'Saved workflow skill');
+    const expected = `workflow:${manifest.provenance.workType}:skill:${entry.id}`;
+    const asset = assetByLogicalId.get(expected);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.id) || entry.logicalId !== expected || claimed.has(expected)
+        || !Array.isArray(entry.phases) || new Set(entry.phases).size !== entry.phases.length
+        || entry.phases.some((id) => !(policy.phases ?? []).some((phase) => phase.id === id))
+        || typeof entry.use !== 'string' || entry.use.length > 300
+        || !asset || asset.purpose !== 'workflow-skill' || canonicalJson(asset.dependencies) !== canonicalJson([])
+        || asset.blob.sha256 !== entry.sha256 || asset.source?.kind !== 'reviewed-workflow-skill'
+        || asset.source.workflowId !== manifest.provenance.workType || asset.source.skillId !== entry.id
+        || asset.source.sha256 !== entry.sha256) {
+      fail(`Workflow skill '${entry.id}' is not bound to its workflow and retained bytes.`, 'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    claimed.add(expected);
+  }
+  if ([...assetByLogicalId.values()].some((asset) => asset.purpose === 'workflow-skill' && !claimed.has(asset.logicalId))) {
+    fail('Story snapshot carries an undeclared workflow skill.', 'WFA_SNAPSHOT_INVALID');
+  }
+}
+
 function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogicalId, assetBytes) {
   const selected = selectedSkillBindings(policy);
   const declared = manifest.skillPackages ?? [];
@@ -2956,6 +3005,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
     totalBytes += captured.size;
   }
   assertDependencyClosure(manifest, assetByLogicalId);
+  assertWorkflowSkillClosure(manifest, capturedPolicy, assetByLogicalId);
   assertSkillPackageClosure(manifest, storedVersion, capturedPolicy, assetByLogicalId, retainedAssets);
   if (totalBytes > (storedVersion >= 2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES)
       || manifest.limits?.bytes !== totalBytes

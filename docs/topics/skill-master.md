@@ -16,9 +16,20 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 2
+version: 4
 ---
-The skill master is the repository's collection of named skills. A skill is written once and attached to any number of agents. Each attachment says in which steps the agent uses the skill and when. In those steps the skill's instructions are part of the agent's prompt, with an instruction to read each skill and carry it out when it applies.
+The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes inject the exact skill instructions into the phase prompt.
+
+## Scope and prompt injection
+
+| Attachment | Where it applies |
+|---|---|
+| Workflow, with selected steps | Only those steps of that workflow, even if another workflow shares their phase IDs or agent |
+| Workflow, without steps | Every step of that workflow, independently of the selected agent |
+| Agent, with selected steps | Those steps wherever this agent is selected, across workflows |
+| Agent, without steps | Wherever this agent is selected |
+
+Agent instructions and applicable agent skills are composed with the applicable workflow skills. The same skill attached through both scopes is rendered once; both use conditions and scopes are retained. A Story snapshots the exact text and hashes. Rendering does not depend on a local session record and does not fetch the URL again.
 
 ## Purpose and prerequisites
 
@@ -48,7 +59,7 @@ metadata:
 
 ## Where an attachment is kept
 
-Every attachment names a skill, an agent, the steps it applies in and when to use it. It is kept in one of two places:
+Every attachment names a skill, exactly one agent or workflow, and optional steps and use conditions. It is kept in one of two places:
 
 - **The agent's own file**, for an agent this repository owns. The agent's `## Attached skills` table holds it:
 
@@ -62,7 +73,7 @@ Every attachment names a skill, an agent, the steps it applies in and when to us
   ```
 
   `Phases` lists the steps the skill applies in; `*` means every step the agent drafts.
-- **`singularity/skill-library/attachments.yml`**, for any agent. This includes the agents of a seeded workflow, which are read-only, and the agents that come with Singularity Flow. The agent and its workflow stay as they shipped and keep their updates:
+- **`singularity/skill-library/attachments.yml`**, for workflow-local skills or any agent. This includes the agents of a seeded workflow, which are read-only, and the agents that come with Singularity Flow. The agent and its workflow stay as they shipped and keep their updates:
 
   ```yaml
   attachments:
@@ -72,9 +83,13 @@ Every attachment names a skill, an agent, the steps it applies in and when to us
       use: After you write the code, before you publish it
     - skill: house-style
       agent: qa
+    - skill: security-review
+      workflow: feature
+      steps: [implementation]
+      use: Before this workflow publishes code
   ```
 
-  `steps` lists the steps the skill applies in; leave it out for every step the agent drafts. `use` says when to use the skill.
+  `steps` lists the steps the skill applies in; leave it out for all steps of the target. A workflow's steps must belong to that workflow. Never specify both `agent` and `workflow`. `use` says when to use the skill.
 
 Workflow Studio and `sflow skill attach` choose the place for you. An agent this repository owns keeps its skills in its own file. Any other agent's go in the attachments file, and so does a change to an attachment already there. If both places attach the same skill to one agent, the agent's own table wins.
 
@@ -85,24 +100,25 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
 ## Use it from each surface
 
 - **Shell:**
-  - `sflow skill list` and `sflow skill show <ID>` show the skills and the agents that use each one.
+  - `sflow skill list` and `sflow skill show <ID>` show the skills and the workflows and agents that use each one.
   - `sflow skill create <ID> --description "<what and when>" --from <FILE>` and `sflow skill edit <ID>` write and change a skill.
   - `sflow skill attach <ID> --agent <AGENT> [--phases a,b] [--use "<when>"]` and `sflow skill detach <ID> --agent <AGENT>` change who uses it.
+  - `sflow skill attach <ID> --workflow <WORKFLOW> [--phases a,b] [--use "<when>"]` and `sflow skill detach <ID> --workflow <WORKFLOW>` change workflow-local use.
   - `sflow skill remove <ID>` deletes it.
 
   Every change accepts `--dry-run` and `--propose`.
 - **Copilot:** `/sf-help` followed by the `skill` commands above. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:**
-  - **Singularity Flow: Skills** in the command palette, or **Configuration Center → Skills**, opens **Workflow Studio → Skill master**. It lists every skill and the agents that use it.
+  - **Singularity Flow: Skills** in the command palette, or **Configuration Center → Skills**, opens **Workflow Studio → Skill master**. It lists every skill and the workflows and agents that use it.
   - **New skill** writes a skill, and **Add from a link** imports one.
   - **Attach to an agent** chooses any agent, its steps and when to use the skill.
-  - Every step's properties have a **Skills** section. It lists the skills the step's agent uses in it, adds an existing skill or writes a new one for that step, and removes one from that step only.
+  - Every step's properties have a **Skills** section. Adding, writing or importing a skill here attaches it to this workflow step only. **Inherited from agent** entries are shown separately; change those on the agent, not the step.
   - A seeded workflow is read-only, but each of its steps still has **Skills**.
-  - A step card on the board shows how many skills its agent uses there.
+  - A step card on the board shows how many unique skills apply there, through both scopes.
   - An agent's card shows its skills and offers **Attach a skill**.
 
   Each change is part of the Studio's review before it is published.
-- **Import:** `sflow import add <LINK> --as skill --sha256 <HASH>` without `--agent` adds a published skill to the skill master. A `SKILL.md` keeps its exact bytes. Plain Markdown needs `--description` and becomes the instructions of a new `SKILL.md`. See `sflow explain importing-assets`.
+- **Import:** Preview a public HTTPS raw Markdown URL, then `sflow import add <LINK> --as skill --sha256 <HASH>` without `--agent` adds it to the skill master. Attach it at either scope. VS Code **Add from a link** on a step combines the reviewed import with a workflow-local attachment; the agent card attaches it to the agent. A `SKILL.md` keeps its exact bytes. Plain Markdown needs `--description`. This imports instructions, not an entire Git repository or executable skill folder. See `sflow explain importing-assets`.
 
 ## Guided workflow
 
@@ -114,21 +130,21 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
      --from ./security-review.md --propose
    ```
 
-2. Attach it, once for every agent that should use it:
+2. Attach it to this workflow only, or choose `--agent developer` instead if it should follow that agent across workflows:
 
    ```bash
-   singularity-flow skill attach security-review --agent developer --phases implementation \
+   singularity-flow skill attach security-review --workflow feature --phases implementation \
      --use "After you write the code, before you publish it" --propose
    ```
 
-3. Review the proposal. It holds one `SKILL.md` and each attachment: a row in the `## Attached skills` table of an agent this repository owns, or an entry in `singularity/skill-library/attachments.yml` for any other agent.
-4. Check it. `singularity-flow skill show security-review` lists the agents that use the skill, and `singularity-flow workflow validate` checks every attachment.
-5. To change the skill, run `singularity-flow skill edit security-review --from ./security-review.md --propose`. Every agent that attaches it uses the new text in Stories started after the change.
+3. Review the proposal. It holds one `SKILL.md` and each attachment: a row in the `## Attached skills` table of an agent this repository owns, or an entry in `singularity/skill-library/attachments.yml` for a workflow or any other agent.
+4. Check it. `singularity-flow skill show security-review` lists its users, and `singularity-flow workflow validate` checks every attachment.
+5. To change the skill, run `singularity-flow skill edit security-review --from ./security-review.md --propose`. Each attached workflow and agent uses the new text in Stories started after the change.
 
 ## State and safety
 
-- **Stories keep their text.** A Story keeps the exact skill text it started with, under the agent that attaches it, just as it keeps the agent itself.
-  - It also keeps the attachments file's attachments for its agents, in its saved policy.
+- **Stories keep their text.** A Story keeps the exact skill text it started with, along with the agent and workflow scope.
+  - It also keeps the attachments file's applicable agent and workflow attachments in its saved policy.
   - A later edit, detach or removal changes only Stories started after it.
   - A Story still works when the skill master no longer has the skill.
   - The agent context audit records each skill a prompt used, by hash, with a copy of its text.
@@ -136,10 +152,13 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
   - a skill the skill master does not have (`SKILL_LIBRARY_MISSING`);
   - a step that does not exist (`AGENT_PHASE_UNKNOWN`);
   - an attachments-file entry naming an agent that is not there (`SKILL_ATTACHMENT_AGENT_UNKNOWN`);
+  - an attachment naming an unknown workflow or a step outside it (`SKILL_ATTACHMENT_WORKFLOW_UNKNOWN`, `SKILL_ATTACHMENT_PHASE_UNKNOWN`);
   - a skill with the same ID as one of the agent's remote resources (`SKILL_ATTACHMENT_CONFLICT`);
   - an attachments file that is not a valid list (`SKILL_ATTACHMENTS_INVALID`).
-- **Removal detaches.** Removing a skill detaches it from every agent in the same change, in both places. An agent with no skills left loses its `## Attached skills` section, and an empty attachments file is removed.
-- **Export and import.** Workflow export carries the skills the exported agents attach in their own files (bundle v5). The attachments file is not carried; the export names the attachments it leaves behind, so you can attach them again where you import. **Duplicate and customize** is different: the copies of the agents are this repository's own, so the skills the attachments file gives the originals are written into the copies' own tables, renamed with the rest of the copy. On import, a same-name skill with different text is a conflict: keep yours, replace it or rename theirs. A renamed skill is renamed in the agents' tables too. See `sflow explain workflow-authoring`.
+- **Removal detaches.** Removing a skill detaches it from every workflow and agent in the same change, in both places. An agent with no skills left loses its `## Attached skills` section, and an empty attachments file is removed.
+- **Export and import.** Both scopes travel with their owners. Agent attachments are materialized into the exported agent's own table without changing the source agent. Workflow attachments are retained separately in bundle v7. Import and duplication rename workflow, phase and skill references together. A linked copy shares skill definitions but has separate workflow attachments; an independent copy renames its editable dependencies. Different same-name skill text requires keep, replace or rename. See `sflow explain workflow-authoring`.
+- **Transfer preview.** The import and independent-duplicate screen lists each skill's scope, owning workflow or agent, applicable phases, destination ID and use condition. A skill used at both scopes has two attachment rows; renaming one owner never promotes its skill to the other scope.
+- **Import provenance.** A reviewed rename preserves the original URL content hash and records a separate hash for the transformed destination file. `imports` therefore reports a clean renamed skill as current, while subsequent local edits remain detectable.
 - **Attaching never forks an agent.** Changing an agent's own table keeps a locked agent's lock current. An agent the repository does not own is never copied or changed: its skills go in the attachments file.
 
 ## Troubleshooting

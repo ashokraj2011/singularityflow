@@ -1621,7 +1621,7 @@ test('a step\'s skills are added from its properties, a seeded workflow\'s steps
 
   // A new skill written from Implementation is added to that step when it is added to the changes.
   Object.assign(state, { view: 'board', workflow: 'feature', step: 'implementation' });
-  page.openSkillForm(null, { agent: 'developer', phase: 'implementation', use: 'Before you publish' });
+  page.openSkillForm(null, { workflow: 'feature', phase: 'implementation', use: 'Before you publish' });
   assert.equal(state.view, 'skills');
   Object.assign(page.skillsView().form, { label: 'Security review', description: 'Checks a change for common security mistakes.', instructions: '1. List every input.\n2. Check each one.' });
   page.saveSkillForm();
@@ -1638,8 +1638,9 @@ test('a step\'s skills are added from its properties, a seeded workflow\'s steps
   const changeSet = page.changeSetFrom(model, state.draft);
   assert.deepEqual(changeSet.changes, [
     { op: 'skill.create', id: 'security-review', label: 'Security review', description: 'Checks a change for common security mistakes.', instructions: '1. List every input.\n2. Check each one.' },
-    { op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation', 'verification'], use: 'Before you publish' }
+    { op: 'skill.attach', skill: 'security-review', workflow: 'feature', phases: ['implementation', 'verification'], use: 'Before you publish' }
   ]);
+  assert.match(page.describe(changeSet.changes[1], state.draft), /^Workflow Feature uses skill Security review in /, 'review names the workflow scope');
   const plan = await planStudioChangeSet(root, changeSet, { write: true });
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   assert.deepEqual(plan.files.map((file) => file.path).sort(), ['singularity/skill-library/attachments.yml', 'singularity/skill-library/security-review/SKILL.md']);
@@ -1648,24 +1649,57 @@ test('a step\'s skills are added from its properties, a seeded workflow\'s steps
   const after = await buildStudioModel(root);
   const reload = loadedStudio(after);
   assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [], 'a reload has no phantom changes');
-  reload.detachFromStep('developer', 'security-review', 'verification');
+  reload.detachFromStep('feature', 'security-review', 'verification');
   assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes,
-    [{ op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation'], use: 'Before you publish' }]);
-  reload.detachFromStep('developer', 'security-review', 'implementation');
-  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [{ op: 'skill.detach', skill: 'security-review', agent: 'developer' }]);
+    [{ op: 'skill.attach', skill: 'security-review', workflow: 'feature', phases: ['implementation'], use: 'Before you publish' }]);
+  reload.detachFromStep('feature', 'security-review', 'implementation');
+  assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [{ op: 'skill.detach', skill: 'security-review', workflow: 'feature' }]);
   const detached = await planStudioChangeSet(root, reload.changeSetFrom(after, reload.state().draft), { write: true });
   assert.equal(detached.valid, true, JSON.stringify(detached.problems));
   assert.deepEqual(detached.files.map((file) => [file.path, file.action]), [['singularity/skill-library/attachments.yml', 'delete']]);
 
-  // A skill used in every step an agent drafts, removed from one, stays in its others.
+  // An inherited agent skill cannot be removed by editing a workflow step.
   const last = await buildStudioModel(root);
   const every = loadedStudio(last);
   every.openAttachForm('security-review', 'qa');
   every.saveAttach();
-  every.detachFromStep('qa', 'security-review', 'verification');
+  every.detachFromStep('feature', 'security-review', 'verification');
   const [entry] = every.state().draft.agents.qa.skills;
-  assert.ok(entry.phases.length && !entry.phases.includes('verification'), JSON.stringify(entry));
-  assert.ok(entry.phases.every((phaseId) => every.state().draft.phases[phaseId].agent === 'qa'), 'the other steps QA drafts');
+  assert.deepEqual(entry.phases, [], 'QA continues using it in all its steps');
+  assert.deepEqual(state.draft.agents.developer.skills, [], 'step editing never attaches to the agent');
+  assert.deepEqual(page.stepSkillEntries('developer', 'implementation', 'spec-driven-standard'), [], 'same phase in another workflow is unaffected');
+});
+
+test('workflow skill properties follow agent selection and retain local bindings when a step is copied', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const prepared = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
+    { op: 'skill.create', id: 'qa-check', description: 'Check selected QA changes.', instructions: 'Review QA boundaries.' },
+    { op: 'skill.create', id: 'local-check', description: 'Check this workflow.', instructions: 'Review this workflow only.' },
+    { op: 'skill.attach', skill: 'qa-check', agent: 'qa' },
+    { op: 'skill.attach', skill: 'local-check', workflow: 'repo-feature', phases: ['implementation'] }
+  ] }, { write: true });
+  assert.equal(prepared.valid, true, JSON.stringify(prepared.problems));
+  const model = await buildStudioModel(root);
+  const page = loadedStudio(model);
+  const draft = page.state().draft;
+  assert.deepEqual(page.stepSkillEntries('developer', 'implementation', 'repo-feature').map((entry) => [entry.id, entry.scope]), [['local-check', 'workflow']]);
+  assert.deepEqual(page.stepSkillEntries('developer', 'implementation', 'repo-spec-driven-standard'), []);
+  assert.deepEqual(page.changeSetFrom(model, draft).changes, [], 'unchanged draft creates no changes');
+  const duplicate = loadedStudio(model);
+  const copyDraft = duplicate.state().draft;
+  copyDraft.workflows['local-copy'] = { ...structuredClone(copyDraft.workflows['repo-feature']), id: 'local-copy', label: 'Local copy', isNew: true, copyOf: 'repo-feature', skills: [] };
+  copyDraft.steps['local-copy'] = structuredClone(copyDraft.steps['repo-feature']);
+  const copyChange = duplicate.changeSetFrom(model, copyDraft);
+  assert.ok(copyChange.changes.some((change) => change.op === 'skill.detach' && change.workflow === 'local-copy' && change.skill === 'local-check'), 'removing a copied skill is explicit, not silently inherited again');
+  const copyChecked = await planStudioChangeSet(root, copyChange);
+  assert.equal(copyChecked.valid, true, JSON.stringify(copyChecked.problems));
+  const id = page.copyStep(model, draft, 'repo-feature', 'implementation');
+  draft.phases[id].agent = 'qa';
+  assert.deepEqual(draft.workflows['repo-feature'].skills[0].phases, [id]);
+  assert.deepEqual(page.stepSkillEntries('qa', id, 'repo-feature').map((entry) => [entry.id, entry.scope]), [['qa-check', 'agent'], ['local-check', 'workflow']]);
+  const checked = await planStudioChangeSet(root, page.changeSetFrom(model, draft));
+  assert.equal(checked.valid, true, JSON.stringify(checked.problems));
 });
 
 test('a skill from a link for a seeded agent is added to the skill master and attached, as one change set the engine accepts', async () => {
@@ -1695,4 +1729,19 @@ test('a skill from a link for a seeded agent is added to the skill master and at
   const plan = check(root, changeSet);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   assert.deepEqual(plan.files.map((file) => file.path).sort(), ['singularity/imports.lock.yml', 'singularity/skill-library/attachments.yml', 'singularity/skill-library/release-notes/SKILL.md']);
+
+  // The same URL imported from a workflow step targets that workflow, not Developer.
+  const scoped = loadedStudio(model);
+  Object.assign(scoped.state(), { view: 'library', workflow: 'feature', step: 'implementation' });
+  const local = scoped.library();
+  local.as = 'library-skill'; local.attachTo = { workflow: 'feature', phase: 'implementation', use: 'Before publish' };
+  local.preview = { as: 'skill', reference: 'https://skills.example.org/release-notes.md', sha256: stagedImport.sha256, bytes: text.length, text, id: 'release-notes' };
+  local.target = { id: 'release-notes', description: 'Write notes before publishing.' };
+  scoped.addPreviewedImport();
+  const scopedChanges = scoped.changeSetFrom(model, scoped.state().draft);
+  assert.deepEqual(scopedChanges.changes.find((change) => change.op === 'skill.attach'), { op: 'skill.attach', skill: 'release-notes', workflow: 'feature', phases: ['implementation'], use: 'Before publish' });
+  assert.deepEqual(scoped.state().draft.agents.developer.skills, []);
+  assert.equal(local.attachTo, null, 'pending URL target is consumed once');
+  assert.equal(scoped.state().view, 'board');
+  assert.equal(check(root, scopedChanges).valid, true);
 });

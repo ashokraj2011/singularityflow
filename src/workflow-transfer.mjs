@@ -39,7 +39,7 @@ import {
 } from './imports-ledger.mjs';
 import { mcpDescriptorPath } from './mcp-descriptor.mjs';
 import {
-  LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, librarySkillPath, loadSkillLibrary, parseLibrarySkill, readSkillAttachments
+  LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, loadSkillLibrary, parseLibrarySkill, readSkillAttachments, skillAttachmentsText
 } from './skill-library.mjs';
 import {
   CATALOG_SUBJECTS, RESOLVE_ALL_CHOICES, catalogSubjectKind, nameCandidates, normalizeResolutions, parseSubject,
@@ -1040,13 +1040,27 @@ function validateVendoredCopies(bundle, storedVersion) {
 }
 
 /**
- * Every skill a carried agent attaches travels with it, and no other skill does. A bundle older
+ * Every skill a carried agent or workflow attaches travels with it, and no other skill does. A bundle older
  * than v5 carries no skills, so its agents' attachments must already be in the target.
  */
 function validateCarriedSkills(bundle, agents, storedVersion) {
   if (storedVersion < 5) return;
   const carried = new Set(bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id));
   const attached = new Set();
+  const scoped = bundle.workflowSkillAttachments ?? [];
+  if (!Array.isArray(scoped)) fail('Workflow skill attachments must be a list.');
+  const seen = new Set();
+  for (const entry of scoped) {
+    exactFields(entry, ['workflow', 'id', 'phases', 'use'], 'Workflow skill attachment');
+    const type = bundle.objects.story.workTypes[entry.workflow];
+    if (!type || !ID.test(entry.id) || !Array.isArray(entry.phases)
+        || new Set(entry.phases).size !== entry.phases.length
+        || entry.phases.some((id) => !type.phases.includes(id))
+        || typeof entry.use !== 'string' || entry.use.length > 300 || /[|]/.test(entry.use)
+        || seen.has(`${entry.workflow}:${entry.id}`)) fail('Invalid workflow-scoped skill attachment.');
+    seen.add(`${entry.workflow}:${entry.id}`); attached.add(entry.id);
+    if (!carried.has(entry.id)) fail(`Workflow '${entry.workflow}' attaches missing bundled skill '${entry.id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+  }
   for (const agent of agents.values()) {
     for (const entry of agent.librarySkills ?? []) {
       attached.add(entry.id);
@@ -1054,7 +1068,7 @@ function validateCarriedSkills(bundle, agents, storedVersion) {
     }
   }
   for (const id of carried) {
-    if (!attached.has(id)) fail(`Workflow bundle carries skill '${id}', which no carried agent attaches.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+    if (!attached.has(id)) fail(`Workflow bundle carries skill '${id}', which no carried agent or workflow attaches.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
   }
 }
 
@@ -1207,6 +1221,9 @@ async function buildBundle(root, workflowIds) {
   }
 
   const discovered = await discoverAgents(sourceRoot);
+  const workflowSkillAttachments = (await readSkillAttachments(sourceRoot))
+    .filter((entry) => entry.workflow && selected.some((workflow) => workflow.governs === 'story' && workflow.id === entry.workflow))
+    .map(({ workflow, id, phases, use }) => ({ workflow, id, phases: [...phases], use }));
   const { dependencies, selectedPhases, references } = workflowDependencyClosure(
     configs, workflows, new Map(discovered.map((agent) => [agent.id, agent])),
     'WORKFLOW_DEPENDENCY_MISSING');
@@ -1306,7 +1323,9 @@ async function buildBundle(root, workflowIds) {
   for (const agentId of [...dependencies.agents].sort()) {
     const agent = discovered.find((candidate) => candidate.id === agentId);
     if (!agent) fail(`Referenced governed agent '${agentId}' is not installed.`, 'WORKFLOW_DEPENDENCY_MISSING');
-    const content = agent.text;
+    const ownSkillIds = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
+    const extraSkills = (agent.attachedSkills ?? []).filter((entry) => !ownSkillIds.has(entry.id));
+    const content = extraSkills.length ? withAttachedSkillRows(agent.text, extraSkills.map((entry) => [entry.id, entry.phases.join(', ') || '*', entry.use || '-'])) : agent.text;
     if (agent.scope === 'repository') {
       await secureRepositoryPath(sourceRoot, agent.source, {
         label: `Governed agent '${agentId}'`, mustExist: true, type: 'file'
@@ -1320,7 +1339,9 @@ async function buildBundle(root, workflowIds) {
       mediaType: 'text/markdown; charset=utf-8', size, sha256: digest(content), content
     });
     const lockEntry = lockedAgentEntry(sourceAgentLock.value, agent);
-    if (lockEntry) agentLocks[agentId] = lockEntry;
+    // Validate the source's lock before materializing external attachments, then bind the
+    // exported lock to the exact exported agent bytes. Remote dependency hashes stay unchanged.
+    if (lockEntry) agentLocks[agentId] = { ...lockEntry, sourceSha256: digest(content).replace(/^sha256:/, '') };
     for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
   }
 
@@ -1361,7 +1382,8 @@ async function buildBundle(root, workflowIds) {
   }
   // Skills from the skill master travel with the agents that attach them, once each.
   const attachedSkillIds = new Set(discovered.filter((agent) => dependencies.agents.has(agent.id))
-    .flatMap((agent) => (agent.librarySkills ?? []).map((entry) => entry.id)));
+    .flatMap((agent) => effectiveLibrarySkills(agent).map((entry) => entry.id)));
+  for (const entry of workflowSkillAttachments) attachedSkillIds.add(entry.id);
   for (const skillId of [...attachedSkillIds].sort()) {
     const relative = librarySkillPath(skillId);
     const secured = await secureRepositoryPath(sourceRoot, relative, { label: `Skill '${skillId}'`, type: 'file' });
@@ -1388,12 +1410,27 @@ async function buildBundle(root, workflowIds) {
   const ledger = (await readImportsLedger(sourceRoot)).value;
   const imports = Object.fromEntries(Object.keys(ledger.imports).sort()
     .filter((key) => describesCarried(ledger.imports[key], assets))
-    .map((key) => [key, clone(ledger.imports[key])]));
+    .map((key) => {
+      const record = clone(ledger.imports[key]);
+      if (record.kind === 'agent') {
+        const original = discovered.find((agent) => agent.id === record.target.id);
+        const exported = assets.find((asset) => asset.kind === 'agent' && asset.id === record.target.id);
+        // Export may materialize file-based attachments into a previously imported agent.
+        // Account only for this known transformation, never hide prior source customizations.
+        if (original && exported && exported.content !== original.text
+            && (record.fileSha256 ?? record.sha256) === original.sha256) {
+          record.fileSha256 = exported.sha256.replace(/^sha256:/, '');
+          record.transforms = [...new Set([...(record.transforms ?? []), 'materialized-skill-attachments'])];
+        }
+      }
+      return [key, record];
+    }));
   const staticDependencies = Object.values(agentLocks).flatMap((lock) => lock.dependencies)
     .filter((dependency) => dependency.type !== 'generated');
 
   const bundle = {
     schemaVersion: WORKFLOW_BUNDLE_SCHEMA_VERSION,
+    workflowSkillAttachments,
     kind: WORKFLOW_BUNDLE_KIND,
     workflows: workflows.sort((a, b) => `${a.governs}:${a.id}`.localeCompare(`${b.governs}:${b.id}`)),
     objects,
@@ -1467,6 +1504,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
     'requirements', 'bundleSha256'];
   if (storedVersion > 1) fields.push('skillPackages', 'semantics');
   if (storedVersion > 3) fields.push('imports');
+  if (storedVersion >= 7) fields.push('workflowSkillAttachments');
   exactFields(raw, fields, 'Workflow bundle');
   if (!Array.isArray(raw.workflows) || !raw.workflows.length || !plainObject(raw.objects)
       || !plainObject(raw.objects.story) || !plainObject(raw.objects.initiative)
@@ -1634,22 +1672,8 @@ export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
     schemaVersion: 1, resultType: 'workflow-export', status: 'exported', outputPath: target,
     bundleSha256: bundle.bundleSha256, workflows: bundle.workflows,
     summary: summarizeBundle(bundle), dependencies: dependencyInventory(bundle),
-    notes: await uncarriedAttachmentNotes(root, bundle)
+    notes: []
   };
-}
-
-/**
- * A bundle carries the skills its agents attach in their own files. Skills the attachments file
- * attaches to an agent drafting an exported step stay behind, so the export says which.
- */
-async function uncarriedAttachmentNotes(root, bundle) {
-  const attachments = await readSkillAttachments(root);
-  if (!attachments.length) return [];
-  const phases = new Set([...Object.keys(bundle.objects.story.phases), ...Object.keys(bundle.objects.initiative.initiativePhases)]);
-  const agents = new Set((await discoverAgents(root)).filter((agent) => agent.defaultFor.some((id) => phases.has(id))).map((agent) => agent.id));
-  for (const asset of bundle.assets) if (asset.kind === 'agent') agents.add(asset.id);
-  const left = attachments.filter((entry) => agents.has(entry.agent));
-  return left.length ? [`${SKILL_ATTACHMENTS_PATH} attaches ${left.map((entry) => `${entry.id} to ${entry.agent}`).join(', ')}. The bundle does not carry those attachments, or a skill only they use; attach them again where it is imported.`] : [];
 }
 
 export async function readWorkflowBundle(filePath) {
@@ -2179,6 +2203,18 @@ async function importPlan(root, destination, original, chosen) {
       else conflicts.push(noted(entry(`${governs}.${section}`, id, { reason: 'same ID has different content' }), subject));
     }
   }
+  const currentAttachments = await readSkillAttachments(target.root);
+  // v7 carries a complete workflow attachment set, including an intentionally empty set.
+  // Older bundles do not claim that scope and must not remove target-local attachments.
+  for (const workflowId of Object.hasOwn(bundle, 'workflowSkillAttachments') ? Object.keys(bundle.objects.story.workTypes) : []) {
+    const incoming = bundle.workflowSkillAttachments.filter((entry) => entry.workflow === workflowId);
+    const existing = currentAttachments.filter((entry) => entry.workflow === workflowId);
+    const operation = noted(entry('workflow-skill-attachments', workflowId), subjectRef('workflow', workflowId));
+    const textOf = (entries) => skillAttachmentsText(entries) ?? '';
+    if (textOf(existing) === textOf(incoming)) reuse.push(operation);
+    else if (!existing.length) add.push(operation);
+    else conflicts.push(Object.assign(operation, { reason: 'workflow has different skill attachments' }));
+  }
   for (const [id, value] of Object.entries(bundle.agentLocks)) {
     const existing = target.agentLock.value.agents[id];
     const subject = subjectRef('agent', id);
@@ -2257,6 +2293,7 @@ async function importPlan(root, destination, original, chosen) {
   const state = {
     story: digest(target.story?.text ?? ''), initiative: digest(target.initiative?.text ?? ''),
     agentLock: digest(target.agentLock.text), importsLedger: digest(target.importsLedger.text),
+    skillAttachments: digest(skillAttachmentsText(currentAttachments) ?? ''),
     skillGitAttributes: attributes?.previousSha256 ?? null,
     assets: [...targetPaths.values()].map(({ targetPath: relative }) => relative).sort().map((relative) => {
       const operation = [...add, ...reuse, ...conflicts].find((item) => item.id === relative);
@@ -2354,6 +2391,7 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind.startsWith('initiative.'))) changedPaths.add(PORTFOLIO_PATH);
   if (writes.some((item) => item.kind === 'agent-lock')) changedPaths.add(AGENT_LOCK_PATH);
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
+  if (writes.some((item) => item.kind === 'workflow-skill-attachments')) changedPaths.add(SKILL_ATTACHMENTS_PATH);
   for (const item of writes) {
     if (['agent', 'template', 'vendored', 'skill', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
@@ -2385,6 +2423,25 @@ async function importPlan(root, destination, original, chosen) {
   const byIdentity = (a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`);
   const renamed = [...renames].map(([subject, to]) => ({ subject, to })).sort((a, b) => a.subject.localeCompare(b.subject));
   const identities = [];
+  const assetDetails = new Map(original.assets.filter((asset) => ['agent', 'skill'].includes(asset.kind))
+    .map((asset) => [asset, asset.kind === 'agent' ? parseAgentDependencies(asset.content, { source: asset.path })
+      : parseLibrarySkill(asset.content, { id: asset.id })]));
+  const skillAttachments = new Map();
+  const phaseDestination = (id) => resolutions[`phase:${id}`]?.to ?? resolutions[`initiative-phase:${id}`]?.to ?? id;
+  const attachment = (skillId, scope, ownerId, phases, use) => {
+    if (!skillAttachments.has(skillId)) skillAttachments.set(skillId, []);
+    const targetOwnerId = resolutions[`${scope}:${ownerId}`]?.to ?? ownerId;
+    const targetSkillId = resolutions[`skill:${skillId}`]?.to ?? skillId;
+    const final = scope === 'workflow'
+      ? bundle.workflowSkillAttachments?.find((entry) => entry.workflow === targetOwnerId && entry.id === targetSkillId)
+      : effectiveLibrarySkills(agentCatalog.get(targetOwnerId)).find((entry) => entry.id === targetSkillId);
+    skillAttachments.get(skillId).push({ scope, ownerId, targetOwnerId,
+      phases: [...phases], targetPhases: final?.phases ?? phases.map(phaseDestination), use: use ?? '' });
+  };
+  for (const entry of original.workflowSkillAttachments ?? []) attachment(entry.id, 'workflow', entry.workflow, entry.phases, entry.use);
+  for (const [asset, details] of assetDetails) if (asset.kind === 'agent') {
+    for (const entry of details.librarySkills ?? []) attachment(entry.id, 'agent', asset.id, entry.phases, entry.use);
+  }
   for (const [kind, [governs, catalog]] of Object.entries(CATALOG_SUBJECTS)) {
     for (const id of Object.keys(transferCatalog(original.objects[governs], catalog)).sort()) {
       const subject = `${kind}:${id}`;
@@ -2397,15 +2454,17 @@ async function importPlan(root, destination, original, chosen) {
   }
   for (const asset of original.assets.filter((asset) => ['agent', 'skill'].includes(asset.kind))) {
     const subject = `${asset.kind}:${asset.id}`;
-    const details = asset.kind === 'agent' ? parseAgentDependencies(asset.content, { source: asset.path })
-      : parseLibrarySkill(asset.content, { id: asset.id });
+    const details = assetDetails.get(asset);
     identities.push({ subject, kind: asset.kind, sourceId: asset.id, targetId: resolutions[subject]?.to ?? asset.id,
       action: resolutions[subject]?.action ?? 'automatic', renameable: true,
       occupiedIds: asset.kind === 'agent' ? targetAgents.map((agent) => agent.id).sort()
         : [...(await loadSkillLibrary(target.root)).skills.keys()].sort(),
       suggestedId: resolutions[subject]?.to ?? await naming.free(asset.kind, asset.id),
       label: details.label, description: details.description,
-      skills: details.librarySkills ?? [], resources: details.dependencies ?? [] });
+      ...(asset.kind === 'skill' ? { attachments: skillAttachments.get(asset.id) ?? [] } : {}),
+      skills: details.librarySkills ?? [], resources: (details.dependencies ?? []).map((dependency) => ({ ...dependency,
+        ...(Array.isArray(dependency.phases) ? { targetPhases: agentCatalog.get(resolutions[subject]?.to ?? asset.id)
+          ?.dependencies.find((entry) => entry.id === dependency.id)?.phases ?? dependency.phases.map(phaseDestination) } : {}) })) });
     if (asset.kind === 'agent') for (const dependency of details.dependencies ?? []) {
       if (dependency.type !== 'skill') continue;
       identities.push({ subject: `remote-skill:${asset.id}/${dependency.id}`, kind: 'remote-skill',
@@ -2525,6 +2584,14 @@ export async function applyWorkflowImport(root, bundleOrPath, {
   const writes = new Set([...plan.operations.add, ...(plan.operations.replace ?? [])]
     .map((item) => `${item.kind}\0${item.id}`));
   const outputs = [];
+  const attachedWorkflows = new Set([...plan.operations.add, ...(plan.operations.replace ?? [])]
+    .filter((entry) => entry.kind === 'workflow-skill-attachments').map((entry) => entry.id));
+  if (attachedWorkflows.size) {
+    const current = await readSkillAttachments(target.root);
+    const entries = [...current.filter((entry) => !attachedWorkflows.has(entry.workflow)),
+      ...(bundle.workflowSkillAttachments ?? []).filter((entry) => attachedWorkflows.has(entry.workflow))];
+    outputs.push({ file: await assertSafeTarget(target.root, SKILL_ATTACHMENTS_PATH), content: skillAttachmentsText(entries) ?? 'attachments: []\n' });
+  }
   const candidateDocuments = {};
   const incomingConfiguration = {};
   for (const governs of ['story', 'initiative']) {
@@ -2690,10 +2757,11 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
     ...(destination ? { destinationAuthority: destination.identity } : {}),
     sourceSelector: located.selector, targetId: target,
     governs: located.governs, targetStateSha256: digest({
-      story: located.documents.story?.text ?? '', initiative: located.documents.initiative?.text ?? ''
+      story: located.documents.story?.text ?? '', initiative: located.documents.initiative?.text ?? '',
+      skillAttachments: skillAttachmentsText(await readSkillAttachments(located.root)) ?? ''
     }),
     definitionSha256: digest(definition),
-    changedPaths: conflicts.length ? [] : [located.store.file],
+    changedPaths: conflicts.length ? [] : [located.store.file, ...((closure.workflowSkillAttachments ?? []).length ? [SKILL_ATTACHMENTS_PATH] : [])],
     operations: {
       add: conflicts.length ? [] : [entry(`${located.governs}.workflow`, target)],
       reuse: reuse.sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`)),
@@ -2779,9 +2847,15 @@ export async function copyWorkflow(root, {
   definition.label = label.trim();
   document.setIn([located.store.workflows, targetId], document.createNode(definition));
   located.store.validate(document.toJS());
-  await applyFiles([{
+  const outputs = [{
     file: located.document.file, content: renderPreservingFormatting(located.document.text, document)
-  }]);
+  }];
+  if (located.governs === 'story') {
+    const attachments = await readSkillAttachments(located.root);
+    const copied = attachments.filter((entry) => entry.workflow === located.id).map((entry) => ({ ...entry, workflow: targetId }));
+    if (copied.length) outputs.push({ file: await assertSafeTarget(located.root, SKILL_ATTACHMENTS_PATH), content: skillAttachmentsText([...attachments, ...copied]) });
+  }
+  await applyFiles(outputs);
   return {
     schemaVersion: 1, resultType: 'workflow-copy', status: 'copied',
     sourceId: located.id, sourceSelector: located.selector,

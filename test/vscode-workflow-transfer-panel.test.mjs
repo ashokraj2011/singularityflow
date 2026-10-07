@@ -62,6 +62,29 @@ test('existing IDs get independent names automatically, and immutable contract i
   assert.equal(ui.elements['transfer-identities'].all('input')[2].value, 'reviewer-imported/check');
 });
 
+test('skill inventory shows both scopes, their phases and live destination names without changing bindings', () => {
+  const ui = browser();
+  const rows = [identity('workflow', 'flow'), identity('agent', 'reviewer', { resources: [{ type: 'skill', id: 'remote-check', phases: ['draft'], url: 'https://skills.example.test/check.md' }] }),
+    identity('phase', 'draft'), identity('skill', 'checklist', { description: 'Check the specification.', attachments: [
+      { scope: 'workflow', ownerId: 'flow', targetOwnerId: 'flow', phases: ['draft'], targetPhases: ['draft'], use: 'Before drafting' },
+      { scope: 'agent', ownerId: 'reviewer', targetOwnerId: 'reviewer', phases: [], targetPhases: [], use: 'Before review' }
+    ] })];
+  ui.receive(ready(rows));
+  const inventoryRows = () => ui.elements['transfer-inventory'].all('tr').map((row) => row.children.map((cell) => cell.textContent).join(' | '));
+  assert.ok(inventoryRows().some((row) => /checklist.*Workflow.*flow.*draft.*Before drafting/.test(row)));
+  assert.ok(inventoryRows().some((row) => /checklist.*Agent.*reviewer.*All owner phases.*Before review/.test(row)));
+  assert.ok(inventoryRows().some((row) => /remote-check.*Agent.*reviewer.*draft.*reviewer\/remote-check/.test(row)));
+  const inputs = ui.elements['transfer-identities'].all('input');
+  for (const [index, value] of [[0, 'my-flow'], [1, 'my-reviewer'], [2, 'my-draft'], [3, 'my-checklist']]) {
+    inputs[index].value = value; inputs[index].listeners.input();
+  }
+  assert.ok(inventoryRows().some((row) => /Workflow.*flow → my-flow.*my-draft.*my-checklist/.test(row)));
+  assert.ok(inventoryRows().some((row) => /Agent.*reviewer → my-reviewer.*All owner phases.*my-checklist/.test(row)));
+  assert.ok(inventoryRows().some((row) => /remote-check.*my-reviewer.*my-draft.*my-reviewer\/remote-check/.test(row)));
+  assert.deepEqual(rows[3].attachments.map((entry) => entry.scope), ['workflow', 'agent']);
+  assert.equal(ui.elements['transfer-apply'].disabled, true, 'changed names still require engine revalidation');
+});
+
 async function host() {
   const source = await readFile(new URL('../apps/vscode/src/views/workflow-transfer-panel.ts', import.meta.url), 'utf8');
   const compiled = stripTypeScriptTypes(source.slice(source.indexOf('export class WorkflowTransferPanel')).replace('export class', 'class'));

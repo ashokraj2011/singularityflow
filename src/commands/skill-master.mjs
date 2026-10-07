@@ -14,8 +14,8 @@ const OPTIONS = Object.freeze({
   list: ['json'], show: ['json'],
   create: [...AUTHORING, 'label', 'description', 'instructions', 'from'],
   edit: [...AUTHORING, 'label', 'description', 'instructions', 'from'],
-  attach: [...AUTHORING, 'agent', 'phases', 'use'],
-  detach: [...AUTHORING, 'agent'],
+  attach: [...AUTHORING, 'agent', 'workflow', 'phases', 'use'],
+  detach: [...AUTHORING, 'agent', 'workflow'],
   remove: AUTHORING
 });
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -42,7 +42,7 @@ export function validateSkillMasterRequest({ positionals, options }) {
   for (const key of ['json', 'dry-run', 'propose']) {
     if (options[key] !== undefined && options[key] !== true) fail(`--${key} does not take a value.`, 'SKILL_MASTER_OPTION_UNSUPPORTED');
   }
-  if (['attach', 'detach'].includes(action) && !text(options, 'agent')) fail(`skill ${action} needs --agent <AGENT>.`, 'SKILL_MASTER_AGENT_REQUIRED');
+  if (['attach', 'detach'].includes(action) && Boolean(text(options, 'agent')) === Boolean(text(options, 'workflow'))) fail(`skill ${action} needs exactly one --agent <AGENT> or --workflow <WORKFLOW>.`, 'SKILL_MASTER_AGENT_REQUIRED');
   return action;
 }
 
@@ -70,9 +70,9 @@ async function changeFor(action, id, options) {
   }
   if (action === 'attach') {
     const phases = (text(options, 'phases') ?? '').split(',').map((phase) => phase.trim()).filter(Boolean);
-    return { op: 'skill.attach', skill: id, agent: text(options, 'agent'), phases, use: text(options, 'use') ?? '' };
+    return { op: 'skill.attach', skill: id, ...(text(options, 'workflow') ? { workflow: text(options, 'workflow') } : { agent: text(options, 'agent') }), phases, use: text(options, 'use') ?? '' };
   }
-  if (action === 'detach') return { op: 'skill.detach', skill: id, agent: text(options, 'agent') };
+  if (action === 'detach') return { op: 'skill.detach', skill: id, ...(text(options, 'workflow') ? { workflow: text(options, 'workflow') } : { agent: text(options, 'agent') }) };
   return { op: 'skill.remove', id };
 }
 
@@ -84,7 +84,7 @@ function printSkills(model) {
   }
   for (const skill of model.skills) {
     console.log(`${skill.label} (${skill.id}): ${skill.description}`);
-    console.log(`  Used by: ${skill.usedBy.length ? skill.usedBy.map((use) => `${labels.get(use.agent) ?? use.agent}${use.phases.length ? ` in ${use.phases.join(', ')}` : ''}`).join('; ') : 'no agent yet'}`);
+    console.log(`  Used by: ${skill.usedBy.length ? skill.usedBy.map((use) => `${use.workflow ? `workflow ${use.workflow}` : labels.get(use.agent) ?? use.agent}${use.phases.length ? ` in ${use.phases.join(', ')}` : ''}`).join('; ') : 'no attachment yet'}`);
   }
   for (const problem of model.skillProblems ?? []) console.log(`Problem: ${problem.message}`);
 }
@@ -96,9 +96,9 @@ function printSkill(model, skill) {
   console.log('');
   console.log(skill.instructions);
   console.log('');
-  if (!skill.usedBy.length) console.log('No agent uses it yet. Attach it with: singularity-flow skill attach ' + skill.id + ' --agent <AGENT> [--phases a,b] [--use "<when>"]');
+  if (!skill.usedBy.length) console.log('No attachment yet. Use: singularity-flow skill attach ' + skill.id + ' (--agent <AGENT> | --workflow <WORKFLOW>) [--phases a,b] [--use "<when>"]');
   for (const use of skill.usedBy) {
-    console.log(`Used by ${labels.get(use.agent) ?? use.agent} ${use.phases.length ? `in ${use.phases.join(', ')}` : 'in every step it drafts'}${use.use ? `: ${use.use}` : ''}`
+    console.log(`Used by ${use.workflow ? `workflow ${use.workflow}` : labels.get(use.agent) ?? use.agent} ${use.phases.length ? `in ${use.phases.join(', ')}` : use.workflow ? 'in every workflow step' : 'in every step it drafts'}${use.use ? `: ${use.use}` : ''}`
       + (use.origin === 'attachments' ? ` (kept in ${model.skillAttachmentsPath})` : ''));
   }
 }

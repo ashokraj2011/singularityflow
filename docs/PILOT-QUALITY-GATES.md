@@ -21,6 +21,8 @@ Review the exact clauses, generation/candidate, policy/claim hashes, expiry and 
 
 For a newly published generation, submission first runs required tests and creates its observed claim map. Until then, risk preflight reports `pending-submission-evidence` and the ordinary submit route; it cannot create a retained-evidence exception prematurely. After submission, fresh human risk review is required before approval can accept remaining coverage gaps.
 
+This also applies after rejection and a successor publication. Older observed claim maps remain immutable audit evidence, not the successor's live binding. Builds written before this correction can retain an older pointer: the updated CLI authenticates that exact historical pointer and the current pending publication, then creates fresh evidence through ordinary submission. It never relabels an old passing result, changes published application bytes, or requires an unpublished generation-three prompt for a published generation two. Changed, forged or current-generation invalid bindings still require integrity recovery rather than risk acceptance.
+
 An authorized human then runs **in a real terminal**:
 
 ```sh

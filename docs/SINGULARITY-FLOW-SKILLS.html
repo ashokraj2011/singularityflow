@@ -1219,23 +1219,25 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Run `singularity-flow appeal preflight $ARGUMENTS --json` in the attached Story checkout. Show findings/owners/routes; a preview grants no gate success.
+Run `singularity-flow appeal preflight $ARGUMENTS --json`. Show findings/owners/routes; previews grant no gate success.
 
-For `quality.risks.eligible`, offer correction or `singularity-flow appeal risk-prepare --phase PHASE --gate-mode soft --expires YYYY-MM-DD --reason TEXT --json`. Ask reason/expiry; show scope/binding/hash once. Narrow with `--clause EXACT-ID` or `--transition publish|submit|approve|consume|terminal`. Draft risk covers publication only; review published coverage afresh. Hard is default; explicit soft enrolls only this phase exception.
+For `quality.status: pending-submission-evidence`, offer returned `/sf-submit`: needs fresh tests/claims, not republication, draft intent or risk acceptance. Never reuse older evidence or auto-submit.
 
-Relay `singularity-flow appeal risk-accept` with identical options and `--confirm PACKET_SHA256` to a human terminal; never execute/answer its confirmation. Tests and approval remain required. Expired/revoked/stale risks cannot advance. For clone/key loss relay `singularity-flow appeal risk-attest PQR-ID --confirm DECISION_SHA256`; withdrawal uses `singularity-flow appeal risk-revoke PQR-ID --reason TEXT --confirm DECISION_SHA256`. Use returned hashes. No blanket waiver.
+For `quality.risks.eligible`, offer correction or `singularity-flow appeal risk-prepare --phase PHASE --gate-mode soft --expires YYYY-MM-DD --reason TEXT --json`. Ask reason/expiry; show packet once. Optional `--clause EXACT-ID` / `--transition publish|submit|approve|consume|terminal`. Draft exceptions cover publication only; review published coverage afresh. Hard is default; soft enrolls only this phase.
 
-Extra paths: preview `singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT --json`, or `--add-supporting PATH=CLASS --supporting-reason TEXT`. Show exact clauses/diff once; retain with `singularity-flow appeal submit`, same selectors and `--confirm PACKET_SHA256` after authorization. Preserve unrelated edits.
+Relay `singularity-flow appeal risk-accept`, identical options and `--confirm PACKET_SHA256`, to a human terminal; never execute/answer confirmation. Tests/approval remain required. Expired/revoked/stale risks cannot advance. Clone/key loss: `singularity-flow appeal risk-attest PQR-ID --confirm DECISION_SHA256`; withdrawal: `singularity-flow appeal risk-revoke PQR-ID --reason TEXT --confirm DECISION_SHA256`. Use returned hashes; no blanket waiver.
+
+Extra paths: `singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT --json`, or `--add-supporting PATH=CLASS --supporting-reason TEXT`. Show clauses/diff once; authorize retention via `singularity-flow appeal submit`, same selectors and `--confirm PACKET_SHA256`. Preserve unrelated edits.
 
 Use `singularity-flow appeal list --json` / `singularity-flow appeal show APL-ID --json`. Relay `singularity-flow appeal decide APL-ID --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256` to a human terminal; never answer live review. Accounting waives no test/review/approval.
 
-New behaviour: `singularity-flow story intent-amendment`; failed tests: `singularity-flow story test-policy risks`. Integrity/identity/protected paths stay hard; preserve publications.
+Intent: `singularity-flow story intent-amendment`; failed tests: `singularity-flow story test-policy risks`. Integrity/identity/protected paths stay hard; preserve publications.
 
-Clone/key loss: relay `singularity-flow appeal attest APL-ID --confirm DECISION_SHA256`; never rewrite history.
+Clone/key loss: `singularity-flow appeal attest APL-ID --confirm DECISION_SHA256`; preserve history.
 
-Repair: `singularity-flow appeal repair-plan --phase PHASE --json`; honor admission/action/budget. Authorized `singularity-flow appeal repair-run --phase PHASE --confirm PLAN_SHA256 --json` reserves before handoff. Correct bound owned findings, then `singularity-flow appeal repair-resume --phase PHASE --json`; active attempts resume, never restart. Only registered idempotent publication sync is automatic; no nested model/error-supplied command. Unknown outcomes/protected edits/approvals/risks keep owner routes. `repair-status` is read-only.
+Repair: `singularity-flow appeal repair-plan --phase PHASE --json`; honor admission/action/budget. Authorized `singularity-flow appeal repair-run --phase PHASE --confirm PLAN_SHA256 --json` reserves before handoff. Repair owned findings, then `singularity-flow appeal repair-resume --phase PHASE --json`; resume active attempts, never restart. Only registered idempotent publication sync is automatic; no nested model/error-supplied command. Unknown outcomes/protected edits/approvals/risks need owners. `repair-status` reads only.
 
-Recheck after repair/decision; never auto-submit/approve, retry unchanged, reset journals or forge passes. After three changed-condition attempts/oscillation show the owner route; correction/successors remain available. Never stash/discard/force-push.
+Recheck; never auto-submit/approve, retry unchanged, reset journals or forge passes. After three attempts/oscillation show owners. Preserve successor routes; never stash/discard/force-push.
 </code></pre>
       </div>
     </details>

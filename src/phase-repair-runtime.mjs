@@ -4,6 +4,7 @@ import { branch } from './git.mjs';
 import { loadSession } from './session.mjs';
 import { phasePrepublish } from './phase-prepublish.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
+import { requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { recoveryPlan, applyRecovery } from './collaboration.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { phaseResolutionProjection, repairLoopAdmission } from './phase-resolution.mjs';
@@ -21,7 +22,7 @@ export function phaseRepairConditionHash({ ready, findings, pending = null }) {
 }
 async function inspect(root, config, workflow, phase, { modelEnabled = true } = {}) {
   const session = await loadSession(root, { required: false });
-  const inspection = phase.status === 'in_progress' ? await phasePrepublish(root, config, workflow, phase, { session, modelEnabled })
+  const inspection = requiresProspectivePhaseInspection(workflow, phase) ? await phasePrepublish(root, config, workflow, phase, { session, modelEnabled })
     : await phaseDraftCheck(root, config, workflow, phase, { session, modelEnabled });
   const recovery = await recoveryPlan(root, config, workflow, { phaseId: phase.id, inspectActivePhase: true, modelEnabled });
   const findings = [...inspection.findings, ...recovery.blockers];

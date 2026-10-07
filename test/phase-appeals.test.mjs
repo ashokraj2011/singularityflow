@@ -17,6 +17,10 @@ import { submissionReadiness } from '../src/submission-readiness.mjs';
 import { operationById, resolveOperation } from '../src/command-registry.mjs';
 import { stepAttempts } from '../src/verification/attempts.mjs';
 import { inspectPhaseQualityGate } from '../src/phase-quality-risk.mjs';
+import { hasPublishedPhaseGeneration, pendingCodeSubmissionEvidence, requiresProspectivePhaseInspection } from '../src/code-submission-evidence.mjs';
+import { artifactMetadataBlock, publishGeneration, scanArtifacts, storyArtifactMetadata } from '../src/state.mjs';
+import { transactStory } from '../src/state-stores.mjs';
+import { inspectPhaseRecovery } from '../src/recovery-plan.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -95,7 +99,7 @@ function run(command, args, cwd, allowFailure = false) {
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   return result;
 }
-async function fixture(t, { pilotCoverage = false } = {}) {
+async function fixture(t, { pilotCoverage = false, directCoverage = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-appeals-')); const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
   const git = (...args) => run('git', args, root);
@@ -130,15 +134,121 @@ async function fixture(t, { pilotCoverage = false } = {}) {
   cli('wm', 'compose', '--phase', 'intake'); cli('clarification', 'record', 'intake', '--question', 'Is 2 the approved value?', '--answer', 'Yes.');
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'); cli('submit', 'intake'); cli('approve', 'intake', '--yes');
   cli('prepare', 'implementation');
-  await write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value\n${pilotCoverage ? 'export const value = 2;' : "import {approved} from './helper.mjs';\nexport const value = approved;"}\n`);
-  if (!pilotCoverage) await write('src/helper.mjs', 'export const approved = 2;\n');
+  await write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value\n${pilotCoverage || directCoverage ? 'export const value = 2;' : "import {approved} from './helper.mjs';\nexport const value = approved;"}\n`);
+  if (!pilotCoverage && !directCoverage) await write('src/helper.mjs', 'export const approved = 2;\n');
   await write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => assert.equal(value,2));\n`);
-  if (!pilotCoverage) await write('NOTES.md', 'Keep this unrelated note out of every appeal commit.\n');
+  if (!pilotCoverage && !directCoverage) await write('NOTES.md', 'Keep this unrelated note out of every appeal commit.\n');
   const summary = `${item}/artifacts/implementation/implementation-summary.md`;
   await write(summary, (await readFile(path.join(root, summary), 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module reads the approved value from a small helper.'));
   return { root, remote, git, cli, write, item, summary, load: () => loadAcceptedStoryExecution(root, WORK) };
 }
 const request = { phaseId: 'implementation', changes: [{ kind: 'add-location', clauseId: `${WORK}:AC-001`, path: 'src/helper.mjs' }], reason: 'The small helper implements the already approved return value.' };
+
+test('publication stage follows policy and generation rather than a built-in phase name', () => {
+  for (const id of ['implementation', 'verification', 'custom-code', 'specification']) {
+    const workflow = { workItem: { id: WORK }, history: [] };
+    const phase = { id, status: 'in_progress', generation: 2, generationIntent: { status: 'consumed', generation: 2 } };
+    assert.equal(hasPublishedPhaseGeneration(phase), true);
+    assert.equal(requiresProspectivePhaseInspection(workflow, phase), false);
+    assert.equal(requiresProspectivePhaseInspection(workflow, { ...phase,
+      generationIntent: { status: 'open', generation: 3 } }), true);
+    assert.equal(requiresProspectivePhaseInspection(workflow, { ...phase,
+      reworkRevalidation: { generation: 2 } }), true);
+    assert.equal(requiresProspectivePhaseInspection(workflow, { ...phase, status: 'awaiting_approval' }), false);
+    assert.equal(hasPublishedPhaseGeneration({ ...phase, generationIntent: { status: 'open', generation: 3 } }), false);
+    assert.equal(hasPublishedPhaseGeneration({ ...phase, generation: 0 }), false);
+    assert.equal(hasPublishedPhaseGeneration({ ...phase, generationIntent: null,
+      generationPublications: [{ generation: 2, record: { path: 'retained-publication.json' } }] }), true);
+  }
+});
+
+test('rejected code successors submit fresh evidence, including old-writer historical live pointers',
+  { timeout: 240000 }, async t => {
+    for (const legacyWriter of [false, true]) await t.test(legacyWriter ? 'already published by old writer' : 'new publication', async t => {
+      const f = await fixture(t, { directCoverage: true });
+      f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+      f.cli('submit', 'implementation');
+      const first = (await f.load()).workflow.phases.implementation;
+      const oldPointer = structuredClone(first.claimMaps.observed);
+      const oldBytes = await readFile(path.join(f.root, oldPointer.path));
+      f.cli('reject', 'implementation', '--to', 'implementation', '--reason', 'Revise the same implementation with fresh evidence.');
+      f.cli('prepare', 'implementation');
+      await f.write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value\nexport const value = 1 + 1;\n`);
+      await f.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value after correction', () => assert.equal(value,2));\n`);
+      if (legacyWriter) {
+        // Reproduce the real old writer inside an authenticated publication transaction, not by
+        // hand-editing state after publication. The patched reader must handle this existing state.
+        const { workflow, definition } = await f.load();
+        const phase = workflow.phases.implementation;
+        await transactStory(f.root, definition, workflow, { type: 'artifact-generated', phaseId: phase.id,
+          generation: 2, actor: phase.generatedBy, agent: null,
+          payload: { generationStartSha256: phase.generationIntent.receiptSha256 } },
+        `[${WORK}][phase:implementation][generated:2] old writer publication`, async (aggregate, event, context) => {
+          const result = await publishGeneration(f.root, definition, aggregate, { phaseId: phase.id, persist: false,
+            authorship: { ...first.authorship.at(-1), producer: 'human', channel: 'manual-in-place' },
+            publicationTransaction: { publicationEvent: event, transactionId: context.transactionId, expectedHead: context.expectedHead } });
+          result.claimMaps ??= {}; result.claimMaps.observed = oldPointer;
+          result.generationCommit = first.generationCommit; result.publicationCommit = first.publicationCommit;
+          // The old writer also rendered these carried commit fields into managed metadata.
+          // Reproduce those bytes before committing; post-publication state edits are not legacy.
+          const summary = await readFile(path.join(f.root, f.summary), 'utf8');
+          await f.write(f.summary, summary.replace(/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/u,
+            artifactMetadataBlock(storyArtifactMetadata(aggregate, result))));
+          await scanArtifacts(f.root, definition, aggregate, phase.id);
+          return result;
+        }, { paths: ['src/value.mjs', 'test/value.test.mjs'] });
+      } else f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+      let { workflow, definition } = await f.load();
+      let phase = workflow.phases.implementation;
+      assert.equal(phase.generation, 2); assert.equal(phase.deliveryEvidence.status, 'pending-tests');
+      if (!legacyWriter) { assert.equal(phase.claimMaps?.observed, undefined); assert.equal(phase.generationCommit, null); }
+      const stateBytes = await readFile(path.join(f.root, `${f.item}/workflow.json`));
+      const pending = await pendingCodeSubmissionEvidence(f.root, definition, workflow, phase);
+      assert.equal(pending.generation, 2); assert.equal(pending.historicalObservedGeneration, legacyWriter ? 1 : null);
+      const preflight = JSON.parse(f.cli('appeal', 'preflight', '--phase', phase.id, '--json').stdout).data;
+      assert.equal(preflight.quality.status, 'pending-submission-evidence', JSON.stringify(preflight));
+      assert.equal(preflight.quality.testsWaived, false);
+      assert.deepEqual(preflight.inspection.findings, []);
+      assert.deepEqual(preflight.recovery.blockers, []);
+      assert.ok(preflight.recovery.actions.some(action => action.command?.startsWith('singularity-flow submit implementation')));
+      assert.equal(requiresProspectivePhaseInspection(workflow, phase), false);
+      const repair = JSON.parse(f.cli('appeal', 'repair-plan', '--phase', phase.id, '--json').stdout).data;
+      assert.equal(repair.status, 'ready-for-next-check');
+      assert.deepEqual(repair.inspection.findings, []);
+      assert.equal(repair.action, null, 'pending submission does not hand a published generation back to its author');
+      assert.deepEqual(await readFile(path.join(f.root, `${f.item}/workflow.json`)), stateBytes, 'preview never rewrites Story state');
+      if (legacyWriter) {
+        const forged = structuredClone(workflow);
+        forged.phases.implementation.claimMaps.observed.sha256 = '0'.repeat(64);
+        await assert.rejects(pendingCodeSubmissionEvidence(f.root, definition, forged, forged.phases.implementation),
+          { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' });
+        const old = JSON.parse(oldBytes); old.recordedAt = '2026-01-01T00:00:00.000Z';
+        await f.write(oldPointer.path, JSON.stringify(old));
+        await assert.rejects(pendingCodeSubmissionEvidence(f.root, definition, workflow, phase),
+          { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' });
+        await f.write(oldPointer.path, oldBytes);
+      }
+      const applicationBytes = await readFile(path.join(f.root, 'src/value.mjs'));
+      f.cli('submit', 'implementation');
+      ({ workflow, definition } = await f.load()); phase = workflow.phases.implementation;
+      assert.equal(phase.status, 'awaiting_approval'); assert.equal(phase.claimMaps.observed.generation, 2);
+      assert.match(phase.claimMaps.observed.path, /implementation-gen2-observed\.json$/u);
+      assert.ok(phase.deliveryEvidence.testExecutions.some(execution => execution.status === 'passed'));
+      assert.deepEqual(await readFile(path.join(f.root, oldPointer.path)), oldBytes, 'generation one stays immutable');
+      assert.deepEqual(await readFile(path.join(f.root, 'src/value.mjs')), applicationBytes, 'submission does not alter code');
+      const corrupt = structuredClone(workflow); corrupt.phases.implementation.claimMaps.observed = oldPointer;
+      const inspection = await inspectPhaseQualityGate(f.root, definition, corrupt, corrupt.phases.implementation);
+      assert.equal(inspection.risks, null); assert.equal(inspection.findings[0].code, 'SPECIFICATION_CLAIM_MAP_BINDING_STALE');
+      const resolution = phaseResolutionChoices(corrupt, corrupt.phases.implementation, inspection.findings[0]);
+      assert.equal(resolution.choices[0].owner, 'workflow-maintainer');
+      assert.equal(resolution.choices[0].skill, '/sf-doctor');
+      const recovery = await inspectPhaseRecovery(f.root, definition, corrupt, corrupt.phases.implementation);
+      assert.ok(recovery.blockers.some(finding => finding.code === 'SPECIFICATION_CLAIM_MAP_BINDING_STALE'));
+      assert.ok(recovery.actions.some(action => action.id.includes('submission-evidence') && action.skill === '/sf-doctor'));
+      f.cli('approve', 'implementation', '--yes');
+      assert.equal((await f.load()).workflow.phases.implementation.status, 'approved');
+    });
+  });
 
 test('pilot risk unlocks only the reviewed editable candidate, still runs tests and requires fresh published review',
   { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {

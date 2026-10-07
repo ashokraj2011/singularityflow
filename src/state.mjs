@@ -91,6 +91,7 @@ import {
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
+import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
 import { beginTestCommandEpochValidation, recordTestCommandEpochValidation, verifyTestCommandEpochValidation } from './test-command-epoch.mjs';
@@ -3873,6 +3874,12 @@ export async function publishGeneration(root, config, workflow, {
   const publishedAt = nowIso();
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
   if (deliveryPreflight) {
+    // These are live submission bindings, not publication history. A successor starts without
+    // observed evidence; immutable prior claim maps/publications remain in Git and lineage.
+    if (phase.claimMaps) delete phase.claimMaps.observed;
+    phase.generationCommit = null;
+    phase.publicationCommit = null;
+    phase.submittedAt = null;
     const deliveryRoot = posix(path.join(
       workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery'
     ));
@@ -5032,7 +5039,8 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
-  if (phaseRequiresCodeDelivery(phase) && phase.generationCommit) {
+  const pendingSubmissionEvidence = await pendingCodeSubmissionEvidence(root, config, workflow, phase);
+  if (phaseRequiresCodeDelivery(phase) && phase.generationCommit && !pendingSubmissionEvidence) {
     await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, phase.generationCommit, { boundary: 'submitted' });
   }
   session ??= await loadSession(root);

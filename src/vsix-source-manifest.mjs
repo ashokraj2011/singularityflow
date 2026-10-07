@@ -72,6 +72,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/document-storage-policy.mjs',
   'src/code-documentation.mjs',
   'src/code-documentation-inspection.mjs',
+  'src/code-submission-evidence.mjs',
   'src/spec-coverage-preview.mjs',
   'src/document-replay.mjs',
   'src/story-epic-sources.mjs',

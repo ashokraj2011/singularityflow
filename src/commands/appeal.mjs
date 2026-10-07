@@ -10,6 +10,7 @@ import { phaseRepairLoopSummary } from '../phase-repair-journal.mjs';
 import { acceptQualityRisk, attestQualityRisk, inspectPhaseQualityGate, prepareQualityRisk, revokeQualityRisk } from '../phase-quality-risk.mjs';
 import { loadSession } from '../session.mjs';
 import { operationContext } from '../operation-context.mjs';
+import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
@@ -83,7 +84,8 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     phaseId: phase.id, action: action.slice(7), confirmation: optionString(options, 'confirm'), modelEnabled });
   if (action === 'preflight') {
     const session = await loadSession(root, { required: false });
-    const inspection = phase.status === 'in_progress' ? await phasePrepublish(root, config, workflow, phase, { session, modelEnabled })
+    const drafting = requiresProspectivePhaseInspection(workflow, phase);
+    const inspection = drafting ? await phasePrepublish(root, config, workflow, phase, { session, modelEnabled })
       : await phaseDraftCheck(root, config, workflow, phase, { session, modelEnabled });
     const recovery = await recoveryPlan(root, config, workflow, { phaseId: phase.id, inspectActivePhase: true, modelEnabled });
     const quality = await inspectPhaseQualityGate(root, config, workflow, phase,

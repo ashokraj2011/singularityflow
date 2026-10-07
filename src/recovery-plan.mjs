@@ -22,6 +22,7 @@ import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { phaseResolutionChoices } from './phase-resolution.mjs';
 
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
@@ -443,6 +444,19 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           }));
         }
       }
+    }
+  }
+
+  // Inspect retained submission evidence, not an imaginary next draft. Pending evidence has a
+  // real submit route; genuine corruption has an owning integrity route and cannot be waived.
+  if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !generation) {
+    const { inspectPhaseQualityGate } = await import('./phase-quality-risk.mjs');
+    const quality = await inspectPhaseQualityGate(root, config, workflow, phase);
+    for (const finding of quality.findings) {
+      blockers.push({ ...finding, blocking: true, phase: phase.id, generation: phase.generation });
+      const route = phaseResolutionChoices(workflow, phase, finding).choices[0];
+      actions.push(action({ id: `submission-evidence:${phase.id}:${finding.code}`, mode: 'guided',
+        command: route.command, skill: route.skill, detail: route.detail }));
     }
   }
 

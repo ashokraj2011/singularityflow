@@ -17,7 +17,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   const recovery = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
   let resolution;
-  if (code === 'phase_repair_recheck_required') {
+  if (code === 'specification_claim_map_binding_stale'
+      || code === 'specification_claim_map_binding_required') {
+    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
+      'Inspect this phase\'s exact published claim binding. Current-generation corruption requires restoration of authenticated bytes or reviewed rework; refreshing configuration or risk acceptance cannot repair it.', '/sf-doctor');
+  } else if (code === 'phase_repair_recheck_required') {
     resolution = route('repair-resume', phase.id, ['appeal', 'repair-resume', '--phase', phase.id, '--json'],
       'Resume the same durable attempt and rerun its gates. Do not start a new budget or blindly repeat the interrupted operation.', '/sf-appeal');
   } else if (code.startsWith('phase_repair_journal')) {

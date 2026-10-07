@@ -303,6 +303,14 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
       }
     }, null, 2)}\n`)
   ]);
+  // Keep the fixture's tracked runtime closure aligned with the actual packaging boundary.
+  // A newly required framework module must not disappear from this staging simulation.
+  for (const relative of VSIX_REQUIRED_CLI_RUNTIME) {
+    const file = path.join(repository, relative);
+    if (existsSync(file)) continue;
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, relative.endsWith('.json') ? '{}\n' : '// fixture\n');
+  }
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
     'src/skp-amendment-plan.mjs',
@@ -361,7 +369,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'plugin/agents/sflow-source-reviewer.agent.md',
     'plugin/skills/sflow-review-source/SKILL.md',
     'plugin/skills/sflow-sgos/SKILL.md', 'plugin/skills/sflow-code-docs/SKILL.md', 'plugin/skills/sflow-decide/SKILL.md', 'plugin/skills/sflow-import/SKILL.md', 'plugin/skills/sflow-evidence/SKILL.md', 'package.json',
-    'package-lock.json', 'toolchains/npm-pack/package.json']);
+    'package-lock.json', 'toolchains/npm-pack/package.json', ...VSIX_REQUIRED_CLI_RUNTIME]);
   runGit(['commit', '-q', '-m', 'Fixture']);
 
   await Promise.all([

@@ -12,6 +12,7 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const fail = (message, code = 'PHASE_QUALITY_RISK_INVALID') => { throw new SingularityFlowError(message, { code }); };
@@ -198,11 +199,8 @@ export async function inspectPhaseQualityGate(root, config, workflow, phase, { t
     // Submission first runs required tests and records this generation's observed claim map.
     // Its absence at this specific lifecycle stage is pending evidence, not corrupt evidence or
     // permission to waive tests. Approval/consumption must never use this intermediate result.
-    if (phase.status === 'in_progress' && !phase.claimMaps?.observed
-        && !phase.generationCommit && phase.generationIntent?.status === 'consumed') {
-      return { status: 'pending-submission-evidence', findings: [], risks: null, evidenceCommit,
-        next: `singularity-flow submit ${phase.id}`, testsWaived: false, phaseApproved: false };
-    }
+    const pending = await pendingCodeSubmissionEvidence(root, config, workflow, phase);
+    if (pending) return { ...pending, findings: [], risks: null };
     if (phase.status === 'awaiting_approval') {
       const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find(candidate => candidate.phase === phase.id
         && Number(candidate.generation) === Number(phase.generation));
@@ -217,7 +215,8 @@ export async function inspectPhaseQualityGate(root, config, workflow, phase, { t
     return { status: 'ready', findings: [], risks: null };
   } catch (error) {
     if (error.code !== 'SPEC_COVERAGE_INCOMPLETE') return { status: 'resolution-required', risks: null,
-      findings: [{ code: error.code ?? 'PHASE_QUALITY_INSPECTION_UNAVAILABLE', category: 'integrity', path: null, message: error.message }] };
+      findings: [{ code: error.code ?? 'PHASE_QUALITY_INSPECTION_UNAVAILABLE', category: 'integrity', path: null,
+        message: error.message, details: error.details ?? null }] };
     const risks = await qualityRiskStatus(root, config, workflow, phase, error, { transition, candidate: error.qualityRiskCandidate ?? null });
     return { status: risks.excepted ? 'ready-with-accepted-risk' : 'resolution-required', risks, evidenceCommit,
       findings: risks.excepted ? [] : [{ code: error.code, category: 'quality-coverage', path: null,

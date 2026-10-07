@@ -285,3 +285,13 @@ test('Story authoring skills consume one returned persistent repair protocol', a
   const converge = await readFile(new URL('../plugin/skills/sflow-converge/SKILL.md', import.meta.url), 'utf8');
   assert.match(converge, /never loop preparation/u);
 });
+
+test('publication skills require a returned publish command and stop when only a next transition remains', async () => {
+  for (const name of ['sflow-code', 'sflow-phase', 'sflow-specify', 'sflow-plan', 'sflow-design',
+    'sflow-requirements', 'sflow-release', 'sflow-review', 'sflow-verify', 'sflow-scenario-check',
+    'sflow-converge', 'sflow-workflow-rules', 'sflow-document-intake']) {
+    const text = await readFile(new URL(`../plugin/skills/${name}/SKILL.md`, import.meta.url), 'utf8');
+    assert.match(text, /`commands.publish`/u, name);
+    assert.match(text, /absent: relay `commands.next`, stop/u, name);
+  }
+});

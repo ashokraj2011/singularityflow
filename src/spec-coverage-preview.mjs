@@ -19,12 +19,24 @@ import { posix, SingularityFlowError } from './util.mjs';
 
 /** Check the actual editable candidate, before tests, publication or submission consume it. */
 export async function assertCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
+  try { return await assertStrictCandidateSpecificationCoverage(root, config, workflow, phase, delivery); }
+  catch (error) {
+    if (error.code !== 'SPEC_COVERAGE_INCOMPLETE') throw error;
+    const { qualityRiskStatus } = await import('./phase-quality-risk.mjs');
+    const risk = await qualityRiskStatus(root, config, workflow, phase, error, { transition: 'publish', candidate: delivery });
+    if (risk.excepted) return { ...error.details.coverage, complete: false, acceptedRisk: risk };
+    error.details = { ...error.details, qualityRisk: risk };
+    throw error;
+  }
+}
+
+export async function assertStrictCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
   const policy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
   if (policy.coverage !== 'enforce' || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
   const codePhases = workflow.phaseOrder.filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
   const final = codePhases.at(-1) === phase.id;
   const records = await loadBoundActiveSpecRecords(root, workDir(root, config, workflow.workItem.id), workflow, policy,
-    { requireCommitted: false, throughPhase: final ? null : phase.id });
+    { requireCommitted: false, throughPhase: final ? null : phase.id, excludeObservedPhase: phase.id });
   const owner = workflow.resolution.plannedClaims.owners[phase.id];
   const planned = mergePlannedClaimRecords(records.planned.filter((record) => record.phase === owner));
   const allocated = Object.fromEntries(Object.entries(planned)

@@ -669,6 +669,13 @@ export class IntakePanel {
    * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
    */
   private router = registerMessageRouter('singularityFlow.intake', {
+    qualityGateMode: (message) => {
+      if (this.form.busy || this.form.baselineRunning) return;
+      const value = stringField(message, 'value');
+      if (!['hard', 'soft'].includes(value ?? '')) return;
+      this.update({ qualityGateMode: value as IntakeForm['qualityGateMode'] });
+      return this.preflightBaseBranch();
+    },
     readinessBaseline: (message) => {
       if (this.form.busy || this.form.baselineRunning) return;
       const value = stringField(message, 'value');

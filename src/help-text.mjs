@@ -107,6 +107,7 @@ Usage:
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
     [--isolated-worktree] [--intake-receipt ID] [--baseline-failures repair-in-story|resolve-outside]
     [--readiness-baseline reuse|run|defer] [--test-execution-mode changed-and-affected|all-configured]
+    [--gate-mode hard|soft]
     [--test-baseline-disposition fix --test-execution-mode changed-and-affected|all-configured --test-baseline-scope reuse --test-policy-confirm PLAN-DIGEST]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
 import {
   assertWorkTypeStartable, loadDefinition, resolveWorkType
 } from './config.mjs';
@@ -248,8 +249,10 @@ export async function startStory(root, {
   astWarmLauncher = undefined,
   afterPublicationAuthorityCapture = null,
   afterPublicationPreflight = null,
-  publicationFault = null
+  publicationFault = null,
+  qualityGateMode = 'hard'
 } = {}) {
+  normalizeQualityGateMode(qualityGateMode);
   assertSafeStoryId(id);
   if (!['reference', 'shadow'].includes(gitReadMode)) {
     throw new SingularityFlowError(`Unsupported Story-start Git read mode '${gitReadMode}'.`, {
@@ -811,7 +814,8 @@ export async function startStory(root, {
         // intentionally unavailable at this exact boundary.
         approvedConfigurationSnapshot,
         repositoryReadiness,
-        readinessRepositories
+        readinessRepositories,
+        qualityGateMode
       });
       if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
       if (auto) await pinAcceptedAutoPlan(root, definition, workflow, auto);

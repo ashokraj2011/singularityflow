@@ -7856,6 +7856,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (action === 'refresh') return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
           if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });
           if (action === 'tests') return vscode.commands.executeCommand('singularityFlow.reviewStoryTestRecovery');
+          if (action === 'risk') {
+            const reason = await vscode.window.showInputBox({ title: 'Why may this pilot proceed with unmet coverage?', ignoreFocusOut: true,
+              validateInput: value => value.trim().length >= 20 && value.trim().length <= 1000 && !/[\x00-\x1f\x7f]/u.test(value) ? null : 'Give a reason of 20–1000 ordinary characters.' });
+            if (reason === undefined || !stillCurrent()) return;
+            const expires = await vscode.window.showInputBox({ title: 'Risk expiry (YYYY-MM-DD, within 90 days)', ignoreFocusOut: true,
+              value: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+              validateInput: value => /^\d{4}-\d{2}-\d{2}$/u.test(value) ? null : 'Use YYYY-MM-DD.' });
+            if (!expires || !stillCurrent()) return;
+            const selectors = ['--work-id', workId, '--phase', phaseId, '--gate-mode', 'soft', '--expires', expires, '--reason', reason];
+            const preview = await client.run<{ data?: { packet?: { packetSha256?: string; binding?: { workId?: string; phaseId?: string } } } }>(
+              ['appeal', 'risk-prepare', ...selectors, '--json']);
+            const packet = preview.data?.packet;
+            if (!stillCurrent() || packet?.binding?.workId !== workId || packet.binding.phaseId !== phaseId
+                || !/^sha256:[a-f0-9]{64}$/u.test(packet.packetSha256 ?? '')) return;
+            const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(preview, null, 2) });
+            await vscode.window.showTextDocument(document, { preview: true });
+            if (!stillCurrent()) return;
+            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Human Pilot Risk Review', cwd: checkedRepository });
+            terminal.show(true);
+            terminal.sendText(terminalCommand(checkedRepository, ['appeal', 'risk-accept', ...selectors, '--confirm', packet.packetSha256!],
+              process.platform, client.location), false);
+            return;
+          }
           if (action === 'repair' || action === 'resume') {
             const planned = await client.run<{ data?: { status?: string; confirmation?: string;
               binding?: { workId?: string; phaseId?: string }; admission?: { allowed?: boolean } } }>(

@@ -111,6 +111,7 @@ test('the request digest ignores reference order and nothing else', () => {
   assert.notEqual(storyIntakeInputsDigest(inputs), storyIntakeInputsDigest({ ...inputs, baseBranch: 'release' }));
   assert.notEqual(storyIntakeInputsDigest(inputs), storyIntakeInputsDigest({ ...inputs, readinessBaseline: 'defer' }));
   assert.notEqual(storyIntakeInputsDigest(inputs), storyIntakeInputsDigest({ ...inputs, testExecutionMode: 'all-configured' }));
+  assert.notEqual(storyIntakeInputsDigest(inputs), storyIntakeInputsDigest({ ...inputs, qualityGateMode: 'soft' }));
 });
 
 test('a receipt cannot override an onboarding pin and a mismatch releases its claim', async (t) => {

@@ -44,7 +44,8 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
       ['Selected base branch', work.baseBranch], ['Base commit', work.baseCommit], ['Base remote', work.baseRemote],
       ['Capability', capability.label ?? capability.name ?? capability.id], ['Created', work.createdAt],
       ['Source', source?.type ?? object(work.source).type], ['Source reference', source?.url ?? source?.key ?? source?.stableId],
-      ['Recorded test execution mode', resolution.testExecutionMode]
+      ['Recorded test execution mode', resolution.testExecutionMode],
+      ['Quality gates', resolution.qualityGateMode ?? 'hard']
     ].map(([label, value]) => row(String(label), value)).join('')}</tbody></table>
       <p class="muted">Test policies can be amended after intake. Use Test policy and recovery to inspect current commands, baseline dispositions and risk decisions; absent records are not inferred.</p></section>
     <section><h2>Details entered at intake</h2>${source ? fields.filter(([key]) => source![key] != null && source![key] !== '')

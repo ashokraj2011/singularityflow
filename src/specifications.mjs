@@ -1396,8 +1396,9 @@ function withAmendmentRecord(records, workflow) {
  * through the exact current-generation bindings in the workflow aggregate.
  */
 export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy = {}, {
-  requireCommitted = false, throughPhase = null
+  requireCommitted = false, throughPhase = null, excludeObservedPhase = null
 } = {}) {
+  if (requireCommitted && excludeObservedPhase) throw new SingularityFlowError('Committed coverage cannot omit an observed phase.', { code: 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED' });
   const plannedPolicy = workflow?.resolution?.plannedClaims;
   if (!requireCommitted && plannedPolicy?.mode !== 'required') {
     return loadActiveSpecRecords(itemDirectory, workflow);
@@ -1460,6 +1461,7 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
     ? Object.keys(plannedPolicy.owners ?? {})
     : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.observed))
     .filter((phaseId) => workflow.phases?.[phaseId]?.status !== 'skipped'
+      && phaseId !== excludeObservedPhase
       && (limit < 0 || phaseOrder.indexOf(phaseId) <= limit));
   for (const codePhaseId of codePhaseIds) {
     const codePhase = workflow.phases?.[codePhaseId];

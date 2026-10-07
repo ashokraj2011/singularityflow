@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -11,6 +12,10 @@ import {
 } from '../src/specifications.mjs';
 import { assertCandidateSpecificationCoverage, inspectUnclaimedChangedPaths } from '../src/spec-coverage-preview.mjs';
 import { assertFinalCodeSpecificationCoverage } from '../src/state.mjs';
+import { STORY_DECISION_LISTS, storyDecisionsDigest } from '../src/phase-upstream.mjs';
+import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
+import { acceptQualityRisk, coverageRiskEligibility, inspectPhaseQualityGate, normalizeQualityGateMode,
+  prepareQualityRisk, qualityRiskBinding, qualityRiskStatus, validateQualityRiskPacket } from '../src/phase-quality-risk.mjs';
 
 const ID = 'COVER-1';
 const ITEM = `singularity/work-items/${ID}`;
@@ -154,6 +159,123 @@ test('final code approval refuses incomplete pinned clause coverage, then accept
   );
 });
 
+test('published approval coverage is visible in appeal inspection; soft alone never waives it', async () => {
+  const f = await fixture(); const phase = f.workflow.phases.implementation;
+  phase.generationCommit = git(f.root, 'rev-parse', 'HEAD'); phase.status = 'awaiting_approval';
+  f.workflow.status = 'in_progress'; f.workflow.currentPhase = phase.id;
+  const before = git(f.root, 'rev-parse', 'HEAD');
+  const inspection = await inspectPhaseQualityGate(f.root, f.config, f.workflow, phase);
+  assert.equal(inspection.status, 'resolution-required');
+  assert.equal(inspection.findings[0].code, 'SPEC_COVERAGE_INCOMPLETE');
+  assert.equal(inspection.risks.eligible, true);
+  assert.deepEqual(inspection.risks.remaining, ['COVER-1:REQ-002']);
+  assert.equal(inspection.risks.gateMode, 'hard');
+  assert.equal(git(f.root, 'rev-parse', 'HEAD'), before);
+  assert.equal(git(f.root, 'status', '--porcelain'), '');
+  const expires = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const request = { expires, reason: 'The second behavior is explicitly deferred for this pilot.' };
+  await assert.rejects(prepareQualityRisk(f.root, f.config, f.workflow, request), { code: 'PHASE_QUALITY_RISK_HARD_MODE' });
+  const packet = await prepareQualityRisk(f.root, f.config, f.workflow, { ...request, gateMode: 'soft' });
+  assert.equal(packet.enablesPilotForPhase, true);
+  assert.deepEqual(packet.clauses, ['COVER-1:REQ-002']);
+  assert.deepEqual(packet.transitions, ['approve', 'consume', 'submit', 'terminal']);
+  assert.deepEqual(validateQualityRiskPacket(packet), packet);
+  const altered = { ...packet, reason: 'An entirely different unchecked explanation of the change.' };
+  assert.throws(() => validateQualityRiskPacket(altered), { code: 'PHASE_QUALITY_RISK_INTEGRITY' });
+  for (const change of [{ clauses: ['OTHER:REQ-002'] }, { transitions: ['everything'] },
+    { expires: '2026-02-30' }, { expires: '2099-01-01' }, { reason: 'short' }]) {
+    await assert.rejects(prepareQualityRisk(f.root, f.config, f.workflow, { ...request, gateMode: 'soft', ...change }));
+  }
+  f.workflow.resolution.qualityGateMode = 'soft';
+  assert.equal((await prepareQualityRisk(f.root, f.config, f.workflow, request)).enablesPilotForPhase, false);
+  await assert.rejects(assertFinalCodeSpecificationCoverage(f.root, f.config, f.workflow, phase, phase.generationCommit), { code: 'SPEC_COVERAGE_INCOMPLETE' });
+});
+
+test('quality risk cannot waive integrity, unaccounted paths, withdrawn clauses or unknown gates', () => {
+  assert.equal(normalizeQualityGateMode(), 'hard');
+  assert.throws(() => normalizeQualityGateMode('skip-all'));
+  const error = { code: 'SPEC_COVERAGE_INCOMPLETE', details: { coverage: { unimplemented: ['US:REQ-001'],
+    invalidEvidence: [], unclaimedChangedPaths: [], withdrawnButClaimed: [] } } };
+  assert.equal(coverageRiskEligibility(error).eligible, true);
+  for (const key of ['invalidEvidence', 'unclaimedChangedPaths', 'withdrawnButClaimed']) {
+    const altered = structuredClone(error); altered.details.coverage[key].push('untrusted');
+    assert.equal(coverageRiskEligibility(altered).eligible, false);
+  }
+  for (const code of ['CODE_TEST_FAILED', 'STORY_POLICY_ANCHOR_INVALID', 'PROTECTED_PATH', 'unknown']) {
+    assert.equal(coverageRiskEligibility({ ...error, code }).eligible, false);
+  }
+});
+
+test('risk decisions survive the Story reader and invalidate downstream rework decisions without legacy drift', () => {
+  const workflow = { schemaVersion: currentSchemaVersion('story-workflow'), resolution: { qualityGateMode: 'soft' } };
+  const legacy = storyDecisionsDigest(workflow);
+  assert.equal(legacy, `sha256:${digest(Object.fromEntries(STORY_DECISION_LISTS.map(key => [key, null])))}`);
+  assert.equal(storyDecisionsDigest({ ...workflow, qualityRiskDecisions: [] }), legacy);
+  workflow.qualityRiskDecisions = [{ id: 'PQR-test', reason: 'Retained risk affects the exact downstream decision.' }];
+  const restored = readRecord('story-workflow', canonicalJson(workflow)).record;
+  assert.deepEqual(restored.qualityRiskDecisions, workflow.qualityRiskDecisions);
+  assert.equal(restored.resolution.qualityGateMode, 'soft');
+  const accepted = storyDecisionsDigest(restored);
+  assert.notEqual(accepted, legacy);
+  restored.qualityRiskDecisions.push({ id: 'revocation-test', revokes: 'PQR-test' });
+  assert.notEqual(storyDecisionsDigest(restored), accepted);
+});
+
+test('exact committed risk needs live human origin; stale/expired/revoked decisions cannot waive the gate',
+  { skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async () => {
+    const f = await fixture(); const phase = f.workflow.phases.implementation;
+    phase.generationCommit = git(f.root, 'rev-parse', 'HEAD'); phase.status = 'in_progress';
+    phase.approvalPolicy = { mode: 'required', minimum: 1, authorities: ['engineers'], requiredAuthorities: [] };
+    f.workflow.status = 'in_progress'; f.workflow.currentPhase = phase.id;
+    f.workflow.resolution.approvalAuthorities = { engineers: { label: 'Engineering', allowAnyGitIdentity: true, members: [] } };
+    const options = { gateMode: 'soft', expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      reason: 'The second behavior is deliberately deferred during this pilot.' };
+    const packet = await prepareQualityRisk(f.root, f.config, f.workflow, options);
+    await assert.rejects(acceptQualityRisk(f.root, f.config, f.workflow, { ...options, confirm: packet.packetSha256 }), { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+    const record = { ...packet, id: `PQR-${packet.packetSha256.slice(7, 31)}`, actor: 'coverage@example.invalid',
+      authorityGroup: 'engineers', identityAssurance: null, authorizationId: 'original-human-review',
+      reviewAssurance: 'live-terminal-risk-review', at: new Date().toISOString(), testsWaived: false, phaseApproved: false };
+    f.workflow.qualityRiskDecisions = [record];
+    await write(f.root, `${ITEM}/workflow.json`, canonicalJson(f.workflow));
+    git(f.root, 'add', '.'); git(f.root, 'commit', '-m', 'retain public human decision without local proof');
+    let failure;
+    try { await assertFinalCodeSpecificationCoverage(f.root, f.config, f.workflow, phase, phase.generationCommit); } catch (error) { failure = error; }
+    assert.equal(failure.code, 'SPEC_COVERAGE_INCOMPLETE');
+    assert.equal(failure.details.qualityRisk.items[0].status, 'needs-reattestation');
+    const code = `import {attestQualityRisk} from ${JSON.stringify(new URL('../src/phase-quality-risk.mjs', import.meta.url).href)};
+      const result=await attestQualityRisk(${JSON.stringify(f.root)},${JSON.stringify(f.config)},${JSON.stringify(f.workflow)},${JSON.stringify({ id: record.id, confirm: `sha256:${digest(record)}` })});
+      console.log('RESULT:'+result.status);`;
+    const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
+    const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 20\nspawn -noecho $env(PQR_NODE) --input-type=module -e $env(PQR_CODE)\nexpect "Type Re-review risk ${record.id} to confirm this exact action, or Enter to cancel:"\nsend -- "Re-review risk ${record.id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
+      { cwd: f.root, encoding: 'utf8', timeout: 30000, env: { ...environment, PQR_NODE: process.execPath, PQR_CODE: code } });
+    assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
+    assert.match(ceremony.stdout, /risk-review-origin-restored/);
+    const coverage = await assertFinalCodeSpecificationCoverage(f.root, f.config, f.workflow, phase, phase.generationCommit);
+    assert.equal(coverage.complete, false); assert.equal(coverage.acceptedRisk.excepted, true);
+    assert.deepEqual(coverage.acceptedRisk.accepted, ['COVER-1:REQ-002']);
+    assert.equal(coverage.acceptedRisk.testsWaived, false);
+    assert.equal((await qualityRiskStatus(f.root, f.config, f.workflow, phase, failure,
+      { at: new Date(Date.now() + 8 * 86400000).toISOString() })).items[0].status, 'expired');
+    const binding = qualityRiskBinding(f.workflow, phase);
+    phase.generation = 2;
+    assert.notDeepEqual(qualityRiskBinding(f.workflow, phase), binding);
+    assert.equal((await qualityRiskStatus(f.root, f.config, f.workflow, phase, failure)).items[0].status, 'stale');
+    phase.generation = 1;
+    const narrowed = { code: failure.code, details: structuredClone(failure.details) }; narrowed.details.coverage.unimplemented.push('COVER-1:REQ-003');
+    assert.equal((await qualityRiskStatus(f.root, f.config, f.workflow, phase, narrowed)).items[0].status, 'observation-changed');
+    f.workflow.qualityRiskDecisions.push({ kind: 'phase-quality-risk-revocation', id: 'revoke-test', revokes: record.id,
+      reason: 'Pilot exception is no longer appropriate for this change.', actor: record.actor,
+      authorityGroup: record.authorityGroup, authorizationId: 'human-revocation', at: new Date().toISOString() });
+    await write(f.root, `${ITEM}/workflow.json`, canonicalJson(f.workflow)); git(f.root, 'add', '.'); git(f.root, 'commit', '-m', 'retain revocation');
+    assert.equal((await qualityRiskStatus(f.root, f.config, f.workflow, phase, failure)).items[0].status, 'revoked');
+    await assert.rejects(assertFinalCodeSpecificationCoverage(f.root, f.config, f.workflow, phase, phase.generationCommit), { code: 'SPEC_COVERAGE_INCOMPLETE' });
+    f.workflow.qualityRiskDecisions.pop();
+    await write(f.root, `${ITEM}/workflow.json`, canonicalJson(f.workflow)); git(f.root, 'add', '.'); git(f.root, 'commit', '-m', 'attempt to erase revocation');
+    await assert.rejects(qualityRiskStatus(f.root, f.config, f.workflow, phase, failure), { code: 'PHASE_QUALITY_RISK_INTEGRITY' });
+    f.workflow.qualityRiskDecisions[0].reason = 'Tampered decision that is not present in committed history.';
+    await assert.rejects(qualityRiskStatus(f.root, f.config, f.workflow, phase, failure), { code: 'PHASE_QUALITY_RISK_INTEGRITY' });
+  });
+
 test('editable candidate coverage catches incomplete delivery without consuming the generation', async () => {
   const { root, config, workflow } = await fixture();
   workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
@@ -168,7 +290,61 @@ test('editable candidate coverage catches incomplete delivery without consuming 
   const result = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation,
     candidate(['src/first.mjs', 'src/second.mjs']));
   assert.equal(result.complete, true);
+  const retained = workflow.phases.implementation.claimMaps.observed;
+  delete workflow.phases.implementation.claimMaps.observed;
+  assert.equal((await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation,
+    candidate(['src/first.mjs', 'src/second.mjs']))).complete, true, 'the candidate derives its observation before the first publication exists');
+  await assert.rejects(assertFinalCodeSpecificationCoverage(root, config, workflow, workflow.phases.implementation,
+    git(root, 'rev-parse', 'HEAD')), { code: 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED' });
+  workflow.phases.implementation.claimMaps.observed = retained;
 });
+
+test('live pilot acceptance commits only decision metadata and keeps its human event identity',
+  { skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async () => {
+    const f = await fixture(); const phase = f.workflow.phases.implementation;
+    phase.generationCommit = git(f.root, 'rev-parse', 'HEAD'); phase.status = 'awaiting_approval';
+    phase.generatedAgent = 'developer';
+    phase.approvalPolicy = { mode: 'required', minimum: 1, authorities: ['engineers'], requiredAuthorities: [] };
+    f.workflow.workItem.branch = 'main'; f.workflow.history = [];
+    f.workflow.status = 'in_progress'; f.workflow.currentPhase = phase.id;
+    for (const [order, id] of f.workflow.phaseOrder.entries()) Object.assign(f.workflow.phases[id], {
+      order, label: id, approvals: [], usage: [], status: f.workflow.phases[id].status ?? 'approved'
+    });
+    f.workflow.resolution.approvalAuthorities = { engineers: { label: 'Engineering', allowAnyGitIdentity: true, members: [] } };
+    f.workflow.resolution.workType = f.workflow.workItem.workType;
+    f.workflow.phases.planning.requiredArtifact = { path: 'artifacts/planning/plan.md', kind: 'implementation-plan' };
+    await write(f.root, `${ITEM}/artifacts/planning/plan.md`, '# Pinned plan\n');
+    f.config.git = { publish: 'off' };
+    await write(f.root, `${ITEM}/workflow.json`, canonicalJson(f.workflow));
+    git(f.root, 'add', '.'); git(f.root, 'commit', '-m', 'legacy submitted generation with a coverage gap');
+    const options = { phaseId: phase.id, gateMode: 'soft', expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      reason: 'The second behavior is explicitly deferred during this pilot.' };
+    const packet = await prepareQualityRisk(f.root, f.config, f.workflow, options);
+    const id = `PQR-${packet.packetSha256.slice(7, 31)}`;
+    await write(f.root, `${ITEM}/artifacts/implementation/scratch.md`, 'Unfinished draft must not enter the risk commit.\n');
+    await write(f.root, 'README.md', '# User-staged unrelated edit\n'); git(f.root, 'add', 'README.md');
+    const index = git(f.root, 'diff', '--cached');
+    const code = `import {acceptQualityRisk} from ${JSON.stringify(new URL('../src/phase-quality-risk.mjs', import.meta.url).href)};
+      const result=await acceptQualityRisk(${JSON.stringify(f.root)},${JSON.stringify(f.config)},${JSON.stringify(f.workflow)},${JSON.stringify({ ...options, confirm: packet.packetSha256 })});
+      console.log('RESULT:'+result.status);`;
+    const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
+    const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 30\nspawn -noecho $env(PQR_NODE) --input-type=module -e $env(PQR_CODE)\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
+      { cwd: f.root, encoding: 'utf8', timeout: 40000, env: { ...environment, PQR_NODE: process.execPath, PQR_CODE: code } });
+    assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
+    assert.match(ceremony.stdout, /RESULT:risk-accepted/);
+    const retained = JSON.parse(await readFile(path.join(f.root, ITEM, 'workflow.json'), 'utf8'));
+    assert.equal(retained.qualityRiskDecisions[0].id, id);
+    assert.equal(retained.phases.implementation.status, 'awaiting_approval');
+    assert.equal(retained.phases.implementation.generationCommit, phase.generationCommit);
+    assert.equal(retained.publicationProjections.at(-1).event.agent, null, 'human risk is not attributed to the code author agent');
+    assert.equal(retained.publicationProjections.at(-1).event.payload.decision, 'quality-risk');
+    assert.deepEqual(git(f.root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').split('\n').sort(),
+      [`${ITEM}/STATUS.md`, `${ITEM}/workflow.json`].sort());
+    assert.equal(git(f.root, 'diff', '--cached'), index, 'the pre-existing user index is preserved');
+    const coverage = await assertFinalCodeSpecificationCoverage(f.root, f.config, retained, retained.phases.implementation, phase.generationCommit);
+    assert.equal(coverage.acceptedRisk.excepted, true);
+    assert.equal((await inspectPhaseQualityGate(f.root, f.config, retained, retained.phases.implementation)).status, 'ready-with-accepted-risk');
+  });
 
 test('historical and intermediate code phases retain their pinned coverage boundary', async () => {
   const { root, config, workflow } = await fixture();

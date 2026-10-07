@@ -1491,6 +1491,21 @@ export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 
   return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '');
 }
 
+/** Bounded first-parent record history; never use textconv, external diff, replace refs or lazy fetch. */
+export function exactFirstParentFileChanges(root, objectId, file, { pattern, maximum = 1000 } = {}) {
+  invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git history tip is invalid.');
+  invariant(typeof file === 'string' && file.length > 0 && !file.includes('\0'), 'Exact Git history path is invalid.');
+  invariant(typeof pattern === 'string' && pattern.length > 0 && pattern.length <= 256 && !/[\x00-\x1f]/u.test(pattern), 'Git record history pattern is invalid.');
+  invariant(Number.isInteger(maximum) && maximum > 0 && maximum <= 4096, 'Git record history limit is invalid.');
+  const output = gitAnswer(['--literal-pathspecs', 'log', '--first-parent', '--diff-merges=first-parent',
+    '--format=%H', '--no-show-signature', '--no-notes', '--no-decorate', '--no-ext-diff', '--no-textconv',
+    `--max-count=${maximum}`, '-G', pattern, '--no-patch', objectId, '--', file],
+  { cwd: root, env: immutableLocalGitEnvironment(), maxBuffer: maximum * 65 + 512 }, 'Exact record history');
+  const commits = output.trim().split('\n').filter(Boolean).reverse();
+  invariant(commits.every(commit => EXACT_LOCAL_OBJECT_ID.test(commit)), 'Git record history returned invalid commit identities.');
+  return commits;
+}
+
 /** List paths from an exact local tree under the same immutable-object boundary. */
 export function exactTreePathsAtObject(root, objectId, pathspec = []) {
   invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git object ID is invalid.');

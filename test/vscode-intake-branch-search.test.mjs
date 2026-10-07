@@ -19,6 +19,17 @@ const form = (overrides = {}) => ({
   storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],
   workType: 'feature', baseRemote: 'origin', baseBranchChoices: choices, ...overrides
 });
+
+test('intake pins hard/soft quality mode and changes invalidate the approved preview', async () => {
+  const { intakePlanInputKey } = await import('../apps/vscode/src/views/intake-form.ts');
+  const hard = form({ baseBranch: 'main' }); const soft = { ...hard, qualityGateMode: 'soft' };
+  assert.equal(hard.qualityGateMode, 'hard');
+  assert.match(intakeHtml(soft), /data-quality-gate-mode value="soft" checked/);
+  for (const build of [intakeCommand, storyPreflightCommand]) {
+    const args = build(soft); assert.equal(args[args.indexOf('--gate-mode') + 1], 'soft');
+  }
+  assert.notEqual(intakePlanInputKey(hard), intakePlanInputKey(soft));
+});
 const decode = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const attribute = (html, name) => decode(new RegExp(`\\s${name}="([^"]*)"`).exec(html)?.[1] ?? '');

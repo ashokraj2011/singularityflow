@@ -30,3 +30,17 @@ test('appeal entry points reach shared preflight and prefill, never execute, hum
     assert.match(await readFile(new URL(`../apps/vscode/src/views/${file}`, import.meta.url), 'utf8'), /singularityFlow\.resolvePhaseIssues/);
   }
 });
+
+test('pilot quality risks are displayed safely and acceptance is prepared in a human terminal', async () => {
+  const html = phaseIssuesBody({ data: { quality: { risks: { gateMode: 'hard', eligible: true,
+    remaining: ['US:AC-001'], items: [{ id: 'PQR-reviewed', status: 'needs-reattestation',
+      reason: '<script>not executable</script>', expiresAt: '2026-10-20' }] } } } });
+  assert.match(html, /data-action="risk"/); assert.match(html, /US:AC-001/);
+  assert.match(html, /needs-reattestation/); assert.doesNotMatch(html, /<script>/);
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  const block = extension.slice(extension.indexOf("if (action === 'risk')"), extension.indexOf("if (action === 'repair' || action === 'resume')"));
+  assert.match(block, /'risk-prepare'/); assert.match(block, /'risk-accept'/);
+  assert.match(block, /packet\?\.binding\?\.workId !== workId/);
+  assert.match(block, /client\.location\), false/);
+  assert.doesNotMatch(block, /client\.run[^\n]*risk-accept/);
+});

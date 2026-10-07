@@ -7,6 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import { head } from '../git.mjs';
+import { activeQualityRisks } from '../phase-quality-risk.mjs';
 import { evidenceProvenance } from './provenance.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -315,5 +316,18 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
   const inspections = await loadInspections(root, directory, workflow, findings);
   const witnessRecords = await loadWitnessRecords(root, workflow);
   const scope = await loadScopeInventory(root, definition, workflow, directory, records, findings);
-  return evidenceGraph({ workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, scope });
+  const graph = evidenceGraph({ workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, scope });
+  try {
+    graph.qualityRisks = await activeQualityRisks(root, definition, workflow, 'terminal');
+    if (workflow.qualityRiskDecisions?.length) {
+      graph.inputSha256 = `sha256:${recordSha256({ input: graph.inputSha256, qualityRisks: graph.qualityRisks,
+        decisions: workflow.qualityRiskDecisions.map(record => recordSha256(record)) })}`;
+      graph.terminal = workflow.completion?.inputSha256 === graph.inputSha256 ? workflow.completion : null;
+    }
+  } catch (error) {
+    graph.untrusted = true;
+    graph.findings.push({ code: error.code ?? 'PHASE_QUALITY_RISK_INTEGRITY', category: 'records', blocking: true,
+      obligationIds: [], message: error.message });
+  }
+  return graph;
 }

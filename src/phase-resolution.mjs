@@ -39,6 +39,17 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || category === 'worktree') {
     resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
       'Review exact current bytes. Recovery can offer a hash-confirmed scoped commit and revalidation; unrelated edits and the index are preserved. Published work needs an authorized successor.');
+  } else if (code === 'spec_coverage_incomplete' && finding.details?.coverage?.unclaimedChangedPaths?.length) {
+    resolution = route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
+      'Account for exact unplanned paths through a reviewed scope appeal first. Recheck afterward; only the remaining missing coverage is eligible for pilot risk.', '/sf-appeal');
+  } else if ((category === 'quality-coverage' || code === 'spec_coverage_incomplete')
+      && (finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true)) {
+    resolution = route('pilot-risk-review', 'phase-approval-authority',
+      ['appeal', 'risk-prepare', '--phase', phase.id, '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
+      'Preview exact missing coverage. An authorized human may accept it for this pilot phase with an expiry; soft mode alone is no waiver. Tests, review and integrity stay enforced.', '/sf-appeal');
+  } else if (category === 'quality-coverage' || code === 'spec_coverage_incomplete') {
+    resolution = route('author-correction', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+      'Repair unaccounted scope or invalid evidence through a reviewed successor or plan amendment. Pilot risk cannot waive integrity.');
   } else if (/unclaimed|outside.*scope/u.test(code) || category === 'coverage') {
     resolution = route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
       'Explain each exact extra path and its approved clause or supporting class. Review the diff before accounting for it; tests still have to run.', '/sf-appeal');

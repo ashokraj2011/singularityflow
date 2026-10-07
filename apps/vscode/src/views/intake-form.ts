@@ -202,6 +202,7 @@ export interface InFlight {
 }
 
 export interface IntakeForm extends TestRecoveryDraft {
+  qualityGateMode: 'hard' | 'soft';
   /** The exact surface context this form will mutate. */
   targetWorkspace: string | null;
   targetRepository: string | null;
@@ -340,6 +341,7 @@ export interface PreflightTestReadiness {
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   ...EMPTY_TEST_RECOVERY_DRAFT,
+  qualityGateMode: 'hard',
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
@@ -421,7 +423,7 @@ export function intakePlanInputKey(form: IntakeForm): string {
   return JSON.stringify([
     form.targetWorkspace, form.targetRepository, form.targetBranch, form.shape, form.tracker,
     form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
-    form.targetUrl, form.profile, form.workType, form.baseBranch, form.readinessBaseline,
+    form.targetUrl, form.profile, form.workType, form.baseBranch, form.readinessBaseline, form.qualityGateMode,
     form.referenceRepositories.map(({ id, repository, branch }) => [id, repository, branch]),
     form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope,
     form.testBaselineRecords, form.testBaselineReason, form.testBaselineOwner,
@@ -589,6 +591,7 @@ export function intakeCommand(form: IntakeForm): string[] {
       ? selected.flatMap((entry) => ['--document-phases', storyAttachmentPhases(form, entry).phases?.join(',') ?? 'all']) : [])
   ];
   const isolated = ['--isolated-worktree', '--readiness-baseline', form.readinessBaseline,
+    '--gate-mode', form.qualityGateMode,
     ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
     ...testRecoveryArguments(form, true)];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
@@ -628,6 +631,7 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier, '--isolated-worktree',
     '--from-branch', form.baseBranch, '--selected-base-only',
     '--readiness-baseline', form.readinessBaseline,
+    '--gate-mode', form.qualityGateMode,
     ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
     ...references,
@@ -972,6 +976,11 @@ function baseBranchHtml(form: IntakeForm): string {
       <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>
     </div>` : ''}
     ${preflightTestReadinessHtml(form.baseTestReadiness)}
+    <fieldset ${form.busy || form.baselineRunning ? 'disabled' : ''}><legend>Quality gates</legend>
+      <label><input type="radio" name="quality-gate-mode" data-quality-gate-mode value="hard" ${form.qualityGateMode === 'hard' ? 'checked' : ''}> Hard — repair missing coverage before advancing</label>
+      <label><input type="radio" name="quality-gate-mode" data-quality-gate-mode value="soft" ${form.qualityGateMode === 'soft' ? 'checked' : ''}> Pilot soft — allow reviewed, recorded coverage risk</label>
+      <p class="meta">Soft mode is not a bypass. Each exception requires authorized human review of the exact candidate or generation, a reason and expiry. Tests, protected paths, identity and evidence integrity stay hard.</p>
+    </fieldset>
     ${form.baseBranch ? `<fieldset ${form.baselineRunning ? 'disabled' : ''}><legend>Existing-test baseline</legend>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> Use existing results if available; configure tests later</label>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="run" ${form.readinessBaseline === 'run' ? 'checked' : ''}> Optional: review and run a baseline now</label>
@@ -1417,6 +1426,7 @@ export const INTAKE_SCRIPT = `
     const el = event.target;
     if (el.hasAttribute('data-readiness-baseline')) return vscode.postMessage({ type: 'readinessBaseline', value: el.value });
     if (el.hasAttribute('data-story-test-scope')) return vscode.postMessage({ type: 'storyTestScope', value: el.value });
+    if (el.hasAttribute('data-quality-gate-mode')) return vscode.postMessage({ type: 'qualityGateMode', value: el.value });
     if (el.dataset?.testRecoveryField) return vscode.postMessage({ type: 'testRecoveryChoice', field: el.dataset.testRecoveryField, value: el.value });
     if (el.hasAttribute('data-test-recovery-confirm')) return vscode.postMessage({ type: 'testRecoveryConfirm', confirmed: el.checked, planDigest: el.dataset.testRecoveryConfirm });
     if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });

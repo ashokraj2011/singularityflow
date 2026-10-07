@@ -1,6 +1,7 @@
 import { conformancePhasesOf } from './phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { activeQualityRisks } from './phase-quality-risk.mjs';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state-stores.mjs';
 import { exists, gitHeadIsUnborn, gitReadOutput, nowIso, posix, snapshot, run } from './util.mjs';
@@ -637,7 +638,11 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           && !observedCoverage.invalidEvidence.length;
         return { ...observedCoverage, unimplemented: [], complete, severity: complete ? 'pass' : observedCoverage.severity };
       })();
-      const unimplemented = coverage.unimplemented.map((id) => ({ code: 'gate.clause.unimplemented', message: `clause ${id} is not fully implemented` }));
+      const qualityRisks = await activeQualityRisks(root, config, workflow, terminal ? 'terminal' : 'consume');
+      const carried = new Set(qualityRisks.flatMap(risk => risk.clauses));
+      const unimplemented = coverage.unimplemented.filter(id => !carried.has(id))
+        .map((id) => ({ code: 'gate.clause.unimplemented', message: `clause ${id} is not fully implemented` }));
+      for (const risk of qualityRisks) warnings.push(`Accepted pilot quality risk ${risk.id}: ${risk.clauses.join(', ')}; expires ${risk.expiresAt}. Coverage is excepted, not satisfied.`);
       const unclaimed = coverage.unclaimedChangedPaths.map((file) => ({ code: 'gate.clause.unclaimed-path', message: `changed path is not claimed by a clause: ${file}`, path: file }));
       const withdrawn = coverage.withdrawnButClaimed.map((id) => ({ code: 'gate.clause.withdrawn-claimed', message: `withdrawn clause still has an observed claim: ${id}` }));
       const invalid = coverage.invalidEvidence.map((message) => ({ code: 'gate.clause.invalid-evidence', message: `invalid clause evidence: ${message}` }));

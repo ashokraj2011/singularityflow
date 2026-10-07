@@ -189,6 +189,7 @@ import {
   recordFinalReconciliation, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
+import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
   evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
 } from './external-command-policy.mjs';
@@ -608,6 +609,7 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     : changedList('completenessReviews') ? { list: 'completenessReviews', event: 'completeness_reviewed', decision: 'completeness' }
     : changedList('planAmendments') ? { list: 'planAmendments', event: 'plan_amended', decision: 'plan' }
     : changedList('riskDecisions') ? { list: 'riskDecisions', event: 'risk_decided', decision: 'risk' }
+    : changedList('qualityRiskDecisions') ? { list: 'qualityRiskDecisions', event: 'quality_risk_decided', decision: 'quality-risk' }
     : changedList('witnessRecords') ? { list: 'witnessRecords', event: 'witness_recorded', decision: 'witness' }
       : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
   const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
@@ -996,6 +998,7 @@ export async function createWorkflow(root, config, {
   repositoryReadiness = null,
   readinessBaseline = 'reuse',
   testExecutionMode = 'changed-and-affected',
+  qualityGateMode = 'hard',
   readinessRepositories = [],
   testRecoveryPlan = null,
   executionOrigin = null,
@@ -1005,6 +1008,7 @@ export async function createWorkflow(root, config, {
 } = {}) {
   validateId(config, id);
   intakeBaselineChoice(readinessBaseline);
+  normalizeQualityGateMode(qualityGateMode);
   // Prove the configured storage boundary before any capability materialization or generated
   // artifact can create files beneath it. A symlinked Story root is never a repository namespace.
   await secureRepositoryPath(root, config.workItemRoot ?? 'singularity/work-items', {
@@ -1131,6 +1135,7 @@ export async function createWorkflow(root, config, {
     );
   }
   const snapshotState = await snapshotResolution(root, config, resolution);
+  snapshotState.qualityGateMode = qualityGateMode;
   const creator = identity(root);
   const pinnedApprovalAuthorities = structuredClone(snapshotState.approvalAuthorities
     ?? resolution.approvalAuthorities
@@ -2090,6 +2095,19 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
  * submitted code revision. Earlier code phases may accumulate evidence and are not final gates.
  */
 export async function assertFinalCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved' } = {}) {
+  try { return await assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary }); }
+  catch (error) {
+    if (error.code !== 'SPEC_COVERAGE_INCOMPLETE') throw error;
+    const risk = await qualityRiskStatus(root, config, workflow, phase, error,
+      { transition: boundary === 'submitted' ? 'submit' : 'approve' });
+    if (risk.excepted) return { ...error.details?.coverage, complete: false, acceptedRisk: risk };
+    error.details = { ...error.details, qualityRisk: risk,
+      recoveryCommands: [...(error.details?.recoveryCommands ?? []), `singularity-flow appeal preflight --phase ${phase.id} --json`] };
+    throw error;
+  }
+}
+
+export async function assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved' } = {}) {
   const policy = specificationPolicy(config, workflow);
   if (policy.coverage !== 'enforce'
       || !explicitPlannedClaimsRequired(workflow)
@@ -2141,7 +2159,8 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
       `Phase '${phase.id}' cannot be ${boundary} because rows the plan allocates to it are not implemented:\n- `
       + open.map((id) => `clause ${id} is not fully implemented`).join('\n- ')
       + '\nReturn this phase for correction, complete their source and test evidence, then publish and submit a new generation.',
-      { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, evidenceCommit, allocated: allocatedHere, open } }
+      { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
+        evidenceCommit, allocated: allocatedHere, open, coverage: { ...coverage, unimplemented: open } } }
     );
   }
   if (coverage.complete) return coverage;
@@ -6020,6 +6039,7 @@ export async function approvePhase(root, config, workflow, {
       { code: 'PHASE_VALIDATION_FAILED' }
     );
   }
+  let approvalQualityRisk = null;
   if (phaseRequiresCodeDelivery(phase)) {
     const validation = phase.deliveryEvidence?.validation;
     const currentTree = currentSourceTreeSha256;
@@ -6116,9 +6136,9 @@ export async function approvePhase(root, config, workflow, {
         );
       }
     }
-    await assertFinalCodeSpecificationCoverage(
+    approvalQualityRisk = (await assertFinalCodeSpecificationCoverage(
       root, config, workflow, phase, submittedReview.evidenceCommit
-    );
+    ))?.acceptedRisk ?? null;
   }
   if (phase.requiredArtifact?.kind === 'conformance-report') {
     const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
@@ -6233,6 +6253,7 @@ export async function approvePhase(root, config, workflow, {
     // regenerated underneath it — the bundle it named no longer exists.
     ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
     reviewPacketSha256: submittedReview.packetSha256,
+    ...(approvalQualityRisk ? { qualityRisks: approvalQualityRisk.items.filter(item => item.status === 'active') } : {}),
     ...(skillApprovalEvidence ? { skillEvidenceSha256: skillApprovalEvidence.evidenceSha256 } : {}),
     evidenceCommit: submittedReview.evidenceCommit,
     artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
@@ -9189,7 +9210,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     phaseId: requestedPhaseId,
     generation: event?.generation ?? requestedPhase?.generation ?? null,
     actor: event?.actor ?? decision?.actor ?? identity(root),
-    agent: event?.agent ?? decision?.agent ?? requestedPhase?.generatedAgent ?? null,
+    agent: Object.hasOwn(event ?? {}, 'agent') ? event.agent : decision?.agent ?? requestedPhase?.generatedAgent ?? null,
     authorityGroup: event?.authorityGroup ?? decision?.authorityGroup ?? null,
     payload: {
       ...(event?.payload ?? {}),
@@ -9200,7 +9221,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       ...(authenticatedPublicationTail?.capabilityPublicationPlanSha256 ? {
         capabilityPublicationPlanSha256: authenticatedPublicationTail.capabilityPublicationPlanSha256
       } : {}),
-      decision: decision?.decision ?? null,
+      decision: Object.hasOwn(event?.payload ?? {}, 'decision') ? event.payload.decision : decision?.decision ?? null,
       reviewPacketSha256: decision?.reviewPacketSha256 ?? null
     }
   });

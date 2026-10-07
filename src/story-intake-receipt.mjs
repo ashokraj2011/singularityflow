@@ -44,7 +44,7 @@ export function storyIntakeReceiptsDisabled(env = process.env) {
  */
 export function storyIntakeInputsDigest({
   workId, workType, baseBranch, remote, capabilityId = null, references = [], readinessBaseline = 'reuse',
-  testExecutionMode = 'changed-and-affected'
+  testExecutionMode = 'changed-and-affected', qualityGateMode = 'hard'
 }) {
   return `sha256:${recordSha256({
     workId: String(workId ?? ''),
@@ -54,6 +54,7 @@ export function storyIntakeInputsDigest({
     capabilityId: capabilityId ?? null,
     readinessBaseline,
     testExecutionMode,
+    qualityGateMode,
     references: [...references]
       .map((entry) => ({ id: String(entry.id), url: String(entry.url), branch: String(entry.branch) }))
       .sort((left, right) => left.id.localeCompare(right.id))

@@ -3,8 +3,8 @@ import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import { registerMessageRouter } from './messages.ts';
 import { phaseIssuesBody } from './phase-issues-page.ts';
 
-export type PhaseIssueAction = 'refresh' | 'appeal' | 'tests' | 'review' | 'repair' | 'resume';
-const ACTIONS: PhaseIssueAction[] = ['refresh', 'appeal', 'tests', 'review', 'repair', 'resume'];
+export type PhaseIssueAction = 'refresh' | 'appeal' | 'tests' | 'review' | 'repair' | 'resume' | 'risk';
+const ACTIONS: PhaseIssueAction[] = ['refresh', 'appeal', 'tests', 'review', 'repair', 'resume', 'risk'];
 
 export function showPhaseIssues(result: unknown, onAction: (action: PhaseIssueAction) => void): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel('singularityFlow.phaseIssues', 'Resolve phase issues', vscode.ViewColumn.Active,

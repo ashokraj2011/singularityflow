@@ -83,11 +83,13 @@ test('nested Angular with no root test detection starts without a receipt or imp
   await writeFile(path.join(root, 'apps/client/angular.json'), '{"projects":{}}\n');
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'Nested Angular without an intake test runner');
   git(root, 'push', '-q', 'origin', 'main', 'main:refs/heads/sflow/config');
-  const receipt = preflight(root, 'ANGULAR-LATER');
-  const started = data(start(root, 'ANGULAR-LATER', ['--intake-receipt', receipt.id]));
+  const receipt = preflight(root, 'ANGULAR-LATER', ['--gate-mode', 'soft']);
+  const started = data(start(root, 'ANGULAR-LATER', ['--intake-receipt', receipt.id, '--gate-mode', 'soft']));
   const item = path.join(started.repositoryPath, 'singularity/work-items/ANGULAR-LATER');
   const readiness = JSON.parse(await readFile(path.join(item, 'context/repository-test-readiness.json'), 'utf8'));
   const policy = JSON.parse(await readFile(path.join(item, 'context/test-policy.json'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.equal(workflow.resolution.qualityGateMode, 'soft', 'the selected pilot mode is sealed at creation');
   assert.equal(readiness.baselineObservation, 'pending-not-verified');
   assert.equal(policy.baselineObservation, 'pending-not-verified');
   assert.ok(readiness.repositories.every(row => row.status !== 'pass' && !row.testResults.length));

@@ -15,6 +15,25 @@ const AC2 = `${W}:AC-002`;
 const approval = (login, extra = {}) => ({ decision: 'approved', actor: { login }, authorityGroup: 'reviewers', at: '2026-10-02T00:00:00Z', ...extra });
 const policy = { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [] };
 
+test('pilot coverage risk is excepted, never a verification pass, and cannot override untrusted evidence', () => {
+  const workflow = story({ currentPhase: 'testing' });
+  const input = records(); input.observed[0].claims[REQ].verdict = 'missing';
+  input.observed[0].claims[REQ].observedPaths = [];
+  const graph = evidenceGraph({ workflow, records: input, deliveries: [delivery()] });
+  const initial = evaluateEvidence(graph).rows.find(row => row.id === REQ);
+  assert.equal(initial.obligations.find(entry => entry.responsibility === 'implement').status, 'missing');
+  graph.qualityRisks = [{ id: 'PQR-reviewed', phaseId: 'implementation', clauses: [REQ],
+    transitions: ['terminal'], expiresAt: '2099-01-01T00:00:00Z' }];
+  const reviewed = evaluateEvidence(graph);
+  const row = reviewed.rows.find(entry => entry.id === REQ);
+  assert.equal(row.obligations.find(entry => entry.responsibility === 'implement').status, 'excepted');
+  assert.equal(row.obligations.find(entry => entry.responsibility === 'implement').facets.exception, 'accepted-risk');
+  assert.ok(reviewed.rows.find(entry => entry.id === AC1).obligations.some(entry => entry.responsibility === 'verify'));
+  assert.ok(reviewed.findings.filter(entry => entry.code === 'EVIDENCE_IMPLEMENTATION_MISSING').every(entry => entry.blocking === false));
+  graph.untrusted = true;
+  assert.equal(evaluateEvidence(graph).rows.find(entry => entry.id === REQ).result, 'inconclusive');
+});
+
 function story({ code = 'approved', status = 'in_progress', currentPhase = 'testing', codeApprovals = [approval('bob')], ids = {} } = {}) {
   const intake = ids.intake ?? 'intake';
   const implementation = ids.implementation ?? 'implementation';

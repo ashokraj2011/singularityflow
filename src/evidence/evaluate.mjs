@@ -498,6 +498,18 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     // not permit the transition or accepted different evidence counts for nothing.
     const riskActions = [];
     for (const [index, obligation] of obligations.entries()) {
+      const pilot = !graph.untrusted && obligation.responsibility === 'implement'
+        && ['missing', 'partial'].includes(obligation.status) && obligation.facets?.freshness !== 'stale'
+        ? (graph.qualityRisks ?? []).find(risk => risk.clauses.includes(id)
+          && obligation.owningSteps.includes(risk.phaseId)) : null;
+      if (pilot) {
+        obligations[index] = { ...obligation, status: 'excepted',
+          riskDecision: { id: pilot.id, category: 'pilot-coverage', expiresAt: pilot.expiresAt, transitions: pilot.transitions },
+          facets: { ...obligation.facets, exception: 'accepted-risk' } };
+        for (const entry of rowFindings) if ((entry.obligationIds ?? []).length
+          && entry.obligationIds.every(subject => subject === obligation.id)) entry.blocking = false;
+        continue;
+      }
       const risk = riskDecisionState(workflow, obligation, { at, transition: 'terminal' });
       if (risk?.state === 'active') {
         obligations[index] = {

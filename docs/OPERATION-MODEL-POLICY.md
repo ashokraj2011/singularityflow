@@ -41,6 +41,10 @@ Every public operation is classified before its implementation module is importe
 | appeal.repair-resume | mutation | never | — | — |
 | appeal.repair-run | mutation | never | — | — |
 | appeal.repair-status | read | never | — | — |
+| appeal.risk-accept | mutation | never | — | — |
+| appeal.risk-attest | mutation | never | — | — |
+| appeal.risk-prepare | read | never | — | — |
+| appeal.risk-revoke | mutation | never | — | — |
 | appeal.show | read | never | — | — |
 | appeal.submit | mutation | never | — | — |
 | approvals | read | never | — | — |

@@ -1181,7 +1181,7 @@ Copilot custom-agent IDs may map to different governed-agent IDs in `singularity
     <details>
       <summary>
         <span class="skill-number">007</span>
-        <span class="skill-title"><strong>sflow-appeal</strong><span>Inspect phase blockers and preserve an exact-diff scope appeal for authorized human review without bypassing tests, intent or governance.</span></span>
+        <span class="skill-title"><strong>sflow-appeal</strong><span>Inspect phase blockers, scope appeals and exact expiring pilot coverage risks for authorized human review without bypassing tests or integrity.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -1190,7 +1190,7 @@ Copilot custom-agent IDs may map to different governed-agent IDs in `singularity
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~978 body tokens</span>
+          <span class="pill">~985 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-appeal</code></dd></div>
@@ -1204,7 +1204,7 @@ Copilot custom-agent IDs may map to different governed-agent IDs in `singularity
         </div>
         <pre data-source="sflow-appeal"><code>---
 name: sflow-appeal
-description: Inspect phase blockers and preserve an exact-diff scope appeal for authorized human review without bypassing tests, intent or governance.
+description: Inspect phase blockers, scope appeals and exact expiring pilot coverage risks for authorized human review without bypassing tests or integrity.
 disable-model-invocation: true
 
 ---
@@ -1219,19 +1219,23 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-Run `singularity-flow appeal preflight $ARGUMENTS --json` in the attached Story checkout. Present findings, owners and safe choices; do not infer a successful gate from a diagnostic preview.
+Run `singularity-flow appeal preflight $ARGUMENTS --json` in the attached Story checkout. Show findings/owners/routes; a preview grants no gate success.
 
-For extra code locations, explain exact paths and existing approved clauses. For documentation/build support, use the closed supporting class and reason. Preview `singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT --json` (or `--add-supporting PATH=CLASS --supporting-reason TEXT`). Show the packet once. Retain with `singularity-flow appeal submit` and the same selectors plus `--confirm PACKET_SHA256` after user authorization. Preserve unrelated edits.
+For `quality.risks.eligible`, offer correction or `singularity-flow appeal risk-prepare --phase PHASE --gate-mode soft --expires YYYY-MM-DD --reason TEXT --json`. Ask reason/expiry; show scope/binding/hash once. Narrow with `--clause EXACT-ID` or `--transition publish|submit|approve|consume|terminal`. Draft risk covers publication only; review published coverage afresh. Hard is default; explicit soft enrolls only this phase exception.
 
-`singularity-flow appeal list --json` lists packets; `singularity-flow appeal show APL-ID --json` shows before/after bytes. Relay `singularity-flow appeal decide APL-ID --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256` to an authorized human terminal. Never answer live review yourself. Accounting is not phase approval or a test/review waiver.
+Relay `singularity-flow appeal risk-accept` with identical options and `--confirm PACKET_SHA256` to a human terminal; never execute/answer its confirmation. Tests and approval remain required. Expired/revoked/stale risks cannot advance. For clone/key loss relay `singularity-flow appeal risk-attest PQR-ID --confirm DECISION_SHA256`; withdrawal uses `singularity-flow appeal risk-revoke PQR-ID --reason TEXT --confirm DECISION_SHA256`. Use returned hashes. No blanket waiver.
 
-New behaviour uses `singularity-flow story intent-amendment`; observed failures use `singularity-flow story test-policy risks`. Follow returned commands; never waive protected governance, identity, stale provenance or unavailable trust. Preserve publications; use successor/rejection routes.
+Extra paths: preview `singularity-flow appeal prepare --add-location CLAUSE=PATH --reason TEXT --json`, or `--add-supporting PATH=CLASS --supporting-reason TEXT`. Show exact clauses/diff once; retain with `singularity-flow appeal submit`, same selectors and `--confirm PACKET_SHA256` after authorization. Preserve unrelated edits.
 
-If the retained decision needs live review on a new checkout, relay `singularity-flow appeal attest APL-ID --confirm DECISION_SHA256` from the shown decision hash. An authorized reviewer re-presents the exact decision in a human terminal; historical records remain unchanged.
+Use `singularity-flow appeal list --json` / `singularity-flow appeal show APL-ID --json`. Relay `singularity-flow appeal decide APL-ID --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256` to a human terminal; never answer live review. Accounting waives no test/review/approval.
 
-For repair, run `singularity-flow appeal repair-plan --phase PHASE --json`. Honor `admission`, `action` and the persisted budget. Confirm an allowed plan with `singularity-flow appeal repair-run --phase PHASE --confirm PLAN_SHA256 --json` within authorized work. A producer handoff reserves first: correct only bound owned findings, then `singularity-flow appeal repair-resume --phase PHASE --json`. Active attempts always resume, never restart. Only registered idempotent retained-publication sync executes automatically; no nested model or error-supplied command. Unknown outcomes, protected edits, approvals and risks retain their owner route. `repair-status` is read-only.
+New behaviour: `singularity-flow story intent-amendment`; failed tests: `singularity-flow story test-policy risks`. Integrity/identity/protected paths stay hard; preserve publications.
 
-After a decision or repair, recheck the returned phase command; do not auto-submit or approve. Never retry an unchanged refusal or reset a journal. Respect any stricter returned repair budget; stop after at most three changed-condition repairs or an oscillation and show the exact human/owner route. Manual correction and authorized successor routes remain available after exhaustion. Never stash, discard, force-push, forge evidence or mark failed/skipped/unavailable tests passed.
+Clone/key loss: relay `singularity-flow appeal attest APL-ID --confirm DECISION_SHA256`; never rewrite history.
+
+Repair: `singularity-flow appeal repair-plan --phase PHASE --json`; honor admission/action/budget. Authorized `singularity-flow appeal repair-run --phase PHASE --confirm PLAN_SHA256 --json` reserves before handoff. Correct bound owned findings, then `singularity-flow appeal repair-resume --phase PHASE --json`; active attempts resume, never restart. Only registered idempotent publication sync is automatic; no nested model/error-supplied command. Unknown outcomes/protected edits/approvals/risks keep owner routes. `repair-status` is read-only.
+
+Recheck after repair/decision; never auto-submit/approve, retry unchanged, reset journals or forge passes. After three changed-condition attempts/oscillation show the owner route; correction/successors remain available. Never stash/discard/force-push.
 </code></pre>
       </div>
     </details>
@@ -9915,7 +9919,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~979 body tokens</span>
+          <span class="pill">~986 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
@@ -9945,16 +9949,16 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Require WORK-ID. Read `singularity-flow workspace current --json`. If the selected repository is `missing`/`empty`, run `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt; --level readiness --json`. Re-read; use ready `repositoryPath`, else opened Git root. Run `singularity-flow version` and `git status --short`; stop on failure or dirt.
-2. Run `singularity-flow workspace branches --json --intake --work-id &lt;WORK-ID&gt;`. Unless `existingWork.status` is `new`, run `singularity-flow session candidates --json`; an existing ID routes to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`; never restart it.
+2. Run `singularity-flow workspace branches --json --intake --work-id &lt;WORK-ID&gt;`. Unless `existingWork.status` is `new`, use `singularity-flow session candidates --json`; existing IDs route to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`, never restart.
 3. Check `singularity-flow workspace status &lt;WORKSPACE-PATH&gt; --level readiness --json`; repair missing required members. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
-4. Never preselect. Choose `&lt;BASE&gt;`. Unless `intake.workflowCatalogScope` is `approved-configuration`, run step 6&#39;s command without `--work-type`. Choose `&lt;WORKFLOW&gt;` from its exact-base `intake.storyWorkflows`.
-5. Ask for Jira/manual outcome, acceptance criteria, scope, risks, named documents. References need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Pass `--jira`/`--story-file`; pair document inputs with their name flags. Never search for inputs.
-6. Ask separately for baseline (`reuse`, optional reviewed `run`, `defer`) and tests (`changed-and-affected`, `all-configured`). Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt;`. Missing setup or failed tests never block creation or imply a pass/risk acceptance. No implicit installs/tests; explicit baseline requests use `/sf-ready` and its reviewed Shell action. World Model/AST/models/telemetry are advisory. Never upgrade configuration here.
-7. Start with the same base/workflow and baseline/test-mode flags; add returned `--intake-receipt`. `poc-workflow` needs `--target-url`. Without `ask_user`, use step 8 or stop.
-8. Without `ask_user`, require pinned configuration: `singularity-flow choices begin start &lt;WORK-ID&gt; --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, then pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
+4. Choose `&lt;BASE&gt;` explicitly. If `intake.workflowCatalogScope` is not `approved-configuration`, run step 6 without `--work-type`. Choose `&lt;WORKFLOW&gt;` from exact-base `intake.storyWorkflows`.
+5. Collect Jira/manual outcome, criteria, scope, risks, documents. References need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Pass `--jira`/`--story-file`; pair document inputs with their name flags. Never search for inputs.
+6. Choose baseline (`reuse`, optional reviewed `run`, `defer`), tests (`changed-and-affected`, `all-configured`) and gates (`hard`, `soft`) separately. Soft needs exact human coverage-risk review, reason/expiry; tests/integrity stay hard. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here.
+7. Start with identical base/workflow/baseline/test/gate flags; add returned `--intake-receipt`. `poc-workflow` needs `--target-url`. Without `ask_user`, use step 8 or stop; keep hard gates unless explicitly selected otherwise.
+8. Without `ask_user`, use pinned choices: `singularity-flow choices begin start &lt;WORK-ID&gt; --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
 9. Show readiness; `/sf-next`. Pending tests: Copilot `/sf-test-setup`; Shell `singularity-flow capability test-setup --json`. Run tests later; require evidence at publish.
 
-TRP: read `singularity-flow explain test-recovery`. Failure acceptance needs native evidence and live human review; never answer approval cards. Returned actions only.
+TRP: `singularity-flow explain test-recovery`; acceptance needs native evidence/live human review. Never answer approval cards; use returned actions.
 </code></pre>
       </div>
     </details>

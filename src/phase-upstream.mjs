@@ -25,6 +25,13 @@ export const STORY_DECISION_LISTS = Object.freeze(['scopeDispositions', 'complet
 
 const digest = (value) => `sha256:${recordSha256(value)}`;
 
+/** Preserve legacy digests without risks; a retained acceptance or withdrawal changes rework inputs. */
+export function storyDecisionsDigest(workflow) {
+  const decisions = Object.fromEntries(STORY_DECISION_LISTS.map((key) => [key, workflow[key] ?? null]));
+  if (workflow.qualityRiskDecisions?.length) decisions.qualityRiskDecisions = workflow.qualityRiskDecisions;
+  return digest(decisions);
+}
+
 /** One producer as its consumer's phase-input record binds it. */
 function producerDigest(phase) {
   return digest({
@@ -71,7 +78,7 @@ export async function phaseUpstream(root, config, workflow, phase) {
     }) });
   }
   refs.push({ kind: 'documents', ref: phase.id, sha256: digest(await offeredDocuments(root, config, workflow, phase.id)) });
-  refs.push({ kind: 'decisions', ref: 'story', sha256: digest(Object.fromEntries(STORY_DECISION_LISTS.map((key) => [key, workflow[key] ?? null]))) });
+  refs.push({ kind: 'decisions', ref: 'story', sha256: storyDecisionsDigest(workflow) });
   return { sha256: digest(refs), refs };
 }
 

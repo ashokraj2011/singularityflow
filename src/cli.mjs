@@ -1,6 +1,8 @@
 import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
 import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
+import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
+import { readStdinText as stdinText } from './commands/read-stdin.mjs';
 import { recordWitness } from './verification/witness-records.mjs';
 import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
@@ -1726,6 +1728,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
             remote: requestedRemote, capabilityId: optionString(options, 'capability') ?? null,
             readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
             testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected'),
+            qualityGateMode: normalizeQualityGateMode(optionString(options, 'gate-mode', 'hard')),
             references: intakeReferences
               .map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
           },
@@ -1932,6 +1935,7 @@ function testRecoveryIntakePhases(definition, workType, snapshot, capabilityId, 
 }
 
 export async function startCommand(positionals, options) {
+  normalizeQualityGateMode(optionString(options, 'gate-mode', 'hard'));
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
   // These refusals need neither configuration authority nor a new worktree. Apply them before
@@ -3290,6 +3294,7 @@ export async function startCommand(positionals, options) {
           readinessRepositories,
           readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
           testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected'),
+          qualityGateMode: optionString(options, 'gate-mode', 'hard'),
           testRecoveryPlan,
           capabilityId: workflowCapabilityId,
           // Always carry the verified catalog digest across the preflight/creation boundary. The
@@ -12951,12 +12956,6 @@ async function pluginCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown plugin subcommand: ${subcommand}`);
 }
 
-async function stdinText() {
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString('utf8');
-}
-
 /**
  * What intake needs from the portfolio: the profiles, and whether an Epic or an Initiative could
  * start at all. The engine refuses one while no approval authority has a member; saying so here lets
@@ -13003,7 +13002,7 @@ async function intakeExistingWork(root, workId, catalog) {
  */
 async function intakeReceiptForPreflight(root, {
   passed, storyId, workType, capabilityOption, repositories, snapshot, definition, references,
-  readinessBaseline = 'reuse', testExecutionMode = 'changed-and-affected'
+  readinessBaseline = 'reuse', testExecutionMode = 'changed-and-affected', qualityGateMode = 'hard'
 }) {
   const declined = (reason) => ({ issued: false, reason });
   if (storyIntakeReceiptsDisabled()) return declined('disabled');
@@ -13025,6 +13024,7 @@ async function intakeReceiptForPreflight(root, {
       capabilityId: capabilityOption,
       readinessBaseline,
       testExecutionMode,
+      qualityGateMode,
       references: references.map((request) => ({
         id: request.id, url: request.repository, branch: request.requestedBranch
       }))
@@ -16451,7 +16451,8 @@ async function workspaceCommand(positionals, options) {
               repositories, snapshot: approvedConfigurationSnapshot, definition,
               references: receiptReferences,
               readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
-              testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected')
+              testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected'),
+              qualityGateMode: normalizeQualityGateMode(optionString(options, 'gate-mode', 'hard'))
             })
           } : {})
         };

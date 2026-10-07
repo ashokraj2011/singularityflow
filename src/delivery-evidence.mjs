@@ -1014,7 +1014,7 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
 }
 
 /** Refuse a code phase before generation state or telemetry is mutated. */
-export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase) {
+export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
   if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
     throw new SingularityFlowError(
@@ -1374,8 +1374,13 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
   };
   // The preview loads bound Story records; defer that dependency until the kernel is initialized.
-  const { assertCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');
-  await assertCandidateSpecificationCoverage(root, config, workflow, phase, delivery);
+  const { assertCandidateSpecificationCoverage, assertStrictCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');
+  try { await (strictCoverage ? assertStrictCandidateSpecificationCoverage : assertCandidateSpecificationCoverage)(root, config, workflow, phase, delivery); }
+  catch (error) {
+    // Internal candidate bytes are used to bind risk, not serialized into CLI errors or reports.
+    if (error.code === 'SPEC_COVERAGE_INCOMPLETE') Object.defineProperty(error, 'qualityRiskCandidate', { value: delivery });
+    throw error;
+  }
   return delivery;
 }
 

@@ -647,6 +647,7 @@ export async function storyFetchCommand(positionals, options) {
       baseCommit: readinessBase ?? null,
       workType,
       agent: agent.agent,
+      qualityGateMode: optionString(options, 'gate-mode', 'hard'),
       resolved: resolvedWorkType,
       repositoryReadiness,
       readinessRepositories,

@@ -280,8 +280,10 @@ test('all packaged workflow phase IDs use the same missing-input readiness contr
     const resolved = resolveWorkType(definition, id);
     for (const phase of resolved.phases) seen.add(phase.id);
   }
-  assert.equal(Object.keys(definition.workTypes).length, 14);
-  assert.equal(seen.size, 36);
+  assert.equal(Object.keys(definition.workTypes).length, 15);
+  assert.equal(seen.size, 40);
+  assert.deepEqual(resolveWorkType(definition, 'demo-web-e2e-testing').phases.map((phase) => phase.id),
+    ['demo-web-intake', 'demo-web-check', 'demo-web-repair', 'demo-web-retest']);
   const f = await fixture(t);
   await writeFile(f.absolute, '# Reviewed work\n\nTODO complete the accepted scope.\n');
   for (const id of seen) {

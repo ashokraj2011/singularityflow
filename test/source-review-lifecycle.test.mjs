@@ -163,6 +163,132 @@ test('review context binds Story snapshot, exact attachment bytes, and published
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'missing');
 });
 
+async function pinClarification(root, workflow, phaseId, { answer = 'Provide one desktop screenshot and one automated positive-value test.', status = 'answered', mutate = () => {} } = {}) {
+  const phase = workflow.phases[phaseId];
+  const relative = `${ITEM}/context/clarifications-${phaseId}-gen${phase.generation}.json`;
+  const record = { schemaVersion: 1, workId: ID, phase: phaseId, generation: phase.generation,
+    mode: 'required', completed: true, recordedAt: '2026-10-07T03:06:13.236Z',
+    recordedBy: session.actor, agent: phase.generatedAgent,
+    promptSha256: 'b'.repeat(64), groundingRecordSha256: 'c'.repeat(64),
+    promptPath: `${ITEM}/context/prompts/${phaseId}-gen${phase.generation}.md`,
+    groundingRecordPath: `${ITEM}/context/${phaseId}-gen${phase.generation}.json`,
+    responses: [{ id: 'Q-005', question: 'What evidence satisfies screenshot and test cases?', answer, status, blocking: false }] };
+  mutate(record);
+  const bytes = `${JSON.stringify(record, null, 2)}\n`;
+  await put(root, relative, bytes);
+  const reference = { generation: phase.generation, path: relative, sha256: sha(bytes),
+    promptSha256: record.promptSha256, responses: record.responses.length, markers: [],
+    recordedAt: record.recordedAt, recordedBy: record.recordedBy };
+  phase.clarifications = [reference];
+  const relativeArtifact = `${ITEM}/${phase.requiredArtifact.path}`;
+  const original = await readFile(path.join(root, relativeArtifact), 'utf8');
+  const authored = original.replace(/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->\s*/u, '');
+  const published = `<!-- singularity-flow:metadata\n${JSON.stringify({ clarification: reference })}\n-->\n\n${authored}`;
+  await put(root, relativeArtifact, published);
+  phase.artifacts = [{ path: relativeArtifact, sha256: sha(published) }];
+  await put(root, `${ITEM}/workflow.json`, `${JSON.stringify(workflow, null, 2)}\n`);
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'Publish human clarification with artifact');
+  return { relative, record, reference };
+}
+
+test('the plural-test incident packet includes the exact published human answer, not a later draft', async (t) => {
+  const { root, config, workflow } = await fixture(t);
+  const pinned = await pinClarification(root, workflow, 'specification');
+  const input = await sourceReviewInput(root, config, workflow, 'specification');
+  const packet = await sourceReviewContext(root, config, workflow, 'specification', '.git/report.json');
+  assert.equal(packet.clarifications[0].responses[0].answer, pinned.record.responses[0].answer);
+  assert.equal(packet.clarifications[0].sha256, pinned.reference.sha256);
+  assert.deepEqual(packet.binding.clarifications, [{ id: 'clarification:current-phase', phase: 'specification',
+    generation: 1, path: pinned.relative, sha256: pinned.reference.sha256 }]);
+  assert.match(packet.clarificationGuidance, /correct the review of this generation/);
+  assert.deepEqual(packet.reportTemplate.clarificationsReviewed, [], 'the template must not claim the reviewer read the answers');
+  const report = review(input);
+  assert.equal(checkSourceReviewReport(report, input).retentionReady, false, 'an acknowledgement is required');
+  report.clarificationsReviewed = ['clarification:current-phase'];
+  assert.equal(checkSourceReviewReport(report, input).evaluation.status, 'ready');
+  await put(root, `${ITEM}/context/clarifications-specification-gen2.json`, '{"answer":"require ten tests"}');
+  assert.equal((await sourceReviewInput(root, config, workflow, 'specification')).clarifications[0].responses[0].answer,
+    pinned.record.responses[0].answer, 'an unpublished later answer cannot replace the published answer');
+  await retainReport(root, config, workflow, report, input);
+  assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready');
+  // Equivalent CRLF checkout bytes on Windows still use the committed record hash.
+  await put(root, pinned.relative, (await readFile(path.join(root, pinned.relative), 'utf8')).replaceAll('\n', '\r\n'));
+  assert.equal((await sourceReviewInput(root, config, workflow, 'specification')).clarifications[0].sha256, pinned.reference.sha256);
+  await put(root, pinned.relative, `${JSON.stringify({ ...pinned.record, responses: [] })}\n`);
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_SOURCE_CHANGED' });
+});
+
+test('a renamed planning phase reads both its answers and the approved renamed scope answers', async (t) => {
+  const { root, config, workflow } = await fixture(t);
+  const scope = workflow.phases.specification;
+  delete workflow.phases.specification;
+  scope.id = 'custom-scope';
+  scope.status = 'approved';
+  workflow.phases['custom-scope'] = scope;
+  workflow.phases['custom-plan'] = { ...scope, id: 'custom-plan', status: 'in_progress', generatedAgent: 'architect',
+    requiredArtifact: { path: 'artifacts/plan.md' }, artifacts: [] };
+  workflow.phaseOrder = ['custom-scope', 'custom-plan'];
+  workflow.currentPhase = 'custom-plan';
+  workflow.resolution.obligationGraph.nodes = [
+    { id: 'custom-scope', responsibilities: ['scope', 'review'] },
+    { id: 'custom-plan', responsibilities: ['plan', 'review'] }
+  ];
+  await put(root, `${ITEM}/artifacts/plan.md`, '# Plan\n| Clause | Expected paths | Planned tests |\n|---|---|---|\n| `EXAMPLE:REQ-001` | `src/app.mjs` | `test/app.test.mjs` |\n| `EXAMPLE:AC-001` | `src/app.mjs` | `test/app.test.mjs` |\n');
+  await pinClarification(root, workflow, 'custom-scope');
+  await pinClarification(root, workflow, 'custom-plan', { answer: 'Use the existing test harness.' });
+  const packet = await sourceReviewContext(root, config, workflow, 'custom-plan', '.git/report.json');
+  assert.equal(packet.kind, 'planning');
+  assert.deepEqual(packet.clarifications.map((entry) => [entry.role, entry.phase]),
+    [['current-phase', 'custom-plan'], ['approved-scope', 'custom-scope']]);
+  const input = await sourceReviewInput(root, config, workflow, 'custom-plan');
+  const report = structuredClone(packet.reportTemplate);
+  report.rows.forEach((row) => { row.assessment = 'supported'; });
+  report.clarificationsReviewed = ['clarification:current-phase'];
+  assert.equal(checkSourceReviewReport(report, input).retentionReady, false, 'the approved scope answers must also be read');
+  report.clarificationsReviewed.push('clarification:approved-scope');
+  assert.equal(checkSourceReviewReport(report, input).evaluation.status, 'ready');
+});
+
+test('invalid, cross-Story or unpublished clarification cannot become review authority', async (t) => {
+  for (const mutate of [
+    (record) => { record.workId = 'OTHER'; },
+    (record) => { record.phase = 'planning'; },
+    (record) => { record.generation = 2; },
+    (record) => { record.completed = false; },
+    (record) => { record.responses[0].blocking = true; },
+    (record) => { record.recordedBy = null; }
+  ]) {
+    const { root, config, workflow } = await fixture(t);
+    await pinClarification(root, workflow, 'specification', { mutate });
+    await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_CLARIFICATION_INVALID' });
+  }
+  const { root, config, workflow } = await fixture(t);
+  const pinned = await pinClarification(root, workflow, 'specification');
+  // Both memory references agree, but the new file has not been published.
+  const next = `${JSON.stringify({ ...pinned.record, responses: [{ ...pinned.record.responses[0], answer: 'Different answer.' }] })}\n`;
+  await put(root, pinned.relative, next);
+  const reference = { ...pinned.reference, sha256: sha(next) };
+  workflow.phases.specification.clarifications = [reference];
+  await put(root, `${ITEM}/artifacts/spec.md`, `<!-- singularity-flow:metadata\n${JSON.stringify({ clarification: reference })}\n-->\n\n${SPEC}`);
+  workflow.phases.specification.artifacts[0].sha256 = sha(await readFile(path.join(root, `${ITEM}/artifacts/spec.md`)));
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_INPUT_UNPUBLISHED' });
+});
+
+test('missing or hidden publication-bound answers fail explicitly, while a deferred answer stays labelled deferred', async (t) => {
+  const { root, config, workflow } = await fixture(t);
+  const pinned = await pinClarification(root, workflow, 'specification', { answer: 'Unknown until the test harness is inspected.', status: 'deferred' });
+  assert.equal((await sourceReviewInput(root, config, workflow, 'specification')).clarifications[0].responses[0].status, 'deferred');
+  const phase = workflow.phases.specification;
+  phase.clarifications = [];
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_CLARIFICATION_INVALID' });
+  phase.clarifications = [pinned.reference, pinned.reference];
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_CLARIFICATION_INVALID' });
+  phase.clarifications = [pinned.reference];
+  await rm(path.join(root, pinned.relative));
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE' });
+});
+
 test('an attachment a reviewer cannot cite waits for a recorded human decision instead of refusing', async (t) => {
   const readable = await fixture(t);
   const readableInput = await sourceReviewInput(readable.root, readable.config, readable.workflow, 'specification');

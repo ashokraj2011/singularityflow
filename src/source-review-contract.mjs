@@ -45,6 +45,7 @@ function schema(kind) {
     binding: z.record(z.string(), z.unknown()).describe('Copy the entire exact binding from context; never edit it.'),
     reviewer: z.strictObject({ agentId: id, readOnly: z.literal(true) }),
     sourcesReviewed: z.array(id).max(100),
+    clarificationsReviewed: z.array(id).max(2).optional().describe('Read and acknowledge every record in context.clarifications. Omit only when none is pinned.'),
     rows: z.array(kind === 'planning' ? planningRow : specificationRow).min(kind === 'planning' ? 0 : 1).max(2000),
     findings: z.array(reviewerFinding).max(500)
   });
@@ -90,6 +91,7 @@ export function sourceReviewReportTemplate(input) {
   return {
     schemaVersion: currentSchemaVersion('source-grounded-review'), resultType: 'source-grounded-review', kind: input.kind,
     binding: input.binding, reviewer: { agentId: input.reviewerAgentId, readOnly: true },
-    sourcesReviewed: input.sources.map((source) => source.id), rows, findings: []
+    sourcesReviewed: input.sources.map((source) => source.id),
+    ...(input.clarifications?.length ? { clarificationsReviewed: [] } : {}), rows, findings: []
   };
 }

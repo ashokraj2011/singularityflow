@@ -1009,6 +1009,13 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /no agent setup, creation, or persistent agent selection is needed/);
   assert.match(skill, /authored-content hashes only/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
+  for (const instructions of [skill, agent]) {
+    assert.match(instructions, /clarificationsReviewed/);
+    assert.match(instructions, /pendingDispositions/);
+    assert.match(instructions, /deferred|Deferred/);
+  }
+  assert.match(skill, /retain a corrected review of this generation/);
+  assert.match(agent, /rather than demanding a successor/);
 });
 
 test('help skill serves natural questions from cited docs and delegates work IDs to the guide', async () => {

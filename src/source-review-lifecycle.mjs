@@ -10,7 +10,8 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument } from './document-storage.mjs';
-import { authoredArtifactText } from './publication-preflight.mjs';
+import { authoredArtifactText, inspectManagedArtifactMetadata } from './publication-preflight.mjs';
+import { clarificationRecordRelative } from './clarifications.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
@@ -237,11 +238,54 @@ async function phaseArtifact(root, config, workflow, phaseId) {
   const file = await checkedFile(root, relative, `Phase '${phaseId}' artifact`, registered.sha256);
   // Bind what the author wrote, not the engine-owned envelope: submission and approval rewrite the
   // metadata block (status, commits), and a review must still describe the artifact afterwards.
-  const authored = authoredArtifactText(utf8(file.bytes, `Phase '${phaseId}' artifact`));
+  const text = utf8(file.bytes, `Phase '${phaseId}' artifact`);
+  const authored = authoredArtifactText(text);
+  const envelope = inspectManagedArtifactMetadata(text);
+  let clarification = null;
+  if (envelope.status === 'valid') {
+    try { clarification = JSON.parse(envelope.leading.replace(/^<!-- singularity-flow:metadata\s*/u, '').replace(/-->\s*$/u, '')).clarification ?? null; }
+    catch { throw new SingularityFlowError(`Phase '${phaseId}' artifact metadata is invalid.`, { code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE' }); }
+  }
   // The full-file digest is display-only. It must not enter the review binding: submit/approve
   // update managed metadata without invalidating a review of unchanged authored content.
   return { path: relative, text: boundedText(authored, `Phase '${phaseId}' artifact`),
-    registeredFileSha256: file.sha256 };
+    registeredFileSha256: file.sha256, clarification };
+}
+
+/** Read only the human checkpoint pinned by this publication, never a live/later draft record. */
+async function publishedClarification(root, config, workflow, phase, artifact, role) {
+  const references = (phase.clarifications ?? []).filter((entry) => entry.generation === phase.generation);
+  const reference = references[0] ?? null;
+  const fail = () => { throw new SingularityFlowError(
+    `Phase '${phase.id}' has an invalid publication-bound human clarification. Restore the exact published record before reviewing; do not rewrite the Story source.`,
+    { code: 'SOURCE_REVIEW_CLARIFICATION_INVALID' }
+  ); };
+  if (references.length > 1 || canonicalJson(reference) !== canonicalJson(artifact.clarification)) fail();
+  if (!reference) return null;
+  const relative = clarificationRecordRelative(config, workflow, phase, phase.generation);
+  if (reference.path !== relative || !SHA256.test(String(reference.sha256 ?? ''))
+      || !SHA256.test(String(reference.promptSha256 ?? ''))) fail();
+  const file = await checkedFile(root, relative, `Phase '${phase.id}' human clarification`, reference.sha256,
+    { maxBytes: MAX_TEXT_BYTES });
+  let record;
+  try { record = readRecord('clarification-record', file.bytes).record; }
+  catch { fail(); }
+  const responses = record.responses;
+  if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== phase.generation
+      || !['required', 'when-needed'].includes(record.mode) || record.completed !== true
+      || record.promptSha256 !== reference.promptSha256
+      || canonicalJson(record.recordedBy) !== canonicalJson(reference.recordedBy)
+      || !record.recordedBy || ![record.recordedBy.name, record.recordedBy.email, record.recordedBy.login].some((value) => typeof value === 'string' && value.trim())
+      || record.recordedAt !== reference.recordedAt || !record.recordedAt || !record.agent
+      || !Array.isArray(responses) || !responses.length || responses.length > 10 || responses.length !== reference.responses
+      || new Set(responses.map((entry) => entry?.id)).size !== responses.length
+      || responses.some((entry) => !entry || typeof entry.id !== 'string' || !entry.id.trim()
+        || typeof entry.question !== 'string' || !entry.question.trim()
+        || typeof entry.answer !== 'string' || !entry.answer.trim()
+        || !['answered', 'deferred'].includes(entry.status) || entry.blocking === true)) fail();
+  return { id: `clarification:${role}`, role, phase: phase.id, generation: phase.generation,
+    path: relative, sha256: file.sha256, recordedBy: record.recordedBy, recordedAt: record.recordedAt,
+    responses };
 }
 
 /** Exact source bytes and artifact bytes for an independent reviewer. This never writes. */
@@ -262,18 +306,20 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
   const artifact = await phaseArtifact(root, config, workflow, phaseId);
   // A plan is reviewed against the approved scope it plans: the step before it that defines it.
   const kind = sourceReviewKind(workflow, phaseId);
-  const upstreamSpec = kind === 'planning'
-    ? await (async () => {
-        const approved = latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope'));
-        if (approved?.status !== 'approved') throw new SingularityFlowError(
-          'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED' }
-        );
-        return phaseArtifact(root, config, workflow, approved.id);
-      })()
-    : null;
+  const approved = kind === 'planning'
+    ? latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope')) : null;
+  if (kind === 'planning' && approved?.status !== 'approved') throw new SingularityFlowError(
+    'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED' }
+  );
+  const upstreamSpec = approved ? await phaseArtifact(root, config, workflow, approved.id) : null;
+  const clarifications = [
+    await publishedClarification(root, config, workflow, phase, artifact, 'current-phase'),
+    ...(approved ? [await publishedClarification(root, config, workflow, approved, upstreamSpec, 'approved-scope')] : [])
+  ].filter(Boolean);
   const context = {
     kind, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
     sources, ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
+    ...(clarifications.length ? { clarifications } : {}),
     authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256,
     recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null
   };
@@ -570,6 +616,8 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
     sources: input.sources.map((source) => ({ id: source.id, path: source.path,
       originalSha256: source.originalSha256, textSha256: sha256(Buffer.from(source.text, 'utf8')),
       text: source.text })),
+    ...(input.clarifications?.length ? { clarifications: input.clarifications,
+      clarificationGuidance: 'Read every pinned human question/answer and acknowledge its id in clarificationsReviewed. Reconcile source wording with answered clarifications before raising a gap; deferred answers are not confirmed decisions. Clarifications may refine ambiguity but are not blanket waivers or silent intent amendments. Cite phase, generation and question id in the review rationale. If an existing artifact already follows the recorded answer, correct the review of this generation rather than demanding a new artifact just to repeat that answer.' } : {}),
     // Not for the reviewer to cite: each needs a person's recorded decision instead.
     ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
     artifact: hashView(input.artifact, input.binding.artifact),
@@ -607,7 +655,8 @@ export function checkSourceReviewReport(report, input) {
   const invalid = new Set(['review-contract-invalid', 'reviewer-not-independent', 'review-self-disposition',
     'row-id-invalid', 'attestation-invalid', 'citation-line-invalid', 'citation-quote-invalid',
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
-    'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed']);
+    'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',
+    'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
   return { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,

@@ -80,7 +80,7 @@ function unreadableBinding(entry) {
 }
 
 /** Build the binding expected in the independent report from current, trusted input bytes. */
-export function sourceReviewBinding({ kind, workId, phase, generation, sources, artifact, upstreamSpec = null, unreadableSources = [] }) {
+export function sourceReviewBinding({ kind, workId, phase, generation, sources, artifact, upstreamSpec = null, unreadableSources = [], clarifications = [] }) {
   if (!['specification', 'planning'].includes(kind)) throw new SingularityFlowError('Review kind must be specification or planning.');
   requireId(workId, 'Review work ID');
   requireId(phase, 'Review phase');
@@ -97,14 +97,42 @@ export function sourceReviewBinding({ kind, workId, phase, generation, sources, 
   if (unreadable.some((entry) => boundSources.some((source) => source.id === entry.id))) {
     throw new SingularityFlowError('A source cannot be both cited and unreadable.');
   }
+  if (!Array.isArray(clarifications) || clarifications.length > 2) throw new SingularityFlowError('Review admits only its current and approved-scope clarification records.');
+  const boundClarifications = clarifications.map((entry) => {
+    const id = requireId(entry?.id, 'Review clarification id');
+    requireId(entry?.phase, 'Review clarification phase');
+    if (!Number.isSafeInteger(entry?.generation) || entry.generation < 1 || !SHA256.test(String(entry?.sha256 ?? ''))) {
+      throw new SingularityFlowError(`Review clarification '${id}' has no valid published generation or SHA-256.`);
+    }
+    return { id, phase: entry.phase, generation: entry.generation,
+      path: requiredText(entry.path, 'Review clarification path', 1024), sha256: entry.sha256 };
+  }).sort((left, right) => left.id.localeCompare(right.id));
+  if (new Set(boundClarifications.map((entry) => entry.id)).size !== boundClarifications.length) {
+    throw new SingularityFlowError('Review clarification IDs must be unique.');
+  }
   return {
     workId, phase, generation,
     sources: boundSources,
     // Present only when an attachment cannot be cited, so an all-readable review binds as before.
     ...(unreadable.length ? { unreadableSources: unreadable } : {}),
+    ...(boundClarifications.length ? { clarifications: boundClarifications } : {}),
     artifact: artifactBinding(artifact, 'Review artifact'),
     ...(kind === 'planning' ? { upstreamSpec: artifactBinding(upstreamSpec, 'Approved specification') } : {})
   };
+}
+
+function reviewedClarificationSet(report, binding, findings) {
+  const expected = (binding.clarifications ?? []).map((entry) => entry.id);
+  const reviewed = report.clarificationsReviewed ?? [];
+  if (!Array.isArray(reviewed) || reviewed.some((id) => typeof id !== 'string')
+      || new Set(reviewed).size !== reviewed.length) {
+    findings.push(finding('clarifications-reviewed-invalid', 'List each reviewed clarification record ID once.'));
+    return;
+  }
+  const missing = expected.filter((id) => !reviewed.includes(id));
+  const unknown = reviewed.filter((id) => !expected.includes(id));
+  if (missing.length || unknown.length) findings.push(finding('clarifications-not-all-reviewed',
+    'The review must read and acknowledge the exact publication-bound human clarification records.', { missing, unknown }));
 }
 
 function finding(code, message, details = {}) {
@@ -211,7 +239,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       if (!String(row.reason ?? '').trim()) findings.push(finding('exclusion-reason-missing', `${label} needs a concrete proposed exclusion reason.`));
       pendingDispositions.push({ id: `exclusion:${row.id}`, kind: 'exclusion', rowId: row.id, reason: row.reason ?? null });
     } else if (row.outcome === 'question') {
-      findings.push(finding('source-question-unresolved', `${label} asks a material source question that must be answered in a new specification and review.`,
+      findings.push(finding('source-question-unresolved', `${label} asks a material source question. Reconcile it with pinned human clarifications first: correct this review if the published artifact already follows an answered clarification; otherwise clarify and publish a corrected successor. A reviewer blocker is not a human-disposition exception.`,
         { rowId: row.id }));
       if (!String(row.question ?? '').trim()) findings.push(finding('question-text-missing', `${label} needs the unresolved question.`));
     } else findings.push(finding('row-outcome-invalid', `${label} outcome must be covered, excluded, or question.`));
@@ -323,7 +351,7 @@ export function evaluateSourceGroundedReview(report, context) {
   }
   if (canonicalJson(report.binding) !== canonicalJson(binding)) {
     return { status: 'stale', binding, reportSha256,
-      findings: [finding('review-binding-stale', 'Pinned sources, approved upstream specification, artifact, phase, or generation changed after review.')],
+      findings: [finding('review-binding-stale', 'Pinned sources, human clarifications, approved upstream specification, artifact, phase, or generation changed after review.')],
       pendingDispositions: [] };
   }
   const reviewer = report.reviewer;
@@ -333,6 +361,7 @@ export function evaluateSourceGroundedReview(report, context) {
     findings.push(finding('reviewer-not-independent', 'A trusted, read-only reviewer distinct from the artifact author is required.'));
   }
   reviewedSourceSet(report, binding, findings);
+  reviewedClarificationSet(report, binding, findings);
   // The reviewer cannot cite these; a person records that the phase proceeds without them.
   for (const entry of context.unreadableSources ?? []) pendingDispositions.push({
     id: `unreadable:${entry.id}`, kind: 'unreadable-source', documentId: entry.id, code: entry.code,

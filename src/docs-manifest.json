@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "90e8f457c4c8daac0d837982e79a9ae8f589f52f",
-  "topicCount": 79,
-  "contentSha256": "aa3632178e523586f378db046df0dabcd174355e87138727fc2116120796958e",
+  "sourceCommit": "c664e5e8c1fa7249bd9e89abccaca1a231debb20",
+  "topicCount": 80,
+  "contentSha256": "f51aabe1271eb1cd33b8dc800f8382f916a3eeb4dccb675b51d3034c5c092bda",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -524,6 +524,14 @@
       "sha256": "152524d57589baf4490e1b9145d89a4536187fe662ac8233b282824247f1b3af",
       "routingSha256": "e090e2b732fd9a3a198bc89359fb479e0fc8302cf1806c9c61891e0e019c12bf",
       "file": "smart-initialization.md"
+    },
+    {
+      "id": "source-grounded-review",
+      "title": "Independent source-grounded review",
+      "version": 1,
+      "sha256": "ecd52375bec587e08ded3fe61cdfa1e043f2e86f8cda9ecbe44c5928460e529c",
+      "routingSha256": "0c3fb5640f1493f14d8795c3e77b63917c630b28fba11bb13f20bb2add4d808c",
+      "file": "source-grounded-review.md"
     },
     {
       "id": "specification-quality",

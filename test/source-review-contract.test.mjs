@@ -107,3 +107,32 @@ test('planning schema cannot be used as the specification schema, and checks can
   packet.binding.generation = 2;
   assert.equal(checkSourceReviewReport(packet, input()).retentionReady, false);
 });
+
+test('human answers are bound and explicitly reviewed without waiving genuine gaps or granting disposition', () => {
+  const ctx = input();
+  ctx.clarifications = [{ id: 'clarification:approved-scope', phase: 'scope-copy', generation: 1,
+    path: 'context/clarifications-scope-copy-gen1.json', sha256: 'c'.repeat(64),
+    responses: [{ id: 'Q-005', answer: 'One positive-value test.' }] }];
+  ctx.binding = sourceReviewBinding(ctx);
+  const packet = reviewed(ctx);
+  assert.deepEqual(packet.clarificationsReviewed, []);
+  assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, false);
+  for (const acknowledgements of [['unknown'], ['clarification:approved-scope', 'clarification:approved-scope']]) {
+    packet.clarificationsReviewed = acknowledgements;
+    assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, false);
+  }
+  packet.clarificationsReviewed = ['clarification:approved-scope'];
+  assert.equal(checkSourceReviewReport(packet, ctx).retentionReady, true);
+  const changed = { ...ctx, clarifications: [{ ...ctx.clarifications[0], sha256: 'd'.repeat(64) }] };
+  assert.equal(checkSourceReviewReport(packet, changed).evaluation.status, 'stale');
+  assert.equal(checkSourceReviewReport(packet, changed).retentionReady, false);
+  packet.findings = [{ id: 'real-gap', severity: 'blocking', message: 'The plan still omits an approved error scenario.' }];
+  const checked = checkSourceReviewReport(packet, ctx);
+  assert.equal(checked.evaluation.status, 'correction-required');
+  assert.ok(checked.evaluation.findings.some((entry) => entry.code === 'reviewer-blocker'));
+  assert.ok(!checked.evaluation.pendingDispositions.some((entry) => entry.id === 'real-gap'));
+  const withoutAnswers = input();
+  assert.equal(Object.hasOwn(withoutAnswers.binding, 'clarifications'), false, 'unaffected reviews keep their existing binding');
+  assert.equal(checkSourceReviewReport({ ...reviewed(withoutAnswers), binding: withoutAnswers.binding }, ctx).retentionReady, false,
+    'a historical packet which ignored pinned answers requires a fresh review');
+});

@@ -11,6 +11,8 @@ import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { loadSession, setAgentSession } from '../src/session.mjs';
+import { recordClarificationResponses } from '../src/clarifications.mjs';
+import { snapshot } from '../src/util.mjs';
 import {
   commitAndPublish, createWorkflow, loadConfig, publishGeneration, scanArtifacts
 } from '../src/state.mjs';
@@ -39,7 +41,7 @@ function cli(root, ...args) {
  * source review. With `copied`, the step is the workflow's own copy, made in Workflow Studio under
  * a name of its own.
  */
-async function publishedSpecificationStory(t, { copied = false } = {}) {
+async function publishedSpecificationStory(t, { copied = false, humanAnswers = false } = {}) {
   const workType = copied ? 'review-copy' : 'spec-driven-standard';
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-cli-'));
   t.after(async () => rm(root, { recursive: true, force: true }));
@@ -51,6 +53,7 @@ async function publishedSpecificationStory(t, { copied = false } = {}) {
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const authored = YAML.parse(await readFile(workflowFile, 'utf8'));
   authored.git.publish = 'off';
+  if (humanAnswers) authored.worldModel.grounding = 'off';
   for (const authority of Object.values(authored.approvalAuthorities)) {
     authority.allowAnyGitIdentity = true;
   }
@@ -116,8 +119,25 @@ Storage is available.
 Export.
 `);
   await scanArtifacts(root, config, workflow, phaseId);
+  const clarificationFiles = [];
+  if (humanAnswers) {
+    const promptPath = `singularity/work-items/${WORK_ID}/context/prompts/${phaseId}-gen1.md`;
+    const groundingPath = `singularity/work-items/${WORK_ID}/context/${phaseId}-gen1.json`;
+    await mkdir(path.dirname(path.join(root, promptPath)), { recursive: true });
+    await writeFile(path.join(root, promptPath), '# Governed fixture prompt\nConfirm the evidence scope.\n');
+    await writeFile(path.join(root, groundingPath), JSON.stringify({ promptPath,
+      renderedSha256: (await snapshot(path.join(root, promptPath))).sha256, agent: authorAgent }));
+    const checkpoint = await recordClarificationResponses(root, config, workflow, phase, {
+      actor: ACTOR, agent: authorAgent, generation: 1,
+      responses: [{ id: 'Q-005', question: 'What evidence satisfies test cases?',
+        answer: 'One desktop screenshot and one automated positive-value test.' }]
+    });
+    clarificationFiles.push(promptPath, groundingPath, checkpoint.path);
+  }
   const authorship = buildGenerationAuthorship({
-    options: normalizeAuthorshipOptions({ producer: 'human', channel: 'manual-in-place', externalAiUse: 'none' }),
+    options: normalizeAuthorshipOptions(humanAnswers
+      ? { producer: 'governed-agent', channel: 'copilot-host' }
+      : { producer: 'human', channel: 'manual-in-place', externalAiUse: 'none' }),
     actor: ACTOR, governedAgentContext: authorAgent, source: null
   });
   await withOperationContext({
@@ -126,7 +146,7 @@ Export.
   }, () => commitAndPublish(root, config, workflow,
     { type: 'artifact-generated', phaseId, generation: 1 },
     `[${WORK_ID}][phase:${phaseId}][generated:1] publish`,
-    phase.artifacts.map((entry) => entry.path), {
+    [...phase.artifacts.map((entry) => entry.path), ...clarificationFiles], {
       beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
         phaseId, authorship, persist: false,
         publicationTransaction: { publicationEvent,
@@ -232,6 +252,43 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
     cwd: root, encoding: 'utf8', timeout: 30000
   });
   assert.equal(approval.status, 0, `approval after a ready review failed:\n${approval.stderr}\n${approval.stdout}`);
+  assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
+});
+
+test('real CLI review requires acknowledgement of the human answers retained by generation publication', async (t) => {
+  const { root, phaseId } = await publishedSpecificationStory(t, { copied: true, humanAnswers: true });
+  const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  assert.equal(packet.clarifications[0].phase, phaseId);
+  assert.equal(packet.clarifications[0].responses[0].id, 'Q-005');
+  assert.match(packet.clarifications[0].responses[0].answer, /one automated positive-value test/i);
+  assert.equal(packet.binding.clarifications[0].sha256, packet.clarifications[0].sha256);
+  const report = reviewReport(packet);
+  await mkdir(path.dirname(packet.stagingPath), { recursive: true });
+  await writeFile(packet.stagingPath, JSON.stringify(report));
+  const before = git(root, 'rev-parse', 'HEAD');
+  const refused = JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
+  assert.equal(refused.retentionReady, false);
+  assert.ok(refused.findings.some((entry) => entry.code === 'clarifications-not-all-reviewed'));
+  assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+  report.clarificationsReviewed = packet.clarifications.map((entry) => entry.id);
+  await writeFile(packet.stagingPath, JSON.stringify(report));
+  assert.equal(JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
+  cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json');
+  const retained = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
+  assert.deepEqual(retained.report.clarificationsReviewed, report.clarificationsReviewed);
+  assert.deepEqual(retained.binding.clarifications, packet.binding.clarifications);
+  assert.equal(retained.status, 'correction-required', 'reading an answer must not waive the separate exclusion');
+  const decided = JSON.parse(cli(root, 'review-source', 'decide', phaseId,
+    '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
+  assert.equal(decided.status, 'ready');
+  cli(root, 'submit', phaseId, '--skip-checks');
+  const afterSubmission = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
+  assert.equal(afterSubmission.status, 'ready', 'submission metadata must preserve the clarification-bound review');
+  assert.deepEqual(afterSubmission.binding.clarifications, packet.binding.clarifications);
+  const approval = spawnSync(process.execPath, [executable, 'approve', phaseId, '--yes'], {
+    cwd: root, encoding: 'utf8', timeout: 30000
+  });
+  assert.equal(approval.status, 0, `approval with pinned answers failed:\n${approval.stderr}\n${approval.stdout}`);
   assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
 });
 

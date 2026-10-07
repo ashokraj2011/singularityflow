@@ -1761,13 +1761,13 @@ function assertClaimIdentity(record, workflow, phase, kind) {
   }
 }
 
-async function existingClaimMap(root, relative, workflow, phase, kind, clauseIds, policy) {
+async function existingClaimMap(root, relative, workflow, phase, kind, clauseIds, policy, plannedClaims = {}) {
   if (!(await exists(path.join(root, relative)))) return null;
   const raw = await readJson(path.join(root, relative));
   const record = readRecord('specification-claim-map', raw).record;
   assertClaimIdentity(record, workflow, phase, kind);
   // Schema migration proves readability; normalization proves the semantic path and clause limits.
-  normalizeClaimMap(record, { kind, clauseIds, policy });
+  normalizeClaimMap(record, { kind, clauseIds, policy, plannedClaims });
   return { raw, record, sha256: claimMapSha256(raw) };
 }
 
@@ -2051,7 +2051,7 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
     generationCommit: phase.generationCommit
   });
   const relative = claimMapRelativePath(config, workflow, phase, 'observed');
-  const existing = await existingClaimMap(root, relative, workflow, phase, 'observed', clauseIds, policy);
+  const existing = await existingClaimMap(root, relative, workflow, phase, 'observed', clauseIds, policy, planned.claims);
   let record;
   let digest;
   if (existing) {

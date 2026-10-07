@@ -135,6 +135,20 @@ test('exact AC test-only evidence is not mislabeled as a stale source binding', 
   assert.equal(facts.some((item) => item.kind === 'absent-observed-claim'), false);
 });
 
+test('convergence honors explicit test-only requirements and accounts for their exact test path', () => {
+  const id = 'HEX-HEX:REQ-007';
+  const planned = [{ claims: { [id]: { expectedPaths: [], tests: ['src/App.test.jsx'], fulfillment: 'test-only' } } }];
+  const make = (testResults, maps = planned) => convergenceFacts({
+    reconciliation: { ...RECONCILIATION, findings: [{ path: 'src/App.test.jsx', clauseIds: [id], verdict: 'planned' }] },
+    indexes: [{ clauses: [{ id, body: 'Deliver automated conversion tests.' }] }], planned: maps,
+    observed: [{ claims: { [id]: { verdict: 'matched', observedPaths: [], testResults } } }]
+  });
+  assert.deepEqual(make(['src/App.test.jsx']), [], 'test-only evidence needs neither source paths nor an invented source binding');
+  assert.ok(make(['src/Other.test.jsx']).some((entry) => entry.kind === 'stale-claim-binding'));
+  assert.ok(make(['src/App.test.jsx'], []).some((entry) => entry.kind === 'stale-claim-binding'),
+    'requirements without a reviewed test-only plan still require source evidence');
+});
+
 test('convergence accumulates evidence from multiple code-delivery intervals', () => {
   const facts = convergenceFacts({
     reconciliation: { ...RECONCILIATION, findings: [] },

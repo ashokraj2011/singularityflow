@@ -774,7 +774,22 @@ function normalizeSupportingFileDetails(value, supportingFiles) {
   return details.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } = {}) {
+/**
+ * Delivery trace for a reviewed test-only obligation, never proof that its tests passed.
+ * Requirements need an explicit fulfillment; legacy acceptance rows may name tests alone.
+ * Consumers supply the authoritative plan, not a fulfillment asserted by the observed record.
+ */
+export function testOnlyClaimEvidence(id, plan, claim, { complete = true } = {}) {
+  if (!plan || !claim || (plan.expectedPaths ?? []).length || (claim.observedPaths ?? []).length) return false;
+  if (plan.fulfillment !== 'test-only'
+      && !(plan.fulfillment == null && /:AC-\d{3}$/u.test(id))) return false;
+  const plannedTests = new Set(plan.tests ?? []);
+  const observedTests = new Set(claim.testResults ?? []);
+  if (!plannedTests.size || !observedTests.size || [...observedTests].some((candidate) => !plannedTests.has(candidate))) return false;
+  return !complete || [...plannedTests].every((candidate) => observedTests.has(candidate));
+}
+
+export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, plannedClaims = {} } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   if (!['planned', 'observed'].includes(kind)) throw new SingularityFlowError('Claim map kind must be planned or observed.');
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${kind} claim map must be an object.`);
@@ -814,8 +829,17 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
       if (!VERDICTS.has(verdict)) throw new SingularityFlowError(`${id}.verdict must be ${[...VERDICTS].join(', ')}.`);
       const observedPaths = normalizePaths(claim.observedPaths, `${id}.observedPaths`, normalized.limits);
       const testResults = normalizePaths(claim.testResults, `${id}.testResults`, normalized.limits);
+      const plannedClaim = plannedClaims[id];
+      const testOnlyEvidence = testOnlyClaimEvidence(id, plannedClaim, { observedPaths, testResults },
+        { complete: verdict === 'matched' });
+      if (plannedClaim?.fulfillment === 'test-only' && ['matched', 'partial', 'deviated'].includes(verdict) && !testOnlyEvidence) {
+        throw new SingularityFlowError(`${id} is planned as test-only: verdict ${verdict} must cite its exact planned test files, not product-source paths.`, {
+          code: 'SPEC_OBSERVED_TEST_ONLY_EVIDENCE_INVALID',
+          details: { clauseId: id, verdict, plannedTests: plannedClaim.tests ?? [], testResults, observedPaths }
+        });
+      }
       const acceptanceTestEvidence = /:AC-\d{3}$/.test(id) && testResults.length > 0;
-      if (['matched', 'partial', 'deviated'].includes(verdict) && !observedPaths.length && !acceptanceTestEvidence) {
+      if (['matched', 'partial', 'deviated'].includes(verdict) && !observedPaths.length && !acceptanceTestEvidence && !testOnlyEvidence) {
         throw new SingularityFlowError(`${id}.observedPaths must identify source evidence when verdict is ${verdict}.`);
       }
       const rawCommits = claim.commits ?? [];
@@ -965,7 +989,8 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
       deviation: null
     };
   }
-  return normalizeClaimMap({ claims }, { kind: 'observed', clauseIds: knownIds, policy: normalizedPolicy });
+  return normalizeClaimMap({ claims }, { kind: 'observed', clauseIds: knownIds, policy: normalizedPolicy,
+    plannedClaims: planned.claims });
 }
 
 export async function readStructuredFile(root, relative) {
@@ -1097,7 +1122,7 @@ export async function readBoundSpecificationIndex(root, itemDirectory, workflow,
  * terminal arithmetic merely by naming the current work item, phase, and generation.
  */
 export async function readBoundSpecificationClaimMap(root, itemDirectory, workflow, phase, kind, {
-  clauseIds = [], policy = {}, requireCommitted = false
+  clauseIds = [], policy = {}, requireCommitted = false, plannedClaims = {}
 } = {}) {
   if (!['planned', 'observed'].includes(kind)) {
     throw new SingularityFlowError(`Claim-map binding kind must be planned or observed.`);
@@ -1140,7 +1165,7 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
     );
   }
   // Schema migration proves readability; normalization enforces the pinned clause and path bounds.
-  normalizeClaimMap(record, { kind, clauseIds, policy });
+  normalizeClaimMap(record, { kind, clauseIds, policy, plannedClaims });
   return record;
 }
 
@@ -1200,6 +1225,15 @@ export function mergePlannedClaimRecords(maps = []) {
       ...(value.observableResult ? { observableResult: value.observableResult } : {})
     }];
   }));
+}
+
+/** A code step can use only its bound plan owner's fulfillment, never another step's plan. */
+export function plannedClaimsForObservedPhase(workflow, phaseId, planned = []) {
+  const policy = workflow?.resolution?.plannedClaims;
+  const owner = policy?.owners?.[phaseId];
+  const owned = policy?.mode === 'required'
+    ? (owner ? planned.filter((record) => record.phase === owner) : []) : planned;
+  return mergePlannedClaimRecords(owned);
 }
 
 /**
@@ -1385,7 +1419,8 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
   for (const codePhaseId of codePhaseIds) {
     const codePhase = workflow.phases?.[codePhaseId];
     observed.push(await readBoundSpecificationClaimMap(
-      root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy, requireCommitted }
+      root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy, requireCommitted,
+        plannedClaims: plannedClaimsForObservedPhase(workflow, codePhaseId, planned) }
     ));
   }
   return withAmendmentRecord({
@@ -1416,22 +1451,11 @@ function pathExcluded(candidate, excludes) {
   return excludes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix.replace(/\/$/, '')}/`));
 }
 
+// Test association is independent of fulfillment; source-changing rows also need their tests.
 function exactPlannedTestEvidence(id, plannedClaims, observedClaims) {
   const plannedTests = plannedClaims[id]?.tests ?? [];
   const observedTests = new Set(observedClaims[id]?.testResults ?? []);
   return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
-}
-
-/**
- * An acceptance criterion the plan expects to be met by tests alone — its row names tests and no
- * source paths — is covered once every planned test file is delivered. A criterion whose row names
- * source paths is not covered by its test files: that would read the existence of a test as the
- * implementation it was supposed to check.
- */
-function acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims) {
-  return /:AC-\d{3}$/.test(id)
-    && !(plannedClaims[id]?.expectedPaths ?? []).length
-    && exactPlannedTestEvidence(id, plannedClaims, observedClaims);
 }
 
 export function evaluateSpecCoverage({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { root = null } = {}) {
@@ -1449,14 +1473,16 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
   const unimplemented = [...clauses.keys()].filter((id) => {
     const claim = observedClaims[id];
     if (!claim) return true;
-    if (acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) return false;
+    if (plannedClaims[id]?.fulfillment === 'test-only'
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) return true;
+    if (testOnlyClaimEvidence(id, plannedClaims[id], claim) && claim.verdict !== 'deviated') return false;
     return ['missing', 'partial'].includes(claim.verdict);
   }).sort();
   // Covered only because their planned test files were delivered: no source change and, until
   // test-case results are joined, no proof the tests ran for them. Reported so no label overstates it.
   const testPresenceOnly = [...clauses.keys()].filter((id) => observedClaims[id]
     && !(observedClaims[id].observedPaths ?? []).length
-    && acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)).sort();
+    && testOnlyClaimEvidence(id, plannedClaims[id], observedClaims[id])).sort();
   // A file the plan lists under Supporting files may change without a clause claiming it.
   const supporting = new Set(plannedSupportingFiles(planned));
   const supportingChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && supporting.has(candidate));
@@ -1467,10 +1493,14 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     // A test-only obligation is delivered by its tests, and a removal by the absence of its paths,
     // which receipt replay proves [E2G-010].
     const fulfillment = plannedClaims[id]?.fulfillment ?? null;
+    if (fulfillment === 'test-only' && ['matched', 'partial', 'deviated'].includes(claim.verdict)
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim, { complete: claim.verdict === 'matched' })) {
+      invalidEvidence.push(`${id} has verdict ${claim.verdict} without exact planned test-only evidence`);
+    }
     if (['matched', 'partial', 'deviated'].includes(claim.verdict)
         && !(claim.observedPaths ?? []).length
         && fulfillment !== 'test-only'
-        && !acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) {
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) {
       invalidEvidence.push(`${id} has verdict ${claim.verdict} without source-path evidence`);
     }
     if (root) {

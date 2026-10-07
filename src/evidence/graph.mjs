@@ -25,7 +25,7 @@ import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
   isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap,
-  readBoundSpecificationIndex, selectActiveSpecRecords
+  readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
 } from '../specifications.mjs';
 
 function itemDirectory(root, definition, workId) {
@@ -171,11 +171,14 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
     ...removedClauseIds(workflow)
   ])].sort();
   const maps = { planned: [], observed: [] };
-  for (const id of order) {
-    const phase = workflow.phases[id];
-    for (const kind of ['planned', 'observed']) {
+  // All plan bindings are verified before any observation can borrow their fulfillment.
+  for (const kind of ['planned', 'observed']) {
+    for (const id of order) {
+      const phase = workflow.phases[id];
       if (!phase?.claimMaps?.[kind]) continue;
-      try { maps[kind].push(await readBoundSpecificationClaimMap(root, directory, workflow, phase, kind, { clauseIds, policy })); } catch (error) {
+      try { maps[kind].push(await readBoundSpecificationClaimMap(root, directory, workflow, phase, kind, {
+        clauseIds, policy, plannedClaims: plannedClaimsForObservedPhase(workflow, id, maps.planned)
+      })); } catch (error) {
         if (/_STALE$/.test(error.code ?? '')) continue;
         untrusted = true;
         findings.push(untrustedFinding(error, `The ${kind} claim map of ${id}`));

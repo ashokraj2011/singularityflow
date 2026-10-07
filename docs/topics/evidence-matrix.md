@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 25
+version: 26
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -42,7 +42,7 @@ Use the matrix to see what a Story's evidence actually proves before you approve
 Each row carries up to four obligations, identified by `OBL:<WORK-ID>:<responsibility>:<clause>` so a renamed step never changes them:
 
 - **plan:** the approved plan lists the clause with its expected paths and planned tests.
-- **implement:** the code step's delivery changed the planned paths (or, for a test-only criterion, delivered its planned tests).
+- **implement:** the code step's delivery changed the planned paths (or, for a test-only requirement or criterion, delivered its planned tests).
 - **verify** (acceptance criteria only): the test an `@ac:<clause>` comment sits directly above passed in the run of the published candidate. Where the module's runner reports only counts, the test command covering the tagged file passed instead. Requirements are verified through the criteria that depend on them.
 - **review:** the step that delivered the change was approved under its approval rule; a self-approval is shown as such.
 
@@ -57,6 +57,8 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 
 A code step is judged by the rows allocated to it. Only new or modified rows need product source that carries a `@clause` comment; existing rows need their paths to still be there, with their planned tests run unchanged; removed rows need their paths to be gone, and a removed file is approved by its absence; test-only rows need their tests; document and configuration rows need exactly their paths to change. Each is recorded in the code-delivery receipt and checked again against the committed generation.
+
+`test-only` applies to requirements (`REQ`) as well as acceptance criteria (`AC`). A requirement needs that explicit fulfillment in its authoritative planning owner's reviewed row; an observed claim cannot grant it to itself. Its trace must name the exact planned test files, without an invented product-source path. Missing files leave the delivery incomplete. This is delivery evidence only: it does not prove the tests passed or waive execution, acceptance, or review gates. Submission, approval, convergence, and the matrix use the same distinction, including workflows with custom phase names.
 
 ### Exact tests and attempts
 

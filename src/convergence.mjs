@@ -24,7 +24,7 @@
 import { analysisLimits, capWithDisclosure } from './analysis-limits.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
-import { mergeObservedClaimRecords, mergePlannedClaimRecords } from './specifications.mjs';
+import { mergeObservedClaimRecords, mergePlannedClaimRecords, testOnlyClaimEvidence } from './specifications.mjs';
 
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -92,13 +92,6 @@ function fact(kind, { clauseIds = [], paths = [], evidence = [], detail }) {
   return { id: itemId('CF', body), ...body, detail };
 }
 
-function exactAcceptanceTestOnlyEvidence(id, plannedClaims, claim) {
-  if (!/:AC-\d{3}$/.test(id) || (claim.observedPaths ?? []).length) return false;
-  const plannedTests = plannedClaims[id]?.tests ?? [];
-  const observedTests = new Set(claim.testResults ?? []);
-  return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
-}
-
 /**
  * The deterministic convergence facts `[SPK:REQ-073]` `[SPK:REQ-074]`.
  *
@@ -156,7 +149,10 @@ export function convergenceFacts({
    * already decided what changed and whether it was planned; convergence only asks whether a
    * requirement claims it.
    */
-  const claimedPaths = new Set(Object.values(observedClaims).flatMap((claim) => claim.observedPaths ?? []).map(posix));
+  const claimedPaths = new Set(Object.entries(observedClaims).flatMap(([id, claim]) => [
+    ...(claim.observedPaths ?? []),
+    ...(claim.testResults ?? []).filter((candidate) => (plannedClaims[id]?.tests ?? []).includes(candidate))
+  ]).map(posix));
   /**
    * Bounded `[SPK:REQ-130]`. A large refactor can change tens of thousands of paths, and one fact
    * per unclaimed path is not a report — it is a way of making the real findings unfindable. Capped
@@ -188,7 +184,7 @@ export function convergenceFacts({
     }
     if (['matched', 'partial', 'deviated'].includes(claim.verdict)
         && !(claim.observedPaths ?? []).length
-        && !exactAcceptanceTestOnlyEvidence(id, plannedClaims, claim)) {
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim, { complete: claim.verdict === 'matched' })) {
       facts.push(fact('stale-claim-binding', {
         clauseIds: [id],
         detail: `${id} claims verdict '${claim.verdict}' with no source evidence bound to it`

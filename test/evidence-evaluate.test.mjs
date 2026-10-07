@@ -96,6 +96,24 @@ function delivery({
 const evaluate = (parts, options) => evaluateEvidence(evidenceGraph(parts), options);
 const row = (evaluation, id) => evaluation.rows.find((entry) => entry.id === id);
 
+test('a test-only requirement has linked delivery trace without counting that trace as test execution', () => {
+  const maps = records();
+  maps.planned[0].claims[REQ] = { expectedPaths: [], tests: ['test/one.test.mjs'], fulfillment: 'test-only' };
+  maps.observed[0].claims[REQ] = { observedPaths: [], testResults: ['test/one.test.mjs'], verdict: 'matched' };
+  const result = evaluate({ workflow: story({ code: 'in_progress' }), records: maps, deliveries: [] });
+  const implementation = row(result, REQ).obligations.find((entry) => entry.responsibility === 'implement');
+  assert.equal(implementation.status, 'met');
+  assert.equal(implementation.fulfillment, 'test-only');
+  assert.equal(implementation.facets.coverage, 'linked');
+  assert.equal(row(result, AC1).obligations.find((entry) => entry.responsibility === 'verify').facets.execution, 'not-run');
+  assert.notEqual(result.decision.gate, 'allow', 'test-file trace must not waive required execution');
+  maps.observed[0].claims[REQ].testResults = ['test/other.test.mjs'];
+  const wrong = row(evaluate({ workflow: story(), records: maps, deliveries: [] }), REQ)
+    .obligations.find((entry) => entry.responsibility === 'implement');
+  assert.notEqual(wrong.status, 'met');
+  assert.equal(wrong.facets.coverage, 'unlinked');
+});
+
 test('approved inspection must cite the exact criterion, not another Story or a longer identifier', () => {
   const phase = id => ({ id, status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('alice')] });
   const workflow = { workItem: { id: W }, status: 'closed', currentPhase: null,

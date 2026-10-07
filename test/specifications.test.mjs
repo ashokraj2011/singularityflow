@@ -252,7 +252,7 @@ test('pinned planned-claim topology selects only its validated authoritative cla
   assert.deepEqual(selected.indexes, [intake]);
 });
 
-async function boundClaimFixture() {
+async function boundClaimFixture({ testOnly = false, planPhase = 'planning', codePhase = 'implementation' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bound-claims-'));
   const itemDirectory = path.join(root, 'singularity/work-items/BOUND-1');
   const claimsDirectory = path.join(itemDirectory, 'context/claims');
@@ -260,23 +260,24 @@ async function boundClaimFixture() {
   const planned = {
     schemaVersion: currentSchemaVersion('specification-claim-map'),
     kind: 'planned', recordedAt: '2026-08-31T00:00:00.000Z',
-    workId: 'BOUND-1', phase: 'planning', generation: 1,
+    workId: 'BOUND-1', phase: planPhase, generation: 1,
     claims: { 'APP:REQ-001': {
-      expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs'],
+      expectedPaths: testOnly ? [] : ['src/app.mjs'], tests: ['test/app.test.mjs'],
+      ...(testOnly ? { fulfillment: 'test-only' } : {}),
       testDisposition: 'applicable', testReason: null, deviation: null
     } }
   };
   const observed = {
     schemaVersion: currentSchemaVersion('specification-claim-map'),
     kind: 'observed', recordedAt: '2026-08-31T00:01:00.000Z',
-    workId: 'BOUND-1', phase: 'implementation', generation: 1,
+    workId: 'BOUND-1', phase: codePhase, generation: 1,
     claims: { 'APP:REQ-001': {
-      observedPaths: ['src/app.mjs'], testResults: ['test/app.test.mjs'],
+      observedPaths: testOnly ? [] : ['src/app.mjs'], testResults: ['test/app.test.mjs'],
       commits: ['a'.repeat(40)], verdict: 'matched', deviation: null
     } }
   };
-  const plannedPath = 'singularity/work-items/BOUND-1/context/claims/planning-gen1-planned.json';
-  const observedPath = 'singularity/work-items/BOUND-1/context/claims/implementation-gen1-observed.json';
+  const plannedPath = `singularity/work-items/BOUND-1/context/claims/${planPhase}-gen1-planned.json`;
+  const observedPath = `singularity/work-items/BOUND-1/context/claims/${codePhase}-gen1-observed.json`;
   await writeFile(path.join(root, plannedPath), canonicalJson(planned));
   await writeFile(path.join(root, observedPath), canonicalJson(observed));
   const digest = (record) => createHash('sha256').update(canonicalJson(record)).digest('hex');
@@ -284,23 +285,55 @@ async function boundClaimFixture() {
     workItem: { id: 'BOUND-1' },
     resolution: {
       plannedClaims: {
-        mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'planning' }
+        mode: 'required', clausePhases: ['requirements'], owners: { [codePhase]: planPhase }
       }
     },
     phases: {
       requirements: { id: 'requirements', generation: 0, requiredArtifact: { kind: 'requirements' } },
-      planning: {
-        id: 'planning', generation: 1,
+      [planPhase]: {
+        id: planPhase, generation: 1,
         claimMaps: { planned: { generation: 1, path: plannedPath, sha256: digest(planned) } }
       },
-      implementation: {
-        id: 'implementation', generation: 1,
+      [codePhase]: {
+        id: codePhase, generation: 1,
         claimMaps: { observed: { generation: 1, path: observedPath, sha256: digest(observed) } }
       }
     }
   };
   return { root, itemDirectory, planned, plannedPath, workflow };
 }
+
+test('test-only requirements reload in workflows with custom plan and code phase identities', async (t) => {
+  const fixture = await boundClaimFixture({ testOnly: true, planPhase: 'custom-test-plan', codePhase: 'custom-test-authoring' });
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const records = await loadBoundActiveSpecRecords(fixture.root, fixture.itemDirectory, fixture.workflow,
+    { mode: 'enforce', acceptance: 'presence' });
+  assert.equal(records.planned[0].phase, 'custom-test-plan');
+  assert.equal(records.observed[0].phase, 'custom-test-authoring');
+  assert.equal(records.observed[0].claims['APP:REQ-001'].verdict, 'matched');
+});
+
+test('bound claim readers honor only the observed phase owner, not a stray test-only plan', async (t) => {
+  const fixture = await boundClaimFixture({ testOnly: true });
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const load = () => loadBoundActiveSpecRecords(fixture.root, fixture.itemDirectory, fixture.workflow,
+    { mode: 'enforce', acceptance: 'presence' });
+  const records = await load();
+  assert.equal(records.observed[0].claims['APP:REQ-001'].verdict, 'matched');
+  assert.deepEqual(records.observed[0].claims['APP:REQ-001'].observedPaths, []);
+  const other = structuredClone(fixture.planned);
+  other.phase = 'other-plan';
+  other.claims['APP:REQ-001'].expectedPaths = ['src/app.mjs'];
+  other.claims['APP:REQ-001'].fulfillment = 'modified';
+  const relative = 'singularity/work-items/BOUND-1/context/claims/other-plan-gen1-planned.json';
+  await writeFile(path.join(fixture.root, relative), canonicalJson(other));
+  fixture.workflow.phases['other-plan'] = { id: 'other-plan', generation: 1,
+    claimMaps: { planned: { generation: 1, path: relative,
+      sha256: createHash('sha256').update(canonicalJson(other)).digest('hex') } } };
+  fixture.workflow.resolution.plannedClaims.owners.implementation = 'other-plan';
+  await assert.rejects(load, /must identify source evidence/,
+    'the old test-only map still on disk cannot waive the new owner\'s source obligation');
+});
 
 test('bound terminal claim loading ignores unbound directory injection and rejects a missing pointer', async () => {
   const fixture = await boundClaimFixture();
@@ -548,6 +581,47 @@ test('an AC planned as test-only is covered by its delivered tests; one planned 
   assert.equal(withSource.complete, false);
   assert.deepEqual(withSource.unimplemented, ['APP:AC-001']);
   assert.deepEqual(withSource.testPresenceOnly, []);
+});
+
+test('explicit test-only requirements are valid without invented product paths, but only against their exact plan', () => {
+  const id = 'HEX-HEX:REQ-007';
+  const plan = normalizeClaimMap({ claims: {
+    [id]: { expectedPaths: [], tests: ['src/App.test.jsx', 'src/hex.test.jsx'], fulfillment: 'test-only' }
+  } }, { kind: 'planned', clauseIds: [id] });
+  const observed = deriveObservedClaimMap(plan, { testPaths: ['src/App.test.jsx', 'src/hex.test.jsx'] }, { clauseIds: [id] });
+  assert.equal(observed.claims[id].verdict, 'matched');
+  assert.deepEqual(observed.claims[id].observedPaths, []);
+  assert.deepEqual(normalizeClaimMap(observed, { kind: 'observed', clauseIds: [id], plannedClaims: plan.claims }).claims,
+    observed.claims, 're-reading the map uses the same reviewed fulfillment');
+  const partial = deriveObservedClaimMap(plan, { testPaths: ['src/App.test.jsx'] }, { clauseIds: [id] });
+  assert.equal(partial.claims[id].verdict, 'partial');
+  const index = { clauses: [{ id, type: 'REQ' }] };
+  const coverage = evaluateSpecCoverage({ indexes: [index], planned: [plan], observed: [observed] },
+    ['src/App.test.jsx', 'src/hex.test.jsx'], { coverage: 'enforce' });
+  assert.equal(coverage.complete, true);
+  assert.deepEqual(coverage.testPresenceOnly, [id], 'test file delivery is not described as passing tests');
+  assert.equal(evaluateSpecCoverage({ indexes: [index], planned: [plan], observed: [partial] },
+    ['src/App.test.jsx'], { coverage: 'enforce' }).complete, false);
+  const later = deriveObservedClaimMap(plan, { testPaths: ['src/hex.test.jsx'] }, { clauseIds: [id] });
+  assert.equal(evaluateSpecCoverage({ indexes: [index], planned: [plan], observed: [partial, later] },
+    ['src/App.test.jsx', 'src/hex.test.jsx'], { coverage: 'enforce' }).complete, true,
+  'exact evidence from multiple code intervals accumulates for test-only requirements');
+  // A forged fulfillment in an observed record is not an authority to drop source evidence.
+  assert.throws(() => normalizeClaimMap({ claims: { [id]: { ...observed.claims[id], fulfillment: 'test-only' } } },
+    { kind: 'observed', clauseIds: [id] }), /must identify source evidence/);
+  for (const bad of [
+    { ...observed.claims[id], testResults: ['src/Other.test.jsx'] },
+    { ...observed.claims[id], testResults: ['src/App.test.jsx'] },
+    { ...observed.claims[id], testResults: [] },
+    { ...observed.claims[id], observedPaths: ['src/App.jsx'] }
+  ]) {
+    assert.throws(() => normalizeClaimMap({ claims: { [id]: bad } },
+      { kind: 'observed', clauseIds: [id], plannedClaims: plan.claims }),
+    { code: 'SPEC_OBSERVED_TEST_ONLY_EVIDENCE_INVALID' });
+    const badCoverage = evaluateSpecCoverage({ indexes: [index], planned: [plan], observed: [{ claims: { [id]: bad } }] },
+      [], { coverage: 'enforce' });
+    assert.equal(badCoverage.complete, false);
+  }
 });
 
 test('test evidence never substitutes for non-AC source evidence', () => {

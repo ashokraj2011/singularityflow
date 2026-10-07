@@ -15,6 +15,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
 const W = 'FULFIL-1';
 const ac = (number) => `${W}:AC-00${number}`;
+const TEST_REQ = `${W}:REQ-007`;
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -118,14 +119,16 @@ test('a real Story delivers modified, existing, test-only, removed and document 
     `| [${ac(2)}] | Null input is refused, as it already is. |`,
     `| [${ac(3)}] | A regression test pins the value. |`,
     `| [${ac(4)}] | The legacy flag module no longer exists. |`,
-    `| [${ac(5)}] | The usage document explains value(). |`, '',
+    `| [${ac(5)}] | The usage document explains value(). |`,
+    `| [${TEST_REQ}] | Deliver the regression test for the approved value. |`, '',
     '## Planned implementation evidence', '',
     '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
     `| \`${ac(1)}\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | value() returns 2. |`,
     `| \`${ac(2)}\` | \`src/guard.mjs\` | \`test/guard.test.mjs\` | existing | guard(null) is false. |`,
     `| \`${ac(3)}\` | - | \`test/regression.test.mjs\` | test-only | The regression test passes. |`,
     `| \`${ac(4)}\` | \`src/legacy.mjs\` | \`test/legacy.test.mjs\` | removed | Importing the legacy module fails. |`,
-    `| \`${ac(5)}\` | \`docs/usage.md\` | \`test/usage.test.mjs\` | document | The usage page names value(). |`, '',
+    `| \`${ac(5)}\` | \`docs/usage.md\` | \`test/usage.test.mjs\` | document | The usage page names value(). |`,
+    `| \`${TEST_REQ}\` | - | \`test/regression.test.mjs\` | test-only | The value regression test is delivered. |`, '',
     '## Initial evidence', '', 'The baseline modules, tests and usage document at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
@@ -152,6 +155,11 @@ test('a real Story delivers modified, existing, test-only, removed and document 
   cli('approve', 'implementation', '--yes');
 
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.equal(workflowState.phases.implementation.generation, 1, 'test-only REQ submission needs no rollover');
+  const observed = JSON.parse(await readFile(path.join(root, workflowState.phases.implementation.claimMaps.observed.path), 'utf8'));
+  assert.deepEqual(observed.claims[TEST_REQ].observedPaths, []);
+  assert.deepEqual(observed.claims[TEST_REQ].testResults, ['test/regression.test.mjs']);
+  assert.equal(observed.claims[TEST_REQ].verdict, 'matched');
   const receipt = JSON.parse(await readFile(path.join(root, workflowState.phases.implementation.deliveryEvidence.receiptPath), 'utf8'));
   assert.deepEqual(receipt.fulfillment.obligations.map((entry) => [entry.clauseId, entry.fulfillment, entry.paths.map((item) => item.state)]), [
     [ac(2), 'existing', ['present']], [ac(4), 'removed', ['absent']], [ac(5), 'document', ['changed']]
@@ -171,6 +179,9 @@ test('a real Story delivers modified, existing, test-only, removed and document 
   const implement = Object.fromEntries(matrix.page.rows.map((row) => [row.id,
     row.obligations.find((entry) => entry.responsibility === 'implement')]));
   for (const number of [1, 2, 3, 4, 5]) assert.equal(implement[ac(number)].status, 'met', `${ac(number)} is implemented`);
+  assert.equal(implement[TEST_REQ].status, 'met');
+  assert.equal(implement[TEST_REQ].fulfillment, 'test-only');
+  assert.equal(implement[TEST_REQ].facets.coverage, 'linked');
   assert.deepEqual([2, 3, 4, 5].map((number) => implement[ac(number)].fulfillment), ['existing', 'test-only', 'removed', 'document']);
   // Approving the step accepted its binding, and the matrix shows what was accepted.
   assert.deepEqual([implement[ac(1)].binding.decision, implement[ac(1)].binding.explanation.text], ['accepted', 'returns the approved value 2 instead of 1']);

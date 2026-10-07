@@ -14,7 +14,7 @@
 import { approvalRequirementsMet } from '../approval-authority.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
-import { mergeObservedClaimRecords, mergePlannedClaimRecords } from '../specifications.mjs';
+import { mergeObservedClaimRecords, mergePlannedClaimRecords, testOnlyClaimEvidence } from '../specifications.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
@@ -313,8 +313,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
 
     // Implement: the code phase's observed claim for this clause.
     const implementId = obligationId(workId, 'implement', id);
-    const testOnly = clause.type === 'AC' && planned && !(planned.expectedPaths ?? []).length
-      && (planned.tests ?? []).length > 0 && (observed?.testResults ?? []).length === planned.tests.length;
+    const testOnly = testOnlyClaimEvidence(id, planned, observed);
+    const testOnlyLinked = testOnlyClaimEvidence(id, planned, observed, { complete: false });
     // A row allocated to some code steps is implemented, reviewed and verified by those steps.
     const allocatedSteps = noCode ? [] : (planned?.steps ?? []).filter((step) => codePhaseIds.includes(step));
     const implementers = allocatedSteps.length ? allocatedSteps : implementSteps;
@@ -326,7 +326,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     let implementStatus;
     if (!implementers.length) implementStatus = 'not-applicable';
     else if (noCode) implementStatus = implementers.every((step) => phaseFinished(phases[step])) ? 'met' : 'pending';
-    else if (observed?.verdict === 'matched' || testOnly) implementStatus = 'met';
+    else if ((observed?.verdict === 'matched' && (planned?.fulfillment !== 'test-only' || testOnly)) || testOnly) implementStatus = 'met';
     else if (observed && ['partial', 'deviated'].includes(observed.verdict)) implementStatus = 'partial';
     else implementStatus = rowSubmitted ? 'missing' : 'pending';
     if (implementStatus === 'partial') {
@@ -352,7 +352,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       fulfillment: noCode ? 'non-code' : planned?.fulfillment ?? (testOnly ? 'test-only' : 'new-or-modified'),
       ...(binding ? { binding: { ...binding.entry, decision: bindingDecision?.decision ?? null, reason: bindingDecision?.reason ?? null } } : {}),
       facets: {
-        coverage: observed?.observedPaths?.length || testOnly ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',
+        coverage: observed?.observedPaths?.length || testOnlyLinked ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',
         review: implementReview, freshness: 'current',
         exception: observed?.verdict === 'deviated' ? 'deviation' : bindingDecision?.decision === 'accepted-with-exception' ? 'binding-exception' : 'none'
       }

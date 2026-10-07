@@ -1938,9 +1938,11 @@ export function trackedPaths(root, paths) {
 }
 
 export function changedFiles(root) {
-  const unstaged = nullList(git(['diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
-  const staged = nullList(git(['diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
-  const untracked = nullList(git(['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
+  // Porcelain diff can refresh clean entries' stat data. A path inspection must not rewrite the
+  // index that a recovery checkpoint is preserving, even when diff.autoRefreshIndex is enabled.
+  const unstaged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
+  const staged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
+  const untracked = nullList(git(['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
   return [...new Set([...unstaged, ...staged, ...untracked])].sort();
 }
 

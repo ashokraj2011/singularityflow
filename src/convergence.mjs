@@ -101,7 +101,7 @@ function fact(kind, { clauseIds = [], paths = [], evidence = [], detail }) {
  */
 export function convergenceFacts({
   reconciliation, indexes = [], planned = [], observed = [], acceptance = null, deviations = [],
-  requiredEvidence = [], limits = undefined,
+  requiredEvidence = [], limits = undefined, workflow = null,
   /**
    * Clauses an amendment revised since the observed claims were recorded `[AMD:REQ-050]`.
    *
@@ -116,7 +116,7 @@ export function convergenceFacts({
   const disclosures = [];
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const plannedClaims = mergePlannedClaimRecords(planned);
-  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims, { workflow });
   const amended = new Set(amendedClauses.map((id) => String(id).toUpperCase()));
   const facts = [];
 

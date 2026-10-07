@@ -740,15 +740,18 @@ async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths
   const entries = [];
   const problems = [];
   for (const obligation of obligations ?? []) {
-    if (!['existing', 'removed', 'document', 'configuration'].includes(obligation.fulfillment)) continue;
+    if (!['existing', 'removed', 'document', 'configuration', 'evidence'].includes(obligation.fulfillment)) continue;
     const paths = [];
     for (const candidate of obligation.expectedPaths) {
       const secured = await secureRepositoryPath(root, candidate, { label: `Planned ${obligation.fulfillment} path` });
       const present = Boolean(secured.exists && secured.entry?.isFile());
-      if (obligation.fulfillment === 'existing') {
+      if (obligation.fulfillment === 'evidence' && present && secured.entry.size > 16 * 1024 * 1024) {
+        throw new SingularityFlowError(`Retained evidence ${candidate} exceeds 16 MiB.`, { code: 'CODE_DELIVERY_EVIDENCE_TOO_LARGE' });
+      }
+      if (['existing', 'evidence'].includes(obligation.fulfillment)) {
         paths.push({ path: candidate, state: present ? 'present' : 'missing',
           sha256: present ? createHash('sha256').update(await readFile(secured.absolute)).digest('hex') : null });
-        if (!present) problems.push(`${obligation.clauseId} is existing behaviour, but ${candidate} does not exist`);
+        if (!present) problems.push(`${obligation.clauseId} requires ${obligation.fulfillment}, but ${candidate} does not exist`);
       } else if (obligation.fulfillment === 'removed') {
         paths.push({ path: candidate, state: present ? 'present' : 'absent' });
         if (present) problems.push(`${obligation.clauseId} removes ${candidate}, but it still exists`);
@@ -1207,7 +1210,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   // What this step owes comes from its allocated obligations [E2G-010]: existing behaviour changes
   // nothing, and test-only, document, configuration and removal work need no new product source.
   const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedSourcePaths);
-  const changeRequired = !obligations || obligations.some((obligation) => obligation.fulfillment !== 'existing');
+  const changeRequired = !obligations || obligations.some((obligation) => !['existing', 'evidence'].includes(obligation.fulfillment));
   const sourceRequired = !obligations || obligations.some(changesProductSource);
 
   if (!applicationEntries.length && !intentRevalidation && changeRequired) {
@@ -1328,7 +1331,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
 
-  return {
+  const delivery = {
     requirement: 'source-and-tests',
     baselineCommit,
     generationIntentId: phase.generationIntent?.id ?? null,
@@ -1370,6 +1373,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     fulfillment: fulfillment.obligations,
     implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
   };
+  // The preview loads bound Story records; defer that dependency until the kernel is initialized.
+  const { assertCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');
+  await assertCandidateSpecificationCoverage(root, config, workflow, phase, delivery);
+  return delivery;
 }
 
 function commandText(command) {
@@ -1637,10 +1644,11 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     for (const entry of obligation?.paths ?? []) {
       if (!safeEvidencePath(entry?.path)) { fail(`fulfillment evidence for ${obligation?.clauseId ?? 'unknown'} names an unsafe path`); continue; }
       if (!generationCommit) continue;
-      const bytes = exactFileAtObject(root, generationCommit, entry.path);
-      if (obligation.fulfillment === 'existing') {
+      const bytes = exactFileAtObject(root, generationCommit, entry.path, obligation.fulfillment === 'evidence'
+        ? { regularOnly: true, maximumBytes: 16 * 1024 * 1024 } : {});
+      if (['existing', 'evidence'].includes(obligation.fulfillment)) {
         if (entry.state !== 'present' || !bytes || createHash('sha256').update(bytes).digest('hex') !== entry.sha256) {
-          fail(`existing behaviour of ${obligation.clauseId} is not at ${entry.path} in the generation`);
+          fail(`${obligation.fulfillment} evidence of ${obligation.clauseId} is not at ${entry.path} in the generation`);
         }
       } else if (obligation.fulfillment === 'removed') {
         if (entry.state !== 'absent' || bytes) fail(`${entry.path}, removed for ${obligation.clauseId}, is still in the generation`);

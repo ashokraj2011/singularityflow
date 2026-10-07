@@ -9131,14 +9131,15 @@ async function decisionWitnessCommand(positionals, options) {
   const file = optionString(options, 'file') ?? '';
   const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
   const { evaluateEvidence } = await import('./evidence/evaluate.mjs');
-  const evaluation = evaluateEvidence(await evidenceGraphFromAggregate(root, config, workflow));
+  const graph = await evidenceGraphFromAggregate(root, config, workflow);
+  const evaluation = evaluateEvidence(graph);
   const row = evaluation.rows.find((entry) => entry.id === clauseId) ?? null;
   if (!row || row.type !== 'AC') {
     throw new SingularityFlowError(`The evidence matrix of ${id} has no acceptance criterion ${clauseId || '(none given)'}; see singularity-flow evidence matrix.`, { code: 'WITNESS_CRITERION_UNKNOWN' });
   }
   const { mergedVerificationContracts } = await import('./verification/contracts.mjs');
-  const { loadActiveSpecRecords } = await import('./specifications.mjs');
-  const contract = mergedVerificationContracts((await loadActiveSpecRecords(workDir(root, config, id), workflow)).planned ?? []).get(clauseId) ?? null;
+  const plans = graph.records.planned ?? [];
+  const contract = mergedVerificationContracts(plans).get(clauseId) ?? null;
   const slot = contract?.slots.find((entry) => entry.slot === slotName) ?? null;
   // Whoever approves the step that delivers or verifies the criterion may witness it.
   const owning = row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps);
@@ -9165,7 +9166,8 @@ async function decisionWitnessCommand(positionals, options) {
   }
   const decide = (aggregate) => recordWitness(aggregate, {
     clauseId, slot, file: secured.relative ?? file, sha256, answers, reason: optionString(options, 'reason') ?? '',
-    actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso()
+    actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso(),
+    plannedClaim: mergePlannedClaimRecords(plans)[clauseId] ?? null
   });
   decide(structuredClone(workflow));
   const { value: record, publication } = await transactStory(

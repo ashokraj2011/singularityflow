@@ -8,13 +8,44 @@
  */
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
-import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import {
-  loadBoundActiveSpecRecords, mergePlannedClaimRecords, normalizeSpecPolicy, plannedSupportingFiles
+  deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
+  normalizeSpecPolicy, plannedSupportingFiles
 } from './specifications.mjs';
 import { workDir } from './state-stores.mjs';
-import { posix } from './util.mjs';
+import { posix, SingularityFlowError } from './util.mjs';
+
+/** Check the actual editable candidate, before tests, publication or submission consume it. */
+export async function assertCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
+  const policy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
+  if (policy.coverage !== 'enforce' || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
+  const codePhases = workflow.phaseOrder.filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
+  const final = codePhases.at(-1) === phase.id;
+  const records = await loadBoundActiveSpecRecords(root, workDir(root, config, workflow.workItem.id), workflow, policy,
+    { requireCommitted: false, throughPhase: final ? null : phase.id });
+  const owner = workflow.resolution.plannedClaims.owners[phase.id];
+  const planned = mergePlannedClaimRecords(records.planned.filter((record) => record.phase === owner));
+  const allocated = Object.fromEntries(Object.entries(planned)
+    .filter(([, claim]) => !claim.steps?.length || claim.steps.includes(phase.id)));
+  const observed = deriveObservedClaimMap(allocated, {
+    ...delivery, fulfillment: { obligations: delivery.fulfillment ?? [] },
+    traceability: { bindings: delivery.acceptanceCriteria?.bindings ?? [], sourceBindings: delivery.sourceBindings?.bindings ?? [] }
+  }, { policy, requireSourceBindings: workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce' });
+  const changed = [...new Set(delivery.changeSet.entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))]
+    .filter((candidate) => isApplicationPath(candidate, applicationPathContext(config, workflow)));
+  const coverage = evaluateSpecCoverage({ ...records, observed: [
+    ...records.observed.filter((record) => record.phase !== phase.id), { ...observed, phase: phase.id }
+  ] }, changed, policy, { workflow });
+  const open = coverage.unimplemented.filter((id) => final || allocated[id]);
+  if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
+    `Phase '${phase.id}' has incomplete planned delivery before publication: ${open.join(', ') || coverage.invalidEvidence.join('; ')}. `
+    + 'Repair the exact planned source, tests or retained evidence while this generation is editable. If the approved plan misclassifies a screenshot, return to its planning owner for a reviewed plan correction; preserve application code. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',
+    { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,
+      coverage, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } });
+  return coverage;
+}
 
 const MAXIMUM_ADVISORIES = 50;
 

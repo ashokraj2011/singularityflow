@@ -542,12 +542,40 @@ function parseBacktickedPathCell(cell, label) {
  * behaviour that already exists, by removing something, by tests alone, or by an exact document or
  * configuration change. A plan that names none keeps the original meaning: new or modified source.
  */
-export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration']);
+export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration', 'evidence']);
 /** Fulfillment types that change product source, so the delivery carries the clause in that source. */
 export const SOURCE_CHANGING_FULFILLMENT = Object.freeze(['new', 'modified']);
 const PLANNED_OPTIONAL_COLUMNS = Object.freeze(['fulfillment', 'steps', 'observable result']);
 const PLANNED_STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const MAX_OBSERVABLE_RESULT = 500;
+
+const DELIVERY_MEDIA = /\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|webm|mov|zip)$/iu;
+
+/** Authoring-time typing, not a reinterpretation of an already approved legacy plan. */
+export function validatePlannedEvidenceTypes(claims, { evidenceRoot = null } = {}) {
+  for (const [id, claim] of Object.entries(claims)) {
+    const evidencePath = (candidate) => DELIVERY_MEDIA.test(candidate) || (evidenceRoot
+      ? candidate.startsWith(`${evidenceRoot}/`) : /(?:^|\/)work-items\/[^/]+\/evidence\//u.test(candidate));
+    const misplacedTest = (claim.tests ?? []).find(evidencePath);
+    if (misplacedTest) throw new SingularityFlowError(
+      `${id}: ${misplacedTest} is retained delivery evidence, not an executable test. Use fulfillment evidence and an inspection/visual verification contract.`,
+      { code: 'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', details: { clauseId: id, path: misplacedTest } });
+    if (claim.fulfillment === 'evidence') {
+      for (const candidate of claim.expectedPaths ?? []) {
+        if (evidenceRoot ? !candidate.startsWith(`${evidenceRoot}/`) : !/(?:^|\/)evidence\/[^/]/u.test(candidate)) {
+          throw new SingularityFlowError(`${id}: retained evidence must be inside this Story's evidence directory.`,
+            { code: 'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', details: { clauseId: id, path: candidate } });
+        }
+      }
+    } else if (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment)) {
+      const misplacedSource = (claim.expectedPaths ?? []).find((candidate) => evidenceRoot
+        ? candidate.startsWith(`${evidenceRoot}/`) : /(?:^|\/)work-items\/[^/]+\/evidence\//u.test(candidate));
+      if (misplacedSource) throw new SingularityFlowError(
+        `${id}: ${misplacedSource} is not product source. Allocate a separate fulfillment evidence row; do not mix a screenshot with source changes.`,
+        { code: 'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', details: { clauseId: id, path: misplacedSource } });
+    }
+  }
+}
 
 function emptyCell(cell) {
   const value = String(cell ?? '').trim();
@@ -741,6 +769,7 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
   const supportingFileDetails = supportingFilesFromPlan(lines);
   const supportingFiles = supportingFileDetails.map((entry) => entry.path);
   const claimMap = normalizeClaimMap({ claims, supportingFiles, supportingFileDetails }, { kind: 'planned', clauseIds: [...known], policy });
+  validatePlannedEvidenceTypes(claimMap.claims);
   return {
     claimMap,
     supportingFiles,
@@ -929,7 +958,7 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
   // What the delivery recorded for obligations that are not new or modified source [E2G-010].
   const fulfilled = new Map((delivery?.fulfillment?.obligations ?? [])
     .map((entry) => [String(entry?.clauseId ?? '').toUpperCase(), entry]));
-  const fulfilledState = { existing: 'present', removed: 'absent', document: 'changed', configuration: 'changed' };
+  const fulfilledState = { existing: 'present', removed: 'absent', document: 'changed', configuration: 'changed', evidence: 'present' };
   const claims = {};
   for (const id of knownIds) {
     const plan = planned.claims[id];
@@ -943,7 +972,9 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
       const entry = fulfilled.get(id);
       if (!entry) continue;
       const observedPaths = (entry.paths ?? [])
-        .filter((item) => item.state === fulfilledState[plan.fulfillment] && plan.expectedPaths.includes(item.path))
+        .filter((item) => entry.fulfillment === plan.fulfillment && item.state === fulfilledState[plan.fulfillment]
+          && (plan.fulfillment !== 'evidence' || /^[a-f0-9]{64}$/u.test(item.sha256 ?? ''))
+          && plan.expectedPaths.includes(item.path))
         .map((item) => item.path).sort();
       if (!observedPaths.length) continue;
       claims[id] = {
@@ -1197,8 +1228,9 @@ export function mergePlannedClaimRecords(maps = []) {
   for (const map of [...maps].sort(recordOrder)) {
     for (const [id, claim] of Object.entries(map?.claims ?? {})) {
       const current = grouped.get(id) ?? {
-        expectedPaths: [], tests: [], dispositions: [], reasons: [], deviation: null, fulfillment: null, steps: [], observableResult: null
+        expectedPaths: [], tests: [], dispositions: [], reasons: [], deviation: null, fulfillment: null, steps: [], observableResult: null, obligations: []
       };
+      current.obligations.push({ ...claim, owner: map.phase ?? null });
       if (claim.fulfillment) current.fulfillment = claim.fulfillment;
       current.steps.push(...(claim.steps ?? []));
       if (claim.observableResult) current.observableResult = claim.observableResult;
@@ -1220,7 +1252,8 @@ export function mergePlannedClaimRecords(maps = []) {
       testDisposition: tests.length ? 'applicable' : allNotApplicable ? 'not-applicable' : 'unspecified',
       testReason: tests.length || !allNotApplicable ? null : value.reasons.at(-1) ?? null,
       deviation: value.deviation,
-      ...(value.fulfillment ? { fulfillment: value.fulfillment } : {}),
+      ...(value.fulfillment && new Set(value.obligations.map((claim) => claim.fulfillment ?? null)).size === 1 ? { fulfillment: value.fulfillment } : {}),
+      ...(value.obligations.length > 1 ? { obligations: value.obligations } : {}),
       ...(value.steps.length ? { steps: sortedUnique(value.steps) } : {}),
       ...(value.observableResult ? { observableResult: value.observableResult } : {})
     }];
@@ -1241,7 +1274,7 @@ export function plannedClaimsForObservedPhase(workflow, phaseId, planned = []) {
  * erase an earlier exact match. Completeness is recomputed against the cumulative planned paths and
  * tests, so two partial implementation intervals can together form one matched claim.
  */
-export function mergeObservedClaimRecords(maps = [], plannedClaims = {}) {
+export function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workflow = null } = {}) {
   const grouped = new Map();
   for (const map of [...maps].sort(recordOrder)) {
     for (const [id, claim] of Object.entries(map?.claims ?? {})) {
@@ -1263,7 +1296,19 @@ export function mergeObservedClaimRecords(maps = [], plannedClaims = {}) {
     let verdict;
     if (value.verdicts.includes('deviated')) verdict = 'deviated';
     else if (value.verdicts.includes('unplanned')) verdict = 'unplanned';
-    else if (plan?.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
+    else if (plan?.obligations?.length) {
+      // Evaluate each planning owner's obligation against only its allocated Code steps. One
+      // test-only stage cannot erase, or satisfy, another stage's product-source obligation.
+      const outcomes = plan.obligations.map((obligation) => {
+        const ownedSteps = Object.entries(workflow?.resolution?.plannedClaims?.owners ?? {})
+          .filter(([, owner]) => owner === obligation.owner).map(([step]) => step);
+        const steps = obligation.steps?.length ? obligation.steps : ownedSteps;
+        const selected = maps.filter((map) => !steps.length || steps.includes(map.phase));
+        return mergeObservedClaimRecords(selected, { [id]: obligation })[id]?.verdict ?? 'missing';
+      });
+      verdict = outcomes.every((outcome) => outcome === 'matched') ? 'matched'
+        : outcomes.some((outcome) => outcome !== 'missing') ? 'partial' : 'missing';
+    } else if (plan?.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
       // Implemented by its own fulfillment, not by source and tests together: existing, removed,
       // document and configuration work by their paths, test-only work by its tests [E2G-010].
       const evidence = plan.fulfillment === 'test-only' ? testResults : observedPaths;
@@ -1458,11 +1503,11 @@ function exactPlannedTestEvidence(id, plannedClaims, observedClaims) {
   return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
 }
 
-export function evaluateSpecCoverage({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { root = null } = {}) {
+export function evaluateSpecCoverage({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { root = null, workflow = null } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const plannedClaims = mergePlannedClaimRecords(planned);
-  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims, { workflow });
   const activePaths = [...new Set(changedPaths.map(posix))].filter((candidate) => !pathExcluded(candidate, normalized.excludes)).sort();
   const claimedPaths = new Set(Object.entries(observedClaims).flatMap(([id, claim]) => [
     ...(claim.observedPaths ?? []),
@@ -1475,7 +1520,8 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     if (!claim) return true;
     if (plannedClaims[id]?.fulfillment === 'test-only'
         && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) return true;
-    if (testOnlyClaimEvidence(id, plannedClaims[id], claim) && claim.verdict !== 'deviated') return false;
+    if (testOnlyClaimEvidence(id, plannedClaims[id], claim) && claim.verdict !== 'deviated'
+        && (!plannedClaims[id]?.obligations?.length || claim.verdict === 'matched')) return false;
     return ['missing', 'partial'].includes(claim.verdict);
   }).sort();
   // Covered only because their planned test files were delivered: no source change and, until

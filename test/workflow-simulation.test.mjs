@@ -43,7 +43,7 @@ test('installed workflow simulation retains the array and phase projection contr
   const all = await simulateWorkflow(root);
   assert.ok(Array.isArray(all));
   assert.deepEqual(all.map((entry) => entry.id), Object.keys(definition.workTypes));
-  assert.equal(all.length, 13, 'every shipped starter workflow must be covered');
+  assert.equal(all.length, 15, 'every shipped starter workflow must be covered');
   for (const entry of all) assert.equal(entry.lifecycle.status, 'complete-for-profile',
     `${entry.id}: ${JSON.stringify(entry.lifecycle.findings)}`);
   const one = await simulateWorkflow(root, 'feature');

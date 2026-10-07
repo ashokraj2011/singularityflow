@@ -180,7 +180,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   const phaseOrder = workflow.phaseOrder ?? Object.keys(phases);
   const records = graph.records ?? {};
   const plannedClaims = mergePlannedClaimRecords(records.planned ?? []);
-  const observedClaims = mergeObservedClaimRecords(records.observed ?? [], plannedClaims);
+  const observedClaims = mergeObservedClaimRecords(records.observed ?? [], plannedClaims, { workflow });
   // A decision may finish after observing existing behavior and skip every Code step. Judge the
   // route actually taken, not an unexecuted repair route; applicability still gates its omissions.
   const codePhaseIds = phaseOrder.filter((id) => phases[id]?.status !== 'skipped' && phaseRequiresCodeDelivery(phases[id]));
@@ -313,7 +313,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
 
     // Implement: the code phase's observed claim for this clause.
     const implementId = obligationId(workId, 'implement', id);
-    const testOnly = testOnlyClaimEvidence(id, planned, observed);
+    const testOnly = testOnlyClaimEvidence(id, planned, observed)
+      && (!planned?.obligations?.length || observed?.verdict === 'matched');
     const testOnlyLinked = testOnlyClaimEvidence(id, planned, observed, { complete: false });
     // A row allocated to some code steps is implemented, reviewed and verified by those steps.
     const allocatedSteps = noCode ? [] : (planned?.steps ?? []).filter((step) => codePhaseIds.includes(step));
@@ -349,7 +350,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     if (bindingDecision?.decision === 'accepted-with-exception' && implementStatus === 'met') implementStatus = 'excepted';
     obligations.push({
       id: implementId, responsibility: 'implement', subject: id, owningSteps: implementers, status: implementStatus,
-      fulfillment: noCode ? 'non-code' : planned?.fulfillment ?? (testOnly ? 'test-only' : 'new-or-modified'),
+      fulfillment: noCode ? 'non-code' : planned?.fulfillment ?? (planned?.obligations ? 'mixed' : testOnly ? 'test-only' : 'new-or-modified'),
+      ...(planned?.obligations ? { plannedObligations: planned.obligations } : {}),
       ...(binding ? { binding: { ...binding.entry, decision: bindingDecision?.decision ?? null, reason: bindingDecision?.reason ?? null } } : {}),
       facets: {
         coverage: observed?.observedPaths?.length || testOnlyLinked ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',

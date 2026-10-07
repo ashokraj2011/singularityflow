@@ -1323,9 +1323,7 @@ async function buildBundle(root, workflowIds) {
   for (const agentId of [...dependencies.agents].sort()) {
     const agent = discovered.find((candidate) => candidate.id === agentId);
     if (!agent) fail(`Referenced governed agent '${agentId}' is not installed.`, 'WORKFLOW_DEPENDENCY_MISSING');
-    const ownSkillIds = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
-    const extraSkills = (agent.attachedSkills ?? []).filter((entry) => !ownSkillIds.has(entry.id));
-    const content = extraSkills.length ? withAttachedSkillRows(agent.text, extraSkills.map((entry) => [entry.id, entry.phases.join(', ') || '*', entry.use || '-'])) : agent.text;
+    const content = portableAgentText(agent);
     if (agent.scope === 'repository') {
       await secureRepositoryPath(sourceRoot, agent.source, {
         label: `Governed agent '${agentId}'`, mustExist: true, type: 'file'
@@ -2217,9 +2215,12 @@ async function importPlan(root, destination, original, chosen) {
   }
   for (const [id, value] of Object.entries(bundle.agentLocks)) {
     const existing = target.agentLock.value.agents[id];
+    const agent = targetAgents.find((entry) => entry.id === id);
+    const portable = existing && agent && String(existing.sourceSha256).replace(/^sha256:/u, '') === digest(agent.text).replace(/^sha256:/u, '')
+      ? { ...existing, sourceSha256: digest(portableAgentText(agent)).replace(/^sha256:/u, '') } : existing;
     const subject = subjectRef('agent', id);
     if (existing == null) add.push(noted(entry('agent-lock', id), subject));
-    else if (canonicalJson(existing) === canonicalJson(value)) reuse.push(noted(entry('agent-lock', id), subject));
+    else if (canonicalJson(existing) === canonicalJson(value) || canonicalJson(portable) === canonicalJson(value)) reuse.push(noted(entry('agent-lock', id), subject));
     else conflicts.push(noted(entry('agent-lock', id, { reason: 'same agent has a different dependency lock' }), subject));
   }
   const assetTargets = [];
@@ -2267,7 +2268,11 @@ async function importPlan(root, destination, original, chosen) {
       conflicts.push(entry(asset.kind, relative, { reason: 'target is not a regular file' }));
     } else {
       const content = await readFile(file);
-      const comparison = importedAssetReuse(asset, content);
+      // Export materializes central agent attachments into portable agent tables. Compare the
+      // target's same attachments in that representation, without rewriting a seeded agent.
+      const targetAgent = asset.kind === 'agent' ? targetAgents.find((agent) => agent.id === asset.id) : null;
+      const portableContent = targetAgent ? Buffer.from(portableAgentText(targetAgent, content.toString('utf8'))) : content;
+      const comparison = importedAssetReuse(asset, portableContent);
       if (comparison.reusable) reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256 }), subject));
       else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
     }
@@ -2328,6 +2333,10 @@ async function importPlan(root, destination, original, chosen) {
   const keptAgents = new Set(Object.entries(resolutions)
     .filter(([subject, choice]) => choice.action === 'keep' && subject.startsWith('agent:'))
     .map(([subject]) => subject.slice('agent:'.length)));
+  for (const item of reuse.filter((entry) => entry.kind === 'agent')) {
+    const asset = assetTargets.find(({ relative }) => relative === item.id)?.asset;
+    if (asset) keptAgents.add(asset.id);
+  }
   const agentCatalog = await mergedImportAgentCatalog(target.root, bundle, keptAgents);
   const incomingConfiguration = Object.fromEntries(['story', 'initiative'].map((governs) => [
     governs,
@@ -2828,6 +2837,14 @@ async function carryFileAttachments(root, closure) {
       carried.add(entry.id);
     }
   }
+}
+
+/** Exact portable representation shared by export and collision comparison. */
+function portableAgentText(agent, text = agent.text) {
+  const own = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
+  const extra = (agent.attachedSkills ?? []).filter((entry) => !own.has(entry.id));
+  return extra.length ? withAttachedSkillRows(text, extra.map((entry) =>
+    [entry.id, entry.phases.join(', ') || '*', entry.use || '-'])) : text;
 }
 
 export async function copyWorkflow(root, {

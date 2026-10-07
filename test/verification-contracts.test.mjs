@@ -157,7 +157,7 @@ test('a plan may require less than the runner can reach, but never more than it 
 });
 
 test('an inspection or visual witness binds the exact file, a full checklist and the reviewer, and stops counting when the file changes', async () => {
-  const { recordWitness, witnessRecordResults, WITNESS_CHECKLIST } = await import('../src/verification/witness-records.mjs');
+  const { recordWitness, witnessContextBinding, witnessRecordResults, WITNESS_CHECKLIST } = await import('../src/verification/witness-records.mjs');
   const contracts = parse(table(
     `| \`${AC1}\` | unit | test | \`test/value.test.js\` | | | | |`,
     `| \`${AC1}\` | docs | inspection | \`docs/value.md\` | | | | |`,
@@ -178,15 +178,37 @@ test('an inspection or visual witness binds the exact file, a full checklist and
   assert.equal(visual.target, 'checkout');
   assert.equal(visual.outcome, 'failed');
   const current = new Map([['docs/value.md', common.sha256], ['evidence/checkout.png', common.sha256]]);
-  const results = Object.fromEntries(witnessRecordResults(workflow.witnessRecords, current).map((entry) => [entry.slot, entry]));
+  const binding = { contextBinding: witnessContextBinding(workflow) };
+  const results = Object.fromEntries(witnessRecordResults(workflow.witnessRecords, current, binding).map((entry) => [entry.slot, entry]));
   assert.equal(results.docs.status, 'met');
   assert.equal(results.screen.status, 'failed');
   assert.match(results.screen.message, /matches-the-criterion/);
-  const changed = witnessRecordResults(workflow.witnessRecords, new Map([['docs/value.md', `sha256:${'e'.repeat(64)}`]]));
+  const changed = witnessRecordResults(workflow.witnessRecords, new Map([['docs/value.md', `sha256:${'e'.repeat(64)}`]]), binding);
   assert.equal(changed.find((entry) => entry.slot === 'docs').status, 'missing');
   // The evaluator credits a met inspection slot, and only while its bytes are current.
   const docsOnly = parse(table(`| \`${AC1}\` | unit | test | \`test/value.test.js\` | | | | |`, `| \`${AC1}\` | docs | inspection | \`docs/value.md\` | | | | |`));
   const graph = (records) => evaluateEvidence(evidenceGraph({ workflow: story(), records: records_(docsOnly), deliveries: [delivery([witness('adds')], [occurrence('adds')])], witnessRecords: records }), { at: NOW });
-  assert.equal(verifyRow(graph(witnessRecordResults(workflow.witnessRecords, current))).result, 'satisfied');
+  assert.equal(verifyRow(graph(witnessRecordResults(workflow.witnessRecords, current, binding))).result, 'satisfied');
   assert.equal(verifyRow(graph(changed)).result, 'missing');
+  workflow.phases = { implementation: { generation: 2, generationCommit: 'a'.repeat(40), deliveryEvidence: { sourceTreeSha256: 'b'.repeat(64) } } };
+  const newCandidate = witnessRecordResults(workflow.witnessRecords, current, { contextBinding: witnessContextBinding(workflow) });
+  assert.ok(newCandidate.every((entry) => entry.status === 'missing'), 'unchanged screenshot bytes cannot reuse another candidate review');
+});
+
+test('a retained evidence witness requires exact published bytes, including mixed obligations', async () => {
+  const { recordWitness, WITNESS_CHECKLIST } = await import('../src/verification/witness-records.mjs');
+  const file = 'singularity/work-items/VERIFY/evidence/screen.png';
+  const sha256 = 'd'.repeat(64);
+  const retained = { fulfillment: 'evidence', expectedPaths: [file] };
+  const input = { clauseId: AC1, slot: { slot: 'screen', method: 'visual', witness: { target: 'checkout' } },
+    file, sha256: `sha256:${sha256}`, plannedClaim: { obligations: [retained, { fulfillment: 'test-only' }] },
+    answers: Object.fromEntries(WITNESS_CHECKLIST.map((item) => [item, 'yes'])),
+    reason: 'Inspected the exact image published for this candidate.', actor: 'carol', authorityGroup: 'reviewers', at: NOW };
+  const workflow = { phases: { build: { generation: 1, generationCommit: 'a'.repeat(40),
+    deliveryEvidence: { fulfillment: [{ clauseId: AC1, fulfillment: 'evidence', paths: [{ path: file, state: 'present', sha256 }] }] } } } };
+  assert.throws(() => recordWitness(workflow, { ...input, sha256: `sha256:${'e'.repeat(64)}` }),
+    (error) => error.code === 'WITNESS_EVIDENCE_UNPUBLISHED');
+  assert.throws(() => recordWitness({ phases: {} }, input), (error) => error.code === 'WITNESS_EVIDENCE_UNPUBLISHED');
+  assert.equal(workflow.witnessRecords, undefined, 'refusals must not append a decision');
+  assert.equal(recordWitness(workflow, input).outcome, 'met');
 });

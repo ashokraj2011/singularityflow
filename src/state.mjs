@@ -167,11 +167,11 @@ import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mj
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
-  buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap,
+  buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, validatePlannedEvidenceTypes,
   evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
   loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
-  predecessorSpecClauses
+  predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
@@ -1814,6 +1814,8 @@ function plannedClaimContract(phase, authored, {
   subject = `Phase ${phase.id} cannot publish`, where = `in ${artifactPath}`, again = 'publish again'
 }) {
   const derived = derivePlannedClaimMap(authored, { clauseIds, policy });
+  const evidenceRoot = artifactPath?.split('/artifacts/')[0];
+  if (evidenceRoot) validatePlannedEvidenceTypes(derived.claimMap.claims, { evidenceRoot: `${evidenceRoot}/evidence` });
   const placeholderReasons = Object.entries(derived.claimMap.claims)
     .filter(([, claim]) => claim.testDisposition === 'not-applicable' && placeholderTestReason(claim.testReason))
     .map(([id]) => id)
@@ -2087,7 +2089,7 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
  * Use only this Story's pinned, committed specification/plan/observation bindings and the exact
  * submitted code revision. Earlier code phases may accumulate evidence and are not final gates.
  */
-export async function assertFinalCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit) {
+export async function assertFinalCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved' } = {}) {
   const policy = specificationPolicy(config, workflow);
   if (policy.coverage !== 'enforce'
       || !explicitPlannedClaimsRequired(workflow)
@@ -2111,7 +2113,7 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
     target: evidenceCommit,
     pathContext: applicationPathContext(config, workflow)
   });
-  const coverageResult = evaluateSpecCoverage(records, changedPaths, policy, { root });
+  const coverageResult = evaluateSpecCoverage(records, changedPaths, policy, { root, workflow });
   // Observations accumulate across code phases, but a later phase can restore a previously
   // changed file to its pre-Story bytes. A still-existing file is not proof that its observed
   // implementation survived in the exact code revision being approved. Deletions remain valid
@@ -2119,12 +2121,14 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
   const finalChangedPaths = new Set(changedPaths);
   // Existing behaviour is cited unchanged and a removal is evidenced by absence, so neither is
   // expected in the change set [E2G-010].
-  const revertedClaims = [...new Set(records.observed.flatMap((record) =>
-    Object.entries(record.claims ?? {}).filter(([id]) => !['existing', 'removed'].includes(planned[id]?.fulfillment)).flatMap(([id, claim]) =>
+  const revertedClaims = [...new Set(records.observed.flatMap((record) => {
+    const ownPlan = plannedClaimsForObservedPhase(workflow, record.phase, records.planned);
+    return Object.entries(record.claims ?? {}).filter(([id]) => !['existing', 'removed', 'evidence'].includes(ownPlan[id]?.fulfillment)).flatMap(([id, claim]) =>
       (claim.observedPaths ?? [])
         .filter((candidate) => !finalChangedPaths.has(candidate))
         .map((candidate) => `${id} references source evidence absent from the final change set: ${candidate}`)
-    )))].sort();
+    );
+  }))].sort();
   const coverage = revertedClaims.length
     ? { ...coverageResult,
         invalidEvidence: [...new Set([...coverageResult.invalidEvidence, ...revertedClaims])].sort(),
@@ -2134,7 +2138,7 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
     const open = coverage.unimplemented.filter((id) => allocatedHere.includes(id));
     if (!open.length) return coverage;
     throw new SingularityFlowError(
-      `Phase '${phase.id}' cannot be approved because rows the plan allocates to it are not implemented:\n- `
+      `Phase '${phase.id}' cannot be ${boundary} because rows the plan allocates to it are not implemented:\n- `
       + open.map((id) => `clause ${id} is not fully implemented`).join('\n- ')
       + '\nReturn this phase for correction, complete their source and test evidence, then publish and submit a new generation.',
       { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, evidenceCommit, allocated: allocatedHere, open } }
@@ -2148,8 +2152,8 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
     ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
   ];
   throw new SingularityFlowError(
-    `Phase '${phase.id}' cannot be approved because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
-    + `Return this phase for correction, complete the source and test evidence, then publish and submit a new generation. Never hand-edit an observed claim map.`,
+    `Phase '${phase.id}' cannot be ${boundary} because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
+    + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. Correct delivery evidence in a reviewed new generation, or use singularity-flow decision plan to amend exact planned locations without regenerating application code. Screenshots belong to fulfillment evidence with a visual/inspection contract, not product source or executable tests. Never hand-edit an observed claim map.`,
     {
       code: 'SPEC_COVERAGE_INCOMPLETE',
       details: {
@@ -5009,6 +5013,9 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
+  if (phaseRequiresCodeDelivery(phase) && phase.generationCommit) {
+    await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, phase.generationCommit, { boundary: 'submitted' });
+  }
   session ??= await loadSession(root);
   recordSubmittedDecisionInputs(workflow, phase, decisionValues, session.actor);
   // Repair legacy generations whose raw reporter output was registered as a phase artifact. The

@@ -401,13 +401,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // the append-only change it was sent back for.
   await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001 starts a new attempt and leaves the failed one in place\nexport function retry() { return { attempt: 1 }; }\n');
   await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\n// @clause:E2E:REQ-002 appends each attempt to the history\nexport function append(attempt) { return [...attempts, attempt]; }\n');
-  await write(root, 'tests/payments-attempts.test.mjs', [
-    "import assert from 'node:assert/strict';",
-    "import test from 'node:test';",
-    '',
-    "test('append preserves the original array', () => assert.deepEqual([1], [1]));",
-    ''
-  ].join('\n'));
+  // Keep one genuine incomplete obligation for the update-intent convergence rail. A delivered
+  // planned test is claimed evidence, not the historical false-positive unclaimed-path finding.
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
     '## Agent brief', '',
@@ -417,7 +412,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '- `src/payments/retry.ts`: retry handler serving E2E:REQ-001.',
     '- `src/payments/attempts.ts`: append-only attempts serving E2E:REQ-002.', '',
     '## Tests and operational notes', '',
-    'Focused retry and append-only tests cover both governed requirements.', ''
+    'The focused retry test passes; the planned append-only test is still outstanding.', ''
   ].join('\n'));
   await completePhase(root, 'implementation');
 
@@ -537,6 +532,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     "  const source = readFileSync(new URL('../src/payments/retry.ts', import.meta.url), 'utf8');",
     "  assert.match(source, /payments operator required/);",
     '});', ''
+  ].join('\n'));
+  await write(root, 'tests/payments-attempts.test.mjs', [
+    "import assert from 'node:assert/strict';", "import test from 'node:test';",
+    "test('append preserves the original array', () => assert.deepEqual([1], [1]));", ''
   ].join('\n'));
   await completePhase(root, 'implementation');
 

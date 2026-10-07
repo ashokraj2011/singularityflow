@@ -188,6 +188,13 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
       slots: contract.slots.sort((left, right) => left.slot.localeCompare(right.slot))
     });
   }
+  for (const [id, planned] of Object.entries(plannedClaims)) {
+    if (planned.fulfillment !== 'evidence' || !AC_ID.test(id)) continue;
+    if (!contracts.find((contract) => contract.clauseId === id)?.slots.some((slot) =>
+      slot.role === 'primary' && ['inspection', 'visual'].includes(slot.method))) {
+      throw invalid(`${id} delivers retained evidence: name a primary visual or inspection contract; file presence alone cannot verify the criterion.`);
+    }
+  }
   return contracts;
 }
 

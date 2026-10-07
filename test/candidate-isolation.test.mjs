@@ -191,7 +191,19 @@ test('an unrelated local edit that would break the tests stays in the worktree w
 
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
-  cli('approve', 'implementation', '--yes');
+  const dirtyApproval = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], root, { allowFailure: true });
+  assert.notEqual(dirtyApproval.status, 0, 'unrelated authoring still needs review before a local lifecycle decision');
+  assert.match(dirtyApproval.stdout + dirtyApproval.stderr, /Authored changes need review/u);
+  // Review the exact published candidate in a clean clone, without committing or discarding
+  // unrelated work in the original checkout. This is a reviewed alternative, not --allow-dirty.
+  const reviewRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-review-'));
+  t.after(() => rm(reviewRoot, { recursive: true, force: true }));
+  run('git', ['clone', '--branch', W, remote, reviewRoot], root);
+  run('git', ['config', 'user.name', 'Isolation Tester'], reviewRoot);
+  run('git', ['config', 'user.email', 'iso@example.test'], reviewRoot);
+  run(process.execPath, [CLI, '--no-model', 'session', 'attach', W, '--json'], reviewRoot);
+  run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], reviewRoot);
+  run('git', ['pull', '--ff-only', 'origin', W], root);
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.implementation.status, 'approved');
   const receipt = JSON.parse(await readFile(path.join(root, workflow.phases.implementation.deliveryEvidence.receiptPath), 'utf8'));

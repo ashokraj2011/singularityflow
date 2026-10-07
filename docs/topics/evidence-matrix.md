@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 26
+version: 27
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -52,7 +52,11 @@ Every obligation reports six facets separately: coverage, execution, assurance, 
 
 The plan's planned-evidence table has one row per clause: its exact expected paths and planned tests, how it is fulfilled and what a person can observe when it is met.
 
-- **Fulfillment:** `new` or `modified` product source; `existing` behaviour that already lives at the listed paths; `removed` behaviour at the listed paths; `test-only`, when the tests are the whole delivery and Expected paths is `-`; or an exact `document` or `configuration` change. A row that names none means new or modified source.
+- **Fulfillment:** `new` or `modified` product source; `existing` behaviour that already lives at the listed paths; `removed` behaviour at the listed paths; `test-only`, when the tests are the whole delivery and Expected paths is `-`; an exact `document` or `configuration` change; or `evidence`, for a retained screenshot/document under this Story's `evidence/` directory. A row that names none means new or modified source.
+
+Retained evidence is bound by exact path and SHA-256 to the published Git generation (regular files only, at most 16 MiB each). It never needs a fake source tag and is never an executable test. An evidence acceptance criterion must have a primary visual/inspection verification contract. File delivery marks implementation coverage, not visual correctness: an authorized reviewer records the contract's witness with `singularity-flow decision witness`. The inspected image must match the published evidence bytes, not an unpublished local replacement. Its file hash, plan/criterion bindings and published code candidate must remain current; reusing an old screenshot alone cannot verify a new candidate.
+
+Each planning owner's obligations survive aggregation independently. A later test-only stage cannot erase an earlier source-changing obligation or satisfy it using another stage's files. Coverage is checked against the editable candidate before publication, again before submission runs tests, and at approval. Failures preserve the candidate and identify the planning owner. Missing files can be repaired in the open generation. A misclassified approved screenshot row needs a reviewed plan correction (return to the planning owner using the allowed rejection target), not invented tags or edits to immutable observed maps; preserve application code and revalidate its delivery.
 - **Observable result:** what a person can see when the row is met, in at most 500 characters.
 - **Steps:** when a plan feeds several code steps, the step or steps that deliver the row. A step the plan does not plan for is refused when the plan is published; a row without Steps is delivered by every code step it plans for.
 

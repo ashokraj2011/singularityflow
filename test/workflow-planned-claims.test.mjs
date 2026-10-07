@@ -34,6 +34,12 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
   'spec-code-test-loop': {
     mode: 'required', clausePhases: ['specification'], owners: { implementation: 'specification' }
   },
+  'document-test-repair': {
+    mode: 'required', clausePhases: ['document-intake'], owners: { 'scenario-repair': 'document-intake' }
+  },
+  'demo-web-e2e-testing': {
+    mode: 'required', clausePhases: ['demo-web-intake'], owners: { 'demo-web-repair': 'demo-web-intake' }
+  },
   'poc-lite': { mode: 'omitted' },
   'benchmarking-a': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }

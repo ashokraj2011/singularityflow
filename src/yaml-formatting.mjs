@@ -12,7 +12,7 @@ import { YAML_OUTPUT } from './util.mjs';
 /**
  * Line operations turning `a` into `b`: `[' ', i]` keeps a[i], `['-', i]` drops a[i], `['+', j]`
  * adds b[j]. The common head and tail are matched first, so the table only covers the edited
- * region; a region too large for the table becomes one replacement.
+ * region. Large regions are split at ordered unique lines before using bounded tables.
  */
 export function lineOperations(a, b) {
   let start = 0;
@@ -38,11 +38,45 @@ export function lineOperations(a, b) {
       else { operations.push(['-', start + i]); i += 1; }
     }
   } else {
-    for (let i = start; i < endA; i += 1) operations.push(['-', i]);
-    for (let j = start; j < endB; j += 1) operations.push(['+', j]);
+    const anchors = uniqueLineAnchors(a.slice(start, endA), b.slice(start, endB));
+    if (!anchors.length) {
+      for (let i = start; i < endA; i += 1) operations.push(['-', i]);
+      for (let j = start; j < endB; j += 1) operations.push(['+', j]);
+    } else {
+      let fromA = start; let fromB = start;
+      for (const [i, j] of [...anchors.map(([x, y]) => [start + x, start + y]), [endA, endB]]) {
+        for (const [kind, index] of lineOperations(a.slice(fromA, i), b.slice(fromB, j))) {
+          operations.push([kind, index + (kind === '+' ? fromB : fromA)]);
+        }
+        if (i < endA) operations.push([' ', i]);
+        fromA = i + 1; fromB = j + 1;
+      }
+    }
   }
   for (let index = endA; index < a.length; index += 1) operations.push([' ', index]);
   return operations;
+}
+
+/** Patience anchors: unique in both inputs, with increasing positions in both. */
+function uniqueLineAnchors(a, b) {
+  const positions = (lines) => {
+    const found = new Map();
+    lines.forEach((line, index) => found.set(line, found.has(line) ? -1 : index));
+    return found;
+  };
+  const left = positions(a); const right = positions(b);
+  const pairs = [...left].filter(([line, index]) => index >= 0 && (right.get(line) ?? -1) >= 0)
+    .map(([line, index]) => [index, right.get(line)]);
+  const tails = []; const previous = [];
+  pairs.forEach(([, y], index) => {
+    let low = 0; let high = tails.length;
+    while (low < high) { const mid = (low + high) >> 1; if (pairs[tails[mid]][1] < y) low = mid + 1; else high = mid; }
+    previous[index] = low ? tails[low - 1] : -1;
+    tails[low] = index;
+  });
+  const result = [];
+  for (let index = tails.at(-1) ?? -1; index >= 0; index = previous[index]) result.push(pairs[index]);
+  return result.reverse();
 }
 
 /**

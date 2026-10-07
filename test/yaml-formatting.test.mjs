@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import YAML from 'yaml';
 import {
-  preserveYamlFormatting, renderDataPreservingFormatting, renderPreservingFormatting
+  lineOperations, preserveYamlFormatting, renderDataPreservingFormatting, renderPreservingFormatting
 } from '../src/yaml-formatting.mjs';
 import { changedLines } from './helpers/folded-yaml.mjs';
 import { YAML_OUTPUT } from '../src/util.mjs';
@@ -26,6 +26,16 @@ const ORIGINAL = [
   '      Two lines.',
   ''
 ].join('\n');
+
+test('large separated edits retain unchanged lines without an unbounded diff table', () => {
+  const before = Array.from({ length: 3500 }, (_, index) => `unique-${index}`);
+  const after = [...before];
+  after.splice(10, 0, 'added-one'); after.splice(3000, 0, 'added-two');
+  const operations = lineOperations(before, after);
+  assert.deepEqual(operations.filter(([kind]) => kind === '-'), []);
+  assert.equal(operations.filter(([kind]) => kind === '+').length, 2);
+  assert.deepEqual(operations.filter(([kind]) => kind !== '-').map(([kind, index]) => (kind === '+' ? after : before)[index]), after);
+});
 
 function edit(original, change) {
   const document = YAML.parseDocument(original);

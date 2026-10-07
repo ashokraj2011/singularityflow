@@ -9,7 +9,7 @@ import test from 'node:test';
 import {
   buildSpecIndex, canonicalJson, deriveObservedClaimMap, normalizeClaimMap
 } from '../src/specifications.mjs';
-import { inspectUnclaimedChangedPaths } from '../src/spec-coverage-preview.mjs';
+import { assertCandidateSpecificationCoverage, inspectUnclaimedChangedPaths } from '../src/spec-coverage-preview.mjs';
 import { assertFinalCodeSpecificationCoverage } from '../src/state.mjs';
 
 const ID = 'COVER-1';
@@ -152,6 +152,22 @@ test('final code approval refuses incomplete pinned clause coverage, then accept
     () => assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')),
     (error) => error.code === 'SPECIFICATION_INPUT_NOT_COMMITTED'
   );
+});
+
+test('editable candidate coverage catches incomplete delivery without consuming the generation', async () => {
+  const { root, config, workflow } = await fixture();
+  workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
+  const before = git(root, 'status', '--porcelain');
+  const candidate = (paths) => ({ sourcePaths: paths, testPaths: [], fulfillment: [],
+    sourceBindings: { bindings: paths.map((sourcePath, index) => ({ sourcePath, clauseId: `COVER-1:REQ-00${index + 1}` })) },
+    changeSet: { entries: paths.map((newPath) => ({ newPath })) } });
+  await assert.rejects(() => assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation,
+    candidate(['src/first.mjs'])), (error) => error.code === 'SPEC_COVERAGE_INCOMPLETE'
+      && error.details.coverage.unimplemented.includes('COVER-1:REQ-002'));
+  assert.equal(git(root, 'status', '--porcelain'), before);
+  const result = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation,
+    candidate(['src/first.mjs', 'src/second.mjs']));
+  assert.equal(result.complete, true);
 });
 
 test('historical and intermediate code phases retain their pinned coverage boundary', async () => {

@@ -1273,6 +1273,23 @@ test('workflow copy is a confirmed linked duplicate that preserves the source an
   }]);
 });
 
+test('identical seeded agents with central skill attachments reuse without rewriting or hiding collisions', async (t) => {
+  const source = await initializedRepository(t, 'sflow-portable-seeded-source-');
+  const target = await initializedRepository(t, 'sflow-portable-seeded-target-');
+  const bundle = await exportWorkflowBundle(source, ['feature']);
+  const agents = bundle.assets.filter((asset) => asset.kind === 'agent');
+  const before = new Map(await Promise.all(agents.map(async (asset) => [asset.path, await readFile(path.join(target, asset.path))])));
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  assert.ok(plan.reused.some((entry) => entry.kind === 'agent' && entry.id.includes('demo-web')));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  for (const [relative, bytes] of before) assert.deepEqual(await readFile(path.join(target, relative)), bytes);
+  const file = path.join(target, '.github/agents/demo-web-analyst.agent.md');
+  await writeFile(file, `${await readFile(file, 'utf8')}\nA target-only instruction changes this agent.\n`);
+  const collision = await planWorkflowImport(target, bundle);
+  assert.equal(collision.status, 'blocked', 'portable attachment equivalence hid a real instruction collision');
+});
+
 test('workflow import and copy add only their own lines to a configuration folded at 80 columns', async (t) => {
   const source = await initializedRepository(t, 'sflow-workflow-folded-source-');
   const target = await initializedRepository(t, 'sflow-workflow-folded-target-');

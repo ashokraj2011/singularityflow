@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
 
 import {
   deriveObservedClaimMap, evaluateSpecCoverage, mergeObservedClaimRecords, normalizeClaimMap
@@ -16,6 +17,8 @@ const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
 const W = 'FULFIL-1';
 const ac = (number) => `${W}:AC-00${number}`;
 const TEST_REQ = `${W}:REQ-007`;
+const SCREEN_REQ = `${W}:REQ-008`;
+const SCREEN = `singularity/work-items/${W}/evidence/screen.png`;
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -68,7 +71,7 @@ test('each fulfillment type is observed by its own evidence, and none needs new 
   assert.deepEqual(coverage.invalidEvidence ?? [], [], 'test-only and removal evidence are valid');
 });
 
-test('a real Story delivers modified, existing, test-only, removed and document work in one code step', async (t) => {
+test('a real Story delivers source, test-only, removal, document and reviewed screenshot evidence in one code step', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fulfillment-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -120,7 +123,9 @@ test('a real Story delivers modified, existing, test-only, removed and document 
     `| [${ac(3)}] | A regression test pins the value. |`,
     `| [${ac(4)}] | The legacy flag module no longer exists. |`,
     `| [${ac(5)}] | The usage document explains value(). |`,
-    `| [${TEST_REQ}] | Deliver the regression test for the approved value. |`, '',
+    `| [${TEST_REQ}] | Deliver the regression test for the approved value. |`,
+    `| [${SCREEN_REQ}] | Retain the reviewed desktop image. |`,
+    `| [${ac(6)}] | The retained desktop image shows the approved outcome. |`, '',
     '## Planned implementation evidence', '',
     '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
     `| \`${ac(1)}\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | value() returns 2. |`,
@@ -128,7 +133,11 @@ test('a real Story delivers modified, existing, test-only, removed and document 
     `| \`${ac(3)}\` | - | \`test/regression.test.mjs\` | test-only | The regression test passes. |`,
     `| \`${ac(4)}\` | \`src/legacy.mjs\` | \`test/legacy.test.mjs\` | removed | Importing the legacy module fails. |`,
     `| \`${ac(5)}\` | \`docs/usage.md\` | \`test/usage.test.mjs\` | document | The usage page names value(). |`,
-    `| \`${TEST_REQ}\` | - | \`test/regression.test.mjs\` | test-only | The value regression test is delivered. |`, '',
+    `| \`${TEST_REQ}\` | - | \`test/regression.test.mjs\` | test-only | The value regression test is delivered. |`,
+    `| \`${SCREEN_REQ}\` | \`${SCREEN}\` | not-applicable: The screenshot is reviewed visually, not executed as a test. | evidence | The captured file is retained. |`,
+    `| \`${ac(6)}\` | \`${SCREEN}\` | not-applicable: An authorized reviewer inspects the captured outcome. | evidence | The screenshot shows the approved outcome. |`, '',
+    '## Verification contracts', '', '| Criterion | Slot | Method | Witness |', '|---|---|---|---|',
+    `| \`${ac(6)}\` | screen | visual | \`desktop value\` |`, '',
     '## Initial evidence', '', 'The baseline modules, tests and usage document at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
@@ -150,8 +159,27 @@ test('a real Story delivers modified, existing, test-only, removed and document 
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu,
     'The value module returns 2, the guard is unchanged, the legacy flag is removed and the usage page names value().'));
+  const missing = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
+  assert.notEqual(missing.status, 0, 'missing planned screenshot was published');
+  assert.match(`${missing.stdout}\n${missing.stderr}`, /requires evidence.*does not exist/su);
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation.generation, 0);
+  await write(SCREEN, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=', 'base64'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
+  const beforeWitness = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows.find((row) => row.id === ac(6));
+  assert.notEqual(beforeWitness.result, 'satisfied', 'file presence was treated as visual correctness');
+  const publishedImage = await readFile(path.join(root, SCREEN));
+  await write(SCREEN, Buffer.concat([publishedImage, Buffer.from('local unpublished change')]));
+  const unpublishedWitness = run(process.execPath, [CLI, '--no-model', 'decision', 'witness', W,
+    '--criterion', ac(6), '--slot', 'screen', '--file', SCREEN,
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+    '--reason', 'This local image differs from the published candidate.'], root, { allowFailure: true });
+  assert.notEqual(unpublishedWitness.status, 0);
+  assert.match(`${unpublishedWitness.stdout}\n${unpublishedWitness.stderr}`, /does not match the published retained evidence/u);
+  await write(SCREEN, publishedImage);
+  cli('decision', 'witness', W, '--criterion', ac(6), '--slot', 'screen', '--file', SCREEN,
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+    '--reason', 'The isolated fixture image was inspected for this exact candidate.');
   cli('approve', 'implementation', '--yes');
 
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
@@ -162,8 +190,15 @@ test('a real Story delivers modified, existing, test-only, removed and document 
   assert.equal(observed.claims[TEST_REQ].verdict, 'matched');
   const receipt = JSON.parse(await readFile(path.join(root, workflowState.phases.implementation.deliveryEvidence.receiptPath), 'utf8'));
   assert.deepEqual(receipt.fulfillment.obligations.map((entry) => [entry.clauseId, entry.fulfillment, entry.paths.map((item) => item.state)]), [
-    [ac(2), 'existing', ['present']], [ac(4), 'removed', ['absent']], [ac(5), 'document', ['changed']]
+    [ac(2), 'existing', ['present']], [ac(4), 'removed', ['absent']], [ac(5), 'document', ['changed']],
+    [ac(6), 'evidence', ['present']], [SCREEN_REQ, 'evidence', ['present']]
   ]);
+  assert.equal(observed.claims[SCREEN_REQ].verdict, 'matched');
+  assert.deepEqual(observed.claims[SCREEN_REQ].observedPaths, [SCREEN]);
+  const forged = structuredClone(receipt);
+  forged.fulfillment.obligations.find((entry) => entry.clauseId === SCREEN_REQ).paths[0].sha256 = '0'.repeat(64);
+  assert.ok((await verifyCodeDeliveryReceipt(root, forged)).errors.some((error) => error.includes(SCREEN_REQ)),
+    'receipt replay accepted a screenshot with the wrong committed hash');
   assert.deepEqual(receipt.traceability.sourceRequired.map((entry) => entry.clauseId), [ac(1)],
     'only the modified obligation carries its clause in source');
   // The modified obligation is bound to its exact hunk, the declaration it touches and its explanation.
@@ -180,6 +215,8 @@ test('a real Story delivers modified, existing, test-only, removed and document 
     row.obligations.find((entry) => entry.responsibility === 'implement')]));
   for (const number of [1, 2, 3, 4, 5]) assert.equal(implement[ac(number)].status, 'met', `${ac(number)} is implemented`);
   assert.equal(implement[TEST_REQ].status, 'met');
+  assert.equal(implement[SCREEN_REQ].status, 'met');
+  assert.equal(implement[ac(6)].fulfillment, 'evidence');
   assert.equal(implement[TEST_REQ].fulfillment, 'test-only');
   assert.equal(implement[TEST_REQ].facets.coverage, 'linked');
   assert.deepEqual([2, 3, 4, 5].map((number) => implement[ac(number)].fulfillment), ['existing', 'test-only', 'removed', 'document']);

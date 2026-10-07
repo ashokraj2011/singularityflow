@@ -244,6 +244,7 @@ export async function currentConvergenceContext(root, config, workflow) {
     generation: implementation.generation
   });
   const facts = convergenceFacts({
+    workflow,
     reconciliation,
     indexes: records.indexes,
     planned: records.planned,

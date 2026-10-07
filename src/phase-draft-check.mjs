@@ -1,5 +1,5 @@
 import { isConvergencePhase } from './phase-roles.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommandForProducer
@@ -94,6 +94,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   session = null
 } = {}) {
   const configuredProducer = effectivePhasePublicationProducer(phase, { modelEnabled });
+  const prospective = workflow.currentPhase === phase.id && requiresProspectivePhaseInspection(workflow, phase);
+  const retained = hasPublishedPhaseGeneration(phase) && !prospective;
   const ownership = draftOwnership(configuredProducer, workflow, phase, session);
   const producer = ownership.producer;
   const reviewDraft = await phaseAuthoredReviewArtifacts(root, config, workflow, phase);
@@ -235,14 +237,17 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
-  const restriction = phaseAgentMutationRestriction(config, workflow, phase, session, 'publish');
+  const restriction = prospective ? phaseAgentMutationRestriction(config, workflow, phase, session, 'publish') : null;
   const hold = pendingIntentAmendmentAcknowledgement(workflow) ? phaseGovernanceHold(workflow, phase) : null;
   const actorRoute = restriction?.actions[0] ?? hold?.actions[0];
   if (restriction || hold) findings.push({ code: restriction?.code ?? hold.code,
     category: restriction ? 'agent-role' : 'amendment', path: null, line: null,
     message: restriction?.message ?? hold.reason });
   const nextRoute = actorRoute ? { class: 'human-context', command: actorRoute.command,
-    skill: actorRoute.skill, guidance: restriction?.message ?? hold.reason } : route;
+    skill: actorRoute.skill, guidance: restriction?.message ?? hold.reason } : retained && findings.length ? {
+      class: 'phase-recovery', command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+      skill: '/sf-recover', guidance: 'Preserve the published bytes. Restore the exact reviewed content or use an authorized return/successor generation; do not re-author this publication in place.'
+    } : route;
   const repairClass = nextRoute?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
@@ -251,7 +256,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     recheck: `singularity-flow phase draft-check ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
     recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
     // A red check must never offer an executable publication action.
-    publish: clean ? phasePublicationCommandForProducer(phase, configuredProducer, {
+    publish: clean && prospective ? phasePublicationCommandForProducer(phase, configuredProducer, {
       noModel: modelEnabled === false
     }) : null,
     next: nextRoute?.command ?? null
@@ -262,9 +267,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     status: clean ? 'ready' : 'correction-required',
     workId: workflow.workItem.id,
     phase: phase.id,
-    generation: phase.status === 'in_progress'
-      ? nextPhaseGeneration(phase)
-      : Number(phase.generation ?? 0),
+    generation: phaseInspectionGeneration(workflow, phase),
+    inspectionStage: retained ? 'published' : prospective ? 'authoring' : 'inactive',
     phaseStatus: phase.status,
     configuredProducer,
     producer,
@@ -283,10 +287,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     correction: Object.freeze({
       class: repairClass,
       automatic: false,
-      sameTurn: repairClass === 'agent-authoring' && !awaitingApproval
+      sameTurn: prospective && repairClass === 'agent-authoring' && !awaitingApproval
         && (!phaseRequiresCodeDelivery(phase) || editableCode)
         && traceabilityRepair?.status !== 'manual-review',
-      requiresNewGeneration: awaitingApproval && !clean,
+      requiresNewGeneration: (awaitingApproval || retained) && !clean,
       maximumChangedFingerprints: 3,
       guidance: clean ? null : nextRoute?.guidance
         ?? (traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase)),

@@ -72,6 +72,37 @@ test('phase draft check reports actionable authoring findings without changing b
   }
 });
 
+test('published and inactive documents never offer in-place authoring or publication, regardless of phase name', async () => {
+  for (const id of ['specification', 'planning', 'verification', 'release', 'custom-document']) {
+    const item = await fixture();
+    try {
+      item.phase.id = id; item.phase.generation = 2;
+      item.phase.generationPublications = [{ generation: 2, record: { path: `context/${id}-gen2.json` } }];
+      item.workflow.currentPhase = id; item.workflow.phases = { [id]: item.phase };
+      const before = await readFile(item.absolute);
+      let result = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(result.generation, 2);
+      assert.equal(result.inspectionStage, 'published');
+      assert.equal(result.correction.sameTurn, false);
+      assert.equal(result.correction.requiresNewGeneration, true);
+      assert.equal(result.correction.class, 'phase-recovery');
+      assert.match(result.commands.next, new RegExp(`recover DRAFT-1 --phase ${id}`));
+      assert.equal(result.commands.publish, null);
+      assert.deepEqual(await readFile(item.absolute), before);
+      await writeFile(item.absolute, '# Plan\n\nImplement the approved change and its mapped tests.\n');
+      result = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(result.status, 'ready'); assert.equal(result.commands.publish, null);
+      item.phase.generationIntent = { status: 'open', generation: 3 };
+      result = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(result.inspectionStage, 'authoring'); assert.equal(result.generation, 3);
+      assert.ok(result.commands.publish, 'an explicitly opened successor retains the authoring route');
+      item.phase.status = 'approved';
+      result = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(result.commands.publish, null); assert.equal(result.correction.sameTurn, false);
+    } finally { await rm(item.root, { recursive: true, force: true }); }
+  }
+});
+
 test('phase draft check reports duplicated or truncated managed metadata before publish', async () => {
   const item = await fixture();
   try {

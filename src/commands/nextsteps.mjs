@@ -11,6 +11,7 @@ import { withApprovedConfigurationRead } from '../approved-configuration-reader.
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
+import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -64,6 +65,7 @@ async function initiativeSnapshot(root, selected) {
 export async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }) {
   const prerequisites = [];
   const active = activePhase(workflow);
+  const authoring = Boolean(active) && requiresProspectivePhaseInspection(workflow, active);
   const session = await localSession(root);
   const activeSessionAgent = session?.workId === workflow.workItem.id
       && session?.phaseId === active?.id
@@ -79,7 +81,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   } else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) {
     prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
   }
-  if (active?.status === 'in_progress' && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
+  if (authoring && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
     timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
     reason: 'Select the governed agent that will remain active for this terminal session before generation.'
   });
@@ -121,7 +123,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
       });
     }
   }
-  if (active?.status === 'in_progress' && activeSessionAgent && !deterministicConvergence) {
+  if (authoring && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');
     const status = (await agentStatus(root, activeSessionAgent))[0];
     if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });

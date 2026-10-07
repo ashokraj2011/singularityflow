@@ -17,7 +17,20 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   const recovery = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
   let resolution;
-  if (code === 'specification_claim_map_binding_stale'
+  if (code.startsWith('generation_publication')) {
+    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
+      'Inspect the exact retained publication and its authored bytes. Restore authenticated evidence or use a reviewed successor/return; configuration refresh and risk acceptance cannot authenticate a changed publication.', '/sf-doctor');
+  } else if (code === 'phase_quality_risk_pending_tests') {
+    resolution = route('submission-evidence', phase.id, ['submit', phase.id, '--work-id', workId],
+      'Collect this published generation\'s fresh tests and observed claims before reviewing quality risk. No tests or evidence are waived.', '/sf-submit');
+  } else if (code === 'generation.document.published-changed') {
+    resolution = phase.status === 'awaiting_approval'
+      ? route('published-document-return', 'phase-approval-authority',
+        ['reject', phase.id, '--work-id', workId, '--to', '<phase>', '--reason', '<reason>'],
+        'Request an authorized return before changing submitted evidence. Preserve both the retained publication and the new draft.', '/sf-reject')
+      : route('published-document-restore', phase.id, ['phase', 'show', phase.id, '--show-artifact'],
+        'Preserve the new draft separately and restore exact reviewed bytes from the authenticated publication. Submit the restored publication for authorized return if its content needs rework.', '/sf-phase-documents');
+  } else if (code === 'specification_claim_map_binding_stale'
       || code === 'specification_claim_map_binding_required') {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Inspect this phase\'s exact published claim binding. Current-generation corruption requires restoration of authenticated bytes or reviewed rework; refreshing configuration or risk acceptance cannot repair it.', '/sf-doctor');

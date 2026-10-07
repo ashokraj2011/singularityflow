@@ -1,6 +1,8 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { exactFileAtObject } from './git.mjs';
 
 import { planAgentBriefs } from './agent-briefs.mjs';
 import {
@@ -10,7 +12,8 @@ import {
   normalizeRequiredTestCommand, structuredTestCommandRequiredError
 } from './code-delivery-tests.mjs';
 import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
-import { inspectPhaseAuthoredReviewContent } from './publication-preflight.mjs';
+import { authoredArtifactFingerprint, inspectPhaseAuthoredReviewContent } from './publication-preflight.mjs';
+import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { applicationChangeSetProjection, applicationPathContext, verifyWorkIntervalBaseline } from './work-intervals.mjs';
 import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
@@ -23,6 +26,7 @@ import { inspectPhasePublicationReadiness } from './phase-publication-readiness.
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseResolutionChoices } from './phase-resolution.mjs';
+import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
@@ -41,6 +45,12 @@ function action({ id, mode = 'guided', detail, command = null, skill = null, aut
 function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}) {
   const first = findings[0];
   if (!first) return [];
+  if (hasPublishedPhaseGeneration(phase) && !requiresProspectivePhaseInspection(workflow, phase)) return [action({
+    id: `restore-published-artifact:${phase.id}`,
+    detail: 'Preserve the retained generation. Restore its exact reviewed artifact bytes, or use an authorized return/successor before authoring changed content. Do not overwrite or republish this generation in place.',
+    command: `singularity-flow phase show ${phase.id} --show-artifact`, skill: '/sf-phase-documents',
+    evidence: { path: first.path, line: first.line }
+  })];
   if (first.code === 'artifact.required.missing') return [action({
     id: `prepare-artifact:${phase.id}`,
     detail: `Create the required ${phase.id} artifact at ${first.path}.`,
@@ -211,12 +221,12 @@ export async function generationRecovery(root, workflow, phase, generationDigest
   };
 }
 
-function projectionFinding(error, phase) {
+function projectionFinding(error, phase, generation) {
   return {
     code: error.code === 'AGENT_BRIEF_HEADING_AMBIGUOUS'
       ? 'projection.agent-brief.heading-ambiguous'
       : `projection.agent-brief.${String(error.code ?? 'invalid').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
-    category: 'projection', blocking: true, phase: phase.id, generation: nextPhaseGeneration(phase),
+    category: 'projection', blocking: true, phase: phase.id, generation,
     path: phase.requiredArtifact?.path ?? null,
     line: error.details?.lines?.[0] ?? null,
     value: error.details?.heading ?? null,
@@ -238,13 +248,14 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
   const blockers = [];
   const actions = [];
+  const inspectionGeneration = phaseInspectionGeneration(workflow, phase);
   const governance = phaseGovernanceHold(workflow, phase);
   if (governance) {
     // Historical reviewer authorship needs an honestly authored successor, not a blanket ban on
     // preparing/publishing that successor. Pending acknowledgement is an explicit human gate.
     if (governance.classification === 'amendment-acknowledgement-required') blockers.push({
       code: governance.code, category: 'amendment', blocking: true, phase: phase.id,
-      generation: nextPhaseGeneration(phase), details: { message: governance.reason }
+      generation: inspectionGeneration, details: { message: governance.reason }
     });
     actions.push(...governance.actions.map((entry, index) => action({
       id: `${governance.classification}:${phase.id}:${index}`, mode: 'guided',
@@ -275,6 +286,40 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
 
   const deterministicConvergence = isConvergencePhase(phase);
+  if (!phaseRequiresCodeDelivery(phase) && !deterministicConvergence
+      && hasPublishedPhaseGeneration(phase) && !requiresProspectivePhaseInspection(workflow, phase)) {
+    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
+      phase.requiredArtifact.path);
+    try {
+      const commit = publishedGenerationCommit(root, workflow, phase);
+      if (!commit) throw new SingularityFlowError('No authenticated publication is available for the retained document.',
+        { code: 'GENERATION_PUBLICATION_MISSING' });
+      const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
+      if (!bytes) throw new SingularityFlowError('The retained document is unavailable in its exact publication.',
+        { code: 'GENERATION_PUBLICATION_INVALID' });
+      const current = await secureRepositoryPath(root, relative, { mustExist: true, type: 'file', label: 'Published document' });
+      if (authoredArtifactFingerprint(await readFile(current.absolute, 'utf8')) !== authoredArtifactFingerprint(bytes.toString('utf8'))) {
+        blockers.push({ code: 'generation.document.published-changed', category: 'lifecycle', blocking: true,
+          phase: phase.id, generation: phase.generation, path: relative,
+          details: { message: 'Published document content changed. Restore the exact reviewed bytes or prepare an authorized successor; the old publication remains immutable.' } });
+        actions.push(action({ id: `published-document-successor:${phase.id}`, mode: 'guided',
+          command: phase.status === 'awaiting_approval'
+            ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>`
+            : `singularity-flow phase show ${phase.id} --show-artifact`,
+          skill: phase.status === 'awaiting_approval' ? '/sf-reject' : '/sf-phase-documents',
+          detail: phase.status === 'awaiting_approval'
+            ? 'Have an authorized human return this submission to an allowed phase before changing its evidence.'
+            : `Preserve the new draft separately, then restore the exact reviewed authored bytes from publication ${commit}. Submit that preserved publication for authorized return/rework if the new content is needed; do not treat prepare as an opened successor or overwrite publication history.`,
+          evidence: { path: relative, publicationCommit: commit } }));
+      }
+    } catch (error) {
+      blockers.push({ code: error.code ?? 'GENERATION_PUBLICATION_INVALID', category: 'integrity', blocking: true,
+        phase: phase.id, generation: phase.generation, path: relative, details: { message: error.message } });
+      actions.push(action({ id: `published-document-authority:${phase.id}`, mode: 'manual',
+        command: 'singularity-flow doctor --json', skill: '/sf-doctor',
+        detail: 'Restore the authenticated publication or its exact artifact bytes. Configuration refresh and risk acceptance cannot replace missing or invalid publication evidence.' }));
+    }
+  }
   let artifactFindings = [];
   if (deterministicConvergence) {
     try {
@@ -284,7 +329,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       blockers.push({
         code: `convergence.${String(error.code ?? 'not-ready').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
         category: 'convergence', blocking: true, phase: phase.id,
-        generation: nextPhaseGeneration(phase),
+        generation: inspectionGeneration,
         path: error.details?.path ?? null, line: null, value: null,
         details: { sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}) }
       });
@@ -299,7 +344,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   } else {
     artifactFindings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
     blockers.push(...artifactFindings.map((finding) => ({
-      ...finding, blocking: true, phase: phase.id, generation: nextPhaseGeneration(phase),
+      ...finding, blocking: true, phase: phase.id, generation: inspectionGeneration,
       details: {
         bytes: finding.bytes ?? null, minimumBytes: finding.minimumBytes ?? null
       }
@@ -312,10 +357,10 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
     try {
       await planAgentBriefs(root, workflow, phase, {
         itemDirectory: path.join(root, itemRelative), itemRelative,
-        generation: nextPhaseGeneration(phase)
+        generation: inspectionGeneration
       });
     } catch (error) {
-      blockers.push(projectionFinding(error, phase));
+      blockers.push(projectionFinding(error, phase, inspectionGeneration));
       actions.push(action({
         id: `repair-agent-brief-source:${phase.id}`,
         detail: `${error.message} Use the configured producer ${generationSkill(phase, workflow)} to edit only the authored source; approved managed inputs and existing published briefs remain preserved.`,
@@ -390,7 +435,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             || unsupportedRuntimeAdapter;
           blockers.push({
             code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
-            phase: phase.id, generation: nextPhaseGeneration(phase),
+            phase: phase.id, generation: inspectionGeneration,
             path: null, line: null, value: null,
             details: {
               sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),

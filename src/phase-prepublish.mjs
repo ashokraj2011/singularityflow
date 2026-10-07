@@ -11,8 +11,12 @@ import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
+import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
+import { publishedGenerationCommit } from './generation-publication-store.mjs';
+import { exactFileAtObject } from './git.mjs';
+import { submissionReadiness } from './submission-readiness.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
-import { authoredArtifactText } from './publication-preflight.mjs';
+import { authoredArtifactFingerprint, authoredArtifactText } from './publication-preflight.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -224,7 +228,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
   return { blockers, actions };
 }
 
-async function staticPublicationBlockers(root, config, workflow, phase) {
+async function staticPublicationBlockers(root, config, workflow, phase, { retained = false } = {}) {
   const blockers = [];
   const actions = [];
   let artifactSetFingerprint = null;
@@ -249,7 +253,7 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
     detail: 'Resolve the retained publication before editing or publishing another generation.' });
   }
   const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
-  if (pinned?.kind === 'skill' || phase.kind === 'skill') {
+  if (!retained && (pinned?.kind === 'skill' || phase.kind === 'skill')) {
     blockers.push({
       code: 'phase.skill-host.unavailable', category: 'host', path: null, line: null,
       message: `Skill phase '${phase.id}' cannot publish until the qualified execution host and delivery receipt are available.`
@@ -264,7 +268,7 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
     actions.push({ command: `singularity-flow assign ${phase.id} <assignee>`, skill: '/sf-assign',
       detail: `Assign the ${phase.id} owner, then rerun prepublish.` });
   }
-  if (phaseRequiresCodeDelivery(phase)) {
+  if (!retained && phaseRequiresCodeDelivery(phase)) {
     try {
       await verifyOpenGenerationIntent(root, workflow, phase);
     } catch (error) {
@@ -345,20 +349,59 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
  */
 export async function phasePrepublish(root, config, workflow, phase, options = {}) {
   const draft = await phaseDraftCheck(root, config, workflow, phase, options);
-  const dependencies = await inspectPhasePublicationReadiness(root, config, workflow, phase, {
+  const retained = workflow.currentPhase === phase.id && phase.status === 'in_progress'
+    && hasPublishedPhaseGeneration(phase) && !requiresProspectivePhaseInspection(workflow, phase);
+  // Publication prerequisites belong to authoring, not to a retained generation awaiting tests or
+  // review. Authentication and submission/recovery still own every current integrity/quality gate.
+  const dependencies = retained ? { blockers: [], actions: [], warnings: [], repairLoop: null,
+    grounding: { status: 'not-applicable', reason: 'generation-already-published' } }
+    : await inspectPhasePublicationReadiness(root, config, workflow, phase, {
     producer: draft.configuredProducer, generation: draft.generation,
     agent: draft.ownership.proven ? draft.ownership.agent : null
   });
+  let generationDigest;
+  if (retained && phase.generationIntent?.status === 'consumed') {
+    const { generationResultDigest, generationResultMatches } = await import('./state.mjs');
+    generationDigest = async (repositoryRoot, selectedPhase) => await generationResultMatches(
+      repositoryRoot, config, workflow, selectedPhase)
+      ? selectedPhase.generationIntent.publication.resultDigest
+      : generationResultDigest(repositoryRoot, config, workflow, selectedPhase);
+  }
   const recovery = await inspectPhaseRecovery(root, config, workflow, phase, {
-    publicationReadiness: dependencies, modelEnabled: options.modelEnabled
+    publicationReadiness: dependencies, modelEnabled: options.modelEnabled, generationDigest
   });
   // Recovery resolves the prospective structured command without running it. Keep that exact
   // argv/report contract visible while publication and its required test execution are pending.
   const testExecution = recovery.testExecution;
-  const staticChecks = await staticPublicationBlockers(root, config, workflow, phase);
-  const specificationChecks = await specificationPublicationBlockers(root, config, workflow, phase, draft);
+  const staticChecks = await staticPublicationBlockers(root, config, workflow, phase, { retained });
+  const specificationChecks = retained ? { blockers: [], actions: [] }
+    : await specificationPublicationBlockers(root, config, workflow, phase, draft);
   const blockers = [...staticChecks.blockers, ...specificationChecks.blockers];
   const actions = [...staticChecks.actions, ...specificationChecks.actions];
+  let retainedReadiness = null;
+  if (retained) {
+    try {
+      const commit = publishedGenerationCommit(root, workflow, phase);
+      if (!commit) throw new Error('The retained generation has no authenticated publication.');
+      const bytes = draft.artifact?.exists ? exactFileAtObject(root, commit, draft.artifact.path,
+        { maximumBytes: 16 * 1024 * 1024, regularOnly: true }) : null;
+      if (!bytes || authoredArtifactFingerprint(bytes.toString('utf8')) !== draft.artifact.fingerprint) {
+        throw new Error('The current authored artifact differs from its retained publication. Restore reviewed bytes or open an authorized successor; do not republish in place.');
+      }
+      retainedReadiness = await submissionReadiness(root, config, workflow, { phaseId: phase.id });
+      if (!retainedReadiness.lifecycleReady) blockers.push({
+        code: retainedReadiness.reasonCode, category: 'lifecycle', path: null,
+        message: retainedReadiness.reason ?? 'Follow the retained generation\'s required review or recovery route.'
+      });
+      actions.push({ command: retainedReadiness.nextCommand, skill: retainedReadiness.nextSkill,
+        detail: retainedReadiness.reason ?? 'Continue the retained generation through its required submission/review checks.' });
+    } catch (error) {
+      blockers.push({ code: error.code ?? 'GENERATION_PUBLICATION_INVALID', category: 'integrity',
+        path: draft.artifact?.path ?? null, message: error.message });
+      actions.push({ command: draft.commands.recover, skill: '/sf-recover',
+        detail: 'Preserve this publication and inspect its exact committed identity and authored bytes.' });
+    }
+  }
   const lifecycleReady = workflow.currentPhase === phase.id && phase.status === 'in_progress';
   const findings = new Map(draft.findings.map((finding) => [findingKey(finding), finding]));
   for (const blocker of [...blockers, ...recovery.blockers]) {
@@ -413,8 +456,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     recheck: `singularity-flow phase prepublish ${phase.id} --json${options.modelEnabled === false ? ' --no-model' : ''}`,
     draftCheck: draft.commands.recheck,
     recover: draft.commands.recover,
-    next: ready ? null : action?.command ?? null,
-    publish: ready ? draft.commands.publish : null
+    next: ready ? retainedReadiness?.nextCommand ?? null : action?.command ?? null,
+    publish: ready && !retained ? draft.commands.publish : null
   });
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
   return Object.freeze({
@@ -424,6 +467,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     workId: workflow.workItem.id,
     phase: phase.id,
     generation: draft.generation,
+    inspectionStage: draft.inspectionStage,
+    submissionReadiness: retainedReadiness,
     phaseStatus: phase.status,
     producer: draft.producer,
     ownership: draft.ownership,
@@ -453,7 +498,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       authoring: draft.status === 'ready',
       knownRecoveryBlockers: blockers.length === 0 && recovery.blockers.length === 0,
       requiredTests: testExecution.status,
-      publicationTransaction: 'not-run'
+      publicationTransaction: retained ? 'already-published' : 'not-run'
     }),
     testExecution: Object.freeze({
       status: testExecution.status,
@@ -468,7 +513,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         ? needsHumanClarification ? 'human-input'
           : authoringRepairOnly && agentOwnsRepair ? 'agent-authoring' : 'phase-recovery'
         : draft.correction.class,
-      sameTurn: lifecycleReady && !ready && !hardBlocker && !dependencies.blockers.length && (draft.status !== 'ready'
+      sameTurn: !retained && lifecycleReady && !ready && !hardBlocker && !dependencies.blockers.length && (draft.status !== 'ready'
         ? draft.correction.sameTurn
         : (briefOnly || authoringRepairOnly) && agentOwnsRepair),
       guidance: ready ? null : !lifecycleReady || dependencies.blockers.length ? action.detail : draft.status !== 'ready'

@@ -8,6 +8,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export function hasPublishedPhaseGeneration(phase) {
@@ -20,6 +21,12 @@ export function hasPublishedPhaseGeneration(phase) {
 export function requiresProspectivePhaseInspection(workflow, phase) {
   return phase.status === 'in_progress'
     && (!hasPublishedPhaseGeneration(phase) || phaseNeedsGeneration(workflow, phase));
+}
+
+/** Inspection labels are current for retained publications, prospective only for authoring. */
+export function phaseInspectionGeneration(workflow, phase) {
+  return requiresProspectivePhaseInspection(workflow, phase)
+    ? nextPhaseGeneration(phase) : Number(phase.generation ?? 0);
 }
 
 const same = (left, right) => canonicalJson(left ?? null) === canonicalJson(right ?? null);
@@ -49,7 +56,8 @@ async function unchangedRecord(root, commit, relative, phase) {
  * Changed/current/future claim bindings are not waived. This function does not write or run tests.
  */
 export async function pendingCodeSubmissionEvidence(root, config, workflow, phase) {
-  if (!phaseRequiresCodeDelivery(phase) || phase.status !== 'in_progress' || phase.id !== workflow.currentPhase
+  if (workflow.status !== 'in_progress' || !phaseRequiresCodeDelivery(phase)
+      || phase.status !== 'in_progress' || phase.id !== workflow.currentPhase || phaseNeedsGeneration(workflow, phase)
       || phase.generationIntent?.status !== 'consumed'
       || Number(phase.generationIntent.generation) !== Number(phase.generation)
       || phase.deliveryEvidence?.status !== 'pending-tests'

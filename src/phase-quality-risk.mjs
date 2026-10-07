@@ -15,7 +15,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
-const fail = (message, code = 'PHASE_QUALITY_RISK_INVALID') => { throw new SingularityFlowError(message, { code }); };
+const fail = (message, code = 'PHASE_QUALITY_RISK_INVALID', details = null) => { throw new SingularityFlowError(message, { code, details }); };
 const MAX_DECISIONS = 500;
 const historyChecks = new Map();
 const SHA = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
@@ -235,6 +235,10 @@ export async function prepareQualityRisk(root, config, workflow, { phaseId = wor
   const mode = normalizeQualityGateMode(gateMode ?? workflow.resolution?.qualityGateMode);
   if (mode !== 'soft') fail('Hard mode does not allow this quality exception. Choose --gate-mode soft explicitly for a reviewed pilot exception on this phase.', 'PHASE_QUALITY_RISK_HARD_MODE');
   const inspection = await inspectPhaseQualityGate(root, config, workflow, phase);
+  if (inspection.status === 'pending-submission-evidence') fail(
+    'This published generation needs fresh submission tests and observed claims before a quality-risk packet can be reviewed. Submit the retained generation; do not republish or waive its tests.',
+    'PHASE_QUALITY_RISK_PENDING_TESTS', { phase: phase.id, generation: inspection.generation,
+      nextAction: { command: inspection.next, skill: inspection.skill }, testsWaived: false });
   if (!inspection.risks?.eligible || inspection.risks.excepted) fail('No unresolved eligible quality gap exists. Hard integrity/scope gates require their prescribed repair.', 'PHASE_QUALITY_RISK_NOT_ELIGIBLE');
   const selected = clauses.length ? [...new Set(clauses)].sort() : inspection.risks.remaining;
   if (!selected.length || selected.some(id => !inspection.risks.remaining.includes(id))) fail('Select only exact currently unmet clause identities.');

@@ -225,6 +225,11 @@ test('a step reopened by rework or a skill amendment gets the grounding prerequi
     { location: { path: 'singularity/work-items/GROUND-1/workflow.json' } }, { enabled: false }))
     .some((entry) => entry.skill === '/sf-worldmodel' || /wm compose/.test(entry.command));
   assert.equal(await grounding(story), false, 'a published, unreopened generation needs no new grounding');
+  story.phases[second].generationPublications = [{ generation: 1, record: { path: 'context/published-gen1.json' } }];
+  const retained = await storyPrerequisites(root, story,
+    { location: { path: 'singularity/work-items/GROUND-1/workflow.json' } }, { enabled: false });
+  assert.equal(retained.some(entry => entry.skill === '/sf-resume' || /agents (?:lock|sync|refresh-output)/u.test(entry.command)),
+    false, 'a published generation needs submission, not author setup or refreshed remote drafting inputs');
   // A downstream step reopened by a return to an earlier step has no rejectedAt of its own.
   const reopened = structuredClone(story);
   reopened.phases[second].reworkRevalidation = { generation: 1, invalidatedAt: '2026-10-02T00:00:00.000Z' };

@@ -23,6 +23,8 @@ For a newly published generation, submission first runs required tests and creat
 
 This also applies after rejection and a successor publication. Older observed claim maps remain immutable audit evidence, not the successor's live binding. Builds written before this correction can retain an older pointer: the updated CLI authenticates that exact historical pointer and the current pending publication, then creates fresh evidence through ordinary submission. It never relabels an old passing result, changes published application bytes, or requires an unpublished generation-three prompt for a published generation two. Changed, forged or current-generation invalid bindings still require integrity recovery rather than risk acceptance.
 
+Read-only draft/prepublish checks label retained publications with their current generation, never an imaginary successor, and do not offer publication or same-turn authoring again. This applies to document phases and custom workflow phase names too. Next-step guidance does not request a new drafting-agent session or refreshed remote drafting inputs for already published work. A pending-evidence risk request returns an explicit `/sf-submit` route; a human cannot accept risk in place of fresh tests. A changed published document must be restored from its authenticated publication or returned for reviewed rework, not silently edited or republished in place.
+
 An authorized human then runs **in a real terminal**:
 
 ```sh

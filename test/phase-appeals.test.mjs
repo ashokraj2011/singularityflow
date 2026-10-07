@@ -16,11 +16,12 @@ import { phaseResolutionChoices, repairLoopAdmission } from '../src/phase-resolu
 import { submissionReadiness } from '../src/submission-readiness.mjs';
 import { operationById, resolveOperation } from '../src/command-registry.mjs';
 import { stepAttempts } from '../src/verification/attempts.mjs';
-import { inspectPhaseQualityGate } from '../src/phase-quality-risk.mjs';
+import { inspectPhaseQualityGate, prepareQualityRisk } from '../src/phase-quality-risk.mjs';
 import { hasPublishedPhaseGeneration, pendingCodeSubmissionEvidence, requiresProspectivePhaseInspection } from '../src/code-submission-evidence.mjs';
 import { artifactMetadataBlock, publishGeneration, scanArtifacts, storyArtifactMetadata } from '../src/state.mjs';
 import { transactStory } from '../src/state-stores.mjs';
 import { inspectPhaseRecovery } from '../src/recovery-plan.mjs';
+import { phasePrepublish } from '../src/phase-prepublish.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -205,6 +206,10 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       const stateBytes = await readFile(path.join(f.root, `${f.item}/workflow.json`));
       const pending = await pendingCodeSubmissionEvidence(f.root, definition, workflow, phase);
       assert.equal(pending.generation, 2); assert.equal(pending.historicalObservedGeneration, legacyWriter ? 1 : null);
+      const reopened = structuredClone(workflow);
+      reopened.phases.implementation.reworkRevalidation = { generation: 2 };
+      assert.equal(await pendingCodeSubmissionEvidence(f.root, definition, reopened, reopened.phases.implementation), null,
+        'an explicit rework boundary cannot borrow the prior generation\'s pending submission route');
       const preflight = JSON.parse(f.cli('appeal', 'preflight', '--phase', phase.id, '--json').stdout).data;
       assert.equal(preflight.quality.status, 'pending-submission-evidence', JSON.stringify(preflight));
       assert.equal(preflight.quality.testsWaived, false);
@@ -212,6 +217,46 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       assert.deepEqual(preflight.recovery.blockers, []);
       assert.ok(preflight.recovery.actions.some(action => action.command?.startsWith('singularity-flow submit implementation')));
       assert.equal(requiresProspectivePhaseInspection(workflow, phase), false);
+      const draft = JSON.parse(f.cli('phase', 'draft-check', phase.id, '--json').stdout);
+      assert.equal(draft.generation, 2); assert.equal(draft.inspectionStage, 'published');
+      assert.equal(draft.commands.publish, null); assert.equal(draft.correction.sameTurn, false);
+      const prepublish = JSON.parse(f.cli('phase', 'prepublish', phase.id, '--json').stdout);
+      assert.equal(prepublish.status, 'ready', JSON.stringify(prepublish));
+      assert.equal(prepublish.generation, 2); assert.equal(prepublish.commands.publish, null);
+      assert.match(prepublish.commands.next, /submit implementation/u);
+      assert.equal(prepublish.readiness.publicationTransaction, 'already-published');
+      assert.deepEqual(prepublish.findings, []);
+      await assert.rejects(prepareQualityRisk(f.root, definition, workflow, { phaseId: phase.id, gateMode: 'soft' }), error => {
+        assert.equal(error.code, 'PHASE_QUALITY_RISK_PENDING_TESTS');
+        assert.equal(error.details.nextAction.skill, '/sf-submit');
+        assert.equal(error.details.nextAction.command, pending.next); return true;
+      });
+      const riskRefusal = run(process.execPath, [CLI, '--no-model', 'appeal', 'risk-prepare', '--phase', phase.id,
+        '--gate-mode', 'soft', '--json'], f.root, true);
+      assert.notEqual(riskRefusal.status, 0);
+      const refusal = JSON.parse(riskRefusal.stdout);
+      assert.equal(refusal.error.code, 'PHASE_QUALITY_RISK_PENDING_TESTS');
+      assert.ok(refusal.remediationPlan.steps.some(step => step.command === pending.next && step.copilotCommand === '/sf-submit'));
+      if (!legacyWriter) {
+        // Simulate read-only inspection at the document publication checkpoint using its real,
+        // authenticated retained commit. No CLI lifecycle mutation or Story file rewrite occurs.
+        const documents = structuredClone(workflow); documents.currentPhase = 'intake';
+        const document = documents.phases.intake; document.status = 'in_progress';
+        const pathToDocument = `${f.item}/${document.requiredArtifact.path}`;
+        const documentBytes = await readFile(path.join(f.root, pathToDocument));
+        let preview = await phasePrepublish(f.root, definition, documents, document);
+        assert.equal(preview.status, 'ready', JSON.stringify(preview));
+        assert.equal(preview.generation, 1); assert.equal(preview.commands.publish, null);
+        await f.write(pathToDocument, `${documentBytes.toString('utf8')}\nTODO unreviewed correction.\n`);
+        const documentRecovery = await inspectPhaseRecovery(f.root, definition, documents, document);
+        assert.ok(documentRecovery.blockers.some(finding => finding.code === 'generation.document.published-changed'
+          && finding.generation === 1));
+        assert.ok(documentRecovery.actions.some(action => action.id === 'published-document-successor:intake'));
+        assert.equal(documentRecovery.actions.some(action => action.retry?.command?.includes('publish')), false);
+        preview = await phasePrepublish(f.root, definition, documents, document);
+        assert.equal(preview.status, 'correction-required'); assert.equal(preview.correction.sameTurn, false);
+        await f.write(pathToDocument, documentBytes);
+      }
       const repair = JSON.parse(f.cli('appeal', 'repair-plan', '--phase', phase.id, '--json').stdout).data;
       assert.equal(repair.status, 'ready-for-next-check');
       assert.deepEqual(repair.inspection.findings, []);

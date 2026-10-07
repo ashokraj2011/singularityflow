@@ -36,6 +36,21 @@ function cli(root, ...args) {
   return result.stdout.trim();
 }
 
+function reviewRoute(root, phaseId) {
+  const beforeHead = git(root, 'rev-parse', 'HEAD');
+  const beforeStatus = git(root, 'status', '--short');
+  const bundle = JSON.parse(cli(root, 'review', phaseId, '--format', 'json'));
+  assert.equal(bundle.phase.id, phaseId);
+  assert.equal(bundle.continuation.automaticAdvance, false);
+  const documents = JSON.parse(cli(root, 'phase', 'show', phaseId, '--json'));
+  assert.equal(documents.handoffScope, 'after-publication');
+  assert.deepEqual(documents.continuation, bundle.continuation,
+    'document display and review must agree on current readiness, not a future publication handoff');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead, 'inspection cannot record a lifecycle event');
+  assert.equal(git(root, 'status', '--short'), beforeStatus, 'inspection cannot modify Story files');
+  return bundle.continuation;
+}
+
 /**
  * A spec-driven Story whose scope step has a published specification awaiting its independent
  * source review. With `copied`, the step is the workflow's own copy, made in Workflow Studio under
@@ -186,12 +201,18 @@ test('real and copied workflow preparation returns authoring instead of reviewin
   for (const copied of [false, true]) await t.test(copied ? 'copied scope' : 'seeded scope', async t => {
     const { root, phaseId } = await publishedSpecificationStory(t, { copied });
     const old = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const initialRoute = reviewRoute(root, phaseId);
+    assert.equal(initialRoute.nextCommand, `singularity-flow review-source context ${phaseId} --json`);
+    assert.equal(initialRoute.copilotCommand, `/sf-review-source ${phaseId}`);
     await mkdir(path.dirname(old.stagingPath), { recursive: true });
     await writeFile(old.stagingPath, JSON.stringify(reviewReport(old)));
     const head = git(root, 'rev-parse', 'HEAD');
     const artifactBefore = await readFile(path.join(root, old.artifact.path), 'utf8');
     cli(root, 'prepare', phaseId, '--no-model', '--json');
     const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const authorRoute = reviewRoute(root, phaseId);
+    assert.equal(authorRoute.nextCommand, `singularity-flow prepare ${phaseId}`);
+    assert.notEqual(authorRoute.nextSkill, '/sf-submit');
     assert.equal(packet.canReview, false);
     assert.equal(packet.generation, 1, 'preparation is not publication');
     assert.equal(packet.binding, null);
@@ -225,6 +246,8 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     assert.equal(successor.binding.generation, 2);
     assert.match(successor.stagingPath, /gen2\.json$/);
     assert.equal(successor.continuation.nextSkill, '/sf-review-source');
+    assert.equal(reviewRoute(root, phaseId).nextCommand,
+      `singularity-flow review-source context ${phaseId} --json`);
     assert.notEqual(git(root, 'rev-parse', 'HEAD'), head);
   });
 });
@@ -257,6 +280,19 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
   const pending = JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json'));
   assert.equal(pending.reportSha256, submitted.reportSha256);
+  const humanRoute = reviewRoute(root, 'specification');
+  assert.match(humanRoute.nextCommand, /review-source decide specification --finding exclusion:export-exclusion/);
+  assert.match(humanRoute.copilotCommand, /^\/sf-review-source decide specification/);
+  const shown = cli(root, 'review', 'specification');
+  assert.match(shown, /## Next action/);
+  assert.ok(shown.includes(`Shell: ${humanRoute.nextCommand}`));
+  assert.ok(shown.includes(`Copilot: ${humanRoute.copilotCommand}`));
+  assert.match(cli(root, 'review', 'specification', '--brief'), /Next action:/);
+  assert.match(cli(root, 'review', 'specification', '--format', 'html'), /Next action/);
+  const output = cli(root, 'review', 'specification', '--out', '.git/review-handoff.md');
+  assert.ok(output.includes(`Shell: ${humanRoute.nextCommand}`));
+  assert.ok((await readFile(path.join(root, '.git/review-handoff.md'), 'utf8'))
+    .includes(humanRoute.copilotCommand));
   cli(root, 'agent', '--agent', 'sflow-source-reviewer');
   const reviewerDecision = spawnSync(process.execPath, [executable, 'review-source', 'decide',
     'specification', '--finding', 'exclusion:export-exclusion',
@@ -274,6 +310,9 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
     '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
   assert.equal(decided.status, 'ready');
   assert.equal(JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json')).status, 'ready');
+  const submitRoute = reviewRoute(root, 'specification');
+  assert.equal(submitRoute.nextCommand, `singularity-flow submit specification --work-id ${WORK_ID}`);
+  assert.equal(submitRoute.nextSkill, '/sf-submit');
   cli(root, 'agent', '--agent', 'sflow-source-reviewer');
   const reviewerSubmit = spawnSync(process.execPath, [executable, 'submit', 'specification'], {
     cwd: root, encoding: 'utf8', timeout: 30000
@@ -295,11 +334,28 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'Refresh live authoring resources before Story submission');
   cli(root, 'submit', 'specification', '--skip-checks');
+  const approveRoute = reviewRoute(root, 'specification');
+  assert.equal(approveRoute.nextCommand, `singularity-flow approve specification --work-id ${WORK_ID} --fetch`);
+  assert.equal(approveRoute.copilotCommand, `/sf-approve specification --work-id ${WORK_ID}`);
   const approval = spawnSync(process.execPath, [executable, 'approve', 'specification', '--yes'], {
     cwd: root, encoding: 'utf8', timeout: 30000
   });
   assert.equal(approval.status, 0, `approval after a ready review failed:\n${approval.stderr}\n${approval.stdout}`);
   assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
+  assert.equal(reviewRoute(root, 'specification').nextCommand,
+    `singularity-flow nextsteps ${WORK_ID} --json`, 'a historical review cannot reopen or resubmit its phase');
+});
+
+test('review reports legacy pending publication without migrating or deleting the marker', async t => {
+  const { root, phaseId } = await publishedSpecificationStory(t);
+  const marker = path.join(root, 'singularity/work-items', WORK_ID, 'publication-pending.json');
+  const content = `${JSON.stringify({ schemaVersion: 2, commit: git(root, 'rev-parse', 'HEAD') })}\n`;
+  await writeFile(marker, content);
+  git(root, 'add', '-A');
+  git(root, 'commit', '-m', 'Retain legacy pending publication fixture');
+  const next = reviewRoute(root, phaseId);
+  assert.equal(next.nextCommand, 'singularity-flow sync');
+  assert.equal(await readFile(marker, 'utf8'), content, 'review cannot perform a migration');
 });
 
 test('real CLI review requires acknowledgement of the human answers retained by generation publication', async (t) => {

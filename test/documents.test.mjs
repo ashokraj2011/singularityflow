@@ -191,6 +191,10 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(reviewJson.handoff[0].copilotCommand, '/sf-submit');
   assert.equal(reviewJson.handoff[1].copilotCommand, '/sf-phase-documents intake');
   assert.equal(reviewJson.handoff[1].optional, true);
+  assert.equal(reviewJson.handoffScope, 'after-publication');
+  assert.equal(reviewJson.continuation.nextCommand, 'singularity-flow submit intake --work-id DOCS-1');
+  assert.equal(reviewJson.continuation.copilotCommand, '/sf-submit');
+  assert.equal(reviewJson.continuation.automaticAdvance, false);
   const submission = flow(root, ['submit']);
   assert.match(submission.stdout, /Submitted intake phase for approval/);
   assert.match(submission.stdout, /Generated documents ready for review/);

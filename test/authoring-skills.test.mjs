@@ -306,8 +306,11 @@ test('a Story pins the step setting, routes from it, verifies it, and keeps its 
   assert.equal(shown.effectiveAuthoringSkill, '/sf-phase');
   assert.equal(shown.authoringSkillSource, 'configured');
   assert.equal(shown.policyVerified, true);
-  assert.equal(shown.handoff.at(-1).skill, '/sf-submit');
-  assert.match(shown.handoff.at(-1).command, /^singularity-flow submit intake/);
+  assert.equal(shown.generation, 0);
+  assert.equal(shown.handoff.at(-1).skill, '/sf-phase');
+  assert.equal(shown.handoff.at(-1).command, 'singularity-flow prepare intake');
+  assert.equal(shown.continuation.nextCommand, 'singularity-flow prepare intake');
+  assert.equal(shown.continuation.copilotCommand, '/sf-phase');
 
   const status = JSON.parse(flow(root, ['status', '--json']).stdout);
   assert.equal(status.authoringRoutes.intake.authoringSkillSource, 'configured');
@@ -331,6 +334,9 @@ test('a Story pins the step setting, routes from it, verifies it, and keeps its 
     policyReason: 'Resolved Story policy differs from the immutable creation commit. Run singularity-flow validate to see the difference.',
     handoff: []
   });
+  const withheld = await phaseAuthoringSummary(root, await loadDefinition(root), unenrolled, unenrolled.phases.intake,
+    { includeContinuation: true });
+  assert.equal(withheld.continuation, null, 'an unverified policy must not supply a current action');
 });
 
 test('phase show reports the handoff only while the step is in progress, and a shallow clone cannot verify', async () => {
@@ -340,6 +346,8 @@ test('phase show reports the handoff only while the step is in progress, and a s
   assert.equal(design.policyVerified, true);
   assert.equal(design.effectiveAuthoringSkill, '/sf-phase');
   assert.deepEqual(design.handoff, [], 'nothing follows a publication the step has not started');
+  assert.equal(design.continuation.nextCommand, 'singularity-flow nextsteps AUT-3 --json');
+  assert.equal(design.continuation.automaticAdvance, false, 'viewing a future phase cannot prepare it');
   assert.ok(JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout).handoff.length);
   const text = flow(root, ['phase', 'show', 'intake']).stdout;
   assert.match(text, /Drafting skill: \/sf-phase \(configured\)/);

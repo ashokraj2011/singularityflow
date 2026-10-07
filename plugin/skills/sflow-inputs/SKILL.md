@@ -25,4 +25,4 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
    task requires its wording; never replace the governed brief by an agent-authored summary.
 4. Run `singularity-flow inputs <phase>` to write the next-generation audit record and render the managed input block.
 5. Read the returned artifact and preserve the marker-delimited managed block.
-6. Do not submit, approve, or reject automatically.
+6. Relay returned `continuation.actions` as exact Shell/Copilot pairs. Never replace a compose action with bare `/sf-worldmodel`, or guess a next step. Do not submit, approve, or reject automatically.

@@ -7,6 +7,7 @@ import { reservePreparedDocumentSuccessor } from '../src/prepared-document-succe
 import { sourceReviewContinuation } from '../src/source-review-continuation.mjs';
 import { nextStepsSnapshot } from '../src/nextsteps.mjs';
 import { planFastPath } from '../src/fast-path.mjs';
+import { phaseContinuation, phaseContinuationLines } from '../src/phase-continuation.mjs';
 
 function story(id) {
   const phase = { id, label: id, status: 'in_progress', generation: 1,
@@ -94,4 +95,24 @@ test('custom code successors keep guarded rollover and ready reviews keep decisi
   scoped.resolution.decisions = [{ id: 'risk', mode: 'auto', after: 'scope', inputs: [{ name: 'risk', type: 'enum', values: ['low', 'high'] }] }];
   const next = sourceReviewContinuation(scoped, scope, { status: 'ready' });
   assert.match(next.nextCommand, /submit scope --work-id ROUTE-1 --decision risk=<risk>/);
+});
+
+test('phase continuation selects NOW, never an optional assignment or a later approval', () => {
+  const workflow = story('customer-scope'), phase = workflow.phases['customer-scope'];
+  phase.approvalPolicy = { mode: 'required', minimum: 1, by: ['reviewers'] };
+  const before = JSON.stringify(workflow);
+  const next = phaseContinuation(workflow);
+  assert.equal(next.automaticAdvance, false);
+  assert.equal(next.nextAction.timing, 'now');
+  assert.doesNotMatch(next.nextCommand, /assign|approve|cancel/);
+  assert.equal(JSON.stringify(workflow), before);
+  assert.ok(phaseContinuationLines(next).some(line => line.startsWith('Copilot: /sf-')));
+  const historical = phaseContinuation(workflow, { reviewedPhaseId: 'previous-scope' });
+  assert.equal(historical.nextCommand, 'singularity-flow nextsteps ROUTE-1 --json');
+  assert.equal(historical.copilotCommand, '/sf-nextsteps');
+  const recovery = phaseContinuation(workflow, { recovery: { requiresRecovery: true, phaseId: phase.id } });
+  assert.equal(recovery.nextCommand, 'singularity-flow recover ROUTE-1 --phase customer-scope');
+  assert.equal(recovery.nextSkill, '/sf-recover');
+  const synchronization = phaseContinuation(workflow, { publicationPending: true });
+  assert.equal(synchronization.nextCommand, 'singularity-flow sync');
 });

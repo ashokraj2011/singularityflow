@@ -506,7 +506,7 @@ test('Copilot phase authoring repairs structured draft findings before publicati
     'sflow-design': 'phase draft-check <phase>',
     'sflow-release': 'phase draft-check <phase>',
     'sflow-requirements': 'phase draft-check <phase>',
-    'sflow-review': 'phase draft-check review',
+    'sflow-review': 'phase draft-check <phase>',
     'sflow-verify': 'phase draft-check verification',
     'sflow-specify': 'phase draft-check <PHASE>',
     'sflow-plan': 'phase draft-check <PHASE>',
@@ -1132,6 +1132,39 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   assert.match(worldModel, /Never infer mutation consent/);
   assert.match(worldModel, /No active Story is valid/);
   assert.match(worldModel, /private rehearsal and is not reusable from the shared state branch/);
+});
+
+test('World Model and review skills dispatch exact operations and return lifecycle handoffs', async () => {
+  const read = name => readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+  const wm = await read('sflow-worldmodel');
+  assert.match(wm, /Explicit arguments select the exact `wm` operation, not status/);
+  assert.match(wm, /\/sf-worldmodel compose --phase implementation/);
+  assert.match(wm, /Before mutation.*confirm/);
+  assert.match(wm, /never rebuilds or approves/);
+  const review = await read('sflow-review');
+  assert.match(review, /review <phase> --format json/);
+  assert.match(review, /verified effective authoring skill `\/sf-review`/);
+  assert.match(review, /Otherwise perform inspection steps 3–6 and handoff 10/);
+  assert.doesNotMatch(review, /wm compose --phase review\b|draft-check review\b|prepare review\b/);
+  assert.match(review, /After authoring, refresh `singularity-flow review <phase> --format json`/);
+  assert.match(review, /Correction, review, human disposition and recovery precede Submit/);
+  assert.match(review, /Never submit or approve automatically/);
+  const source = await read('sflow-review-source');
+  assert.match(source, /Explicit `status`: only/);
+  assert.match(source, /Explicit `decide`: read status/);
+  assert.match(source, /confirm with the human before that exact decision/);
+  assert.match(source, /Never decide as reviewer or rerun review instead/);
+  assert.match(await read('sflow-inputs'), /continuation.actions/);
+});
+
+test('phase document display uses current lifecycle continuation, never the future publication handoff', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase-documents', 'SKILL.md'), 'utf8');
+  assert.match(content, /Distinguish unpublished drafts from published or submitted evidence/);
+  assert.match(content, /End with `continuation.nextAction` and its exact Shell\/Copilot pair/);
+  assert.match(content, /`handoff` describes what follows publication/);
+  assert.match(content, /never use it as the immediate action/);
+  assert.match(content, /If continuation is absent, read `singularity-flow nextsteps <WORK-ID> --json`/);
+  assert.match(content, /never guess Submit or advance automatically/);
 });
 
 test('document phases display Markdown while code phases use bounded reference previews', async () => {

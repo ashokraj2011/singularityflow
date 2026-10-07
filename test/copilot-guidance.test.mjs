@@ -8,6 +8,7 @@ import {
   directCopilotSkill,
   submissionReadinessPresentation
 } from '../src/copilot-guidance.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 test('user-facing skills always use the direct sf namespace', () => {
   assert.equal(directCopilotSkill('/sflow-submit'), '/sf-submit');
@@ -88,6 +89,44 @@ test('approval guidance preserves exact phase and Story selectors without execut
   });
   assert.equal(action.skill, '/sf-approve');
   assert.equal(action.copilotCommand, '/sf-approve poc-review-v2 --work-id STORY-17');
+});
+
+test('world-model handoffs preserve operations and selectors instead of bare read-only status', () => {
+  for (const [command, expected] of [
+    ['singularity-flow wm compose --phase implementation', '/sf-worldmodel compose --phase implementation'],
+    ['sflow wm compose --phase custom-code --work-id STORY-17 --render-only', '/sf-worldmodel compose --phase custom-code --work-id STORY-17 --render-only'],
+    ['singularity-flow world-model doctor --json', '/sf-worldmodel doctor --json'],
+    ['singularity-flow wm build --views testing --depth quick --dry-run', '/sf-worldmodel build --views testing --depth quick --dry-run'],
+    ['singularity-flow wm ast status --json', '/sf-worldmodel ast status --json'],
+    ['singularity-flow wm', '/sf-worldmodel']
+  ]) {
+    assert.equal(copilotCommandForCommand(command), expected);
+    const guidance = safeCommandGuidance({ command });
+    assert.equal(guidance?.copilotCommand, expected, command);
+  }
+  const command = 'singularity-flow wm compose --phase implementation';
+  assert.equal(copilotCommandForCommand(command, '/sf-worldmodel status'),
+    '/sf-worldmodel compose --phase implementation', 'Shell owns the requested operation');
+  assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-worldmodel' }), null,
+    'bare inspection cannot be asserted as an equivalent compose action');
+  for (const unsafe of ['singularity-flow wm compose --phase implementation; touch bad',
+    'singularity-flow wm compose --task $(secret)',
+    'singularity-flow wm build --token private', 'singularity-flow wm status\n--json']) {
+    assert.equal(safeCommandGuidance({ command: unsafe }), null, unsafe);
+  }
+});
+
+test('source-review handoffs retain the selected phase and human-decision operation', () => {
+  assert.equal(copilotCommandForCommand('singularity-flow review-source context planning-copy --json'),
+    '/sf-review-source planning-copy');
+  assert.equal(copilotCommandForCommand('singularity-flow review-source status planning-copy --json'),
+    '/sf-review-source status planning-copy --json');
+  const command = 'singularity-flow review-source decide planning-copy --finding exclusion:row-1 --reason <TEXT>';
+  const expected = '/sf-review-source decide planning-copy --finding exclusion:row-1 --reason <TEXT>';
+  assert.equal(copilotCommandForCommand(command, '/sf-review-source different-phase'), expected);
+  assert.equal(safeCommandGuidance({ command })?.copilotCommand, expected);
+  assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-review-source planning-copy' }), null,
+    'rerunning the reviewer is not an equivalent human disposition');
 });
 
 test('approval guidance does not invent selectors from ambiguous or malformed command forms', () => {

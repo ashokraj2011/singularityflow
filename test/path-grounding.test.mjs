@@ -408,6 +408,26 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   const inputsJson = JSON.parse(inputs.stdout);
   assert.equal(inputsJson.workItemDirectory, itemRelative);
   assert.equal(inputsJson.records[0].repositoryPath, repositoryPath);
+  assert.equal(inputsJson.continuation.nextCommand, 'singularity-flow prepare implementation');
+  assert.equal(inputsJson.continuation.copilotCommand, '/sf-code');
+  assert.equal(inputsJson.continuation.automaticAdvance, false);
+
+  // Displaying an authored generation-zero draft cannot offer its post-publication Submit route.
+  const beforeDocumentView = { head: git(repository, 'rev-parse', 'HEAD'), status: git(repository, 'status', '--porcelain') };
+  const shownDraft = sflow(repository, 'phase', 'show', 'implementation', '--json');
+  assert.equal(shownDraft.status, 0, shownDraft.stderr);
+  const draft = JSON.parse(shownDraft.stdout);
+  assert.equal(draft.generation, 0);
+  assert.equal(draft.status, 'in_progress');
+  assert.equal(draft.handoffScope, 'after-publication');
+  assert.equal(draft.continuation.nextCommand, 'singularity-flow prepare implementation');
+  assert.equal(draft.continuation.copilotCommand, '/sf-code');
+  assert.equal(draft.continuation.automaticAdvance, false);
+  const displayed = sflow(repository, 'phase', 'show', 'implementation', '--show-artifact');
+  assert.equal(displayed.status, 0, displayed.stderr);
+  assert.match(displayed.stdout, /Next action:[\s\S]*Shell: singularity-flow prepare implementation[\s\S]*Copilot: \/sf-code/);
+  assert.equal(git(repository, 'rev-parse', 'HEAD'), beforeDocumentView.head);
+  assert.equal(git(repository, 'status', '--porcelain'), beforeDocumentView.status);
 
   const human = sflow(repository, 'inputs', 'implementation', '--dry-run');
   assert.equal(human.status, 0, human.stderr);
@@ -419,6 +439,14 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   const renderedPath = [lines[firstPathLine].slice(8)];
   for (let index = firstPathLine + 1; /^ {8}\S/.test(lines[index] ?? ''); index += 1) renderedPath.push(lines[index].slice(8));
   assert.equal(renderedPath.join(''), repositoryPath);
+  const headBeforeInputs = git(repository, 'rev-parse', 'HEAD');
+  const recordedInputs = sflow(repository, 'inputs', 'implementation');
+  assert.equal(recordedInputs.status, 0, recordedInputs.stderr);
+  assert.match(recordedInputs.stdout, /Next action:/);
+  assert.match(recordedInputs.stdout, /Shell: singularity-flow prepare implementation/);
+  assert.match(recordedInputs.stdout, /Copilot: \/sf-code/);
+  assert.equal(git(repository, 'rev-parse', 'HEAD'), headBeforeInputs,
+    'capturing inputs and presenting a handoff cannot publish or advance');
 
   // Freeze the exact post-preparation Story inputs before comparing two independent checkouts.
   // The second checkout deliberately materializes a captured WFA blob with Windows line endings;

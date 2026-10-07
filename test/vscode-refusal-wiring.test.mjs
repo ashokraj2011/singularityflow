@@ -166,7 +166,7 @@ test('a native World Model authority error keeps safe diagnostics and omits raw 
       command: 'singularity-flow workspace doctor --network --repository https://example.invalid/RuleEngineUI.git --json',
       copilotCommand: '/sf-workspace-bootstrap'
     },
-    { command: 'singularity-flow wm doctor --json', copilotCommand: '/sf-worldmodel' }
+    { command: 'singularity-flow wm doctor --json', copilotCommand: '/sf-worldmodel doctor --json' }
   ]);
   assert.equal(card.rest, null);
   assert.equal(card.details.code, 'REMOTE_UNKNOWN');

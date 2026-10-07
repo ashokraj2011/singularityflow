@@ -63,9 +63,25 @@ function approvalSelectors(command) {
  */
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
   const explicit = directCopilotSkill(skill);
-  if (explicit && /\s/u.test(explicit) && directCopilotSkillId(explicit) !== '/sf-approve') return explicit;
+  if (explicit && /\s/u.test(explicit)
+      && !['/sf-approve', '/sf-worldmodel', '/sf-review-source'].includes(directCopilotSkillId(explicit))) return explicit;
   const selected = directCopilotSkillId(explicit) ?? explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
+  if (selected === '/sf-worldmodel') {
+    // Bare worldmodel is inspection, not an interchangeable substitute for compose/build/doctor.
+    // The shell action owns its operation and selectors; an asserted skill cannot change them.
+    const match = !/[\u0000-\u001f\u007f]/u.test(value)
+      && value.match(/^(?:singularity-flow|sflow)\s+(?:wm|world-model)(?:\s+(.+))?$/u);
+    return match?.[1] ? `${selected} ${match[1]}` : selected;
+  }
+  if (selected === '/sf-review-source') {
+    // Keep the phase and the human-decision route distinct from starting another reviewer turn.
+    const match = !/[\u0000-\u001f\u007f]/u.test(value)
+      && value.match(/^(?:singularity-flow|sflow)\s+review-source\s+(context|status|decide)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+(.+))?$/u);
+    if (!match) return selected;
+    return match[1] === 'context' ? `${selected} ${match[2]}`
+      : `${selected} ${match[1]} ${match[2]}${match[3] ? ` ${match[3]}` : ''}`;
+  }
   if (selected === '/sf-pause') {
     const match = value.match(/^(?:singularity-flow|sflow)\s+pause(?:\s+(on|off|status))?(?:\s+--json)?$/u);
     return match?.[1] ? `${selected} ${match[1]}` : selected;

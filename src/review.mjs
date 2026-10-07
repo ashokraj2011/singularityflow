@@ -14,6 +14,10 @@ import {
 import { extractClauses } from './specifications.mjs';
 import { exists, posix, run, snapshot } from './util.mjs';
 import { GOVERNED_ROOTS } from './config.mjs';
+import { reviewContinuation } from './review-continuation.mjs';
+import { phaseContinuationLines } from './phase-continuation.mjs';
+
+export { phaseContinuationLines as reviewContinuationLines } from './phase-continuation.mjs';
 
 function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
 
@@ -202,7 +206,8 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
       id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1,
       authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' }
     },
-    artifact, inputs, agentBriefs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
+    artifact, inputs, agentBriefs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable',
+    continuation: await reviewContinuation(root, config, workflow, phase)
   };
 }
 
@@ -384,6 +389,10 @@ export function reviewMarkdown(bundle) {
   );
   if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
+  if (bundle.continuation) {
+    const nextLines = phaseContinuationLines(bundle.continuation);
+    lines.push('## Next action', '', ...nextLines.slice(nextLines[0] === 'Next action:' ? 1 : 0), '');
+  }
   return `${lines.join('\n')}\n`;
 }
 

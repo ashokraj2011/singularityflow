@@ -22,6 +22,10 @@ import { artifactMetadataBlock, publishGeneration, scanArtifacts, storyArtifactM
 import { transactStory } from '../src/state-stores.mjs';
 import { inspectPhaseRecovery } from '../src/recovery-plan.mjs';
 import { phasePrepublish } from '../src/phase-prepublish.mjs';
+import { artifactQualityStatus, approvedArtifactQualityFindings } from '../src/phase-artifact-risk.mjs';
+import { inspectPhaseAuthoredReviewContent } from '../src/publication-preflight.mjs';
+import { publishedGenerationCommit } from '../src/generation-publication-store.mjs';
+import { runGovernanceGate } from '../src/governance.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -100,7 +104,22 @@ function run(command, args, cwd, allowFailure = false) {
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   return result;
 }
-async function fixture(t, { pilotCoverage = false, directCoverage = false } = {}) {
+async function acceptDocumentRisk(root, cli, phase, { transitions = [] } = {}) {
+  const expires = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const reason = 'The unfinished explanatory appendix is deferred for this pilot; source, tests and review remain required.';
+  const options = ['--phase', phase, '--finding', 'artifact.placeholder.unresolved', '--gate-mode', 'soft', '--expires', expires, '--reason', reason,
+    ...transitions.flatMap(transition => ['--transition', transition])];
+  const packet = JSON.parse(cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
+  const id = `PQR-${packet.packetSha256.slice(7, 31)}`;
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
+  const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PQR_NODE) $env(PQR_CLI) --no-model appeal risk-accept --phase $env(PQR_PHASE) --finding artifact.placeholder.unresolved --gate-mode soft --expires $env(PQR_EXPIRES) --reason $env(PQR_REASON) {*}$env(PQR_TRANSITIONS) --confirm $env(PQR_CONFIRM) --json\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
+    { cwd: root, encoding: 'utf8', timeout: 50000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+      PQR_NODE: process.execPath, PQR_CLI: CLI, PQR_PHASE: phase, PQR_EXPIRES: expires, PQR_REASON: reason,
+      PQR_CONFIRM: packet.packetSha256, PQR_TRANSITIONS: transitions.flatMap(transition => ['--transition', transition]).join(' ') } });
+  assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr); assert.match(ceremony.stdout, /risk-accepted/u);
+  return packet;
+}
+async function fixture(t, { pilotCoverage = false, directCoverage = false, intakeDocumentRisk = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-appeals-')); const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
   const git = (...args) => run('git', args, root);
@@ -133,6 +152,11 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false } = {}
     '## Initial evidence', '', 'The baseline module and test at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake'); cli('clarification', 'record', 'intake', '--question', 'Is 2 the approved value?', '--answer', 'Yes.');
+  if (intakeDocumentRisk) {
+    const intake = `${item}/artifacts/intake/intake.md`;
+    await write(intake, `${await readFile(path.join(root, intake), 'utf8')}\nPilot appendix: TODO record additional explanatory notes.\n`);
+    await acceptDocumentRisk(root, cli, 'intake');
+  }
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'); cli('submit', 'intake'); cli('approve', 'intake', '--yes');
   cli('prepare', 'implementation');
   await write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value\n${pilotCoverage || directCoverage ? 'export const value = 2;' : "import {approved} from './helper.mjs';\nexport const value = approved;"}\n`);
@@ -346,6 +370,114 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     const approved = (await f.load()).workflow.phases.implementation;
     assert.equal(approved.status, 'approved');
     assert.ok(approved.approvals.some(approval => approval.qualityRisks?.some(risk => risk.packetSha256 === retained.packetSha256)));
+  });
+
+test('one live document-quality decision survives publication and submission without waiving tests or approval',
+  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+    const f = await fixture(t, { directCoverage: true });
+    const original = await readFile(path.join(f.root, f.summary), 'utf8');
+    await f.write(f.summary, `${original}\nPilot limitation: TODO add the explanatory appendix.\n`);
+    const reason = 'The unfinished explanatory appendix is deferred for this pilot; source, tests and review remain required.';
+    const expires = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    const options = ['--phase', 'implementation', '--finding', 'artifact.placeholder.unresolved', '--gate-mode', 'soft', '--expires', expires, '--reason', reason];
+    const preview = JSON.parse(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
+    assert.equal(preview.schemaVersion, 2); assert.equal(preview.gate, 'PHASE_ARTIFACT_QUALITY');
+    const before = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    assert.equal(before.artifactQuality.eligible, true);
+    assert.ok(before.resolution.issues.some(issue => issue.choices.some(choice => choice.kind === 'preserve-checkpoint')));
+    const beforeHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const beforeStatus = f.git('status', '--porcelain=v1').stdout;
+    const beforeIndex = await readFile(path.join(f.root, '.git/index'));
+    const saved = JSON.parse(f.cli('appeal', 'checkpoint', '--phase', 'implementation', '--json').stdout);
+    assert.equal(saved.operation.classification, 'mutation');
+    assert.equal(saved.effects.stateChanged, false); assert.equal(saved.effects.filesChanged, true);
+    const shown = JSON.parse(f.cli('appeal', 'checkpoint-show', saved.data.id, '--phase', 'implementation', '--json').stdout);
+    assert.equal(shown.data.automaticRestore, false); assert.equal(shown.effects.filesChanged, false);
+    assert.equal(f.git('rev-parse', 'HEAD').stdout.trim(), beforeHead);
+    assert.equal(f.git('status', '--porcelain=v1').stdout, beforeStatus);
+    assert.deepEqual(await readFile(path.join(f.root, '.git/index')), beforeIndex);
+    const id = `PQR-${preview.packetSha256.slice(7, 31)}`;
+    const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
+    const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PQR_NODE) $env(PQR_CLI) --no-model appeal risk-accept --phase implementation --finding artifact.placeholder.unresolved --gate-mode soft --expires $env(PQR_EXPIRES) --reason $env(PQR_REASON) --confirm $env(PQR_CONFIRM) --json\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
+      { cwd: f.root, encoding: 'utf8', timeout: 50000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+        PQR_NODE: process.execPath, PQR_CLI: CLI, PQR_EXPIRES: expires, PQR_REASON: reason, PQR_CONFIRM: preview.packetSha256 } });
+    assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
+    assert.match(ceremony.stdout, /risk-accepted/u);
+    const current = await f.load(); const phase = current.workflow.phases.implementation;
+    const raw = await inspectPhaseAuthoredReviewContent(f.root, current.definition, current.workflow, phase, { resolveRisks: false });
+    const expired = await artifactQualityStatus(f.root, current.definition, current.workflow, phase, raw,
+      { at: new Date(Date.now() + 8 * 86400000).toISOString() });
+    assert.equal(expired.items[0].status, 'expired'); assert.equal(expired.excepted, false);
+    await f.write(f.summary, `${original}\nChanged shortfall: TODO do a different analysis.\n`);
+    const changed = await artifactQualityStatus(f.root, current.definition, current.workflow, phase,
+      await inspectPhaseAuthoredReviewContent(f.root, current.definition, current.workflow, phase, { resolveRisks: false }));
+    assert.equal(changed.items[0].status, 'stale'); assert.equal(changed.excepted, false);
+    await f.write(f.summary, `${original}\nPilot limitation: TODO add the explanatory appendix.\n`);
+    const source = await readFile(path.join(f.root, 'src/value.mjs'), 'utf8');
+    const accepted = JSON.parse(f.cli('phase', 'prepublish', 'implementation', '--json').stdout);
+    assert.equal(accepted.status, 'ready', JSON.stringify(accepted));
+    assert.equal(accepted.qualityDisposition, 'accepted-risk');
+    assert.ok((await readFile(path.join(f.root, f.summary), 'utf8')).includes('TODO'));
+    f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+    assert.equal((await f.load()).workflow.phases.implementation.generation, 1);
+    const after = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    assert.equal(after.artifactQuality.items[0].status, 'active', JSON.stringify(after.artifactQuality));
+    f.cli('submit', 'implementation', '--json');
+    const submitted = (await f.load()).workflow.phases.implementation;
+    assert.equal(submitted.status, 'awaiting_approval');
+    assert.ok(submitted.deliveryEvidence.testExecutions.some(execution => execution.status === 'passed'));
+    f.cli('approve', 'implementation', '--yes', '--json');
+    assert.equal((await f.load()).workflow.phases.implementation.status, 'approved');
+    assert.equal((await f.load()).workflow.phases.implementation.approvals[0].qualityRisks[0].id, id);
+    assert.equal(await readFile(path.join(f.root, 'src/value.mjs'), 'utf8'), source);
+    assert.equal((await f.load()).workflow.qualityRiskDecisions.length, 1);
+  });
+
+test('non-code intake keeps an accepted document shortfall visible through approval and downstream use',
+  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+    const f = await fixture(t, { directCoverage: true, intakeDocumentRisk: true });
+    const { workflow, definition } = await f.load(); const phase = workflow.phases.intake;
+    assert.equal(phase.status, 'approved');
+    assert.equal(phase.approvals[0].qualityRisks.length, 1);
+    const raw = await inspectPhaseAuthoredReviewContent(f.root, definition, workflow, phase, { resolveRisks: false });
+    const current = await artifactQualityStatus(f.root, definition, workflow, phase, raw, { transition: 'consume' });
+    assert.equal(current.items[0].status, 'active'); assert.equal(current.excepted, true);
+    assert.deepEqual(current.items[0].clauses, []);
+    assert.deepEqual(await approvedArtifactQualityFindings(f.root, definition, workflow), []);
+    const expired = await approvedArtifactQualityFindings(f.root, definition, workflow,
+      { transition: 'terminal', at: new Date(Date.now() + 8 * 86400000).toISOString() });
+    assert.ok(expired.some(finding => finding.phaseId === 'intake' && finding.code === 'artifact.placeholder.unresolved'));
+    const riskRoute = phaseResolutionChoices(workflow, workflow.phases.implementation, expired[0]).choices
+      .find(choice => choice.kind === 'pilot-risk-review');
+    assert.equal(riskRoute.argv[riskRoute.argv.indexOf('--phase') + 1], 'intake');
+    const governance = await runGovernanceGate(f.root, definition, workflow);
+    assert.ok(governance.warnings.some(warning => /artifact.placeholder.unresolved/.test(warning)));
+    assert.ok(!governance.errors.some(error => /reading 'join'|reading 'includes'/.test(error)));
+    assert.ok((await readFile(path.join(f.root, `${f.item}/artifacts/intake/intake.md`), 'utf8')).includes('TODO'));
+    assert.equal(workflow.qualityRiskDecisions[0].testsWaived, false);
+  });
+
+test('a publication-only document exception can be extended by fresh human review without republication',
+  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+    const f = await fixture(t, { directCoverage: true });
+    const original = await readFile(path.join(f.root, f.summary), 'utf8');
+    await f.write(f.summary, `${original}\nPilot appendix: TODO complete explanatory notes.\n`);
+    const first = await acceptDocumentRisk(f.root, f.cli, 'implementation', { transitions: ['publish'] });
+    f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+    const published = (await f.load()).workflow;
+    const commit = publishedGenerationCommit(f.root, published, published.phases.implementation);
+    assert.match(commit, /^[a-f0-9]{40,64}$/u);
+    const blocked = run(process.execPath, [CLI, '--no-model', 'submit', 'implementation', '--json'], f.root, true);
+    assert.notEqual(blocked.status, 0); assert.match(blocked.stdout + blocked.stderr, /TODO|placeholder|unfinished/iu);
+    const next = await acceptDocumentRisk(f.root, f.cli, 'implementation', { transitions: ['submit', 'approve', 'consume', 'terminal'] });
+    assert.deepEqual(next.binding, first.binding); assert.notEqual(next.packetSha256, first.packetSha256);
+    f.cli('submit', 'implementation', '--json'); f.cli('approve', 'implementation', '--yes', '--json');
+    const current = (await f.load()).workflow;
+    assert.equal(publishedGenerationCommit(f.root, current, current.phases.implementation), commit);
+    assert.equal(current.phases.implementation.generation, 1);
+    assert.equal(current.phases.implementation.status, 'approved');
+    assert.equal(current.qualityRiskDecisions.length, 2);
+    assert.ok(current.phases.implementation.deliveryEvidence.testExecutions.some(execution => execution.status === 'passed'));
   });
 
 async function liveReview(root, id, confirm, action = 'decide', decision = 'account-scope', native = false) {

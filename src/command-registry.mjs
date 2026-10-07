@@ -1449,9 +1449,9 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   if (definition.name === 'appeal') {
     const action = positionals[1] ?? 'preflight';
-    const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume'];
+    const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show'];
     if (!actions.includes(action)) return unknownSubcommand('appeal', action, actions);
-    return never(`appeal.${action}`, definition, ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume'].includes(action) ? 'mutation' : 'read');
+    return never(`appeal.${action}`, definition, ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'checkpoint'].includes(action) ? 'mutation' : 'read');
   }
   if (definition.name === 'review-source') {
     const subcommand = positionals[1];
@@ -1701,8 +1701,8 @@ export function operationCatalog() {
     ]),
     ...['context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
     ...['submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
-    ...['preflight', 'prepare', 'list', 'show', 'risk-prepare', 'repair-plan', 'repair-status'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
-    ...['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
+    ...['preflight', 'prepare', 'list', 'show', 'risk-prepare', 'repair-plan', 'repair-status', 'checkpoint-show'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
+    ...['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'checkpoint'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
     never('revise.preview', reviseDefinition, 'read'),
     never('revise.apply', reviseDefinition, 'mutation'),
     ...REVISION_READ_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'read')),

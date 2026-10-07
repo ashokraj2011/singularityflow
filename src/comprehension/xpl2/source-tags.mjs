@@ -113,7 +113,7 @@ export async function readChangeSourceTags(root, changeSet, diff = null, limits 
     // A binary file has no comment lines to read.
     if (bytes.includes(0)) continue;
     const text = bytes.toString('utf8');
-    const found = scanSourceClauseTags(text);
+    const found = scanSourceClauseTags(text, { sourcePath: entry.newPath });
     if (!found.length) continue;
     const lines = text.split(/\r?\n/u);
     for (const item of found) {

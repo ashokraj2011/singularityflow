@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
@@ -18,11 +19,19 @@ const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
 
 /** Closed dispositions, including an honest owner route for an unknown/unsupported blocker. */
 export function phaseResolutionChoices(workflow, phase, finding) {
+  // Downstream checks can name an approved input's owner. Keep its repair/risk routes there,
+  // rather than asking the consuming phase to edit immutable upstream bytes.
+  const ownerPhase = workflow.phases?.[finding.phaseId ?? finding.phase];
+  if (ownerPhase) phase = ownerPhase;
   const workId = workflow.workItem.id;
   const code = String(finding.details?.sourceCode ?? finding.code ?? '').toLowerCase();
   const category = String(finding.category ?? '').toLowerCase();
   const recovery = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
+  const policy = phaseFindingPolicy(finding);
+  const preserve = route('preserve-checkpoint', phase.id,
+    ['appeal', 'checkpoint', '--work-id', workId, '--phase', phase.id, '--json'],
+    'Save private recovery copies of dirty files and the index. No commit, discard, publication or phase advance.', '/sf-appeal');
   let resolution;
   if (code.startsWith('generation_publication')) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
@@ -85,6 +94,22 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       || ['host', 'integration', 'transport', 'external-evidence'].includes(category)) {
     resolution = route('external-owner', 'repository-or-integration-owner',
       ['doctor', '--json'], 'Preserve the retained outcome; resolve access or the external prerequisite before retrying.', '/sf-doctor');
+  } else if (code === 'phase.grounding.required' || code === 'phase.grounding.not-ready') {
+    resolution = route('prepare-current-generation', phase.id,
+      ['wm', 'compose', '--phase', phase.id, '--work-id', workId],
+      'Refresh the current pending composition from trusted inputs; retain the prior context and review the existing draft. Authenticated-record tampering still requires restoration.', '/sf-worldmodel');
+  } else if (code === 'phase.generation-intent.required' || code === 'generation_intent_required') {
+    resolution = phase.status === 'in_progress' && phase.generationIntent?.status !== 'consumed'
+      ? route('prepare-current-generation', phase.id,
+        ['phase', 'begin', phase.id, '--work-id', workId, '--json'],
+        'Open the current generation without discarding its work. Honor the returned adoption preview and exact human confirmation; never fabricate an intent or overwrite published evidence.', '/sf-code')
+      : recovery;
+  } else if (code === 'generation_intent_already_consumed' || code === 'generation.intent.consumed-changed') {
+    resolution = recovery;
+  } else if (policy.repairableByProducer) {
+    resolution = route('author-correction', phase.id,
+      ['appeal', 'repair-plan', '--work-id', workId, '--phase', phase.id, '--json'],
+      'Save a recovery checkpoint, then repair the current owned draft from its existing work. A bounded automatic budget never prevents a reviewed manual correction; published content requires a successor.', '/sf-appeal');
   } else if (/artifact|placeholder|document|grounding|clarification|traceability/u.test(code)) {
     resolution = route('author-correction', phase.id, ['phase', 'show', phase.id, '--show-artifact'],
       'Repair only the current owned draft and recheck. Approved/published bytes require a successor or authorized return.', '/sf-phase-documents');
@@ -92,17 +117,25 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
   }
-  return { code: finding.code ?? 'unknown', path: finding.path ?? null,
+  const choices = [resolution, recovery];
+  if (isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
+    ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
+      '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
+    'An authorized human may carry this exact document-quality shortfall through the selected transitions. It remains unmet, not passed; tests, trust and phase approval remain required.', '/sf-appeal'));
+  choices.push(preserve);
+  return { code: finding.code ?? 'unknown', path: finding.path ?? null, policy,
     status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
       ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
-    choices: [resolution, recovery], preserved: ['working-tree bytes', 'published evidence', 'approval history'] };
+    choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 
 export function phaseResolutionProjection(workflow, phase, findings = []) {
   return { status: findings.length ? 'resolution-required' : 'ready',
+    contract: { preserveWork: true, automaticDiscard: false, automaticRiskAcceptance: false,
+      priorApprovalsImmutable: true, exhaustedAutomationBlocksManualRepair: false },
     issues: findings.map(finding => phaseResolutionChoices(workflow, phase, finding)),
     retry: { maximumAttempts: 3, requiresChangedCondition: true, autoAcceptRisk: false,
-      fingerprint: digest(findings.map(({ code, path, message }) => ({ code, path, message }))) } };
+      fingerprint: digest(findings.map(phaseFindingIdentity).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))) } };
 }
 
 /** A deterministic repair budget: no unchanged retry or A→B→A oscillation. */

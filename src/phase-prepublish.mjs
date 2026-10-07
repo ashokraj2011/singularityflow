@@ -29,6 +29,7 @@ import {
 } from './specifications.mjs';
 import { exists, posix, secureRepositoryPath, snapshot } from './util.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
+import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 
 function findingKey(finding) {
   return [finding.code, finding.path ?? '', finding.line ?? '',
@@ -446,8 +447,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     ['lifecycle', 'host', 'collaboration'].includes(entry.category)
       || entry.code === 'phase.generation-intent.required');
   const authoringRepairOnly = blockers.length > 0
-    && blockers.every((entry) => ['artifact-set', 'specification-quality',
-      'specification-index', 'planning-table'].includes(entry.category))
+    && blockers.every((entry) => phaseFindingPolicy(entry).repairableByProducer)
     && recovery.blockers.length === 0;
   const needsHumanClarification = [...blockers, ...recovery.blockers].some((entry) => entry.category === 'clarification');
   const agentOwnsRepair = draft.ownership.proven && draft.producer === 'governed-agent';
@@ -476,6 +476,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     submissionReadiness: retainedReadiness,
     phaseStatus: phase.status,
     producer: draft.producer,
+    qualityDisposition: draft.qualityDisposition,
+    acceptedQualityRisks: draft.acceptedQualityRisks,
     ownership: draft.ownership,
     draftFingerprint,
     artifact: draft.artifact,

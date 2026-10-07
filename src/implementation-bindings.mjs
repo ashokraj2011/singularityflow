@@ -18,7 +18,7 @@ import { SingularityFlowError } from './util.mjs';
 
 export const EXPLANATION_LIMITS = Object.freeze({ minimum: 10, maximum: 300 });
 const MAX_BOUND_FILE_BYTES = 2 * 1024 * 1024;
-const TRAILING_COMMENT = /\s*(?:\*\/|-->|#\}|%\})\s*$/u;
+const TRAILING_COMMENT = /\s*(?:\*\/(?:\s*\})?|-->|#\}|%\})\s*$/u;
 
 /**
  * The explanation after a `@clause` tag on its comment line: the text that follows the clause ID,
@@ -29,6 +29,8 @@ export function clauseTagExplanation(line, clauseId) {
   const at = text.toUpperCase().indexOf(`@CLAUSE:${String(clauseId).toUpperCase()}`);
   if (at < 0) return null;
   const rest = text.slice(at + `@clause:${clauseId}`.length)
+    // A same-line JSX element may follow the comment-only expression container.
+    .replace(/\s*\*\/\s*\}.*$/u, '')
     .replace(TRAILING_COMMENT, '')
     .replace(/^\s*(?:[-–—:]+\s*)?/u, '')
     .replace(/\s+/gu, ' ')

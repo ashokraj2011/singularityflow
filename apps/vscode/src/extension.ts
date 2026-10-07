@@ -7898,15 +7898,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (action === 'refresh') return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
           if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });
           if (action === 'tests') return vscode.commands.executeCommand('singularityFlow.reviewStoryTestRecovery');
+          if (action === 'checkpoint') {
+            const saved = await client.run<unknown>(['appeal', 'checkpoint', '--work-id', workId, '--phase', phaseId, '--json']);
+            if (!stillCurrent()) return;
+            const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(saved, null, 2) });
+            await vscode.window.showTextDocument(document, { preview: true });
+            return;
+          }
           if (action === 'risk') {
-            const reason = await vscode.window.showInputBox({ title: 'Why may this pilot proceed with unmet coverage?', ignoreFocusOut: true,
+            const current = await client.run<{ data?: { artifactQuality?: { eligible?: boolean; remaining?: { code: string }[] };
+              quality?: { risks?: { eligible?: boolean; excepted?: boolean } } } }>(['appeal', 'preflight', '--work-id', workId, '--phase', phaseId, '--json']);
+            if (!stillCurrent()) return;
+            const coverage = current.data?.quality?.risks;
+            const findingCodes = coverage?.eligible === true && coverage.excepted !== true ? []
+              : [...new Set((current.data?.artifactQuality?.remaining ?? []).map(finding => finding.code))];
+            if (!findingCodes.length && !(coverage?.eligible === true && coverage.excepted !== true)) {
+              void showCompactInformationMessage('No eligible quality risk is currently open. Use the exact repair/owner route.'); return;
+            }
+            const reason = await vscode.window.showInputBox({ title: 'Why may this pilot proceed with the listed quality shortfall?', ignoreFocusOut: true,
               validateInput: value => value.trim().length >= 20 && value.trim().length <= 1000 && !/[\x00-\x1f\x7f]/u.test(value) ? null : 'Give a reason of 20–1000 ordinary characters.' });
             if (reason === undefined || !stillCurrent()) return;
             const expires = await vscode.window.showInputBox({ title: 'Risk expiry (YYYY-MM-DD, within 90 days)', ignoreFocusOut: true,
               value: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
               validateInput: value => /^\d{4}-\d{2}-\d{2}$/u.test(value) ? null : 'Use YYYY-MM-DD.' });
             if (!expires || !stillCurrent()) return;
-            const selectors = ['--work-id', workId, '--phase', phaseId, '--gate-mode', 'soft', '--expires', expires, '--reason', reason];
+            const selectors = ['--work-id', workId, '--phase', phaseId, '--gate-mode', 'soft', '--expires', expires, '--reason', reason,
+              ...findingCodes.flatMap(code => ['--finding', code])];
             const preview = await client.run<{ data?: { packet?: { packetSha256?: string; binding?: { workId?: string; phaseId?: string } } } }>(
               ['appeal', 'risk-prepare', ...selectors, '--json']);
             const packet = preview.data?.packet;

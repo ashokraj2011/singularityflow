@@ -6906,6 +6906,7 @@ async function phaseCommand(positionals, options) {
     console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
     if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
     if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
+    if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
     for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
     const coverageAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category === 'coverage');
@@ -6987,11 +6988,13 @@ async function phaseCommand(positionals, options) {
     : await loadSession(root);
   const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
   const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
+  const generation = nextPhaseGeneration(requestedPhase);
   const publicationArtifactContract = {
     ...requestedPhase.requiredArtifact,
     generation: nextPhaseGeneration(requestedPhase)
   };
   const publicationAuthoringOptions = {
+    qualityContext: { root, config, workflow, phase: requestedPhase, generation },
     baseline: requestedPhase.authoringBaseline ?? null,
     retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase, workflow))
   };
@@ -7019,7 +7022,6 @@ async function phaseCommand(positionals, options) {
   const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
     .flatMap((item) => item.authorship ?? [])
     .flatMap((record) => record.kernelModel?.invocationIds ?? []));
-  const generation = nextPhaseGeneration(requestedPhase);
   const kernelInvocations = (await listModelInvocations(root, {
     subjectId: workflow.workItem.id,
     phase: requestedPhase.id,

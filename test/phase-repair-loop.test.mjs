@@ -44,6 +44,10 @@ test('persistent producer reservation preserves files/index, holds transitions a
   await writeFile(path.join(f.root, 'notes.txt'), 'Unrelated staged note.\n'); f.git('add', 'notes.txt');
   const index = f.git('diff', '--cached'); const source = await readFile(path.join(f.root, 'source.txt'));
   const result = await reserve(f);
+  assert.match(result.checkpoint.id, /^PCP-[a-f0-9]{64}$/u);
+  const saved = await phaseRepairLoopSummary(f.root, f.workflow, f.phase);
+  assert.equal(saved.active.checkpointId, result.checkpoint.id);
+  assert.match(saved.checkpoints[0].command, /checkpoint-show PCP-/u);
   assert.equal(result.status, 'awaiting-producer-repair'); assert.equal(result.consumed, 1); assert.equal(result.modelInvocations, 0);
   assert.equal(f.syncs(), 0); assert.equal(f.git('rev-parse', 'HEAD'), originalHead);
   assert.equal(f.git('diff', '--cached'), index); assert.deepEqual(await readFile(path.join(f.root, 'source.txt')), source);
@@ -63,6 +67,7 @@ test('unchanged, oscillating and exhausted repairs remain stopped across coordin
   assert.equal((await f.call()).admission.reason, 'unchanged-or-oscillating-condition');
   f.set('C'); await reserve(f); f.set('D'); await f.call('resume');
   assert.equal((await f.call()).admission.reason, 'budget-exhausted');
+  assert.equal((await f.call()).alternatives.manualRepairAllowed, true);
   assert.equal((await f.call('status')).consumed, 3);
   // A manual correction is still a route forward; exhausting auto repair never waives or freezes
   // the ordinary gates, and correcting a draft cannot grant a new automatic budget.

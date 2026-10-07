@@ -14,12 +14,17 @@ import { requiresProspectivePhaseInspection } from '../code-submission-evidence.
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { createPhaseCheckpoint, inspectPhaseCheckpoint } from '../phase-checkpoint.mjs';
+import { inspectPhaseAuthoredReviewContent } from '../publication-preflight.mjs';
+import { artifactQualityStatus } from '../phase-artifact-risk.mjs';
+import { withSubjectLock } from '../subject-lock.mjs';
 
-const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume'];
+const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show'];
 function riskRequest(options) {
   return { phaseId: optionString(options, 'phase') ?? undefined, gateMode: optionString(options, 'gate-mode') ?? undefined,
     clauses: optionStrings(options, 'clause'), transitions: optionStrings(options, 'transition').length
       ? optionStrings(options, 'transition') : undefined, expires: optionString(options, 'expires'),
+    findings: optionStrings(options, 'finding'),
     reason: optionString(options, 'reason'), confirm: optionString(options, 'confirm') };
 }
 function request(options) {
@@ -44,7 +49,8 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       + 'prepare/submit: --phase ID --add-location CLAUSE=PATH or --add-supporting PATH=CLASS --supporting-reason TEXT --reason TEXT\n'
       + 'submit: --confirm PACKET_SHA256\ndecide: --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256 (live terminal review required)\n'
       + 'repair-plan/repair-status: --phase ID; repair-run: --phase ID --confirm PLAN_SHA256; repair-resume: --phase ID\n'
-      + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
+      + 'checkpoint: --phase ID saves private dirty-file/index recovery copies; checkpoint-show PCP-ID verifies them without restoring files\n'
+      + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
       + 'risk-attest/risk-revoke PQR-ID: --confirm DECISION_SHA256; revoke also --reason TEXT\n'
       + 'Extra behaviour: story intent-amendment; eligible failed checks: story test-policy risks. Neither is waived by accounting for scope.');
     return;
@@ -55,15 +61,18 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (action === 'decide') ['decision', 'reason', 'confirm'].forEach(key => allowed.add(key));
   if (action === 'attest') allowed.add('confirm');
   if (action === 'repair-run') allowed.add('confirm');
-  if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
+  if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'finding', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (['risk-attest', 'risk-revoke'].includes(action)) ['confirm', ...(action === 'risk-revoke' ? ['reason'] : [])].forEach(key => allowed.add(key));
   for (const key of Object.keys(options)) if (!allowed.has(key)) throw new SingularityFlowError(`Unsupported appeal option --${key}. No blanket waiver, automatic approval or source rewrite is available.`, { code: 'PHASE_APPEAL_OPTIONS_INVALID' });
-  if (positionals.length > (['show', 'decide', 'attest', 'risk-attest', 'risk-revoke'].includes(action) ? 3 : 2)) throw new SingularityFlowError('Unexpected appeal arguments. Use --work-id for the attached Story.');
+  if (positionals.length > (['show', 'decide', 'attest', 'risk-attest', 'risk-revoke', 'checkpoint-show'].includes(action) ? 3 : 2)) throw new SingularityFlowError('Unexpected appeal arguments. Use --work-id for the attached Story.');
   const { workflow, definition: config } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const phase = workflow.phases?.[optionString(options, 'phase') ?? workflow.currentPhase];
   if ((action !== 'list' || optionString(options, 'phase')) && !phase) throw new SingularityFlowError('Choose an existing phase with --phase.');
   let data;
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
+  if (action === 'checkpoint') data = await withSubjectLock(root, { kind: 'story', id: workflow.workItem.id },
+    () => createPhaseCheckpoint(root, config, workflow, phase));
+  if (action === 'checkpoint-show') data = await inspectPhaseCheckpoint(root, workflow, phase, positionals[2]);
   if (action === 'prepare') data = { status: 'review-required', packet: await preparePhaseAppeal(root, config, workflow, request(options)), stateChanged: false };
   if (action === 'submit') data = await submitPhaseAppeal(root, config, workflow, request(options));
   if (action === 'list') data = await phaseAppealStatus(root, config, workflow, optionString(options, 'phase') ? phase : null);
@@ -90,6 +99,9 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     const recovery = await recoveryPlan(root, config, workflow, { phaseId: phase.id, inspectActivePhase: true, modelEnabled });
     const quality = await inspectPhaseQualityGate(root, config, workflow, phase,
       { transition: phase.status === 'awaiting_approval' ? 'approve' : 'submit' });
+    const artifactQuality = await artifactQualityStatus(root, config, workflow, phase,
+      await inspectPhaseAuthoredReviewContent(root, config, workflow, phase, { resolveRisks: false }),
+      { transition: drafting ? 'publish' : phase.status === 'awaiting_approval' ? 'approve' : 'submit' });
     // Prefer the exact owning gate over wrappers of that same refusal, so a coverage gap does
     // not simultaneously suggest an unrelated test-risk route.
     const findings = [...quality.findings, ...inspection.findings, ...recovery.blockers];
@@ -99,14 +111,14 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     try { appeals = await phaseAppealStatus(root, config, workflow, phase); await assertPhaseAppealsResolved(root, config, workflow, phase); }
     catch (error) { unique.push({ code: error.code, category: 'appeal', path: null, message: error.message }); }
     data = { status: unique.length ? 'resolution-required' : 'ready-for-next-check', workId: workflow.workItem.id, phaseId: phase.id,
-      resolution: phaseResolutionProjection(workflow, phase, unique), inspection, recovery, appeals, quality,
+      resolution: phaseResolutionProjection(workflow, phase, unique), inspection, recovery, appeals, quality, artifactQuality,
       repairLoop: inspection.repairLoop ?? await phaseRepairLoopSummary(root, workflow, phase),
       mutates: false, modelInvocations: 0, testsRun: false, phaseAdvanced: false };
   }
   const changed = data.stateChanged === true;
   if (!optionBoolean(options, 'json')) console.log(JSON.stringify(data, null, 2));
   return emitCommandResult(commandResult({
-    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume'].includes(action) ? 'mutation' : 'read' },
+    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'checkpoint'].includes(action) ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded(['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true,

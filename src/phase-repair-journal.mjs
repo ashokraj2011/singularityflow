@@ -20,7 +20,8 @@ const base = { schemaVersion: z.literal(1), kind: z.literal('phase-repair-loop-e
 export const PhaseRepairEventSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('reserved'), attempt: z.number().int().min(1).max(3),
     maximum: z.number().int().min(1).max(3), actionId: z.enum(['sync-retained-publication', 'owned-producer-repair']),
-    conditionHash: SHA, confirmation: SHA, policyHash: SHA, revisionHash: SHA, pendingHash: SHA.nullable() }).strict(),
+    conditionHash: SHA, confirmation: SHA, policyHash: SHA, revisionHash: SHA, pendingHash: SHA.nullable(),
+    checkpointId: z.string().regex(/^PCP-[a-f0-9]{64}$/u).optional() }).strict(),
   z.object({ ...base, type: z.literal('rechecked'), attempt: z.number().int().min(1).max(3),
     conditionHash: SHA.nullable(), ready: z.boolean(),
     outcome: z.enum(['ready', 'changed-condition', 'unchanged-condition', 'binding-changed', 'operation-failed', 'inspection-unavailable']),
@@ -103,10 +104,14 @@ export async function phaseRepairLoopSummary(root, workflow, phase) {
   return { status: journal.active ? 'recheck-required' : journal.consumed >= maximum ? 'budget-exhausted' : 'available',
     binding, consumed: journal.consumed, maximum, attemptsRemaining: Math.max(0, maximum - journal.consumed),
     revision: journal.revision, active: journal.active,
+    checkpoints: journal.attempts.filter(attempt => attempt.checkpointId).map(attempt => ({
+      id: attempt.checkpointId, attempt: attempt.attempt,
+      command: `singularity-flow appeal checkpoint-show ${attempt.checkpointId} --work-id ${workflow.workItem.id} --phase ${phase.id} --json`
+    })),
     commands: { plan: `singularity-flow appeal repair-plan --phase ${phase.id} --json`,
       resume: `singularity-flow appeal repair-resume --phase ${phase.id} --json`,
       status: `singularity-flow appeal repair-status --phase ${phase.id} --json` },
-    protocol: 'Before an owned correction, inspect repair-plan and reserve its exact confirmed repair-run within authorized work. Repair only the bound findings, then repair-resume the same attempt. An active attempt resumes, never reserves again. An exhausted/unchanged loop goes to its human or owner route; manual correction and authorized successor remain available.',
+    protocol: 'Before an owned correction, inspect repair-plan and reserve its exact confirmed repair-run within authorized work. It saves bounded recovery copies without staging or discarding edits. Repair only the bound findings, then repair-resume the same attempt. An active attempt resumes, never reserves again. An exhausted/unchanged loop stops automation, not manual correction or authorized successor. Use the returned preservation command before an authorized manual correction. Inspect returned quality-risk routes for explicit human decisions; never accept risk automatically.',
     autoAcceptRisk: false, phaseAdvanced: false, journalIsPassingEvidence: false, machineLocal: true };
 }
 export async function assertPhaseRepairSettled(root, workflow, phase) {

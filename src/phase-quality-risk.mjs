@@ -13,6 +13,9 @@ import { SingularityFlowError, nowIso } from './util.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
+import { ArtifactRiskPacketSchema, ArtifactRiskDecisionSchema } from './phase-artifact-risk-schema.mjs';
+import { isArtifactQualityFinding, phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { terminalTransitionAt } from './workflow-terminal-time.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const fail = (message, code = 'PHASE_QUALITY_RISK_INVALID', details = null) => { throw new SingularityFlowError(message, { code, details }); };
@@ -35,6 +38,10 @@ const decisionSchema = packetSchema.extend({ id: z.string().regex(/^PQR-[a-f0-9]
 const revocationSchema = z.object({ kind: z.literal('phase-quality-risk-revocation'), id: z.string().min(1),
   revokes: z.string().regex(/^PQR-[a-f0-9]{24}$/u), reason: reasonSchema, actor: z.string().min(1),
   authorityGroup: z.string().min(1), authorizationId: z.string().min(1), at: z.string().datetime() }).strict();
+// Closed policy variants, not a lossy upgrade of a coverage decision into a document decision.
+const isArtifactRisk = record => record?.gate === 'PHASE_ARTIFACT_QUALITY';
+const riskPacketSchema = record => isArtifactRisk(record) ? ArtifactRiskPacketSchema : packetSchema;
+const riskDecisionSchema = record => isArtifactRisk(record) ? ArtifactRiskDecisionSchema : decisionSchema;
 
 export function normalizeQualityGateMode(value = 'hard') {
   if (!['hard', 'soft'].includes(value)) fail('Gate mode must be hard or soft. Soft mode still requires a specific authorized human risk decision.');
@@ -72,14 +79,18 @@ export function coverageRiskEligibility(error) {
 }
 
 export function validateQualityRiskPacket(packet) {
-  const parsed = packetSchema.safeParse(packet);
+  const parsed = riskPacketSchema(packet).safeParse(packet);
   if (!parsed.success) fail('Quality risk packet is invalid.', 'PHASE_QUALITY_RISK_INTEGRITY');
   const { packetSha256, ...core } = parsed.data;
   if (digest(core) !== packetSha256 || new Set(packet.clauses).size !== packet.clauses.length
-      || new Set(packet.transitions).size !== packet.transitions.length) fail('Quality risk packet hash or scope is invalid.', 'PHASE_QUALITY_RISK_INTEGRITY');
+      || new Set(packet.transitions).size !== packet.transitions.length
+      || (isArtifactRisk(packet) && (digest(packet.findings) !== packet.observationSha256
+        || new Set(packet.findings.map(finding => canonicalJson(finding))).size !== packet.findings.length
+        || packet.findings.some(finding => !isArtifactQualityFinding(finding)
+          || /(?:^|\/)\.\.(?:\/|$)|\\|^\/|^[A-Za-z]:|[\x00-\x1f\x7f]/u.test(finding.path))))) fail('Quality risk packet hash or scope is invalid.', 'PHASE_QUALITY_RISK_INTEGRITY');
   return parsed.data;
 }
-const packetOf = record => Object.fromEntries(Object.keys(packetSchema.shape).map(key => [key, record[key]]));
+const packetOf = record => Object.fromEntries(Object.keys(riskPacketSchema(record).shape).map(key => [key, record[key]]));
 
 function retainedQualityCommit(root, workflow, phase) {
   return phase?.generationIntent || phase?.generationPublications?.length
@@ -111,7 +122,7 @@ function assertAppendOnlyHistory(root, relative, tip, entries) {
   historyChecks.set(key, true);
 }
 
-async function retainedRecords(root, config, workflow) {
+export async function retainedQualityRiskRecords(root, config, workflow) {
   const entries = workflow.qualityRiskDecisions ?? [];
   if (!Array.isArray(entries) || entries.length > MAX_DECISIONS * 2
       || entries.filter(entry => !entry?.revokes).length > MAX_DECISIONS
@@ -129,7 +140,7 @@ async function retainedRecords(root, config, workflow) {
     fail('Quality risk decisions differ from their committed records.', 'PHASE_QUALITY_RISK_INTEGRITY');
   }
   for (const record of entries) {
-    const schema = record?.revokes ? revocationSchema : decisionSchema;
+    const schema = record?.revokes ? revocationSchema : riskDecisionSchema(record);
     if (!schema.safeParse(record).success) fail('Quality risk decision schema is invalid.', 'PHASE_QUALITY_RISK_INTEGRITY');
     if (!record.revokes) {
       validateQualityRiskPacket(packetOf(record));
@@ -141,6 +152,7 @@ async function retainedRecords(root, config, workflow) {
   assertAppendOnlyHistory(root, relative, tip, entries);
   return entries;
 }
+const retainedRecords = retainedQualityRiskRecords;
 
 export async function qualityRiskStatus(root, config, workflow, phase, error, { transition = 'approve', at = nowIso(), candidate = null } = {}) {
   const eligible = coverageRiskEligibility(error);
@@ -157,7 +169,7 @@ export async function qualityRiskStatus(root, config, workflow, phase, error, { 
   const revoked = new Set(entries.filter(entry => entry.revokes).map(entry => entry.revokes));
   const items = [];
   const accepted = new Set();
-  for (const record of entries.filter(entry => !entry.revokes && entry.binding.phaseId === phase.id)) {
+  for (const record of entries.filter(entry => entry.gate === 'SPEC_COVERAGE_INCOMPLETE' && entry.binding.phaseId === phase.id)) {
     let status = revoked.has(record.id) ? 'revoked'
       : Date.parse(record.expiresAt) <= Date.parse(at) ? 'expired'
         : canonicalJson(record.binding) !== canonicalJson(binding) ? 'stale'
@@ -176,7 +188,7 @@ export async function qualityRiskStatus(root, config, workflow, phase, error, { 
 }
 
 /** Use the same strict check as submit/approve. No tests, network, publication or generation edits. */
-export async function inspectPhaseQualityGate(root, config, workflow, phase, { transition = 'approve' } = {}) {
+export async function inspectPhaseQualityGate(root, config, workflow, phase, { transition = 'approve', at = nowIso() } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return { status: 'not-applicable', findings: [], risks: null };
   const editable = phase?.generationIntent?.status === 'open';
   if (!editable && Number(phase?.generation) < 1) return { status: 'not-applicable', findings: [], risks: null };
@@ -215,9 +227,10 @@ export async function inspectPhaseQualityGate(root, config, workflow, phase, { t
     return { status: 'ready', findings: [], risks: null };
   } catch (error) {
     if (error.code !== 'SPEC_COVERAGE_INCOMPLETE') return { status: 'resolution-required', risks: null,
-      findings: [{ code: error.code ?? 'PHASE_QUALITY_INSPECTION_UNAVAILABLE', category: 'integrity', path: null,
+      findings: [{ code: error.code ?? 'PHASE_QUALITY_INSPECTION_UNAVAILABLE',
+        category: phaseFindingPolicy({ code: error.code }).classification === 'integrity-or-authority' ? 'integrity' : 'inspection-unavailable', path: null,
         message: error.message, details: error.details ?? null }] };
-    const risks = await qualityRiskStatus(root, config, workflow, phase, error, { transition, candidate: error.qualityRiskCandidate ?? null });
+    const risks = await qualityRiskStatus(root, config, workflow, phase, error, { transition, at, candidate: error.qualityRiskCandidate ?? null });
     return { status: risks.excepted ? 'ready-with-accepted-risk' : 'resolution-required', risks, evidenceCommit,
       findings: risks.excepted ? [] : [{ code: error.code, category: 'quality-coverage', path: null,
         message: error.message, details: { ...error.details, riskEligible: risks.eligible } }] };
@@ -225,15 +238,22 @@ export async function inspectPhaseQualityGate(root, config, workflow, phase, { t
 }
 
 export async function prepareQualityRisk(root, config, workflow, { phaseId = workflow.currentPhase,
-  gateMode, clauses = [], transitions, expires, reason } = {}) {
+  gateMode, clauses = [], findings = [], transitions, expires, reason } = {}) {
   const phase = workflow.phases?.[phaseId];
   if (workflow.status !== 'in_progress'
       || !['in_progress', 'awaiting_approval', 'approved'].includes(phase?.status)
-      || (Number(phase?.generation) < 1 && phase?.generationIntent?.status !== 'open')) {
+      || (Number(phase?.generation) < 1 && phase?.generationIntent?.status !== 'open'
+        && (phaseRequiresCodeDelivery(phase) || phaseId !== workflow.currentPhase))) {
     fail('Select an open code candidate, published, submitted or approved phase on an active Story.', 'PHASE_QUALITY_RISK_LIFECYCLE');
   }
   const mode = normalizeQualityGateMode(gateMode ?? workflow.resolution?.qualityGateMode);
   if (mode !== 'soft') fail('Hard mode does not allow this quality exception. Choose --gate-mode soft explicitly for a reviewed pilot exception on this phase.', 'PHASE_QUALITY_RISK_HARD_MODE');
+  if (findings.length || !phaseRequiresCodeDelivery(phase)) {
+    if (clauses.length) fail('Document-quality risk selects --finding codes, not clause coverage.', 'PHASE_QUALITY_RISK_NOT_ELIGIBLE');
+    const { prepareArtifactQualityRisk } = await import('./phase-artifact-risk.mjs');
+    return validateQualityRiskPacket(await prepareArtifactQualityRisk(root, config, workflow, phase,
+      { findings, transitions, expires, reason }));
+  }
   const inspection = await inspectPhaseQualityGate(root, config, workflow, phase);
   if (inspection.status === 'pending-submission-evidence') fail(
     'This published generation needs fresh submission tests and observed claims before a quality-risk packet can be reviewed. Submit the retained generation; do not republish or waive its tests.',
@@ -279,7 +299,7 @@ export async function acceptQualityRisk(root, config, workflow, options) {
   if (entries.filter(entry => !entry.revokes).length >= MAX_DECISIONS) fail('This Story reached its pilot-risk decision limit. Preserve the audit history and ask its workflow maintainer; existing decisions can still be revoked.', 'PHASE_QUALITY_RISK_INVALID');
   const card = { plan: { planId: id, planHash: digest({ packet, actor, authority }),
     subject: { workId: workflow.workItem.id, phaseId: phase.id }, revision: head(root), packet,
-    consequence: 'Advance with unmet implementation coverage, not a passing proof. Required tests and phase approval are not waived.' },
+    consequence: 'Advance with the exact recorded quality shortfall, not a passing proof. Required tests and phase approval are not waived.' },
   action: { actionId: id, confirmation: { required: true } } };
   const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Accept risk ${id}` });
   if (!grant) return { status: 'cancelled', stateChanged: false };
@@ -292,7 +312,7 @@ export async function acceptQualityRisk(root, config, workflow, options) {
     if (fresh.packetSha256 !== packet.packetSha256) fail('Coverage, policy or candidate changed during human review.', 'PHASE_QUALITY_RISK_STALE');
     if ((aggregate.qualityRiskDecisions ?? []).some(entry => entry.id === id)) fail('This exact risk was already retained. Re-attest it instead of duplicating it.', 'PHASE_QUALITY_RISK_STALE');
     if ((aggregate.qualityRiskDecisions ?? []).filter(entry => !entry.revokes).length >= MAX_DECISIONS) fail('Pilot-risk decision limit reached; no history was pruned.');
-    const record = decisionSchema.parse({ ...packet, id, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
+    const record = riskDecisionSchema(packet).parse({ ...packet, id, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
       identityAssurance: authority.identityAssurance ?? null, authorizationId: grant.authorizationId,
       reviewAssurance: 'live-terminal-risk-review', at: nowIso(), testsWaived: false, phaseApproved: false });
     await consumeAndRetainHumanReview(root, record, card, grant.token);
@@ -309,7 +329,15 @@ export async function attestQualityRisk(root, config, workflow, { id, confirm } 
   const record = (await retainedRecords(root, config, workflow)).find(entry => !entry.revokes && entry.id === id);
   if (!record || confirm !== digest(record)) fail('Select and confirm an exact retained risk decision.', 'PHASE_QUALITY_RISK_STALE');
   const phase = workflow.phases[record.binding.phaseId];
-  const inspection = await inspectPhaseQualityGate(root, config, workflow, phase);
+  const inspect = async () => {
+    if (!isArtifactRisk(record)) return inspectPhaseQualityGate(root, config, workflow, phase);
+    const { inspectPhaseAuthoredReviewContent } = await import('./publication-preflight.mjs');
+    const { artifactQualityStatus } = await import('./phase-artifact-risk.mjs');
+    const findings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase, { resolveRisks: false });
+    return { risks: await artifactQualityStatus(root, config, workflow, phase, findings,
+      { transition: record.transitions[0] }) };
+  };
+  const inspection = await inspect();
   if (!inspection.risks?.items.some(item => item.id === id && ['needs-reattestation', 'active'].includes(item.status))) {
     fail('This risk expired, was revoked, or no longer describes the current candidate.', 'PHASE_QUALITY_RISK_STALE');
   }
@@ -318,7 +346,7 @@ export async function attestQualityRisk(root, config, workflow, { id, confirm } 
     revision: head(root), record, reviewer: actorKey(actor) }, action: { actionId: `attest-${id}`, confirmation: { required: true } } };
   const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Re-review risk ${id}` });
   if (!grant) return { status: 'cancelled', stateChanged: false };
-  const fresh = await inspectPhaseQualityGate(root, config, workflow, phase);
+  const fresh = await inspect();
   if (!fresh.risks?.items.some(item => item.id === id && ['needs-reattestation', 'active'].includes(item.status))) fail('Risk changed during review.', 'PHASE_QUALITY_RISK_STALE');
   await consumeAndRetainHumanReview(root, record, card, grant.token);
   return { status: 'risk-review-origin-restored', stateChanged: false, localFilesChanged: true };
@@ -357,7 +385,15 @@ export async function activeQualityRisks(root, config, workflow, transition = 'c
   for (const id of new Set(workflow.qualityRiskDecisions.filter(entry => !entry.revokes).map(entry => entry.binding?.phaseId))) {
     const phase = workflow.phases?.[id];
     if (!phase) fail('Risk references an unknown phase.', 'PHASE_QUALITY_RISK_INTEGRITY');
-    const inspection = await inspectPhaseQualityGate(root, config, workflow, phase, { transition });
+    if (workflow.qualityRiskDecisions.some(entry => entry.gate === 'PHASE_ARTIFACT_QUALITY' && entry.binding.phaseId === id)) {
+      const { inspectPhaseAuthoredReviewContent } = await import('./publication-preflight.mjs');
+      const { artifactQualityStatus } = await import('./phase-artifact-risk.mjs');
+      const findings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase, { resolveRisks: false });
+      const status = await artifactQualityStatus(root, config, workflow, phase, findings, { transition });
+      for (const risk of status.items) if (risk.status === 'active') result.push({ ...risk, phaseId: id });
+    }
+    const inspection = await inspectPhaseQualityGate(root, config, workflow, phase,
+      { transition, at: transition === 'terminal' ? terminalTransitionAt(workflow) : nowIso() });
     for (const risk of inspection.risks?.items ?? []) if (risk.status === 'active' && risk.transitions.includes(transition)) result.push({ ...risk, phaseId: id });
   }
   return result;

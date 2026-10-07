@@ -11,6 +11,8 @@ import { phaseResolutionProjection, repairLoopAdmission } from './phase-resoluti
 import { storyUsesStepActions } from './step-action-delivery.mjs';
 import { appendPhaseRepairEvent, phaseRepairBinding, phaseRepairLoopSummary, readPhaseRepairJournal, repairDigest } from './phase-repair-journal.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { createPhaseCheckpoint } from './phase-checkpoint.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 /** Progress means changed findings, not padding, moved line numbers or unrelated source edits. */
@@ -40,7 +42,7 @@ async function inspect(root, config, workflow, phase, { modelEnabled = true } = 
   return { inspection, recovery, findings: underlying, ready, conditionHash,
     resolution: phaseResolutionProjection(workflow, phase, underlying) };
 }
-const runtime = { load: loadAcceptedStoryExecution, inspect, branch, lock: withSubjectLock,
+const runtime = { load: loadAcceptedStoryExecution, inspect, branch, lock: withSubjectLock, checkpoint: createPhaseCheckpoint,
   sync: (root, config, workflow, plan) => applyRecovery(root, config, workflow,
     { ...plan, actions: plan.actions.filter(action => action.id === 'publish' && action.command === 'singularity-flow sync') }, { confirm: plan.planId }) };
 
@@ -58,8 +60,6 @@ const policyHash = ({ config, workflow, phase }, observation) => repairDigest({ 
   generationPolicy: phase.generationPolicy ?? null, repairBudget: phase.repairBudget ?? null,
   governance: config.governance ?? null, producer: observation.inspection.producer ?? null,
   owner: observation.inspection.ownership ?? null });
-const AUTHOR_FINDING_CATEGORIES = new Set(['authoring', 'artifact', 'traceability', 'artifact-set',
-  'specification-quality', 'specification-index', 'planning-table']);
 function actionFor(observation, { phase, workflow, config }) {
   const recovery = observation.recovery;
   // Only retry a retained, already governed publication. No fresh publish, generic push, fetch,
@@ -78,7 +78,7 @@ function actionFor(observation, { phase, workflow, config }) {
       && observation.inspection.ownership?.proven === true
       && observation.inspection.correction.class === 'agent-authoring'
       && observation.findings.length > 0
-      && observation.findings.every(finding => AUTHOR_FINDING_CATEGORIES.has(finding.category))) {
+      && observation.findings.every(finding => phaseFindingPolicy(finding).repairableByProducer)) {
     return { id: 'owned-producer-repair', mode: 'producer-handoff', pendingHash: null,
       skill: observation.inspection.correction.skill,
       detail: 'The bound producer repairs only the returned owned draft/source findings, then resumes this same attempt. No nested model is launched.' };
@@ -102,11 +102,22 @@ async function preview(current, dependencies) {
       : admission.allowed ? 'confirmation-required' : 'needs-human-or-owner',
     ...core, confirmation: repairDigest(core), admission, inspection: observation.inspection,
     resolution: observation.resolution, observation, journal,
+    alternatives: { manualRepairAllowed: phase.status === 'in_progress'
+        && requiresProspectivePhaseInspection(workflow, phase) && !recoveryHasPending(observation),
+      manualRepairScope: 'Current owned unpublished work only; protected or published evidence requires its authority/successor route.',
+      preserve: `singularity-flow appeal checkpoint --work-id ${workflow.workItem.id} --phase ${phase.id} --json`,
+      risk: observation.resolution.issues.some(issue => issue.policy?.riskEligible)
+        ? `singularity-flow appeal preflight --work-id ${workflow.workItem.id} --phase ${phase.id} --json` : null,
+      saveDoesNotAdvance: true },
     commands: { run: `singularity-flow appeal repair-run --phase ${phase.id} --confirm ${repairDigest(core)} --json`,
       resume: `singularity-flow appeal repair-resume --phase ${phase.id} --json` },
     testsRun: false, phaseAdvanced: false, autoAcceptRisk: false };
 }
+function recoveryHasPending(observation) {
+  return Boolean(observation.recovery.pendingPublication || observation.recovery.publicationRecovery);
+}
 function publicPlan(plan) { const { observation, journal, ...data } = plan; return { ...data,
+  checkpointIds: journal.attempts.map(attempt => attempt.checkpointId).filter(Boolean),
   consumed: journal.consumed, attemptsRemaining: Math.max(0, plan.maximum - journal.consumed) }; }
 function unavailable(current, error, consumed) {
   return { status: 'needs-human-or-owner', binding: current.binding, journalChanged: true, consumed,
@@ -201,11 +212,16 @@ export async function coordinatePhaseRepair({ root, workId = null, phaseId = nul
     }
     if (confirmation !== plan.confirmation) fail('Review the current exact repair plan and confirm its digest. Source, policy, journal or repository state moved.', 'PHASE_REPAIR_PLAN_STALE', { plan: publicPlan(plan) });
     if (!plan.admission.allowed) fail('A new repair cannot start. Resume the recorded attempt or follow the named human/owner route; its budget was not reset.', 'PHASE_REPAIR_ADMISSION_REFUSED', { plan: publicPlan(plan) });
+    const checkpoint = plan.action.id === 'owned-producer-repair'
+      ? await dependencies.checkpoint(root, current.config, current.workflow, current.phase) : null;
+    // Preservation does not authorize changed bytes. Reinspect after capture before reserving.
+    if (checkpoint && (await preview(current, dependencies)).confirmation !== plan.confirmation) fail('The work changed during preservation; inspect a fresh repair plan.', 'PHASE_REPAIR_PLAN_STALE');
     const journal = await appendPhaseRepairEvent(root, current.binding, { type: 'reserved', attempt: plan.attempt,
       maximum: plan.maximum, actionId: plan.action.id, conditionHash: plan.conditionHash,
-      confirmation: plan.confirmation, policyHash: plan.policyHash, revisionHash: plan.revisionHash, pendingHash: plan.action.pendingHash });
+      confirmation: plan.confirmation, policyHash: plan.policyHash, revisionHash: plan.revisionHash, pendingHash: plan.action.pendingHash,
+      ...(checkpoint ? { checkpointId: checkpoint.id } : {}) });
     await overrides.afterReservation?.();
-    if (plan.action.id === 'owned-producer-repair') return { ...publicPlan(plan), status: 'awaiting-producer-repair',
+    if (plan.action.id === 'owned-producer-repair') return { ...publicPlan(plan), checkpoint, localFilesChanged: true, status: 'awaiting-producer-repair',
       consumed: journal.consumed, attemptsRemaining: Math.max(0, plan.maximum - journal.consumed), journalChanged: true,
       next: plan.commands.resume, skill: plan.action.skill, modelInvocations: 0,
       guidance: 'Repair the returned owned findings with the bound producer, then repair-resume. Do not reserve another attempt, launch a nested model, publish, submit or approve.' };

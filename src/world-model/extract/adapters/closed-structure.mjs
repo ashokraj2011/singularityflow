@@ -337,10 +337,10 @@ export function scanTestIdentities(source, language) {
 }
 
 /** Explicit clause annotations in source comments; control-flow is never guessed to be a clause. */
-export function scanClauseBindings(source) {
+export function scanClauseBindings(source, { sourcePath = null } = {}) {
   // A World Model can observe legacy bare/NFR comments in an already-pinned checkout.
   // New code-delivery publication uses this parser's strict qualified form instead.
-  return scanSourceClauseTags(source, { legacy: true }).map(({ clauseId, line }) => ({
+  return scanSourceClauseTags(source, { legacy: true, sourcePath }).map(({ clauseId, line }) => ({
     clause: clauseId, line
   }));
 }

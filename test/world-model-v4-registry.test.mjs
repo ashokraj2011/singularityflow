@@ -79,16 +79,15 @@ test('testing overview preserves the frozen coverage extractor and keeps test-im
     `${REQUIRED_FACT_COVERAGE_ID}@${REQUIRED_FACT_COVERAGE_VERSION}`
   );
   assert.equal(REQUIRED_FACT_COVERAGE_VERSION, '1.0.1');
-  // These exact identities were reconciled only after the bounded authority review recorded in
-  // docs/contracts/wmb/REGISTRY-LOCK-REVIEW-2026-09-19.md. The extractor's version, algorithm,
-  // declared fact types, and governing View Contract did not change; the mechanical identities
-  // changed because implementationSha256 intentionally binds the complete packaged WMB kernel.
+  // The JSX comment provenance acceptance in the bounded lock review changes the clause grammar,
+  // not required-fact-coverage's version, algorithm, fact types, or governing View Contract.
+  // Every implementation identity still binds the complete packaged WMB kernel and shared lexer.
   assert.equal(
     REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256,
-    'sha256:a05ba3b488ba293c8a9799bd7c7715fa7558ee8dad28bae93bf2979308202c3b'
+    'sha256:7dec03387c61681dc2adcefc042d07823b0865a640e462cc1c5612ee0aa96caa'
   );
-  assert.equal(coverage.manifestSha256, 'sha256:47463e38790ee1f715e7674fd5b61b869683ff2c2f6649412d2ca8109a603be3');
-  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115');
+  assert.equal(coverage.manifestSha256, 'sha256:d5249513a9b31a2350265fb1564eca75fae33521ec04732d801e508d7aac5fca');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550');
   assert.equal(coverage.factTypes.includes('test-impact'), false);
 
   const testing = resolveWmpOverviewViewContract('testing');

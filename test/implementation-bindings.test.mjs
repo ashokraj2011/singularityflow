@@ -11,6 +11,19 @@ test('the explanation is the text after a clause tag on its comment line', () =>
   assert.equal(clauseTagExplanation('// @clause:W-1:AC-001', 'W-1:AC-001'), null, 'a bare tag explains nothing');
 });
 
+test('JSX binding explanations exclude closing syntax and neighboring markup', () => {
+  assert.equal(clauseTagExplanation(
+    '{/* @clause:hEx-LaSt:req-001 wires the shared conversion control */}', 'HEX-LAST:REQ-001'),
+  'wires the shared conversion control');
+  assert.equal(clauseTagExplanation(
+    '<div>{/* @clause:HEX-LAST:REQ-001 wires the conversion control */}<Keypad /></div>', 'HEX-LAST:REQ-001'),
+  'wires the conversion control');
+  assert.equal(clauseTagExplanation(
+    '* @clause:HEX-LAST:REQ-001 preserves decimal input */ }', 'HEX-LAST:REQ-001'), 'preserves decimal input');
+  assert.equal(clauseTagExplanation(
+    '{/* @clause:HEX-LAST:REQ-001 */}<Keypad title="not an explanation" />', 'HEX-LAST:REQ-001'), null);
+});
+
 test('approving a step accepts each binding as a batch over its digest, or records an exception with its reason', () => {
   const bindings = [{ clauseId: 'W-1:AC-001', explanation: { text: 'returns the approved value', path: 'src/a.mjs', line: 1 }, regions: [] },
     { clauseId: 'W-1:AC-002', explanation: { text: 'keeps the guard in place', path: 'src/b.mjs', line: 4 }, regions: [] }];

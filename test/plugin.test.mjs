@@ -411,17 +411,20 @@ test('recovery skill reviews a dirty consumed-generation rollover with an exact 
   assert.match(content, /Follow action classifications, not blanket dirty-tree stops/);
   assert.match(content, /`begin-new-generation:<phase>` needs matching branch\/phase, authenticated changed publication/);
   assert.match(content, /Review diffs\/untracked bytes/);
-  assert.match(content, /after human consent to exact `paths`\/`planId`/);
+  assert.match(content, /human consent to exact `paths`\/`planId`/);
   assert.match(content, /`current-phase-review-required`\/`confirmation: none`/);
   assert.match(content, /review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks/);
-  assert.match(content, /Reports\/other staged work stay preserved; no publication\/approval\/test waiver/);
-  assert.match(content, /Protected, unrelated, conflicted, removed\/symlink paths stay separate/);
+  assert.match(content, /Preserve reports\/index; no gate waiver/);
+  assert.match(content, /Protected\/unrelated\/conflicted\/removed\/symlink paths stay separate/);
   assert.match(content, /phase rollover <phase> --json/);
   assert.match(content, /match identity\/confirmation to recovery/);
   assert.match(content, /Human-confirm then run returned command once/);
   assert.match(content, /Never route to `\/sf-code` before rollover succeeds/);
   assert.match(content, /`\/sf-code` after rollover/i);
   assert.match(content, /Integrity cannot be waived/);
+  assert.match(content, /automation only, not manual correction/);
+  assert.match(content, /Owned repair saves copies/);
+  assert.match(content, /Backup failure preserves originals; no cleaning/);
 });
 
 test('generic phase skill reviews valid preparation context without a redundant human checkpoint', async () => {

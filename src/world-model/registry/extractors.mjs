@@ -91,7 +91,7 @@ const BUILTINS = [
     languages: CLOSED_STRUCTURE_LANGUAGES,
     evidenceKinds: ['clause-binding'],
     factTypes: ['clause-binding'],
-    algorithm: 'explicit-source-comment-governed-and-legacy-clause-tags-v2'
+    algorithm: 'explicit-source-comment-qualified-polyglot-and-jsx-provenance-v3'
   }),
   manifest({
     id: CHANGE_REGION_ID,

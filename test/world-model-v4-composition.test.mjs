@@ -20,7 +20,9 @@ import {
   createWorldModelConsumerProfile, createWorldModelOutputBudget,
   createWorldModelViewOutputBudget
 } from '../src/world-model/plan.mjs';
-import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mjs';
+import {
+  BUILTIN_VIEW_REFERENCES, resolveBuiltInViewContract
+} from '../src/world-model/registry/views.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import {
@@ -457,6 +459,53 @@ test('each prompt contains only its view budget, admitted Facts, and evidence de
   }
 });
 
+test('every v4 view prompt supplies the exact canonical usedFactIds list and narrative self-check', async (t) => {
+  const base = await fixture(t);
+  const registration = runDeterministicRegistration({
+    root: base.root, scopeManifest: base.scopeManifest,
+    requestedViews: BUILTIN_VIEW_REFERENCES
+  });
+  for (const reference of BUILTIN_VIEW_REFERENCES) {
+    const contract = resolveBuiltInViewContract(reference);
+    const viewFactLedger = registration.viewFactLedgers.find((ledger) => ledger.viewId === contract.id);
+    const assembled = await assembleWmbV4Prompt({
+      viewContract: contract, scopeManifest: base.scopeManifest, viewFactLedger,
+      evidenceCatalog: registration.evidenceCatalog,
+      consumerProfile: createWorldModelConsumerProfile(),
+      outputBudget: createWorldModelViewOutputBudget(createWorldModelOutputBudget([contract]), contract)
+    });
+    const packet = JSON.parse(assembled.regions.find((region) => region.id === 'composition-fact-packet').text);
+    const expected = [...new Set(packet.facts.map((fact) => fact.id))].sort();
+    assert.deepEqual(packet.expectedUsedFactIds, expected, reference);
+    assert.deepEqual(packet.expectedUsedFactIds, assembled.admittedFactIds, reference);
+    assert.ok(packet.facts.filter((fact) => fact.status === 'unavailable')
+      .every((fact) => packet.expectedUsedFactIds.includes(fact.id)), reference);
+    assert.ok(assembled.omittedFactIds.every((id) => !packet.expectedUsedFactIds.includes(id)), reference);
+    const instructions = assembled.prompt.slice(0, assembled.prompt.indexOf(WMB_V4_REQUEST_BOUNDARY))
+      .replace(/\s+/g, ' ');
+    assert.match(instructions, /`usedFactIds` must exactly copy `Composition Fact Packet.expectedUsedFactIds`/);
+    assert.match(instructions, /every admitted ID once, case unchanged, in ascending lexical order/);
+    assert.match(instructions, /`tldrMarkdown` and every `sections\[\]\.markdown`/);
+    assert.match(instructions, /do not shorten the expected list/);
+    assert.match(instructions, /Ledger facts omitted from the bounded packet are not admitted/);
+    assert.ok(assertWmbV4PromptInputBudget(assembled.prompt, contract));
+    const candidate = renderDeterministicCandidate(contract, {
+      ...viewFactLedger, facts: packet.facts
+    });
+    candidate.usedFactIds = [...packet.expectedUsedFactIds];
+    const options = { contract, scopeManifest: base.scopeManifest, viewFactLedger,
+      evidenceCatalog: registration.evidenceCatalog, executionRoute: 'model',
+      admittedFactIds: assembled.admittedFactIds };
+    assert.equal(validateModelCompositionCandidate(candidate, options).receipt.status, 'passed', reference);
+    const reordered = structuredClone(candidate);
+    reordered.usedFactIds.reverse();
+    assert.ok(reordered.usedFactIds.length > 1, reference);
+    assert.throws(() => validateModelCompositionCandidate(reordered, options),
+      (error) => error.code === 'WMB_FACT_REFERENCE_UNKNOWN'
+        && error.message === 'usedFactIds must equal the exact referenced Fact set.', reference);
+  }
+});
+
 test('mandatory-only prompt overflow is a typed input-budget refusal', async (t) => {
   const base = await fixture(t);
   const contract = resolveBuiltInViewContract('arch.contracts@4');
@@ -469,14 +518,19 @@ test('mandatory-only prompt overflow is a typed input-budget refusal', async (t)
   const mandatoryId = viewFactLedger.requiredFactIds[0];
   const mandatoryFact = viewFactLedger.facts.find((fact) => fact.id === mandatoryId);
   assert.ok(mandatoryFact, 'fixture must expose a required architecture Fact');
-  mandatoryFact.claim = `Mandatory architecture contract ${'x'.repeat(40_000)}`;
+  // Overflow input-only metadata: inflating a canonical claim instead hits the independent
+  // output-admission guard before this test can exercise the input ceiling.
+  const evidenceCatalog = structuredClone(registration.evidenceCatalog);
+  const mandatoryEvidence = evidenceCatalog.items.find((item) => mandatoryFact.evidenceIds.includes(item.id));
+  assert.ok(mandatoryEvidence, 'required Fact must supply an admitted evidence descriptor');
+  mandatoryEvidence.locator.symbol = `Mandatory architecture evidence ${'x'.repeat(40_000)}`;
 
   const aggregateBudget = createWorldModelOutputBudget([contract]);
   const assembled = await assembleWmbV4Prompt({
     viewContract: contract,
     scopeManifest: base.scopeManifest,
     viewFactLedger,
-    evidenceCatalog: registration.evidenceCatalog,
+    evidenceCatalog,
     consumerProfile: createWorldModelConsumerProfile(),
     outputBudget: createWorldModelViewOutputBudget(aggregateBudget, contract)
   });

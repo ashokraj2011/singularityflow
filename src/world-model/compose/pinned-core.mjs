@@ -147,6 +147,7 @@ function compositionFactPacket(viewFactLedger, facts) {
     viewVersion: viewFactLedger.viewVersion,
     sourceViewFactLedgerSha256: viewFactLedger.ledgerSha256,
     facts: Object.freeze(facts.map((fact) => structuredClone(fact))),
+    expectedUsedFactIds: Object.freeze(facts.map((fact) => fact.id).sort(compareText)),
     requiredFactIds: Object.freeze([...(viewFactLedger.requiredFactIds ?? [])]),
     requiredUnavailableFactIds: Object.freeze([
       ...(viewFactLedger.requiredUnavailableFactIds ?? [])

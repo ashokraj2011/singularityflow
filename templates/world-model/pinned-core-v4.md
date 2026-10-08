@@ -41,7 +41,15 @@ availability result.
    for separate factual units.
 6. Every referenced fact exists in the supplied Composition Fact Packet.
    Narrate every admitted fact, including optional and unavailable facts.
-   usedFactIds must equal the complete admitted fact set, not a chosen subset.
+   `usedFactIds` must exactly copy `Composition Fact Packet.expectedUsedFactIds`:
+   every admitted ID once, case unchanged, in ascending lexical order, not
+   narrative order or packet `facts` order. Before returning JSON, collect the
+   union of `[F:...]` IDs in `tldrMarkdown` and every `sections[].markdown`;
+   its sorted, duplicate-free list must equal `usedFactIds`. If an admitted
+   fact is missing from the narrative, narrate its exact canonical claim or
+   unavailable reason before returning; do not shorten the expected list.
+   Never list an uncited or non-admitted ID. Ledger facts omitted from the
+   bounded packet are not admitted and must not be added.
 7. Never alter fact status, assurance, evidence, derivation, contradiction, or
    canonical claim.
    Every factual unit uses the exact canonical claim (or exact unavailable

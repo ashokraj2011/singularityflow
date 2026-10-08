@@ -124,6 +124,16 @@ test('native World Model completion distinguishes a Git push from an unchanged s
     /origin\/state was already current; no push was needed/);
 });
 
+test('native completion distinguishes narrated admitted facts from budget-excluded ledger facts', () => {
+  const outcome = { status: 'completed', planned: null, result: { kind: 'read', outcome: { status: 'succeeded' },
+    data: { views: [{ viewId: 'arch.contracts', factCoverage: {
+      ledgerFactCount: 24, admittedFactCount: 18, narratedFactCount: 18
+    } }] } } };
+  assert.match(worldModelBuildCompletionMessage(outcome), /18\/18 admitted view facts narrated; 6 of 24 ledger view facts excluded by budgets/);
+  delete outcome.result.data.views[0].factCoverage;
+  assert.doesNotMatch(worldModelBuildCompletionMessage(outcome), /Fact coverage:/, 'historic results never acquire invented coverage');
+});
+
 function capabilityChoiceRequired(ids = ['orders-api', 'payments-api']) {
   return Object.assign(new Error('choose capability'), {
     code: 'WMB_CAPABILITY_SELECTION_REQUIRED', details: { capabilityIds: ids }

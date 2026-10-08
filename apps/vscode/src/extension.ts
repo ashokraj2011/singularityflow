@@ -8393,6 +8393,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openWorkflowStudio': async (target?: unknown) => {
       const { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } = lazyPanels();
       const requested = typeof target === 'string' ? target : (target as { view?: unknown } | undefined)?.view;
+      const workflowId = (target as { workflowId?: unknown } | undefined)?.workflowId;
       const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
@@ -8416,7 +8417,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           jiraStatus: async () => ((await secureCredentials.jiraStatus()).connected ? 'stored'
             : String(process.env.JIRA_BASE_URL ?? '').trim() && String(process.env.JIRA_PAT ?? process.env.JIRA_API_TOKEN ?? '').trim() ? 'environment' : 'missing')
         }
-      }, focus);
+      }, focus, typeof workflowId === 'string' ? workflowId : null);
     },
     // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
     // release, so links and habits land in Studio.

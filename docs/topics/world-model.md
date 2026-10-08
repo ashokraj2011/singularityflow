@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 30
+version: 31
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -47,6 +47,20 @@ does not publish an invalid view or trigger an automatic retry. The failure card
 usage and limits. If every selected view permits deterministic composition, choose **World Model →
 Build / refresh effective model → deterministic composer**, then review a new exact Plan. Required-
 model contracts instead require configuration-authority review; validation is never relaxed.
+
+The kernel admits mandatory Facts first and preflights a complete canonical narrative against the
+output budget before invoking a provider. Optional Facts are then admitted only when both the input
+packet and a complete canonical narrative fit. This witness establishes feasibility for the installed
+arrangement, not optimal packing or semantic insight. The model organizes the admitted packet but
+must narrate **every** admitted Fact, including optional and unavailable results. Dropping one returns
+`WMB_ADMITTED_FACT_OMITTED`, eligible only for the existing bounded failed-view retry policy; neither
+automatic deterministic downgrade nor invented replacement facts are allowed.
+
+Build results report ledger/admitted/narrated counts and individual input/output-budget exclusions.
+The VS Code completion summary reports these counts separately: complete admitted coverage is not
+complete repository coverage. Changing these rules changes the kernel/prompt identity, so exact old
+cache entries cannot masquerade as current validation. Old receipt schemas remain readable; rebuild
+a stored view through a freshly reviewed Plan when its installed-build identity is no longer current.
 
 Changing only `worldModel.format` is not a complete repository migration because older phase,
 workflow-override, Agent Markdown, and prompt contracts still name v3 reader projections. The VS

@@ -585,7 +585,17 @@ export function worldModelBuildCompletionMessage(outcome: ExactWorldModelBuildOu
   const gitReceipt = target && published?.changed === true && typeof published.commit === 'string'
     ? ` Pushed ${published.commit.slice(0, 8)} to ${target}.`
     : target && published?.changed === false ? ` ${target} was already current; no push was needed.` : '';
-  const headline = `World Model published${manifest ? ` as ${manifest.slice(0, 19)}` : ''} with ${views} view${views === 1 ? '' : 's'}.${gitReceipt}`;
+  const coverage = records(data.views).map((view) => view.factCoverage as Record<string, unknown> | undefined);
+  const knownCoverage = coverage.length > 0 && coverage.every((entry) => entry
+    && ['ledgerFactCount', 'admittedFactCount', 'narratedFactCount'].every((key) => Number.isSafeInteger(entry[key]) && Number(entry[key]) >= 0)
+    && Number(entry.admittedFactCount) <= Number(entry.ledgerFactCount)
+    && Number(entry.narratedFactCount) <= Number(entry.admittedFactCount));
+  const totals = knownCoverage ? coverage.reduce<{ ledger: number; admitted: number; narrated: number }>((sum, entry) => ({
+    ledger: sum.ledger + Number(entry!.ledgerFactCount), admitted: sum.admitted + Number(entry!.admittedFactCount),
+    narrated: sum.narrated + Number(entry!.narratedFactCount)
+  }), { ledger: 0, admitted: 0, narrated: 0 }) : null;
+  const coverageSummary = totals ? ` Fact coverage: ${totals.narrated}/${totals.admitted} admitted view facts narrated; ${totals.ledger - totals.admitted} of ${totals.ledger} ledger view facts excluded by budgets.` : '';
+  const headline = `World Model published${manifest ? ` as ${manifest.slice(0, 19)}` : ''} with ${views} view${views === 1 ? '' : 's'}.${gitReceipt}${coverageSummary}`;
   const policies = requestedProjectionPolicies(review);
   const policyById = new Map(policies.map((entry) => [
     stringField(entry.projectionId, projectionReference(entry).replace(/@\d+$/, '')), entry

@@ -34,6 +34,7 @@ const CACHE_KEY_FIELDS = Object.freeze([
 // nor raise the attempt ceiling at runtime. Source/scope/Fact/Contract errors are absent because
 // they require a new governed build, not repetition of the same execution.
 const RETRYABLE_FAILURE_CODES = Object.freeze([
+  'WMB_ADMITTED_FACT_OMITTED',
   'WMB_CACHE_CANDIDATE_INVALID',
   'WMB_CACHE_ENTRY_CORRUPT',
   'WMB_CACHE_PRESERVATION_UNAVAILABLE',

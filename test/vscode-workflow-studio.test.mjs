@@ -1211,6 +1211,44 @@ function studioWithHost() {
   return { logic: window.__workflowStudio, posted, reply: (data) => listeners.message({ data }) };
 }
 
+test('Edit opens custom, duplicated and unpublished workflows in the canvas without changing configuration', () => {
+  const { logic, reply, posted } = studioWithHost();
+  const model = {
+    workflows: [
+      { id: 'seed', label: 'Seed', phases: ['intake'], readOnly: true },
+      { id: 'custom', label: 'Custom', phases: ['intake'] },
+      { id: 'seed-copy', label: 'Seed copy', phases: ['intake'] }
+    ], protection: { workflows: ['seed'] }, phases: []
+  };
+  reply({ type: 'studio.model', model });
+  const state = logic.state();
+  const before = structuredClone(state.draft);
+  Object.assign(state, { decision: 'old-decision', panel: 'add', panelHidden: true });
+  for (const id of ['custom', 'seed-copy']) {
+    reply({ type: 'studio.focus', workflowId: id });
+    assert.deepEqual([state.view, state.workflow, state.panel, state.step, state.decision, state.panelHidden],
+      ['board', id, 'workflow', 'intake', null, false]);
+  }
+  assert.deepEqual(state.draft, before, 'opening Edit is navigation, not a configuration write');
+  state.draft.workflows['seed-copy'].isNew = true;
+  assert.equal(logic.openWorkflowCanvas('seed-copy'), true, 'unpublished duplicates are editable too');
+  state.draft.workflows.seed.readOnly = false;
+  logic.openWorkflowCanvas('seed');
+  assert.equal(state.panel, null, 'installed protection still selects the read-only seeded viewer');
+  const previous = [state.view, state.workflow, state.panel];
+  assert.equal(logic.openWorkflowCanvas('missing'), false);
+  assert.equal(logic.openWorkflowCanvas('constructor'), false, 'inherited object keys are not workflow identities');
+  assert.deepEqual([state.view, state.workflow, state.panel], previous);
+  assert.match(state.status, /no longer available/);
+  assert.ok(posted.every((message) => message.type !== 'studio.publish'), 'navigation never publishes');
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /button\(readOnly \? 'View' : 'Edit'/);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /if \(workflowReadOnly\(workflowId\)\) \{ renderSeededWorkflow/);
+  state.draft.epics = { workflows: { 'custom-epic': { id: 'custom-epic', label: 'Custom Epic', phases: ['define'] } }, steps: {} };
+  reply({ type: 'studio.focus', workflowId: 'initiative:custom-epic' });
+  assert.deepEqual([state.view, state.epic, state.epicStep], ['epic', 'custom-epic', 'define']);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /steps\.appendChild\(renderEpicCanvas\(workflow\)\)/);
+});
+
 test('a new workflow can go back to its details or be cancelled, and only the steps it made go with it', async () => {
   const root = await repository();
   const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
@@ -1656,7 +1694,12 @@ test('a step\'s skills are added from its properties, a seeded workflow\'s steps
   assert.deepEqual(reload.changeSetFrom(after, reload.state().draft).changes, [{ op: 'skill.detach', skill: 'security-review', workflow: 'feature' }]);
   const detached = await planStudioChangeSet(root, reload.changeSetFrom(after, reload.state().draft), { write: true });
   assert.equal(detached.valid, true, JSON.stringify(detached.problems));
-  assert.deepEqual(detached.files.map((file) => [file.path, file.action]), [['singularity/skill-library/attachments.yml', 'delete']]);
+  assert.deepEqual(detached.files.map((file) => [file.path, file.action]), [['singularity/skill-library/attachments.yml', 'update']],
+    'removing this attachment must preserve the seeded demo workflow attachments');
+  const YAML = (await import('yaml')).default;
+  const beforeAttachments = YAML.parse(await readFile(path.join(root, 'singularity/skill-library/attachments.yml'), 'utf8'));
+  assert.ok(!JSON.stringify(beforeAttachments).includes('security-review'));
+  assert.ok(JSON.stringify(beforeAttachments).includes('demo-'), 'seeded demo skills remain attached');
 
   // An inherited agent skill cannot be removed by editing a workflow step.
   const last = await buildStudioModel(root);

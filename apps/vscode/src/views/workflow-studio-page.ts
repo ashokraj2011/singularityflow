@@ -796,6 +796,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     canvasLayout: function () { return canvasLayout.apply(null, arguments); }, copyStep: function () { return copyStep.apply(null, arguments); },
     // The draft operations the inspector runs, against the model the host sent, and that state.
     state: function () { return state; },
+    openWorkflowCanvas: function () { return openWorkflowCanvas.apply(null, arguments); },
     createWorkflowFromWizard: function () { return createWorkflowFromWizard.apply(null, arguments); },
     removeNewWorkflow: function () { return removeNewWorkflow.apply(null, arguments); }, orphanedSteps: function () { return orphanedSteps.apply(null, arguments); },
     confirmAction: function () { return confirmAction.apply(null, arguments); }, discardDraft: function () { return discardDraft.apply(null, arguments); },
@@ -1124,6 +1125,24 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }));
   }
 
+  function workflowReadOnly(id) {
+    var workflow = state.draft && state.draft.workflows[id];
+    return Boolean(workflow && (workflow.readOnly || protectedObject('workflows', id)));
+  }
+  function openWorkflowCanvas(id) {
+    if (typeof id === 'string' && id.indexOf('initiative:') === 0) return openEpicCanvas(id.slice(11));
+    var workflow = typeof id === 'string' && state.draft && Object.prototype.hasOwnProperty.call(state.draft.workflows, id) && state.draft.workflows[id];
+    if (!workflow) { setStatus('That workflow is no longer available. Reload the approved configuration.'); render(); return false; }
+    state.workflow = id;
+    state.step = workflow.phases[0] || null;
+    state.decision = null;
+    state.panel = workflowReadOnly(id) ? null : 'workflow';
+    state.panelHidden = false;
+    state.returnTo = null;
+    state.view = 'board';
+    render();
+    return true;
+  }
   function renderHome(main) {
     var workflows = state.draft.order.concat(Object.keys(state.draft.workflows).filter(function (id) { return state.draft.order.indexOf(id) < 0; }));
     var noAgent = Object.keys(state.draft.phases).filter(function (id) { return !state.draft.phases[id].agent && workflows.some(function (workflowId) { return workflowSteps(workflowId).indexOf(id) >= 0; }); });
@@ -1149,12 +1168,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (state.exporting) main.appendChild(renderExport());
     workflows.forEach(function (id) {
       var workflow = state.draft.workflows[id];
+      var readOnly = workflowReadOnly(id);
       var code = workflow.phases.some(function (phaseId) { return stepOutput(id, phaseId) === 'code'; });
       main.appendChild(el('article', { class: 'studio-card' },
         el('div', { class: 'studio-row spread' },
           el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null),
           el('div', { class: 'studio-row' },
-            button('Open', function () { state.workflow = id; state.step = workflow.phases[0]; state.view = 'board'; render(); }, { class: 'secondary', 'aria-label': 'Open ' + workflow.label }),
+            button(readOnly ? 'View' : 'Edit', function () { openWorkflowCanvas(id); }, { class: 'secondary', 'data-key': 'workflow-open-' + id,
+              'aria-label': (readOnly ? 'View seeded workflow ' : 'Edit workflow in canvas: ') + workflow.label }),
             button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') }),
         rail(workflow.phases)));
@@ -1170,6 +1191,35 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function epicStepLabel(id) { var step = state.draft.epics && state.draft.epics.steps[id]; return step ? step.label : id; }
   function epicStepFor(workflow, id) { return workflow.localSteps && workflow.localSteps[id] || state.draft.epics.steps[id]; }
+  function openEpicCanvas(id) {
+    var workflow = state.draft && state.draft.epics && Object.prototype.hasOwnProperty.call(state.draft.epics.workflows, id) && state.draft.epics.workflows[id];
+    if (!workflow) { setStatus('That workflow is no longer available. Reload the approved configuration.'); render(); return false; }
+    state.view = 'epic'; state.epic = id; state.epicStep = workflow.phases[0] || null;
+    state.epicOutput = null; state.returnTo = null; render(); return true;
+  }
+  /** Epic nodes share the canvas layout and arrows; their inspector retains portfolio policy. */
+  function renderEpicCanvas(workflow) {
+    var layout = canvasLayout({ phases: workflow.phases }, {}, 0);
+    var viewport = el('div', { class: 'canvas', role: 'region', tabindex: '0', 'aria-label': 'Workflow canvas: ' + workflow.label });
+    viewport.style.cssText = 'height:' + Math.max(220, layout.height + 16) + 'px;overflow:auto;cursor:auto;touch-action:auto';
+    var world = el('div', { class: 'canvas-world' });
+    world.style.cssText = 'width:' + layout.width + 'px;height:' + layout.height + 'px';
+    world.appendChild(renderEdges(layout));
+    layout.nodes.forEach(function (node) {
+      var step = epicStepFor(workflow, node.id);
+      var card = el('button', { type: 'button', class: 'node tone-analysis' + (state.epicStep === node.id ? ' selected' : ''),
+        'aria-label': 'Edit Epic step ' + (step ? step.label : node.id), 'aria-pressed': state.epicStep === node.id ? 'true' : 'false',
+        onclick: function () { state.epicStep = node.id; state.epicOutput = null; render(); } },
+        el('span', { class: 'lane-label', text: 'Step ' + (node.index + 1) }),
+        el('strong', { text: step ? step.label : node.id }),
+        el('span', { class: 'muted', text: step ? step.outputs.length + ' outputs' : 'Step unavailable' }));
+      card.style.cssText = 'left:' + node.x + 'px;top:' + node.y + 'px;width:' + node.w + 'px;height:' + node.h + 'px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:16px;gap:8px';
+      world.appendChild(card);
+    });
+    var finish = el('div', { class: 'finish' }, icon('flag', 14), 'Finish');
+    finish.style.cssText = 'left:' + layout.finish.x + 'px;top:' + layout.finish.y + 'px;width:' + FINISH_W + 'px;height:36px';
+    world.appendChild(finish); viewport.appendChild(world); return viewport;
+  }
   function renderEpicList(main) {
     var epics = state.draft.epics;
     if (!epics) return;
@@ -1183,7 +1233,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
             el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
           el('div', { class: 'studio-row' },
-            button('Open', function () { state.view = 'epic'; state.epic = id; state.epicStep = workflow.phases[0] || null; state.epicOutput = null; render(); }, { class: 'secondary', 'aria-label': 'Open ' + workflow.label }),
+            button(protectedObject('epics', id) ? 'View' : 'Edit', function () { openEpicCanvas(id); }, { class: 'secondary',
+              'aria-label': (protectedObject('epics', id) ? 'View seeded Epic workflow ' : 'Edit Epic workflow in canvas: ') + workflow.label }),
             button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') }),
         el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); }))));
@@ -1234,6 +1285,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
     var steps = el('section', { class: 'studio-card', 'aria-label': 'Steps' });
     steps.appendChild(el('h2', { text: 'Steps' }));
+    steps.appendChild(renderEpicCanvas(workflow));
     workflow.phases.forEach(function (phaseId, index) {
       var step = epicStepFor(workflow, phaseId) || { label: phaseId, outputs: [], approval: { on: false, groups: [] } };
       var selected = state.epicStep === phaseId;
@@ -1262,7 +1314,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           workflow.phases.push(stepId); adding.label = ''; state.epicStep = stepId; changed();
         }, { class: 'secondary' }))));
     main.appendChild(steps);
-    if (state.epicStep && epics.steps[state.epicStep] && workflow.phases.indexOf(state.epicStep) >= 0) main.appendChild(renderEpicStep(workflow, epicStepFor(workflow, state.epicStep)));
+    if (state.epicStep && epicStepFor(workflow, state.epicStep) && workflow.phases.indexOf(state.epicStep) >= 0) main.appendChild(renderEpicStep(workflow, epicStepFor(workflow, state.epicStep)));
   }
   function epicGroupLabel(id) {
     var group = ((state.model.epics && state.model.epics.groups) || []).find(function (entry) { return entry.id === id; });
@@ -2464,7 +2516,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflowId = state.workflow;
     var workflow = state.draft.workflows[workflowId];
     if (!workflow) { state.view = 'home'; render(); return; }
-    if (workflow.readOnly) { renderSeededWorkflow(main, workflow, 'story'); return; }
+    if (workflowReadOnly(workflowId)) { renderSeededWorkflow(main, workflow, 'story'); return; }
     var phases = workflow.phases;
     if (phases.indexOf(state.step) < 0) state.step = phases[0];
     main.appendChild(el('div', { class: 'board-head' },
@@ -2472,7 +2524,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('button', { type: 'button', class: 'crumb', onclick: function () { state.view = 'home'; render(); } }, 'Workflows'),
         el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '›' }),
         select('board-workflow', Object.keys(state.draft.workflows).map(function (id) { return { value: id, label: state.draft.workflows[id].label }; }), workflowId, function (value) {
-          state.workflow = value; state.step = state.draft.workflows[value].phases[0]; state.decision = null; state.panel = null; render();
+          openWorkflowCanvas(value);
         }, { 'aria-label': 'Workflow' }),
         workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'New · not published' }) : null,
         el('span', { class: 'muted', text: phases.length + (phases.length === 1 ? ' step' : ' steps') + (workflow.description ? ' · ' + workflow.description : '') }),
@@ -5032,7 +5084,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
             : 'The configuration already has everything in that bundle; nothing changed.');
       render();
     } else if (message.type === 'studio.focus') {
-      if (['home', 'agents', 'skills', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
+      if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
+      else if (['home', 'agents', 'skills', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {

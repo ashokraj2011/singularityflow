@@ -59,6 +59,19 @@ export {
 
 const MAXIMUM_DERIVED_OBJECT_BYTES = 64 * 1024 * 1024;
 
+/** Derived diagnostics only; neither the ledger nor its validation receipt is rewritten. */
+function factCoverage(assembled, candidate, route, ledger) {
+  const narrated = new Set(candidate.usedFactIds);
+  return Object.freeze({
+    ledgerFactCount: ledger.facts.length,
+    admittedFactCount: route === 'model' ? assembled.admittedFactIds.length : narrated.size,
+    narratedFactCount: narrated.size,
+    excludedFacts: route === 'model' ? assembled.factAdmission.excludedFacts
+      : Object.freeze(ledger.facts.filter((fact) => !narrated.has(fact.id))
+        .map((fact) => Object.freeze({ id: fact.id, reason: 'deterministic-selection-budget' })))
+  });
+}
+
 function executionProfileSha256({ route, provider = null, model = null }) {
   // A missing provider is a retryable configuration refusal, not an executable profile. Preserve
   // a sealed refusal identity so retry lineage can prove that the configuration stayed missing;
@@ -391,6 +404,7 @@ function cachedExecutionResult({
     viewSha256: verified.viewSha256,
     validationReceipt: verified.validationReceipt,
     candidate: verified.candidate,
+    factCoverage: factCoverage(assembled, verified.candidate, route, viewFactLedger),
     contextManifest: assembled.contextManifest,
     usageObservation: observation,
     execution,
@@ -785,6 +799,7 @@ async function executeOneView(root, context, requested, options) {
     viewSha256: cached.record.viewSha256,
     validationReceipt: selectedReceipt,
     candidate: cached.candidate,
+    factCoverage: factCoverage(assembled, cached.candidate, route, viewFactLedger),
     contextManifest: assembled.contextManifest,
     usageObservation: observation,
     execution

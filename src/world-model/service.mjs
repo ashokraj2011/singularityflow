@@ -982,6 +982,7 @@ export async function buildAndPublishWorldModelV4(root, {
         viewId: entry.viewId,
         status: entry.markdown ? 'available' : 'unavailable',
         viewSha256: entry.viewSha256 ?? null,
+        factCoverage: entry.factCoverage ?? null,
         cache: entry.cache ?? 'miss'
       }))),
       refusals: runtime.refusals,
@@ -1006,6 +1007,7 @@ export async function buildAndPublishWorldModelV4(root, {
       requestSha256: runtime.planned.request.requestSha256, status: 'refused', manifestSha256: null,
       views: Object.freeze(runtime.executions.map((entry) => ({
         viewId: entry.viewId, status: entry.markdown ? 'available' : 'unavailable',
+        factCoverage: entry.factCoverage ?? null,
         viewSha256: entry.viewSha256 ?? null, cache: entry.cache ?? 'miss'
       }))),
       projections: Object.freeze(projections.map((entry) => ({
@@ -1119,6 +1121,7 @@ export async function buildAndPublishWorldModelV4(root, {
       viewId: entry.viewId,
       status: entry.status,
       viewSha256: entry.viewSha256,
+      factCoverage: runtime.executions.find((execution) => execution.viewId === entry.viewId)?.factCoverage ?? null,
       cache: entry.cache
     }))),
     projections: Object.freeze(built.projections.map((entry) => ({

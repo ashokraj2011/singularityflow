@@ -1,6 +1,7 @@
 import { VIEW_ID_PATTERN } from '../contracts.mjs';
 
 const COMPOSITION_CODES = new Set([
+  'WMB_ADMITTED_FACT_OMITTED',
   'WMB_FACT_REFERENCE_UNKNOWN', 'WMB_FACT_ASSURANCE_UPGRADED', 'WMB_MODEL_OUTPUT_INVALID',
   'WMB_SECTION_MISSING', 'WMB_SECTION_UNREGISTERED', 'WMB_SECTION_ORDER_INVALID'
 ]);
@@ -17,7 +18,7 @@ export function worldModelCompositionRecovery(refusal) {
         label: `Inspect the exact '${view}' view contract and fact-reference rules. This is a composition failure, not a missing repository or configuration.`
       },
       {
-        label: `In World Model → Build / refresh, keep the Model composer, retain the reviewed scope and view selections, and review a fresh exact Plan after updating SFlow. Citation-only layout is repaired locally without another model call; unknown facts, changed canonical claims, missing mandatory facts and integrity failures remain refused. Do not edit generated facts, weaken validation, or loop on the unchanged failure.`
+        label: `In World Model → Build / refresh, keep the Model composer, retain the reviewed scope and view selections, and review a fresh exact Plan after updating SFlow. Narrate every admitted Fact, including unavailable results; omitted ledger facts are separately budgeted by the kernel. Use only the bounded failed-view retry route. Citation-only layout is repaired locally without another model call; unknown facts, changed canonical claims, missing admitted facts and integrity failures remain refused. Do not edit generated facts, weaken validation, or loop on the unchanged failure.`
       }
     ])
   });

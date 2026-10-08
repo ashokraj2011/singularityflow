@@ -7,6 +7,7 @@ import { canonicalJson, recordSha256 } from '../../records.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { compareText } from '../canonicalize.mjs';
+import { deterministicArrangementFits } from './candidate.mjs';
 
 export const WMB_V4_REQUEST_BOUNDARY = '<!-- ===== REQUEST INPUTS: volatile tail ===== -->';
 export const WMB_V4_FACT_REFERENCE_GRAMMAR = Object.freeze({
@@ -223,10 +224,27 @@ function assembleWithCore(core, {
   };
 
   const maximumInputTokens = viewContract.budgets.maximumInputTokens;
+  if (!deterministicArrangementFits(viewContract, admitted, { outputBudget })) {
+    throw new SingularityFlowError(
+      `View '${viewContract.id}' complete mandatory canonical narrative exceeds its registered output budget; review the contract before invoking a model.`,
+      {
+        code: 'WMB_OUTPUT_BUDGET_EXCEEDED',
+        details: { viewId: viewContract.id, mandatoryFacts: admitted.length,
+          maximumOutputTokens: outputBudget?.viewBudgets?.[viewContract.id]?.maximumOutputTokens
+            ?? viewContract.budgets.maximumOutputTokens }
+      }
+    );
+  }
+  const excluded = [];
   let assembled = materialize(admitted);
   for (const fact of optional) {
+    if (!deterministicArrangementFits(viewContract, [...admitted, fact], { outputBudget })) {
+      excluded.push({ id: fact.id, reason: 'output-budget' });
+      continue;
+    }
     const attempted = materialize([...admitted, fact]);
     if (Math.ceil(Buffer.byteLength(attempted.prompt, 'utf8') / 4) > maximumInputTokens) {
+      excluded.push({ id: fact.id, reason: 'input-budget' });
       continue;
     }
     admitted.push(fact);
@@ -262,6 +280,11 @@ function assembleWithCore(core, {
     coreSha256: core.sha256,
     regions,
     admittedFactIds: Object.freeze(admitted.map((fact) => fact.id).sort(compareText)),
+    factAdmission: Object.freeze({
+      ledgerFactCount: viewFactLedger.facts.length,
+      admittedFactCount: admitted.length,
+      excludedFacts: Object.freeze(excluded.sort((left, right) => compareText(left.id, right.id)).map(Object.freeze))
+    }),
     omittedFactIds: Object.freeze(viewFactLedger.facts
       .filter((fact) => !admittedIds.has(fact.id))
       .map((fact) => fact.id)

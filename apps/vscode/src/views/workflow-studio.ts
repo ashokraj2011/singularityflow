@@ -95,6 +95,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
 
   /** The section to show once the model has loaded, when a screen opened Studio at one. */
   private focus: StudioFocusView | null = null;
+  private workflowToOpen: string | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -113,10 +114,14 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
-  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null): WorkflowStudioPanel {
+  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null): WorkflowStudioPanel {
+    const canvasWorkflow = workflowId && /^(?:initiative:)?[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workflowId) && workflowId.length <= 139 ? workflowId : null;
     if (WorkflowStudioPanel.current) {
       WorkflowStudioPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      if (focus) WorkflowStudioPanel.current.post({ type: 'studio.focus', view: focus });
+      if (canvasWorkflow) {
+        if (WorkflowStudioPanel.current.model) WorkflowStudioPanel.current.post({ type: 'studio.focus', workflowId: canvasWorkflow });
+        else WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
+      } else if (focus) WorkflowStudioPanel.current.post({ type: 'studio.focus', view: focus });
       return WorkflowStudioPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -125,6 +130,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     );
     WorkflowStudioPanel.current = new WorkflowStudioPanel(panel, client, output, actions);
     WorkflowStudioPanel.current.focus = focus;
+    WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
     return WorkflowStudioPanel.current;
   }
 
@@ -457,7 +463,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try {
       this.model = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]);
       this.post({ type: 'studio.model', model: this.model, reset });
-      if (this.focus) { this.post({ type: 'studio.focus', view: this.focus }); this.focus = null; }
+      if (this.workflowToOpen) {
+        this.post({ type: 'studio.focus', workflowId: this.workflowToOpen }); this.workflowToOpen = null;
+      } else if (this.focus) this.post({ type: 'studio.focus', view: this.focus });
+      this.focus = null;
       await this.offerSavedDraft();
     } catch (error) {
       this.post({ type: 'studio.failed', message: (error as Error).message });

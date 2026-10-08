@@ -24,6 +24,7 @@ import {
   materializeWorldModelView, usageObservation
 } from '../src/world-model/materialize/view.mjs';
 import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
+import { renderDeterministicCandidate } from '../src/world-model/compose/candidate.mjs';
 import { createWorldModelMigrationReceipt } from '../src/world-model/migration/v3-to-v4.mjs';
 import { readLegacyWorldModelView } from '../src/world-model/migration/v3-reader.mjs';
 import { createWorldModelViewOutputBudget } from '../src/world-model/plan.mjs';
@@ -2239,6 +2240,33 @@ for await (const line of lines) {
     assert.equal((await listModelInvocations(root)).length, beforeCalls + 1);
   });
 
+  await t.test('an omitted admitted Fact refuses publication and a bounded retry preserves the ledger', async () => {
+    const registered = deterministic.availableViews[0];
+    const mandatory = new Set([...registered.viewFactLedger.requiredFactIds,
+      ...registered.viewFactLedger.requiredUnavailableFactIds, ...registered.viewFactLedger.materialContradictionFactIds]);
+    const omitted = registered.candidate.usedFactIds.find((id) => !mandatory.has(id));
+    assert.ok(omitted, 'fixture must include an admitted optional fact');
+    const reduced = { ...registered.viewFactLedger,
+      facts: registered.viewFactLedger.facts.filter((fact) => fact.id !== omitted) };
+    const partial = renderDeterministicCandidate(registered.contract, reduced);
+    const failed = await compose(passingUsage, JSON.stringify(partial));
+    assert.equal(failed.status, 'refused');
+    assert.equal(failed.availableViews.length, 0);
+    assert.equal(failed.refusals[0].failures[0].code, 'WMB_ADMITTED_FACT_OMITTED');
+    const ledgerBefore = canonicalJson(failed.registration.viewFactLedgers);
+    await writeFile(responseFile, JSON.stringify({ usage: passingUsage, candidate }));
+    const retried = await withOperationContext({
+      operation: { id: 'world-model.build', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'wm retry-view'
+    }, () => retryFailedWorldModelV4View(root, failed, {
+      viewId: 'dev.impact', composer: 'model', provider: 'copilot-cli', model: 'fixture-model',
+      providerConfig: { type: 'copilot-cli', executable: process.execPath,
+        arguments: [fixture, responseFile], promptTransport: 'acp-stdio' }
+    }));
+    assert.equal(retried.runtime.status, 'ready-to-publish');
+    assert.equal(canonicalJson(retried.runtime.registration.viewFactLedgers), ledgerBefore);
+    assert.equal(retried.runtime.availableViews[0].factCoverage.narratedFactCount,
+      retried.runtime.availableViews[0].factCoverage.admittedFactCount);
+  });
   await t.test('the independent provider ceiling still refuses excessive aggregate usage', async () => {
     const overBudget = await compose({ inputTokens: 63000, outputTokens: 1001, totalTokens: 64001 });
     assert.equal(overBudget.status, 'refused');
@@ -2278,7 +2306,7 @@ for await (const line of lines) {
   });
 });
 
-test('a large model-routed architecture view omits optional facts, publishes, and replays from state', async (t) => {
+test('a large model-routed architecture view narrates its entire budgeted packet, publishes, and replays from state', async (t) => {
   const { root } = await repository(t);
   const contracts = Array.from({ length: 96 }, (_, index) => (
     `export function publicContract${index.toString().padStart(3, '0')}(request) {
@@ -2302,11 +2330,7 @@ test('a large model-routed architecture view omits optional facts, publishes, an
     consumerProfile: prepared.planned.consumerProfile,
     outputBudget: createWorldModelViewOutputBudget(prepared.planned.outputBudget, preparedView.contract)
   });
-  const requiredIds = [...new Set([
-    ...preparedView.viewFactLedger.requiredFactIds,
-    ...preparedView.viewFactLedger.requiredUnavailableFactIds,
-    ...preparedView.viewFactLedger.materialContradictionFactIds
-  ])].sort();
+  const requiredIds = preparedPacket.admittedFactIds;
   const admittedFacts = new Map(preparedView.viewFactLedger.facts.map((fact) => [fact.id, fact]));
   const requiredFacts = requiredIds.map((id) => admittedFacts.get(id));
   assert.ok(requiredFacts.every((fact) => preparedPacket.admittedFactIds.includes(fact.id)));
@@ -2317,7 +2341,7 @@ test('a large model-routed architecture view omits optional facts, publishes, an
     return `${list ? '- ' : ''}${sorted.map(factText).join('. ')}. [F:${sorted.map((fact) => fact.id).join(',')}]`;
   };
   const material = new Set(preparedView.viewFactLedger.materialContradictionFactIds);
-  const unavailable = new Set(preparedView.viewFactLedger.requiredUnavailableFactIds);
+  const unavailable = new Set(preparedView.viewFactLedger.facts.filter((fact) => fact.status === 'unavailable').map((fact) => fact.id));
   const sections = [
     'public-contracts', 'implementations', 'consumers', 'contract-contradictions',
     'unavailable-runtime-guarantees'
@@ -2410,6 +2434,11 @@ for await (const line of lines) {
     view.viewFactLedger.facts.length
   );
   const admitted = new Set(assembled.admittedFactIds);
+  assert.deepEqual(view.candidate.usedFactIds, assembled.admittedFactIds,
+    'every admitted fact must be narrated, not just mandatory facts');
+  assert.equal(view.factCoverage.ledgerFactCount, view.viewFactLedger.facts.length);
+  assert.equal(view.factCoverage.narratedFactCount, assembled.admittedFactIds.length);
+  assert.deepEqual(published.views[0].factCoverage, view.factCoverage);
   assert.ok(view.candidate.usedFactIds.every((id) => admitted.has(id)),
     'the model candidate may only cite fact IDs admitted to its packet');
   assert.ok(view.candidate.usedFactIds.every((id) => !assembled.omittedFactIds.includes(id)));

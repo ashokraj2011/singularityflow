@@ -11,6 +11,7 @@ import { createPlanningContext, loadPlanningPack } from '../src/planning.mjs';
 import { verifyInitiativeContext } from '../src/initiative-context.mjs';
 import { loadInitiative } from '../src/state-stores.mjs';
 import { writeV3Manifest } from '../src/world-model-materialization.mjs';
+import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -57,6 +58,8 @@ async function repository() {
   git(root, ['config', 'user.email', actorEmail]);
   await writeFile(path.join(root, 'README.md'), '# Receipt provenance fixture\n');
   execute(root, ['init']);
+  // These tests exercise retained v3 receipts, not the registered-v4 default for new repos.
+  await initializeLegacyWorldModelDefinition(root);
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));

@@ -233,6 +233,11 @@ function candidateFitsBudgets(candidate, contract, outputBudget) {
   return Math.ceil(Buffer.byteLength(canonicalJson(candidate), 'utf8') / 4) <= maximumOutputTokens;
 }
 
+/** A complete canonical narrative witness, not proof that every possible arrangement fits. */
+export function deterministicArrangementFits(contract, facts, { outputBudget = null } = {}) {
+  return candidateFitsBudgets(buildDeterministicCandidate(contract, facts), contract, outputBudget);
+}
+
 /** Model-free renderer used when a registered contract declares model mode optional. */
 export function renderDeterministicCandidate(contract, viewLedger, { outputBudget = null } = {}) {
   const facts = [...viewLedger.facts];

@@ -9,7 +9,7 @@ import {
   assembleWmbV4Prompt, assertWmbV4PromptInputBudget, WMB_V4_REQUEST_BOUNDARY
 } from '../src/world-model/compose/pinned-core.mjs';
 import {
-  canonicalFactSentence, renderDeterministicCandidate
+  canonicalFactSentence, deterministicArrangementFits, renderDeterministicCandidate
 } from '../src/world-model/compose/candidate.mjs';
 import {
   createFactLedger, factIdentityFromRecord
@@ -24,12 +24,16 @@ import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mj
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import {
-  validateCompositionCandidate, validateModelCompositionCandidate
+  validateCompositionCandidate, validateModelCompositionCandidate,
+  validateWorldModelViewValidationReceipt
 } from '../src/world-model/validate/candidate.mjs';
 import {
   createWorldModelExecutionStamp, verifiedWorldModelExecutionRoute,
   WMB_V4_DETERMINISTIC_EXECUTION_SHA256, worldModelExecutionUnitManifestSha256
 } from '../src/world-model/execution-profile.mjs';
+import { recordSha256 } from '../src/records.mjs';
+import { isWorldModelViewRetryableCode } from '../src/world-model/retry.mjs';
+import { worldModelCompositionRecovery } from '../src/world-model/compose/composition-recovery.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -70,6 +74,81 @@ async function fixture(t) {
 function validate(candidate, context) {
   return validateCompositionCandidate(candidate, context);
 }
+
+test('model composition cannot silently omit an admitted optional or unavailable fact', async (t) => {
+  const context = await fixture(t);
+  const required = new Set([
+    ...context.viewFactLedger.requiredFactIds,
+    ...context.viewFactLedger.requiredUnavailableFactIds,
+    ...context.viewFactLedger.materialContradictionFactIds
+  ]);
+  const optional = context.viewFactLedger.facts.filter((fact) => !required.has(fact.id));
+  assert.ok(optional.length);
+  for (const omitted of optional.slice(0, 3)) {
+    const reduced = { ...context.viewFactLedger,
+      facts: context.viewFactLedger.facts.filter((fact) => fact.id !== omitted.id) };
+    const candidate = renderDeterministicCandidate(context.contract, reduced);
+    const options = { ...context, executionRoute: 'model',
+      admittedFactIds: context.viewFactLedger.facts.map((fact) => fact.id) };
+    assert.throws(() => validateModelCompositionCandidate(candidate, options),
+      (error) => error.code === 'WMB_ADMITTED_FACT_OMITTED'
+        && error.details.omittedFactIds.includes(omitted.id));
+    const result = validate(candidate, { ...options,
+      admittedFactIds: candidate.usedFactIds });
+    assert.equal(result.receipt.status, 'passed', 'a legitimately smaller packet is still accepted');
+    assert.ok(result.receipt.checks.some((check) => check.id === 'admitted-fact-coverage'));
+    assert.equal(validate(candidate, { ...context, viewFactLedger: reduced }).receipt.status, 'passed',
+      'the deterministic selection contract remains unchanged');
+    const historicReceipt = structuredClone(result.receipt);
+    historicReceipt.checks = historicReceipt.checks.filter((check) => check.id !== 'admitted-fact-coverage');
+    delete historicReceipt.receiptSha256;
+    historicReceipt.receiptSha256 = `sha256:${recordSha256(historicReceipt)}`;
+    assert.doesNotThrow(() => validateWorldModelViewValidationReceipt(historicReceipt),
+      'old receipt schema remains readable without claiming the new check passed');
+  }
+  assert.equal(isWorldModelViewRetryableCode('WMB_ADMITTED_FACT_OMITTED'), true);
+  assert.ok(worldModelCompositionRecovery({ view: context.contract.id,
+    failures: [{ code: 'WMB_ADMITTED_FACT_OMITTED' }] }));
+  const unavailableLedger = structuredClone(context.viewFactLedger);
+  const unavailable = unavailableLedger.facts.find((fact) => fact.id === optional[0].id);
+  unavailable.status = 'unavailable';
+  unavailable.claim = null;
+  unavailable.reason = { code: 'analysis-unavailable', detail: 'Requested optional analysis is unavailable.' };
+  const reduced = { ...unavailableLedger, facts: unavailableLedger.facts.filter((fact) => fact.id !== unavailable.id) };
+  const candidate = renderDeterministicCandidate(context.contract, reduced);
+  assert.throws(() => validate(candidate, { ...context, viewFactLedger: unavailableLedger,
+    executionRoute: 'model', admittedFactIds: unavailableLedger.facts.map((fact) => fact.id) }),
+  (error) => error.code === 'WMB_ADMITTED_FACT_OMITTED' && error.details.omittedFactIds.includes(unavailable.id),
+  'unavailable optional facts cannot disappear either');
+});
+
+test('packet admission budgets complete narration and refuses an oversized mandatory witness early', async (t) => {
+  const context = await fixture(t);
+  const contract = structuredClone(context.contract);
+  const ledger = structuredClone(context.viewFactLedger);
+  const required = new Set([...ledger.requiredFactIds, ...ledger.requiredUnavailableFactIds,
+    ...ledger.materialContradictionFactIds]);
+  for (const fact of ledger.facts.filter((fact) => !required.has(fact.id))) {
+    if (fact.status === 'unavailable') fact.reason.detail = 'Unavailable analysis. '.repeat(150);
+    else fact.claim = 'Registered structural declaration. '.repeat(150);
+  }
+  const inputs = { viewContract: contract, viewFactLedger: ledger,
+    scopeManifest: context.scopeManifest, evidenceCatalog: context.evidenceCatalog,
+    consumerProfile: createWorldModelConsumerProfile(),
+    outputBudget: createWorldModelViewOutputBudget(createWorldModelOutputBudget([contract]), contract) };
+  const assembled = await assembleWmbV4Prompt(inputs);
+  const admitted = ledger.facts.filter((fact) => assembled.admittedFactIds.includes(fact.id));
+  assert.ok(deterministicArrangementFits(contract, admitted, { outputBudget: inputs.outputBudget }));
+  assert.ok(assembled.factAdmission.excludedFacts.some((fact) => fact.reason === 'output-budget'));
+  assert.equal(assembled.factAdmission.ledgerFactCount,
+    assembled.factAdmission.admittedFactCount + assembled.factAdmission.excludedFacts.length);
+  assert.ok([...required].every((id) => assembled.admittedFactIds.includes(id)));
+  assert.ok(assertWmbV4PromptInputBudget(assembled.prompt, contract));
+  inputs.outputBudget = structuredClone(inputs.outputBudget);
+  inputs.outputBudget.viewBudgets[contract.id].maximumOutputTokens = 1;
+  await assert.rejects(() => assembleWmbV4Prompt(inputs),
+    (error) => error.code === 'WMB_OUTPUT_BUDGET_EXCEEDED' && error.details.mandatoryFacts === required.size);
+});
 
 test('composition validation accepts the registered candidate and refuses minted identities', async (t) => {
   const context = await fixture(t);

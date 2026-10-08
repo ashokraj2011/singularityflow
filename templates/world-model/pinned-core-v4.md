@@ -7,7 +7,8 @@ Kernel contract, model-never:
 2. Use only the registered facts and evidence descriptors supplied in the
    bounded Composition Fact Packet below. The authoritative View Fact Ledger
    remains complete even when optional facts are omitted from this invocation.
-3. The model may select, organize, and narrate facts. It may not mint facts,
+3. The kernel selects the bounded packet. The model must narrate every admitted
+   fact; it may organize facts but may not silently omit them or mint facts,
    evidence IDs, derivation IDs, paths, symbols, relationships, availability,
    assurance, source identity, or provenance.
 4. Validate the composition candidate deterministically.
@@ -39,6 +40,8 @@ availability result.
    each sentence in the same paragraph. Use separate list items or paragraphs
    for separate factual units.
 6. Every referenced fact exists in the supplied Composition Fact Packet.
+   Narrate every admitted fact, including optional and unavailable facts.
+   usedFactIds must equal the complete admitted fact set, not a chosen subset.
 7. Never alter fact status, assurance, evidence, derivation, contradiction, or
    canonical claim.
    Every factual unit uses the exact canonical claim (or exact unavailable

@@ -31,7 +31,7 @@ export const WMB_V4_VALIDATION_CHECK_IDS = Object.freeze([
   'candidate-json', 'candidate-schema', 'view-identity', 'registered-title',
   'required-sections', 'section-order', 'unregistered-sections', 'narrative-budgets',
   'factual-unit-references', 'fact-reference-integrity', 'used-fact-set',
-  'required-facts', 'required-unavailable', 'contradictions', 'assurance', 'scope',
+  'required-facts', 'required-unavailable', 'admitted-fact-coverage', 'contradictions', 'assurance', 'scope',
   'body-access', 'cross-view', 'kernel-metadata', 'execution-route-contract', 'total-output'
 ]);
 
@@ -56,7 +56,7 @@ function narrativeBody(unit) {
  *
  * Deterministic validation cannot prove unrestricted paraphrase entailment. The first registered
  * contracts therefore use one closed narrative template: exact canonical fact sentences followed
- * by the exact, sorted Fact reference set. A composer can select facts and place them in registered
+ * by the exact, sorted Fact reference set. A model composer can organize admitted facts in registered
  * sections, but cannot attach an unrelated true Fact ID to invented prose and have it accepted.
  */
 function assertApprovedNarrativeTemplate(unit, references, factsById) {
@@ -410,6 +410,15 @@ export function validateCompositionCandidate(rawCandidate, {
   }
   for (const id of viewFactLedger.requiredUnavailableFactIds ?? []) {
     if (!referenced.includes(id)) fail('WMB_REQUIRED_UNAVAILABLE_FACT_MISSING', `Required unavailable fact '${id}' is not narrated.`, { id });
+  }
+  if (executionRoute === 'model') {
+    const referencedSet = new Set(referenced);
+    const omittedFactIds = admittedFactIds.filter((id) => !referencedSet.has(id)).sort();
+    if (omittedFactIds.length) {
+      fail('WMB_ADMITTED_FACT_OMITTED', 'Model composition must narrate every admitted Fact; selection belongs to the bounded input assembler.',
+        { viewId: contract.id, omittedFactIds, admittedFactCount: admittedFactIds.length,
+          narratedFactCount: referenced.length });
+    }
   }
   const tldrReferences = candidateFactReferences({ tldrMarkdown: candidate.tldrMarkdown, sections: [] });
   const contradictionSectionIds = new Set(contract.sections

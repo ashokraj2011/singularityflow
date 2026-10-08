@@ -1,0 +1,26 @@
+# What a careful reader would say the FastAPI orders fixture contains. Scored by `wm knowledge eval`.
+name: python-orders (FastAPI, pydantic, pytest)
+commands:
+  - command: pytest
+limits:
+  - { name: MAX_ITEMS, value: "50" }
+  - { name: BULK_DISCOUNT_THRESHOLD, value: "1000.0" }
+rules:
+  - { path: app/services.py, line: 12, contains: an order needs items }
+  - { path: app/services.py, line: 14, contains: MAX_ITEMS }
+  - { path: app/services.py, line: 17, contains: BULK_DISCOUNT_THRESHOLD }
+  - { path: app/services.py, line: 8, contains: unit_price }
+entities:
+  - { name: OrderIn, fields: [customer_id, items, coupon] }
+  - { name: Item, fields: [sku, quantity, unit_price] }
+entryPoints:
+  - label: POST /orders
+  - label: GET /health
+journeys:
+  - { trigger: POST /orders, reaches: place }
+tests:
+  - { title: rejects empty orders, exercises: place }
+  - { title: bulk discount applies over threshold, exercises: place }
+errorPaths:
+  - { message: an order needs items, status: "422" }
+  - { message: too many items, status: "422" }

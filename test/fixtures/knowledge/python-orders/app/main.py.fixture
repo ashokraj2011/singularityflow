@@ -1,0 +1,19 @@
+from fastapi import FastAPI, HTTPException
+
+from app.models import OrderIn
+from app.services import place
+
+app = FastAPI()
+
+
+@app.post("/orders")
+def create_order(order: OrderIn):
+    try:
+        return {"total": place(order)}
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}

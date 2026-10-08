@@ -14,7 +14,7 @@ import { buildCodeExplainerModel, codeAreas, inArea, isTestPath } from '../code-
 import { scanSourceClauseTags } from '../traceability-ids.mjs';
 import { citation, invalidCitations, knowledgeItem, KNOWLEDGE_LEVELS, KNOWLEDGE_FORMAT } from './items.mjs';
 import {
-  clientRoutes, configurationKeys, enumsAndRecords, exceptionStatuses, manifestCommands, namedLimits, outboundHttp,
+  androidManifest, clientRoutes, configurationKeys, dataClasses, declaredHttpClients, enumsAndRecords, exceptionStatuses, gradleModules, manifestCommands, namedLimits, outboundHttp,
   pathAliases, resolvedImports, testCases, typeShapes
 } from './producers.mjs';
 
@@ -70,6 +70,9 @@ function outcomeOf(steps = []) {
       for (const entry of step.lines) {
         const message = messageOf(entry.text);
         if (message && /\b(?:set\w*|toast\.?\w*|alert|notify\w*|showError|message)\s*\(/u.test(entry.text)) return { kind: 'shows', text: message, line: entry.line };
+        // Kotlin and Python state: `error = "Title is required"`, `self.error_message = '…'`.
+        const assigned = entry.text.match(/\b(?:_?error\w*|\w*[Ee]rror[A-Z]?\w*|message|errorMessage|validationError)\s*(?:\.value\s*)?=\s*(["'])((?:(?!\1).){3,200})\1/u);
+        if (assigned) return { kind: 'shows', text: assigned[2], line: entry.line };
       }
       const first = step.lines[0];
       if (first) return { kind: 'does', text: first.text, line: first.line };
@@ -249,6 +252,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
       const symbol = entry.symbol ? model.byId?.[entry.symbol] ?? model.symbols.find((item) => item.id === entry.symbol) : null;
       const file = symbol?.file ? filesByPath.get(symbol.file) : null;
       if (!file) continue;
+      if (entry.kind === 'http' && declaredHttpClients(file).client) continue;
       entries.push({ ...entry, file: symbol.file, line: symbol.line ?? 1, path: lenses.flow.paths[entry.id] ?? null, nodes: lenses.flow.nodes });
       add({ kind: 'entry-point', key: `${symbol.file}:${entry.label}`, grain: 'unit', subject: { symbol: symbol.qualifiedName, path: symbol.file },
         statement: { kind: entry.kind, label: entry.label, reason: entry.reason }, citations: [citation(file, symbol.line ?? 1)], area: areaOf(symbol.file) });
@@ -304,6 +308,18 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
         statement: { kind: 'route', label: `route ${route.path} → ${route.component}`, path: route.path, component: route.component },
         citations: [citation(file, route.line)], area: areaOf(file.path) });
     }
+    for (const call of declaredHttpClients(file).calls) {
+      add({ kind: 'external-dependency', key: `${file.path}:${call.method}:${call.target}:${call.line}`, grain: 'unit',
+        subject: { path: file.path }, statement: { protocol: 'http', method: call.method, target: call.target, via: 'declared client' },
+        citations: [citation(file, call.line)], area: areaOf(file.path) });
+    }
+    for (const shape of dataClasses(file)) {
+      const key = `${file.path}:${shape.name}`;
+      if (entityKeys.has(key)) continue;
+      entityKeys.add(key);
+      add({ kind: 'entity', key, grain: 'component', subject: { name: shape.name, path: file.path },
+        statement: { name: shape.name, kind: shape.kind, fields: shape.fields, values: [] }, citations: [citation(file, shape.line)], area: areaOf(file.path) });
+    }
     for (const call of outboundHttp(file)) {
       add({ kind: 'external-dependency', key: `${file.path}:${call.method}:${call.target}:${call.line}`, grain: 'unit',
         subject: { path: file.path }, statement: { protocol: 'http', method: call.method, target: call.target, via: call.via ?? null },
@@ -337,6 +353,25 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
       configuration.push(entry);
       add({ kind: 'configuration', key: `${manifest.path}:${entry.key}`, grain: 'repository', subject: { path: manifest.path },
         statement: { key: entry.key, value: entry.value }, citations: [citation(manifest, entry.line)], area: areaOf(manifest.path) });
+    }
+  }
+  for (const manifest of source.manifests) {
+    const android = androidManifest(manifest);
+    for (const component of android.components) {
+      const label = `${component.kind} ${component.name}${component.launcher ? ' (launcher)' : ''}${component.exported ? ' (exported)' : ''}`;
+      add({ kind: 'entry-point', key: `${manifest.path}:${component.kind}:${component.name}`, grain: 'unit', subject: { path: manifest.path, component: component.name },
+        statement: { kind: `android-${component.kind}`, label, exported: component.exported, launcher: component.launcher },
+        citations: [citation(manifest, component.line)], area: areaOf(manifest.path) });
+    }
+    for (const permission of android.permissions) {
+      add({ kind: 'configuration', key: `${manifest.path}:permission:${permission.name}`, grain: 'repository', subject: { path: manifest.path },
+        statement: { key: 'android permission', value: permission.name }, citations: [citation(manifest, permission.line)], area: areaOf(manifest.path) });
+    }
+    const modules = gradleModules(manifest);
+    if (modules.length) {
+      add({ kind: 'configuration', key: `${manifest.path}:gradle-modules`, grain: 'repository', subject: { path: manifest.path },
+        statement: { key: 'Gradle modules', value: modules.map((entry) => entry.module).join(', ') },
+        citations: [citation(manifest, modules[0].line, modules.at(-1).line)], area: areaOf(manifest.path) });
     }
   }
   const statusByException = new Map();
@@ -426,11 +461,12 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
             rulesBySymbol.set(id, list);
           }
         } else if (step.k === 'throw') {
-          const exception = step.text.match(/new\s+([\w.]+)\s*\(/u)?.[1]?.split('.').pop() ?? null;
+          const exception = step.text.match(/(?:new\s+)?([\w.]*?(?:Exception|Error|Fault)\w*)\s*\(/u)?.[1]?.split('.').pop() ?? null;
           const message = messageOf(step.text);
+          const coded = step.text.match(/status_code\s*=\s*(\d{3})|HttpStatus\.([A-Z_]+)|status\((\d{3})\)/u);
           const mapped = exception ? statusByException.get(exception) : null;
           add({ kind: 'error-path', key: `${symbol.file}:${step.line}`, grain: 'unit', subject: { symbol: symbol.qualifiedName, path: symbol.file },
-            statement: { exception, message, when: context, status: mapped?.status ?? null, handler: mapped ? mapped.path : null },
+            statement: { exception, message, when: context, status: mapped?.status ?? coded?.[1] ?? coded?.[2] ?? coded?.[3] ?? null, handler: mapped ? mapped.path : null },
             citations: [citation(file, step.line)], area: areaOf(symbol.file) });
         }
         if (step.k === 'step') {
@@ -652,11 +688,29 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
   for (const entry of entries) {
     if (!entry.symbol) continue;
     const ids = reach(entry.symbol);
-    if (ids.length < 2 && !effectsOf(ids).length) continue;
+    // An endpoint that calls nothing (a health check) has no journey to describe.
+    if (ids.length < 2 && !effectsOf(ids).some((effect) => !effect.startsWith('responds'))) continue;
     const file = filesByPath.get(entry.file);
     add({ kind: 'journey', key: `${entry.file}:${entry.label}`, grain: 'area', assurance: 'derived', subject: { path: entry.file },
       statement: { trigger: entry.label, steps: ids.map((id) => symbolsById.get(id)?.qualifiedName).filter((name, index) => name && !(index === 0 && entry.label.endsWith(name))), effects: effectsOf(ids) },
       citations: file ? [citation(file, entry.line)] : [], area: areaOf(entry.file) });
+  }
+  for (const file of files) {
+    if (file.language !== 'kotlin' || isTestPath(file.path)) continue;
+    // Compose and Android views: `Button(onClick = { viewModel.save(…) })`.
+    file.lines.forEach((line, index) => {
+      for (const match of line.matchAll(/\b(on[A-Z]\w*)\s*=\s*\{\s*(?:[\w.]+\.)?(\w+)\s*\(/gu)) {
+        const candidates = symbolsByName.get(match[2]) ?? [];
+        const handler = candidates.find((symbol) => !symbol.test && /ViewModel|Presenter|Controller/u.test(symbol.qualifiedName)) ?? candidates.find((symbol) => !symbol.test);
+        if (!handler) continue;
+        const ids = reach(handler.id);
+        const element = line.slice(0, match.index).match(/(\w+)\s*\([^()]*$/u)?.[1] ?? 'element';
+        add({ kind: 'journey', key: `${file.path}:${index + 1}:${match[1]}`, grain: 'area', subject: { path: file.path },
+          statement: { trigger: `${match[1]} on ${element} in ${path.posix.basename(file.path)}`, steps: ids.map((id) => symbolsById.get(id)?.qualifiedName).filter(Boolean),
+            effects: effectsOf(ids) },
+          citations: [citation(file, index + 1)], area: areaOf(file.path) });
+      }
+    });
   }
   for (const file of files) {
     if (!['typescriptreact', 'javascriptreact'].includes(file.language) || isTestPath(file.path)) continue;

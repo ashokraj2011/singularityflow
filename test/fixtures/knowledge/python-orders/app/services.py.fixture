@@ -1,0 +1,19 @@
+from app.models import OrderIn
+
+MAX_ITEMS = 50
+BULK_DISCOUNT_THRESHOLD = 1000.0
+
+
+def order_total(order: OrderIn) -> float:
+    return sum(item.unit_price * item.quantity for item in order.items)
+
+
+def place(order: OrderIn) -> float:
+    if not order.items:
+        raise ValueError("an order needs items")
+    if len(order.items) > MAX_ITEMS:
+        raise ValueError("too many items")
+    total = order_total(order)
+    if total >= BULK_DISCOUNT_THRESHOLD:
+        total = total * 0.95
+    return total

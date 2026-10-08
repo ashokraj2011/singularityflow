@@ -113,8 +113,11 @@ export function manifestCommands(manifests, codeFiles) {
       if (/spring-boot-starter-data-jpa|hibernate/u.test(text)) frameworks.add('JPA');
     } else if (/^build\.gradle(?:\.kts)?$/u.test(base)) {
       const text = file.lines.join('\n');
-      if (!commands.some((entry) => entry.command.endsWith('gradlew test'))) {
-        commands.push({ purpose: 'test', command: `${prefix}./gradlew test`, runs: 'Gradle', path: file.path, line: 1 });
+      // A multi-module build runs from the folder holding settings.gradle, not from each module.
+      const settings = manifests.find((entry) => /(?:^|\/)settings\.gradle(?:\.kts)?$/u.test(entry.path) && (dir === '.' ? !entry.path.includes('/') : `${dir}/`.startsWith(path.posix.dirname(entry.path) === '.' ? '' : `${path.posix.dirname(entry.path)}/`)));
+      const gradlePrefix = settings ? (path.posix.dirname(settings.path) === '.' ? '' : `cd ${path.posix.dirname(settings.path)} && `) : prefix;
+      if (!commands.some((entry) => entry.command === `${gradlePrefix}./gradlew test`)) {
+        commands.push({ purpose: 'test', command: `${gradlePrefix}./gradlew test`, runs: 'Gradle', path: settings?.path ?? file.path, line: 1 });
       }
       if (/com\.android\.(?:application|library)/u.test(text)) frameworks.add('Android');
       if (/org\.springframework\.boot/u.test(text)) frameworks.add('Spring Boot');
@@ -207,6 +210,21 @@ export function outboundHttp(file) {
 
 /** Spring `@ExceptionHandler(X.class)` + `@ResponseStatus(HttpStatus.Y)` pairs. */
 export function exceptionStatuses(file) {
+  if (file.language === 'python') {
+    // FastAPI and Flask: `except ValueError as error: raise HTTPException(status_code=422, …)`.
+    const mappings = [];
+    file.lines.forEach((line, index) => {
+      const caught = line.match(/^\s*except\s+\(?([\w., ]+?)\)?(?:\s+as\s+\w+)?\s*:/u);
+      if (!caught) return;
+      const window = file.lines.slice(index + 1, index + 5).join(' ');
+      const status = window.match(/status_code\s*=\s*(\d{3})|abort\((\d{3})/u);
+      if (!status) return;
+      for (const name of caught[1].split(',').map((entry) => entry.trim().split('.').pop()).filter(Boolean)) {
+        mappings.push({ exception: name, status: status[1] ?? status[2], line: index + 1 });
+      }
+    });
+    return mappings;
+  }
   if (!['java', 'kotlin'].includes(file.language)) return [];
   const mappings = [];
   file.lines.forEach((line, index) => {
@@ -366,4 +384,86 @@ export function enumsAndRecords(file) {
     }
   });
   return found;
+}
+
+/** Kotlin `data class X(val a: T, …)` and Python classes with typed fields (pydantic, dataclasses, TypedDict). */
+export function dataClasses(file) {
+  const found = [];
+  if (file.language === 'kotlin') {
+    const text = file.lines.join('\n');
+    for (const match of text.matchAll(/\bdata\s+class\s+(\w+)\s*\(/gu)) {
+      let depth = 0;
+      let end = match.index + match[0].length - 1;
+      for (; end < text.length; end += 1) {
+        if (text[end] === '(') depth += 1;
+        else if (text[end] === ')' && (depth -= 1) === 0) break;
+      }
+      const body = text.slice(match.index + match[0].length, end);
+      const fields = [...body.matchAll(/(?:^|,)\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:val|var)\s+(\w+)\s*:\s*([\w.<>?, ]+?)(?:\s*=\s*[^,]+)?\s*(?=,|$)/gu)]
+        .map((field) => ({ name: field[1], type: field[2].trim() }));
+      const line = text.slice(0, match.index).split('\n').length;
+      if (fields.length) found.push({ name: match[1], kind: 'data class', fields, values: [], line });
+    }
+  }
+  if (file.language === 'python') {
+    file.lines.forEach((line, index) => {
+      const head = line.match(/^class\s+(\w+)\s*\(([^)]*)\)\s*:/u);
+      const decorated = index > 0 && /^@(?:dataclass|attr\.s|define)\b/u.test(file.lines[index - 1]);
+      if (!head || !(decorated || /\b(?:BaseModel|TypedDict|NamedTuple|Schema|SQLModel|Base)\b/u.test(head[2]))) return;
+      const fields = [];
+      for (let next = index + 1; next < Math.min(file.lines.length, index + 60); next += 1) {
+        const row = file.lines[next];
+        if (/^\S/u.test(row) && row.trim()) break;
+        const field = row.match(/^\s{2,}(\w+)\s*:\s*([^=#]+?)\s*(?:=.*)?$/u);
+        if (field && !/^def\b/u.test(field[1])) fields.push({ name: field[1], type: field[2].trim() });
+      }
+      if (fields.length) found.push({ name: head[1], kind: 'model', fields, values: [], line: index + 1 });
+    });
+  }
+  return found;
+}
+
+/** Retrofit and Feign interfaces declare calls this code makes to another service, not endpoints it serves. */
+export function declaredHttpClients(file) {
+  if (!['java', 'kotlin'].includes(file.language)) return { client: false, calls: [] };
+  const text = file.lines.join('\n');
+  const client = /import\s+retrofit2\.http\.|@FeignClient\b|import\s+org\.springframework\.cloud\.openfeign/u.test(text);
+  if (!client) return { client: false, calls: [] };
+  const calls = [];
+  file.lines.forEach((line, index) => {
+    const match = line.match(/@(GET|POST|PUT|PATCH|DELETE)\(\s*(?:value\s*=\s*)?"([^"]*)"/u)
+      ?? line.match(/@(Get|Post|Put|Patch|Delete)Mapping\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"/u);
+    if (match) calls.push({ method: match[1].toUpperCase(), target: match[2].startsWith('/') || /^https?:/u.test(match[2]) ? match[2] : `/${match[2]}`, line: index + 1 });
+  });
+  return { client: true, calls };
+}
+
+/** Android components and permissions from an AndroidManifest.xml. */
+export function androidManifest(manifest) {
+  if (!/AndroidManifest\.xml$/u.test(manifest.path)) return { components: [], permissions: [] };
+  const text = manifest.lines.join('\n');
+  const lineOf = (offset) => text.slice(0, offset).split('\n').length;
+  const components = [];
+  for (const match of text.matchAll(/<(activity|activity-alias|service|receiver|provider)\b([^>]*?)(\/>|>)/gu)) {
+    const name = match[2].match(/android:name="([^"]+)"/u)?.[1];
+    if (!name) continue;
+    const exported = match[2].match(/android:exported="(true|false)"/u)?.[1] ?? null;
+    const close = match[3] === '/>' ? match.index + match[0].length : text.indexOf(`</${match[1]}>`, match.index);
+    const inner = close > match.index ? text.slice(match.index, close) : '';
+    components.push({ kind: match[1], name, exported: exported === null ? null : exported === 'true',
+      launcher: /android\.intent\.category\.LAUNCHER/u.test(inner), line: lineOf(match.index) });
+  }
+  const permissions = [...text.matchAll(/<uses-permission\b[^>]*android:name="([^"]+)"/gu)].map((match) => ({ name: match[1], line: lineOf(match.index) }));
+  return { components, permissions };
+}
+
+/** Gradle modules declared by `include(":app", ":feature:notes")` in settings.gradle(.kts). */
+export function gradleModules(manifest) {
+  if (!/(?:^|\/)settings\.gradle(?:\.kts)?$/u.test(manifest.path)) return [];
+  const modules = [];
+  manifest.lines.forEach((line, index) => {
+    if (!/^\s*include\b/u.test(line)) return;
+    for (const match of line.matchAll(/["'](:[\w:.-]+)["']/gu)) modules.push({ module: match[1], line: index + 1 });
+  });
+  return modules;
 }

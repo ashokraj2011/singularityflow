@@ -1,0 +1,13 @@
+from pydantic import BaseModel
+
+
+class Item(BaseModel):
+    sku: str
+    quantity: int
+    unit_price: float
+
+
+class OrderIn(BaseModel):
+    customer_id: str
+    items: list[Item]
+    coupon: str | None = None

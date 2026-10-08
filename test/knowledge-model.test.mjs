@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -36,6 +36,10 @@ async function fixtureRepository(t, name, extra = async () => {}) {
   t.after(() => rm(base, { recursive: true, force: true }));
   const repository = path.join(base, name);
   await cp(path.join(fixtures, name), repository, { recursive: true });
+  // This repository allows no tracked Python, so Python fixture sources carry a .fixture suffix.
+  for (const relative of await readdir(repository, { recursive: true })) {
+    if (relative.endsWith('.py.fixture')) await rename(path.join(repository, relative), path.join(repository, relative.slice(0, -'.fixture'.length)));
+  }
   await extra(repository);
   git(repository, 'init', '-q', '-b', 'main');
   git(repository, 'add', '-A');
@@ -360,4 +364,21 @@ test('a repository too large to read whole is built by area, and a prompt builds
   const none = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'implementation', limits, workflow: { workItem: { title: 'zzzz' } } });
   assert.equal(none.text, '');
   assert.match(none.warnings[0], /names no area of it/u);
+});
+
+test('Android with Kotlin and Gradle modules, and a FastAPI service, meet their expectations', async (t) => {
+  for (const name of ['android-notes', 'python-orders']) {
+    const repository = await fixtureRepository(t, name);
+    const { knowledge } = await buildKnowledge(repository, { history: false });
+    const score = scoreKnowledge(knowledge, await expectations(name));
+    assert.equal(score.recall, 1, `${name}: ${JSON.stringify(Object.values(score.categories).flatMap((value) => value.missed))}`);
+    assert.equal(score.citationValidity, 1);
+  }
+  const android = await fixtureRepository(t, 'android-notes');
+  const { knowledge } = await buildKnowledge(android, { history: false });
+  assert.ok(!knowledge.items.some((item) => item.kind === 'entry-point' && /^(?:GET|POST|DELETE) /u.test(item.statement.label)),
+    'a Retrofit interface declares calls this app makes, not endpoints it serves');
+  assert.ok(knowledge.items.some((item) => item.kind === 'configuration' && item.statement.key === 'Gradle modules' && item.statement.value === ':app, :feature:notes, :core:data'));
+  assert.ok(knowledge.items.some((item) => item.kind === 'configuration' && item.statement.value === 'android.permission.INTERNET'));
+  assert.ok(!knowledge.items.some((item) => item.kind === 'rule' && /gradle/u.test(item.subject.path)), 'build scripts are manifests, not code');
 });

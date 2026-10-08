@@ -1,0 +1,9 @@
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+}
+
+dependencies {
+    implementation(project(":core:data"))
+    testImplementation("junit:junit:4.13.2")
+}

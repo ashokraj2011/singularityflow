@@ -34,6 +34,8 @@ function digest(value) {
 /** Whether a path is application source this build reads. */
 function isCandidateSource(relative, pathContext) {
   if (!isExplainedPath(relative, pathContext)) return false;
+  // A build script such as build.gradle.kts is a manifest first, whatever its extension says.
+  if (MANIFEST.test(relative)) return false;
   if (BUILD_OUTPUT.test(relative) || GENERATED.test(relative)) return false;
   return isCodeLanguage(languageOf(relative));
 }

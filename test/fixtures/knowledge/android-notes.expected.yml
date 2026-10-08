@@ -1,0 +1,30 @@
+# What a careful reader would say the Android notes fixture contains. Scored by `wm knowledge eval`.
+name: android-notes (Kotlin, Gradle modules, Compose, Retrofit, Room, JUnit)
+commands:
+  - command: ./gradlew test
+limits:
+  - { name: MAX_TITLE_LENGTH, value: "200" }
+rules:
+  - { path: feature/notes/src/main/kotlin/com/acme/notes/NotesViewModel.kt, line: 14, contains: Title is required }
+  - { path: feature/notes/src/main/kotlin/com/acme/notes/NotesViewModel.kt, line: 18, contains: MAX_TITLE_LENGTH }
+  - { path: feature/notes/src/main/kotlin/com/acme/notes/NotesViewModel.kt, line: 26, contains: Only the owner }
+entities:
+  - { name: NoteEntity, fields: [id, title, body, ownerId] }
+entryPoints:
+  - label: activity .MainActivity (launcher)
+  - label: service .sync.SyncService
+journeys:
+  - { trigger: onClick on Button, reaches: database }
+tests:
+  - { title: rejects blank titles, exercises: NotesViewModel.save }
+untested:
+  - symbol: NotesViewModel.delete
+messages:
+  - text: Title is required
+  - text: Title is too long
+external:
+  - call: GET /notes
+  - call: POST /notes
+  - call: DELETE /notes/{id}
+errorPaths:
+  - { message: Only the owner can delete a note }

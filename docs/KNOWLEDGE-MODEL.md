@@ -59,6 +59,19 @@ acceptance criteria (up to three), merged and marked as partial. A Story that na
 knowledge slice and a warning instead of a guess. Measured on a generated 12,000-file Java
 repository: listing the areas takes about 1 second, building a 500-file area 0.7 seconds.
 
+## Languages and frameworks
+
+The analysis engine reads TypeScript and JavaScript (with JSX), Java, Kotlin, Python, C#, Go and
+other C-like languages as text. On top of it:
+
+| Stack | What is read |
+|---|---|
+| React | routes (`<Route path element>`), UI event handlers to the calls they make, `useReducer` actions, messages set with `setError`/`toast` |
+| Spring | `@RequestMapping` endpoints, `@ExceptionHandler` statuses (annotations or `ResponseEntity.status`), `application.properties`/`.yml` keys |
+| Android | `AndroidManifest.xml` activities, services, receivers and providers (launcher, exported) and permissions; `settings.gradle` modules; Compose `onClick = { … }` handlers; Room `data class` entities; Retrofit and Feign interfaces as outbound calls, never as endpoints |
+| Python | FastAPI and Flask routes, pydantic models, dataclasses and TypedDicts, `except X: raise HTTPException(status_code=…)` statuses, pytest functions |
+| Builds | npm scripts, Maven, Gradle (from the folder holding `settings.gradle`), pytest, `go test`, `dotnet test`; build scripts such as `build.gradle.kts` are read as manifests, not code |
+
 ## Plain-language explanations
 
 `wm knowledge explain` asks the configured model to explain the repository, its journeys and its
@@ -100,6 +113,8 @@ suite:
 |---|---|---|
 | React shop (TypeScript, Vitest) | 24 | 23; the Add button's journey runs through a prop and `useReducer` dispatch, which pattern analysis does not follow |
 | Spring orders service (Java, JUnit) | 21 | 21 |
+| Android notes app (Kotlin, Gradle modules, Compose, Retrofit, Room, JUnit) | 20 | 20 |
+| FastAPI orders service (Python, pydantic, pytest) | 17 | 17 |
 
 ## Boundaries
 

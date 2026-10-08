@@ -1,0 +1,14 @@
+import pytest
+
+from app.models import OrderIn
+from app.services import place
+
+
+def test_rejects_empty_orders():
+    with pytest.raises(ValueError):
+        place(OrderIn(customer_id="c1", items=[]))
+
+
+def test_bulk_discount_applies_over_threshold():
+    order = OrderIn(customer_id="c1", items=[{"sku": "a", "quantity": 10, "unit_price": 100.0}])
+    assert place(order) == 950.0

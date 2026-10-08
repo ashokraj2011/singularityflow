@@ -16,6 +16,8 @@ import { recentCommitFileSets } from '../git.mjs';
 import { analyzeKnowledge, KNOWLEDGE_ANALYZER_VERSION } from './analyze.mjs';
 import { sha256 } from './items.mjs';
 import { readKnowledgeSource } from './source.mjs';
+import { inArea } from '../code-intelligence/generated/code-explainer-model.mjs';
+import { focusStems, stemOf } from './render.mjs';
 
 const KEEP_ENTRIES = 12;
 const ANALYZER_SOURCES = ['./analyze.mjs', './producers.mjs', './items.mjs', './source.mjs',
@@ -52,9 +54,9 @@ async function prune(directory) {
  * The knowledge for HEAD (or one area of it). Reads the committed source, reuses an exact cache
  * entry when there is one, and otherwise analyses and stores the result.
  */
-export async function buildKnowledge(root, { area = null, history = true, refresh = false } = {}) {
+export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined } = {}) {
   const started = performance.now();
-  const source = await readKnowledgeSource(root, { area });
+  const source = await readKnowledgeSource(root, { area, ownOnly, ...(limits ? { limits } : {}) });
   if (source.status !== 'ok') {
     return {
       status: source.status, reason: source.reason, commit: source.commit, area, areas: source.areas ?? [],
@@ -87,4 +89,80 @@ export async function buildKnowledge(root, { area = null, history = true, refres
   await rename(temporary, file);
   await prune(directory);
   return { status: 'ok', reason: null, commit: source.commit, area, knowledge, cache: 'miss', key, durationMs: Math.round(performance.now() - started) };
+}
+
+/**
+ * The areas worth building for one piece of work in a repository too large to build whole: those
+ * holding the files it changed, then those whose folder names match its words. Pure, so a prompt
+ * and a test choose the same areas.
+ */
+export function selectKnowledgeAreas(areas, { changedPaths = [], focus = null, limit = 3 } = {}) {
+  const stems = focusStems(focus);
+  const scored = areas.map((area) => {
+    const changed = changedPaths.filter((file) => inArea(file, { path: area.path === '.' ? '' : area.path, own: area.own })).length;
+    const words = String(area.path).toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
+    const named = stems.filter((stem) => words.some((word) => stemOf(word) === stem || (word.length >= 4 && (word.startsWith(stem) || stem.startsWith(word))))).length;
+    return { area, score: changed * 10 + named * 3 };
+  });
+  return scored.filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || a.area.path.localeCompare(b.area.path, 'en'))
+    .slice(0, limit).map((entry) => entry.area);
+}
+
+/**
+ * Knowledge for several areas (paths, or `{ path, own }` from an area listing), each built and cached
+ * on its own, merged into one model. Used when a
+ * repository is too large to build whole: the result says which areas it covers, so no reader
+ * mistakes it for the whole repository.
+ */
+export async function buildKnowledgeForAreas(root, areaPaths, { history = true, refresh = false, limits = undefined } = {}) {
+  const started = performance.now();
+  const built = [];
+  for (const entry of areaPaths) {
+    const area = typeof entry === 'string' ? entry : entry.path;
+    const result = await buildKnowledge(root, { area, ownOnly: typeof entry === 'object' && Boolean(entry.own), history, refresh, limits });
+    if (result.status === 'ok') built.push(result);
+  }
+  if (!built.length) return { status: 'insufficient', reason: 'no-area-built', knowledge: null, cache: 'none', key: null, durationMs: Math.round(performance.now() - started) };
+  if (built.length === 1) return built[0];
+  const knowledges = built.map((result) => result.knowledge);
+  const first = knowledges[0];
+  const items = [...new Map(knowledges.flatMap((knowledge) => knowledge.items).map((item) => [item.id, item])).values()];
+  const rank = { ready: 2, thin: 1, insufficient: 0 };
+  const levels = Object.fromEntries(Object.keys(first.levels).map((level) => {
+    const best = knowledges.map((knowledge) => knowledge.levels[level]).sort((a, b) => rank[b.status] - rank[a.status])[0];
+    return [level, best];
+  }));
+  const sum = (pick) => knowledges.reduce((total, knowledge) => total + (pick(knowledge) ?? 0), 0);
+  const byKind = {};
+  for (const item of items) byKind[item.kind] = (byKind[item.kind] ?? 0) + 1;
+  const knowledge = {
+    ...first,
+    repository: {
+      ...first.repository,
+      area: areaPaths.map((entry) => (typeof entry === 'string' ? entry : entry.path)).join(', '),
+      roots: areaPaths.map((entry) => (typeof entry === 'string' ? entry : entry.path)),
+      files: sum((entry) => entry.repository.files),
+      frameworks: [...new Set(knowledges.flatMap((entry) => entry.repository.frameworks))].sort(),
+      partial: true
+    },
+    areas: knowledges.flatMap((entry) => entry.areas),
+    levels,
+    metrics: {
+      items: items.length, byKind,
+      byLevel: Object.fromEntries(Object.keys(first.metrics.byLevel).map((level) => [level, items.filter((item) => item.level === level).length])),
+      citations: items.reduce((total, item) => total + item.citations.length, 0),
+      invalidCitations: sum((entry) => entry.metrics.invalidCitations),
+      calls: sum((entry) => entry.metrics.calls),
+      callsMatchedByName: sum((entry) => entry.metrics.callsMatchedByName),
+      imports: sum((entry) => entry.metrics.imports)
+    },
+    graph: { imports: knowledges.flatMap((entry) => entry.graph.imports), calls: knowledges.flatMap((entry) => entry.graph.calls) },
+    items
+  };
+  return {
+    status: 'ok', reason: null, commit: first.repository.commit, area: knowledge.repository.area, knowledge,
+    cache: built.every((result) => result.cache === 'hit') ? 'hit' : 'miss',
+    key: sha256(JSON.stringify(built.map((result) => result.key))),
+    durationMs: Math.round(performance.now() - started)
+  };
 }

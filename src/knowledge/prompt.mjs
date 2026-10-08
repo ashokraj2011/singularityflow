@@ -12,7 +12,7 @@
  */
 import { readExplanations } from './explain.mjs';
 import { renderKnowledgeSlice, roleForPhase } from './render.mjs';
-import { buildKnowledge } from './store.mjs';
+import { buildKnowledge, buildKnowledgeForAreas, selectKnowledgeAreas } from './store.mjs';
 
 export const KNOWLEDGE_PROMPT_DEFAULT_BYTES = 8192;
 
@@ -23,19 +23,24 @@ export function knowledgePromptPolicy(definition) {
   return { prompt, maxBytes };
 }
 
-export async function repositoryKnowledgePrompt(root, { definition, phase, workflow }) {
+export async function repositoryKnowledgePrompt(root, { definition, phase, workflow, changedPaths = [], limits = undefined }) {
   const policy = knowledgePromptPolicy(definition);
   if (policy.prompt === 'off') return { text: '', warnings: [], status: 'off' };
   try {
-    const result = await buildKnowledge(root);
-    if (result.status !== 'ok') {
-      return {
-        text: '', status: result.status,
-        warnings: [`Repository knowledge was not added: the repository has ${result.codeFiles} code files; set worldModel.sourceRoots to the parts this repository models.`]
-      };
-    }
     const item = workflow?.workItem ?? {};
     const focus = [item.title, item.description, ...(item.acceptanceCriteria ?? [])].filter((value) => typeof value === 'string').join(' ');
+    let result = await buildKnowledge(root, { limits });
+    if (result.status !== 'ok') {
+      // Too large to read whole: build only the areas this Story changes or names.
+      const areas = selectKnowledgeAreas(result.areas ?? [], { changedPaths, focus });
+      if (areas.length) result = await buildKnowledgeForAreas(root, areas, { limits });
+      if (result.status !== 'ok') {
+        return {
+          text: '', status: result.status,
+          warnings: [`Repository knowledge was not added: the repository has ${result.codeFiles ?? 'too many'} code files and this Story names no area of it; set worldModel.sourceRoots, or change files in an area first.`]
+        };
+      }
+    }
     const role = roleForPhase(phase);
     // Explanations are read from this machine's cache only; composing a prompt never calls a model for them.
     const explanations = (await readExplanations(root, result.key))?.accepted ?? [];

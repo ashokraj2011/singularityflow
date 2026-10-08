@@ -5079,7 +5079,7 @@ async function compose(root, options, {
     : { text: '', files: [], warnings: [] };
   // Deterministic knowledge of what the code does (rules, journeys, tests, gaps), sliced for this phase's reader.
   const repositoryKnowledge = workflow && !worldModelDisabledForWorkflow(workflow)
-    ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryKnowledgePrompt(root, { definition, phase: signals.phase, workflow })
+    ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryKnowledgePrompt(root, { definition, phase: signals.phase, workflow, changedPaths: signals.changedPaths ?? [] })
     : { text: '', warnings: [] };
   const structural = workflow
     ? await requiredStructuralPromptContext(root, workflow)

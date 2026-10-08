@@ -183,7 +183,7 @@ const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
 const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
 // Repository knowledge reads the committed tree and writes only its machine-local cache; no model, no governed state.
-const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain']);
+const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas']);
 
 /**
  * The subcommands that only read, on commands whose *name* is not read-only.

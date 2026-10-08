@@ -68,11 +68,28 @@ function ruleLine(item, limits) {
   return `when ${conditions} → ${outcomeText(item.statement.then)}${constants.length ? ` (${constants.join(', ')})` : ''} — ${at(item)}${tests ? '' : ' · no test'}`;
 }
 
+/**
+ * A word's stem for matching a Story's words to code: "rules" and "rule", "coupons" and "coupon",
+ * "ordering" and "order". Deliberately light; it only has to make plurals and tenses meet.
+ */
+export function stemOf(word) {
+  const value = String(word).toLowerCase();
+  if (value.endsWith('ies') && value.length > 4) return `${value.slice(0, -3)}y`;
+  if (value.endsWith('ing') && value.length > 5) return value.slice(0, -3);
+  if (value.endsWith('ed') && value.length > 4) return value.slice(0, -2);
+  if (value.endsWith('s') && !value.endsWith('ss') && value.length > 4) return value.slice(0, -1);
+  return value;
+}
+
+/** The distinct stems of the words a focus text uses (four letters or more). */
+export function focusStems(focus) {
+  return [...new Set((String(focus ?? '').toLowerCase().match(/[a-z0-9_]{4,}/gu) ?? []).map(stemOf))].filter((term) => term.length >= 4);
+}
+
 /** Keep items about the focus terms, plus what they relate to. Falls back to everything. */
 export function focusItems(knowledge, focus) {
-  const terms = String(focus ?? '').toLowerCase().match(/[a-z0-9_]{4,}/gu) ?? [];
-  if (!terms.length) return { items: knowledge.items, matched: null };
-  const stems = [...new Set(terms.map((term) => term.replace(/(?:ing|ed|es|s)$/u, '')))].filter((term) => term.length >= 4);
+  const stems = focusStems(focus);
+  if (!stems.length) return { items: knowledge.items, matched: null };
   const text = (item) => JSON.stringify([item.subject, item.statement, item.area]).toLowerCase();
   const hit = new Set(knowledge.items.filter((item) => stems.some((stem) => text(item).includes(stem))).map((item) => item.id));
   const paths = new Set(knowledge.items.filter((item) => hit.has(item.id)).flatMap((item) => [item.subject?.path, ...item.citations.map((entry) => entry.path)]).filter(Boolean));

@@ -7,6 +7,7 @@
  *   status  [--area PATH] [--json]                                    levels and counts
  *   items   [--kind KIND] [--area PATH] [--json]                      the typed items, for tools
  *   eval    --expected FILE [--area PATH] [--json]                    score against expectations
+ *   areas   [--json]                                                  the areas a large repository is built in
  *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
  *
  * Read-only for the repository: it reads the committed tree and writes only its machine-local cache.
@@ -24,15 +25,16 @@ import { KNOWLEDGE_KINDS } from './items.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
 import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
+import { KNOWLEDGE_SOURCE_LIMITS } from './source.mjs';
 
-const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain> [--area PATH] [--json]';
+const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|areas> [--area PATH] [--json]';
 
 async function built(root, options) {
   const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh') });
   if (result.status !== 'ok') {
     const areas = (result.areas ?? []).slice(0, 12).map((area) => `${area.path || '.'} (${area.files})`).join(', ');
     throw new SingularityFlowError(
-      `This repository has ${result.codeFiles} code files, more than one knowledge build reads. Build one area at a time with --area PATH${areas ? `, for example: ${areas}` : ''}.`,
+      `This repository has ${result.codeFiles} code files, more than one knowledge build reads. Build one area at a time with --area PATH${areas ? `, for example: ${areas}` : ''}. List them all with: singularity-flow wm knowledge areas. Phase prompts build the areas a Story changes or names on their own.`,
       { code: 'KNOWLEDGE_SCOPE_TOO_LARGE', details: { codeFiles: result.codeFiles, areas: result.areas } }
     );
   }
@@ -46,7 +48,8 @@ function levelLine(levels) {
 export async function knowledgeCommand(root, positionals, options) {
   const subcommand = positionals[0];
   const json = optionBoolean(options, 'json');
-  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  if (subcommand === 'areas') return areasCommand(root, options);
   const result = await built(root, options);
   const { knowledge } = result;
   const maximumBytes = optionNumber(options, 'max-bytes') ?? null;
@@ -160,4 +163,17 @@ async function explainCommand(root, result, options) {
   for (const entry of checked.rejected.slice(0, 10)) console.log(`  rejected: "${entry.text}" (${entry.reason})`);
   console.log('Read them: singularity-flow wm knowledge show overview');
   return summary;
+}
+
+/** The areas this repository is built in: one whole build when it fits, otherwise one per area. */
+async function areasCommand(root, options) {
+  const json = optionBoolean(options, 'json');
+  const source = await readKnowledgeSource(root, { listOnly: true });
+  const areas = source.areas ?? [];
+  const whole = source.codePaths <= KNOWLEDGE_SOURCE_LIMITS.maximumCodeFiles;
+  const result = { codeFiles: source.codePaths, buildsWhole: whole, areas: areas.map((area) => ({ path: area.path || '.', files: area.files })) };
+  if (json) { console.log(JSON.stringify(result, null, 2)); return result; }
+  console.log(`${source.codePaths} code files: ${whole ? 'built whole' : `built one area at a time (over ${KNOWLEDGE_SOURCE_LIMITS.maximumCodeFiles})`}.`);
+  for (const area of result.areas) console.log(`  ${area.path.padEnd(48)} ${area.files} files   wm knowledge build --area ${area.path}`);
+  return result;
 }

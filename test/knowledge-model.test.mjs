@@ -193,7 +193,7 @@ test('wm knowledge works from the command line, read-only for the repository', a
   assert.equal(git(repository, 'status', '--porcelain'), '', 'the working tree is untouched');
   const unknown = run('explode');
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /Available: build, eval, explain, items, show, slice, status/u);
+  assert.match(unknown.stderr, /Available: areas, build, eval, explain, items, show, slice, status/u);
 });
 
 test('phase prompts receive one slice for the phase reader, focused on the Story, unless turned off', async (t) => {
@@ -330,4 +330,34 @@ test('history: how often files change and which change together, from small comm
   const impact = knowledge.items.find((item) => item.kind === 'impact' && item.subject.symbol === 'couponDiscount');
   assert.deepEqual(impact.statement.changesWith, ['src/hooks/useCart.ts']);
   assert.match(renderKnowledgeView(knowledge, 'change'), /changed together in 3 commits with no import between them/u);
+});
+
+test('a repository too large to read whole is built by area, and a prompt builds the areas its Story touches', async (t) => {
+  const { buildKnowledgeForAreas, selectKnowledgeAreas } = await import('../src/knowledge/store.mjs');
+  const { repositoryKnowledgePrompt } = await import('../src/knowledge/prompt.mjs');
+  const repository = await fixtureRepository(t, 'shop');
+  const limits = { maximumCodeFiles: 4, maximumFileBytes: 512 * 1024, maximumTotalBytes: 1 << 24 };
+  const whole = await buildKnowledge(repository, { limits });
+  assert.equal(whole.status, 'insufficient');
+  const paths = whole.areas.map((area) => area.path);
+  assert.ok(paths.includes('src/rules') || paths.some((entry) => entry.startsWith('src')), JSON.stringify(paths));
+  assert.deepEqual(selectKnowledgeAreas(whole.areas, { changedPaths: ['src/rules/pricing.ts'] }).map((area) => area.path), ['src/rules'],
+    'a folder\'s own-files area does not claim files in its subfolders');
+  assert.ok(selectKnowledgeAreas(whole.areas, { focus: 'Change the cart rules' }).length >= 1, 'folder names matching the Story count too');
+  assert.deepEqual(selectKnowledgeAreas(whole.areas, { focus: 'unrelated words' }), []);
+  const merged = await buildKnowledgeForAreas(repository, ['src/rules', 'src/state'], { limits });
+  assert.equal(merged.status, 'ok');
+  assert.equal(merged.knowledge.repository.partial, true);
+  assert.ok(merged.knowledge.items.some((item) => item.kind === 'rule' && item.subject.symbol === 'couponDiscount'));
+  assert.ok(merged.knowledge.items.some((item) => item.kind === 'decision' && item.subject.symbol === 'cartReducer'));
+  assert.equal(merged.knowledge.metrics.invalidCitations, 0);
+  const slice = await repositoryKnowledgePrompt(repository, {
+    definition: {}, phase: 'implementation', limits, changedPaths: ['src/rules/pricing.ts'],
+    workflow: { workItem: { title: 'Coupon rules', description: 'Adjust the coupon discount.' } }
+  });
+  assert.equal(slice.status, 'ok', JSON.stringify(slice.warnings));
+  assert.match(slice.text, /couponDiscount/u);
+  const none = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'implementation', limits, workflow: { workItem: { title: 'zzzz' } } });
+  assert.equal(none.text, '');
+  assert.match(none.warnings[0], /names no area of it/u);
 });

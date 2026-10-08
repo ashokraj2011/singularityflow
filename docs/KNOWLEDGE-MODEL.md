@@ -40,13 +40,24 @@ singularity-flow wm knowledge slice [--role developer|tester|architect|product |
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
 singularity-flow wm knowledge explain [--dry-run] [--json]
+singularity-flow wm knowledge areas [--json]
 ```
 
 A build reads the committed tree only (never working files, Singularity Flow's records, Git
 metadata or build output) and keeps its result in a machine-local cache under the shared Git
 directory, keyed by the exact content and the analyzer's own code, so every Story worktree reuses
-it and a new commit or a new analyzer rebuilds it. Repositories above 4,000 code files are built
-one area at a time with `--area`; the refusal names the areas.
+it and a new commit or a new analyzer rebuilds it.
+
+### Large repositories
+
+Above 4,000 code files a repository is never read whole. `wm knowledge areas` lists the areas it is
+built in (about 1,000 files each, Maven and Gradle source chains folded into the folder that
+branches; a folder's own files are an area separate from its subfolders), and `--area PATH` builds
+one, cached on its own. A phase prompt builds only the areas the Story touches: those holding the
+files it changed, then those whose folder names match the words of its title, description and
+acceptance criteria (up to three), merged and marked as partial. A Story that names no area gets no
+knowledge slice and a warning instead of a guess. Measured on a generated 12,000-file Java
+repository: listing the areas takes about 1 second, building a 500-file area 0.7 seconds.
 
 ## Plain-language explanations
 

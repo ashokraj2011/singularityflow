@@ -759,9 +759,12 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
   const meaningfulRules = items.filter((item) => item.kind === 'rule' && item.statement.kind !== 'guard').length;
   const levels = {
     L0: state(files.length > 0, commands.length > 0, files.length ? null : 'no application source in scope'),
-    L1: state(areas.length > 0 && (count('entity') + count('entry-point') > 0), areas.length > 0, 'no areas, entities or entry points were found'),
-    L2: state(count('decision') > 0 && callEdges.length > 0, count('decision') + callEdges.length > 0, 'no decisions or calls were found'),
-    L3: state(meaningfulRules > 0 && count('test-case') > 0, count('rule') + count('test-case') > 0, 'no rules or test cases were found'),
+    L1: state(areas.length > 0 && (count('entity') + count('entry-point') > 0), areas.length > 0,
+      areas.length ? 'no data shapes or entry points were found' : 'no areas, data shapes or entry points were found'),
+    L2: state(count('decision') > 0 && callEdges.length > 0, count('decision') + callEdges.length > 0,
+      missing([['decisions', count('decision')], ['calls between functions', callEdges.length]])),
+    L3: state(meaningfulRules > 0 && count('test-case') > 0, count('rule') + count('test-case') > 0,
+      missing([['rules', meaningfulRules], ['test cases', count('test-case')]])),
     L4: state(count('external-dependency') + count('configuration') > 0 || items.some((item) => item.kind === 'entry-point' && item.statement.kind === 'http'), false,
       'no endpoints, outbound calls or configuration were found'),
     L5: churn ? state(scored.some((entry) => entry.changes > 1) && count('impact') > 0, count('hotspot') > 0, 'no change history was available')
@@ -800,6 +803,12 @@ function effectText(sink) {
   if (sink.category === 'response') return `responds with ${sink.label.replace(/^HTTP /u, 'an HTTP ')}`;
   if (sink.category === 'log') return 'writes logs';
   return `${sink.kind === 'source' ? 'reads' : 'writes'} ${sink.label.replace(/^The /u, 'the ')}`;
+}
+
+/** Name exactly what was not found: "no test cases were found", not "no rules or test cases". */
+function missing(pairs) {
+  const absent = pairs.filter(([, value]) => !value).map(([label]) => label);
+  return absent.length ? `no ${absent.join(' or ')} ${absent.length === 1 && !absent[0].endsWith('s') ? 'was' : 'were'} found` : null;
 }
 
 function state(ready, thin, reason) {

@@ -44,7 +44,7 @@ function isCandidateSource(relative, pathContext) {
  * Over the file limit nothing is read: the result names the areas a reader can build one at a
  * time instead, because a partial repository presented as the whole one would mislead.
  */
-export async function readKnowledgeSource(root, { area = null, limits = KNOWLEDGE_SOURCE_LIMITS } = {}) {
+export async function readKnowledgeSource(root, { area = null, ownOnly = false, limits = KNOWLEDGE_SOURCE_LIMITS, listOnly = false } = {}) {
   const definition = await comprehensionDefinition(root);
   const pathContext = await comprehensionPathContext(root);
   let roots;
@@ -60,6 +60,8 @@ export async function readKnowledgeSource(root, { area = null, limits = KNOWLEDG
   const listed = [];
   const listing = readRefTreeResult(root, 'HEAD', roots, {
     pathFilter: (relative, entry) => {
+      // An area's own files are those directly in its folder; its subfolders are areas of their own.
+      if (ownOnly && area && path.posix.dirname(relative) !== roots[0]) return false;
       if (entry.type === 'blob' && (isCandidateSource(relative, pathContext) || MANIFEST.test(relative))) listed.push(relative);
       return false;
     }
@@ -70,11 +72,12 @@ export async function readKnowledgeSource(root, { area = null, limits = KNOWLEDG
     });
   }
   const codePaths = listed.filter((relative) => isCandidateSource(relative, pathContext));
-  const base = { commit, area, roots, codePaths: codePaths.length };
-  if (codePaths.length > limits.maximumCodeFiles) {
+  const base = { commit, area, ownOnly, roots, codePaths: codePaths.length };
+  if (listOnly || codePaths.length > limits.maximumCodeFiles) {
     return {
-      ...base, status: 'insufficient', reason: 'too-many-files', files: [], manifests: [], skipped: [],
-      areas: codeAreas(codePaths, { target: limits.maximumCodeFiles / 4 })
+      ...base, status: listOnly ? 'listed' : 'insufficient', reason: listOnly ? null : 'too-many-files', files: [], manifests: [], skipped: [],
+      // Areas of about a quarter of the limit, so each one builds on its own with room to spare.
+      areas: codeAreas(codePaths, { target: Math.max(1, Math.floor(limits.maximumCodeFiles / 4)), maxAreas: 60 })
     };
   }
   const wanted = new Set(listed);
@@ -108,7 +111,7 @@ export async function readKnowledgeSource(root, { area = null, limits = KNOWLEDG
     if (isCandidateSource(relative, pathContext)) files.push(entry);
     else manifests.push(entry);
   }
-  const key = digest(JSON.stringify([commit, roots, files.map((file) => [file.path, file.sha256]),
+  const key = digest(JSON.stringify([commit, roots, ownOnly, files.map((file) => [file.path, file.sha256]),
     manifests.map((file) => [file.path, file.sha256])]));
   return { ...base, status: 'ok', reason: null, key, files, manifests, skipped, bytes: total, name: path.basename(root) };
 }

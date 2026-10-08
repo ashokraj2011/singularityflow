@@ -1,4 +1,5 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
+import { retiredWorldModelFormatError } from './world-model-format.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product', 'review-source']);
@@ -158,10 +159,13 @@ export function commandDefinition(name) {
 
 const WM_MODEL_OPERATIONS = new Set(['build']);
 const WM_NEVER_OPERATIONS = new Set([
-  'init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget',
-  'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory',
+  'inject', 'compose', 'show-prompt', 'cleanup', 'context',
+  'facts', 'check', 'cache', 'availability', 'status', 'design-inventory',
   'read', 'read-views', 'read-contract'
 ]);
+// Subcommands of the legacy-v3 World Model, removed in a hard cutover. They are refused by name
+// before any handler loads, so a script that still calls one learns what replaced it.
+const WM_RETIRED_OPERATIONS = new Set(['init', 'prompt', 'budget', 'light']);
 // The registered-v4 dispatcher has its own closed public surface. Keep it here as well as in the
 // handler: command admission happens before that handler is imported, so an omitted entry makes a
 // fully implemented command unreachable from the CLI. The registry test compares this vocabulary
@@ -206,7 +210,7 @@ const WORKSPACE_READ_OPERATIONS = new Set([
   'migrate-schemas'
 ]);
 const WM_READ_OPERATIONS = new Set([
-  'show-prompt', 'prompt', 'context', 'budget', 'facts', 'check', 'availability', 'status',
+  'show-prompt', 'context', 'facts', 'check', 'availability', 'status',
   'design-inventory', 'read', 'read-views', 'read-contract'
 ]);
 const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
@@ -490,10 +494,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
 });
 
 function required(id) {
-  return operation(id, 'required', {
-    externalDependencies: ['copilot-cli'],
-    ...(id === 'wm.build' ? { fallback: { operationId: 'wm.light', mode: 'guided' } } : {})
-  });
+  return operation(id, 'required', { externalDependencies: ['copilot-cli'] });
 }
 
 function never(id, definition, classification = definition.classification) {
@@ -1097,10 +1098,12 @@ function unclassified(id) {
   });
 }
 
-function registeredV4Operation(options, context) {
+/** registered-v4 is the only World Model; asking for any other format is refused before a handler loads. */
+function assertRegisteredWorldModelRequest(options) {
   const requested = optionString(options, 'format');
-  if (requested) return ['v4', 'wmb-v4', 'registered-v4'].includes(requested);
-  return context?.worldModel?.format === 'registered-v4';
+  if (requested && !['v4', 'wmb-v4', 'registered-v4'].includes(requested)) {
+    throw retiredWorldModelFormatError(`--format ${requested}`);
+  }
 }
 
 function registeredV4Composer(options, context) {
@@ -1158,6 +1161,8 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
     }
     return never(`wm.history.${action}`, definition, 'read');
   }
+  if (WM_RETIRED_OPERATIONS.has(subcommand)) throw retiredWorldModelFormatError(`wm ${subcommand}`);
+  assertRegisteredWorldModelRequest(options);
   const id = `wm.${subcommand}`;
   // Rendering a handoff is observational, but --record-audit deliberately creates the immutable
   // generation prompt/receipt and appends the exact VS Code handoff to prompt audit. Give that
@@ -1166,21 +1171,9 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
   if (subcommand === 'show-prompt' && optionBoolean(options, 'record-audit')) {
     return never('wm.show-prompt.record-audit', definition, 'mutation');
   }
-  // `build --depth light` is a compatibility spelling of `wm light`, and an explicitly light
-  // ensure can only select the same deterministic builder. Classify both from their actual work so
-  // `--no-model` does not reject a zero-token operation before its handler is loaded.
-  if (subcommand === 'ensure') {
-    if (registeredV4Operation(options, context)) {
-      return never('wm.ensure.registered-v4', definition, 'read');
-    }
-    return optionString(options, 'depth') === 'light'
-      ? never('wm.light', definition, 'mutation')
-      : optional('wm.ensure', 'wm.light', definition);
-  }
+  if (subcommand === 'ensure') return never('wm.ensure.registered-v4', definition, 'read');
   if (WM_MODEL_OPERATIONS.has(subcommand)) {
-    if (optionString(options, 'depth') === 'light') return never('wm.light', definition, 'mutation');
-    if (registeredV4Operation(options, context)
-        && !WMB_V4_MODEL_COMPOSERS.has(registeredV4Composer(options, context))) {
+    if (!WMB_V4_MODEL_COMPOSERS.has(registeredV4Composer(options, context))) {
       return never('wm.build.deterministic', definition, 'mutation');
     }
     return required(id);
@@ -1562,7 +1555,6 @@ export function operationCatalog() {
     .map((name) => never(`wm.${name}`, wmDefinition, WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([never('wm.show-prompt.record-audit', wmDefinition, 'mutation')])
     .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)))
-    .concat([optional('wm.ensure', 'wm.light', wmDefinition)])
     .concat([never('wm.ensure.registered-v4', wmDefinition, 'read')])
     .concat(v4ExclusiveReads.map((name) => never(`wm.${name}`, wmDefinition, 'read')))
     .concat([...WMB_V4_MODEL_FREE_MUTATIONS].map((name) => never(

@@ -145,7 +145,7 @@ phase contract
 + approved upstream initiative artifacts
 ```
 
-The world model remains repository-owned. Initiative profile views are validated against `singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. A missing or unreachable model—and a stale model under staleness `fail`—produces an explicit unavailable receipt with zero World-Model bytes and does not block Initiative generation or publication. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot. With `worldModel.grounding: enforce`, model bytes that are uncommitted, changed, or inconsistent with their recorded provenance still fail closed before use. Build or refresh intelligence only through the exact `singularity-flow wm build --views ... --focus ...` command shown by the CLI.
+The world model remains repository-owned. Initiative profile views are validated against `singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. A missing or unreachable model—and a stale model under staleness `fail`—produces an explicit unavailable receipt with zero World-Model bytes and does not block Initiative generation or publication. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot. With `worldModel.grounding: enforce`, model bytes that are uncommitted, changed, or inconsistent with their recorded provenance still fail closed before use. Build or refresh intelligence only through the exact `singularity-flow wm build --views ...` command shown by the CLI.
 
 Every prepare, publication, evidence record, approval, rejection, materialization, synchronization, and lifecycle transition creates a commit and pushes it. A failed push retains the local commit, records pending publication, and blocks later mutations until `singularity-flow initiative sync` succeeds.
 
@@ -280,9 +280,9 @@ The planning phase produces a repository map naming the repositories an initiati
 ```yaml
 repositories:
   api:
-    worldModelViews: [architecture, development]
+    worldModelViews: [arch.contracts, dev.impact]
   mobile:
-    worldModelViews: [architecture]
+    worldModelViews: [arch.contracts]
 ```
 
 Publishing that phase validates the map against committed state: every named repository must exist in `portfolio.repositories`; when a committed World-Model manifest is available, every referenced view must exist in it. This stops an impact analysis from naming a repository that is not configured or citing a view absent from available governed evidence, without treating model availability itself as authority.

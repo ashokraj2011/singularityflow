@@ -2,29 +2,16 @@
  * Which world-model content a phase receives, and at which tier.
  *
  * Both decisions were previously invisible and unconfigurable, and together they put 38 KB of
- * grounding into a 67 KB prompt on a thirty-three-file repository.
- *
- * The tier is the sharper of the two. Every view is generated twice — `views/<v>.md` and
- * `views/<v>.brief.md` — and `validateWorldModelDirectory` *rejects* a v2 manifest whose view is
- * missing its `brief_path`. So the brief was mandatory to produce and impossible to consume: the
- * reader took `manifest.views[view].path` unconditionally, and `depth` only flavoured the builder's
- * prompt. Two phases asking for the same view at `quick` and at `deep` received identical bytes.
+ * grounding into a 67 KB prompt on a thirty-three-file repository. The tier is decided by the
+ * phase's declared depth at the point of consumption: two phases asking for the same view at
+ * `quick` and at `deep` must not receive identical selections.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  AGENT_VIEW_MODES, corePath, resolveViews, tierForCore, tierForView, viewPath
+  AGENT_VIEW_MODES, resolveViews, tierForCore, tierForView
 } from '../src/world-model-selection.mjs';
-
-const MANIFEST = {
-  core: { summary: 'core/summary.md', brief: 'core/summary.brief.md' },
-  views: {
-    architecture: { path: 'views/architecture.md', brief_path: 'views/architecture.brief.md' },
-    security: { path: 'views/security.md', brief_path: 'views/security.brief.md' },
-    legacy: { path: 'views/legacy.md' }
-  }
-};
 
 test('a phase that declares its own views is not given the agent’s as well', () => {
   // The POC's verification phase declared [testing, development, security]; the developer agent
@@ -76,13 +63,3 @@ test('a view added by an agent is never the subject', () => {
   assert.equal(tierForView('development', { depth: 'standard', declared: ['testing'] }), 'brief');
 });
 
-test('a manifest without a brief falls back to the full text rather than failing', () => {
-  // v1 manifests predate the tier, and a view may legitimately be ungenerated. A phase should not
-  // fail over a tier that did not exist when its model was built.
-  assert.equal(viewPath(MANIFEST, 'legacy', 'brief'), 'views/legacy.md');
-  assert.equal(viewPath(MANIFEST, 'architecture', 'brief'), 'views/architecture.brief.md');
-  assert.equal(viewPath(MANIFEST, 'architecture', 'full'), 'views/architecture.md');
-  assert.equal(viewPath(MANIFEST, 'absent', 'brief'), null);
-  assert.equal(corePath({ core: {} }, 'brief'), 'core/summary.md');
-  assert.equal(corePath(MANIFEST, 'brief'), 'core/summary.brief.md');
-});

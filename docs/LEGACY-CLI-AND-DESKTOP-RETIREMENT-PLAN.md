@@ -43,7 +43,7 @@ result migration, reviewed alias retirement, stale desktop documentation, packag
 performance measurements, and cross-platform release proof.
 
 Out of scope: changing Story or capability data formats, dropping historical schema readers,
-removing the `legacy-v3` World Model solely because of its name, rewriting Git branches, removing
+rewriting Git branches, removing
 the `sflow`/`singularity-flow` primary executables, removing supported install/uninstall runners,
 deleting the desktop archive tag/branch, or removing VS Code's Electron runtime handling.
 

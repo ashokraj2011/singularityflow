@@ -25,7 +25,7 @@ test('actual phase composition injects pinned workflow and agent skills without 
   await initializeDefinition(root);
   const file = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(file, 'utf8'));
-  definition.git.publish = 'off'; definition.worldModel.grounding = 'off'; definition.worldModel.promptSource = 'builtin';
+  definition.git.publish = 'off'; definition.worldModel.grounding = 'off';
   await writeFile(file, YAML.stringify(definition));
   const plan = await planStudioChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [
     { op: 'skill.create', id: 'agent-probe', description: 'Agent scope probe.', instructions: 'UNIQUE-AGENT-SKILL-84523' },
@@ -102,7 +102,7 @@ async function captureOutput(operation) {
   }
 }
 
-test('wm context lists and concatenates the requested phase’s pinned agent without live files', async (t) => {
+test('wm context and its configuration use the requested phase’s pinned agent, never live files', async (t) => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-agent-context-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-q', '-b', 'main');
@@ -114,7 +114,6 @@ test('wm context lists and concatenates the requested phase’s pinned agent wit
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
   definition.worldModel.grounding = 'off';
-  definition.worldModel.promptSource = 'builtin';
   await writeFile(definitionPath, YAML.stringify(definition));
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'base application and configuration');
@@ -136,9 +135,7 @@ test('wm context lists and concatenates the requested phase’s pinned agent wit
   });
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'accept Story closure');
-  await captureOutput(() => worldModelCommand(root, ['wm', 'light'], {
-    repositoryCatalog: true
-  }));
+  await captureOutput(() => worldModelCommand(root, ['wm', 'build'], { json: true }));
   const loaded = await loadWorldModelConfig(root, { phase: 'implementation' });
   assert.equal(loaded.agentPrompt, 'agent:developer');
   const developerText = loaded.executionContext.agent.text;
@@ -151,19 +148,18 @@ test('wm context lists and concatenates the requested phase’s pinned agent wit
   const beforeWorkflow = await readFile(workflowPath);
   const listed = await captureOutput(() => worldModelCommand(root,
     ['wm', 'context', 'implementation'], {}));
-  assert.match(listed, /L0  agent:developer  # active agent prompt/);
-  assert.doesNotMatch(listed, /world-model\/agent:developer|agent:product-owner/);
+  assert.match(listed, /# WMB v4 context: phase=implementation/);
+  assert.doesNotMatch(listed, /UNTRUSTED LIVE PROMPT/);
   const rendered = await captureOutput(() => worldModelCommand(root,
     ['wm', 'context', 'implementation'], { concat: true }));
-  assert.equal(rendered.split(developerText).length, 2, 'the pinned prompt is rendered once');
   assert.doesNotMatch(rendered, /UNTRUSTED LIVE PROMPT/);
-  const withoutAgent = await captureOutput(() => worldModelCommand(root,
-    ['wm', 'context', 'implementation'], { concat: true, agent: false }));
-  assert.doesNotMatch(withoutAgent, /active agent prompt|UNTRUSTED LIVE PROMPT/);
+  const reloaded = await loadWorldModelConfig(root, { phase: 'implementation' });
+  assert.equal(reloaded.executionContext.agent.text, developerText,
+    'a same-named live replacement must not shadow the accepted agent');
   for (const phase of loaded.workflow.resolution.phases) {
-    const output = await captureOutput(() => worldModelCommand(root,
-      ['wm', 'context', phase.id], {}));
-    assert.ok(output.includes(`L0  agent:${phase.defaultAgent}  # active agent prompt`),
+    if (!phase.defaultAgent) continue;
+    const phaseConfig = await loadWorldModelConfig(root, { phase: phase.id });
+    assert.equal(phaseConfig.agentPrompt, `agent:${phase.defaultAgent}`,
       `${phase.id} must select its own accepted phase agent`);
   }
   assert.equal(git(root, 'status', '--porcelain=v1'), before);

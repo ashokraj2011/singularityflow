@@ -25,17 +25,20 @@ does not rebuild an unchanged repository model.
 
 ## Enable v4
 
-New repositories and packaged workflows use `registered-v4`, exact `@4` catalog entries, native
-phase/agent selections, deterministic composition, and strict assignment validation by default.
-World Model-off workflows remain off. An existing configuration without an explicit format still
-reads as `legacy-v3`; an install alone does not rewrite approved configuration or Story pins.
-To migrate, use **Configuration Center → After install → Migrate workspace & capabilities** and
-review the exact plan. The compatibility bridge is for retained legacy assignments, not new seeds.
+`registered-v4` is the only World Model format: exact `@4` catalog entries, native phase/agent
+selections, deterministic composition and strict assignment validation. A configuration without a
+`format` uses it. World Model-off workflows remain off.
 
-For advanced configuration in VS Code, open **Singularity
-Flow → Configuration Center → World model**, choose **Registered v4 — governed facts**, review the
-composer, consumer, cache, and token controls, then use the normal configuration review/publication
-flow. The same approved setting can be written directly in `singularity/workflow.yml`:
+The legacy-v3 World Model was removed in a hard cutover. A configuration that still sets
+`format: legacy-v3`, names a v3 view (`business`, `architecture`, `development`, `testing`,
+`release`, `operations`, `security`) or sets `v4.legacyAssignments: inherit-configured` is refused
+with `WMB_FORMAT_RETIRED` and told what to change; nothing converts it automatically. A Story
+started under legacy-v3 keeps its records, but its phases compose with zero World Model bytes and
+its v3 prompt receipts can no longer be verified. Start a new Story to use registered views.
+
+For advanced configuration in VS Code, open **Singularity Flow → Configuration Center → World
+model**, review the composer, consumer, cache, and token controls, then use the normal
+configuration review/publication flow. The same approved setting can be written directly in `singularity/workflow.yml`:
 
 ```yaml
 worldModel:
@@ -56,19 +59,8 @@ worldModel:
     consumer: developer
     cachePolicy: reuse-valid
     candidateSnapshots: allow
-    legacyAssignments: inherit-configured
     totalMaximumOutputTokens: 5600
 ```
-
-Existing repositories normally still carry v3-only phase and governed-agent assignments such as
-`business`, `architecture`, `development`, and `testing`. Those names are not aliases for v4
-contracts, so a format-only edit is intentionally refused. The Configuration Center now performs
-an explicit, atomic-safe transition: it stages the exact active v4 contract list and sets
-`worldModel.v4.legacyAssignments: inherit-configured`. Under that policy, an assignment made only
-from the closed seven-name v3 vocabulary inherits the repository's exact configured v4 catalog.
-SFlow does not guess a one-to-one mapping. Unknown or misspelled names and a list mixing v3 and v4
-IDs still fail closed. After phase and Agent Markdown assignments have been rewritten to reviewed
-v4 IDs, set the policy back to `strict`.
 
 Saving the form changes the checkout only. Publish the configuration through the normal
 configuration-review path before repository-level builds use it. An active Story retains the
@@ -155,19 +147,11 @@ They are also deliberately local-only: a private object-store ref cannot be veri
 clone, so a Candidate Snapshot build never publishes reusable state. After review, commit the source
 and run a normal clean-source build to publish it for other Stories, machines, and IDE sessions.
 
-With a `registered-v4` workflow configuration, the shorter `sflow wm ...` spelling selects the same
-runtime. In a compatibility repository, `--format v4` is a one-command override: repeat it on later
-versioned reads, or publish the YAML setting so every surface resolves v4 consistently. `--local`
-validates without publishing. `--rebuild` deliberately bypasses exact cache reuse.
-
-The one-command override does not reinterpret legacy-v3 view names. When `workflow.yml` still uses
-legacy names such as `business`, `architecture`, or `testing`, an override with no `--views` selects
-all active installed registered contracts; an explicit `--views` value is validated only against
-the registered-v4 catalog. Use `sflow wm views` to list those exact IDs. Once `workflow.yml` itself
-declares `format: registered-v4`, every configured phase, agent, and repository view is validated.
-Strict mode accepts registered IDs only. The explicit `inherit-configured` transition mode accepts
-known legacy-only assignments as inheritance, but continues to refuse unknown, mixed, inactive, or
-version-mismatched IDs with the catalog and repair command.
+The shorter `sflow wm ...` spelling selects the same runtime. `--local` validates without
+publishing. `--rebuild` deliberately bypasses exact cache reuse. Every configured phase, agent, and
+repository view is validated against the registered catalog; unknown, inactive, or
+version-mismatched IDs are refused with the catalog and repair command. Use `sflow wm views` to list
+the exact IDs.
 
 `composer: deterministic` makes no model call. `model-optional` remains deterministic when the
 registered facts are sufficient; `model-required` invokes the governed provider. `--model MODEL`
@@ -436,12 +420,9 @@ short-lived writable gateway only for the confirmed run. Cancelling the modal cr
 performs no mutation. The activation-long gateway and ordinary Copilot/IDE reads remain read-only;
 no surface adds an approval bypass or broadens the five-tool catalog.
 
-That v4 picker applies only when the effective approved or Story-pinned configuration is
-`registered-v4`. For `legacy-v3`, the same button instead reviews a deterministic, model-free
-`wm light --format legacy-v3 --views all --state-only` refresh. It publishes the reusable model to
-the configured state branch without committing or pushing the application or active Story branch.
-Saving the v4 format in the settings form alone does not change the approved authority or an
-existing Story pin; publish configuration through its review flow before expecting the v4 picker.
+A Story pinned to the removed legacy-v3 format cannot build: the picker refuses with
+`WMB_FORMAT_RETIRED`. Saving the settings form alone does not change the approved authority;
+publish configuration through its review flow before building from it.
 
 On Windows the Copilot provider is launched through the shared platform-safe command resolver and
 ACP stdio session boundary. Arguments are passed as an argv vector rather than shell text, prompts
@@ -510,6 +491,9 @@ key-custody boundary, and retained output contract are in
 
 - `WMB_MANIFEST_MISSING`: run an explicit v4 build for at least one registered view.
 - `WMB_MIGRATION_REQUIRED`: rebuild or run the explicit migration command; do not rename a v3 file.
+- `WMB_FORMAT_RETIRED`: the configuration (or the Story pin) still names the removed legacy-v3
+  World Model. Set `format: registered-v4` or remove it, and replace v3 view names with the IDs from
+  `sflow wm views`; a legacy-v3 Story continues without World Model context.
 - `WMB_SOURCE_SNAPSHOT_REQUIRED`: commit or stash the in-scope application bytes, then rerun the
   plan/build against a clean exact source snapshot. If those bytes are the intentional reviewed
   candidate and policy permits it, run `wm snapshot`, review its source hash, and pass that exact

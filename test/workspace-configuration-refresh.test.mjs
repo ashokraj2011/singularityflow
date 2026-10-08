@@ -1,4 +1,3 @@
-import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -21,11 +20,6 @@ import { loadDefinition } from '../src/config.mjs';
 import { reinitializeWorkspaces } from '../src/workspace-reinitialize.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
 import { assertStoryNotArchived, GOVERNANCE_ARCHIVE_PATH, GOVERNANCE_ARCHIVE_VERSION } from '../src/governance-archive.mjs';
-import { refreshFosAuthority } from '../src/onboard.mjs';
-import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
-import { loadWorldModelConfig } from '../src/worldmodel.mjs';
-import { buildWorldModelV4Command } from '../src/world-model/commands.mjs';
-import { BUILTIN_VIEW_REFERENCES } from '../src/world-model/registry/views.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
   isolatedCacheGitEnvironment,
@@ -52,7 +46,6 @@ const INITIAL_FILES = [
   ['artifacts', 'singularity/templates'],
   ['agents', '.github/agents'],
   ['skill-library', 'singularity/skill-library'],
-  ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ];
 
@@ -205,10 +198,10 @@ test('hard cutover retires old Story records without migrating or changing their
   }));
   git(authority, ['add', GOVERNANCE_ARCHIVE_PATH]); git(authority, ['commit', '-m', 'Retain earlier rebuild archive']);
   git(authority, ['push', 'origin', 'HEAD:sflow/config']);
-  const ordinary = await reinitializeWorkspaces({ registryFile: registry, dryRun: true, migrateWorldModel: true });
+  const ordinary = await reinitializeWorkspaces({ registryFile: registry, dryRun: true });
   assert.equal(ordinary.status, 'blocked');
   assert.ok(ordinary.schemaCensuses[0].findings.some(finding => finding.code === 'SCHEMA_VERSION_MISSING'));
-  const options = { registryFile: registry, hardCutover: true, migrateWorldModel: true };
+  const options = { registryFile: registry, hardCutover: true };
   let preview = await reinitializeWorkspaces({ ...options, dryRun: true });
   assert.equal(preview.status, 'preview', JSON.stringify(preview));
   assert.equal(preview.storyCutover.status, 'planned');
@@ -217,8 +210,8 @@ test('hard cutover retires old Story records without migrating or changing their
   assert.ok(preview.nextAction.argv.includes('--hard-cutover'));
   assert.equal(git(repository, ['rev-parse', 'HEAD']), sourceHead);
   assert.equal(git(repository, ['status', '--porcelain']), '');
-  // Both byte projection and policy bind the flag. A normal migration cannot consume its plan.
-  const wrongMode = await reinitializeWorkspaces({ registryFile: registry, migrateWorldModel: true, confirmPlan: preview.planId });
+  // Both byte projection and policy bind the flag. An ordinary reinitialize cannot consume its plan.
+  const wrongMode = await reinitializeWorkspaces({ registryFile: registry, confirmPlan: preview.planId });
   assert.equal(wrongMode.status, 'blocked');
   const configBefore = git(remote, ['rev-parse', 'sflow/config']);
   git(repository, ['switch', 'OLD-1']);
@@ -263,128 +256,16 @@ test('hard cutover retires old Story records without migrating or changing their
   assert.ok(!census.unreadable.some(finding => finding.path.includes('/OLD-1/')));
 });
 
-test('confirmed migration publishes repository and capability settings together and preserves history', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-config-migration-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const { remote, repository, registry } = await registeredRepositoryFixture(root, 'migration');
-  const editor = path.join(root, 'editor');
-  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, editor]);
-  git(editor, ['config', 'user.name', 'Migration Test']);
-  git(editor, ['config', 'user.email', 'migration@example.test']);
-  await initializeLegacyWorldModelDefinition(editor);
-  const capsText = '# Preserve authored layout and routing\nversion: 1\ncapabilities:\n  enterprise:\n    kind: collection\n    policy:\n      approvalMinimum: 2\n      requiredWorldModelViews: [security, testing]\n';
-  await writeFile(path.join(editor, 'singularity/capabilities.yml'), capsText);
-  git(editor, ['add', 'singularity/workflow.yml', 'singularity/capabilities.yml']);
-  git(editor, ['commit', '-m', 'Custom capability policy']);
-  git(editor, ['push', 'origin', 'HEAD:sflow/config']);
-  const state = path.join(root, 'state');
-  await initializeStatePublisher(state);
-  await mkdir(path.join(state, 'singularity/world-model'), { recursive: true });
-  const oldManifest = '{"schema_version":"3.0","historical":true}\n';
-  await writeFile(path.join(state, 'singularity/world-model/manifest.json'), oldManifest);
-  git(state, ['add', '-A']); git(state, ['commit', '-m', 'Historical World Model']);
-  git(state, ['remote', 'add', 'origin', remote]); git(state, ['push', 'origin', 'state']);
-  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
-  const configBefore = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
-  const stateBefore = git(remote, ['rev-parse', 'refs/heads/state']);
-  await writeFile(path.join(repository, 'uncommitted.txt'), 'do not touch draft\n');
-  const preview = await refreshWorkspaceConfigurations({
-    registryFile: registry, dryRun: true, restorePackagedSeeds: true, migrateWorldModel: true
-  });
-  assert.equal(preview.status, 'preview', JSON.stringify(preview));
-  assert.equal(preview.results[0].worldModelMigration.fromFormat, 'legacy-v3');
-  assert.deepEqual(preview.results[0].worldModelMigration.capabilities, ['enterprise']);
-  assert.ok(preview.results[0].files.includes('singularity/capabilities.yml'));
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore);
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), stateBefore);
-  const wrongMode = await refreshWorkspaceConfigurations({
-    registryFile: registry, restorePackagedSeeds: true, confirmPlan: preview.planId
-  });
-  assert.equal(wrongMode.status, 'blocked', 'migration flag is part of exact confirmation');
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore);
-  const applied = await refreshWorkspaceConfigurations({
-    registryFile: registry, restorePackagedSeeds: true, migrateWorldModel: true, confirmPlan: preview.planId
-  });
-  assert.equal(applied.status, 'complete', JSON.stringify(applied));
-  assert.equal(applied.results[0].worldModelMigration.targetFormat, 'registered-v4');
-  const workflow = YAML.parse(git(remote, ['show', 'sflow/config:singularity/workflow.yml']));
-  assert.equal(workflow.worldModel.format, 'registered-v4');
-  assert.deepEqual(workflow.worldModel.views, BUILTIN_VIEW_REFERENCES);
-  assert.equal(workflow.worldModel.v4.legacyAssignments, 'inherit-configured');
-  const migratedCaps = git(remote, ['show', 'sflow/config:singularity/capabilities.yml']);
-  assert.match(migratedCaps, /^# Preserve authored layout and routing/);
-  assert.equal(YAML.parse(migratedCaps).capabilities.enterprise.policy.approvalMinimum, 2);
-  assert.deepEqual(YAML.parse(migratedCaps).capabilities.enterprise.policy.requiredWorldModelViews,
-    BUILTIN_VIEW_REFERENCES.map(view => view.split('@')[0]));
-  assert.equal(git(remote, ['show', 'state:singularity/capabilities.yml']), migratedCaps);
-  assert.equal(git(remote, ['show', 'state:singularity/world-model/manifest.json']), oldManifest.trim());
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore);
-  assert.equal(await readFile(path.join(repository, 'uncommitted.txt'), 'utf8'), 'do not touch draft\n');
-  const repeat = await refreshWorkspaceConfigurations({
-    registryFile: registry, dryRun: true, restorePackagedSeeds: true, migrateWorldModel: true
-  });
-  assert.equal(repeat.status, 'preview', JSON.stringify(repeat));
-  assert.equal(repeat.results[0].status, 'current');
-  assert.equal(repeat.results[0].worldModelMigration.rebuildRequired, false);
-
-  // The menu must activate the exact upgraded authority even for older checkouts without a
-  // FOS pin. A legacy manifest can remain in governed history without trapping the next build.
-  const attached = await refreshFosAuthority(repository, {
-    expectedConfigCommit: applied.results[0].configurationCommit, attachIfMissing: true
-  });
-  assert.equal(attached.descriptor.authority.sourceCommit, applied.results[0].configurationCommit);
-  // Rebuild on a clean source snapshot, not by consuming or discarding the user's saved draft.
-  const buildRoot = path.join(root, 'clean-build-checkout');
-  run('git', ['clone', '--quiet', '--branch', 'main', remote, buildRoot]);
-  git(buildRoot, ['config', 'user.name', 'Migration Test']);
-  git(buildRoot, ['config', 'user.email', 'migration@example.test']);
-  await refreshFosAuthority(buildRoot, {
-    expectedConfigCommit: applied.results[0].configurationCommit, attachIfMissing: true
-  });
-  const built = await withApprovedConfigurationRead(buildRoot, async () => {
-    const config = await loadWorldModelConfig(buildRoot);
-    assert.equal(config.definition.worldModel.format, 'registered-v4');
-    return buildWorldModelV4Command(buildRoot, config, { local: true, views: 'dev.impact' }, { silent: true });
-  }, { preferAuthority: true });
-  assert.equal(built.status, 'completed', JSON.stringify(built));
-  assert.ok(built.warnings.some(warning => /Legacy v3 output was not imported/.test(warning)));
-  assert.equal(git(remote, ['show', 'state:singularity/world-model/manifest.json']), oldManifest.trim());
-  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore);
-  assert.equal(await readFile(path.join(repository, 'uncommitted.txt'), 'utf8'), 'do not touch draft\n');
-});
-
-test('a narrow registered catalog refuses incompatible native seed obligations without widening approved policy', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-custom-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  await initializeLegacyWorldModelDefinition(root);
-  const file = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(file, 'utf8'));
-  definition.worldModel.format = 'registered-v4';
-  definition.worldModel.views = ['dev.impact@4'];
-  definition.worldModel.v4 = { legacyAssignments: 'inherit-configured', composer: 'model-optional' };
-  await writeFile(file, YAML.stringify(definition));
-  const before = await readFile(file, 'utf8');
-  await assert.rejects(refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true }),
-    /arch\.contracts.*not declared/);
-  assert.equal(await readFile(file, 'utf8'), before, 'a new seed obligation requires configuration-authority review');
-  const after = await loadDefinition(root);
-  assert.deepEqual(after.worldModel.views, ['dev.impact@4']);
-  assert.equal(after.worldModel.v4.composer, 'model-optional');
-});
-
-test('mixed capability assignments refuse migration before any local candidate write', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-mixed-'));
+test('the retired World Model migration refuses before any local candidate write', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-retired-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeFixture(root);
-  const before = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
-  const file = path.join(root, 'singularity/capabilities.yml');
-  const caps = YAML.parse(await readFile(file, 'utf8'));
-  caps.capabilities.enterprise.policy.requiredWorldModelViews = ['security', 'dev.impact'];
-  await writeFile(file, YAML.stringify(caps));
+  const workflowBefore = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
+  const capabilitiesBefore = await readFile(path.join(root, 'singularity/capabilities.yml'), 'utf8');
   await assert.rejects(refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true }),
-    error => error.code === 'WMB_VIEW_ASSIGNMENT_MIXED');
-  assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), before);
-  assert.deepEqual(YAML.parse(await readFile(file, 'utf8')), caps);
+    error => error.code === 'WMB_FORMAT_RETIRED' && /--migrate-world-model/.test(error.message));
+  assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), workflowBefore);
+  assert.equal(await readFile(path.join(root, 'singularity/capabilities.yml'), 'utf8'), capabilitiesBefore);
 });
 
 async function cachedConfigurationCheckout(registry, planId) {
@@ -1327,6 +1208,11 @@ test('seeded reinitialization migrates authentic v1 role fields and retains repo
     },
     metadata: { owner: 'company-platform', retention: 'seven-years' }
   };
+  // The World Model migration was retired with legacy-v3, so this repository has already replaced
+  // its legacy view names with registered IDs (as WMB_FORMAT_RETIRED instructs). That isolates the
+  // role-field migration under test; framework phases still carry exact historical package bytes.
+  legacy.worldModel.views = ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'];
+  legacy.phases['company-intake'].worldModel = { views: ['biz.rules'], depth: 'quick' };
   // Repository-owned phases must bind a governed Agent Markdown file directly in v2. Keeping a
   // legacy suggestion here would be ambiguous and is covered by the refusal regression below.
   delete legacy.phases['company-intake'].suggestedPersonas;
@@ -1367,7 +1253,7 @@ Preserve the repository-owned company intake policy and cite governed evidence.
 `;
   await writeFile(companyAgentFile, companyAgentBytes);
 
-  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true });
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
   const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
 
   assert.equal(refreshed.version, 2,
@@ -1436,7 +1322,16 @@ test('seeded reinitialization retires an exact registered v1 prompt with histori
   const packagedLegacy = YAML.parse(await readFile(path.join(
     ROOT, 'test/fixtures/workflow-v1-ba513.yml'
   ), 'utf8'));
-  await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(packagedLegacy));
+  // The World Model migration was retired with legacy-v3, so this repository has already replaced
+  // its legacy view names with registered IDs (as WMB_FORMAT_RETIRED instructs). That isolates the
+  // role-field migration under test; framework phases still carry exact historical package bytes.
+  await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify({
+    ...packagedLegacy,
+    worldModel: {
+      ...packagedLegacy.worldModel,
+      views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4']
+    }
+  }));
   const retiredPromptRelative = 'singularity/personas/developer.md';
   const retiredPromptFile = path.join(root, retiredPromptRelative);
   const retiredPromptBytes = await readFile(path.join(
@@ -1456,7 +1351,7 @@ test('seeded reinitialization retires an exact registered v1 prompt with histori
     }
   }));
 
-  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true });
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
 
   await assert.rejects(readFile(retiredPromptFile), (error) => error?.code === 'ENOENT',
     'an exact registered historical package prompt should be retired');
@@ -1703,7 +1598,7 @@ test('seeded reinitialization preserves same-path repository assets without owne
   await initializeFixture(root);
   const qaFile = path.join(root, '.github/agents/qa.agent.md');
   const templateFile = path.join(root, 'singularity/templates/common/implementation.md');
-  const promptFile = path.join(root, 'singularity/prompts/worldmodel-builder.md');
+  const promptFile = path.join(root, 'singularity/prompts/copilot-planning.md');
   await writeFile(qaFile, `${await readFile(qaFile, 'utf8')}\n<!-- stale package-era agent -->\n`);
   await writeFile(templateFile,
     `${await readFile(templateFile, 'utf8')}\n<!-- stale package-era template -->\n`);
@@ -1714,27 +1609,27 @@ test('seeded reinitialization preserves same-path repository assets without owne
 
   const qaBytes = `${await readFile(path.join(ROOT, 'templates/agents/qa.agent.md'), 'utf8')}\n<!-- stale package-era agent -->\n`;
   const templateBytes = `${await readFile(path.join(ROOT, 'templates/artifacts/common/implementation.md'), 'utf8')}\n<!-- stale package-era template -->\n`;
-  const promptBytes = `${await readFile(path.join(ROOT, 'templates/worldmodel-builder.md'), 'utf8')}\n<!-- repository-owned prompt collision -->\n`;
+  const promptBytes = `${await readFile(path.join(ROOT, 'templates/copilot-planning.md'), 'utf8')}\n<!-- repository-owned prompt collision -->\n`;
   assert.equal(await readFile(qaFile, 'utf8'), qaBytes);
   assert.equal(await readFile(templateFile, 'utf8'), templateBytes);
   assert.equal(await readFile(promptFile, 'utf8'), promptBytes);
   assert.ok(!result.files.includes('.github/agents/qa.agent.md'));
   assert.ok(!result.files.includes('singularity/templates/common/implementation.md'));
-  assert.ok(!result.files.includes('singularity/prompts/worldmodel-builder.md'));
+  assert.ok(!result.files.includes('singularity/prompts/copilot-planning.md'));
   assert.ok(result.conflicts.some((entry) =>
     entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
   assert.ok(result.conflicts.some((entry) =>
     entry.path === 'singularity/templates/common/implementation.md'
       && entry.resolution === 'preserved-local'));
   assert.ok(result.conflicts.some((entry) =>
-    entry.path === 'singularity/prompts/worldmodel-builder.md'
+    entry.path === 'singularity/prompts/copilot-planning.md'
       && entry.resolution === 'preserved-local'));
 
   const receipt = YAML.parse(await readFile(path.join(root,
     'singularity/.product/configuration-baseline.yml'), 'utf8'));
   assert.equal(receipt.ownership.assets['.github/agents/qa.agent.md'], 'repository');
   assert.equal(receipt.ownership.assets['singularity/templates/common/implementation.md'], 'repository');
-  assert.equal(receipt.ownership.assets['singularity/prompts/worldmodel-builder.md'], 'repository');
+  assert.equal(receipt.ownership.assets['singularity/prompts/copilot-planning.md'], 'repository');
 
   const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
   assert.equal(await readFile(qaFile, 'utf8'), qaBytes,
@@ -1747,7 +1642,7 @@ test('seeded reinitialization preserves same-path repository assets without owne
   assert.ok(repeated.conflicts.some((entry) =>
     entry.path === 'singularity/templates/common/implementation.md'));
   assert.ok(repeated.conflicts.some((entry) =>
-    entry.path === 'singularity/prompts/worldmodel-builder.md'));
+    entry.path === 'singularity/prompts/copilot-planning.md'));
 });
 
 test('seeded reinitialization recognizes exact historical templates under a configured templates root', async (t) => {
@@ -2211,7 +2106,7 @@ test('a seeded plan binds exact ownership resolutions and existing-authority pac
   const packagePreview = await refreshWorkspaceConfigurations({
     registryFile: registry, dryRun: true, restorePackagedSeeds: true
   });
-  const packagedPrompt = path.join(ROOT, 'templates/worldmodel-builder.md');
+  const packagedPrompt = path.join(ROOT, 'templates/copilot-planning.md');
   const packagedPromptBefore = await readFile(packagedPrompt);
   try {
     await writeFile(packagedPrompt, Buffer.concat([
@@ -3352,7 +3247,7 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   // A source checkout can keep the same stamped product revision while its packaged bytes move
   // (for example an incorrectly assembled internal distribution). First-authority confirmation
   // must bind those bytes, not only the build label and application branch SHA.
-  const packagedPrompt = path.join(ROOT, 'templates/worldmodel-builder.md');
+  const packagedPrompt = path.join(ROOT, 'templates/copilot-planning.md');
   const packagedPromptBefore = await readFile(packagedPrompt);
   initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   try {

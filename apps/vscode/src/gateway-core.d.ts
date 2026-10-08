@@ -304,7 +304,10 @@ declare module '*/worldmodel.mjs' {
   export function loadWorldModelConfig(root: string, options?: {
     agent?: string | null; workId?: string | null; capabilityId?: string | null;
   }): Promise<Record<string, any>>;
-  export function resolveWorldModelViewIds(config: Record<string, any>, values: readonly string[]): string[];
+}
+
+declare module '*/world-model-format.mjs' {
+  export function assertRegisteredWorldModel(definition: any, options?: { source?: string; workId?: string | null }): void;
 }
 
 declare module '*/grounding.mjs' {

@@ -1,4 +1,3 @@
-import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -235,77 +234,23 @@ test('registered-v4 view configuration fails closed instead of broadening an unk
   }, { views: 'dev.impact@4' }), ['dev.impact']);
 });
 
-test('one-command registered-v4 override does not reinterpret legacy-v3 view IDs', () => {
-  const compatibility = {
-    definition: {
-      worldModel: {
-        views: [
-          'business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'
-        ]
-      }
-    },
-    phases: {
-      intake: {
-        declaredViews: ['business', 'architecture'],
-        agentViews: ['development']
-      }
-    }
+test('a one-command view selection names only registered contracts', () => {
+  const configured = {
+    definition: { worldModel: {} },
+    phases: { intake: { declaredViews: ['biz.rules'], agentViews: ['dev.impact'] } }
   };
   assert.deepEqual(configuredWorldModelV4ViewSelections(
-    compatibility, { format: 'registered-v4' }, 'intake'
-  ).map((entry) => entry.reference), [
-    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-  ]);
-  assert.deepEqual(configuredWorldModelV4ViewSelections(
-    compatibility, { format: 'registered-v4', views: 'dev.impact@4' }, 'intake'
+    configured, { format: 'registered-v4', views: 'dev.impact@4' }, 'intake'
   ).map((entry) => entry.reference), ['dev.impact@4']);
   assert.throws(
     () => configuredWorldModelV4ViewSelections(
-      compatibility, { format: 'registered-v4', views: 'business' }, 'intake'
+      configured, { format: 'registered-v4', views: 'business' }, 'intake'
     ),
     (error) => error.code === 'WMB_VIEW_UNKNOWN'
       && error.details?.source === 'CLI selection'
       && error.details?.command === 'singularity-flow wm views'
       && /--views all/.test(error.message)
   );
-});
-
-test('wm build --format registered-v4 works against the packaged legacy-v3 catalog', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-override-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  git(root, ['init', '-q', '-b', 'main']);
-  git(root, ['config', 'user.name', 'WMB Test']);
-  git(root, ['config', 'user.email', 'wmb@example.invalid']);
-  await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
-  await initializeLegacyWorldModelDefinition(root);
-  git(root, ['add', '.']);
-  git(root, ['commit', '-q', '-m', 'initialize legacy world-model fixture']);
-
-  const definition = YAML.parse(await readFile(
-    path.join(root, 'singularity', 'workflow.yml'), 'utf8'
-  ));
-  assert.notEqual(definition.worldModel.format, 'registered-v4');
-  assert.ok(definition.worldModel.views.includes('business'));
-
-  const legacyDoctor = await quiet(() => worldModelCommand(root, ['wm', 'doctor'], { json: true }));
-  assert.equal(legacyDoctor.status, 'not-applicable');
-  assert.equal(legacyDoctor.format, 'legacy-v3');
-  assert.equal(legacyDoctor.next.command, 'singularity-flow wm status --json');
-
-  const planned = await quiet(() => worldModelCommand(root, ['wm', 'plan'], {
-    format: 'registered-v4', json: true
-  }));
-  assert.deepEqual(planned.plan.views.map((entry) => `${entry.viewId}@${entry.viewVersion}`), [
-    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-  ]);
-  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], {
-    format: 'registered-v4', json: true
-  }));
-  assert.equal(built.status, 'completed');
-  assert.deepEqual(built.views.map((entry) => entry.viewId).sort(), [
-    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
-  ]);
-  assert.ok(built.publication?.commit);
 });
 
 test('approved registered-v4 configuration remains strict and gives a repair route', () => {
@@ -414,16 +359,12 @@ test('omitted registered-v4 catalog means every active contract across canonical
     'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
   ]);
 
-  const promptDirectory = path.join(root, 'singularity', 'prompts');
-  await mkdir(promptDirectory, { recursive: true });
-  await writeFile(path.join(promptDirectory, 'invalid-v4.md'), [
-    '# Invalid registered view', '', 'Load views/not.registered.md before authoring.', ''
-  ].join('\n'));
-  workflow.worldModel.promptSource = 'singularity/prompts/invalid-v4.md';
-  await writeFile(workflowPath, YAML.stringify(workflow));
+  // Governed prompt Markdown is validated against the same all-active catalog.
+  const agentPath = path.join(root, '.github', 'agents', 'developer.agent.md');
+  await writeFile(agentPath, `${await readFile(agentPath, 'utf8')}\nLoad views/not.registered.md before authoring.\n`);
   await assert.rejects(
     () => loadWorldModelConfig(root),
-    (error) => error.code === 'WMB_VIEW_UNKNOWN' && /not\.registered/.test(error.message)
+    (error) => /not\.registered/.test(error.message) && /developer\.agent\.md/.test(error.message)
   );
 });
 
@@ -444,7 +385,6 @@ async function registeredRepository(t, { staleness = 'warn' } = {}) {
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.worldModel.format = 'registered-v4';
   workflow.worldModel.staleness = staleness;
-  workflow.worldModel.promptSource = 'builtin';
   workflow.worldModel.views = ['dev.impact'];
   for (const phase of Object.values(workflow.phases)) {
     if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
@@ -498,55 +438,6 @@ async function publishPersistedRegisteredHistory(root, {
   }), authorityOptions);
 }
 
-test('explicit registered-v4 build remains readable after authority refresh under legacy defaults', async (t) => {
-  const root = await registeredRepository(t);
-  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.format = 'legacy-v3';
-  workflow.worldModel.views = ['business', 'architecture'];
-  for (const phase of Object.values(workflow.phases)) {
-    if (phase.worldModel?.views?.length) phase.worldModel.views = ['business'];
-  }
-  await writeFile(workflowPath, YAML.stringify(workflow));
-  const agentsRoot = path.join(root, '.github', 'agents');
-  for (const name of await readdir(agentsRoot)) {
-    if (!name.endsWith('.agent.md')) continue;
-    const agentPath = path.join(agentsRoot, name);
-    await writeFile(agentPath, (await readFile(agentPath, 'utf8')).replace(
-      /sflow-world-model-views: "[^"]*"/, 'sflow-world-model-views: "business"'
-    ));
-  }
-  git(root, ['add', 'singularity/workflow.yml', '.github/agents']);
-  git(root, ['commit', '-q', '-m', 'use legacy world-model defaults']);
-  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-override-'));
-  t.after(() => rm(transport, { recursive: true, force: true }));
-  const remote = path.join(transport, 'remote.git');
-  run('git', ['init', '--bare', '-q', remote]);
-  git(root, ['remote', 'add', 'origin', remote]);
-  git(root, ['push', '-q', '-u', 'origin', 'main']);
-  const options = { format: 'registered-v4', views: 'dev.impact', json: true };
-  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], options));
-  assert.equal(built.status, 'completed');
-  const status = await quiet(() => worldModelCommand(root, ['wm', 'status'], options));
-  assert.equal(status.fresh, true);
-  assert.ok(status.views.some((entry) => entry.viewId === 'dev.impact'));
-  const manifest = await quiet(() => worldModelCommand(root, ['wm', 'manifest'], options));
-  assert.equal(manifest.manifestSha256, status.manifestSha256);
-  const shown = await quiet(() => worldModelCommand(root, ['wm', 'show', 'dev.impact'], options));
-  assert.equal(shown.viewId, 'dev.impact');
-  const doctor = await quiet(() => worldModelCommand(root, ['wm', 'doctor'], options));
-  assert.equal(doctor.state, 'valid');
-
-  const clone = path.join(transport, 'clone');
-  run('git', ['clone', '-q', '--branch', 'main', remote, clone]);
-  git(clone, ['config', 'user.name', 'WMB Reader']);
-  git(clone, ['config', 'user.email', 'reader@example.invalid']);
-  const refreshed = await quiet(() => worldModelCommand(clone, ['wm', 'refresh-authority'], options));
-  assert.ok(['refreshed', 'current'].includes(refreshed.status));
-  const remoteStatus = await quiet(() => worldModelCommand(clone, ['wm', 'status'], options));
-  assert.equal(remoteStatus.manifestSha256, manifest.manifestSha256);
-});
-
 test('registered-v4 phase build and status use the same phase view identity', async (t) => {
   const root = await registeredRepository(t);
   const workflowPath = path.join(root, 'singularity/workflow.yml');
@@ -568,19 +459,6 @@ test('registered-v4 phase build and status use the same phase view identity', as
     format: 'registered-v4', json: true
   }));
   assert.deepEqual(context.views.map((entry) => entry.viewId), ['biz.rules']);
-});
-
-test('legacy state-only light cannot publish into approved registered-v4 authority', async (t) => {
-  const root = await registeredRepository(t);
-  await assert.rejects(
-    () => quiet(() => worldModelCommand(root, ['wm', 'light'], {
-      format: 'legacy-v3', 'state-only': true
-    })),
-    (error) => error.code === 'WORLD_MODEL_STATE_ONLY_FORMAT_CONFLICT'
-  );
-  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
-    cwd: root, allowFailure: true
-  }).status, 1);
 });
 
 test('status and availability report dirty source as unavailable without changing it', async (t) => {
@@ -864,62 +742,23 @@ test('a storyless registered build requires an explicit capability when reposito
   assert.equal(selected.repositoryCapability.id, 'alpha');
 });
 
-test('registered-v4 configuration refuses legacy view IDs during format transition', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-transition-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  git(root, ['init', '-q', '-b', 'main']);
-  git(root, ['config', 'user.name', 'WMB Test']);
-  git(root, ['config', 'user.email', 'wmb@example.invalid']);
-  await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
-  await initializeLegacyWorldModelDefinition(root);
+test('World-Model configuration refuses the retired legacy-v3 format and view IDs', async (t) => {
+  const root = await registeredRepository(t);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.format = 'registered-v4';
+  await writeFile(workflowPath, YAML.stringify({
+    ...workflow, worldModel: { ...workflow.worldModel, format: 'legacy-v3' }
+  }));
+  await assert.rejects(
+    () => loadWorldModelConfig(root),
+    (error) => error.code === 'WMB_FORMAT_RETIRED' && /legacy-v3/.test(error.message)
+  );
+  workflow.phases.intake.worldModel = { ...workflow.phases.intake.worldModel, views: ['business'] };
   await writeFile(workflowPath, YAML.stringify(workflow));
   await assert.rejects(
     () => loadWorldModelConfig(root),
-    (error) => error.code === 'WMB_VIEW_UNKNOWN' && /business/.test(error.message)
+    (error) => error.code === 'WMB_FORMAT_RETIRED' && /phase 'intake'=business/.test(error.message)
   );
-});
-
-test('registered-v4 transition bridge loads packaged legacy assignments and selects exact contracts', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-transition-bridge-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  git(root, ['init', '-q', '-b', 'main']);
-  git(root, ['config', 'user.name', 'WMB Test']);
-  git(root, ['config', 'user.email', 'wmb@example.invalid']);
-  await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
-  await initializeLegacyWorldModelDefinition(root);
-  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.format = 'registered-v4';
-  workflow.worldModel.views = [
-    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-  ];
-  workflow.worldModel.v4 = {
-    ...(workflow.worldModel.v4 ?? {}), legacyAssignments: 'inherit-configured'
-  };
-  await writeFile(workflowPath, YAML.stringify(workflow));
-  git(root, ['add', '.']);
-  git(root, ['commit', '-q', '-m', 'enable registered-v4 through transition bridge']);
-
-  const config = await loadWorldModelConfig(root);
-  assert.equal(config.definition.worldModel.v4.legacyAssignments, 'inherit-configured');
-  assert.deepEqual(configuredWorldModelV4ViewSelections(config).map((entry) => entry.reference), [
-    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-  ]);
-  assert.deepEqual(config.definition.phases.implementation.worldModel.views, [
-    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
-  ]);
-  assert.deepEqual(config.definition.agents.developer.worldModelViews, [
-    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
-  ]);
-  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], { json: true }));
-  assert.equal(built.status, 'completed');
-  assert.deepEqual(built.views.map((entry) => entry.viewId).sort(), [
-    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
-  ]);
-  assert.ok(built.publication?.commit);
 });
 
 test('non-scope World-Model controls do not invalidate an unchanged registered-v4 projection', async (t) => {
@@ -1661,23 +1500,24 @@ test('a phase-scoped registered-v4 build remains exact for that phase when the r
   assert.deepEqual(resolved.views.map((entry) => entry.viewId), ['dev.impact']);
 });
 
-test('Initiative start and composition migrate packaged legacy assignments to the exact registered-v4 projection', async (t) => {
+test('Initiative start and composition consume the exact registered-v4 projection', async (t) => {
   const root = await registeredRepository(t);
-  await initializeLegacyWorldModelDefinition(root);
-  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.format = 'registered-v4';
-  workflow.worldModel.views = ['dev.impact@4'];
-  workflow.worldModel.v4 = { composer: 'deterministic', legacyAssignments: 'inherit-configured' };
-  await writeFile(workflowPath, YAML.stringify(workflow));
   const portfolioPath = path.join(root, 'singularity', 'portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
   for (const authority of Object.values(portfolio.approvalAuthorities ?? {})) {
     authority.members = [{ name: 'WMB Test', email: 'wmb@example.invalid' }];
   }
+  for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
+    if (phase.worldModelViews?.length) phase.worldModelViews = ['dev.impact'];
+  }
+  for (const profile of Object.values(portfolio.initiativeProfiles ?? {})) {
+    for (const override of Object.values(profile.phaseOverrides ?? {})) {
+      if (override.worldModelViews?.length) override.worldModelViews = ['dev.impact'];
+    }
+  }
   await writeFile(portfolioPath, YAML.stringify(portfolio));
-  git(root, ['add', 'singularity/workflow.yml', 'singularity/portfolio.yml']);
-  git(root, ['commit', '-q', '-m', 'enable registered-v4 Initiative migration']);
+  git(root, ['add', 'singularity/portfolio.yml']);
+  git(root, ['commit', '-q', '-m', 'pin Initiative phases to the registered view']);
   await quiet(() => worldModelCommand(root, ['wm', 'build'], {
     format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
   }));
@@ -1690,16 +1530,24 @@ test('Initiative start and composition migrate packaged legacy assignments to th
   assert.ok(initiative.resolution.phases.every((phase) => (
     phase.worldModelViews.length === 0
     || phase.worldModelViews.length === 1 && phase.worldModelViews[0] === 'dev.impact'
-  )), 'start persists only the effective registered-v4 IDs');
+  )), 'start persists only registered-v4 IDs');
+
+  // A resolution pinned before the legacy-v3 World Model was removed is refused, not aliased.
   const statePath = path.join(root, 'singularity', 'initiatives', 'WMB-V4-INIT', 'state.json');
-  const preMigrationState = JSON.parse(await readFile(statePath, 'utf8'));
-  preMigrationState.resolution.phases.find((phase) => phase.id === 'define').worldModelViews = ['business'];
-  await writeFile(statePath, `${JSON.stringify(preMigrationState, null, 2)}\n`);
+  const accepted = await readFile(statePath, 'utf8');
+  const retired = JSON.parse(accepted);
+  retired.resolution.phases.find((phase) => phase.id === 'define').worldModelViews = ['business'];
+  await writeFile(statePath, `${JSON.stringify(retired, null, 2)}\n`);
+  await assert.rejects(
+    () => composeInitiativeContext(root, 'WMB-V4-INIT', 'define', { agent: 'product-owner' }),
+    (error) => error.code === 'WMB_FORMAT_RETIRED'
+  );
+  await writeFile(statePath, accepted);
+
   const composed = await composeInitiativeContext(root, 'WMB-V4-INIT', 'define', {
     agent: 'product-owner'
   });
-  assert.deepEqual(composed.phase.worldModelViews, ['dev.impact'],
-    'context projects a resolution written before the Initiative migration fix');
+  assert.deepEqual(composed.phase.worldModelViews, ['dev.impact']);
   assert.equal(composed.record.worldModel.available, true);
   assert.equal(composed.record.worldModel.format, 'registered-v4');
   assert.match(composed.rendered, /SFlow World-Model View/);

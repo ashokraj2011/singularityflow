@@ -252,35 +252,6 @@ test('preview binds a compound plan, stays read-only, and reports read-time migr
   assert.deepEqual(result.nextAction.argv.slice(-3), ['--confirm-plan', result.planId, '--json']);
 });
 
-test('World Model migration remains opt-in and its continuation preserves the exact flag', async t => {
-  const { registryFile } = await fixture(t);
-  const calls = [];
-  const services = { refreshWorkspaceConfigurations: async options => {
-    calls.push(options);
-    const result = refreshResult(options.dryRun ? 'preview' : 'complete', {
-      dryRun: options.dryRun, itemStatus: options.dryRun ? 'would-update' : 'updated'
-    });
-    if (options.migrateWorldModel) {
-      result.results[0].worldModelMigration = { fromFormat: 'legacy-v3', targetFormat: 'registered-v4',
-        capabilities: ['web'], historicalArtifacts: 'preserved', rebuildRequired: true };
-    }
-    return result;
-  } };
-  const preview = await reinitializeWorkspaces({ registryFile, dryRun: true, migrateWorldModel: true }, services);
-  assert.equal(preview.worldModelMigration.status, 'planned');
-  assert.deepEqual(preview.worldModelMigration.repositories[0].capabilities, ['web']);
-  assert.ok(preview.nextAction.argv.includes('--migrate-world-model'));
-  assert.equal(preview.nextAction.skill, '/sf-admin');
-  const applied = await reinitializeWorkspaces({ registryFile, migrateWorldModel: true, confirmPlan: preview.planId }, services);
-  assert.equal(applied.worldModelMigration.status, 'configured');
-  assert.equal(applied.worldModelMigration.storiesRepinned, false);
-  assert.equal(applied.worldModelMigration.historicalArtifacts, 'preserved');
-  assert.ok(calls.every(options => options.migrateWorldModel === true));
-  const ordinary = await reinitializeWorkspaces({ registryFile, dryRun: true }, services);
-  assert.equal(ordinary.worldModelMigration, undefined);
-  assert.equal(calls.at(-1).migrateWorldModel, false);
-});
-
 test('preview derives schema roots from the exact approved configuration candidate', async (t) => {
   const { registryFile, repositoryRoot } = await fixture(t);
   const authorityRoot = path.join(path.dirname(registryFile), 'approved-configuration');

@@ -244,7 +244,8 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   );
   assert.deepEqual(
     schema.properties.worldModel.properties.v4.properties.legacyAssignments.enum,
-    ['strict', 'inherit-configured']
+    ['strict'],
+    'the retired inherit-configured bridge is not a schema value'
   );
   const worldModelViewPattern = schema.properties.worldModel.properties.views.items.pattern;
   assert.equal(worldModelViewPattern, WORLD_MODEL_VIEW_REFERENCE.source);
@@ -271,27 +272,19 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   }
   assert.doesNotThrow(() => validateDefinition(exactRegisteredView));
   const invalidRegisteredView = structuredClone(exactRegisteredView);
-  invalidRegisteredView.worldModel.views = ['dev.impact@3', 'architecture'];
+  invalidRegisteredView.worldModel.views = ['dev.impact@3', 'telepathy.view'];
   assert.throws(
     () => validateDefinition(invalidRegisteredView),
     (error) => error.code === 'WMB_VIEW_VERSION_UNSUPPORTED'
       && /worldModel\.views\[0\]=dev\.impact@3/.test(error.message)
-      && /worldModel\.views\[1\]=architecture/.test(error.message)
-      && error.details.views.join(',') === 'dev.impact@3,architecture'
+      && /worldModel\.views\[1\]=telepathy\.view/.test(error.message)
+      && error.details.views.join(',') === 'dev.impact@3,telepathy.view'
       && error.details.invalidEntries.length === 2
       && error.details.invalidEntries[0].source === 'worldModel.views[0]'
       && error.details.invalidEntries[0].sourceKind === 'repository-catalog'
       && error.details.invalidEntries[0].code === 'WMB_VIEW_VERSION_UNSUPPORTED'
       && error.details.invalidEntries[1].source === 'worldModel.views[1]'
       && error.details.invalidEntries[1].code === 'WMB_VIEW_UNKNOWN'
-  );
-  const legacyProjection = structuredClone(template);
-  legacyProjection.worldModel.format = 'legacy-v3';
-  legacyProjection.worldModel.views = legacyProjection.worldModel.views.map(view => view.split('@')[0]);
-  legacyProjection.worldModel.projections['arch.calm'].enabled = true;
-  assert.throws(
-    () => validateDefinition(legacyProjection),
-    (error) => error.code === 'WMC_PROJECTION_FORMAT_REQUIRED'
   );
   assert.equal(
     schema.properties.workTypes.additionalProperties.properties.plannedClaims.$ref,
@@ -335,6 +328,42 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   legacyProfile.profiles.standard.maxInputTokens = 18000;
   assert.doesNotThrow(() => normalizeTokenEconomy(legacyProfile));
   assert.equal(template.codeDelivery.tests.minimumPassed, 1);
+});
+
+test('the retired legacy-v3 World Model is refused and an omitted format means registered-v4', async () => {
+  const template = YAML.parse(await readFile(path.join(process.cwd(), 'templates/workflow.yml'), 'utf8'));
+  const omitted = structuredClone(template);
+  delete omitted.worldModel.format;
+  assert.equal(validateDefinition(omitted).worldModel.format, 'registered-v4');
+  const absent = structuredClone(template);
+  delete absent.worldModel;
+  assert.equal(validateDefinition(absent).worldModel.format, 'registered-v4');
+
+  const legacyFormat = structuredClone(template);
+  legacyFormat.worldModel.format = 'legacy-v3';
+  assert.throws(() => validateDefinition(legacyFormat), (error) => (
+    error.code === 'WMB_FORMAT_RETIRED' && /worldModel\.format: legacy-v3/.test(error.message)
+  ));
+  const legacyViews = structuredClone(template);
+  legacyViews.worldModel.views = ['dev.impact@4', 'architecture'];
+  assert.throws(() => validateDefinition(legacyViews), (error) => (
+    error.code === 'WMB_FORMAT_RETIRED'
+      && /worldModel\.views\[1\]=architecture/.test(error.message)
+      && error.details.invalidEntries.some((entry) => entry.view === 'architecture')
+  ));
+  const legacyPhase = structuredClone(template);
+  legacyPhase.phases.design.worldModel.views = ['architecture'];
+  assert.throws(() => validateDefinition(legacyPhase), (error) => (
+    error.code === 'WMB_FORMAT_RETIRED' && /phase 'design'=architecture/.test(error.message)
+  ));
+  const bridge = structuredClone(template);
+  bridge.worldModel.v4.legacyAssignments = 'inherit-configured';
+  assert.throws(() => validateDefinition(bridge), (error) => (
+    error.code === 'WMB_FORMAT_RETIRED' && /inherit-configured/.test(error.message)
+  ));
+  const strict = structuredClone(template);
+  strict.worldModel.v4.legacyAssignments = 'strict';
+  assert.doesNotThrow(() => validateDefinition(strict), 'the retired strict value is accepted and ignored');
 });
 
 test('every shipped workflow profile resolves an explicit safe code-delivery contract', async () => {
@@ -641,15 +670,9 @@ test('world-model immutable history root is portable and disjoint from the curre
     (error) => error.code === 'WMP_HISTORY_PATH_INVALID'
   );
 
-  // A legacy-v3 repository created before immutable history existed keeps its previously valid
-  // output path even after packaged refresh adds historyDir. Selecting registered-v4 is the
-  // explicit transition into the stricter paired-root boundary.
-  definition.worldModel.format = 'legacy-v3';
-  definition.worldModel.views = definition.worldModel.views.map(view => view.split('@')[0]);
+  // A current projection that contains the history root is refused on every repository.
   definition.worldModel.outputDir = 'singularity';
   definition.worldModel.historyDir = 'singularity/world-model-history';
-  assert.doesNotThrow(() => validateDefinition(definition));
-  definition.worldModel.format = 'registered-v4';
   assert.throws(
     () => validateDefinition(definition),
     (error) => error.code === 'WMP_HISTORY_ROOT_OVERLAP'
@@ -841,15 +864,17 @@ test('world-model parallel generation policy is bounded and view-scoped', async 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-world-model-generation-'));
   await initializeDefinition(root);
   const definition = await loadDefinition(root);
-  assert.deepEqual(definition.worldModel.generation, {
-    parallel: true, maxWorkers: 4, strategy: 'view',
-    maximumDiscoveryPacketBytes: 24576,
-    maximumSynthesisInputTokens: 24000,
-    synthesisOverflow: 'summarize-or-refuse'
-  });
+  assert.deepEqual(definition.worldModel.generation, { parallel: true, maxWorkers: 4 });
   definition.worldModel.generation.maxWorkers = 17;
   assert.throws(() => validateDefinition(definition), /maxWorkers must be an integer from 1 through 16/);
   definition.worldModel.generation.maxWorkers = 2;
+  // The legacy-v3 synthesis keys are retired and ignored, but still accepted only with their
+  // former values so an old configuration cannot carry a silently different intent.
+  Object.assign(definition.worldModel.generation, {
+    strategy: 'view', maximumDiscoveryPacketBytes: 24576,
+    maximumSynthesisInputTokens: 24000, synthesisOverflow: 'summarize-or-refuse'
+  });
+  assert.doesNotThrow(() => validateDefinition(definition));
   definition.worldModel.generation.strategy = 'component';
   assert.throws(() => validateDefinition(definition), /strategy must be 'view'/);
   definition.worldModel.generation.strategy = 'view';

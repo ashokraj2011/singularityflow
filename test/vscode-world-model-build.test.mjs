@@ -9,8 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   exactWorldModelPlanDetail, loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
-  worldModelAuthorityRefreshArguments, legacyWorldModelLightArguments,
-  legacyWorldModelLightDetail, worldModelBuildCompletionMessage,
+  worldModelAuthorityRefreshArguments, worldModelBuildCompletionMessage,
   assertWorldModelBuildConfigurationSelection, observeWorldModelBuildConfigurationSelection,
   withWorldModelBuildConfigurationBoundary, worldModelBuildConfigurationBoundary
 } = await import(path.join(root, 'apps', 'vscode', 'src', 'world-model-build-model.ts'));
@@ -375,34 +374,9 @@ test('native World Model authority refresh and retry preserve the exact approved
   );
 });
 
-test('legacy light build is exact, state-only, deterministic, and pinned to source', () => {
-  const digest = `sha256:${'a'.repeat(64)}`;
-  assert.deepEqual(legacyWorldModelLightArguments('payments-api', digest), [
-    'wm', 'light', '--format', 'legacy-v3', '--views', 'all', '--state-only',
-    '--expected-source-tree-sha256', digest, '--capability', 'payments-api'
-  ]);
-  assert.deepEqual(legacyWorldModelLightArguments(null, digest), [
-    'wm', 'light', '--format', 'legacy-v3', '--views', 'all', '--state-only',
-    '--expected-source-tree-sha256', digest
-  ]);
-  const detail = legacyWorldModelLightDetail({
-    repository: '/repo', branch: 'STORY-1', sourceCommit: 'a'.repeat(40),
-    sourceTreeSha256: digest, views: ['architecture', 'testing'], remote: 'origin',
-    stateBranch: 'state', outputDir: 'singularity/world-model', capabilityId: 'payments-api'
-  });
-  assert.match(detail, /Effective format: legacy-v3/);
-  assert.match(detail, /Concrete views: architecture, testing/);
-  assert.match(detail, /Only publication target: origin\/state/);
-  assert.match(detail, /Current branch: STORY-1 · no model installation, commit, or push/);
-  assert.match(detail, /zero model calls/);
-  assert.match(detail, /wm light --format legacy-v3 --views all --state-only --expected-source-tree-sha256 sha256:a{64} --capability payments-api/);
-  assert.throws(() => legacyWorldModelLightArguments(null, 'bad'), (error) => error.code === 'WMB_SOURCE_SNAPSHOT_INVALID');
-  assert.throws(() => legacyWorldModelLightArguments('payments api', digest), (error) => error.code === 'WMB_CAPABILITY_SELECTION_INVALID');
-});
-
-test('legacy light uses the bounded World Model deadline, not the ordinary CLI deadline', () => {
+test('native Build uses the bounded World Model deadline, not the ordinary CLI deadline', () => {
   const client = new SingularityFlowClient({ repository: '/repo', location: { command: 'singularity-flow', args: [] } });
-  assert.equal(client.timeoutFor(['wm', 'light', '--format', 'legacy-v3']), WORLD_MODEL_TIMEOUT_MS);
+  assert.equal(client.timeoutFor(['wm', 'build', '--format', 'registered-v4']), WORLD_MODEL_TIMEOUT_MS);
 });
 
 test('cancelling native review never creates or redeems a confirmation receipt', async () => {

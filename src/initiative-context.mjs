@@ -10,7 +10,7 @@ import {
   groundingMode
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
-import { effectiveWorldModelAssignmentViews } from './world-model-views.mjs';
+import { worldModelAssignmentViews } from './world-model-views.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { assertWorldModelStaleness } from './world-model-policy.mjs';
 import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
@@ -293,12 +293,8 @@ async function repositoryGrounding(
     }
     const resolved = await resolveInspectedGrounding(root, inspected, phase.id);
     const commit = resolved.located?.commit ?? null;
-    const changes = resolved.located?.source === 'worktree'
-      ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
-      : '';
     const issues = [];
     if (!commit) issues.push('repository world model is not committed');
-    if (changes) issues.push('repository world-model files have uncommitted changes');
     const stalenessDecision = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
     if (issues.length) {
       warnings.push(...issues);
@@ -381,19 +377,10 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   }
   const pinnedPhase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
   if (!pinnedPhase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
-  // Resolutions created before the registered-v4 transition policy was applied can still contain
-  // the closed legacy-v3 vocabulary. Keep the pinned phase contract immutable, but project its
-  // assignment through the current approved workflow before any grounding or capability reader
-  // sees it. Validation keeps mixed and unknown assignments fail-closed.
+  // A resolution pinned before the legacy-v3 World Model was removed may still name its views;
+  // validation refuses those (WMB_FORMAT_RETIRED) before any grounding or capability reader sees them.
   validatePortfolioWorldModelViews({ initiativePhases: { [phaseId]: pinnedPhase } }, definition);
-  const phase = {
-    ...pinnedPhase,
-    worldModelViews: effectiveWorldModelAssignmentViews(
-      definition,
-      pinnedPhase.worldModelViews ?? [],
-      `Initiative phase '${phaseId}' pinned World-Model assignment`
-    )
-  };
+  const phase = { ...pinnedPhase, worldModelViews: worldModelAssignmentViews(pinnedPhase.worldModelViews) };
   const session = await loadSession(root, { required: false });
   const sessionAgentApplies = Boolean(
     session?.agent

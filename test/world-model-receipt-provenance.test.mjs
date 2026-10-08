@@ -1,17 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
-import { createPlanningContext, loadPlanningPack } from '../src/planning.mjs';
 import { verifyInitiativeContext } from '../src/initiative-context.mjs';
 import { loadInitiative } from '../src/state-stores.mjs';
-import { writeV3Manifest } from '../src/world-model-materialization.mjs';
-import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -58,8 +55,6 @@ async function repository() {
   git(root, ['config', 'user.email', actorEmail]);
   await writeFile(path.join(root, 'README.md'), '# Receipt provenance fixture\n');
   execute(root, ['init']);
-  // These tests exercise retained v3 receipts, not the registered-v4 default for new repos.
-  await initializeLegacyWorldModelDefinition(root);
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
@@ -86,112 +81,6 @@ async function repository() {
   git(root, ['push', '-u', 'origin', 'main']);
   return root;
 }
-
-async function removeWorktreeProjection(root) {
-  await rm(path.join(root, 'singularity/world-model'), { recursive: true, force: true });
-}
-
-async function addFullStateView(root, view) {
-  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-state-view-'));
-  const checkout = path.join(parent, 'state');
-  git(root, ['worktree', 'add', checkout, 'state']);
-  try {
-    const directory = path.join(checkout, 'singularity/world-model');
-    const brief = await readFile(path.join(directory, `views/${view}.brief.md`), 'utf8');
-    await writeFile(path.join(directory, `views/${view}.md`), `${brief}\nFull detail.\n`);
-    const manifest = JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8'));
-    manifest.views[view].tiers.full = { status: 'ready', path: `views/${view}.md` };
-    await writeV3Manifest(directory, manifest);
-    git(checkout, ['add', 'singularity/world-model']);
-    git(checkout, ['commit', '-m', `Add full ${view} state view`]);
-    git(checkout, ['push', 'origin', 'state']);
-  } finally {
-    git(root, ['worktree', 'remove', '--force', checkout]);
-    await rm(parent, { recursive: true, force: true });
-  }
-}
-
-test('Story planning pins state-branch World-Model files by canonical path and exact commit', async (t) => {
-  const root = await repository();
-  t.after(() => Promise.all([
-    rm(root, { recursive: true, force: true }),
-    rm(`${root}.git`, { recursive: true, force: true })
-  ]));
-  execute(root, ['start', 'PLAN-STATE', '--from-branch', 'main']);
-  execute(root, ['wm', 'light', '--phase', 'intake']);
-  const stateCommit = git(root, ['rev-parse', 'refs/heads/state']);
-  await removeWorktreeProjection(root);
-
-  const context = await createPlanningContext(root, {
-    scope: 'work-item',
-    id: 'PLAN-STATE',
-    phase: 'intake',
-    agent: 'product-owner',
-    target: 'artifact'
-  });
-  const sources = context.manifest.sources.filter((source) => source.kind === 'world-model');
-  assert.ok(sources.length > 0, 'expected a state-backed World-Model selection');
-  for (const source of sources) {
-    assert.match(source.path, /^singularity\/world-model\//);
-    assert.equal(path.isAbsolute(source.path), false);
-    assert.equal(source.path.includes(os.tmpdir()), false);
-    assert.equal(source.commit, stateCommit);
-    assert.equal(source.source, 'state-branch');
-    const committed = spawnSync('git', ['show', `${source.commit}:${source.path}`], {
-      cwd: root, encoding: null
-    });
-    assert.equal(committed.status, 0, committed.stderr?.toString('utf8'));
-    assert.equal(createHash('sha256').update(committed.stdout).digest('hex'), source.sha256);
-  }
-
-  // A disposable extraction/current-worktree projection is not part of the durable receipt.
-  // Even hostile local bytes at the same path cannot change what this planning pack verifies.
-  const first = sources[0];
-  await mkdir(path.dirname(path.join(root, first.path)), { recursive: true });
-  await writeFile(path.join(root, first.path), 'different current-worktree bytes\n');
-  const loaded = await loadPlanningPack(root, context.sessionId);
-  assert.equal(loaded.stale, false);
-  assert.deepEqual(loaded.changedSources, []);
-});
-
-test('Initiative context pins state-branch World-Model files by canonical path and exact commit', async (t) => {
-  const root = await repository();
-  t.after(() => Promise.all([
-    rm(root, { recursive: true, force: true }),
-    rm(`${root}.git`, { recursive: true, force: true })
-  ]));
-  execute(root, ['initiative', 'start', 'INIT-STATE', '--title', 'State-backed initiative']);
-  execute(root, ['wm', 'light', '--views', 'business']);
-  await addFullStateView(root, 'business');
-  const stateCommit = git(root, ['rev-parse', 'refs/heads/state']);
-  await removeWorktreeProjection(root);
-
-  execute(root, ['initiative', 'phase', 'define']);
-  const recordPath = path.join(
-    root,
-    'singularity/initiatives/INIT-STATE/context/prompt-context-define-gen1.json'
-  );
-  const record = JSON.parse(await readFile(recordPath, 'utf8'));
-  assert.equal(record.worldModel.available, true);
-  assert.equal(record.worldModel.commit, stateCommit);
-  assert.ok(record.worldModelFiles.length > 0);
-  for (const file of record.worldModelFiles) {
-    assert.match(file.path, /^singularity\/world-model\//);
-    assert.equal(path.isAbsolute(file.path), false);
-    assert.equal(file.path.includes(os.tmpdir()), false);
-    assert.equal(file.commit, stateCommit);
-    assert.equal(file.source, 'state-branch');
-  }
-
-  const first = record.worldModelFiles[0];
-  await mkdir(path.dirname(path.join(root, first.path)), { recursive: true });
-  await writeFile(path.join(root, first.path), 'different current-worktree bytes\n');
-  const loaded = await loadInitiative(root, 'INIT-STATE');
-  const verification = await verifyInitiativeContext(
-    root, loaded.portfolio, loaded.initiative, 'define', 1
-  );
-  assert.equal(verification.valid, true, verification.errors.join('\n'));
-});
 
 test('Initiative World-Model availability receipts cannot contradict their consumed files', async (t) => {
   const root = await repository();

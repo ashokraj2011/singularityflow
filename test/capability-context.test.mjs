@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import {
@@ -14,10 +13,9 @@ import {
   resolveCapabilityWorldModelCandidate,
   renderCapabilityWorldModelPack
 } from '../src/capability-context.mjs';
-import { worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { initializeDefinition } from '../src/config.mjs';
 import { snapshot } from '../src/util.mjs';
 import { initiativePublicationMode } from '../src/initiative-state.mjs';
-import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 
 const capability = {
   id: 'payments-api',
@@ -25,7 +23,7 @@ const capability = {
     approvalMinimum: 2,
     allowSelfApproval: false,
     requiredAuthorityGroups: ['architecture-reviewers'],
-    requiredWorldModelViews: ['security'],
+    requiredWorldModelViews: ['dev.impact'],
     requiredChecks: ['security-scan'],
     qualityCommands: ['npm test'],
     gateSeverity: 'block',
@@ -45,56 +43,6 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-async function seedCapabilityModel(root, sourceTreeSha256, label, {
-  fullTrailingNewline = true
-} = {}) {
-  const directory = path.join(root, 'singularity/world-model');
-  await rm(directory, { recursive: true, force: true });
-  await mkdir(path.join(directory, 'core'), { recursive: true });
-  await mkdir(path.join(directory, 'views'), { recursive: true });
-  await mkdir(path.join(directory, 'evidence'), { recursive: true });
-  await writeFile(path.join(directory, 'core/summary.brief.md'), `# ${label} brief\n`);
-  await writeFile(
-    path.join(directory, 'core/summary.md'),
-    `# ${label} full${fullTrailingNewline ? '\n' : ''}`
-  );
-  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
-  await writeFile(path.join(directory, 'path-index.json'), '{}\n');
-  await writeFile(path.join(directory, 'views/security.md'), `# ${label} security\n`);
-  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
-  await writeV3Manifest(directory, {
-    schema_version: '3.0',
-    generated_at: '2026-08-31T00:00:00.000Z',
-    generated_date: '31 August 2026',
-    builder_version: 'test',
-    builder_prompt_sha256: 'a'.repeat(64),
-    analysis_depth: 'standard',
-    repository_commit: git(root, 'rev-parse', 'main'),
-    repository_branch: 'main',
-    working_tree_clean: true,
-    source_tree_sha256: sourceTreeSha256,
-    core: {
-      tiers: {
-        brief: { status: 'ready', path: 'core/summary.brief.md' },
-        full: { status: 'ready', path: 'core/summary.md' }
-      },
-      model: { path: 'core/model.json' }
-    },
-    views: {
-      security: {
-        tiers: {
-          brief: { status: 'missing', path: 'views/security.brief.md' },
-          full: { status: 'ready', path: 'views/security.md' }
-        }
-      }
-    },
-    domains: [], task_guides: [],
-    path_index: { path: 'path-index.json' },
-    evidence: { path: 'evidence/evidence.jsonl' },
-    materializations: []
-  });
-}
-
 test('capability publication policy tightens Initiative publication', () => {
   const initiative = (gitPublication) => ({
     resolution: { capability: { policy: { gitPublication } } }
@@ -111,11 +59,11 @@ test('capability policy becomes an enforceable part of Story resolution', () => 
     contextPolicy: { onApproval: 'keep', onRejection: 'compact', phaseOverrides: { design: 'compact' } },
     documents: { allowedPhases: ['design'] },
     phases: [{
-      id: 'design', writeScope: 'documents', worldModel: { views: ['architecture'] },
+      id: 'design', writeScope: 'documents', worldModel: { views: ['arch.contracts'] },
       qualityCommands: ['npm run lint'], approval: { authorities: [], minimum: 1, allowSelfApproval: true }
     }]
   }, capability);
-  assert.deepEqual(resolved.phases[0].worldModel.views, ['architecture', 'security']);
+  assert.deepEqual(resolved.phases[0].worldModel.views, ['arch.contracts', 'dev.impact']);
   assert.deepEqual(resolved.phases[0].qualityCommands, ['npm run lint', 'npm test']);
   assert.equal(resolved.phases[0].approval.minimum, 2);
   assert.equal(resolved.phases[0].approval.allowSelfApproval, false);
@@ -170,13 +118,13 @@ test('capability policy tightens Initiative gates without inventing approval on 
       providers: { 'approved-store': { type: 's3' }, 'unapproved-store': { type: 's3' } }
     },
     phases: [{
-      id: 'plan', worldModelViews: ['business'], bundleApproval: { mode: 'individual', minimum: 1 },
+      id: 'plan', worldModelViews: ['biz.rules'], bundleApproval: { mode: 'individual', minimum: 1 },
       outputs: [{ id: 'plan', approval: { mode: 'individual', minimum: 1 } }],
       checklist: [{ id: 'informational', approval: { mode: 'none', minimum: 0 } }]
     }],
     repositories: { mobile: { requiredChecks: ['build'] } }
   }, capability);
-  assert.deepEqual(resolved.phases[0].worldModelViews, ['business', 'security']);
+  assert.deepEqual(resolved.phases[0].worldModelViews, ['biz.rules', 'dev.impact']);
   assert.equal(resolved.phases[0].bundleApproval.minimum, 2);
   assert.deepEqual(resolved.phases[0].outputs[0].approval.authorities, ['architecture-reviewers']);
   assert.deepEqual(resolved.phases[0].checklist[0].approval, { mode: 'none', minimum: 0 });
@@ -194,18 +142,19 @@ test('capability world-model rendering is phase scoped and hash verified', async
   try {
     const directory = path.join(root, 'singularity/work-items/WORK-1/context/capability-world-model/api');
     await mkdir(directory, { recursive: true });
-    const core = path.join(directory, 'summary.md');
-    const security = path.join(directory, 'security.md');
-    const testing = path.join(directory, 'testing.md');
-    await writeFile(core, '# API summary\n');
-    await writeFile(security, '# API security\n');
-    await writeFile(testing, '# API tests\n');
+    const contracts = path.join(directory, 'arch.contracts.md');
+    const impact = path.join(directory, 'dev.impact.md');
+    const hotspots = path.join(directory, 'dev.hotspots.md');
+    await writeFile(contracts, '# API contracts\n');
+    await writeFile(impact, '# API impact\n');
+    await writeFile(hotspots, '# API hotspots\n');
     const entries = await Promise.all([
-      ['summary.md', ['core']], ['security.md', ['security']], ['testing.md', ['testing']]
+      ['arch.contracts.md', ['arch.contracts']], ['dev.impact.md', ['dev.impact']],
+      ['dev.hotspots.md', ['dev.hotspots']]
     ].map(async ([name, views]) => {
       const info = await snapshot(path.join(directory, name));
       return {
-        repositoryId: 'api', sourcePath: `singularity/world-model/${name}`,
+        repositoryId: 'api', sourcePath: `singularity/world-model/views/${name}`,
         path: `singularity/work-items/WORK-1/context/capability-world-model/api/${name}`,
         views, sha256: info.sha256, bytes: info.size
       };
@@ -217,18 +166,18 @@ test('capability world-model rendering is phase scoped and hash verified', async
       id: 'payments-api', policy: {}, context: {
         path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
       }
-    }, { views: ['security'] });
-    assert.match(rendered.text, /API summary/);
-    assert.match(rendered.text, /API security/);
-    assert.doesNotMatch(rendered.text, /API tests/);
+    }, { views: ['arch.contracts', 'dev.impact'] });
+    assert.match(rendered.text, /API contracts/);
+    assert.match(rendered.text, /API impact/);
+    assert.doesNotMatch(rendered.text, /API hotspots/);
     assert.equal(rendered.files.length, 2);
 
-    await writeFile(security, '# changed after pinning\n');
+    await writeFile(impact, '# changed after pinning\n');
     const advisory = await renderCapabilityWorldModelPack(root, {
       id: 'payments-api', policy: {}, context: {
         path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
       }
-    }, { views: ['security'], grounding: 'warn' });
+    }, { views: ['dev.impact'], grounding: 'warn' });
     assert.equal(advisory.text, '');
     assert.deepEqual(advisory.files, []);
     assert.match(advisory.warnings.join('\n'), /Capability world-model grounding unavailable/);
@@ -237,7 +186,7 @@ test('capability world-model rendering is phase scoped and hash verified', async
         id: 'payments-api', policy: {}, context: {
           path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
         }
-      }, { views: ['security'], grounding: 'enforce' }),
+      }, { views: ['dev.impact'], grounding: 'enforce' }),
       /Capability world-model snapshot changed/
     );
   } finally {
@@ -379,8 +328,8 @@ test('unavailable capability world-model context stays advisory under enforce', 
   }
 });
 
-test('capability materialization preserves exact model bytes without adding a newline', async () => {
-  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-exact-bytes-'));
+test('capability materialization records a sibling without a registered model as unavailable, never pinned', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-unbuilt-sibling-'));
   const originalActive = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
   const originalRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
   try {
@@ -401,10 +350,12 @@ test('capability materialization preserves exact model bytes without adding a ne
       git(repository, 'remote', 'add', 'origin', remote);
       git(repository, 'push', '-q', '-u', 'origin', 'main');
     }
-    const siblingSource = await worldModelSourceSnapshot(sibling, {});
-    await seedCapabilityModel(sibling, siblingSource.sha256, 'exact sibling', {
-      fullTrailingNewline: false
-    });
+
+    // The sibling is a governed registered-v4 repository that has never built its World Model.
+    await initializeDefinition(sibling);
+    git(sibling, 'add', '.');
+    git(sibling, 'commit', '-qm', 'initialize governed sibling');
+    git(sibling, 'push', '-q', 'origin', 'main');
 
     const workspace = {
       version: 1, id: 'exact-bytes', name: 'Exact bytes', path: base,
@@ -413,16 +364,16 @@ test('capability materialization preserves exact model bytes without adding a ne
       repositories: {
         current: {
           id: 'current', url: currentRemote, defaultBranch: 'main', required: true,
-          path: 'repos/current', capabilities: ['demo'],
+          path: 'repos/current', capabilities: ['repository-root'],
           clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
         },
         sibling: {
           id: 'sibling', url: siblingRemote, defaultBranch: 'main', required: true,
-          path: 'repos/sibling', capabilities: ['demo'],
+          path: 'repos/sibling', capabilities: ['repository-root'],
           clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
         }
       },
-      capabilities: ['demo'],
+      capabilities: ['repository-root'],
       directories: { repositories: 'repos', documents: 'documents', logs: 'logs', jiraCache: 'cache/jira' },
       createdAt: '2026-09-03T00:00:00.000Z', updatedAt: '2026-09-03T00:00:00.000Z'
     };
@@ -430,8 +381,8 @@ test('capability materialization preserves exact model bytes without adding a ne
       schemaVersion: 1, workspaceId: workspace.id, workspaceName: workspace.name,
       workspacePath: base, anchorKey: workspace.anchor.key, repositoryId: 'current',
       repositoryPath: current, canonicalRepositoryPath: current, checkoutPath: current,
-      repositoryState: 'ready', branch: 'main', capabilities: ['demo'],
-      repositoryCapabilities: ['demo'], storyId: null, selectedAt: '2026-09-03T00:00:00.000Z'
+      repositoryState: 'ready', branch: 'main', capabilities: ['repository-root'],
+      repositoryCapabilities: ['repository-root'], storyId: null, selectedAt: '2026-09-03T00:00:00.000Z'
     };
     const activeFile = path.join(base, 'active-workspace.json');
     const registryFile = path.join(base, 'workspaces.json');
@@ -448,20 +399,19 @@ test('capability materialization preserves exact model bytes without adding a ne
     process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = activeFile;
     process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
 
-    const itemRelative = 'singularity/work-items/EXACT-BYTES';
+    const itemRelative = 'singularity/work-items/UNBUILT-SIBLING';
     const itemDirectory = path.join(current, itemRelative);
     const result = await materializeCapabilityWorldModelPack(current, {
-      id: 'demo', path: ['demo'], map: { sha256: 'f'.repeat(64) },
+      id: 'repository-root', path: ['repository-root'], map: { sha256: 'f'.repeat(64) },
       deliveries: [{ repositories: ['current', 'sibling'] }],
       policy: { contextMaxBytes: 64 * 1024 }, sourceScope: null, warnings: []
     }, { itemDirectory, itemRelative, views: [] });
     const record = JSON.parse(await readFile(path.join(current, result.path), 'utf8'));
-    const pinned = record.files.find((entry) => entry.repositoryId === 'sibling');
-    assert.ok(pinned);
-    const bytes = await readFile(path.join(current, pinned.path));
-    assert.equal(bytes.toString('utf8'), '# exact sibling full');
-    assert.equal(bytes.at(-1), 'l'.charCodeAt(0));
-    assert.equal(createHash('sha256').update(bytes).digest('hex'), pinned.sha256);
+    assert.deepEqual(record.files, [], 'nothing from the sibling is pinned');
+    const siblingEntry = record.repositories.find((entry) => entry.id === 'sibling');
+    assert.equal(siblingEntry.status, 'world-model-missing');
+    assert.equal(siblingEntry.failureClass, 'availability');
+    assert.match(record.warnings.join('\n'), /Capability repository 'sibling' world model is unavailable/);
   } finally {
     if (originalActive == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = originalActive;
@@ -493,64 +443,11 @@ test('a Story worktree does not pin its own repository as sibling capability con
   ), false);
 });
 
-test('sibling capability grounding resolves the exact scoped source from validated state history', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-sibling-source-'));
-  try {
-    git(root, 'init', '-q', '-b', 'main');
-    git(root, 'config', 'user.name', 'Capability Tester');
-    git(root, 'config', 'user.email', 'capability@example.com');
-    await mkdir(path.join(root, 'service'), { recursive: true });
-    await mkdir(path.join(root, 'unrelated'), { recursive: true });
-    await writeFile(path.join(root, 'service/api.js'), 'export const api = 1;\n');
-    await writeFile(path.join(root, 'unrelated/note.txt'), 'one\n');
-    git(root, 'add', '.');
-    git(root, 'commit', '-qm', 'source');
-
-    const sourceScope = { sourceRoots: ['service'], sharedRoots: [] };
-    const definition = {
-      worldModel: { outputDir: 'singularity/world-model', stateBranch: 'state' },
-      ledger: { branch: 'state' }
-    };
-    const source = await worldModelSourceSnapshot(root, {
-      worldModel: { sourceRoots: ['service'], sharedRoots: [] }
-    });
-    git(root, 'switch', '-qc', 'state');
-    await seedCapabilityModel(root, source.sha256, 'matching scoped model');
-    git(root, 'add', 'singularity/world-model');
-    git(root, 'commit', '-qm', 'matching scoped model');
-    const matchingCommit = git(root, 'rev-parse', 'HEAD');
-
-    await seedCapabilityModel(root, `sha256:${'b'.repeat(64)}`, 'different source tip');
-    git(root, 'add', '-A', 'singularity/world-model');
-    git(root, 'commit', '-qm', 'different source model');
-    git(root, 'switch', '-q', 'main');
-
-    // A file outside the capability scope does not invalidate the scoped source identity.
-    await writeFile(path.join(root, 'unrelated/note.txt'), 'two\n');
-    git(root, 'add', 'unrelated/note.txt');
-    git(root, 'commit', '-qm', 'change unrelated source');
-
-    const resolved = await resolveCapabilityWorldModelCandidate(root, definition, {
-      sourceScope,
-      views: ['security']
-    });
-    assert.equal(resolved.sourceState.sha256, source.sha256);
-    assert.equal(resolved.located.commit, matchingCommit);
-    assert.equal(resolved.located.historical, true);
-    assert.equal(resolved.located.requestedSourceTreeSha256, source.sha256);
-    assert.equal(resolved.located.sourceTreeSha256, source.sha256);
-
-    // A reachable remote that has no state branch is authoritative. The exact local state ref is
-    // now an unpublished leftover, not governed sibling context that may be pinned silently.
-    const remote = path.join(root, 'origin.git');
-    git(root, 'init', '--bare', '-q', '-b', 'main', remote);
-    git(root, 'remote', 'add', 'origin', remote);
-    git(root, 'push', '-q', '-u', 'origin', 'main');
-    await assert.rejects(
-      resolveCapabilityWorldModelCandidate(root, definition, { sourceScope, views: ['security'] }),
-      (error) => error.code === 'world_model.capability_authority_conflict'
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test('a sibling repository still configured for legacy-v3 is refused by name', async () => {
+  await assert.rejects(
+    resolveCapabilityWorldModelCandidate(os.tmpdir(), {
+      worldModel: { format: 'legacy-v3', outputDir: 'singularity/world-model' }
+    }, { views: ['dev.impact'] }),
+    (error) => error.code === 'WMB_FORMAT_RETIRED' && /capability repository/.test(error.message)
+  );
 });

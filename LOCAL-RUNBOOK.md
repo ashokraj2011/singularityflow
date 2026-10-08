@@ -32,7 +32,7 @@ To run fully offline instead, set `git: { publish: off }` in `singularity/workfl
 
 **`worldModel.grounding: warn` is the shipped starter setting.** `phase publish` requires the next generation's recorded `wm compose --phase <phase>` receipt, but that receipt may explicitly record a missing or unreachable model—or a stale model under staleness `fail`—with zero World-Model bytes. Normal file-based phase work continues in that state. Staleness `warn` or `ignore` may consume an otherwise verified stale snapshot. `enforce` fails closed when consumed model bytes, provenance, or the prompt snapshot do not verify; it does not turn model availability into a lifecycle prerequisite. Set `worldModel.grounding: off` before `start` to omit repository grounding entirely.
 
-**Semantic `wm build` shells out to `copilot`; `wm light` does not.** The default semantic runner is `copilot -p "$(cat {prompt_file})" --allow-all-tools`. Use `wm light` or `sflow-wm-minimal` for deterministic zero-token grounding. For semantic depths without the Copilot CLI on `PATH`, pass `--runner "<command> {prompt_file}"` or disable grounding.
+**`wm build` is deterministic by default.** With the default deterministic composer it calls no model and needs no Copilot CLI. Only `worldModel.v4.composer: model-optional` or `model-required` may call a model.
 
 ### Commands that require an interactive terminal
 
@@ -241,115 +241,114 @@ wants future Work IDs to inherit this process configuration.
 
 ## 3. Build the repository world model
 
-Run on the initialized `WORK-123` branch, before starting its workflow.
-
-For the smallest validated model:
+Run from the initialized application repository, before starting its workflow.
 
 ```bash
 cd /absolute/path/to/the/application-repository
-sflow-wm-minimal
+singularity-flow wm views
+singularity-flow wm plan --views all
+singularity-flow wm build --views all
+singularity-flow wm check
 ```
 
-This creates a deterministic light development-focused model with zero model
-tokens and commits it locally without pushing. Use `sflow-wm-minimal --phase
-design` to take the minimum required views from phase configuration, or add
-`--publish` when the current branch is ready for normal publication. Light mode
-indexes paths and build metadata only; use a semantic depth when the phase must
-make architectural, behavioral, security, or impact claims.
+`wm build` reads the exact committed in-scope source, builds the registered views
+(`arch.contracts`, `biz.rules`, `dev.hotspots`, `dev.impact`) with zero model tokens,
+and publishes the validated model to the configured state branch. The application
+branch is not changed. Exact valid cache entries are reused, so rerunning the same
+build does not redo finished views. Add `--local` to validate without publishing.
 
 ### Phase-by-phase minimum commands
 
-Run these commands from the application repository on the Work-ID branch. Use
-the section for the workflow profile selected when the work item was started;
-do not run phases from a different profile. Each command reads that phase's
-configured `worldModel.views`, makes a deterministic light build, validates
-it, and commits it locally:
+Run these commands from the application repository. Use the section for the
+workflow profile selected when the work item was started; do not run phases from
+a different profile. Each command builds only the views that phase uses,
+validates them, and publishes them to the state branch:
 
 #### Spec-Driven Standard
 
 ```bash
-sflow-wm-minimal --phase specification
-sflow-wm-minimal --phase planning
-sflow-wm-minimal --phase implementation
-sflow-wm-minimal --phase convergence
-sflow-wm-minimal --phase verification
-sflow-wm-minimal --phase release
+singularity-flow wm build --phase specification
+singularity-flow wm build --phase planning
+singularity-flow wm build --phase implementation
+singularity-flow wm build --phase convergence
+singularity-flow wm build --phase verification
+singularity-flow wm build --phase release
 ```
 
 #### Quick fix
 
 ```bash
-sflow-wm-minimal --phase implement
-sflow-wm-minimal --phase verify
+singularity-flow wm build --phase implement
+singularity-flow wm build --phase verify
 ```
 
 #### Feature
 
 ```bash
-sflow-wm-minimal --phase intake
-sflow-wm-minimal --phase requirements
-sflow-wm-minimal --phase design
-sflow-wm-minimal --phase implementation-spec
-sflow-wm-minimal --phase implementation
-sflow-wm-minimal --phase verification
-sflow-wm-minimal --phase conformance
+singularity-flow wm build --phase intake
+singularity-flow wm build --phase requirements
+singularity-flow wm build --phase design
+singularity-flow wm build --phase implementation-spec
+singularity-flow wm build --phase implementation
+singularity-flow wm build --phase verification
+singularity-flow wm build --phase conformance
 ```
 
 #### Bug fix
 
 ```bash
-sflow-wm-minimal --phase intake
-sflow-wm-minimal --phase reproduction
-sflow-wm-minimal --phase fix-design
-sflow-wm-minimal --phase fix-spec
-sflow-wm-minimal --phase implementation
-sflow-wm-minimal --phase verification
-sflow-wm-minimal --phase conformance
+singularity-flow wm build --phase intake
+singularity-flow wm build --phase reproduction
+singularity-flow wm build --phase fix-design
+singularity-flow wm build --phase fix-spec
+singularity-flow wm build --phase implementation
+singularity-flow wm build --phase verification
+singularity-flow wm build --phase conformance
 ```
 
 #### Chore
 
 ```bash
-sflow-wm-minimal --phase intake
-sflow-wm-minimal --phase implementation
-sflow-wm-minimal --phase verification
-sflow-wm-minimal --phase conformance
+singularity-flow wm build --phase intake
+singularity-flow wm build --phase implementation
+singularity-flow wm build --phase verification
+singularity-flow wm build --phase conformance
 ```
 
 #### Figma export to mobile app
 
 ```bash
-sflow-wm-minimal --phase design-intake
-sflow-wm-minimal --phase design-inventory
-sflow-wm-minimal --phase component-mapping
-sflow-wm-minimal --phase mobile-spec
-sflow-wm-minimal --phase implementation
-sflow-wm-minimal --phase visual-verification
-sflow-wm-minimal --phase conformance
+singularity-flow wm build --phase design-intake
+singularity-flow wm build --phase design-inventory
+singularity-flow wm build --phase component-mapping
+singularity-flow wm build --phase mobile-spec
+singularity-flow wm build --phase implementation
+singularity-flow wm build --phase visual-verification
+singularity-flow wm build --phase conformance
 ```
 
 #### POC workflow
 
 ```bash
-sflow-wm-minimal --phase poc-intake
-sflow-wm-minimal --phase poc-impact-analysis
-sflow-wm-minimal --phase poc-ui-exploration
-sflow-wm-minimal --phase poc-test-generation
-sflow-wm-minimal --phase poc-validation
-sflow-wm-minimal --phase poc-publication-review
+singularity-flow wm build --phase poc-intake
+singularity-flow wm build --phase poc-impact-analysis
+singularity-flow wm build --phase poc-ui-exploration
+singularity-flow wm build --phase poc-test-generation
+singularity-flow wm build --phase poc-validation
+singularity-flow wm build --phase poc-publication-review
 ```
 
 #### POC Lite
 
 POC Lite normally runs with world-model, AST, model, and MCP context disabled. These commands
 document every phase identifier and remain available for an explicitly requested deterministic,
-zero-token repository inventory:
+zero-token build:
 
 ```bash
-sflow-wm-minimal --phase poc-lite-plan
-sflow-wm-minimal --phase poc-lite-act
-sflow-wm-minimal --phase poc-lite-verify
-sflow-wm-minimal --phase poc-lite-finalize
+singularity-flow wm build --phase poc-lite-plan
+singularity-flow wm build --phase poc-lite-act
+singularity-flow wm build --phase poc-lite-verify
+singularity-flow wm build --phase poc-lite-finalize
 ```
 
 #### Benchmark A and Benchmark B
@@ -357,61 +356,35 @@ sflow-wm-minimal --phase poc-lite-finalize
 Both benchmark workflows use the same phase IDs so their outcomes remain comparable:
 
 ```bash
-sflow-wm-minimal --phase intake
-sflow-wm-minimal --phase design
-sflow-wm-minimal --phase implementation
-sflow-wm-minimal --phase testing
-sflow-wm-minimal --phase conformance
+singularity-flow wm build --phase intake
+singularity-flow wm build --phase design
+singularity-flow wm build --phase implementation
+singularity-flow wm build --phase testing
+singularity-flow wm build --phase conformance
 ```
 
-Benchmark A measures the published world model, so add `--publish` to the command for its current
-phase when populating that treatment. If the model is unavailable, the run is marked degraded and
+Benchmark A measures the published world model, so run the command for its current phase when
+populating that treatment. If the model is unavailable, the run is marked degraded and
 the lifecycle still continues with ordinary repository access. Benchmark B deliberately disables
 world-model, AST, and agent-brief context; the commands above document the available phase IDs but
 are not required for that generic-context arm.
 
 You normally run only the current phase's command when Singularity Flow reports
 that grounding is missing or stale; running every command in advance is not
-required. To operate on a branch without checking it out first, add
-`--branch WORK-123`. To commit and push the validated model immediately, add
-`--publish`; otherwise the default `--local` commit is pushed with the next
-normal workflow publication.
+required.
 
 The phase ID must exist in the repository's `singularity/workflow.yml`.
 Customized workflows use the same pattern:
 
 ```bash
-sflow-wm-minimal --phase <configured-phase-id>
+singularity-flow wm build --phase <configured-phase-id>
 singularity-flow wm check
 ```
 
 If you need a single broader model instead of the minimum phase-specific
-views, use `sflow-wm-minimal --views all`.
+views, use `singularity-flow wm build --views all`.
 
-### Equivalent low-level commands
-
-```bash
-singularity-flow wm init
-singularity-flow wm light --local
-# Equivalent depth form
-singularity-flow wm build --depth light --local
-singularity-flow wm check
-```
-
-`--local` commits `singularity/world-model/` without pushing. The later
-`singularity-flow start WORK-123` publication pushes that commit together with
-the first workflow-state commit.
-
-Light mode has no model workers or synthesis checkpoints. If a semantic builder
-is interrupted or final synthesis fails, rerun the same `wm build` command.
-Completed view packets are retained under
-`singularity/world-model/.checkpoints/`, verified against the exact source,
-prompt, and options, and skipped; only pending views restart. Resume is the
-default, `--resume` is the explicit spelling, and `--no-resume` deliberately
-reruns all views. The checkpoint disappears after a validated model is
-installed.
-
-Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` · `--depth light|quick|standard|deep` · `--parallel`/`--no-parallel` · `--workers N` · `--resume`/`--no-resume` · `--branch B` · `--remote R` · `--runner "CMD {prompt_file}"`. `--runner`, workers, and resume apply only to semantic depths.
+Flags: `--phase <id>` · `--views a,b,c|all` · `--depth quick|standard|deep` · `--composer deterministic|model-optional|model-required` · `--workers N` · `--local`.
 
 ---
 

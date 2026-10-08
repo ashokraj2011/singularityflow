@@ -714,9 +714,9 @@ Usage:
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal] [--json]
-  singularity-flow wm init
-  singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local | --state-only [--expected-source-tree-sha256 SHA256]]
-  singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth light|quick|standard|deep] [--parallel|--no-parallel] [--workers N] [--model MODEL]
+  singularity-flow wm views [--json]
+  singularity-flow wm plan [--phase PHASE] [--views LIST] [--json]
+  singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--depth quick|standard|deep] [--composer deterministic|model-optional|model-required] [--workers N]
   singularity-flow wm status [--phase PHASE] [--task TEXT] [--json]
   singularity-flow wm ensure [--phase PHASE] [--task TEXT] [--branch BRANCH] [--remote REMOTE] [--model MODEL]
   singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]
@@ -1116,7 +1116,7 @@ Usage:
     (--review-only proposes each change on a sflow/config-refresh/* review branch and never pushes
      sflow/config itself)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
-    [--migrate-world-model] [--hard-cutover] [--dry-run | --confirm-plan PLAN-ID] [--json]
+    [--hard-cutover] [--dry-run | --confirm-plan PLAN-ID] [--json]
     (--hard-cutover explicitly retires known existing Stories, preserving their bytes read-only;
      their records no longer block schema compatibility; use new IDs for new Stories)
     (safe, repeatable upgrade path: restores only missing or exact registered framework seeds and

@@ -54,8 +54,9 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
+  // `wm ensure` reads registered-v4 views without a model; skills that only offer it stay model-free.
   assert.deepEqual(result.rows.filter((row) => row.kernelModelPolicy === 'conditional').map((row) => row.name), [
-    'sflow-auto', 'sflow-explain-code', 'sflow-initiative-phase', 'sflow-next', 'sflow-run', 'sflow-spec', 'sflow-story-start',
+    'sflow-auto', 'sflow-explain-code', 'sflow-next', 'sflow-spec',
     'sflow-workflow-rules', 'sflow-workspace', 'sflow-workspace-impact', 'sflow-worldmodel'
   ]);
   assert.ok(result.rows.filter((row) => row.kernelModelPolicy === 'never').every((row) => row.modelOperations.length === 0));

@@ -184,7 +184,7 @@ local JDK parser without compiling or loading Candidate tests. See
 [`docs/WEL-REAL-CORPUS-MEASUREMENT.md`](docs/WEL-REAL-CORPUS-MEASUREMENT.md). A local report is not
 release authority and does not replace independent corpus review or signed platform evidence.
 
-The journey uses deterministic light grounding for its Copilot handoff so this gate never invokes a
+The journey uses deterministic grounding for its Copilot handoff so this gate never invokes a
 model or spends tokens. `test/poc-workflow.test.mjs` separately holds the shipped POC workflow's
 standard/deep grounding, MCP evidence, validation, repair-budget, and publication-review contracts.
 

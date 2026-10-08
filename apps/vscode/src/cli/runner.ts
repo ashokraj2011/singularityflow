@@ -1773,7 +1773,7 @@ const TIMING_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
   workspace: new Set(['list', 'current', 'status', 'doctor', 'branches', 'create', 'prepare', 'update', 'repair', 'sync', 'archive', 'refresh-configuration', 'reinitialize', 'attach-capability', 'detach-capability']),
   session: new Set(['current', 'doctor', 'context', 'candidates', 'status', 'attach', 'repair-selection']),
   revision: new Set(['checks', 'attachments', 'activation', 'capabilities', 'status', 'card', 'show', 'abandon']),
-  wm: new Set(['build', 'light', 'ast'])
+  wm: new Set(['build', 'ast'])
 };
 const recentTimings: CliCommandTiming[] = [];
 

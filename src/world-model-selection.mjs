@@ -25,9 +25,6 @@ export const AGENT_VIEW_MODES = Object.freeze(['fallback', 'union']);
 /** Depths a phase may declare, ordered from least to most content. */
 export const DEPTHS = Object.freeze(['light', 'quick', 'standard', 'deep']);
 
-/** Persistent artifact tiers. A tier is part of the logical artifact identity. */
-export const WORLD_MODEL_TIERS = Object.freeze(['brief', 'full']);
-
 /**
  * Resolve the views a phase will receive, keeping the provenance.
  *
@@ -132,83 +129,4 @@ export function resolveGroundingPlan({
     declaredViews: resolved.declared,
     agentViews: resolved.fromAgent
   };
-}
-
-/**
- * Pick the manifest path for a view at a tier, falling back to the full text.
- *
- * A v1 manifest has no `brief_path`, and a view may legitimately be ungenerated. Falling back to
- * `path` keeps an older model readable rather than failing a phase over a tier that predates it.
- */
-export function viewPath(manifest, view, tier, { allowLegacyFallback = true } = {}) {
-  const entry = manifest?.views?.[view];
-  if (!entry) return null;
-  if (entry.tiers) return entry.tiers?.[tier]?.status === 'ready' ? entry.tiers[tier].path ?? null : null;
-  if (tier === 'brief' && entry.brief_path) return entry.brief_path;
-  if (tier === 'brief' && !allowLegacyFallback) return null;
-  return entry.path ?? null;
-}
-
-/** Pick the core path for a tier, with the same fallback. */
-export function corePath(manifest, tier, { allowLegacyFallback = true } = {}) {
-  const core = manifest?.core ?? {};
-  if (core.tiers) return core.tiers?.[tier]?.status === 'ready' ? core.tiers[tier].path ?? null : null;
-  if (tier === 'brief' && core.brief) return core.brief;
-  if (tier === 'brief' && !allowLegacyFallback) return null;
-  return core.summary ?? 'core/summary.md';
-}
-
-/**
- * How much prose each document may carry.
- *
- * The builder prompt has always published a table of these and called them hard, and nothing ever
- * measured one: `validateWorldModelDirectory` checks structure, JSON validity and manifest coverage.
- * These limits are advisory because a large but valid model must never block governed work. Both
- * authored content and fenced blocks count: treating every fence as facts let arbitrary narrative
- * bypass the limit. A second total-document ceiling makes that invariant explicit.
- *
- * These are ceilings that catch a document running away, not targets to write up to. They were
- * calibrated against the one real model available — the calc POC — rather than chosen: its views
- * are 3,183–4,675 bytes of prose against a budget of 8,000, and its core summary is 4,605, which is
- * why the core sits at 5,000 rather than the 4,000 I first tried. The previous limits of 15,000 and
- * 18,000 could not be reached by anything that repository produced, which is why nothing ever
- * noticed they were unenforced.
- *
- * Keep this in step with the table in `templates/worldmodel-builder.md`; the builder is told the
- * same numbers it will be measured against.
- */
-export const PROSE_BUDGETS = Object.freeze({
-  core_brief: 2_000,
-  core_summary: 5_000,
-  view_brief: 2_000,
-  view: 8_000,
-  domain: 6_000,
-  task_guide: 5_000
-});
-
-export const TOTAL_DOCUMENT_BUDGETS = Object.freeze({
-  core_brief: 8_000,
-  core_summary: 24_000,
-  view_brief: 8_000,
-  view: 32_000,
-  domain: 24_000,
-  task_guide: 20_000
-});
-
-/** Bytes of model-authored Markdown. Fences are content too and cannot bypass the advisory. */
-export function proseBytes(markdown) {
-  return Buffer.byteLength(String(markdown ?? ''), 'utf8');
-}
-
-/** Which budget a world-model path is held to, or null when nothing governs it. */
-export function budgetFor(relative) {
-  const value = String(relative ?? '');
-  const result = (key) => ({ key, bytes: PROSE_BUDGETS[key], totalBytes: TOTAL_DOCUMENT_BUDGETS[key] });
-  if (value === 'core/summary.brief.md') return result('core_brief');
-  if (value === 'core/summary.md') return result('core_summary');
-  if (/^views\/.+\.brief\.md$/.test(value)) return result('view_brief');
-  if (/^views\/.+\.md$/.test(value)) return result('view');
-  if (/^domains\/.+\.md$/.test(value)) return result('domain');
-  if (/^task-guides\/.+\.md$/.test(value)) return result('task_guide');
-  return null;
 }

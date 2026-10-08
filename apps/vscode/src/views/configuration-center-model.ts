@@ -1,10 +1,10 @@
 /** Pure models and governed YAML edits for the Configuration Center. */
 import YAML from 'yaml';
 import {
-  BUILTIN_VIEW_IDS, BUILTIN_VIEW_REFERENCES, normalizeBuiltInViewReference
+  BUILTIN_VIEW_IDS, normalizeBuiltInViewReference
 } from '../../../../src/world-model/registry/views.mjs';
 import {
-  LEGACY_WORLD_MODEL_VIEW_IDS, worldModelViewContractCatalog, worldModelViewIdentity
+  worldModelViewContractCatalog, worldModelViewIdentity
 } from '../../../../src/world-model-views.mjs';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 export {
@@ -39,19 +39,18 @@ export interface McpServerView {
   readiness?: 'ready' | 'needs-host-setup' | 'misconfigured'; readinessReasons?: string[];
 }
 export interface WorldModelSettingsView {
-  format: 'legacy-v3' | 'registered-v4';
+  /** Registered v4 is the only World Model format; legacy-v3 was retired in a hard cutover. */
+  format: 'registered-v4';
   views: string[];
   sourceRoots: string[];
   sharedRoots: string[];
   outputDir: string;
-  promptSource: string;
   stateFetchTimeoutMs: number;
-  generation: { parallel: boolean; maxWorkers: number; strategy: 'view' };
+  generation: { parallel: boolean; maxWorkers: number };
   v4: {
     composer: 'deterministic' | 'model-optional' | 'model-required';
     consumer: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
     cachePolicy: 'reuse-valid' | 'rebuild';
-    legacyAssignments: 'strict' | 'inherit-configured';
     totalMaximumOutputTokens: number;
   };
   projections: {
@@ -160,18 +159,11 @@ export interface ConfigurationCenterView {
 export interface McpDraft extends Omit<McpServerView, 'configured' | 'sources'> { previousId?: string; }
 export interface AuthorityDraft extends AuthorityView { previousId?: string; }
 export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'projections' | 'injection'> & {
-  /** Optional so older extension messages preserve rather than erase the new policy. */
-  format?: WorldModelSettingsView['format'];
-  /** Optional so drafts created before registered-v4 remain valid and non-destructive. */
+  /** Optional so a draft that omits a v4 control preserves the repository's current value. */
   v4?: Partial<WorldModelSettingsView['v4']>;
   /** Optional so an older webview cannot turn off a governed projection while saving another field. */
   projections?: WorldModelSettingsView['projections'];
   injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
-};
-
-export type PreparedWorldModelDraft = {
-  readonly draft: WorldModelDraft;
-  readonly migratedLegacyCatalog: boolean;
 };
 export interface AutoDraft {
   enabled: boolean;
@@ -247,14 +239,11 @@ export function configurationRefreshDecision(
 }
 
 const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
-const WORLD_MODEL_FORMATS = new Set(['legacy-v3', 'registered-v4']);
 const WORLD_MODEL_V4_COMPOSERS = new Set(['deterministic', 'model-optional', 'model-required']);
 const WORLD_MODEL_V4_CONSUMERS = new Set([
   'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
 ]);
 const WORLD_MODEL_V4_CACHE_POLICIES = new Set(['reuse-valid', 'rebuild']);
-const WORLD_MODEL_V4_LEGACY_ASSIGNMENTS = new Set(['strict', 'inherit-configured']);
 const AUTO_ELIGIBILITIES = new Set<AutoEligibility>(['disabled', 'plan-only', 'bounded']);
 const email = /^[^@\s]+@[^@\s]+$/;
 
@@ -324,9 +313,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     ? approvalSecurityProfile : 'team';
   const approvalSecurityDefault = normalizedApprovalSecurityProfile !== 'regulated';
   const workflowUsage = worldModelWorkflowUsage(snapshot);
-  const defaultWorldModelViews = worldModel.format === 'registered-v4'
-    ? BUILTIN_VIEW_IDS.map((id) => normalizeBuiltInViewReference(id).reference)
-    : ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'];
+  const defaultWorldModelViews = BUILTIN_VIEW_IDS.map((id) => normalizeBuiltInViewReference(id).reference);
   // Freshness is not existence. A verified stale model, or one whose current source cannot be
   // compared, is still a built model and must not be rendered as "never built".
   const built = Boolean(
@@ -348,11 +335,10 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const fileInventory = snapshot.worldModel?.files;
   const generatedPaths = new Set((fileInventory ?? []).map((file) => file.path));
   const capturedPaths = new Set((fileInventory ?? []).filter((file) => typeof file.content === 'string').map((file) => file.path));
-  const registered = worldModel.format === 'registered-v4';
+  // A model built in any other format (for example one retained on a state branch from before the
+  // legacy-v3 cutover) does not contain the configured registered-v4 views.
   const selectedFormat = snapshot.worldModel?.format;
-  const registeredContent = registered || ['registered-v4', 'wmb-v4'].includes(selectedFormat ?? '');
-  const formatMismatch = selectedFormat != null && registered
-    && !['registered-v4', 'wmb-v4'].includes(selectedFormat);
+  const formatMismatch = selectedFormat != null && !['registered-v4', 'wmb-v4'].includes(selectedFormat);
   const mismatchReason = formatMismatch
     ? `The selected ${selectedFormat} model does not contain the configured registered-v4 views. Select the workspace repository checkout and build its effective model.`
     : null;
@@ -388,13 +374,13 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         const path = selectedPath
           ? selectedPath.startsWith(`${modelRoot}/`) ? selectedPath : `${modelRoot}/${selectedPath}`
           : `${modelRoot}/views/${id}.md`;
-        // A model's existence says nothing about an unbuilt catalog entry. In particular, a
-        // pinned legacy model cannot materialize the approved repository's v4 contract files.
+        // A model's existence says nothing about an unbuilt catalog entry. In particular, a model
+        // in another format cannot materialize the approved repository's v4 contract files.
         const generated = !formatMismatch && (snapshotView?.status
           ? snapshotView.status === 'available'
           : built && (fileInventory === undefined ? Boolean(snapshotView) : generatedPaths.has(path)));
-        const canOpenPath = generated && (capturedPaths.has(path)
-          || (!registeredContent && Boolean(snapshotView)));
+        // Registered content opens only from exact captured bytes, never a checkout file.
+        const canOpenPath = generated && capturedPaths.has(path);
         const workflowMatches = workflowUsage.filter((workflow) =>
           workflow.phases.some((phase) => phase.views.includes(id)));
         const phaseCount = workflowMatches.reduce((count, workflow) =>
@@ -461,23 +447,20 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       })).sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id))
     },
     worldModel: {
-      format: worldModel.format === 'registered-v4' ? 'registered-v4' : 'legacy-v3',
+      format: 'registered-v4',
       views: worldModel.views ?? defaultWorldModelViews,
       sourceRoots: Array.isArray(worldModel.sourceRoots) ? worldModel.sourceRoots : [],
       sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : [],
       outputDir: worldModel.outputDir ?? 'singularity/world-model',
-      promptSource: worldModel.promptSource ?? 'singularity/prompts/worldmodel-builder.md',
       stateFetchTimeoutMs: worldModel.stateFetchTimeoutMs ?? 10_000,
       generation: {
         parallel: generation.parallel !== false,
-        maxWorkers: generation.maxWorkers ?? 4,
-        strategy: generation.strategy ?? 'view'
+        maxWorkers: generation.maxWorkers ?? 4
       },
       v4: {
         composer: worldModel.v4?.composer ?? 'deterministic',
         consumer: worldModel.v4?.consumer ?? 'developer',
         cachePolicy: worldModel.v4?.cachePolicy ?? 'reuse-valid',
-        legacyAssignments: worldModel.v4?.legacyAssignments ?? 'strict',
         totalMaximumOutputTokens: worldModel.v4?.totalMaximumOutputTokens ?? 5600
       },
       projections: {
@@ -511,7 +494,6 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
 
 export type ConfigurationPathTarget =
   | { kind: 'captured'; path: string; content: string }
-  | { kind: 'world-model-file'; path: string }
   | { kind: 'artifact'; path: string }
   | { kind: 'unavailable'; message: string };
 
@@ -528,17 +510,8 @@ export function configurationPathTarget(snapshot: RepositorySnapshot | null, req
     ...(snapshot?.flowSkills ?? []).map((entry) => entry.packagePath ?? entry.path)
   ]);
   if (listed.has(requestedPath)) return { kind: 'artifact', path: requestedPath };
-  if (snapshot) {
-    const view = configurationCenterView(snapshot, { name: '', role: '' }).worldModelStatus.views.find((entry) =>
-      entry.path === requestedPath && entry.canOpenPath);
-    if (view) {
-      // Legacy dedicated slices deliberately retain metadata only. Fetch their verified file
-      // inventory on an explicit click instead of reading a different checkout projection.
-      return snapshot.worldModel?.readiness?.source === 'state-branch'
-        ? { kind: 'world-model-file', path: requestedPath }
-        : { kind: 'artifact', path: requestedPath };
-    }
-  }
+  // A registered view opens only from the exact captured bytes above; there is no checkout or
+  // on-demand file fallback for World Model content.
   return { kind: 'unavailable', message: `This repository no longer lists ${requestedPath}. Refresh and try again.` };
 }
 
@@ -568,61 +541,25 @@ function unsafeRelative(value: string): boolean {
 }
 
 /**
- * Merge a submitted form with the policy fields an older/retained webview did not know about.
+ * Merge a submitted form with the registered-v4 policy fields it did not send.
  *
- * Validation must apply to the document that will actually be written. Previously the form draft
- * was validated as legacy-v3 and `updateWorldModelYaml` then preserved an existing
- * `format: registered-v4`, producing a candidate whose legacy catalog was rejected only by the
- * CLI save boundary. The browser's `change` listener also staged migration, but presentation code
- * is not an authority boundary and a retained webview can miss that event.
- *
- * The only automatic catalog transition is the already-explicit migration policy: registered-v4
- * plus `inherit-configured`, with every submitted entry drawn from the closed legacy vocabulary.
- * It replaces that catalog wholesale with the installed exact contracts; it never guesses a
- * one-to-one semantic mapping. Unknown and mixed catalogs remain untouched so validation refuses
- * them with their original values.
+ * Validation must apply to the document that will actually be written. `updateWorldModelYaml`
+ * preserves a v4 control the draft omits, so that control is validated with the repository's
+ * current value rather than with a default the writer would never write. Registered v4 is the only
+ * World Model format; the retired legacy-v3 catalog is never migrated or repaired here, so a draft
+ * naming legacy views is refused by ordinary validation with its original values.
  */
-export function prepareWorldModelDraftForSave(text: string, draft: WorldModelDraft): PreparedWorldModelDraft {
+export function prepareWorldModelDraftForSave(text: string, draft: WorldModelDraft): WorldModelDraft {
   const shapeErrors = validateWorldModelDraftShape(draft);
   if (shapeErrors.length) throw new Error(shapeErrors.join(' '));
   let existing: any = {};
   try { existing = YAML.parse(text)?.worldModel ?? {}; }
   catch { /* the governed CLI reports malformed source YAML; never invent replacement policy */ }
-  const retainedV4Form = draft.format === undefined && draft.v4 === undefined
-    && existing.format === 'registered-v4';
-  const format = draft.format ?? existing.format ?? 'legacy-v3';
   const v4 = {
     ...(existing.v4 && typeof existing.v4 === 'object' ? existing.v4 : {}),
     ...(draft.v4 ?? {})
   } as Partial<WorldModelSettingsView['v4']>;
-  // A webview retained from before the v4 controls existed cannot author the v4 catalog. Preserve
-  // the repository's current value so an unrelated setting never widens or repairs it implicitly;
-  // a mixed/unknown current catalog is then refused by ordinary validation with its exact values.
-  const effective: WorldModelDraft = {
-    ...draft,
-    format,
-    v4,
-    views: retainedV4Form
-      ? (Array.isArray(existing.views) ? [...existing.views] : [...BUILTIN_VIEW_REFERENCES])
-      : draft.views
-  };
-  const explicitMigration = draft.format === 'registered-v4'
-    && draft.v4?.legacyAssignments === 'inherit-configured';
-  if (!explicitMigration) {
-    return Object.freeze({ draft: effective, migratedLegacyCatalog: false });
-  }
-  const legacy = new Set(LEGACY_WORLD_MODEL_VIEW_IDS);
-  const submitted = Array.isArray(effective.views) ? effective.views : [];
-  if (!submitted.length || !submitted.every((view) => legacy.has(String(view).trim()))) {
-    return Object.freeze({ draft: effective, migratedLegacyCatalog: false });
-  }
-  return Object.freeze({
-    draft: {
-      ...effective,
-      views: [...BUILTIN_VIEW_REFERENCES]
-    },
-    migratedLegacyCatalog: true
-  });
+  return { ...draft, v4 };
 }
 
 /** Reject malformed/retained postMessage payloads before any property is dereferenced. */
@@ -639,7 +576,6 @@ export function validateWorldModelDraftShape(draft: unknown): string[] {
       || (candidate.sourceRoots !== undefined && !strings(candidate.sourceRoots))
       || (candidate.sharedRoots !== undefined && !strings(candidate.sharedRoots))
       || typeof candidate.outputDir !== 'string'
-      || typeof candidate.promptSource !== 'string'
       || typeof candidate.stateFetchTimeoutMs !== 'number'
       || (candidate.v4 !== undefined && !record(candidate.v4))
       || (candidate.projections !== undefined && (
@@ -657,46 +593,35 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   const shapeErrors = validateWorldModelDraftShape(draft);
   if (shapeErrors.length) return shapeErrors;
   const errors: string[] = [];
-  const format = draft.format ?? 'legacy-v3';
   const v4 = {
     composer: draft.v4?.composer ?? 'deterministic',
     consumer: draft.v4?.consumer ?? 'developer',
     cachePolicy: draft.v4?.cachePolicy ?? 'reuse-valid',
-    legacyAssignments: draft.v4?.legacyAssignments ?? 'strict',
     totalMaximumOutputTokens: draft.v4?.totalMaximumOutputTokens ?? 5600
   };
-  if (!WORLD_MODEL_FORMATS.has(format)) errors.push(`Unknown world-model format '${format}'.`);
-  if (format === 'registered-v4') {
-    const normalized: string[] = [];
-    const unsupported: string[] = [];
-    for (const view of draft.views) {
-      try { normalized.push(normalizeBuiltInViewReference(view).reference); }
-      catch { unsupported.push(view); }
-    }
-    if (unsupported.length) {
-      errors.push(
-        `Registered-v4 views must use installed active contracts (${BUILTIN_VIEW_IDS.join(', ')}); unsupported: ${unsupported.join(', ')}.`
-      );
-    }
-    if (new Set(normalized).size !== normalized.length) {
-      errors.push('Registered-v4 views must not repeat one contract with and without its exact version.');
-    }
+  const normalized: string[] = [];
+  const unsupported: string[] = [];
+  for (const view of draft.views) {
+    try { normalized.push(normalizeBuiltInViewReference(view).reference); }
+    catch { unsupported.push(view); }
+  }
+  if (unsupported.length) {
+    errors.push(
+      `Registered-v4 views must use installed active contracts (${BUILTIN_VIEW_IDS.join(', ')}); unsupported: ${unsupported.join(', ')}.`
+    );
+  }
+  if (new Set(normalized).size !== normalized.length) {
+    errors.push('Registered-v4 views must not repeat one contract with and without its exact version.');
   }
   if (!WORLD_MODEL_V4_COMPOSERS.has(v4.composer)) errors.push(`Unknown registered-v4 composer '${v4.composer}'.`);
   if (!WORLD_MODEL_V4_CONSUMERS.has(v4.consumer)) errors.push(`Unknown registered-v4 consumer '${v4.consumer}'.`);
   if (!WORLD_MODEL_V4_CACHE_POLICIES.has(v4.cachePolicy)) errors.push(`Unknown registered-v4 cache policy '${v4.cachePolicy}'.`);
-  if (!WORLD_MODEL_V4_LEGACY_ASSIGNMENTS.has(v4.legacyAssignments)) {
-    errors.push(`Unknown registered-v4 legacy-assignment policy '${v4.legacyAssignments}'.`);
-  }
   if (!Number.isInteger(v4.totalMaximumOutputTokens)
       || v4.totalMaximumOutputTokens < 1 || v4.totalMaximumOutputTokens > 1_000_000) {
     errors.push('Registered-v4 total output budget must be from 1 through 1000000 tokens.');
   }
   if (draft.projections?.archCalm.required && !draft.projections.archCalm.enabled) {
     errors.push('The CALM architecture projection must be enabled before it can be required.');
-  }
-  if (draft.projections?.archCalm.enabled && format !== 'registered-v4') {
-    errors.push('The CALM architecture projection requires Registered v4; legacy-v3 does not generate registered projections.');
   }
   if (draft.projections?.archCalm.includeExternalDependencies != null
       && !['off', 'direct-architecture-only'].includes(
@@ -706,9 +631,6 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   }
   if (!draft.views.length) errors.push('Declare at least one world-model view.');
   if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
-  if (format !== 'registered-v4') {
-    draft.views.forEach((view) => { if (!WORLD_MODEL_VIEW_ID.test(view)) errors.push(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID.`); });
-  }
   for (const [label, roots] of [
     ['Source roots', draft.sourceRoots ?? []], ['Shared roots', draft.sharedRoots ?? []]
   ] as const) {
@@ -720,7 +642,6 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
     });
   }
   if (!draft.outputDir.trim() || unsafeRelative(draft.outputDir.trim())) errors.push('Output directory must be a repository-relative path.');
-  if (!draft.promptSource.trim() || (draft.promptSource.trim() !== 'builtin' && unsafeRelative(draft.promptSource.trim()))) errors.push("Prompt source must be 'builtin' or a repository-relative path.");
   if (!Number.isInteger(draft.stateFetchTimeoutMs) || draft.stateFetchTimeoutMs < 250 || draft.stateFetchTimeoutMs > 60_000) errors.push('State fetch timeout must be from 250 through 60000 milliseconds.');
   if (!Number.isInteger(draft.generation.maxWorkers) || draft.generation.maxWorkers < 1 || draft.generation.maxWorkers > 16) errors.push('Parallel workers must be from 1 through 16.');
   if (draft.materialization.confirmation === 'automatic' && draft.materialization.depth !== 'light') errors.push('Automatic materialization requires deterministic light depth. Model-driven phase generation must be confirmed.');
@@ -872,19 +793,18 @@ export function updateAutoYaml(text: string, draft: AutoDraft): string {
 /** Update only guided world-model fields. Advanced context and injection rules remain untouched. */
 export function updateWorldModelYaml(text: string, draft: WorldModelDraft): string {
   const parsed = document(text, 'workflow.yml');
-  const prepared = prepareWorldModelDraftForSave(text, draft).draft;
+  const prepared = prepareWorldModelDraftForSave(text, draft);
   const errors = validateWorldModelDraft(prepared);
   if (errors.length) throw new Error(errors.join(' '));
-  // An older webview does not send these fields. In that case preserve the exact existing policy
-  // instead of silently downgrading a registered-v4 repository during an otherwise unrelated save.
-  if (prepared.format !== undefined) parsed.setIn(['worldModel', 'format'], prepared.format);
+  // Registered v4 is the only format. Writing it explicitly also replaces a retired `legacy-v3`
+  // value; the views above were already validated against the installed v4 contracts.
+  parsed.setIn(['worldModel', 'format'], 'registered-v4');
+  // A v4 control the draft omits keeps the repository's exact current value. The retired
+  // `legacyAssignments`, `promptSource` and `generation.strategy` keys are never written.
   if (prepared.v4 !== undefined) {
     if (prepared.v4.composer !== undefined) parsed.setIn(['worldModel', 'v4', 'composer'], prepared.v4.composer);
     if (prepared.v4.consumer !== undefined) parsed.setIn(['worldModel', 'v4', 'consumer'], prepared.v4.consumer);
     if (prepared.v4.cachePolicy !== undefined) parsed.setIn(['worldModel', 'v4', 'cachePolicy'], prepared.v4.cachePolicy);
-    if (prepared.v4.legacyAssignments !== undefined) {
-      parsed.setIn(['worldModel', 'v4', 'legacyAssignments'], prepared.v4.legacyAssignments);
-    }
     if (prepared.v4.totalMaximumOutputTokens !== undefined) {
       parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], prepared.v4.totalMaximumOutputTokens);
     }
@@ -921,11 +841,9 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
   if (Array.isArray(prepared.sourceRoots)) parsed.setIn(['worldModel', 'sourceRoots'], prepared.sourceRoots);
   if (Array.isArray(prepared.sharedRoots)) parsed.setIn(['worldModel', 'sharedRoots'], prepared.sharedRoots);
   parsed.setIn(['worldModel', 'outputDir'], prepared.outputDir.trim());
-  parsed.setIn(['worldModel', 'promptSource'], prepared.promptSource.trim());
   parsed.setIn(['worldModel', 'stateFetchTimeoutMs'], prepared.stateFetchTimeoutMs);
   parsed.setIn(['worldModel', 'generation', 'parallel'], prepared.generation.parallel);
   parsed.setIn(['worldModel', 'generation', 'maxWorkers'], prepared.generation.maxWorkers);
-  parsed.setIn(['worldModel', 'generation', 'strategy'], 'view');
   parsed.setIn(['worldModel', 'materialization', 'mode'], prepared.materialization.mode);
   parsed.setIn(['worldModel', 'materialization', 'publish'], prepared.materialization.publish);
   parsed.setIn(['worldModel', 'materialization', 'lookahead'], prepared.materialization.lookahead);

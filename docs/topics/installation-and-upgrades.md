@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 32
+version: 33
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -223,9 +223,10 @@ new Stories consume the upgraded approved authority. This is not test or release
 ### Pilot hard cutover — discontinue existing Stories
 
 Choose **After install → Hard cutover: discontinue old Stories…** after selecting the workspace.
-This is a separate opt-in path, never an automatic fallback from a failed migration. Review the
-listed Story IDs and exact plan once. It upgrades configuration and World Model settings, publishes
-a retirement registry on `sflow/config` and its state mirror, then refreshes the local authority pins.
+This is a separate opt-in path, never an automatic fallback from a failed upgrade, and it does not
+change the World Model. Review the listed Story IDs and exact plan once. It upgrades configuration,
+publishes a retirement registry on `sflow/config` and its state mirror, then refreshes the local
+authority pins.
 
 Retired Stories become read-only. Their source, artifacts, approvals, branches and commits are
 preserved without rewriting or migrating their historical records. Use **new Story IDs** after
@@ -236,12 +237,12 @@ must refresh the approved authority before their offline checkout knows the reti
 The equivalent plan-first CLI flow is:
 
 ```sh
-singularity-flow workspace reinitialize WORKSPACE --migrate-world-model --hard-cutover --dry-run --json
+singularity-flow workspace reinitialize WORKSPACE --hard-cutover --dry-run --json
 # Review the retiring IDs and all changes; use the exact returned plan:
-singularity-flow workspace reinitialize WORKSPACE --migrate-world-model --hard-cutover --confirm-plan PLAN-ID --json
+singularity-flow workspace reinitialize WORKSPACE --hard-cutover --confirm-plan PLAN-ID --json
 ```
 
-Copilot: `/sf-admin reinitialize WORKSPACE --migrate-world-model --hard-cutover`.
+Copilot: `/sf-admin reinitialize WORKSPACE --hard-cutover`.
 Current configuration, non-retired records and authoritative World Model bindings still need valid
 integrity. A moved Story ref, configuration/state authority, or workspace membership invalidates the
 plan before publication. Partial completion is retained; preview again rather than reusing a stale

@@ -251,11 +251,9 @@ printed `--from-staged-artifacts` recovery first. A new operation ID is issued o
 journal is either complete or verified `rolled-back`; prior content-addressed archives are not
 deleted.
 
-One Windows note: reading and publishing governed state needs no shell, but **building a world
-model** hands the configured runner command to `cmd.exe`, and `sflow-wm-minimal` wraps a shell
-script. Installing Git for Windows provides the shell both want. `singularity-flow doctor` reports
-this as its `platform` check, so a machine that cannot build models says so rather than failing
-later.
+One Windows note: reading and publishing governed state needs no shell, but quality commands and
+hooks run through one. Installing Git for Windows provides it. `singularity-flow doctor` reports
+this as its `platform` check, so a machine that cannot run them says so rather than failing later.
 
 ## Developer build and verify
 

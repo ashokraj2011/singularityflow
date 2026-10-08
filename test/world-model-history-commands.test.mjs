@@ -1,3 +1,4 @@
+import { initializeDefinition } from '../src/config.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -69,7 +70,8 @@ async function persistedRepository(t) {
   git(root, 'config', 'user.email', 'wmp-history-command@example.invalid');
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, 'README.md'), '# application\n');
-  await writeFile(path.join(root, 'singularity', 'worldmodel.json'), '{}\n');
+  // The registered World Model reads its state authority from the governed configuration.
+  await initializeDefinition(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'application source');
 

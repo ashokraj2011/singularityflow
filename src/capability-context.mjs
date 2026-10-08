@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { retiredWorldModelFormatError } from './world-model-format.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -24,17 +25,7 @@ import {
 import {
   configurationReadAuthority, configurationReadRoot
 } from './configuration-read-scope.mjs';
-import {
-  normalizeWorldModelManifest,
-  resolveWorldModelSource,
-  validateWorldModelDirectory,
-  worldModelFreshness,
-  worldModelSelectionEntry,
-  worldModelSourceSnapshot
-} from './grounding.mjs';
-import {
-  isWorldModelV4, resolveWorldModelV4Grounding
-} from './world-model/commands.mjs';
+import { resolveWorldModelV4Grounding } from './world-model/commands.mjs';
 import {
   cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
 } from './world-model/authority-refresh.mjs';
@@ -841,22 +832,6 @@ export function applyCapabilityPolicyToInitiativeResolution(resolution, capabili
   };
 }
 
-function modelFiles(manifest, views) {
-  const normalized = manifest?.source_schema_version ? manifest : normalizeWorldModelManifest(manifest);
-  const allowLegacyFallback = normalized.source_schema_version !== '3.0';
-  const core = worldModelSelectionEntry(normalized, { kind: 'core', tier: 'full' }, { allowLegacyFallback });
-  const selected = new Map(core?.path ? [[core.path, new Set(['core'])]] : []);
-  for (const view of views) {
-    const relative = worldModelSelectionEntry(normalized, {
-      kind: 'view', view, tier: 'full'
-    }, { allowLegacyFallback })?.path;
-    if (!relative) continue;
-    if (!selected.has(relative)) selected.set(relative, new Set());
-    selected.get(relative).add(view);
-  }
-  return [...selected].map(([relative, matchedViews]) => ({ relative, views: [...matchedViews] }));
-}
-
 /** Resolve a sibling model against that repository's current capability-scoped source identity. */
 export async function resolveCapabilityWorldModelCandidate(repositoryRoot, definition, {
   sourceScope = null,
@@ -864,14 +839,13 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
   capabilityId = null,
   authorityRefresh = null
 } = {}) {
-  const groundingDefinition = withWorldModelSourceScope(definition ?? {}, sourceScope);
-  const worldModel = groundingDefinition.worldModel ?? { outputDir: 'singularity/world-model' };
+  const scoped = withWorldModelSourceScope(definition ?? {}, sourceScope);
+  // A sibling repository still configured for the retired legacy-v3 World Model is refused by name.
+  if (scoped.worldModel?.format === 'legacy-v3') throw retiredWorldModelFormatError('capability repository worldModel.format: legacy-v3');
+  const groundingDefinition = { ...scoped, worldModel: { ...(scoped.worldModel ?? {}), format: 'registered-v4' } };
+  const worldModel = groundingDefinition.worldModel;
   const outputDir = worldModel.outputDir ?? 'singularity/world-model';
   const stateAuthority = worldModelStateAuthority(groundingDefinition);
-  const requiredSelections = [
-    { kind: 'core', tier: 'full' },
-    ...unique(views).map((view) => ({ kind: 'view', view, tier: 'full' }))
-  ];
   const worldModelConfig = {
     ...worldModel,
     ledger: groundingDefinition.ledger,
@@ -879,171 +853,119 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
     remote: stateAuthority.remote,
     definition: groundingDefinition
   };
-  if (isWorldModelV4(worldModelConfig)) {
-    const phase = 'capability-context';
-    const declaredViews = unique(views).length
-      ? unique(views)
-      : unique(groundingDefinition.worldModel?.views ?? []);
-    // Reuse the same exact capability identity as a storyless WMB build. Falling back to the
-    // checkout basename here gave sibling composition a different scope-policy digest from the
-    // already published `repository-root` projection, so a fresh reusable model was rejected as
-    // stale. The offline resolver reads only approved local authority and performs no model or
-    // network work.
-    const repositoryCapability = await resolveLifecycleCapability(repositoryRoot, {
-      capabilityId,
-      required: Boolean(capabilityId),
-      offline: true,
-      refuseAmbiguous: true
-    });
-    const config = {
-      ...worldModelConfig,
-      ...(repositoryCapability ? { repositoryCapability } : {}),
-      staleness: 'fail',
-      phases: {
-        [phase]: {
-          views: declaredViews,
-          declaredViews,
-          depth: 'standard',
-          evidence: false
-        }
+  const phase = 'capability-context';
+  const declaredViews = unique(views).length
+    ? unique(views)
+    : unique(groundingDefinition.worldModel?.views ?? []);
+  // Reuse the same exact capability identity as a storyless WMB build. Falling back to the
+  // checkout basename here gave sibling composition a different scope-policy digest from the
+  // already published `repository-root` projection, so a fresh reusable model was rejected as
+  // stale. The offline resolver reads only approved local authority and performs no model or
+  // network work.
+  const repositoryCapability = await resolveLifecycleCapability(repositoryRoot, {
+    capabilityId,
+    required: Boolean(capabilityId),
+    offline: true,
+    refuseAmbiguous: true
+  });
+  const config = {
+    ...worldModelConfig,
+    ...(repositoryCapability ? { repositoryCapability } : {}),
+    staleness: 'fail',
+    phases: {
+      [phase]: {
+        views: declaredViews,
+        declaredViews,
+        depth: 'standard',
+        evidence: false
       }
-    };
-    if (authorityRefresh?.errorCode) {
-      throw new SingularityFlowError(
-        authorityRefresh.errorMessage ?? 'The registered World-Model authority could not be refreshed during Story preflight.',
-        { code: authorityRefresh.errorCode, details: { refresh: authorityRefresh.status } }
-      );
     }
-    const reusePreflight = authorityRefresh?.attempted === true
-      && authorityRefresh?.reusable === true;
-    const authority = await refreshWorldModelV4Authority(repositoryRoot, config, {
-      refreshRemote: !reusePreflight
-    });
-    if (reusePreflight && authorityRefresh.status === 'remote-absent') {
-      if (authority.status !== 'refresh-required') {
-        throw new SingularityFlowError(
-          'The capability repository registered World-Model tracking ref changed after Story preflight.',
-          { code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED' }
-        );
-      }
+  };
+  if (authorityRefresh?.errorCode) {
+    throw new SingularityFlowError(
+      authorityRefresh.errorMessage ?? 'The registered World-Model authority could not be refreshed during Story preflight.',
+      { code: authorityRefresh.errorCode, details: { refresh: authorityRefresh.status } }
+    );
+  }
+  const reusePreflight = authorityRefresh?.attempted === true
+    && authorityRefresh?.reusable === true;
+  const authority = await refreshWorldModelV4Authority(repositoryRoot, config, {
+    refreshRemote: !reusePreflight
+  });
+  if (reusePreflight && authorityRefresh.status === 'remote-absent') {
+    if (authority.status !== 'refresh-required') {
       throw new SingularityFlowError(
-        'The capability repository remote state branch has no registered World-Model projection.',
-        { code: 'world_model.capability_missing', details: { refresh: 'remote-absent' } }
-      );
-    }
-    if (authority.status === 'refresh-required') {
-      throw new SingularityFlowError(
-        'The registered World-Model state authority was not materialized by Story preflight.',
+        'The capability repository registered World-Model tracking ref changed after Story preflight.',
         { code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED' }
       );
     }
-    if (reusePreflight && authorityRefresh.commit
-        && authority.commit !== authorityRefresh.commit) {
-      throw new SingularityFlowError(
-        'The capability repository registered World-Model authority changed after Story preflight.',
-        {
-          code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
-          details: {
-            expectedCommit: authorityRefresh.commit,
-            actualCommit: authority.commit ?? null
-          }
+    throw new SingularityFlowError(
+      'The capability repository remote state branch has no registered World-Model projection.',
+      { code: 'world_model.capability_missing', details: { refresh: 'remote-absent' } }
+    );
+  }
+  if (authority.status === 'refresh-required') {
+    throw new SingularityFlowError(
+      'The registered World-Model state authority was not materialized by Story preflight.',
+      { code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED' }
+    );
+  }
+  if (reusePreflight && authorityRefresh.commit
+      && authority.commit !== authorityRefresh.commit) {
+    throw new SingularityFlowError(
+      'The capability repository registered World-Model authority changed after Story preflight.',
+      {
+        code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+        details: {
+          expectedCommit: authorityRefresh.commit,
+          actualCommit: authority.commit ?? null
         }
-      );
-    }
-    if (authority.status === 'remote-absent') {
-      throw new SingularityFlowError(
-        'The capability repository remote state branch has no registered World-Model projection.',
-        { code: 'world_model.capability_missing', details: { refresh: authority.status } }
-      );
-    }
-    if (['offline-cached', 'timeout-cached', 'unavailable'].includes(authority.status)
-        && !cachedWorldModelV4AuthorityPresent(repositoryRoot, config)) {
-      throw new SingularityFlowError(
-        'The capability repository registered World-Model authority could not be refreshed and has no verified cache.',
-        { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, details: { refresh: authority.status } }
-      );
-    }
-    const resolved = resolveWorldModelV4Grounding(repositoryRoot, config, {
-      phase,
-      options: declaredViews.length ? { views: declaredViews.join(',') } : {}
-    });
-    if (!resolved.freshness.fresh) {
-      throw new SingularityFlowError(
-        'The capability repository registered World Model does not match its current scoped source snapshot.',
-        {
-          code: 'world_model.capability_stale',
-          details: {
-            sourceManifestSha256: resolved.sourceManifestSha256,
-            reason: resolved.freshness.reason ?? null
-          }
-        }
-      );
-    }
-    return {
-      format: 'registered-v4',
-      outputDir,
-      requiredSelections: resolved.selections,
-      sourceState: {
-        format: 'registered-v4',
-        sha256: resolved.sourceManifestSha256,
-        commit: resolved.store.sourceSnapshot.revision.commit
-      },
-      located: resolved.located,
-      manifestPath: null,
-      manifest: resolved.manifest,
-      normalizedManifest: null,
-      resolved
-    };
-  }
-  const sourceState = await worldModelSourceSnapshot(repositoryRoot, groundingDefinition);
-  const located = await resolveWorldModelSource(repositoryRoot, worldModelConfig, {
-    sourceTreeSha256: sourceState.sha256,
-    requiredSelections
-  });
-  if (located.diverged) {
-    throw new SingularityFlowError('The capability repository local and remote state branches have diverged.', {
-      code: 'world_model.capability_authority_conflict',
-      details: { branch: located.branch, authority: located.authority }
-    });
-  }
-  if (located.refresh === 'remote-absent' && located.authority === 'unpublished-local-state') {
-    throw new SingularityFlowError('The capability repository remote state branch is absent; a leftover local state ref requires explicit review.', {
-      code: 'world_model.capability_authority_conflict',
-      details: { branch: located.branch, authority: located.authority }
-    });
-  }
-  const manifestPath = path.join(located.directory, 'manifest.json');
-  if (!existsSync(manifestPath)) {
-    throw new SingularityFlowError('No world-model manifest is available for the current scoped source snapshot.', {
-      code: 'world_model.capability_missing'
-    });
-  }
-  const validated = await validateWorldModelDirectory(located.directory, {
-    integrity: 'full',
-    requiredSelections,
-    sourceLabel: 'capability repository world model'
-  });
-  const freshness = await worldModelFreshness(repositoryRoot, groundingDefinition, validated.manifest);
-  if (!freshness.fresh || freshness.built !== sourceState.sha256) {
-    throw new SingularityFlowError('The capability repository world model does not match its current scoped source snapshot.', {
-      code: 'world_model.capability_stale',
-      details: {
-        requestedSourceTreeSha256: sourceState.sha256,
-        sourceTreeSha256: freshness.built ?? null
       }
-    });
+    );
+  }
+  if (authority.status === 'remote-absent') {
+    throw new SingularityFlowError(
+      'The capability repository remote state branch has no registered World-Model projection.',
+      { code: 'world_model.capability_missing', details: { refresh: authority.status } }
+    );
+  }
+  if (['offline-cached', 'timeout-cached', 'unavailable'].includes(authority.status)
+      && !cachedWorldModelV4AuthorityPresent(repositoryRoot, config)) {
+    throw new SingularityFlowError(
+      'The capability repository registered World-Model authority could not be refreshed and has no verified cache.',
+      { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, details: { refresh: authority.status } }
+    );
+  }
+  const resolved = resolveWorldModelV4Grounding(repositoryRoot, config, {
+    phase,
+    options: declaredViews.length ? { views: declaredViews.join(',') } : {}
+  });
+  if (!resolved.freshness.fresh) {
+    throw new SingularityFlowError(
+      'The capability repository registered World Model does not match its current scoped source snapshot.',
+      {
+        code: 'world_model.capability_stale',
+        details: {
+          sourceManifestSha256: resolved.sourceManifestSha256,
+          reason: resolved.freshness.reason ?? null
+        }
+      }
+    );
   }
   return {
-    format: 'legacy-v3',
+    format: 'registered-v4',
     outputDir,
-    requiredSelections,
-    sourceState,
-    located,
-    manifestPath,
-    manifest: validated.manifest,
-    normalizedManifest: validated.normalizedManifest,
-    manifestContentSha256: validated.manifestContentSha256,
-    validatedModelFiles: validated.registeredFiles
+    requiredSelections: resolved.selections,
+    sourceState: {
+      format: 'registered-v4',
+      sha256: resolved.sourceManifestSha256,
+      commit: resolved.store.sourceSnapshot.revision.commit
+    },
+    located: resolved.located,
+    manifestPath: null,
+    manifest: resolved.manifest,
+    normalizedManifest: null,
+    resolved
   };
 }
 
@@ -1127,69 +1049,30 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       });
       continue;
     }
-    const {
-      format, outputDir, sourceState, located, manifest, normalizedManifest
-    } = resolved;
-    const manifestInfo = format === 'registered-v4'
-      ? { sha256: resolved.resolved.manifestContentSha256 }
-      : { sha256: resolved.manifestContentSha256 };
-    const commit = format === 'registered-v4'
-      ? resolved.resolved.store.sourceSnapshot.revision.commit
-      : manifest.repository_commit ?? manifest.repository?.commit
-        ?? capabilityHistoryRead(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}'], 'Repository HEAD').trim();
+    const { format, outputDir, located } = resolved;
+    const manifestInfo = { sha256: resolved.resolved.manifestContentSha256 };
+    const commit = resolved.resolved.store.sourceSnapshot.revision.commit;
     const selected = [];
-    const selections = format === 'registered-v4'
-      ? resolved.resolved.selected.map((entry) => ({
-          relative: entry.relative,
-          views: [entry.viewId],
-          content: entry.body,
-          bytes: entry.size,
-          sha256: entry.sha256
-        }))
-      : modelFiles(normalizedManifest, views);
-    const validatedFiles = new Map(
-      (resolved.validatedModelFiles ?? []).map((entry) => [entry.path, entry])
-    );
+    const selections = resolved.resolved.selected.map((entry) => ({
+      relative: entry.relative,
+      views: [entry.viewId],
+      content: entry.body,
+      bytes: entry.size,
+      sha256: entry.sha256
+    }));
     const prepared = [];
     let preparationFailure = null;
     for (const selection of selections) {
       const { relative } = selection;
-      const absolute = located.directory ? path.join(located.directory, relative) : null;
       try {
-        let sourceBytes;
-        let expectedSha256;
-        if (selection.content != null) {
-          sourceBytes = Buffer.from(selection.content, 'utf8');
-          expectedSha256 = selection.sha256;
-          if ((selection.bytes != null && sourceBytes.length !== selection.bytes)
-              || (expectedSha256
-                && createHash('sha256').update(sourceBytes).digest('hex') !== expectedSha256)) {
-            throw new SingularityFlowError(
-              `Capability repository '${repositoryId}' returned inconsistent registered world-model bytes for '${relative}'.`
-            );
-          }
-        } else {
-          const expected = validatedFiles.get(posix(relative));
-          if (!expected) {
-            throw new SingularityFlowError(
-              `Capability repository '${repositoryId}' selected an unvalidated world-model file '${relative}'.`
-            );
-          }
-          try { sourceBytes = await readFile(absolute); }
-          catch (error) {
-            if (!isWorldModelAvailabilityError(error)) throw error;
-            throw new SingularityFlowError(
-              `Capability repository '${repositoryId}' world-model file '${relative}' became unavailable.`,
-              { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, cause: error }
-            );
-          }
-          expectedSha256 = expected.sha256;
-          if (sourceBytes.length !== expected.size
-              || createHash('sha256').update(sourceBytes).digest('hex') !== expected.sha256) {
-            throw new SingularityFlowError(
-              `Capability repository '${repositoryId}' world-model file '${relative}' changed after validation.`
-            );
-          }
+        const sourceBytes = Buffer.from(selection.content ?? '', 'utf8');
+        const expectedSha256 = selection.sha256;
+        if ((selection.bytes != null && sourceBytes.length !== selection.bytes)
+            || (expectedSha256
+              && createHash('sha256').update(sourceBytes).digest('hex') !== expectedSha256)) {
+          throw new SingularityFlowError(
+            `Capability repository '${repositoryId}' returned inconsistent registered world-model bytes for '${relative}'.`
+          );
         }
         prepared.push({ selection, sourceBytes, expectedSha256 });
       } catch (error) {
@@ -1246,12 +1129,8 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       branch: configured.defaultBranch,
       commit,
       manifestSha256: manifestInfo.sha256,
-      sourceTreeSha256: format === 'registered-v4'
-        ? resolved.resolved.sourceManifestSha256
-        : manifest.source_tree_sha256 ?? null,
-      requestedSourceTreeSha256: format === 'registered-v4'
-        ? resolved.resolved.sourceManifestSha256
-        : sourceState.sha256,
+      sourceTreeSha256: resolved.resolved.sourceManifestSha256,
+      requestedSourceTreeSha256: resolved.resolved.sourceManifestSha256,
       format,
       source: located.source,
       files: selected

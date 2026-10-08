@@ -259,44 +259,27 @@ for organizations that deliberately add a stricter custom policy.
 
 ## 8. Repository world model
 
-The world model is a repository-owned, generated description of the codebase:
+The world model is a repository-owned description of the codebase. A build reads
+the exact scoped source, registers facts and evidence, renders the registered views
+(`arch.contracts`, `biz.rules`, `dev.hotspots`, `dev.impact`), and publishes them
+with one manifest under `singularity/world-model/` on the configured state branch.
+The default composer makes no model call.
 
-```text
-singularity/world-model/
-├── manifest.json
-├── core/
-│   └── summary.md
-├── views/
-│   ├── business.md
-│   ├── architecture.md
-│   ├── development.md
-│   ├── testing.md
-│   ├── security.md
-│   └── operations.md
-├── domains/
-├── tasks/
-└── evidence/
-```
-
-Build it for an exact phase and task:
+Build the views one phase uses:
 
 ```bash
-singularity-flow wm build \
-  --phase design \
-  --task "Design invoice export" \
-  --local
+singularity-flow wm build --phase design
 ```
 
-Generation records:
+Each build records:
 
-- Repository commit and source-tree hash.
-- Generation timestamp.
-- Builder prompt hash and version.
-- View, domain, task-guide, and evidence paths.
-- SHA-256 and size of each registered file.
+- The exact source snapshot and scope.
+- The registered view contracts and extractor registry.
+- The facts and evidence each view uses.
+- The SHA-256 of each published file.
 
-Views can be generated in parallel. The installed result is still validated
-against one manifest before it becomes governed context.
+Views can be built in parallel. The published result is validated against one
+manifest before it becomes governed context.
 
 ## 9. How the world model reaches Copilot
 
@@ -313,12 +296,9 @@ The composer combines:
 ```text
 Phase contract and artifact template
 + governed Agent Markdown
-+ repository core summary
 + mandatory phase views
 + agent-added world-model views
-+ relevant domain files
-+ exact task guide
-+ rule-selected world-model files
++ exact task guide (when requested)
 + locked remote Agent Markdown dependencies
 + approved upstream artifacts
 + evidence ledger when required

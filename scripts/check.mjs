@@ -1083,7 +1083,6 @@ const packagedAssetSources = new Map([
   ['templates/agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['templates/impact.yml', 'singularity/impact.yml'],
   ['templates/modelTiers.yml', 'singularity/modelTiers.yml'],
-  ['templates/worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['templates/copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ]);
 for (const absolute of allFiles) {

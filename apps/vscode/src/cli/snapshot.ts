@@ -910,7 +910,7 @@ export interface RepositorySnapshot {
   worldModel?: {
     schemaVersion?: number;
     kind?: 'world-model-ide-slice' | string;
-    format?: 'wmb-v4' | 'registered-v4' | 'legacy-v3' | string;
+    format?: 'wmb-v4' | 'registered-v4' | string;
     status?: 'ready' | 'unavailable' | string;
     revision?: string;
     reason?: string | null;
@@ -1089,17 +1089,15 @@ export interface RepositorySnapshot {
       }>;
     };
     worldModel?: {
-      format?: 'legacy-v3' | 'registered-v4';
+      format?: 'registered-v4';
       views?: string[];
       outputDir?: string;
-      promptSource?: string;
       stateFetchTimeoutMs?: number;
-      generation?: { parallel?: boolean; maxWorkers?: number; strategy?: 'view' };
+      generation?: { parallel?: boolean; maxWorkers?: number };
       v4?: {
         composer?: 'deterministic' | 'model-optional' | 'model-required';
         consumer?: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
         cachePolicy?: 'reuse-valid' | 'rebuild';
-        legacyAssignments?: 'strict' | 'inherit-configured';
         totalMaximumOutputTokens?: number;
       };
       projections?: {

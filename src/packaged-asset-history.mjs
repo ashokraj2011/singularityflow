@@ -16,6 +16,10 @@ import { createHash } from 'node:crypto';
  * governed agent to remain registered.
  */
 const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
+  // The legacy-v3 World Model builder prompt, retired with legacy-v3; no longer installed.
+  'singularity/prompts/worldmodel-builder.md': Object.freeze([
+    'cd93d41ccc98e4ccc09550c60cc79ad6c5a6004d7f8ea66cec596640ab73ffb4'
+  ]),
   'singularity/templates/initiatives/epic/repository-map.yml': Object.freeze([
     'd87a27fb71918827adbb9cbbcbc58efcf9e00689e24154215c021e217cb75b6b'
   ]),
@@ -372,7 +376,6 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
   'singularity/modelTiers.yml': '9c829dea6676d1ad6066197a582125ec049a7e42c62300736ec83cb2ba563449',
   'singularity/prompts/copilot-planning.md': '4128acc6930949e4ba1e50e8b8c7c4f7beb23f4361c2e8428475b081712b77db',
-  'singularity/prompts/worldmodel-builder.md': 'cd93d41ccc98e4ccc09550c60cc79ad6c5a6004d7f8ea66cec596640ab73ffb4',
   'singularity/templates/benchmark/conformance.md': '6a767297e22cab241d2dfff38c6c5b3fe8298e21c65399825c657f014411ced8',
   'singularity/templates/benchmark/design.md': 'fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d',
   'singularity/templates/benchmark/implementation.md': 'e25ab3d9104c4ddaef541191d544ea032c35f551b9538ad77a38628ca1a58db6',

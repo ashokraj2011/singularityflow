@@ -4,18 +4,18 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "94ed35919ef19805c50b2973260a0ba7e04ea08a",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-HOOK-PUBLICATION-AND-RECORD-FAMILIES.md",
+    "reviewedAtCommit": "d206b553b742bb73b549cdee5add2870e0c7f0a5",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-LEGACY-V3-REMOVAL.md",
     "companionIds": [
-      "migration-registry",
-      "publication-unit-of-work"
+      "workflow-configuration",
+      "world-model-v4"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:dd5b183194d047e60a02268e66d6e75640ca88bf1a1b661711056647dd983794"
+      "sha256": "sha256:3d2b465ac4bc6c8aa116cc3d9ad50ab90580fc8350c2a9072de414ddeb6d6e58"
     },
     {
       "id": "sgos-portable-schema",
@@ -35,7 +35,7 @@
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:fb19e89523dddf37fa11dcf8b13305d6c128de0deefeea7b3e4ce2df5f710098"
+      "sha256": "sha256:8daa24d5d0c86fa0cce8e200466aaacd8a8d4bb931774ec374385a325d9395c6"
     },
     {
       "id": "witnessed-engineering-loop",

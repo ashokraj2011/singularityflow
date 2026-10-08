@@ -79,11 +79,11 @@ this slice. Run `sflow explain revision-feedback-attachments` for the exact inta
 World-model generation is a repository operation and can run without an Epic or Story:
 
 ```bash
-sflow wm build --branch <BRANCH>
+sflow wm build
 sflow wm status
 ```
 
-The generated manifest and views are committed repository context. VS Code can start the same CLI
+The validated manifest and views are published to the configured state branch. VS Code can start the same CLI
 operation and display its progress, but it does not own a separate model backend.
 
 Use `/sf-show-prompt` before authoring to see the complete skill and rendered

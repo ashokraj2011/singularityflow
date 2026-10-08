@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 34
+version: 35
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -29,22 +29,21 @@ is the product owner's view: approved requirements, journeys, rules, messages an
 
 ## Registered v4 builder
 
-New repositories use `worldModel.format: registered-v4` by default: exact scoped source,
+`registered-v4` is the only World Model format; omitting `worldModel.format` selects it. It uses exact scoped source,
 closed extractors and view contracts, deterministic Evidence/Derivation/Fact catalogs, independently
 validated views, exact cache reuse, and one atomic state-branch publication. Every factual unit is
 bound to a registered Fact ID; model composition cannot create facts, evidence, assurance, or
 provenance. The built-in views are `dev.impact`, `dev.hotspots`, `biz.rules`, and
 `arch.contracts`. Use `sflow world-model plan`, `build`, `facts`, `evidence`, `validate`, and
-`doctor`; see [the complete WMB v4 guide](../WORLD-MODEL-BUILDER-V4.md). Existing configurations
-without a format remain legacy v3 and require explicit migration before v4 reads will trust them.
+`doctor`; see [the complete WMB v4 guide](../WORLD-MODEL-BUILDER-V4.md).
 All packaged Story and Initiative selectors and agent presets now use logical v4 IDs; the repository
 catalog pins exact `@4` contracts. Native defaults use deterministic composition, cache reuse, and
 strict assignments. Empty selections and workflows with World Model disabled stay that way.
-File-only initialization refuses an agent upgrade that would require changing this catalog; use
-**Configuration Center → After install → Migrate workspace & capabilities** to review both together.
+File-only initialization refuses an agent upgrade that would require changing this catalog; update
+the catalog in `singularity/workflow.yml` and publish it through the normal configuration review.
 `biz.rules` grounds registered rules, `arch.contracts` grounds interfaces, `dev.impact` describes
 structural/test impact, and `dev.hotspots` describes concentration. They do not replace test execution,
-screenshots, security review, or release evidence, and legacy names are not semantic aliases.
+screenshots, security review, or release evidence. Legacy-v3 view names are refused, not aliased.
 During explicit migration, current deterministic registration runs before narrative composition.
 Exact legacy claims may bind only to current registered Facts; every unresolved claim becomes a
 typed `unavailable` Fact through the model-free migration producer, using only claim identity
@@ -74,18 +73,21 @@ complete repository coverage. Changing these rules changes the kernel/prompt ide
 cache entries cannot masquerade as current validation. Old receipt schemas remain readable; rebuild
 a stored view through a freshly reviewed Plan when its installed-build identity is no longer current.
 
-Changing only `worldModel.format` is not a complete repository migration because older phase,
-workflow-override, Agent Markdown, and prompt contracts still name v3 reader projections. The VS
-Code form stages exact v4 contracts plus
-`worldModel.v4.legacyAssignments: inherit-configured`. This explicit bridge makes assignments made
-only from the known v3 vocabulary inherit the configured v4 catalog; it never aliases a legacy
-name to a v4 contract. Typos, unknown IDs, and mixed legacy/v4 lists remain refusals. Publish the
-configuration before building. Existing Stories keep their accepted legacy or v4 pin; the approved
-change applies to repository-level builds and newly created Stories.
+**Legacy-v3 removed.** A configuration that sets `format: legacy-v3`, names a legacy view
+(`business`, `architecture`, `development`, `testing`, `release`, `operations`, `security`), or
+sets `worldModel.v4.legacyAssignments: inherit-configured` is refused at load with
+`WMB_FORMAT_RETIRED`. Set `format: registered-v4` or remove it, replace the view names with
+registered IDs from `wm views`, and publish the configuration before building. An old
+legacy-v3 projection at the output path is not read; a registered `sflow wm build` replaces it. A
+Story started under legacy-v3 keeps its records, but its phases compose with zero World Model bytes
+(grounding unavailable, reason `WMB_FORMAT_RETIRED`), `wm` commands refuse for it, and its old
+prompt receipts are reported as not verifiable: a warning, or an error under `grounding: enforce`.
+Start a new Story to use registered views. For the business reading of the code, use
+`wm knowledge show business`.
 
-`arch.calm@1` is a registered-v4 projection. Enabling it while the effective format is legacy-v3 is
-refused rather than ignored. Its reviewed build plan and completion result expose required/optional
-policy, strict validation and profile, final status, and any durable refusal receipt.
+`arch.calm@1` is a registered-v4 projection. Its reviewed build plan and completion result expose
+required/optional policy, strict validation and profile, final status, and any durable refusal
+receipt.
 
 The exact cache/current-projection behavior in this section is the operational WMB v4 path. The
 newer WMP immutable per-key history service is additive. For each newly created Story whose
@@ -208,38 +210,6 @@ self-hashed formats. A monorepo with explicit `worldModel.sourceRoots` must incl
 `world-model-inputs` to opt in; `singularity/**` stays excluded so lifecycle metadata never becomes
 repository evidence or forces Story-by-Story regeneration.
 
-## Legacy v3 materialization and model routing
-
-The following `light`, automatic materialization, task-guide, discovery, and synthesis behavior
-applies only when `worldModel.format` is absent or set to `legacy-v3`. A direct `wm ensure --task` or
-`wm compose --task` is an explicit request for an ad-hoc task guide; it may extend the shared model
-while preserving all valid existing artifacts. Expensive semantic generation requires an explicit
-`wm build`/`wm ensure` action or an opted-in `on-demand` policy with confirmation. Automatic
-materialization is restricted to the deterministic `light` builder, which consumes zero model
-tokens. An unchanged ready source snapshot is reused rather than rebuilt.
-
-If a same-source state-branch model is valid but lacks a view required by a later phase or Story,
-ordinary lifecycle `wm ensure` fills the complete approved repository view catalog with the
-deterministic light builder. It does not invoke the provider. Existing valid same-source tiers are
-preserved byte-for-byte, and both bounded tiers of every configured view are warmed so a later
-Story does not pay again merely because the last phase published a narrow selection. An explicit
-`--depth`, `--model`, `--view`, `--views`, `--tier`, or `--task` remains exact and is never widened.
-Changed source snapshots still cannot reuse older semantic claims; an explicit semantic build is
-required when refreshed semantic analysis is desired.
-
-Semantic generation routes existing calls by task: each parallel discovery view uses `analyze`,
-and final synthesis uses `reason`, both resolved through `singularity/modelTiers.yml`. The build
-fails before discovery if neither that mapping nor a legacy configured provider model exists. The
-bundled mapping resolves both tasks to `auto`: every isolated ACP session explicitly asks Copilot
-to select its concrete model. The model-invocation audit distinguishes the requested `auto`
-selector, the ACP session selection, and provider-reported resolved model telemetry; it never
-pretends the selector itself is a concrete model.
-`wm build --model MODEL` and `wm ensure --model MODEL` remain explicit caller-named overrides and
-are recorded as such. A concrete override fails closed if ACP or provider telemetry reports a
-different model. Build
-manifests, `wm status`, `doctor`, model-invocation audits, and activity logs expose the resolved
-routing without storing prompts or generated content in diagnostics.
-
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **world model**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
@@ -248,7 +218,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 
 - **Shell:** `sflow wm`. Run `singularity-flow wm --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, build, and evidence-replay guidance. Read operations remain bounded and model-free. A registered-v4 build uses the existing five-tool gateway: it creates an exact Plan, requires a separate host confirmation, then runs only the opaque one-time Plan handle.
-- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered-v4 format, composer, consumer, cache, and total-token controls. Dotted registered view IDs such as `dev.impact` are accepted. **Build / refresh** follows the effective approved or Story-pinned format: registered-v4 selects an approved capability (when needed), exact installed views, and a reviewed state-branch Plan; legacy-v3 offers a separately confirmed, deterministic light refresh of all configured views to the shared state branch with zero model calls. The legacy state-only path does not commit or push the application or Story branch. Cancelling either review performs no mutation. If v4 authority refresh is required, **Refresh state & retry** preserves the capability selection. With external authority, a settings Save creates a review proposal against the exact approved `sflow/config` revision and leaves the application checkout unchanged; merge it and refresh workspace configuration before building. A true local/FOS authority retains the validated local-draft path. Saving controls does not itself build or rewrite World-Model history, and an existing Story retains its pinned format. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI.
+- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered composer, consumer, cache, and total-token controls; there is no format choice. Dotted registered view IDs such as `dev.impact` are accepted. **Build / refresh** selects an approved capability (when needed), exact installed views, and a reviewed state-branch Plan. A Story pinned to legacy-v3 is refused with `WMB_FORMAT_RETIRED`. Cancelling the review performs no mutation. If authority refresh is required, **Refresh state & retry** preserves the capability selection. With external authority, a settings Save creates a review proposal against the exact approved `sflow/config` revision and leaves the application checkout unchanged; merge it and refresh workspace configuration before building. A true local/FOS authority retains the validated local-draft path. Saving controls does not itself build or rewrite World-Model history, and an existing Story retains its pinned configuration. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI.
 
 ## Guided workflow
 
@@ -266,14 +236,14 @@ The explorer reuses the leased read-only IDE slice. Navigation and filtering nev
 1. For a normal repository, leave `worldModel.sourceRoots` and `sharedRoots` absent to describe the whole application tree.
 2. For a monorepo, set `sourceRoots` to the owned application directories and `sharedRoots` to required contracts/libraries. Capability scopes override application roots at the nearest child and inherit shared roots additively.
 3. Run `sflow doctor --performance --offline`. Review scoped/total file counts and warm fingerprint time before building.
-4. Run `sflow wm status`. For registered v4, materialize with an explicit `sflow wm build --views ...`; `wm ensure` only verifies readiness and `wm light` is refused. For legacy v3, use `sflow wm light`, `sflow wm build`, or `sflow wm ensure` as policy requires. To refresh the shared legacy model without an application- or Story-branch commit, review `sflow wm light --format legacy-v3 --views all --state-only`. This explicit route requires governed remote state publication and committed in-scope source; it never invokes a model.
+4. Run `sflow wm status`. Materialize with an explicit `sflow wm build --views ...`; `wm ensure` only verifies readiness. With the default deterministic composer the build makes zero model calls and publishes to the state branch without committing to the application or Story branch.
 5. Re-read `sflow wm check`. New Stories and Initiatives pin the resolved capability scope, so later capability-map edits do not silently change their evidence boundary.
 6. If structural predicates are configured, optionally run `sflow wm ast gate --json` for diagnostics. Its result never gates publication or submission. Reproduce any successfully retained diagnostic evidence with `sflow wm ast evidence reproduce --receipt <RECEIPT> --json` (`replay` remains a compatibility alias).
-7. If publication is pending, run `sflow wm recovery list`, inspect the retained ID, then use `sflow wm recovery publish <ID> --confirm <ID>`. Registered v4 retains the complete validated projection and exact state CAS authority, so this recovery does not re-extract, recompose, or call the model. Endpoint, source-guard, or remote-head drift is refused.
+7. If publication is pending, run `sflow wm recovery list`, inspect the retained ID (it starts with `wmb4-`), then use `sflow wm recovery publish <ID> --confirm <ID>`. A recovery ID retained by the removed legacy-v3 builder is refused. Registered v4 retains the complete validated projection and exact state CAS authority, so this recovery does not re-extract, recompose, or call the model. Endpoint, source-guard, or remote-head drift is refused.
 
 ## State and safety
 
-Legacy-v3 world-model fingerprints use Git's existing index object IDs for clean paths and read visible bytes only for changed or untracked paths. Registered v4 requires a clean exact in-scope source snapshot by default; commit or stash those bytes before building. When dirty bytes are intentionally the reviewed source and approved policy permits it, `wm snapshot` explicitly anchors an immutable repository-local Candidate Snapshot and returns the only hash accepted by `wm plan/build --candidate-snapshot`. Candidate capture writes private Git objects and a private ref; ordinary fingerprinting does not write Git objects or execute configured clean filters. Sparse-checkout paths absent from disk remain represented by their index objects and are not mistaken for deletions. Semantic model generation and governed publication still mutate only through the documented `wm` commands and lifecycle checks.
+A World Model build requires a clean exact in-scope source snapshot by default; commit or stash those bytes before building. When dirty bytes are intentionally the reviewed source and approved policy permits it, `wm snapshot` explicitly anchors an immutable repository-local Candidate Snapshot and returns the only hash accepted by `wm plan/build --candidate-snapshot`. Candidate capture writes private Git objects and a private ref; ordinary fingerprinting does not write Git objects or execute configured clean filters. Sparse-checkout paths absent from disk remain represented by their index objects and are not mistaken for deletions. World Model builds and governed publication still mutate only through the documented `wm` commands and lifecycle checks.
 
 AST context/query/gate reads reuse and best-effort warm content-addressed blob skeletons for exact
 committed Git inputs; dirty inputs remain memory-only and cache failures never block the read.
@@ -301,7 +271,8 @@ toolchain matrix for the selected repository.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`. Registered v4 recovery replays only the retained validated projection; do not rebuild or copy its files manually.
-- If a legacy state-only refresh refuses uncommitted source, preserve the edits. Commit or stash the in-scope changes through the normal Story workflow before retrying; the shared state model cannot be built from private working-tree bytes.
+- If a command refuses with `WMB_FORMAT_RETIRED`, the configuration or the Story pin still names legacy-v3. Replace the legacy view names with IDs from `wm views`; for a legacy-v3 Story, start a new Story.
+- If a build refuses uncommitted source, preserve the edits. Commit or stash the in-scope changes through the normal Story workflow before retrying; the shared state model cannot be built from private working-tree bytes.
 - If status says **source comparison unavailable**, preserve the source edits. Commit them through the normal workflow or explicitly capture a Candidate Snapshot when policy permits, then rerun the read or reviewed build. Do not treat `current: null` as the published digest and do not create a receipt from it.
 - If all files remain in scope, save non-empty `sourceRoots`/`sharedRoots` in Configuration Center or the capability map; an empty list deliberately means the whole application tree.
 - If a scoped file is absent because of sparse checkout, add its directory to the capability's sparse cone and create/repair the workspace. Do not manually copy files around Git's sparse index.

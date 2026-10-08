@@ -23,8 +23,6 @@ import { withWorldModelSourceScope } from './source-scope.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
 import { probeModelPromptTransport } from './model-provider-capability.mjs';
-import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
-import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 import { listStoryStartJournals } from './story-start-journal.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
@@ -131,21 +129,20 @@ export async function doctorSnapshot(root, {
       ? 'This build was packed from a checkout with uncommitted changes, so it matches no commit. Commit, then reinstall.'
       : null
   ));
-  // The world-model build hands a configured runner command to a shell, so a machine without one
-  // can read and publish governed state but cannot build a model. That used to surface as a spawn
-  // error deep in a build; naming the platform and the missing tool here is the difference between
-  // a five-minute fix and an afternoon.
+  // Quality commands and hooks run through a shell, so a machine without one can read and publish
+  // governed state but cannot run them. Naming the platform and the missing tool here is the
+  // difference between a five-minute fix and an afternoon.
   const buildShell = platformShell();
   const shellReady = commandExists(buildShell.command);
   checks.push(check(
     'platform',
     shellReady ? 'pass' : 'warn',
-    `${process.platform} · world-model builds run through ${buildShell.command}${shellReady ? '' : ', which was not found'}.`,
+    `${process.platform} · commands run through ${buildShell.command}${shellReady ? '' : ', which was not found'}.`,
     shellReady
       ? null
       : process.platform === 'win32'
-        ? 'Governed state still works. To build world models, install Git for Windows so a shell is available.'
-        : `Governed state still works. To build world models, install ${buildShell.command}.`
+        ? 'Governed state still works. To run quality commands, install Git for Windows so a shell is available.'
+        : `Governed state still works. To run quality commands, install ${buildShell.command}.`
   ));
   /**
    * The documentation version, beside the CLI version `[DOC:REQ-004]`.
@@ -251,53 +248,6 @@ export async function doctorSnapshot(root, {
       'Private prompt transport is checked only by the explicit doctor command to keep repository snapshots fast.',
       'Run singularity-flow doctor before model-backed generation.',
       { state: 'not-checked', code: null, capability: 'model-prompt-transport', transport: null, protocolVersion: null }
-    ));
-  }
-  try {
-    const provider = resolveModelProvider(definition);
-    const routing = await resolveWorldModelGenerationRouting(root, { legacyModel: provider.model });
-    const discovery = routing.discovery.planned;
-    const synthesis = routing.synthesis.planned;
-    checks.push(check(
-      'world-model-routing',
-      routing.warning ? 'warn' : 'pass',
-      routing.mode === 'task-routed'
-        ? `World-model discovery routes analyze → ${discovery.preferredModel}; synthesis routes reason → ${synthesis.preferredModel}; mapping ${discovery.mappingRevision.slice(0, 12)}.`
-        : `World-model generation uses caller-named compatibility routing → ${synthesis.preferredModel} (${synthesis.reason}).`,
-      routing.warning ? 'Add or restore singularity/modelTiers.yml so discovery and synthesis route by task.' : null
-    ));
-  } catch (error) {
-    const deterministicFallback = error.code === 'WORLD_MODEL_ROUTING_UNAVAILABLE';
-    checks.push(check(
-      'world-model-routing', deterministicFallback ? 'warn' : 'fail',
-      deterministicFallback
-        ? `Semantic world-model routing is not configured: singularity/modelTiers.yml is absent and the provider names no legacy model. Deterministic light generation remains available with zero model tokens.`
-        : error.message,
-      deterministicFallback
-        ? 'Use singularity-flow wm build --depth light for a zero-token model, or restore singularity/modelTiers.yml only when semantic generation is required.'
-        : 'Repair the configured model provider before running semantic world-model generation.'
-    ));
-  }
-  try {
-    const latestBuild = await latestWorldModelBuildDiagnostics(root);
-    const duration = (stage) => Number.isFinite(latestBuild.stages?.[stage]?.durationMs)
-      ? `${latestBuild.stages[stage].durationMs} ms`
-      : 'unavailable';
-    const lastRoute = latestBuild.routing
-      ? `${latestBuild.routing.task ?? latestBuild.routing.mode ?? 'caller-named'} → ${latestBuild.routing.resolved_model ?? latestBuild.routing.model ?? 'unavailable'}`
-      : 'unavailable';
-    checks.push(check(
-      'world-model-last-build',
-      latestBuild.availability === 'unavailable' ? 'skip' : latestBuild.status === 'failed' ? 'warn' : 'pass',
-      latestBuild.availability === 'unavailable'
-        ? 'No machine-local world-model build receipt is available.'
-        : `Last local build ${latestBuild.buildId} ${latestBuild.status}; mode ${latestBuild.requestedMode ?? 'unavailable'} → ${latestBuild.effectiveMode ?? 'unavailable'}; routing ${lastRoute}; discovery ${duration('discovery')}, synthesis ${duration('synthesis')}, total ${duration('total')}; views ${latestBuild.views.generated.length} generated, ${latestBuild.views.reused.length} reused, ${latestBuild.views.missing.length} missing; structural coverage unavailable for agentic generation; rebuild ${latestBuild.rebuildReason ?? 'unavailable'}.`,
-      latestBuild.status === 'failed' ? 'Run singularity-flow wm status for the retained checkpoint and exact next action.' : null
-    ));
-  } catch (error) {
-    checks.push(check(
-      'world-model-last-build', 'warn', `Local world-model build diagnostics are unavailable: ${error.message}`,
-      'Run singularity-flow logs --event worldmodel to inspect the machine-local activity log.'
     ));
   }
   const mcpReadiness = await mcpDoctor(root, definition);

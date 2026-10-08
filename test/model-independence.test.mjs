@@ -20,13 +20,18 @@ test('every public operation has an explicit model policy and valid fallback', (
   assert.ok(catalog.length > 80);
   assert.ok(catalog.every((entry) => ['never', 'optional', 'required'].includes(entry.modelPolicy)));
   assert.equal(resolveOperation({ requestedCommand: 'status', positionals: ['status'] }).modelPolicy, 'never');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'light'] }).modelPolicy, 'never');
+  // The retired legacy-v3 subcommands are refused during resolution, before any handler loads.
+  assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'light'] }), { code: 'WMB_FORMAT_RETIRED' });
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'availability'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'status'] }).modelPolicy, 'never');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'never');
+  assert.equal(resolveOperation({
+    requestedCommand: 'wm', positionals: ['wm', 'build'], options: { composer: 'model-required' }
+  }).modelPolicy, 'required');
   const ensure = resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'] });
-  assert.equal(ensure.modelPolicy, 'optional');
-  assert.equal(ensure.fallback.operationId, 'wm.light');
+  assert.equal(ensure.id, 'wm.ensure.registered-v4');
+  assert.equal(ensure.modelPolicy, 'never');
+  assert.equal(ensure.fallback, null);
   const next = resolveOperation({ requestedCommand: 'next', positionals: ['next'] });
   assert.equal(next.modelPolicy, 'optional');
   assert.equal(next.fallback.operationId, 'next.model-free');
@@ -35,11 +40,11 @@ test('every public operation has an explicit model policy and valid fallback', (
   assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'surprise'] }), /'wm' has no subcommand 'surprise'/);
 });
 
-test('model-disabled required operations fail before loading their handler and name the fallback', () => {
-  const result = spawnSync(process.execPath, [executable, '--no-model', 'wm', 'build'], { cwd: root, encoding: 'utf8' });
+test('model-disabled required operations fail before loading their handler', () => {
+  const result = spawnSync(process.execPath, [executable, '--no-model', 'wm', 'build', '--composer', 'model-required'], { cwd: root, encoding: 'utf8' });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /requires a model/);
-  assert.match(result.stderr, /singularity-flow wm light/);
+  assert.match(result.stderr, /Operation 'wm\.build' requires a model/);
+  assert.doesNotMatch(result.stderr, /wm light/, 'the retired legacy-v3 build is never offered as a fallback');
 });
 
 test('a never-model parent operation forbids nested model invocation', async () => {

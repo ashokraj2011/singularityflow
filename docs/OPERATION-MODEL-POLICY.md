@@ -727,8 +727,7 @@ Every public operation is classified before its implementation module is importe
 | wm.ast.symbol | read | never | — | — |
 | wm.ast.warm | mutation | never | — | — |
 | wm.availability | read | never | — | — |
-| wm.budget | read | never | — | — |
-| wm.build | mutation | required | wm.light | copilot-cli |
+| wm.build | mutation | required | — | copilot-cli |
 | wm.build.deterministic | mutation | never | — | — |
 | wm.cache | mutation | never | — | — |
 | wm.check | read | never | — | — |
@@ -738,14 +737,12 @@ Every public operation is classified before its implementation module is importe
 | wm.derivation | read | never | — | — |
 | wm.design-inventory | read | never | — | — |
 | wm.doctor | read | never | — | — |
-| wm.ensure | mutation | optional | wm.light | copilot-cli |
 | wm.ensure.registered-v4 | read | never | — | — |
 | wm.evidence | read | never | — | — |
 | wm.extractors | read | never | — | — |
 | wm.facts | read | never | — | — |
 | wm.history.list | read | never | — | — |
 | wm.history.show | read | never | — | — |
-| wm.init | mutation | never | — | — |
 | wm.inject | mutation | never | — | — |
 | wm.knowledge.areas | read | never | — | — |
 | wm.knowledge.build | read | never | — | — |
@@ -759,12 +756,10 @@ Every public operation is classified before its implementation module is importe
 | wm.knowledge.show | read | never | — | — |
 | wm.knowledge.slice | read | never | — | — |
 | wm.knowledge.status | read | never | — | — |
-| wm.light | mutation | never | — | — |
 | wm.manifest | read | never | — | — |
 | wm.migrate | mutation | required | — | copilot-cli |
 | wm.migrate.deterministic | mutation | never | — | — |
 | wm.plan | read | never | — | — |
-| wm.prompt | read | never | — | — |
 | wm.read | read | never | — | — |
 | wm.read-contract | read | never | — | — |
 | wm.read-views | read | never | — | — |

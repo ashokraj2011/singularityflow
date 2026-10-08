@@ -14,8 +14,7 @@
     "sf-local-reset": "bin/sf-local-reset.mjs",
     "sf-reinstall": "bin/sf-reinstall.mjs",
     "sf-install": "bin/sf-install.mjs",
-    "sf-uninstall": "bin/sf-uninstall.mjs",
-    "sflow-wm-minimal": "bin/sflow-wm-minimal.mjs"
+    "sf-uninstall": "bin/sf-uninstall.mjs"
   },
   "exports": {
     "./src/api.mjs": "./src/api.mjs",
@@ -37,7 +36,6 @@
     "docs/",
     "README.md",
     "README-AD-HOC-WORK.md",
-    "README-JAVA-MAVEN-WORLD-MODEL-DEMO.md",
     "HELP.md",
     "HOW-TO.md",
     "LOCAL-RUNBOOK.md",
@@ -53,7 +51,6 @@
     "revision-trace-manifest.json",
     "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "scripts/revision-trace-check.mjs",
-    "scripts/worldmodel-minimal.sh",
     "scripts/install-staged-artifacts.mjs",
     "scripts/replace-identities.mjs",
     "scripts/verification-receipt.mjs",
@@ -103,7 +100,6 @@
     "codeowners:check": "node scripts/generate-codeowners.mjs",
     "gate": "node scripts/gate.mjs",
     "poc:release-gate": "node scripts/poc-release-gate.mjs",
-    "wm:minimal": "node bin/sflow-wm-minimal.mjs",
     "identities:replace": "node scripts/replace-identities.mjs",
     "pack:dry": "npm pack --dry-run",
     "install:local": "bash ./install.sh",

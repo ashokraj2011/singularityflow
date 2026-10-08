@@ -53,7 +53,7 @@ register('data:text/javascript,' + encodeURIComponent(`
 
 const { InstructionDesignerPanel } = await import('../apps/vscode/src/views/instruction-designer.ts');
 const { INSTRUCTION_DESIGNER_SCRIPT } = await import('../apps/vscode/src/views/instruction-designer-page.ts');
-const { parseAgent, renderAgent, renderAgentMappings, validateAgentMappingsDraft } =
+const { instructionCatalog, parseAgent, renderAgent, renderAgentMappings, validateAgentMappingsDraft } =
   await import('../apps/vscode/src/views/instruction-designer-model.ts');
 const { agentStatus, lockAgent, parseAgentDependencies, validateAgentMappings } = await import('../src/agents.mjs');
 
@@ -365,9 +365,9 @@ test('an agent whose metadata key has no value is edited like one with empty met
   const saved = parseAgentDependencies(designer.saves[0].content, { source: designer.saves[0].path });
   assert.deepEqual({ label: saved.label, phases: saved.phases }, { label: 'Bare lead', phases: ['design'] });
 
-  const draft = { ...parseAgent(bare, 'bare-reviewer'), defaultFor: ['design'], phases: ['design'], worldModelViews: ['architecture'] };
+  const draft = { ...parseAgent(bare, 'bare-reviewer'), defaultFor: ['design'], phases: ['design'], worldModelViews: ['arch.contracts'] };
   const rendered = parseAgentDependencies(renderAgent(draft, bare), { source: designer.saves[0].path });
-  assert.deepEqual({ defaultFor: rendered.defaultFor, worldModelViews: rendered.worldModelViews }, { defaultFor: ['design'], worldModelViews: ['architecture'] });
+  assert.deepEqual({ defaultFor: rendered.defaultFor, worldModelViews: rendered.worldModelViews }, { defaultFor: ['design'], worldModelViews: ['arch.contracts'] });
 });
 
 test('a designer message that fails is reported on the page instead of vanishing', async (t) => {
@@ -384,4 +384,20 @@ test('a designer message that fails is reported on the page instead of vanishing
   assert.equal(designer.saves.length, 1);
   assert.match(designer.html(), /<div class="blockers"><strong>Fix before saving<\/strong><ul><li>The save could not be started\.<\/li>/);
   assert.deepEqual(rejections, []);
+});
+
+test('the retired World Model builder prompt source is not listed as a prompt use', () => {
+  const catalog = instructionCatalog({
+    definition: {
+      planning: { promptSource: 'singularity/prompts/planning.md' },
+      worldModel: { promptSource: 'singularity/prompts/worldmodel-builder.md' }
+    },
+    prompts: [
+      { path: 'singularity/prompts/planning.md', name: 'planning.md', content: '# Planning' },
+      { path: 'singularity/prompts/worldmodel-builder.md', name: 'worldmodel-builder.md', content: '# Builder' }
+    ]
+  });
+  assert.deepEqual(catalog.promptUsage, { 'singularity/prompts/planning.md': ['Copilot planning'] });
+  assert.equal(catalog.prompts.find((prompt) => prompt.path.endsWith('worldmodel-builder.md')).description,
+    'Reusable repository instruction');
 });

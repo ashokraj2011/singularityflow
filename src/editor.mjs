@@ -1,4 +1,5 @@
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
+import { retiredWorldModelError, selectsRetiredWorldModel } from './world-model-format.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
@@ -61,7 +62,6 @@ import {
 import {
   structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
 } from './world-model-views.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
@@ -89,9 +89,6 @@ import { planningTargetCatalog } from './planning.mjs';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 import { ledgerStatus } from './ledger.mjs';
-import {
-  resolveWorldModelSource, validateWorldModelDirectory, worldModelSourceSnapshot
-} from './grounding.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from './repository-subject-index.mjs';
@@ -324,80 +321,15 @@ async function textFiles(root, relativeRoot, { extensions = null, excludePaths =
   return output.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-async function editorWorldModelStatus(root, definition, modelRoot) {
-  try {
-    const state = worldModelStateAuthority(definition);
-    const source = await worldModelSourceSnapshot(root, definition);
-    const located = await resolveWorldModelSource(root, {
-      outputDir: modelRoot,
-      stateBranch: state.branch,
-      ledger: definition.ledger,
-      remote: state.remote,
-      definition
-    }, { refreshRemote: false, sourceTreeSha256: source.sha256 });
-    const manifestPath = path.join(located.directory, 'manifest.json');
-    if (!existsSync(manifestPath)) return {
-      manifest: null,
-      located,
-      readiness: {
-        status: 'missing', ready: false, source: null, historical: false,
-        command: 'singularity-flow wm ensure --depth standard'
-      },
-      reason: 'No governed repository world model has been built.'
-    };
-    const validated = await validateWorldModelDirectory(located.directory, {
-      integrity: 'full',
-      sourceLabel: located.source === 'state-branch'
-        ? 'governed state-branch world model'
-        : 'working-tree world model'
-    });
-    const manifest = validated.normalizedManifest;
-    const exact = manifest.source_tree_sha256 === source.sha256;
-    return {
-      manifest,
-      located,
-      readiness: {
-        status: exact ? 'ready' : 'stale',
-        ready: exact,
-        source: located.source,
-        historical: located.historical === true,
-        command: exact ? null : 'singularity-flow wm ensure --depth standard'
-      },
-      reason: exact
-        ? null
-        : 'A governed world model exists for another source snapshot. It was preserved; refresh is explicit.'
-    };
-  } catch (error) {
-    return {
-      manifest: null,
-      located: null,
-      readiness: {
-        status: 'invalid', ready: false, source: null, historical: false,
-        command: 'singularity-flow wm status --json'
-      },
-      reason: `The governed repository world model could not be verified: ${error.message}`
-    };
-  }
-}
-
-/** Read explorer files from the resolved immutable model, not whichever projection is checked out. */
-async function editorWorldModelFiles(root, modelRoot, located, inspected = null) {
-  const extensions = ['.md', '.json', '.jsonl', '.yml', '.yaml'];
-  if (inspected?.format === 'registered-v4' && inspected.resolved) {
-    return inspected.resolved.selected.map((file) => ({
-      path: posix(path.join(modelRoot, file.relative)),
-      name: file.relative,
-      content: file.body,
-      bytes: file.size
-    })).sort((left, right) => left.name.localeCompare(right.name));
-  }
-  if (located?.source !== 'state-branch') return textFiles(root, modelRoot, { extensions });
-  if (!located.directory) return [];
-  const files = await textFiles(located.directory, '.', { extensions });
-  return files.map((file) => ({
-    ...file,
-    path: posix(path.join(modelRoot, file.path))
-  }));
+/** Explorer files come from the resolved registered views, never from a checked-out projection. */
+function editorWorldModelFiles(modelRoot, inspected = null) {
+  if (!inspected?.resolved) return [];
+  return inspected.resolved.selected.map((file) => ({
+    path: posix(path.join(modelRoot, file.relative)),
+    name: file.relative,
+    content: file.body,
+    bytes: file.size
+  })).sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function skillFrontmatter(content, fallbackId) {
@@ -439,19 +371,6 @@ async function bundledFlowSkills() {
     };
   }));
   return output.sort((left, right) => left.id.localeCompare(right.id));
-}
-
-async function worldModelPrompt(root, definition) {
-  const configured = definition.worldModel?.promptSource ?? DEFAULT_WORLD_MODEL_PROMPT;
-  const builtin = configured === 'builtin';
-  const relative = builtin ? DEFAULT_WORLD_MODEL_PROMPT : posix(configured);
-  const prompt = await secureRepositoryPath(root, relative, {
-    label: 'World-model builder prompt',
-    type: 'file'
-  });
-  if (!builtin && prompt.exists) return { path: relative, name: path.posix.basename(relative), content: await readFile(prompt.absolute, 'utf8'), missing: false, builtin };
-  const fallback = path.join(PACKAGE_ROOT, 'templates/worldmodel-builder.md');
-  return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin };
 }
 
 async function planningPrompt(root, definition) {
@@ -749,7 +668,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     } catch (error) {
       worldModelReadiness = { reason: `The pinned phase grounding plan could not be inspected: ${error.message}` };
     }
-  } else if (definition.worldModel?.format === 'registered-v4') {
+  } else {
     try {
       const {
         inspectConfiguredGrounding, loadWorldModelConfig
@@ -794,20 +713,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     type: 'file'
   });
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  const repositoryWorldModel = worldModelReadiness?.availability
-    ? null
-    : await editorWorldModelStatus(root, definition, modelRoot);
-  const locatedWorldModel = worldModelReadiness?.availability?.selected
-    ?? repositoryWorldModel?.located
-    ?? null;
-  let worldModelManifest = worldModelReadiness?.availability?.selected?.manifest
-    ?? repositoryWorldModel?.manifest
-    ?? null;
-  if (!worldModelManifest) {
-    try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); }
-    catch { /* Missing state is represented by readiness below. */ }
-  }
-  const builderPrompt = await worldModelPrompt(root, definition);
+  const worldModelManifest = worldModelReadiness?.availability?.selected?.manifest ?? null;
   const plannerPrompt = await planningPrompt(root, definition);
   /**
    * The same login, from the call we already have to make.
@@ -918,7 +824,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       config: normalizePlanning(definition.planning ?? {}),
       prompt: plannerPrompt
     },
-    worldModelPrompt: builderPrompt,
     worldModel: {
       root: modelRoot,
       repositoryOwned: true,
@@ -930,8 +835,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       // created and checked out the canonical Story branch that will own the generated model.
       // A stale snapshot under `warn` remains usable, but the UI must still disclose the pinned
       // staleness decision. `reason` is null for fresh and explicitly ignored snapshots.
-      rebuildReason: worldModelReadiness?.reason
-        ?? (workflow?.currentPhase ? repositoryWorldModel?.reason : null),
+      rebuildReason: worldModelReadiness?.reason ?? null,
       readiness: worldModelReadiness?.availability ? {
         status: worldModelReadiness.availability.status,
         ready: worldModelReadiness.availability.ready,
@@ -939,7 +843,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
         historical: worldModelReadiness.availability.selected?.historical === true,
         staleness: worldModelReadiness.availability.staleness,
         command: worldModelReadiness.command
-      } : repositoryWorldModel?.readiness ?? null,
+      } : null,
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],
@@ -950,7 +854,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
         ]
       })),
       workflows: worldModelWorkflowViewUsage(definition),
-      files: await editorWorldModelFiles(root, modelRoot, locatedWorldModel, worldModelReadiness)
+      files: editorWorldModelFiles(modelRoot, worldModelReadiness)
     },
     agents: agents.map((agent) => ({
       id: agent.id,
@@ -1291,22 +1195,7 @@ async function configurationSlice(root) {
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  // Registered v4 runtime data has its own on-demand leased slice. Loading the compatibility file
-  // inventory here would make opening People, MCP, or Templates silently read and retain WMB.
-  const registeredV4 = definition.worldModel?.format === 'registered-v4';
-  const repositoryWorldModel = registeredV4
-    ? null
-    : await editorWorldModelStatus(root, definition, modelRoot);
-  const worldModelManifest = repositoryWorldModel?.manifest ?? null;
-  const promptViewReferences = registeredV4
-    ? new Map()
-    : await worldModelPromptViewReferences(root, definition);
-  const structuredViewReferences = registeredV4
-    ? new Map()
-    : structuredWorldModelViewReferences(definition);
-  const viewCatalog = registeredV4
-    ? []
-    : worldModelViewCatalog(definition, promptViewReferences.keys());
+  // World Model data has its own on-demand leased slice; opening People, MCP, or Templates never reads it.
   const templatesRoot = typeof definition.templatesRoot === 'string'
     ? definition.templatesRoot
     : 'singularity/templates';
@@ -1363,23 +1252,6 @@ async function configurationSlice(root) {
       definition,
       modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
     }),
-    ...(registeredV4 ? {} : { worldModel: {
-      root: modelRoot,
-      generatedAt: worldModelManifest?.generated_at ?? null,
-      rebuildReason: repositoryWorldModel?.reason ?? null,
-      readiness: repositoryWorldModel?.readiness ?? null,
-      views: viewCatalog.map((id) => ({
-        id,
-        structuredReferences: structuredViewReferences.get(id) ?? [],
-        promptReferences: promptViewReferences.get(id) ?? [],
-        references: [
-          ...(structuredViewReferences.get(id) ?? []),
-          ...(promptViewReferences.get(id) ?? []).map((file) => `Markdown '${file}'`)
-        ]
-      })),
-      workflows: worldModelWorkflowViewUsage(definition),
-      files: await editorWorldModelFiles(root, modelRoot, repositoryWorldModel?.located ?? null)
-    } }),
     mcp: await mcpConfigurationStatus(root, definition)
   };
 }
@@ -1408,7 +1280,7 @@ function configurationSourceRecord(configuration, authority) {
       [WORKFLOW_PATH]: contentSha256(definitionText),
       [PORTFOLIO_PATH]: contentSha256(portfolioText)
     },
-    worldModelFormat: configuration?.definition?.worldModel?.format ?? 'legacy-v3'
+    worldModelFormat: 'registered-v4'
   };
 }
 
@@ -1474,7 +1346,7 @@ async function configurationEditorSlice(root) {
         candidate: {
           ...candidateBase,
           status: 'valid', error: null,
-          worldModelFormat: candidate.definition?.worldModel?.format ?? 'legacy-v3'
+          worldModelFormat: 'registered-v4'
         }
       }
     };
@@ -1596,61 +1468,16 @@ async function worldModelSliceInConfigurationScope(root, requestedWorkId = null)
   const config = await loadWorldModelConfig(root, requestedWorkId ? { workId: requestedWorkId } : {});
   const definition = config.definition;
   const outputDir = posix(config.outputDir ?? definition.worldModel?.outputDir ?? 'singularity/world-model');
-  if (definition.worldModel?.format !== 'registered-v4') {
-    // Legacy models still have a verified, state-backed authority. The old v4-only placeholder
-    // made a successful deterministic refresh appear "not built" until a full snapshot happened
-    // to be reloaded. Reuse the existing offline validator, but return metadata only: no legacy
-    // prose or evidence ledger enters the retained IDE slice.
-    const inspected = await editorWorldModelStatus(root, definition, outputDir);
-    const manifest = inspected.manifest;
-    const viewEntries = Object.entries(manifest?.views ?? {}).slice(0, 128);
-    const views = viewEntries.map(([id, record]) => {
-      const full = record?.tiers?.full;
-      const brief = record?.tiers?.brief;
-      const selected = full?.status === 'ready' ? full : brief;
-      return {
-        id,
-        references: [],
-        status: full?.status === 'ready' || brief?.status === 'ready' ? 'available' : 'unavailable',
-        required: false,
-        path: selected?.path ? posix(path.join(outputDir, selected.path)) : null
-      };
-    });
-    const readiness = inspected.readiness;
-    const located = inspected.located;
-    const manifestSha256 = manifest && located?.directory
-      ? createHash('sha256').update(await readFile(path.join(located.directory, 'manifest.json'))).digest('hex')
-      : null;
+  if (selectsRetiredWorldModel(definition)) {
+    // A Story pinned before the legacy-v3 World Model was removed has no readable model.
+    const reason = retiredWorldModelError(definition).message;
     return {
-      schemaVersion: 1,
-      kind: 'world-model-ide-slice',
-      format: definition.worldModel?.format ?? 'legacy-v3',
-      status: readiness.ready ? 'ready' : 'unavailable',
-      reason: readiness.ready ? null : readiness.status,
-      root: outputDir,
-      generatedAt: manifest?.generated_at ?? null,
-      rebuildReason: inspected.reason,
-      readiness,
-      ...(manifestSha256 ? { authority: {
-        ref: located.ref ?? null,
-        commit: located.commit ?? null,
-        manifestSha256
-      } } : {}),
-      source: {
-        status: readiness.ready ? 'fresh' : manifest ? 'stale' : 'unavailable',
-        fresh: readiness.ready,
-        currentSourceManifestSha256: null,
-        reason: inspected.reason
-      },
-      summary: {
-        views: Object.keys(manifest?.views ?? {}).length,
-        // Legacy manifests have no WMB v4 Fact/Evidence/Derivation catalogs. Do not imply
-        // semantic coverage by inferring counts from their narrative files.
-        facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0
-      },
-      views,
-      projections: [],
-      expansion: []
+      schemaVersion: 1, kind: 'world-model-ide-slice', format: 'registered-v4',
+      status: 'unavailable', reason: 'WMB_FORMAT_RETIRED', root: outputDir, generatedAt: null,
+      rebuildReason: reason, readiness: { status: 'unavailable', ready: false, source: null, historical: false, command: null },
+      source: { status: 'unavailable', fresh: false, currentSourceManifestSha256: null, reason },
+      summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
+      views: [], projections: [], expansion: []
     };
   }
   const slice = loadWorldModelIdeSlice(root, worldModelV4StoreOptions(root, config));
@@ -1838,7 +1665,7 @@ export async function bootstrapWorkspacePortfolio(root, {
   await ensureRepositoryTemplates(root, definition, { templatesRoot: portfolio.templatesRoot });
   const declaredViews = await ensureRepositoryWorldModelViews(
     root,
-    portfolioWorldModelViews(portfolio, definition)
+    portfolioWorldModelViews(portfolio)
   );
   const validatedDefinition = declaredViews ? await loadDefinition(root) : definition;
   validatePortfolioWorldModelViews(portfolio, validatedDefinition);
@@ -2000,46 +1827,14 @@ function allowedConfigurationPath(
     || removedLegacyControlFile;
 }
 
+// World Model views are published to the state branch, not exported as checkout files.
 function exportablePath(definition, relative, portfolio = null) {
-  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
   const workRoot = posix(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
   const initiativeRoot = posix(portfolio?.initiativeRoot ?? 'singularity/initiatives').replace(/\/$/, '');
   return allowedConfigurationPath(definition, relative, portfolio)
     || relative === AGENT_LOCK_PATH
-    || relative.startsWith(`${modelRoot}/`)
     || relative.startsWith(`${workRoot}/`)
     || (portfolio && relative.startsWith(`${initiativeRoot}/`));
-}
-
-async function validatedWorldModelExportFiles(root, definition, modelRoot) {
-  const modelPath = path.join(root, modelRoot);
-  if (!await exists(modelPath)) return [];
-  const prefix = `${modelRoot.replace(/\/$/, '')}/`;
-  const changed = changedFiles(root).filter((relative) => (
-    relative === modelRoot || relative.startsWith(prefix)
-  ));
-  if (changed.length) {
-    throw new SingularityFlowError(
-      'World-model export requires a committed, integrity-checked projection. Refresh or discard '
-        + `the changed World-Model artifact(s) before exporting: ${changed.join(', ')}.`,
-      { code: 'WORLD_MODEL_EXPORT_UNSAFE', details: { paths: changed } }
-    );
-  }
-  const validated = await validateWorldModelDirectory(modelPath, {
-    integrity: 'full', sourceLabel: 'configuration-export world model'
-  });
-  const source = await worldModelSourceSnapshot(root, definition);
-  if (validated.normalizedManifest.source_tree_sha256 !== source.sha256) {
-    throw new SingularityFlowError(
-      'World-model export refused a stale projection. Refresh the World Model before exporting it.',
-      { code: 'WORLD_MODEL_EXPORT_UNSAFE' }
-    );
-  }
-  // Read the export bytes only after the directory, manifest, and source identity have passed.
-  // In particular, this prevents dirty legacy files from entering memory before the refusal.
-  return textFiles(root, modelRoot, {
-    extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml']
-  });
 }
 
 function contentSha256(content) {
@@ -2333,7 +2128,7 @@ export async function readConfigurationFile(root, requestedPath, { afterEnvironm
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!exportablePath(definition, relative, portfolio)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, world-model, work-item, or initiative file: ${relative}`);
+  if (!exportablePath(definition, relative, portfolio)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, work-item, or initiative file: ${relative}`);
   let environmentCapture = null;
   if (relative === ENVIRONMENT_DECLARATION_PATH) {
     // A declaration is exportable only after its names-only contract and quality-command links
@@ -2341,13 +2136,6 @@ export async function readConfigurationFile(root, requestedPath, { afterEnvironm
     // configuration reader to exfiltrate a value which the ENV parser would reject.
     environmentCapture = await captureValidatedEnvironmentConfiguration(root, definition);
     await afterEnvironmentCapture?.();
-  }
-  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model')
-    .replace(/\/$/, '');
-  if (relative.startsWith(`${modelRoot}/`)) {
-    // A generic file export must not replay an old model which predates environment-local source
-    // exclusions. Prove the whole committed projection and its current source identity first.
-    await validatedWorldModelExportFiles(root, definition, modelRoot);
   }
   const content = environmentCapture?.bytes ?? await (async () => {
     const target = await secureRepositoryPath(root, relative, {
@@ -2367,10 +2155,7 @@ export async function exportConfigurationBundle(root, { afterEnvironmentCapture 
   const environmentCapture = await captureValidatedEnvironmentConfiguration(root, definition);
   await afterEnvironmentCapture?.();
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope === 'repository' && !agent.source.startsWith('..'));
-  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  const prompt = await worldModelPrompt(root, definition);
   const planner = await planningPrompt(root, definition);
-  const modelFiles = await validatedWorldModelExportFiles(root, definition, modelRoot);
   const independentlyCapturedPaths = [
     WORKFLOW_PATH, PORTFOLIO_PATH, ENVIRONMENT_DECLARATION_PATH
   ];
@@ -2392,9 +2177,7 @@ export async function exportConfigurationBundle(root, { afterEnvironmentCapture 
     agents.map((agent) => ({ path: agent.source, content: agent.text })),
     await exists(path.join(root, AGENT_MAPPING_PATH)) ? [{ path: AGENT_MAPPING_PATH, content: await readFile(path.join(root, AGENT_MAPPING_PATH), 'utf8') }] : [],
     await exists(path.join(root, AGENT_LOCK_PATH)) ? [{ path: AGENT_LOCK_PATH, content: await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') }] : [],
-    prompt.missing ? [] : [prompt],
-    planner.missing ? [] : [planner],
-    modelFiles
+    planner.missing ? [] : [planner]
   ];
   const files = [...new Map(groups.flat().map((file) => [file.path, { path: file.path, content: file.content }])).values()].sort((left, right) => left.path.localeCompare(right.path));
   return { files, repository: path.basename(root), exportedAt: new Date().toISOString(), worldModelRepositoryOwned: true };

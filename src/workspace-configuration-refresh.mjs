@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { retiredWorldModelFormatError } from './world-model-format.mjs';
 import {
   chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile
 } from 'node:fs/promises';
@@ -43,8 +44,7 @@ import {
 } from './packaged-asset-history.mjs';
 import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 import { patchYamlDocument, renderPreservingFormatting } from './yaml-formatting.mjs';
-import { CAPABILITIES_PATH, validateCapabilities } from './capabilities.mjs';
-import { planWorldModelConfigurationMigration } from './world-model/migration/configuration.mjs';
+import { CAPABILITIES_PATH } from './capabilities.mjs';
 import { stageStoryHardCutover } from './story-hard-cutover.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
@@ -83,7 +83,6 @@ const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['impact.yml', 'singularity/impact.yml'],
   ['modelTiers.yml', 'singularity/modelTiers.yml'],
-  ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ]);
 // These files have package-provided starting bytes, but their documented contract explicitly
@@ -1426,35 +1425,8 @@ export async function refreshPackagedConfiguration(root, {
   // Never flip only `format`, rewrite Story snapshots, or promote old narrative to v4 facts.
   let worldModelMigration = null;
   let capabilityEdit = null;
-  if (migrateWorldModel) {
-    const target = await assertSafeTarget(root, CAPABILITIES_PATH);
-    const info = await lstat(target).catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error));
-    if (info && (!info.isFile() || info.isSymbolicLink() || info.size > 16 * 1024 * 1024)) {
-      throw new SingularityFlowError('Capability migration requires a bounded regular capabilities.yml file.', {
-        code: 'WMB_MIGRATION_CAPABILITIES_UNSAFE'
-      });
-    }
-    const text = info ? await readFile(target, 'utf8') : null;
-    const before = text == null ? null : YAML.parse(text);
-    if (info) validateCapabilities(structuredClone(before));
-    // Migration interprets the approved source catalog, never an additive union with the new
-    // package catalog. Otherwise native v4 defaults turn a genuine legacy authority into a mixed
-    // catalog (or inject strict mode) before its reviewed migration can install the bridge.
-    const migrationInput = { ...merged.value, worldModel: {
-      ...merged.value.worldModel,
-      ...current.worldModel,
-      format: current.worldModel?.format ?? 'legacy-v3',
-      views: current.worldModel?.views,
-      v4: current.worldModel?.v4
-    } };
-    const migration = planWorldModelConfigurationMigration(migrationInput, before);
-    merged.value = migration.definition;
-    worldModelMigration = migration.report;
-    if (migration.capabilities) validateCapabilities(structuredClone(migration.capabilities));
-    if (before && !equal(before, migration.capabilities)) {
-      capabilityEdit = { target, text, before, after: migration.capabilities };
-    }
-  }
+  // The legacy-v3 → registered-v4 configuration migration was removed with legacy-v3 itself.
+  if (migrateWorldModel) throw retiredWorldModelFormatError('workspace reinitialize --migrate-world-model');
   // Exact framework legacy role fields have been migrated above. Repository-created legacy role
   // fields are refused rather than rewritten. Defer only the live Agent Markdown reference lookup;
   // the complete post-write loadDefinition below validates the restored agent catalog and tools.

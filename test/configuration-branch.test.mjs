@@ -679,10 +679,8 @@ test('custom configuration roots materialize while custom world-model output rem
       recursive: true
     });
     await mkdir(path.join(publisher, 'governance/prompts'), { recursive: true });
-    await cp(
-      path.join(publisher, 'singularity/prompts/worldmodel-builder.md'),
-      path.join(publisher, 'governance/prompts/worldmodel-builder.md')
-    );
+    // A configured prompt file is a governed configuration asset wherever it lives.
+    await writeFile(path.join(publisher, 'governance/prompts/worldmodel-builder.md'), '# Custom prompt\n');
     await mkdir(path.join(publisher, 'governance/world-model'), { recursive: true });
     await writeFile(path.join(publisher, 'governance/world-model/manifest.json'), '{"custom":true}\n');
     await writeFile(path.join(publisher, 'governance/application.txt'), 'must not be transported\n');

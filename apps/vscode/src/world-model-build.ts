@@ -4,26 +4,25 @@ import { showCompactWarningMessage } from "./compact-message.ts";
  *
  * Ordinary editor reads keep using the activation-long read-only gateway. A World Model build gets
  * a new, short-lived writable gateway only after a person opens this command for registered-v4.
- * Its exact Plan remains the v4 authority. Legacy-v3 uses a separate, deterministic state-only
- * CLI action after an exact modal review; neither route runs a model during configuration reads.
+ * Its exact Plan remains the authority; no route runs a model during configuration reads.
  */
 import { randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
 
 import { createHostGateway } from '../../../src/gateway/host.mjs';
 import {
-  configuredWorldModelV4ViewSelections, isWorldModelV4, worldModelV4GatewayDefaults
+  configuredWorldModelV4ViewSelections, worldModelV4GatewayDefaults
 } from '../../../src/world-model/commands.mjs';
-import { loadWorldModelConfig, resolveWorldModelViewIds } from '../../../src/worldmodel.mjs';
-import { worldModelSourceSnapshot } from '../../../src/grounding.mjs';
+import { loadWorldModelConfig } from '../../../src/worldmodel.mjs';
+import { assertRegisteredWorldModel } from '../../../src/world-model-format.mjs';
 import { worldModelGatewayCapabilities } from '../../../src/gateway/planners/world-model-run.mjs';
 import { DEFAULT_GATEWAY_POLICY } from '../../../src/gateway/policy.mjs';
 import { withApprovedConfigurationRead } from '../../../src/approved-configuration-reader.mjs';
 import { editorPlanners, type ActiveRepositoryContext } from './gateway-session.ts';
-import { currentGitSource, hasConfiguredGitRemote } from './cli/git-observations.ts';
+import { hasConfiguredGitRemote } from './cli/git-observations.ts';
 import {
   assertWorldModelBuildConfigurationSelection,
-  exactWorldModelPlanDetail, legacyWorldModelLightArguments, legacyWorldModelLightDetail,
+  exactWorldModelPlanDetail,
   loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
   observeWorldModelBuildConfigurationSelection,
   worldModelAuthorityRefreshArguments, worldModelBuildCompletionMessage,
@@ -33,7 +32,7 @@ import {
 } from './world-model-build-model.ts';
 
 export {
-  exactWorldModelPlanDetail, legacyWorldModelLightArguments, legacyWorldModelLightDetail,
+  exactWorldModelPlanDetail,
   loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
   observeWorldModelBuildConfigurationSelection,
   worldModelAuthorityRefreshArguments, worldModelBuildCompletionMessage,
@@ -99,22 +98,21 @@ async function collectArguments(
 export async function showGovernedWorldModelBuild(
   active: ActiveRepositoryContext,
   {
-    modelRouting = 'enabled', capabilityId: preferredCapabilityId = null, rebuild = false, executeLegacyLight
+    modelRouting = 'enabled', capabilityId: preferredCapabilityId = null, rebuild = false
   }: {
     modelRouting?: 'enabled' | 'disabled'; capabilityId?: string | null; rebuild?: boolean;
-    executeLegacyLight?: (argv: readonly string[], signal: AbortSignal) => Promise<void>;
   } = {}
 ): Promise<ExactWorldModelBuildOutcome> {
   const selection = await observeWorldModelBuildConfigurationSelection(active.root);
   return withWorldModelBuildConfigurationBoundary(selection.boundary, {
     readStoryPinned: () => showGovernedWorldModelBuildInConfigurationScope(active, {
-      modelRouting, capabilityId: preferredCapabilityId, rebuild, executeLegacyLight
+      modelRouting, capabilityId: preferredCapabilityId, rebuild
     }, selection),
     withApprovedAuthority: (read) => withApprovedConfigurationRead(
       active.root, read, { preferAuthority: true }
     ),
     readInScope: () => showGovernedWorldModelBuildInConfigurationScope(active, {
-      modelRouting, capabilityId: preferredCapabilityId, rebuild, executeLegacyLight
+      modelRouting, capabilityId: preferredCapabilityId, rebuild
     }, selection)
   });
 }
@@ -122,10 +120,9 @@ export async function showGovernedWorldModelBuild(
 async function showGovernedWorldModelBuildInConfigurationScope(
   active: ActiveRepositoryContext,
   {
-    modelRouting, capabilityId: preferredCapabilityId, rebuild, executeLegacyLight
+    modelRouting, capabilityId: preferredCapabilityId, rebuild
   }: {
     modelRouting: 'enabled' | 'disabled'; capabilityId: string | null; rebuild: boolean;
-    executeLegacyLight?: (argv: readonly string[], signal: AbortSignal) => Promise<void>;
   },
   configurationSelection: WorldModelBuildConfigurationSelection
 ): Promise<ExactWorldModelBuildOutcome> {
@@ -156,84 +153,8 @@ async function showGovernedWorldModelBuildInConfigurationScope(
   );
   if (!scoped) return { status: 'cancelled', planned: null, result: null };
   const { config, capabilityId } = scoped;
-  if (!isWorldModelV4(config)) {
-    if (rebuild) throw Object.assign(new Error(
-      'Quick, Standard, and Deep capability rebuilds require registered-v4. Migrate the approved World Model configuration, or use Build / refresh for a deterministic legacy-v3 light build.'
-    ), { code: 'WMB_COMPLEXITY_REQUIRES_V4' });
-    if (!executeLegacyLight) throw new Error('No governed legacy World Model executor is configured.');
-    if (config.materialization?.publish !== 'governed') {
-      throw Object.assign(new Error('Legacy Build / refresh requires governed state publication. Review and publish the World Model materialization policy first.'), {
-        code: 'WMB_STATE_PUBLICATION_REQUIRED'
-      });
-    }
-    const remote = String(config.remote ?? 'origin');
-    const stateBranch = String(config.stateBranch ?? 'state');
-    if (!await hasConfiguredGitRemote(active.root, remote)) {
-      throw Object.assign(new Error(`The configured World Model remote '${remote}' is not available. Restore the governed remote before Build / refresh.`), {
-        code: 'WMB_STATE_REMOTE_REQUIRED'
-      });
-    }
-    const { branch, sourceCommit } = await currentGitSource(active.root);
-    const source = await worldModelSourceSnapshot(active.root, config.definition);
-    const views = resolveWorldModelViewIds(config, ['all']);
-    const reviewIdentity = JSON.stringify({
-      repository: active.root, workspace: active.workspaceId, branch, sourceCommit,
-      configurationSelection,
-      sourceTreeSha256: source.sha256, definition: config.definition,
-      workflow: config.workflow, repositoryCapability: config.repositoryCapability,
-      remote, stateBranch
-    });
-    const detail = legacyWorldModelLightDetail({
-      repository: active.root, branch, sourceCommit, sourceTreeSha256: source.sha256,
-      views, remote, stateBranch, outputDir: config.outputDir,
-      capabilityId
-    });
-    const accepted = await showCompactWarningMessage(
-      'Build the current legacy-v3 World Model deterministically and publish only to governed state?',
-      { modal: true, detail }, 'Build deterministic legacy model'
-    );
-    if (accepted !== 'Build deterministic legacy model') {
-      return { status: 'cancelled', planned: null, result: null, capabilityId, format: 'legacy-v3' };
-    }
-    await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
-    // A modal can stay open while the Story pin, source, or selected repository changes. Repeat
-    // the same canonical reads immediately before dispatch; the engine rechecks the source hash.
-    const latest = await loadWorldModelConfig(active.root, {
-      ...(capabilityId ? { capabilityId } : {}),
-      ...(configurationSelection.workId ? { workId: configurationSelection.workId } : {})
-    });
-    const latestSource = await worldModelSourceSnapshot(active.root, latest.definition);
-    const latestGit = await currentGitSource(active.root);
-    const latestIdentity = JSON.stringify({
-      repository: active.root, workspace: active.workspaceId,
-      branch: latestGit.branch, sourceCommit: latestGit.sourceCommit,
-      configurationSelection,
-      sourceTreeSha256: latestSource.sha256, definition: latest.definition,
-      workflow: latest.workflow, repositoryCapability: latest.repositoryCapability,
-      remote: String(latest.remote ?? 'origin'), stateBranch: String(latest.stateBranch ?? 'state')
-    });
-    if (reviewIdentity !== latestIdentity) {
-      throw Object.assign(new Error('World Model source, Story pin, or approved configuration changed during review. Reopen Build / refresh.'), {
-        code: 'WMB_REVIEW_STALE'
-      });
-    }
-    const argv = legacyWorldModelLightArguments(capabilityId, source.sha256);
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      title: 'Building deterministic legacy World Model into governed state',
-      cancellable: true
-    }, async (_progress, token) => {
-      const controller = new AbortController();
-      const cancellation = token.onCancellationRequested?.(() => controller.abort());
-      if (token.isCancellationRequested) controller.abort();
-      try {
-        await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
-        await executeLegacyLight(argv, controller.signal);
-      }
-      finally { cancellation?.dispose(); }
-    });
-    return { status: 'completed', planned: null, result: null, capabilityId, format: 'legacy-v3' };
-  }
+  // A Story pinned to the removed legacy-v3 World Model cannot build one.
+  assertRegisteredWorldModel(config.definition);
   const defaults = worldModelV4GatewayDefaults(active.root, config);
   if (rebuild && !await hasConfiguredGitRemote(active.root, defaults.ledgerConfig.remote)) {
     throw Object.assign(new Error(

@@ -88,13 +88,6 @@
       },
       "digest": "69bc22a433d05c664c1d95325fd5a8ee9e5b89c228317b21941b6f2e670611ca"
     },
-    "bin/sflow-wm-minimal.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 2
-      },
-      "digest": "65fa0ee611cb901b5855ba231ea5168ecbf077f22aa30b32f8b97bdada034946"
-    },
     "distribution/bootstrap.mjs": {
       "counts": {
         "process-import": 1,
@@ -363,12 +356,6 @@
       },
       "digest": "5a7bca1e41fae3d23a52db5ec7188395007995aa64b658156ba86f3ef6504f19"
     },
-    "scripts/worldmodel-minimal.sh": {
-      "counts": {
-        "shell-process": 10
-      },
-      "digest": "2c620b3fb8c5b588583f10af5da83eef4df85e66cf22995dd06a77c12acb5253"
-    },
     "src/accepted-story-execution.mjs": {
       "counts": {
         "command-run": 1
@@ -510,9 +497,9 @@
     },
     "src/change-flight-plan.mjs": {
       "counts": {
-        "command-run": 25
+        "command-run": 24
       },
-      "digest": "10b84b38483b97c6d399aaad2b61b89bf4177eea74b67117b2801620728a1642"
+      "digest": "a67fa2a801f4fa8783d56a956c03ea6bb13cffc8e0b7f2a4ed83f73137b2935f"
     },
     "src/cli-entry.mjs": {
       "counts": {
@@ -833,9 +820,9 @@
     },
     "src/grounding.mjs": {
       "counts": {
-        "command-run": 23
+        "command-run": 9
       },
-      "digest": "9bf269c6f7b65970c7e61d9649754cceadece6ae928f4d7104316558afb6fd03"
+      "digest": "232932003b16a5c1a30936f3d7d70962bc54757414955032638762b57c709852"
     },
     "src/harness-imports.mjs": {
       "counts": {
@@ -879,9 +866,9 @@
     },
     "src/initiative-context.mjs": {
       "counts": {
-        "command-run": 3
+        "command-run": 2
       },
-      "digest": "46cdddf0f29ecd8ef93b5c0e0a0e62a4c02c19a11adac8f2622dfebab8380364"
+      "digest": "433bd884a0772de56cc8d1a1044365dacf8272e46ea904df152d0498b1dad710"
     },
     "src/initiative-repositories.mjs": {
       "counts": {
@@ -985,9 +972,9 @@
     },
     "src/planning.mjs": {
       "counts": {
-        "command-run": 2
+        "command-run": 1
       },
-      "digest": "b26b9e1d5711dbce673870052deb4495af7f1beeb2c534e1910e3e27df949291"
+      "digest": "3a6a2e844017fa7e3c8464b02f74c36c9a1d3b40f7f4a080ccff182211762d2b"
     },
     "src/platform-process.mjs": {
       "counts": {
@@ -1028,9 +1015,9 @@
     },
     "src/reference-repositories.mjs": {
       "counts": {
-        "command-run": 15
+        "command-run": 14
       },
-      "digest": "9481a0856ebe1fc99b74fab4a06842359e0667ae6db21a860a6401915f0256b7"
+      "digest": "78db786027808d7ae49a1a656fcbe93f46d10d5e9b9c46a021c8889230b8982b"
     },
     "src/regression-analysis.mjs": {
       "counts": {
@@ -1391,15 +1378,15 @@
     },
     "src/worldmodel.mjs": {
       "counts": {
-        "command-run": 27
+        "command-run": 13
       },
-      "digest": "ff3191bb70a4951fb68aabc458485a0fc98271a5f643a98398fb2a5d4a56a4ab"
+      "digest": "d3b608a8e0d76cd0a89f960783ffcc32a72526a052bd33b883f75c2e19da4604"
     },
     "package.json": {
       "counts": {
-        "package-script": 64
+        "package-script": 63
       },
-      "digest": "18335a67b25aaf5f2a2ca508fe041abc3eb7ae3ff7b21c208c4a739e910a0f21"
+      "digest": "16a4707e0674a55e7e1b66a896524b4159dfc1ed4be029de1b0b313f0fb3d29f"
     },
     "apps/vscode/package.json": {
       "counts": {

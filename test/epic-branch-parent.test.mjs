@@ -8,8 +8,7 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { materializeInitiative } from '../src/initiative-repositories.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
-import { worldModelSourceSnapshot } from '../src/grounding.mjs';
-import { writeV3Manifest } from '../src/world-model-materialization.mjs';
+import { worldModelCommand } from '../src/worldmodel.mjs';
 import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -381,12 +380,12 @@ test('Epic pull requests land only after the blocking Story stack has merged', a
 test('impact map validation rejects unknown repositories and undeclared world-model views', async () => {
   const { validateImpactMap } = await import('../src/initiative-repositories.mjs');
   const portfolio = { repositories: { api: { url: 'x' }, web: { url: 'y' } } };
-  const manifest = { views: { architecture: { path: 'views/architecture.md' }, security: { path: 'views/security.md' } } };
+  const manifest = { views: [{ viewId: 'arch.contracts', viewVersion: 4 }, { viewId: 'dev.impact', viewVersion: 4 }] };
 
-  const good = { version: 1, repositories: { api: { worldModelViews: ['architecture'] } } };
+  const good = { version: 1, repositories: { api: { worldModelViews: ['arch.contracts'] } } };
   assert.deepEqual(validateImpactMap(portfolio, manifest, good, { mode: 'enforce' }), { errors: [], warnings: [] });
 
-  const unknownRepo = { version: 1, repositories: { ghost: { worldModelViews: ['architecture'] } } };
+  const unknownRepo = { version: 1, repositories: { ghost: { worldModelViews: ['arch.contracts'] } } };
   assert.match(validateImpactMap(portfolio, manifest, unknownRepo, { mode: 'enforce' }).errors[0], /unknown repository 'ghost'/);
 
   const unknownView = { version: 1, repositories: { api: { worldModelViews: ['telepathy'] } } };
@@ -396,13 +395,6 @@ test('impact map validation rejects unknown repositories and undeclared world-mo
   const warned = validateImpactMap(portfolio, manifest, unknownView, { mode: 'warn' });
   assert.equal(warned.errors.length, 0);
   assert.equal(warned.warnings.length, 1);
-});
-
-test('worldModelRebuildReason reports a missing model without throwing', async () => {
-  const { worldModelRebuildReason } = await import('../src/grounding.mjs');
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-reason-'));
-  const reason = await worldModelRebuildReason(root, { worldModel: { outputDir: 'singularity/world-model' } });
-  assert.match(reason, /has not been built/);
 });
 
 test('publishing a phase blocks an impact map naming an unknown repository under enforce', async () => {
@@ -438,42 +430,13 @@ test('publishing a phase blocks an impact map naming an unknown repository under
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize lead'], { cwd: root });
 
-  // A valid committed world model declaring exactly one view. The impact assertion must reach the
-  // repository-map rule rather than being short-circuited by malformed grounding fixture data.
-  const modelDir = path.join(root, 'singularity/world-model');
-  await mkdir(path.join(modelDir, 'core'), { recursive: true });
-  await mkdir(path.join(modelDir, 'views'), { recursive: true });
-  await mkdir(path.join(modelDir, 'evidence'), { recursive: true });
-  await writeFile(path.join(modelDir, 'core/summary.brief.md'), '# Repository brief\n');
-  await writeFile(path.join(modelDir, 'core/summary.md'), '# Repository model\n');
-  await writeFile(path.join(modelDir, 'core/model.json'), '{}\n');
-  await writeFile(path.join(modelDir, 'views/architecture.md'), '# Architecture\n');
-  await writeFile(path.join(modelDir, 'path-index.json'), '{"entries":[{"glob":"src/**","views":["architecture"]}]}\n');
-  await writeFile(path.join(modelDir, 'evidence/evidence.jsonl'), '{"id":"E-ARCH"}\n');
-  const modelSource = await worldModelSourceSnapshot(root, definition);
-  await writeV3Manifest(modelDir, {
-    schema_version: '3.0',
-    generated_at: '2026-08-31T00:00:00.000Z', generated_date: '31 August 2026',
-    builder_version: 'test', builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'standard',
-    repository_commit: git(['rev-parse', 'HEAD'], root), repository_branch: 'main', working_tree_clean: true,
-    source_tree_sha256: modelSource.sha256,
-    core: {
-      tiers: {
-        brief: { status: 'ready', path: 'core/summary.brief.md' },
-        full: { status: 'ready', path: 'core/summary.md' }
-      },
-      model: { path: 'core/model.json' }
-    },
-    views: { architecture: { tiers: {
-      brief: { status: 'missing', path: 'views/architecture.brief.md' },
-      full: { status: 'ready', path: 'views/architecture.md' }
-    } } },
-    domains: [], task_guides: [], path_index: { path: 'path-index.json' },
-    evidence: { path: 'evidence/evidence.jsonl' }, materializations: []
-  });
-
-  run('git', ['add', 'singularity/world-model'], { cwd: root });
-  run('git', ['commit', '-m', 'Publish world model fixture'], { cwd: root });
+  // A valid registered World Model, so the impact assertion reaches the repository-map rule
+  // rather than being short-circuited by unavailable grounding.
+  const prior = { log: console.log, error: console.error, warn: console.warn };
+  console.log = console.error = console.warn = () => {};
+  try {
+    await worldModelCommand(root, ['wm', 'build'], { json: true });
+  } finally { Object.assign(console, prior); }
   run('git', ['switch', '-c', 'INIT-IMPACT'], { cwd: root });
   const created = await createInitiative(root, { id: 'INIT-IMPACT', profile: 'initiative-lite' });
   created.initiative.currentPhase = 'plan';
@@ -486,7 +449,7 @@ test('publishing a phase blocks an impact map naming an unknown repository under
   await mkdir(path.dirname(mapPath), { recursive: true });
 
   // An unknown repository is rejected outright.
-  await writeFile(mapPath, YAML.stringify({ version: 1, repositories: { ghost: { worldModelViews: ['architecture'] } } }));
+  await writeFile(mapPath, YAML.stringify({ version: 1, repositories: { ghost: { worldModelViews: ['arch.contracts'] } } }));
   await assert.rejects(() => publishInitiativePhase(root, 'INIT-IMPACT', 'plan'), /unknown repository 'ghost'/);
 
   // So is a view the committed world model does not declare.

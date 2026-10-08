@@ -1,11 +1,6 @@
 /**
  * A tree snapshot must not depend on how the reads were scheduled.
  *
- * A world-model build reads and hashes the whole repository four times before any model runs — one
- * source snapshot and three isolation-guard passes, each of which is load-bearing: the guards exist
- * because a builder that wrote outside its scratch space once passed discovery and failed synthesis
- * on the identical file twenty minutes later. So the passes stay and each one got faster instead.
- *
  * Reading concurrently is only safe if the digest is folded in sorted file order afterwards. Hashing
  * as results arrive would make the source-tree hash depend on disk timing, which would show up as
  * a model that is randomly "stale" — the exact false signal the exclusion rules above it exist to
@@ -18,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { repositoryContentSnapshot, worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { mapLimit } from '../src/util.mjs';
 
 async function repository(fileCount) {
@@ -48,14 +43,6 @@ test('the source digest is the same every time, whatever order the reads complet
   const paths = runs.map((run) => run.files.map((file) => file.path).join('\n'));
   assert.equal(new Set(paths).size, 1, 'files came back in a different order');
   assert.deepEqual([...paths[0].split('\n')], [...paths[0].split('\n')].sort());
-});
-
-test('the content snapshot iterates identically across runs', async () => {
-  const root = await repository(60);
-  const first = await repositoryContentSnapshot(root);
-  const second = await repositoryContentSnapshot(root);
-  assert.deepEqual([...first.keys()], [...second.keys()]);
-  assert.deepEqual([...first.entries()], [...second.entries()]);
 });
 
 test('mapLimit returns results in input order, not completion order', async () => {

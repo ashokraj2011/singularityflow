@@ -284,9 +284,23 @@ test('mixed deterministic commands classify their actual operation rather than t
     assert.equal(operation.classification, classification);
     assert.equal(operation.modelPolicy, 'never');
   }
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.light');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.light');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'standard' } }).modelPolicy, 'required');
+  // registered-v4 is the only World Model: no depth reroutes a build or an ensure to a legacy-v3
+  // light build, and the retired subcommands and format override are refused during resolution.
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.build.deterministic');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.ensure.registered-v4');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: {} }).id, 'wm.ensure.registered-v4');
+  const modelBuild = resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { composer: 'model-required' } });
+  assert.equal(modelBuild.modelPolicy, 'required');
+  assert.equal(modelBuild.fallback, null);
+  for (const retired of ['light', 'init', 'budget', 'prompt']) {
+    assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', retired] }),
+      { code: 'WMB_FORMAT_RETIRED' }, `wm ${retired}`);
+  }
+  for (const subcommand of ['build', 'status', 'ensure']) {
+    assert.throws(() => resolveOperation({
+      requestedCommand: 'wm', positionals: ['wm', subcommand], options: { format: 'legacy-v3' }
+    }), { code: 'WMB_FORMAT_RETIRED' }, `wm ${subcommand} --format legacy-v3`);
+  }
   const promptPreview = resolveOperation({
     requestedCommand: 'wm', positionals: ['wm', 'show-prompt'], options: {}
   });
@@ -387,7 +401,8 @@ test('every deterministic preview has its own cataloged never-model operation', 
     'copilot.preview',
     'workspace.copilot.preview',
     'workspace.impact.analyze.preview',
-    'wm.light',
+    'wm.build.deterministic',
+    'wm.ensure.registered-v4',
     'program.approve.plan',
     'task.retry.plan',
     'revise.preview',
@@ -399,6 +414,7 @@ test('every deterministic preview has its own cataloged never-model operation', 
     assert.equal(catalog.get(id)?.modelPolicy, 'never', id);
     assert.ok(catalog.get(id)?.noModelFixture, id);
   }
+  assert.equal(catalog.has('wm.light'), false, 'the retired legacy-v3 light build is not cataloged');
 });
 
 test('model-enabled SGOS dispatch has distinct required-model catalog entries', () => {

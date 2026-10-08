@@ -181,7 +181,6 @@ export function instructionCatalog(snapshot: RepositorySnapshot): InstructionCat
     (promptUsage[filePath] ??= []).push(label);
   };
   use(definition?.planning?.promptSource, 'Copilot planning');
-  use(definition?.worldModel?.promptSource ?? 'singularity/prompts/worldmodel-builder.md', 'World-model builder');
 
   return {
     agents: (snapshot.agents ?? []).map((agent) => ({

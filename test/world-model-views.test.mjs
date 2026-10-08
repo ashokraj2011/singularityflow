@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -7,12 +7,11 @@ import YAML from 'yaml';
 import { parseAgentDependencies } from '../src/agents.mjs';
 import { validateDefinition } from '../src/config.mjs';
 import {
-  applyRegisteredV4LegacyAssignmentMigration,
   addWorldModelView,
-  effectiveWorldModelAssignmentViews,
   markdownWorldModelViews,
   removeWorldModelView,
   structuredWorldModelViewReferences,
+  worldModelAssignmentViews,
   worldModelViewCatalog,
   worldModelViewContractCatalog,
   worldModelWorkflowViewUsage
@@ -42,15 +41,17 @@ test('world-model view registry catalogs structured prompt dependencies', async 
 });
 
 test('world-model view designer adds unused views and protects referenced views', async () => {
-  // Free-form names remain supported only by an explicitly legacy catalog.
-  const workflow = { worldModel: { format: 'legacy-v3', views: ['architecture'] },
-    phases: { design: { worldModel: { views: ['architecture'] } } } };
-  const added = addWorldModelView(workflow, 'data-governance');
-  assert.ok(added.worldModel.views.includes('data-governance'));
-  assert.ok(!workflow.worldModel.views.includes('data-governance'));
-  assert.deepEqual(removeWorldModelView(added, 'data-governance').worldModel.views, workflow.worldModel.views);
-  assert.throws(() => removeWorldModelView(workflow, 'architecture'), /still used by/);
-  assert.throws(() => removeWorldModelView(added, 'data-governance', ["Markdown 'singularity/prompts/worldmodel-builder.md'"]), /Markdown/);
+  const workflow = { worldModel: { format: 'registered-v4', views: ['arch.contracts@4'] },
+    phases: { design: { worldModel: { views: ['arch.contracts'] } } } };
+  const added = addWorldModelView(workflow, 'biz.rules');
+  assert.ok(added.worldModel.views.includes('biz.rules@4'));
+  assert.ok(!workflow.worldModel.views.includes('biz.rules@4'));
+  assert.deepEqual(removeWorldModelView(added, 'biz.rules').worldModel.views, workflow.worldModel.views);
+  assert.throws(() => removeWorldModelView(workflow, 'arch.contracts'), /still used by/);
+  assert.throws(() => removeWorldModelView(added, 'biz.rules', ["Markdown 'singularity/agents/architect.agent.md'"]), /Markdown/);
+  // Free-form and retired legacy-v3 names are not installed contracts and cannot be added.
+  assert.throws(() => addWorldModelView(workflow, 'data-governance'), /not an installed active registered contract/);
+  assert.throws(() => addWorldModelView(workflow, 'architecture'), /not an installed active registered contract/);
 });
 
 test('registered-v4 joins exact repository contracts to bare phase and agent IDs', () => {
@@ -92,57 +93,18 @@ test('registered-v4 omission expands to every installed active exact contract', 
   ]);
 });
 
-test('explicit registered-v4 migration inherits exact configured contracts without aliasing legacy names', () => {
-  const workflow = {
-    worldModel: {
-      format: 'registered-v4', views: ['arch.contracts@4', 'dev.impact@4'],
-      v4: { legacyAssignments: 'inherit-configured' },
-      injection: { rules: [{ include: ['views/security.md'] }] }
-    },
-    phases: { implementation: { worldModel: { views: ['development', 'testing'] } } },
-    agents: { developer: { worldModelViews: ['development', 'architecture'] } },
-    workTypes: {
-      feature: { label: 'Feature', phases: ['implementation'] },
-      overridden: {
-        label: 'Overridden', phases: ['implementation'],
-        phaseOverrides: { implementation: { worldModel: { views: ['security'] } } }
-      }
-    }
-  };
-  assert.deepEqual(effectiveWorldModelAssignmentViews(
-    workflow, ['development', 'testing'], 'phase'
-  ), ['arch.contracts', 'dev.impact']);
-  assert.deepEqual(worldModelWorkflowViewUsage(workflow).map((entry) => entry.phases[0].views), [
-    ['arch.contracts', 'dev.impact'], ['arch.contracts', 'dev.impact']
-  ]);
-  const references = structuredWorldModelViewReferences(workflow);
-  assert.deepEqual([...references.keys()], ['arch.contracts', 'dev.impact']);
-  assert.ok(!references.has('security'), 'legacy injection artifacts stay dormant instead of being aliased');
-
-  applyRegisteredV4LegacyAssignmentMigration(workflow);
-  assert.deepEqual(workflow.phases.implementation.worldModel.views, ['arch.contracts', 'dev.impact']);
-  assert.deepEqual(workflow.agents.developer.worldModelViews, ['arch.contracts', 'dev.impact']);
-  assert.deepEqual(
-    workflow.workTypes.overridden.phaseOverrides.implementation.worldModel.views,
-    ['arch.contracts', 'dev.impact']
-  );
-});
-
-test('registered-v4 migration refuses mixed or unknown assignments', async () => {
+test('registered-v4 validation refuses retired legacy names and unknown assignments', async () => {
   const workflow = await definition();
   workflow.worldModel.format = 'registered-v4';
-  workflow.worldModel.views = ['dev.impact@4'];
-  workflow.worldModel.v4 = { legacyAssignments: 'inherit-configured' };
   workflow.phases.implementation.worldModel.views = ['development', 'dev.impact'];
   assert.throws(
     () => validateDefinition(workflow),
-    (error) => error.code === 'WMB_VIEW_ASSIGNMENT_MIXED'
+    (error) => error.code === 'WMB_FORMAT_RETIRED'
+      && /phase 'implementation'=development/.test(error.message)
   );
 
   const unknown = await definition();
   unknown.worldModel.format = 'registered-v4';
-  unknown.worldModel.views = ['dev.impact@4'];
-  unknown.worldModel.v4 = { legacyAssignments: 'inherit-configured' };
   unknown.phases.implementation.worldModel.views = ['telepathy'];
   assert.throws(
     () => validateDefinition(unknown),
@@ -159,17 +121,26 @@ test('registered-v4 migration refuses mixed or unknown assignments', async () =>
 
 test('view catalogs accept single-use iterable prompt references on every supported Node runtime', () => {
   const promptReferences = new Map([
-    ['development', 'prompt'],
-    ['testing', 'prompt']
+    ['dev.impact', 'prompt'],
+    ['arch.contracts', 'prompt']
   ]).keys();
-  assert.deepEqual(worldModelViewCatalog({ phases: {} }, promptReferences), ['development', 'testing']);
+  assert.deepEqual(
+    worldModelViewCatalog({ worldModel: { views: [] }, phases: {} }, promptReferences),
+    ['arch.contracts', 'dev.impact']
+  );
+});
+
+test('phase and agent assignments are trimmed registered view IDs', () => {
+  assert.deepEqual(worldModelAssignmentViews([' dev.impact ', '', 'arch.contracts']), ['dev.impact', 'arch.contracts']);
+  assert.deepEqual(worldModelAssignmentViews(undefined), []);
+  assert.deepEqual(worldModelAssignmentViews('dev.impact'), []);
 });
 
 test('world-model workflow usage resolves inherited, overridden, empty, and disabled view routes', () => {
   const usage = worldModelWorkflowViewUsage({
     phases: {
-      intake: { label: 'Intake', worldModel: { views: ['business'], depth: 'quick' } },
-      implementation: { label: 'Implementation', worldModel: { views: ['development'], depth: 'standard' } }
+      intake: { label: 'Intake', worldModel: { views: ['biz.rules'], depth: 'quick' } },
+      implementation: { label: 'Implementation', worldModel: { views: ['dev.impact'], depth: 'standard' } }
     },
     workTypes: {
       feature: { label: 'Feature', phases: ['intake', 'implementation'] },
@@ -177,16 +148,16 @@ test('world-model workflow usage resolves inherited, overridden, empty, and disa
         label: 'Secure', phases: ['intake', 'implementation'],
         phaseOverrides: {
           intake: { worldModel: { views: [] } },
-          implementation: { worldModel: { views: ['security'], depth: 'deep' } }
+          implementation: { worldModel: { views: ['arch.contracts'], depth: 'deep' } }
         }
       },
       generic: { label: 'Generic', phases: ['intake'], intelligence: { worldModel: 'off' } }
     }
   });
   assert.deepEqual(usage.find((workflow) => workflow.id === 'feature').phases.map((phase) => phase.views), [
-    ['business'], ['development']
+    ['biz.rules'], ['dev.impact']
   ]);
-  assert.deepEqual(usage.find((workflow) => workflow.id === 'secure').phases.map((phase) => phase.views), [[], ['security']]);
+  assert.deepEqual(usage.find((workflow) => workflow.id === 'secure').phases.map((phase) => phase.views), [[], ['arch.contracts']]);
   assert.equal(usage.find((workflow) => workflow.id === 'secure').phases[1].source, 'workflow-override');
   assert.equal(usage.find((workflow) => workflow.id === 'secure').phases[1].depth, 'deep');
   assert.deepEqual(usage.find((workflow) => workflow.id === 'generic').phases[0].views, []);
@@ -201,13 +172,13 @@ test('workflow validation rejects undeclared structured world-model views', asyn
 
 test('the command sentinel all resolves once to concrete approved view IDs', () => {
   const config = {
-    definition: { worldModel: { views: ['business', 'architecture', 'testing'] } },
-    phases: { implementation: { views: ['development', 'testing'] } }
+    definition: { worldModel: { views: ['dev.impact', 'biz.rules', 'arch.contracts'] } },
+    phases: { implementation: { views: ['dev.impact', 'dev.hotspots'] } }
   };
-  assert.deepEqual(resolveWorldModelViewIds(config, ['all']), ['architecture', 'business', 'testing']);
+  assert.deepEqual(resolveWorldModelViewIds(config, ['all']), ['arch.contracts', 'biz.rules', 'dev.impact']);
   assert.deepEqual(resolveWorldModelViewIds({
-    phases: { implementation: { views: ['development'] }, verification: { views: ['testing'] } }
-  }, ['all']), ['development', 'testing'], 'legacy/state-backed configs derive a catalog from phase views');
+    phases: { implementation: { views: ['dev.impact'] }, verification: { views: ['dev.hotspots'] } }
+  }, ['all']), ['dev.hotspots', 'dev.impact'], 'configs without a catalog derive one from phase views');
   assert.throws(
     () => resolveWorldModelViewIds({ definition: { worldModel: { views: [] } }, phases: {} }, ['all']),
     (error) => error.code === 'WORLD_MODEL_VIEWS_UNRESOLVED'
@@ -220,53 +191,18 @@ test('the command sentinel all resolves once to concrete approved view IDs', () 
 
 test('explicit phase view order survives resolution so composition and publication agree on tiers', () => {
   const config = {
-    definition: { worldModel: { views: ['development', 'security', 'testing'] } },
-    phases: { verification: { views: ['testing', 'development', 'security'] } }
+    definition: { worldModel: { views: ['arch.contracts', 'dev.hotspots', 'dev.impact'] } },
+    phases: { verification: { views: ['dev.impact', 'arch.contracts', 'dev.hotspots'] } }
   };
   const phaseViews = resolveWorldModelViewIds(config, config.phases.verification.views);
-  assert.deepEqual(phaseViews, ['testing', 'development', 'security']);
+  assert.deepEqual(phaseViews, ['dev.impact', 'arch.contracts', 'dev.hotspots']);
   const plan = resolveGroundingPlan({ phase: 'verification', phaseViews, depth: 'standard' });
   assert.deepEqual(plan.selections.map(selectionId), [
-    'core/brief', 'testing/full', 'development/brief', 'security/brief'
+    'core/brief', 'dev.impact/full', 'arch.contracts/brief', 'dev.hotspots/brief'
   ]);
   assert.deepEqual(
-    resolveWorldModelViewIds(config, ['testing', 'development', 'testing']),
-    ['testing', 'development'],
+    resolveWorldModelViewIds(config, ['dev.impact', 'arch.contracts', 'dev.impact']),
+    ['dev.impact', 'arch.contracts'],
     'deduplication must not move the primary phase view'
   );
-});
-
-test('the builder manifest declares nothing nobody reads', async () => {
-  /**
-   * The manifest is a machine index: the CLI resolves named fields out of it, and unlike the
-   * documents it points at, it is never injected into an agent's prompt — verified against a real
-   * composed prompt, which contained none of these keys. So "no reader in src/" is the whole test,
-   * and ten keys failed it after shipping.
-   *
-   * Most were merely dead. The dangerous ones restated decisions the repository had already made:
-   * `phase_map` and `agent_map` named the views a phase or agent should load, and a task guide's
-   * `required_views`/`required_domains` did the same for one task — all owned by `workflow.yml` and
-   * the agent catalog, and all approved by a human. Unread they were clutter; read, a model's guess
-   * would have competed with pinned configuration.
-   *
-   * Scope matters: this holds for the manifest, not for `core/model.json` or the evidence records.
-   * A reader consumes those whole, so they legitimately carry detail no resolver names.
-   */
-  const builder = await readFile(new URL('../templates/worldmodel-builder.md', import.meta.url), 'utf8');
-  const source = new URL('../src/', import.meta.url);
-  const modules = (await readdir(source, { recursive: true })).filter((name) => name.endsWith('.mjs'));
-  const code = (await Promise.all(modules.map((name) => readFile(new URL(name, source), 'utf8')))).join('\n');
-
-  for (const key of ['phase_map', 'agent_map', 'recommended_loading_rules', 'load_when', 'budget_hints']) {
-    assert.ok(!builder.includes(`"${key}"`), `the builder emits '${key}', which nothing reads`);
-  }
-
-  // Every manifest key must have a consumer, at any depth — the advice that survived the first pass
-  // of this test was nested one level down. Anything new without a reader is the same bug.
-  const start = builder.indexOf('```json', builder.indexOf('# Step 7:')) + '```json'.length;
-  const manifest = builder.slice(start, builder.indexOf('```', start));
-  assert.match(manifest, /"schema_version"/, 'the manifest example moved; this test is reading the wrong block');
-  const declared = [...new Set([...manifest.matchAll(/"([a-z_]+)":/g)].map((match) => match[1]))];
-  const unread = declared.filter((key) => !code.includes(key));
-  assert.deepEqual(unread, [], `the builder manifest declares key(s) no module reads: ${unread.join(', ')}`);
 });

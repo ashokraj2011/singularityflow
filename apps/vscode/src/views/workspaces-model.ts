@@ -374,20 +374,6 @@ export interface WorkspaceConfigurationRefreshResult {
   storyCutover?: { requested: true; mode: 'hard'; historicalBytes: 'preserved';
     status: 'planned' | 'retired' | 'incomplete'; statement: string;
     repositories: Array<{ repository: string; requested?: boolean; mode?: string; retiredIds?: string[] }> };
-  worldModelMigration?: {
-    requested: true;
-    targetFormat: 'registered-v4';
-    status: 'planned' | 'configured' | 'incomplete';
-    historicalArtifacts: 'preserved';
-    storiesRepinned: false;
-    rebuildRequired: boolean;
-    statement: string;
-    repositories: Array<{
-      repository: string; status: string; fromFormat?: string; targetFormat?: string;
-      capabilities?: string[]; views?: string[];
-      capabilityAssignments?: Array<{ capability: string; before: string[]; after: string[] }>;
-    }>;
-  };
   capabilityPortability?: {
     status: string;
     /** Always false for safe reinitialization; capability publication is a separate command. */

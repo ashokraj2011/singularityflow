@@ -559,16 +559,13 @@ export class ConfigurationCenterPanel {
     if (message.type === 'save-world-model') {
       try {
         const received = message as unknown as WorldModelDraft;
-        const prepared = prepareWorldModelDraftForSave(this.renderedTexts.definitionText, received);
-        const draft = prepared.draft;
+        const draft = prepareWorldModelDraftForSave(this.renderedTexts.definitionText, received);
         this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
         const snapshot = this.store.current.snapshot!;
         const text = this.renderedTexts.definitionText;
         const outcome = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateWorldModelYaml(text, draft), text);
         if (outcome.error) return this.showErrors([outcome.error]);
-        this.dirty = false; this.notice = this.savedNotice(`${prepared.migratedLegacyCatalog
-          ? 'Legacy view names were atomically replaced by the installed exact v4 contract catalog. '
-          : ''}World-model settings saved to this checkout only. Publish configuration before repository-level builds use them. An accepted Story retains its pin; use the base repository checkout or a new Story to consume the approved V4 policy.`, outcome.disposition);
+        this.dirty = false; this.notice = this.savedNotice('World-model settings saved to this checkout only. Publish configuration before repository-level builds use them. An accepted Story retains its pin; use the base repository checkout or a new Story to consume the approved V4 policy.', outcome.disposition);
         if (outcome.disposition?.kind === 'proposal') return;
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();

@@ -532,20 +532,15 @@ async function operationResolutionContext(root, definition, subcommand) {
   try {
     approved = await loadDefinition(root);
   } catch (error) {
-    // An uninitialised Git checkout has no registered-v4 policy to override the legacy operation
-    // classification. Preserve admission ordering there: `--no-model wm build` must be refused as
-    // model-required before its handler is imported. Other configuration failures remain visible;
-    // silently treating malformed governed policy as legacy would weaken a repository's contract.
+    // An uninitialised Git checkout has no approved composer; the default (deterministic) applies.
+    // Other configuration failures remain visible.
     if (/^Missing singularity\/workflow\.yml\. Run: singularity-flow init$/.test(error?.message ?? '')) {
       return {};
     }
     throw error;
   }
   return {
-    worldModel: {
-      format: approved.worldModel?.format ?? 'legacy-v3',
-      composer: approved.worldModel?.v4?.composer ?? 'deterministic'
-    }
+    worldModel: { composer: approved.worldModel?.v4?.composer ?? 'deterministic' }
   };
 }
 

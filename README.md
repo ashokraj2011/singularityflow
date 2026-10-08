@@ -59,16 +59,13 @@ For bounded work that begins without a Story, follow the
 For a private output Story that has no product repository, follow the
 [local signed-deliverables guide](./docs/LOCAL-SIGNED-DELIVERABLES.md). The L1 profile is model-free,
 publishes a create-only signed archive, and keeps remote delivery and repository adoption disabled.
-For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT
-semantic AST, VS Code visualization, and measured reuse, follow the
-[Java/Maven world-model and semantic AST demo](./README-JAVA-MAVEN-WORLD-MODEL-DEMO.md).
-For deterministic registered facts, evidence-bound views, exact cache reuse, atomic state-branch
-publication, and explicit v3 migration, see the
+For deterministic registered facts, evidence-bound views, exact cache reuse, and atomic state-branch
+publication, see the
 [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
 The additive [persisted World-Model views roadmap](./docs/PERSISTED-WORLD-MODEL-VIEWS.md) tracks the
 immutable exact-history binding service and its bounded new-Story activation. Activation selects
 only exact already-published history and never turns absence into a hidden build; existing Story
-lifecycles and WMB v3/v4 operation remain compatible.
+lifecycles and registered-v4 operation remain compatible.
 For the additive, model-free structural read registry, provenance and coverage contracts, active
 view inventory, and deliberately deferred FWM stages, see
 [Future-proof world-model read contracts](./docs/FUTURE-PROOF-WORLD-MODEL.md).
@@ -108,7 +105,7 @@ scripts and documentation.
 The package contains:
 
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
-- Explicit model-independent operation policies, a strict `--no-model` mode, deterministic `wm light`, and governed manual artifact publication.
+- Explicit model-independent operation policies, a strict `--no-model` mode, a deterministic `wm build`, and governed manual artifact publication.
 - A VS Code extension for workspaces, intake, workflow configuration, progress, documents, and approvals.
 - A GitHub Copilot plugin with collision-safe skills and a bundled workflow runtime.
 - A canonical searchable help manual shared by the CLI, Copilot, and VS Code.
@@ -266,7 +263,6 @@ singularity/
 ├── portfolio.yml
 ├── capabilities.yml
 ├── prompts/
-│   ├── worldmodel-builder.md
 │   └── copilot-planning.md
 └── templates/
     ├── common/
@@ -583,9 +579,8 @@ Lifecycle view after the skill commits and pushes its result. Epic planning uses
 uploaded source evidence; it does not require a world model. After Story intake
 creates the canonical Story branch, repository World-Model generation remains an
 explicit CLI/Copilot operation or a separately pinned materialization action.
-Legacy-v3 may retain an auditable copy on that non-protected Story branch while
-publishing state authority; registered-v4 publishes its current projection to the
-configured state authority and leaves the application branch unchanged.
+A World Model build publishes its current projection to the configured state authority and
+leaves the application branch unchanged.
 
 ## Repository discovery before onboarding
 
@@ -2348,13 +2343,28 @@ child application roots replace the parent scope while shared roots accumulate.
 New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
-For registered v4, choose **Builder format → Registered v4** in that page (or set
-`worldModel.format: registered-v4`), declare dotted views such as `dev.impact`, and review the
+Registered v4 is the only World Model format; `worldModel.format` may be omitted. In that page
+(or in `singularity/workflow.yml`), declare dotted views such as `dev.impact` and review the
 composer, consumer, cache, and total-token controls. Use `sflow world-model plan --views ...` before
-`sflow world-model build --views ...`. In v4, `wm ensure` only verifies readiness, `wm light` is not a
-v4 builder, and the gateway exposes read-only inspection rather than mutation. The complete command,
-migration, cache, IDE, and state-publication behavior is in the
-[Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
+`sflow world-model build --views ...`. `wm build` is deterministic by default; only
+`worldModel.v4.composer: model-optional` or `model-required` may call a model. Depth is `quick`,
+`standard`, or `deep`. `wm ensure` only verifies readiness, and the gateway exposes read-only
+inspection rather than mutation. The complete command, cache, IDE, and state-publication behavior is
+in the [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
+
+```bash
+singularity-flow wm views
+singularity-flow wm plan --views dev.impact,arch.contracts
+singularity-flow wm build --views dev.impact,arch.contracts
+singularity-flow wm status --phase design
+singularity-flow wm check
+```
+
+The legacy-v3 World Model was removed. A configuration that still sets `format: legacy-v3` or
+names a legacy view such as `business` or `architecture` is refused at load with
+`WMB_FORMAT_RETIRED`; replace those names with registered views from `singularity-flow wm views`.
+For the business or product reading of the code, use repository knowledge:
+`singularity-flow wm knowledge show business` (see [Repository knowledge](./docs/KNOWLEDGE-MODEL.md)).
 
 New Stories that accept `registered-v4` can reuse immutable persisted history without rebuilding
 it. Before WFA seals the Story policy, SFlow derives the complete phase/agent selection, plans exact
@@ -2412,6 +2422,56 @@ status and fingerprint timings, sparse/partial-clone state, and recommendations.
 It never changes Git configuration. Ordinary Home and doctor reads do not run
 the benchmark.
 
+### Phase prompt composition
+
+```bash
+# These --task forms explicitly request an ad-hoc task guide.
+singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
+singularity-flow wm compose --phase design --task "Design invoice export"
+singularity-flow wm show-prompt
+```
+
+`wm compose` is the single phase entry point. It combines the active governed Agent Markdown, mandatory phase and agent-added views, an exact task guide only when explicitly requested with `--task`, applicable evidence, and locked remote agent skills. `wm inject` remains an alias for compatibility. `worldModel.injection.rules` is still accepted in configuration but is ignored.
+
+Use `/sf-show-prompt` at any active Story phase to display the complete
+`/sf-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
+The inspection uses `--render-only`: it does not create a grounding record,
+prepare an artifact, edit workflow state, commit, or push. Pass
+`--skill sflow-design` (or another installed Flow skill ID) to inspect that
+skill contract with the same current-phase prompt.
+
+For an opt-in, workspace-local history of the governed prompts actually composed for Copilot, use
+`/sf-prompt-log on` (or `singularity-flow prompt-log on`). Review records in VS Code under
+**Configuration → Prompt audit**, or run `singularity-flow prompt-log list` and
+`singularity-flow prompt-log view latest`. Capture is off by default and never includes Copilot's
+hidden system prompt or chat history. The structured view separates prompt sections, authorized
+tools, provider usage, and context-efficiency measurements. It reports managed upstream bytes and
+duplicate approved-reference previews removed before transport, AST structural facts/payload bytes,
+and optional sections omitted by the approved token budget.
+
+Prompt records are private (`0600`), append-locked, scrub common credential formats, and use a
+machine-local HMAC chain to detect accidental edits, deletion, or reordering. The default retention
+is 30 days with a 64 MiB storage ceiling; change the duration with
+`prompt-log retention --retention-days <1..365>`. A malformed interrupted
+JSONL tail is quarantined before the next capture. Use `prompt-log repair --confirm "REPAIR PROMPT AUDIT"`
+for an explicit integrity recovery, or `prompt-log clear --confirm "DELETE PROMPT AUDIT"` to remove
+active history and all recovery copies.
+
+Help-routing quality uses a separate content-free local log under
+`<workspace>/.singularity-flow/help-metrics/events.jsonl`. It stores classifications, outcomes,
+topic IDs, matching methods, latency, answer size, and selected action categories—never questions,
+answers, paths, Work IDs, Git identities, or file content. Use `singularity-flow help-metrics
+status --json`, `on`, `off`, or `clear`; nothing is transmitted off the laptop.
+
+`wm compose` compiles named prompt sections under the Story's pinned `tokenEconomy` profile. `off`
+and `observe` preserve compatibility (`observe` reports an overflow); `assist` removes lowest-priority
+optional sections and records their hashes; `enforce` does the same but refuses with
+`TKN_MANDATORY_CONTEXT_OVERFLOW` when non-evictable governance alone cannot fit. Approved upstream
+artifacts contribute only their producer-authored bytes—their managed input blocks are never nested
+again—and an exact path/hash match is never injected a second time as a governed reference preview.
+
+Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. `worldModel.grounding: enforce` verifies the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot before World-Model bytes are used. A missing or unreachable model—and a stale model under staleness `fail`—instead creates a hash-bound unavailable receipt with zero World-Model bytes and ordinary repository access continues. Under `enforce`, malformed or tampered context still blocks; `warn` reports the same integrity finding without enforcing it. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility. The selected modes are pinned when the work item starts. Use grounding `warn` to report integrity findings without enforcing them, or `off` to omit World-Model handling entirely. Registered durable state is read through pure, deterministic in-memory migration chains; no read rewrites a stored record or changes its hash.
+
 ## Fault intake and governed repair
 
 Anything may report that it is broken; only pinned policy decides what happens
@@ -2463,145 +2523,6 @@ releases, deploys, or edits production.
 In Copilot use `/sf-fault` and `/sf-fix`. In VS Code unresolved faults appear in
 **My Work** with **Fix this** and **Diagnose**. All surfaces call the same records
 and kernel functions. See `singularity-flow explain fault-intake-and-repair`.
-
-### Legacy v3 world-model commands
-
-The commands and automatic-materialization behavior below describe the compatibility `legacy-v3`
-builder. Registered-v4 repositories should use the v4 guide linked above; a one-command
-`--format v4` override must be repeated on later versioned reads unless the approved YAML format is
-also changed.
-
-For the smallest and lowest-token validated legacy model, run this from the
-application repository:
-
-```bash
-sflow-wm-minimal
-# Use only the views required by one phase
-sflow-wm-minimal --phase design
-# Build another existing branch and publish normally
-sflow-wm-minimal --branch WORK-123 --publish
-```
-
-The minimum wrapper uses deterministic `light` mode, one `development` view
-when no phase is supplied, and `--local` by default. It calls no AI model and
-therefore consumes **zero model tokens**. The result still has the validated
-world-model structure, source-tree hash, freshness checks, Git commit, and
-normal prompt-injection routing. Its content is intentionally limited to a
-compact path/build-manifest inventory; it does not claim source behavior,
-architecture, security, or impact analysis. Add `--publish` for the configured
-publication policy. From a source checkout the equivalent command is
-`npm run wm:minimal`, which works on Windows as well as macOS and Linux. (The
-underlying `scripts/worldmodel-minimal.sh` needs a POSIX shell; the wrapper finds
-one, including a Git for Windows install, and says so plainly when it cannot.)
-
-```bash
-singularity-flow wm light --local
-singularity-flow wm light --phase design --local
-singularity-flow wm light --branch WORK-123 --phase implementation --local
-# Equivalent spelling for configuration and automation
-singularity-flow wm build --depth light --phase design --local
-```
-
-Use `--parallel --workers 2` with `sflow-wm-minimal` only when you deliberately
-want to upgrade to a semantic `quick` build with independently checkpointed
-model calls.
-
-```bash
-singularity-flow wm build --phase design --task "Design invoice export"
-singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
-singularity-flow wm build --phase verification --workers 4
-# After an interruption, rerun the identical command; completed views are reused
-singularity-flow wm build --phase verification --workers 4 --resume
-singularity-flow wm status --phase design --task "Design invoice export"
-singularity-flow wm availability --phase design --task "Design invoice export"
-singularity-flow wm ensure --phase design --task "Design invoice export"
-singularity-flow wm check --branch release/2026.07
-# These --task forms explicitly request an ad-hoc task guide.
-singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
-singularity-flow wm compose --phase design --task "Design invoice export"
-singularity-flow wm show-prompt
-singularity-flow wm check
-# Remove worktrees left by a killed semantic build; --force also removes unowned legacy worktrees
-singularity-flow wm cleanup
-singularity-flow wm cleanup --force
-```
-
-`wm status` and its `wm availability` alias are read-only: they resolve the exact core/view tiers for the phase and report ready, missing, stale, conflicting selections, governed state-branch authority, resolved ref/commit/tree, and refresh status without invoking a model. `wm ensure` is the explicit materialization boundary. It reuses every valid selection from the same repository source snapshot, validates the merged v3 manifest, and publishes the completed model to the configured governed state branch before prompt composition can use it. When an ordinary lifecycle ensure finds a valid same-source model with a missing phase selection, it deterministically warms both tiers of every approved repository view with zero model tokens while preserving already-valid bytes. This prevents a narrow final-phase snapshot from making the next Story regenerate other views. Earlier exact source/scope snapshots are recovered from immutable state-branch history after a newer snapshot is published, so A → B → A reuses A without another provider call or state write. Explicit depth, model, view, tier, and task requests retain their exact scope. Source drift never silently relabels older semantic output as current.
-
-`wm light` deterministically reads Git paths plus bounded package-manifest metadata and never launches Copilot. `wm build` with `quick`, `standard`, or `deep` runs the semantic model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a semantic phase requests multiple views, one discovery worker first proves the selected model, native provider tools, and packet-write contract end to end; only then do the remaining workers fan out concurrently (four by default) and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. A zero-packet preflight starts no remaining workers and retains no empty checkpoint. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune semantic generation. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
-
-Discovery and synthesis receive explicit read/search/write allowlists rather than unrestricted
-provider tools. A successful discovery call that writes no packet is not repeated; if every view
-does that, synthesis never starts. A synthesis call that writes no manifest also fails after one
-call, while an invalid partial model receives one bounded repair attempt. These failures still use
-the configured deterministic-light fallback at the `wm ensure` boundary so Story work can continue.
-
-To remove the separate `wm light` step from a Story, configure the lifecycle in
-`singularity/workflow.yml`:
-
-```yaml
-worldModel:
-  materialization:
-    mode: on-demand
-    depth: light
-    confirmation: automatic
-    publish: governed
-    lookahead: none
-```
-
-When `singularity-flow next` reaches a repository with proven first-use absence on an existing governed state branch, this runs the deterministic equivalent of `singularity-flow wm light --phase <current-phase>`, publishes it, composes the phase grounding, and continues. An absent remote state branch is not proof of first use—it may have been deleted—so that case requires an explicit command. For an integrity-verified model at the exact same source snapshot, automatic mode may add missing configured views while preserving every existing manifest-controlled payload; only `manifest.json` is updated to register the added selection and provenance. It never automatically replaces an existing stale, divergent, invalid, unpublished, removed, offline-unverified, or different-source model. Automatic work invokes no model provider and records zero model tokens. Set `confirmation: prompt` to ask before explicit materialization. Set `depth: phase` to generate the phase's exact semantic depth; that mode may invoke a provider and therefore cannot use `confirmation: automatic`. Use `mode: explicit` to retain the manual command or `mode: disabled` to prohibit materialization. Read-only status, availability, reporting, and VS Code refresh operations never materialize a model under any mode. The resolved policy is pinned into the Story at start.
-
-Semantic world-model runners are trusted local command execution, not an OS sandbox. The detached worktree isolates Git output, but the configured runner still executes through the user's shell and inherits that user's environment, filesystem, network, and process permissions. Configure semantic runners only from trusted repository configuration and trusted executables. Use `wm light` when deterministic, zero-agent inventory is sufficient or when arbitrary local runner execution is not allowed.
-
-Every semantic build records an owner/PID beside its isolated worktree. The next build automatically removes worktrees whose owning process is no longer alive. `wm cleanup` performs the same recovery explicitly; it preserves active and unowned legacy worktrees, while `wm cleanup --force` removes those too after you have confirmed no build is running.
-
-`wm light`, `wm build`, `wm availability`, `wm ensure`, `wm check`, and `wm context` are repository operations and never
-require an Epic, Story, or work ID. Add `--branch <name>` to target any existing
-local or remote branch. Singularity Flow fetches the selected remote, opens the
-branch in an isolated worktree, and leaves the active checkout unchanged. It
-refuses divergent branches or branches already checked out elsewhere rather
-than overwriting work. Use `--remote <name>` when the branch is not on `origin`.
-
-`wm compose` is the single phase entry point. It combines the active governed Agent Markdown, mandatory phase and agent-added views, an exact task guide only when explicitly requested with `--task`, applicable evidence, rule-selected files, and locked remote agent skills. `wm inject` remains an alias for compatibility. Rules can match the governed `agent` ID, phase, immutable work type, committed or pending changed paths, and source labels.
-
-Use `/sf-show-prompt` at any active Story phase to display the complete
-`/sf-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
-The inspection uses `--render-only`: it does not create a grounding record,
-prepare an artifact, edit workflow state, commit, or push. Pass
-`--skill sflow-design` (or another installed Flow skill ID) to inspect that
-skill contract with the same current-phase prompt.
-
-For an opt-in, workspace-local history of the governed prompts actually composed for Copilot, use
-`/sf-prompt-log on` (or `singularity-flow prompt-log on`). Review records in VS Code under
-**Configuration → Prompt audit**, or run `singularity-flow prompt-log list` and
-`singularity-flow prompt-log view latest`. Capture is off by default and never includes Copilot's
-hidden system prompt or chat history. The structured view separates prompt sections, authorized
-tools, provider usage, and context-efficiency measurements. It reports managed upstream bytes and
-duplicate approved-reference previews removed before transport, AST structural facts/payload bytes,
-and optional sections omitted by the approved token budget.
-
-Prompt records are private (`0600`), append-locked, scrub common credential formats, and use a
-machine-local HMAC chain to detect accidental edits, deletion, or reordering. The default retention
-is 30 days with a 64 MiB storage ceiling; change the duration with
-`prompt-log retention --retention-days <1..365>`. A malformed interrupted
-JSONL tail is quarantined before the next capture. Use `prompt-log repair --confirm "REPAIR PROMPT AUDIT"`
-for an explicit integrity recovery, or `prompt-log clear --confirm "DELETE PROMPT AUDIT"` to remove
-active history and all recovery copies.
-
-Help-routing quality uses a separate content-free local log under
-`<workspace>/.singularity-flow/help-metrics/events.jsonl`. It stores classifications, outcomes,
-topic IDs, matching methods, latency, answer size, and selected action categories—never questions,
-answers, paths, Work IDs, Git identities, or file content. Use `singularity-flow help-metrics
-status --json`, `on`, `off`, or `clear`; nothing is transmitted off the laptop.
-
-`wm compose` compiles named prompt sections under the Story's pinned `tokenEconomy` profile. `off`
-and `observe` preserve compatibility (`observe` reports an overflow); `assist` removes lowest-priority
-optional sections and records their hashes; `enforce` does the same but refuses with
-`TKN_MANDATORY_CONTEXT_OVERFLOW` when non-evictable governance alone cannot fit. Approved upstream
-artifacts contribute only their producer-authored bytes—their managed input blocks are never nested
-again—and an exact path/hash match is never injected a second time as a governed reference preview.
-
-Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. `worldModel.grounding: enforce` verifies the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot before World-Model bytes are used. A missing or unreachable model—and a stale model under staleness `fail`—instead creates a hash-bound unavailable receipt with zero World-Model bytes and ordinary repository access continues. Under `enforce`, malformed or tampered context still blocks; `warn` reports the same integrity finding without enforcing it. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility. The selected modes are pinned when the work item starts. Use grounding `warn` to report integrity findings without enforcing them, or `off` to omit World-Model handling entirely. Registered durable state is read through pure, deterministic in-memory migration chains; no read rewrites a stored record or changes its hash.
 
 ## Remote Markdown agents
 
@@ -2852,7 +2773,7 @@ evidence workflow.
 | Command | Purpose |
 |---|---|
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
-| `singularity-flow init` | Install editable YAML, templates, agent prompts, and world-model builder prompt. |
+| `singularity-flow init` | Install editable YAML, templates, and agent prompts. |
 | `singularity-flow factory-reset --dry-run` | Preview a destructive reset of repository Singularity state and local runtime data before reinstalling current npm-package defaults. |
 | `singularity-flow local-reset --forget-only --dry-run` | Preview clearing this machine's Singularity registrations, caches, sessions, credentials, and personalization while preserving every workspace and repository byte. |
 | `singularity-flow local-reset --dry-run` | Preview destructive removal of every validated local workspace and machine state while preserving installed product surfaces. |
@@ -2933,13 +2854,11 @@ evidence workflow.
 | `singularity-flow stack status\|sync [--epic ID]` | Inspect or replicate the enforced Story/PR order to each repository's orphan state branch. |
 | `singularity-flow refresh-branch [--remote origin]` | Fetch and fast-forward only the checked-out clean branch; stop safely when it diverges. |
 | `singularity-flow regression analyze [--good REF] [--bad REF] [--path PATH]` | Rank likely regression commits and merge history without changing the repository. |
-| `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic legacy-v3 repository inventory with zero model tokens. Registered v4 refuses this command. |
-| `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build using the approved format. These depth/checkpoint options describe legacy v3; registered v4 uses registered views, composer policy, exact cache reuse, and `--views`. |
+| `singularity-flow wm build [--phase PHASE] [--views LIST] [--depth quick\|standard\|deep] [--composer deterministic\|model-optional\|model-required] [--workers N]` | Build the registered views. The default composer is deterministic and calls no model; exact cached views are reused. |
 | `singularity-flow wm history list [--limit N] [--cursor CURSOR]` / `wm history show <KEY>` with `--authority-commit <FULL-COMMIT>` | Page through exact persisted registered-v4 key paths, or verify a selected binding when every referenced semantic-owner adapter is installed, at one exact locally available state-authority cut. Cursors bind the cut, kind selection, history root, and page size. This read never fetches, builds, invokes a model or AST, writes a cache, or changes Git. |
 | `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
-| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish an immutable retained recovery snapshot after legacy-v3 or registered-v4 publication failure. Publication requires the exact recovery ID and rechecks the recorded authority; normal cache reuse is separate. |
+| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish an immutable retained recovery snapshot after a registered-v4 publication failure. Publication requires the exact recovery ID and rechecks the recorded authority; normal cache reuse is separate. |
 | `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate\|warm\|pack\|evidence reproduce` | Inspect, build, warm, package, or reproduce bounded structural evidence with explicit assurance and coverage. No model is invoked. |
-| `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |

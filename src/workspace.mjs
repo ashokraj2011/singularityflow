@@ -4129,42 +4129,21 @@ async function repositoryWorldModelStatus(root) {
     // ungrounded; workspace status is read-only, so it uses already-fetched refs and never triggers
     // a network request or a rebuild.
     try {
-      const [{ loadDefinition }, grounding, authorityConfig] = await Promise.all([
-        import('./config.mjs'),
-        import('./grounding.mjs'),
-        import('./world-model/authority-config.mjs')
-      ]);
-      const definition = await loadDefinition(root);
-      const state = authorityConfig.worldModelStateAuthority(definition);
-      const source = await grounding.worldModelSourceSnapshot(root, definition);
-      const located = await grounding.resolveWorldModelSource(root, {
-        ...(definition.worldModel ?? {}),
-        outputDir: normalizedOutput,
-        stateBranch: state.branch,
-        remote: state.remote,
-        ledger: definition.ledger,
-        definition
-      }, { refreshRemote: false, sourceTreeSha256: source.sha256 });
-      const validated = await grounding.validateWorldModelDirectory(located.directory, {
-        integrity: 'full',
-        sourceLabel: located.source === 'state-branch'
-          ? `governed state-branch world model '${located.branch}'`
-          : 'application-projection world model'
-      });
-      const freshness = await grounding.worldModelFreshness(root, definition, validated.manifest);
-      if (!freshness.fresh || freshness.built !== source.sha256) {
-        throw new SingularityFlowError(`Preserved model describes ${freshness.built ?? 'an unknown source'}, not ${source.sha256}.`);
-      }
+      // The same format-aware readiness read every lifecycle surface uses, from cached authority.
+      const { inspectConfiguredGrounding, loadWorldModelConfig } = await import('./worldmodel.mjs');
+      const config = await loadWorldModelConfig(root);
+      const inspected = await inspectConfiguredGrounding(root, config, null, { refreshRemote: false });
+      if (!inspected.availability.ready) throw new SingularityFlowError(inspected.reason ?? 'the registered World Model is not ready');
       return {
         state: 'available',
         exists: true,
-        source: located.source,
-        authority: located.authority ?? null,
-        historical: located.historical === true,
+        source: inspected.availability.source,
+        authority: null,
+        historical: false,
         outputDirectory: normalizedOutput,
         manifestPath: `${normalizedOutput}/manifest.json`,
-        snapshotRef: located.snapshotRef ?? located.commit ?? null,
-        generatedAt: validated.manifest.generated_at ?? validated.manifest.generatedAt ?? null,
+        snapshotRef: inspected.availability.located?.commit ?? inspected.availability.selected?.commit ?? null,
+        generatedAt: inspected.availability.selected?.manifest?.generatedAt ?? null,
         warning: null
       };
     } catch (error) {

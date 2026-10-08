@@ -498,14 +498,8 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     });
     const staleness = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
     const commit = resolved.located?.commit ?? null;
-    const changes = resolved.located?.source === 'worktree'
-      ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
-      : '';
-    if (!commit || changes) {
-      const reason = [
-        !commit ? 'repository world model is not committed' : null,
-        changes ? 'repository world-model files have uncommitted changes' : null
-      ].filter(Boolean).join('; ');
+    if (!commit) {
+      const reason = 'repository world model is not committed';
       return {
         sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
         warnings: [`Repository world model unavailable: ${reason}; work may continue without it.`],
@@ -581,42 +575,10 @@ async function workItemPlanningParts(root, definition, {
     workType: workflow.workItem.workType,
     labels: []
   };
-  let agentResult;
-  try {
-    agentResult = await injectAgentPrompt(root, definition, agent, signals, {
-      promptOverride: promptStudy,
-      // A resolver failure is an explicit authority decision, not permission to fall back to
-      // whatever happens to exist in the application worktree. Continue with zero WM injection.
-      disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
-        || !world.record.available || world.record.format === 'registered-v4',
-      modelDirectory: world.directory,
-      validatedModelFiles: world.validatedModelFiles,
-      validatedManifest: world.validatedManifest,
-      resolvedAgent: executionContext?.agent ?? null
-    });
-  } catch (error) {
-    const optionalIntegrityRace = world.record.mode !== 'enforce'
-      && error?.code === 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED';
-    if (!world.record.available
-        || (!isWorldModelAvailabilityError(error) && !optionalIntegrityRace)) throw error;
-    world = {
-      sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
-      warnings: [
-        ...world.warnings,
-        `Repository world model became unavailable during prompt composition: ${error.message}`
-      ],
-      record: {
-        ...world.record, available: false, fresh: null,
-        reasonCode: error.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
-      }
-    };
-    agentResult = await injectAgentPrompt(root, definition, agent, signals, {
-      promptOverride: promptStudy,
-      disableWorldModelInjection: true,
-      modelDirectory: null,
-      resolvedAgent: executionContext?.agent ?? null
-    });
-  }
+  const agentResult = await injectAgentPrompt(root, definition, agent, signals, {
+    promptOverride: promptStudy,
+    resolvedAgent: executionContext?.agent ?? null
+  });
   const capability = worldModelDisabledForWorkflow(workflow)
     ? { text: '', files: [], warnings: [] }
     : await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {

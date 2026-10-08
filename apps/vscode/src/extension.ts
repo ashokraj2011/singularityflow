@@ -7149,19 +7149,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!active || active.root !== client.repository) {
         return 'The selected repository changed. Refresh the Explorer before opening repository content.';
       }
-      let target = configurationPathTarget(store.current.snapshot, message.path);
-      if (target.kind === 'world-model-file') {
-        const repository = client.repository;
-        const refreshed = await client.snapshot(undefined, ['configuration']);
-        if (client.repository !== repository || activeRepositoryContext()?.root !== repository) {
-          return 'The selected repository changed. Refresh the Explorer before opening repository content.';
-        }
-        // The metadata slice is intentionally small; only a user-requested read retains prose.
-        target = configurationPathTarget(refreshed, message.path);
-        if (target.kind !== 'captured') {
-          return 'This World Model file is no longer available in the verified state snapshot. Refresh the Explorer and review the effective model build.';
-        }
-      }
+      const target = configurationPathTarget(store.current.snapshot, message.path);
       if (target.kind === 'unavailable') return target.message;
       if (target.kind === 'captured') {
         // A governed model normally lives only on the state branch. Open the exact content already
@@ -8585,17 +8573,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const outcome = await showGovernedWorldModelBuild(active, {
           modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled',
           capabilityId: request?.capabilityId ?? null,
-          rebuild: request?.rebuild === true,
-          executeLegacyLight: async (argv, signal) => {
-            if (activeRepositoryContext()?.root !== active.root || client.repository !== active.root) {
-              throw Object.assign(new Error('The selected repository changed during World Model review. Reopen Build / refresh and review the current target.'), {
-                code: 'WMB_REPOSITORY_CHANGED'
-              });
-            }
-            output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
-            const result = await client.runText([...argv], { signal });
-            output.appendLine(result);
-          }
+          rebuild: request?.rebuild === true
         });
         if (outcome.status === 'cancelled') return;
         if (outcome.status === 'refused') {
@@ -8623,26 +8601,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           return;
         }
-        if (outcome.format === 'legacy-v3') {
-          await refreshAfterSurfaceMutation();
-          void showCompactInformationMessage(
-            'Deterministic legacy-v3 World Model built with zero model calls. Review the refreshed model and publication details in the Singularity Flow output.'
-          );
-          return;
-        }
         await refreshAfterSurfaceMutation();
         void showCompactInformationMessage(worldModelBuildCompletionMessage(outcome));
       } catch (error) {
         output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
-        if ((error as { code?: string }).code === 'WMB_COMPLEXITY_REQUIRES_V4') {
-          const migration = 'Migrate workspace & capabilities';
-          const choice = await showCompactWarningMessage(
-            'This checkout uses legacy-v3 World Model configuration. After install can migrate approved workspace and capability settings. Existing Stories retain their pins: after migration, rebuild from the workspace repository checkout, not an older Story checkout.',
-            migration
-          );
-          if (choice === migration) await vscode.commands.executeCommand('singularityFlow.afterInstall');
-          return;
-        }
         // Keep recovery bound to the repository that produced the failure even if the user changes
         // the active workspace while an authority probe or reviewed build is still in flight.
         showRefusal(error, {

@@ -10,7 +10,7 @@ The owned saved-view writer, byte-only measurement policy, successor grounding-p
 exact packet replay are implemented. New Stories whose accepted configuration selects
 `registered-v4` now activate that history only by selecting exact, already-published Model and View
 Keys at one immutable state-authority cut before WFA captures the Story policy. Existing Story
-lifecycles and the operational legacy-v3 and registered-v4 World-Model paths remain compatible.
+lifecycles and the operational registered-v4 World-Model path remain compatible.
 
 This document is the repository implementation companion to the externally supplied
 `SPEC-persisted-worldmodel-views.md` draft. It records the amendments required by the current WMB

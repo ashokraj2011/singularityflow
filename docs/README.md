@@ -62,7 +62,7 @@ to understand which document is authoritative for a specific topic.
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
 | Use bounded optional structural intelligence | [AST Intelligence](AST-INTELLIGENCE.md) |
 | Build reusable evidence-bound registered repository views | [Governed World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md) |
-| Review the additive persisted exact-history foundation and its remaining activation work (existing WMB v3/v4 stays operational) | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
+| Review the additive persisted exact-history foundation and its remaining activation work (existing WMB v4 stays operational) | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
 | Evaluate the pure code-local TKR candidate composer, derived cache, and evidence boundary | [Token Reduction preview](TOKEN-REDUCTION.md) |
 | Generate, inspect, and reuse model-free FINOS CALM architecture | [CALM World Model projection](CALM-WORLD-MODEL-PROJECTION.md) |
 | Use versioned model-free structural read contracts with explicit provenance and coverage | [Future-proof world-model read contracts](FUTURE-PROOF-WORLD-MODEL.md) |

@@ -39,8 +39,7 @@ import { run, SingularityFlowError } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organisation.mjs';
-import { worldModelSourceSnapshot } from '../src/grounding.mjs';
-import { writeV3Manifest } from '../src/world-model-materialization.mjs';
+import { worldModelCommand } from '../src/worldmodel.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
@@ -2737,7 +2736,7 @@ async function governedRemoteRepository(base, name) {
     'workItemRoot: singularity/work-items',
     'templatesRoot: singularity/templates',
     'worldModel:',
-    '  views: [business, architecture, development, testing, release, operations, security]',
+    '  views: [arch.contracts@4, biz.rules@4, dev.hotspots@4, dev.impact@4]',
     '  outputDir: singularity/world-model',
     'phases:',
     '  intake:',
@@ -3119,7 +3118,7 @@ test('workspace health recognizes an existing repository world model without war
   assert.deepEqual(saved.status.warnings, []);
 });
 
-test('workspace health resolves a validated custom-output model from governed state', async () => {
+test('workspace health resolves a registered custom-output model from governed state', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-state-world-model-'));
   const source = path.join(root, 'source');
   run('git', ['init', '-b', 'main', source], { cwd: root });
@@ -3133,38 +3132,15 @@ test('workspace health resolves a validated custom-output model from governed st
   await writeFile(workflowPath, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: source });
   run('git', ['commit', '-m', 'initialize custom model output'], { cwd: source });
-  const mainCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
-  const sourceState = await worldModelSourceSnapshot(source, workflow);
-
-  run('git', ['switch', '-c', 'state'], { cwd: source });
-  const directory = path.join(source, 'governed/repository-model');
-  await mkdir(path.join(directory, 'core'), { recursive: true });
-  await mkdir(path.join(directory, 'evidence'), { recursive: true });
-  await writeFile(path.join(directory, 'core/summary.brief.md'), '# Brief\n');
-  await writeFile(path.join(directory, 'core/summary.md'), '# Full\n');
-  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
-  await writeFile(path.join(directory, 'path-index.json'), '{}\n');
-  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
-  await writeV3Manifest(directory, {
-    schema_version: '3.0', generated_at: '2026-08-31T00:00:00.000Z',
-    generated_date: '31 August 2026', builder_version: 'test',
-    builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'standard',
-    repository_commit: mainCommit, repository_branch: 'main', working_tree_clean: true,
-    source_tree_sha256: sourceState.sha256,
-    core: {
-      tiers: {
-        brief: { status: 'ready', path: 'core/summary.brief.md' },
-        full: { status: 'ready', path: 'core/summary.md' }
-      },
-      model: { path: 'core/model.json' }
-    },
-    views: {}, domains: [], task_guides: [],
-    path_index: { path: 'path-index.json' }, evidence: { path: 'evidence/evidence.jsonl' },
-    materializations: []
-  });
-  run('git', ['add', 'governed/repository-model'], { cwd: source });
-  run('git', ['commit', '-m', 'publish governed state model'], { cwd: source });
-  run('git', ['switch', 'main'], { cwd: source });
+  // A deterministic registered-v4 build publishes the projection to the local state branch only.
+  const prior = { log: console.log, error: console.error, warn: console.warn };
+  console.log = console.error = console.warn = () => {};
+  try {
+    await worldModelCommand(source, ['wm', 'build'], { json: true });
+  } finally { Object.assign(console, prior); }
+  assert.equal(run('git', ['show-ref', '--verify', 'refs/heads/state'], { cwd: source }).status, 0);
+  assert.equal(await stat(path.join(source, 'governed/repository-model/manifest.json')).catch(() => null), null,
+    'the application checkout does not project the model');
   const remote = path.join(root, 'platform.git');
   run('git', ['clone', '--bare', source, remote], { cwd: root });
 
@@ -3179,10 +3155,9 @@ test('workspace health resolves a validated custom-output model from governed st
     }
   }, { confirmation: 'state-grounded' });
   const model = saved.status.repositories[0].worldModel;
-  assert.equal(model.state, 'available');
+  assert.equal(model.state, 'available', model.warning ?? undefined);
   assert.equal(model.source, 'state-branch');
   assert.equal(model.outputDirectory, 'governed/repository-model');
-  assert.equal(model.generatedAt, '2026-08-31T00:00:00.000Z');
   assert.deepEqual(saved.status.warnings, []);
 });
 

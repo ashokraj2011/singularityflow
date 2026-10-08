@@ -9,7 +9,8 @@ import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
-import { effectiveWorldModelAssignmentViews, worldModelViewIdentity } from './world-model-views.mjs';
+import { isRetiredWorldModelView, worldModelAssignmentViews, worldModelViewIdentity } from './world-model-views.mjs';
+import { retiredWorldModelFormatError } from './world-model-format.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 
 export { usesEpicPlanningLifecycle };
@@ -673,10 +674,8 @@ export async function loadPortfolio(root, { required = true } = {}) {
 }
 
 export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) {
-  const registered = workflowDefinition.worldModel?.format === 'registered-v4';
-  const logical = (view) => registered ? normalizeBuiltInViewReference(view).viewId : view;
-  const configured = registered && workflowDefinition.worldModel?.views == null
-    ? BUILTIN_VIEW_IDS : workflowDefinition.worldModel?.views ?? [];
+  const logical = (view) => normalizeBuiltInViewReference(view).viewId;
+  const configured = workflowDefinition.worldModel?.views ?? BUILTIN_VIEW_IDS;
   const declared = new Set(configured.map(logical));
   const unknown = [];
   const assignments = Object.entries(portfolio.initiativePhases ?? {}).map(([phaseId, phase]) => ({
@@ -694,48 +693,30 @@ export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) 
       });
     }
   }
+  const retired = [];
   for (const assignment of assignments) {
-    const assigned = registered
-      ? effectiveWorldModelAssignmentViews(
-          workflowDefinition,
-          assignment.views,
-          assignment.label
-        )
-      : assignment.views;
-    for (const view of assigned) {
-      const id = registered ? worldModelViewIdentity(workflowDefinition, view)?.id : view;
+    for (const view of worldModelAssignmentViews(assignment.views)) {
+      if (isRetiredWorldModelView(view)) { retired.push(`${assignment.key}:${view}`); continue; }
+      const id = worldModelViewIdentity(workflowDefinition, view)?.id;
       if (!id || !declared.has(id)) unknown.push(`${assignment.key}:${view}`);
     }
   }
+  if (retired.length) throw retiredWorldModelFormatError(`Initiative phases use legacy-v3 view names: ${retired.join(', ')}`, { assignments: retired });
   if (unknown.length) throw new SingularityFlowError(
     `Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`,
-    { code: registered ? 'WMB_VIEW_UNKNOWN' : 'WORLD_MODEL_VIEW_UNDECLARED',
-      details: { format: workflowDefinition.worldModel?.format ?? 'legacy-v3', assignments: unknown } }
+    { code: 'WMB_VIEW_UNKNOWN', details: { assignments: unknown } }
   );
   return true;
 }
 
-// The sorted union of every base/profile-override view the portfolio can route context to. When a
-// workflow is supplied, apply its registered-v4 transition policy before onboarding declares the
-// repository catalog; the authored portfolio remains unchanged and auditable.
-export function portfolioWorldModelViews(portfolio, workflowDefinition = null) {
+// The sorted union of every base/profile-override view the portfolio can route context to.
+export function portfolioWorldModelViews(portfolio) {
   const views = new Set();
-  const include = (assigned, label) => {
-    const effective = workflowDefinition
-      ? effectiveWorldModelAssignmentViews(workflowDefinition, assigned, label)
-      : assigned;
-    for (const view of effective) views.add(view);
-  };
-  for (const [phaseId, phase] of Object.entries(portfolio.initiativePhases ?? {})) {
-    include(phase.worldModelViews ?? [], `Initiative phase '${phaseId}' World-Model assignment`);
-  }
-  for (const [profileId, profile] of Object.entries(portfolio.initiativeProfiles ?? {})) {
-    for (const [phaseId, override] of Object.entries(profile.phaseOverrides ?? {})) {
-      if (override.worldModelViews == null) continue;
-      include(
-        override.worldModelViews,
-        `Initiative profile '${profileId}' phase '${phaseId}' World-Model assignment`
-      );
+  const include = (assigned) => { for (const view of worldModelAssignmentViews(assigned)) views.add(view); };
+  for (const phase of Object.values(portfolio.initiativePhases ?? {})) include(phase.worldModelViews);
+  for (const profile of Object.values(portfolio.initiativeProfiles ?? {})) {
+    for (const override of Object.values(profile.phaseOverrides ?? {})) {
+      if (override.worldModelViews != null) include(override.worldModelViews);
     }
   }
   return [...views].sort();
@@ -763,13 +744,7 @@ function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, work
     ...override,
     id: phaseId,
     label: override.label ?? phase.label,
-    worldModelViews: workflowDefinition
-      ? effectiveWorldModelAssignmentViews(
-          workflowDefinition,
-          override.worldModelViews ?? phase.worldModelViews,
-          `Initiative profile '${profileId}' phase '${phaseId}' World-Model assignment`
-        )
-      : override.worldModelViews ?? phase.worldModelViews,
+    worldModelViews: override.worldModelViews ?? phase.worldModelViews,
     agents: override.agents ?? phase.agents,
     bundleApproval: override.bundleApproval ?? phase.bundleApproval,
     outputs,

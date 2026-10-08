@@ -141,7 +141,8 @@ function escapeRegExp(value) {
  */
 function localWorldModelStateAuthority(root, definition) {
   const { branch, remote } = worldModelStateAuthority(definition ?? {});
-  const required = definition?.worldModel?.format === 'registered-v4';
+  // A repository with a definition uses the registered World Model (an omitted format means it).
+  const required = Boolean(definition) && definition.worldModel?.format !== 'legacy-v3';
   const explicitRef = String(branch).startsWith('refs/');
   const remoteConfigured = !explicitRef && configuredRemoteIdentity(root, remote, {
     direction: 'fetch'

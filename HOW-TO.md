@@ -169,7 +169,7 @@ git commit -m "Initialize Singularity Flow"
 git push
 ```
 
-Initialization creates editable workflow YAML, artifact templates, governed Agent Markdown, and the repository world-model builder prompt.
+Initialization creates editable workflow YAML, artifact templates, and governed Agent Markdown.
 
 ```text
 singularity/

@@ -101,11 +101,11 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
   assert.ok(snapshot.agents.some((item) => item.id === 'architect' && item.path.endsWith('architect.agent.md')));
   assert.equal(snapshot.worldModel.repositoryOwned, true);
-  assert.equal(snapshot.worldModel.views.length, 7);
-  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').structuredReferences.includes("agent 'architect' prompt"));
-  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').promptReferences.includes('singularity/prompts/worldmodel-builder.md'));
-  assert.equal(snapshot.worldModelPrompt.path, 'singularity/prompts/worldmodel-builder.md');
-  assert.equal(snapshot.worldModelPrompt.missing, false);
+  assert.deepEqual(snapshot.worldModel.views.map((view) => view.id),
+    ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact']);
+  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'arch.contracts').structuredReferences.includes("agent 'architect' prompt"));
+  assert.equal(Object.hasOwn(snapshot, 'worldModelPrompt'), false,
+    'the retired builder prompt is not part of the snapshot');
   assert.equal(snapshot.planning.enabled, true);
   assert.equal(snapshot.planning.config.promptSource, 'singularity/prompts/copilot-planning.md');
   assert.equal(snapshot.planning.prompt.missing, false);
@@ -209,14 +209,16 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
 
 test('configuration snapshot reports an exact state-branch world model without a worktree copy', async () => {
   const publisher = await repository();
-  run(process.execPath, [bin, 'wm', 'light', '--views', 'business'], publisher);
+  run(process.execPath, [bin, 'wm', 'build', '--views', 'dev.impact', '--json'], publisher);
+  const stateCommit = run('git', ['--git-dir', `${publisher}.git`, 'rev-parse', 'refs/heads/state'], publisher)
+    .stdout.trim();
 
   const cloneRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-state-model-'));
   const consumer = path.join(cloneRoot, 'consumer');
   run('git', ['clone', `${publisher}.git`, consumer], cloneRoot);
   run('git', ['config', 'user.name', 'State Consumer'], consumer);
   run('git', ['config', 'user.email', 'consumer@example.com'], consumer);
-  assert.equal(existsSync(path.join(consumer, 'singularity/world-model/manifest.json')), false);
+  assert.equal(existsSync(path.join(consumer, 'singularity/world-model')), false);
 
   const scoped = await repositorySnapshot(consumer, null, null, { included: ['configuration'] });
   assert.deepEqual(scoped.configuration.workflowCodeGeneration.feature, {
@@ -225,85 +227,28 @@ test('configuration snapshot reports an exact state-branch world model without a
   assert.deepEqual(scoped.configuration.workflowCodeGeneration.chore, {
     generatesCode: false, codePhases: []
   });
-  assert.equal(scoped.configuration.worldModel.readiness.ready, true);
-  assert.equal(scoped.configuration.worldModel.readiness.status, 'ready');
-  assert.equal(scoped.configuration.worldModel.readiness.source, 'state-branch');
-  assert.equal(scoped.configuration.worldModel.rebuildReason, null);
-  assert.ok(scoped.configuration.worldModel.generatedAt);
-  assert.ok(scoped.configuration.worldModel.files.some((file) =>
-    file.path === 'singularity/world-model/views/business.brief.md'));
+  assert.equal(Object.hasOwn(scoped.configuration, 'worldModel'), false,
+    'World Model data has its own leased slice; the configuration slice never reads it');
 
   const leased = await repositorySnapshot(consumer, null, null, { included: ['worldModel'] });
   assert.deepEqual(Object.keys(leased), ['worldModel']);
   assert.equal(leased.worldModel.kind, 'world-model-ide-slice');
-  assert.equal(leased.worldModel.format, 'legacy-v3');
+  assert.equal(leased.worldModel.format, 'wmb-v4');
   assert.equal(leased.worldModel.status, 'ready');
   assert.equal(leased.worldModel.readiness.source, 'state-branch');
-  assert.equal(leased.worldModel.summary.views, 1);
-  assert.ok(leased.worldModel.views.some((view) =>
-    view.id === 'business' && view.status === 'available'
-    && view.path === 'singularity/world-model/views/business.brief.md'));
   assert.equal(leased.worldModel.authority.ref, 'refs/remotes/origin/state');
-  assert.equal(leased.worldModel.generatedAt, scoped.configuration.worldModel.generatedAt);
-  assert.ok(JSON.stringify(leased).length < 16_384,
-    'the IDE slice must not retain full legacy prose or evidence');
+  assert.equal(leased.worldModel.authority.commit, stateCommit);
+  assert.equal(leased.worldModel.source.fresh, true);
+  assert.ok(leased.worldModel.views.some((view) =>
+    view.id === 'dev.impact' && view.status === 'available'));
+  assert.equal(existsSync(path.join(consumer, 'singularity/world-model')), false,
+    'reading the state-branch model never materializes a worktree copy');
 
   await writeFile(path.join(consumer, 'README.md'), '# Changed after the shared model\n');
   const stale = await repositorySnapshot(consumer, null, null, { included: ['worldModel'] });
   assert.equal(stale.worldModel.readiness.ready, false,
-    'a source change cannot leave the state-backed legacy slice marked Ready');
-  assert.notEqual(stale.worldModel.status, 'ready');
-});
-
-test('repository World Model slices follow upgraded authority while accepted Stories retain their pins', async (t) => {
-  const root = await repository();
-  t.after(async () => {
-    await rm(root, { recursive: true, force: true });
-    await rm(`${root}.git`, { recursive: true, force: true });
-  });
-  run(process.execPath, [bin, 'wm', 'light', '--views', 'business'], root);
-  run(process.execPath, [bin, 'start', 'WM-PIN-1', '--from-branch', 'main',
-    '--ref', 'story/WM-PIN-1', '--title', 'Pinned legacy model'], root);
-  const storyBranch = run('git', ['branch', '--show-current'], root).stdout.trim();
-  run('git', ['switch', 'main'], root);
-
-  const workflowPath = path.join(root, 'singularity/workflow.yml');
-  const legacyText = await readFile(workflowPath, 'utf8');
-  const approved = YAML.parse(legacyText);
-  approved.worldModel.format = 'registered-v4';
-  approved.worldModel.views = [
-    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-  ];
-  approved.worldModel.v4 = {
-    ...(approved.worldModel.v4 ?? {}), legacyAssignments: 'inherit-configured'
-  };
-  run('git', ['switch', '-c', 'sflow/config'], root);
-  await writeFile(workflowPath, YAML.stringify(approved));
-  run('git', ['add', 'singularity/workflow.yml'], root);
-  run('git', ['commit', '-m', 'upgrade approved World Model configuration'], root);
-  run('git', ['push', 'origin', 'sflow/config'], root);
-  run('git', ['switch', 'main'], root);
-  assert.equal(await readFile(workflowPath, 'utf8'), legacyText,
-    'the application projection deliberately remains older than approved authority');
-
-  const before = run('git', ['status', '--porcelain=v1'], root).stdout;
-  const repositoryView = await repositorySnapshot(root, null, null, {
-    included: ['configuration', 'worldModel']
-  });
-  assert.equal(repositoryView.configuration.definition.worldModel.format, 'registered-v4');
-  assert.equal(repositoryView.worldModel.format, 'wmb-v4',
-    'the dedicated Explorer slice must select the same authority as the native rebuild');
-  assert.equal(repositoryView.worldModel.status, 'unavailable',
-    'an old v3 build cannot be advertised as materialized v4 views');
-  assert.deepEqual(repositoryView.worldModel.views, []);
-  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, before,
-    'selecting approved World Model policy is read-only');
-
-  run('git', ['switch', storyBranch], root);
-  const pinned = await repositorySnapshot(root, null, null, { included: ['worldModel'] });
-  assert.equal(pinned.worldModel.format, 'legacy-v3',
-    'repository upgrades must not silently replace an accepted Story execution contract');
-  assert.ok(pinned.worldModel.views.some((view) => view.id === 'business'));
+    'a source change cannot leave the state-backed slice marked Ready');
+  assert.equal(stale.worldModel.source.fresh, false);
 });
 
 test('SGOS Command Center is a lazy isolated snapshot slice', async () => {
@@ -474,13 +419,7 @@ test('configuration snapshots round-trip a validated working-tree candidate over
   run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
 
   const candidate = YAML.parse(approvedText);
-  candidate.worldModel.format = 'registered-v4';
-  candidate.worldModel.views = [
-    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-  ];
-  candidate.worldModel.v4 = {
-    ...(candidate.worldModel.v4 ?? {}), legacyAssignments: 'inherit-configured'
-  };
+  candidate.worldModel.v4 = { ...(candidate.worldModel.v4 ?? {}), cachePolicy: 'rebuild' };
   const firstCandidateText = YAML.stringify(candidate);
   await saveConfigurationFile(root, 'singularity/workflow.yml', firstCandidateText, {
     expectedSha256: createHash('sha256').update(approvedText).digest('hex')
@@ -490,13 +429,15 @@ test('configuration snapshots round-trip a validated working-tree candidate over
     included: ['repository', 'configuration']
   });
   assert.equal(scoped.configuration.configurationSource.editor, 'candidate');
-  assert.equal(scoped.configuration.configurationSource.effective.worldModelFormat, 'legacy-v3');
+  assert.equal(scoped.configuration.configurationSource.effective.sha256,
+    createHash('sha256').update(approvedText).digest('hex'),
+    'approved policy remains the effective configuration until publication');
   assert.equal(scoped.configuration.configurationSource.candidate.status, 'valid');
   assert.equal(scoped.configuration.configurationSource.candidate.worldModelFormat, 'registered-v4');
-  assert.equal(scoped.configuration.definition.worldModel.format, 'registered-v4');
+  assert.equal(scoped.configuration.definition.worldModel.v4.cachePolicy, 'rebuild');
   assert.equal(scoped.configuration.definitionText, firstCandidateText);
 
-  candidate.worldModel.v4.cachePolicy = 'rebuild';
+  candidate.worldModel.v4.consumer = 'architect';
   const secondCandidateText = YAML.stringify(candidate);
   await saveConfigurationFile(root, 'singularity/workflow.yml', secondCandidateText, {
     expectedSha256: scoped.configuration.configurationSource.candidate.sha256
@@ -504,8 +445,9 @@ test('configuration snapshots round-trip a validated working-tree candidate over
   scoped = await repositorySnapshot(root, null, null, { included: ['configuration'] });
   assert.equal(scoped.configuration.configurationSource.editor, 'candidate');
   assert.equal(scoped.configuration.definition.worldModel.v4.cachePolicy, 'rebuild');
+  assert.equal(scoped.configuration.definition.worldModel.v4.consumer, 'architect');
   assert.equal(scoped.configuration.definitionText, secondCandidateText,
-    'a second save uses and returns the first candidate bytes rather than approved v3');
+    'a second save uses and returns the first candidate bytes rather than approved policy');
 });
 
 test('invalid working-tree configuration stays visible but never replaces approved policy', async () => {
@@ -894,8 +836,8 @@ neverCommit:
   assert.match(run('git', ['show', 'HEAD:singularity/environments.yml'], root).stdout,
     /typescript-compile/);
 
-  // A legacy model may predate environment-local exclusions. Neither the bundle nor the generic
-  // file-export boundary may replay those stored bytes without a valid, current model manifest.
+  // A checked-in legacy model may predate environment-local exclusions. Configuration export never
+  // carries World Model files, so neither the bundle nor the generic file reader replays them.
   const legacySecret = 'legacy-model-secret-value';
   const legacyReference = 'vault://teams/payments/qa';
   const legacyModelPath = 'singularity/world-model/core/legacy.json';
@@ -905,16 +847,14 @@ neverCommit:
   }));
   run('git', ['add', legacyModelPath], root);
   run('git', ['commit', '-m', 'legacy model fixture'], root);
-  for (const operation of [
-    () => exportConfigurationBundle(root),
-    () => readConfigurationFile(root, legacyModelPath)
-  ]) {
-    await assert.rejects(operation, (error) => {
-      assert.equal(error.code, 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED');
-      assert.doesNotMatch(error.message, new RegExp(`${legacySecret}|${legacyReference}`));
-      return true;
-    });
-  }
+  const exported = await exportConfigurationBundle(root);
+  assert.equal(exported.files.some((entry) => entry.path.startsWith('singularity/world-model/')), false);
+  assert.doesNotMatch(JSON.stringify(exported), new RegExp(`${legacySecret}|${legacyReference}`));
+  await assert.rejects(() => readConfigurationFile(root, legacyModelPath), (error) => {
+    assert.match(error.message, /not an exportable/i);
+    assert.doesNotMatch(error.message, new RegExp(`${legacySecret}|${legacyReference}`));
+    return true;
+  });
 });
 
 test('configuration bundle excludes a captured environment declaration from overlapping roots', async () => {
@@ -1323,12 +1263,12 @@ test('invalid configuration candidates are validated before replacing governed f
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const original = await readFile(workflowPath, 'utf8');
   const definition = YAML.parse(original);
-  definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'architecture');
+  definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'arch.contracts@4');
   const before = await stat(workflowPath, { bigint: true });
 
   await assert.rejects(
     () => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(definition)),
-    /architecture.*not declared/i
+    /view 'arch\.contracts' is used by phase 'design'/i
   );
 
   const after = await stat(workflowPath, { bigint: true });
@@ -1396,14 +1336,15 @@ test('visual editor rolls back world-model view deletions while YAML or Markdown
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const originalWorkflow = await readFile(workflowPath, 'utf8');
   const definition = YAML.parse(originalWorkflow);
-  definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'architecture');
-  await assert.rejects(() => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(definition)), /architecture.*not declared/i);
+  definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'arch.contracts@4');
+  await assert.rejects(() => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(definition)), /view 'arch\.contracts' is used by phase 'design'/i);
   assert.equal(await readFile(workflowPath, 'utf8'), originalWorkflow);
 
-  const promptPath = path.join(root, 'singularity/prompts/worldmodel-builder.md');
-  const originalPrompt = await readFile(promptPath, 'utf8');
-  await assert.rejects(() => saveConfigurationFile(root, 'singularity/prompts/worldmodel-builder.md', `${originalPrompt}\nLoad views/unknown-governance.md.\n`), /unknown-governance.*not declared/i);
-  assert.equal(await readFile(promptPath, 'utf8'), originalPrompt);
+  const agentRelative = '.github/agents/architect.agent.md';
+  const agentPath = path.join(root, agentRelative);
+  const originalAgent = await readFile(agentPath, 'utf8');
+  await assert.rejects(() => saveConfigurationFile(root, agentRelative, `${originalAgent}\nLoad views/unknown-governance.md.\n`), /unknown-governance.*not declared/i);
+  assert.equal(await readFile(agentPath, 'utf8'), originalAgent);
 });
 
 test('visual editor creates templates and only deletes them when no workflow references them', async () => {
@@ -1436,7 +1377,7 @@ test('visual editor manages repository prompts and skills and exports portable Y
   assert.equal(bundle.worldModelRepositoryOwned, true);
   assert.ok(bundle.files.some((item) => item.path === 'singularity/workflow.yml'));
   assert.ok(bundle.files.some((item) => item.path === 'singularity/portfolio.yml'));
-  assert.ok(bundle.files.some((item) => item.path === 'singularity/prompts/worldmodel-builder.md'));
+  assert.equal(bundle.files.some((item) => item.path.startsWith('singularity/world-model')), false);
   assert.ok(bundle.files.some((item) => item.path === 'singularity/prompts/copilot-planning.md'));
   assert.ok(bundle.files.some((item) => item.path === skillPath));
   assert.equal((await deleteConfigurationFile(root, skillPath)).deleted, true);

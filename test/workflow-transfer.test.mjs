@@ -1,4 +1,3 @@
-import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -63,6 +62,23 @@ async function initializedRepository(t, prefix) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeDefinition(root);
   return root;
+}
+
+// Narrow a repository to a registered subset: drop one view from its catalog and from every
+// packaged assignment that names it, so the remaining configuration still loads.
+async function withoutRegisteredView(root, view) {
+  const name = view.replace('.', '\\.');
+  const reference = new RegExp(`, ?${name}(?:@4)?\\b|\\b${name}(?:@4)?, ?`, 'g');
+  const agents = (await readdir(path.join(root, '.github/agents')))
+    .filter((entry) => entry.endsWith('.md')).map((entry) => path.join('.github/agents', entry));
+  for (const relative of ['singularity/workflow.yml', 'singularity/portfolio.yml', ...agents]) {
+    const file = path.join(root, relative);
+    const text = await readFile(file, 'utf8');
+    if (reference.test(text)) await writeFile(file, text.replace(reference, ''));
+    reference.lastIndex = 0;
+  }
+  const definition = await loadDefinition(root);
+  assert.equal(definition.worldModel.views.some((entry) => entry.startsWith(`${view}@`)), false);
 }
 
 async function workflowConfiguration(root) {
@@ -739,33 +755,30 @@ test('Initiative shared-agent MCP scope retains auxiliary Story phases in the St
 test('Initiative import refuses view assignments absent from the target Story catalog', async (t) => {
   const source = await initializedRepository(t, 'sflow-workflow-view-source-');
   const target = await initializedRepository(t, 'sflow-workflow-view-target-');
-  await initializeLegacyWorldModelDefinition(source);
-  await initializeLegacyWorldModelDefinition(target);
-  const sourceWorkflow = await workflowConfiguration(source);
-  sourceWorkflow.worldModel.views = [...sourceWorkflow.worldModel.views, 'source-only'];
-  await writeWorkflowConfiguration(source, sourceWorkflow);
+  // Both catalogs are registered-v4; the target deliberately declares a narrower subset.
+  await withoutRegisteredView(target, 'dev.hotspots');
 
   const sourcePortfolio = await portfolioConfiguration(source);
   const profile = structuredClone(sourcePortfolio.initiativeProfiles['epic-planning']);
-  profile.label = 'Source-only view initiative';
+  profile.label = 'Hotspot view initiative';
   profile.phaseOverrides = {
     ...(profile.phaseOverrides ?? {}),
     [profile.phases[0]]: {
       ...(profile.phaseOverrides?.[profile.phases[0]] ?? {}),
-      worldModelViews: ['source-only']
+      worldModelViews: ['dev.hotspots']
     }
   };
-  sourcePortfolio.initiativeProfiles['source-only-view'] = profile;
+  sourcePortfolio.initiativeProfiles['hotspot-view'] = profile;
   await writePortfolioConfiguration(source, sourcePortfolio);
 
-  const bundle = await exportWorkflowBundle(source, ['initiative:source-only-view']);
+  const bundle = await exportWorkflowBundle(source, ['initiative:hotspot-view']);
   const workflowBefore = await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8');
   const portfolioBefore = await readFile(path.join(target, 'singularity/portfolio.yml'), 'utf8');
   const plan = await planWorkflowImport(target, bundle);
   assert.equal(plan.status, 'blocked');
   assert.ok(plan.conflicts.some((item) => item.kind === 'initiative.configuration'
     && /undeclared repository world-model views/.test(item.reason)
-    && /source-only/.test(item.reason)));
+    && /dev\.hotspots/.test(item.reason)));
   await assert.rejects(
     () => applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 }),
     (error) => error.code === 'WORKFLOW_IMPORT_CONFLICT'

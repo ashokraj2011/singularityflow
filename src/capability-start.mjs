@@ -36,7 +36,6 @@ import {
 } from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { loadDefinition } from './config.mjs';
-import { isWorldModelV4 } from './world-model/commands.mjs';
 import { refreshWorldModelV4Authority } from './world-model/authority-refresh.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
@@ -72,10 +71,11 @@ export function capabilityPublicationWorkers(total, requested = DEFAULT_REMOTE_W
 }
 
 function registeredWorldModelConfig(definition) {
-  if (!definition || !isWorldModelV4({ definition })) return null;
+  // A repository still configured for the retired legacy-v3 World Model has no registered model to start from.
+  if (!definition || definition.worldModel?.format === 'legacy-v3') return null;
   const authority = worldModelStateAuthority(definition);
   return {
-    definition,
+    definition: { ...definition, worldModel: { ...(definition.worldModel ?? {}), format: 'registered-v4' } },
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
     stateBranch: authority.branch,
     remote: authority.remote

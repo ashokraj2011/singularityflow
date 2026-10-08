@@ -99,23 +99,13 @@ export const AGENT_ROLES = Object.freeze([
   Object.freeze({ id: 'blank', label: 'Blank', hint: 'Write it yourself', tools: ['read', 'search', 'edit'], views: [], instructions: 'Describe what this agent should do in each step it drafts.' })
 ]);
 
-const LEGACY_AGENT_ROLE_VIEWS = Object.freeze({
-  analyst: ['business'], 'product-owner': ['business'], architect: ['architecture', 'security'],
-  developer: ['development', 'testing'], tester: ['testing'], designer: ['business']
-});
-
 /** Presets are authoring suggestions, never aliases or permission to add undeclared contracts. */
 export function agentRolePresets(definition) {
-  const { format, views } = definition?.worldModel ?? {};
+  const { views } = definition?.worldModel ?? {};
   // The display catalog also lists referenced-but-undeclared views for diagnostics. Presets must
   // use only the approved enabled catalog, even while an invalid draft is open in the Studio.
-  const catalog = new Set(worldModelViewCatalog({ worldModel: { format, views } }));
-  return AGENT_ROLES.map((role) => ({
-    ...role,
-    views: (format === 'registered-v4'
-      ? role.views : LEGACY_AGENT_ROLE_VIEWS[role.id] ?? [])
-      .filter((view) => catalog.has(view))
-  }));
+  const catalog = new Set(worldModelViewCatalog({ worldModel: { views } }));
+  return AGENT_ROLES.map((role) => ({ ...role, views: role.views.filter((view) => catalog.has(view)) }));
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -333,7 +333,7 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
   return `<div class="wm-explorer">
     <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><div class="button-row"><button class="secondary" data-action="build-world-model">Build / refresh effective model</button><button data-action="rebuild-world-model">Rebuild capability &amp; push to Git…</button></div></div>
     <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${facts}</strong><span>registered facts</span></div><div class="summary-card"><strong>${evidence} / ${derivations}</strong><span>evidence / derivations</span></div><div class="summary-card ${unavailable || contradictions ? 'governance-warning' : ''}"><strong>${unavailable} / ${contradictions}</strong><span>unavailable / contradicted</span></div><div class="summary-card ${stale ? 'governance-warning' : ''}"><strong>${stale}</strong><span>stale facts</span></div><div class="summary-card"><strong>${cacheHits}/${status.views.length}</strong><span>view cache reuse</span></div></div>
-    <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? 'legacy')}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
+    <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? (status.built ? 'unreported' : 'not built'))}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
     <div class="wm-filter-bar" role="group" aria-label="World model exact records">
       ${expansionButton('manifest', 'Manifest')}
       ${expansionButton('facts', 'Facts')}
@@ -365,7 +365,7 @@ function worldModel(view: ConfigurationCenterView): string {
     <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. ${proposed
     ? 'Saving creates a review proposal from the exact approved authority; it never rewrites the application checkout. Merge the proposal into <code>sflow/config</code>, then refresh workspace configuration before expecting a repository-level build to use it.'
     : 'This repository uses local configuration authority. Saving writes a validated local draft; review and publish it before expecting a repository-level build to use it.'} An existing Story retains its pin.
-      <span class="muted"> Editor source: ${escape(editorLabel)} · Editor format: <code>${escape(model.format)}</code> · Approved format: <code>${escape(source.effective?.worldModelFormat ?? model.format)}</code> · Current built-model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
+      <span class="muted"> Editor source: ${escape(editorLabel)} · Current built-model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
       ${view.publish.changes.length ? `<strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
     <details class="wm-data-details"><summary>CALM provenance, controls, flows &amp; evidence gaps</summary>
     ${architectureProjectionExplorer(view)}</details>
@@ -399,14 +399,12 @@ function worldModel(view: ConfigurationCenterView): string {
       </div>
 
       <div class="editor-card">
-        <h2>${icon('worldModel')}Builder format</h2>
-        <p class="muted">Registered v4 uses closed extractors, registered facts, independently validated views, and exact cache reuse. These controls govern future builds; they do not build or migrate anything while saving.</p>
+        <h2>${icon('worldModel')}Registered v4 builder</h2>
+        <p class="muted">Registered v4 uses closed extractors, registered facts, independently validated views, and exact cache reuse. These controls govern future builds; they do not build anything while saving.</p>
         <div class="form-grid">
-          <label><span>Format</span><select name="format" id="world-model-format">${option('legacy-v3', model.format, 'Legacy v3 — compatibility')}${option('registered-v4', model.format, 'Registered v4 — governed facts')}</select></label>
           <label><span>v4 composer</span><select name="v4Composer">${option('deterministic', model.v4.composer, 'Deterministic — zero model calls')}${option('model-optional', model.v4.composer, 'Model optional — deterministic when sufficient')}${option('model-required', model.v4.composer, 'Model required — invoke governed provider')}</select></label>
           <label><span>v4 consumer</span><select name="v4Consumer">${['developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'].map((value) => option(value, model.v4.consumer, value.charAt(0).toUpperCase() + value.slice(1))).join('')}</select></label>
           <label><span>v4 cache policy</span><select name="v4CachePolicy">${option('reuse-valid', model.v4.cachePolicy, 'Reuse exact valid entries')}${option('rebuild', model.v4.cachePolicy, 'Rebuild requested views')}</select></label>
-          <label><span title="Strict requires every phase and governed agent to use registered-v4 IDs. Inherit configured is an explicit migration bridge: known legacy-only assignments use the exact repository v4 catalog without guessing a one-to-one mapping.">Legacy assignment migration ⓘ</span><select name="v4LegacyAssignments" id="world-model-v4-legacy-assignments">${option('strict', model.v4.legacyAssignments, 'Strict — require v4 IDs everywhere')}${option('inherit-configured', model.v4.legacyAssignments, 'Migration — inherit configured v4 catalog')}</select><small>Use Migration when upgrading an existing repository. Unknown, misspelled, or mixed legacy/v4 assignments still fail closed.</small></label>
           <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}" required><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
         </div>
         <div class="notice"><strong>Provider boundary:</strong> <code>--model</code> chooses a concrete model only after the composer requires one. It does not enable model composition by itself.</div>
@@ -431,11 +429,10 @@ function worldModel(view: ConfigurationCenterView): string {
       <div class="editor-card">
         <h2>${icon('document')}Content and storage</h2>
         <div class="form-grid">
-          <label class="span-2"><span>Declared views</span><input name="views" id="world-model-views" type="text" value="${csv(model.views)}" placeholder="${escape(BUILTIN_VIEW_REFERENCES.slice(0, 2).join(', '))}"><small>Comma-separated lower-case IDs, optionally pinned to an installed exact version. Registered-v4 accepts the installed contracts <code>${escape(BUILTIN_VIEW_IDS.join('</code>, <code>'))}</code> that are currently active. With the explicit Migration policy, saving an all-legacy catalog atomically replaces it with the exact installed contracts; unknown or mixed IDs remain refused.</small></label>
+          <label class="span-2"><span>Declared views</span><input name="views" id="world-model-views" type="text" value="${csv(model.views)}" placeholder="${escape(BUILTIN_VIEW_REFERENCES.slice(0, 2).join(', '))}"><small>Comma-separated lower-case IDs, optionally pinned to an installed exact version. Registered-v4 accepts the installed contracts <code>${escape(BUILTIN_VIEW_IDS.join('</code>, <code>'))}</code> that are currently active; unknown IDs are refused.</small></label>
           <label class="span-2"><span>Application source roots</span><input name="sourceRoots" type="text" value="${csv(model.sourceRoots)}" placeholder="apps/payments, services/checkout"><small>Comma-separated repository directories. Leave empty to model the whole application tree.</small></label>
           <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code included alongside the application roots. Sparse-absent tracked files remain present through Git object IDs.</small></label>
           <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
-          <label><span>Builder prompt</span><input name="promptSource" type="text" value="${escape(model.promptSource)}"><small>Use <code>builtin</code> or a repository-relative Markdown file.</small></label>
           <label><span>State fetch timeout (ms)</span><input name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="1" value="${model.stateFetchTimeoutMs}" required></label>
         </div>
       </div>
@@ -445,7 +442,6 @@ function worldModel(view: ConfigurationCenterView): string {
         <div class="form-grid">
           <label class="check"><input name="generationParallel" type="checkbox"${model.generation.parallel ? ' checked' : ''}>Build independent views in parallel</label>
           <label><span>Maximum workers</span><input name="generationMaxWorkers" type="number" min="1" max="16" step="1" value="${model.generation.maxWorkers}" required><small>Used only when parallel generation is enabled.</small></label>
-          <label><span>Strategy</span><input type="text" value="One worker per view" disabled><small>The current deterministic strategy is fixed to <code>view</code>.</small></label>
         </div>
         <p class="card-foot"><button class="secondary" type="button" data-action="diagnose-monorepo">Benchmark this repository</button><small>Measures warm Git status and scoped fingerprint cost without changing Git configuration.</small></p>
       </div>
@@ -574,9 +570,6 @@ export function configurationCenterHtml(
 
 export const CONFIGURATION_CENTER_SCRIPT = `
   const vscode = window.__sfVscode;
-  const registeredWorldModelReferences = ${JSON.stringify(BUILTIN_VIEW_REFERENCES)};
-  const registeredWorldModelIds = ${JSON.stringify(BUILTIN_VIEW_IDS)};
-  const registeredWorldModelReferenceDisplay = ${JSON.stringify(BUILTIN_VIEW_REFERENCES.join(', '))};
   const csv = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
   const members = (value) => String(value || '').split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const [name = '', email = '', githubLogin = ''] = line.split('|').map((part) => part.trim()); return { name, email, githubLogin };
@@ -655,7 +648,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
     if (form.id === 'auto-form') vscode.postMessage({ type: 'save-auto', enabled: data.get('enabled') === 'true', workTypes: Array.from(form.querySelectorAll('[data-auto-work-type]')).map((field) => ({ id: field.dataset.autoWorkType, eligibility: field.value })) });
-    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), legacyAssignments: data.get('v4LegacyAssignments'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, projections: { archCalm: { enabled: data.get('archCalmEnabled') === 'on', required: data.get('archCalmRequired') === 'on', schemaRelease: '1.2', strict: data.get('archCalmStrict') === 'on', includeGovernanceActors: data.get('archCalmGovernanceActors') === 'on', includeControls: data.get('archCalmControls') === 'on', includeFlows: data.get('archCalmFlows') === 'on', includeExternalDependencies: data.get('archCalmExternalDependencies') } }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
+    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, projections: { archCalm: { enabled: data.get('archCalmEnabled') === 'on', required: data.get('archCalmRequired') === 'on', schemaRelease: '1.2', strict: data.get('archCalmStrict') === 'on', includeGovernanceActors: data.get('archCalmGovernanceActors') === 'on', includeControls: data.get('archCalmControls') === 'on', includeFlows: data.get('archCalmFlows') === 'on', includeExternalDependencies: data.get('archCalmExternalDependencies') } }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')) }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
   });
   document.addEventListener('change', (event) => {
     if (event.target?.closest('form')) markDirty();
@@ -663,32 +656,6 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (event.target?.id === 'wm-architecture-layer-filter' || event.target?.id === 'wm-architecture-status-filter') applyArchitectureFilters();
     if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
       const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
-    }
-    if (event.target && event.target.id === 'world-model-format' && event.target.value === 'registered-v4') {
-      const views = document.getElementById('world-model-views');
-      const migration = document.getElementById('world-model-v4-legacy-assignments');
-      const selected = csv(views?.value);
-      const registered = new Set([...registeredWorldModelReferences, ...registeredWorldModelIds]);
-      if (migration) migration.value = 'inherit-configured';
-      if (views && (!selected.length || selected.some((view) => !registered.has(view)))) {
-        views.value = registeredWorldModelReferences.join(', ');
-        showRuntime('Registered-v4 selected. Exact contracts were staged and the explicit migration bridge was enabled for known legacy-only phase and agent assignments: ' + registeredWorldModelReferenceDisplay + '. Unknown or mixed assignments remain refused.', false);
-      }
-    }
-    if (event.target && event.target.name === 'archCalmEnabled' && event.target.checked) {
-      const format = document.getElementById('world-model-format');
-      const views = document.getElementById('world-model-views');
-      const migration = document.getElementById('world-model-v4-legacy-assignments');
-      if (format && format.value !== 'registered-v4') {
-        format.value = 'registered-v4';
-        const selected = csv(views?.value);
-        const registered = new Set([...registeredWorldModelReferences, ...registeredWorldModelIds]);
-        if (views && (!selected.length || selected.some((view) => !registered.has(view)))) {
-          views.value = registeredWorldModelReferences.join(', ');
-        }
-        if (migration) migration.value = 'inherit-configured';
-        showRuntime('CALM requires Registered v4. The form staged exact v4 contracts and the explicit legacy-assignment migration bridge; review and save to create a governed configuration change.', false);
-      }
     }
   });
   ${TEST_SETUP_SCRIPT}

@@ -14,7 +14,6 @@ export const INITIALIZATION_MAPPINGS = Object.freeze([
   Object.freeze(['starter-packs', 'singularity/templates/starter-packs']),
   Object.freeze(['agents', '.github/agents']),
   Object.freeze(['skill-library', 'singularity/skill-library']),
-  Object.freeze(['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md']),
   Object.freeze(['copilot-planning.md', 'singularity/prompts/copilot-planning.md'])
 ]);
 
@@ -31,7 +30,6 @@ export const SMART_INITIALIZATION_ASSETS = Object.freeze([
   Object.freeze(['starter-packs', 'singularity/templates/starter-packs']),
   ...['architect', 'developer', 'product-owner', 'qa']
     .map((name) => Object.freeze([`agents/${name}.agent.md`, `.github/agents/${name}.agent.md`])),
-  Object.freeze(['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md']),
   Object.freeze(['copilot-planning.md', 'singularity/prompts/copilot-planning.md'])
 ]);
 

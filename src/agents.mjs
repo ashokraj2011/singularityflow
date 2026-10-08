@@ -293,13 +293,8 @@ export function validateAgentCatalog(agents, definition) {
     displayNames.set(name, agent.id);
   }
   const phaseIds = new Set(Object.keys(definition.phases ?? {}));
-  const declaredViews = definition.worldModel?.format === 'registered-v4'
-    && definition.worldModel?.views == null
-    ? BUILTIN_VIEW_IDS
-    : definition.worldModel?.views ?? [];
-  const viewIds = new Set(declaredViews.map((view) => (
-    definition.worldModel?.format === 'registered-v4' ? view.replace(/@[1-9][0-9]*$/, '') : view
-  )));
+  const declaredViews = definition.worldModel?.views ?? BUILTIN_VIEW_IDS;
+  const viewIds = new Set(declaredViews.map((view) => view.replace(/@[1-9][0-9]*$/, '')));
   for (const agent of agents) {
     if (['read-only', 'read-only-review'].includes(agent.metadata?.['sflow-mode'])
         && agent.defaultFor.some((id) => phaseIds.has(id))) {

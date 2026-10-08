@@ -11,7 +11,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, symlink, writeFile, rm } from 'node:fs/promises';
+import {
+  chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, writeFile, rm
+} from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -20,7 +22,6 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { removeTemporaryTree, run } from '../src/util.mjs';
-import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
   activateCapabilityProposal, addCapabilityRepository, adoptManagedCapabilityMap,
   applyCapabilityReconciliation,
@@ -6912,59 +6913,6 @@ test('epic stories add creates the first planned Story without a tracker', async
 });
 
 /**
- * Parallel discovery is not an escape from its own isolation.
- *
- * Discovery workers must not touch the repository outside their packets, and the builder snapshots
- * the tree before and after to enforce it. But the checkpoint those workers write into lives under
- * the world-model output directory — inside the very tree being watched — so parallel discovery,
- * which is the default, failed its own check by doing exactly what it is designed to do. Every
- * build in the walks that succeeded had passed `--no-parallel`, which never creates a checkpoint;
- * the default path was broken and the workaround hid it.
- */
-test('the builder does not flag its own checkpoint as a worker escape', async () => {
-  const source = await readFile(new URL('../src/worldmodel.mjs', import.meta.url), 'utf8');
-
-  // Ordinary checkouts retain the output-local checkpoint excluded below. A disposable linked
-  // branch worktree uses durable common-Git storage so resume data survives worktree removal.
-  assert.match(source, /const checkpointRoot = linkedWorktree/);
-  assert.match(source, /path\.join\(outputDirectory, '\.checkpoints'\)/);
-  assert.match(source, /path\.join\(commonGitDirectory\(root\), 'singularity-flow', 'world-model-checkpoints'\)/);
-
-  // Asserted as behaviour rather than as a source line. This used to pin the exact text of the
-  // exclusion, so tightening it from a substring match to a path-prefix one broke a test that had
-  // no opinion about the property it was guarding.
-  const config = { outputDir: 'singularity/world-model' };
-  assert.deepEqual(outsideBuilderScratch(['singularity/world-model/.checkpoints/k/packets/a.md'], config), []);
-  assert.deepEqual(outsideBuilderScratch(['singularity/world-model/.checkpoints'], config), []);
-
-  // The reason the match is by segment rather than by prefix, and the reason it is not by substring
-  // either. Some model hosts mirror an absolute path beneath the analysis checkout, so the builder's
-  // own packet arrives with the whole home directory in front of it; a prefix test called that a
-  // repository mutation and hard-failed the parallel build. Neither property had a test, so the
-  // repair could have regressed to either neighbour silently.
-  assert.deepEqual(outsideBuilderScratch(['Users/me/repo/singularity/world-model/.checkpoints/k/packets/a.md'], config), []);
-  const sibling = 'singularity/world-model/.checkpoints-notes.md';
-  assert.deepEqual(outsideBuilderScratch([sibling], config), [sibling], 'a path that merely starts with the checkpoint name is not scratch');
-
-  // Anything else a worker touches is still an escape.
-  assert.deepEqual(outsideBuilderScratch(['testfile.md'], config), ['testfile.md']);
-  assert.deepEqual(outsideBuilderScratch(['src/app.js'], config), ['src/app.js']);
-
-  // Both guards share one definition. Fixing only the discovery one meant discovery passed and
-  // synthesis then failed on the identical file, twenty minutes and 48 AI credits later.
-  const guarded = [...source.matchAll(/outsideBuilderScratch\(\s*\n?\s*changedSnapshotPaths|outsideBuilderScratch\(changedSnapshotPaths/g)];
-  assert.ok(guarded.length >= 2, `both the discovery and the synthesis guard use it (found ${guarded.length})`);
-
-  // Reading the model already treats .checkpoints as builder-internal; the two agree now.
-  const grounding = await readFile(new URL('../src/grounding.mjs', import.meta.url), 'utf8');
-  assert.match(grounding, /entry\.name === '\.checkpoints'/);
-
-  // And the guard still names what it found, in both places.
-  assert.match(source, /World-model discovery left the analysis worktree modified/);
-  assert.match(source, /World-model synthesis modified the analysis worktree/);
-});
-
-/**
  * The workspace is the context everything else hangs off.
  *
  * Work happens in a workspace: it says which capabilities are being worked on and where. So it is
@@ -7076,55 +7024,6 @@ test('the active workspace is matched on identifier and path, not identifier alo
     new URL('../apps/vscode/src/views/navigation-trees.ts', import.meta.url), 'utf8');
   assert.match(trees, /shares the id \$\{row\.id\}/);
   assert.match(trees, /row\.collides \|\| row\.sharesId \|\| unavailable \? 'statusWarning'/);
-});
-
-/**
- * A world model may live on the state branch, in the working tree, or in both.
- *
- * The state branch wins. It is the governed copy — written deliberately, and never rewritten by a
- * rebase of the code — whereas a working tree holds whatever the last local build happened to
- * leave. Reading whichever was checked out is how two people on the same commit ground a phase
- * differently and never find out.
- */
-test('the state branch world model takes precedence over the working tree', async () => {
-  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
-  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-'));
-  const repo = path.join(base, 'repo');
-  run('git', ['init', '-q', '-b', 'main', repo], { cwd: base });
-  run('git', ['config', 'user.email', 'a@b.com'], { cwd: repo });
-  run('git', ['config', 'user.name', 'A B'], { cwd: repo });
-
-  const outputDir = 'singularity/world-model';
-  const write = async (text) => {
-    await mkdir(path.join(repo, outputDir, 'core'), { recursive: true });
-    await writeFile(path.join(repo, outputDir, 'manifest.json'), '{"schema_version":1}');
-    await writeFile(path.join(repo, outputDir, 'core', 'summary.md'), text);
-    run('git', ['add', '-A'], { cwd: repo });
-    run('git', ['commit', '-qm', 'model'], { cwd: repo });
-  };
-  await write('from the working tree\n');
-  run('git', ['checkout', '-q', '--orphan', 'state'], { cwd: repo });
-  run('git', ['rm', '-rqf', '.'], { cwd: repo, allowFailure: true });
-  await write('from the state branch\n');
-  run('git', ['checkout', '-q', 'main'], { cwd: repo });
-
-  const summary = async (found) =>
-    (await readFile(path.join(found.directory, 'core', 'summary.md'), 'utf8')).trim();
-
-  const governed = await resolveWorldModelSource(repo, { outputDir, ledger: { branch: 'state' } });
-  assert.equal(governed.source, 'state-branch');
-  assert.equal(await summary(governed), 'from the state branch');
-
-  // A branch that carries no model is the ordinary state of a repository built only locally, so it
-  // falls back rather than failing.
-  const absent = await resolveWorldModelSource(repo, { outputDir, ledger: { branch: 'nowhere' } });
-  assert.equal(absent.source, 'worktree');
-  assert.equal(await summary(absent), 'from the working tree');
-
-  // And with no branch configured at all, the working tree is simply the answer.
-  const plain = await resolveWorldModelSource(repo, { outputDir });
-  assert.equal(plain.source, 'worktree');
-  assert.equal(await summary(plain), 'from the working tree');
 });
 
 /**
@@ -7477,186 +7376,4 @@ test('local capability authoring never creates or moves governed state', async (
   assert.doesNotMatch(run('git', ['show', 'state:singularity/capabilities.yml'], {
     cwd: org.platform
   }).stdout, /Local draft/);
-});
-
-test('a published world model is the one that gets read, including from a clone that only fetched', async () => {
-  // Closing the loop the other way round. The reader preferred the state branch and nothing wrote
-  // it, so the preference never fired; this asserts that what the publisher produces is what the
-  // reader accepts, rather than testing a branch built by hand in the test.
-  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
-  const { publishToStateBranch } = await import('../src/ledger.mjs');
-  const org = await remotes('api');
-  const repo = path.join(org.base, 'work');
-  run('git', ['clone', '-q', org.api, repo], { cwd: org.base });
-  run('git', ['config', 'user.email', 'a@b.com'], { cwd: repo });
-  run('git', ['config', 'user.name', 'A B'], { cwd: repo });
-
-  const outputDir = 'singularity/world-model';
-  const ledger = { enabled: true, branch: 'state', remote: 'origin' };
-  await mkdir(path.join(repo, outputDir, 'core'), { recursive: true });
-  await writeFile(path.join(repo, outputDir, 'manifest.json'), '{"schema_version":1}');
-  await writeFile(path.join(repo, outputDir, 'core', 'summary.md'), 'from the working tree\n');
-
-  const published = await publishToStateBranch(repo, ledger, {
-    [`${outputDir}/manifest.json`]: '{"schema_version":1}',
-    [`${outputDir}/core/summary.md`]: 'from the state branch\n'
-  }, '[world-model] repository');
-  assert.equal(published.changed, true);
-
-  const summary = async (found) =>
-    (await readFile(path.join(found.directory, 'core', 'summary.md'), 'utf8')).trim();
-
-  // On the machine that published it. The push updates the remote, so a local ref left behind here
-  // would mean the publisher is the one party that cannot see what it just published.
-  const here = await resolveWorldModelSource(repo, { outputDir, ledger });
-  assert.equal(here.source, 'state-branch');
-  assert.equal(here.authority, 'remote-governed');
-  assert.equal(here.refresh, 'refreshed');
-  assert.equal(await summary(here), 'from the state branch');
-
-  // And on a clone that has fetched the branch without checking it out — which is every machine
-  // that has never published. Naming the branch plainly finds nothing there.
-  const fresh = path.join(org.base, 'fresh');
-  run('git', ['clone', '-q', org.api, fresh], { cwd: org.base });
-  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: fresh });
-  assert.equal(run('git', ['rev-parse', '--verify', 'refs/heads/state'], { cwd: fresh, allowFailure: true }).status,
-    128, 'no local branch, which is the case this covers');
-  const elsewhere = await resolveWorldModelSource(fresh, { outputDir, ledger });
-  assert.equal(elsewhere.source, 'state-branch');
-  assert.equal(elsewhere.authority, 'remote-governed');
-  assert.equal(await summary(elsewhere), 'from the state branch');
-});
-
-test('world-model resolution reports remote, local, offline, unpublished, absent, and diverged authority precisely', async () => {
-  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
-  const { publishToStateBranch } = await import('../src/ledger.mjs');
-  const outputDir = 'singularity/world-model';
-  const ledger = { enabled: true, branch: 'state', remote: 'origin' };
-  const model = (summary) => ({
-    [`${outputDir}/manifest.json`]: '{"schema_version":1}',
-    [`${outputDir}/core/summary.md`]: `${summary}\n`
-  });
-
-  // A reachable remote with no state branch is an ordinary first run, not an offline failure.
-  const emptyOrg = await remotes('empty');
-  const empty = path.join(emptyOrg.base, 'empty-work');
-  run('git', ['clone', '-q', emptyOrg.empty, empty], { cwd: emptyOrg.base });
-  const absent = await resolveWorldModelSource(empty, { outputDir, ledger });
-  assert.equal(absent.authority, 'absent');
-  assert.equal(absent.refresh, 'remote-absent');
-
-  // A repository with no remote can still have a deliberate local state branch, but it must not
-  // be described as remote-governed.
-  const local = await mkdtemp(path.join(os.tmpdir(), 'sflow-world-model-local-authority-'));
-  run('git', ['init', '-q', '-b', 'main'], { cwd: local });
-  run('git', ['config', 'user.email', 'local@example.com'], { cwd: local });
-  run('git', ['config', 'user.name', 'Local User'], { cwd: local });
-  await writeFile(path.join(local, 'README.md'), '# local\n');
-  run('git', ['add', '.'], { cwd: local });
-  run('git', ['commit', '-qm', 'initialize'], { cwd: local });
-  await publishToStateBranch(local, ledger, model('local state'), '[world-model] local');
-  const localOnly = await resolveWorldModelSource(local, { outputDir, ledger });
-  assert.equal(localOnly.authority, 'local-only');
-  assert.equal(localOnly.ref, 'refs/heads/state');
-
-  const org = await remotes('shared');
-  const repo = path.join(org.base, 'shared-work');
-  run('git', ['clone', '-q', org.shared, repo], { cwd: org.base });
-  run('git', ['config', 'user.email', 'publisher@example.com'], { cwd: repo });
-  run('git', ['config', 'user.name', 'Publisher'], { cwd: repo });
-  await publishToStateBranch(repo, ledger, model('remote state'), '[world-model] remote');
-  const governed = await resolveWorldModelSource(repo, { outputDir, ledger });
-  assert.equal(governed.authority, 'remote-governed');
-
-  // Retain a valid tracking ref, then make the configured remote unreachable. The cached governed
-  // copy remains usable, but the result must say that freshness could not be verified.
-  run('git', ['remote', 'set-url', 'origin', path.join(org.base, 'missing.git')], { cwd: repo });
-  const offline = await resolveWorldModelSource(repo, { outputDir, ledger, stateFetchTimeoutMs: 500 });
-  assert.equal(offline.authority, 'offline-unverified');
-  assert.equal(offline.refresh, 'offline-cached');
-  assert.equal(offline.ref, 'refs/remotes/origin/state');
-  run('git', ['remote', 'set-url', 'origin', org.shared], { cwd: repo });
-
-  // A local state commit that has not reached the remote is observable even though readers keep
-  // selecting the remote-governed snapshot as their materialization base.
-  const localStateWorktree = path.join(org.base, 'local-state-worktree');
-  run('git', ['worktree', 'add', '-q', localStateWorktree, 'state'], { cwd: repo });
-  await writeFile(path.join(localStateWorktree, outputDir, 'core', 'summary.md'), 'unpublished local state\n');
-  run('git', ['add', '.'], { cwd: localStateWorktree });
-  run('git', ['commit', '-qm', 'local state change'], { cwd: localStateWorktree });
-  run('git', ['worktree', 'remove', '-f', localStateWorktree], { cwd: repo });
-  const unpublished = await resolveWorldModelSource(repo, { outputDir, ledger });
-  assert.equal(unpublished.authority, 'unpublished-local-state');
-  assert.equal(unpublished.ref, 'refs/remotes/origin/state');
-
-  // A second contributor advances the remote from the old common parent. The first contributor's
-  // unpublished state and the remote are now siblings, which must be surfaced as divergence.
-  const other = path.join(org.base, 'other-work');
-  run('git', ['clone', '-q', org.shared, other], { cwd: org.base });
-  run('git', ['config', 'user.email', 'other@example.com'], { cwd: other });
-  run('git', ['config', 'user.name', 'Other User'], { cwd: other });
-  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: other });
-  const remoteStateWorktree = path.join(org.base, 'remote-state-worktree');
-  run('git', ['worktree', 'add', '-q', '-b', 'remote-state-change', remoteStateWorktree, 'origin/state'], { cwd: other });
-  await writeFile(path.join(remoteStateWorktree, outputDir, 'core', 'summary.md'), 'independent remote state\n');
-  run('git', ['add', '.'], { cwd: remoteStateWorktree });
-  run('git', ['commit', '-qm', 'remote state change'], { cwd: remoteStateWorktree });
-  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: remoteStateWorktree });
-  run('git', ['worktree', 'remove', '-f', remoteStateWorktree], { cwd: other });
-  const diverged = await resolveWorldModelSource(repo, { outputDir, ledger });
-  assert.equal(diverged.authority, 'diverged');
-  assert.equal(diverged.diverged, true);
-});
-
-test('the state-branch world model resolves without a shell on PATH', async () => {
-  // This read used `bash -c 'git archive … | tar -x'` and falls back to the working tree on
-  // failure by design. On a machine with no bash — every stock Windows one — that fallback fired
-  // every time, so "the state branch wins" quietly stopped holding: two people on the same commit
-  // grounded a phase from different bytes and nothing reported it.
-  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
-  const { publishToStateBranch } = await import('../src/ledger.mjs');
-  const org = await remotes('api');
-  const repo = path.join(org.base, 'work');
-  run('git', ['clone', '-q', org.api, repo], { cwd: org.base });
-  run('git', ['config', 'user.email', 'a@b.com'], { cwd: repo });
-  run('git', ['config', 'user.name', 'A B'], { cwd: repo });
-
-  const outputDir = 'singularity/world-model';
-  const ledger = { enabled: true, branch: 'state', remote: 'origin' };
-  await mkdir(path.join(repo, outputDir), { recursive: true });
-  await writeFile(path.join(repo, outputDir, 'manifest.json'), '{"schema_version":1}');
-  await writeFile(path.join(repo, outputDir, 'summary.md'), 'from the working tree\n');
-  await publishToStateBranch(repo, ledger, {
-    [`${outputDir}/manifest.json`]: '{"schema_version":1}',
-    [`${outputDir}/summary.md`]: 'from the state branch\n'
-  }, '[world-model] repository');
-
-  // The extraction is cached in the temp directory by tree hash, so a previous run would answer
-  // this test instead of the code under it.
-  const treeSha = run('git', ['rev-parse', `state:${outputDir}`], { cwd: repo }).stdout.trim();
-  const cache = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha}`);
-  await rm(cache, { recursive: true, force: true });
-  // Simulate a process dying after it wrote the manifest but before it extracted the rest. Merely
-  // finding manifest.json used to bless this partial directory permanently.
-  await mkdir(cache, { recursive: true });
-  await writeFile(path.join(cache, 'manifest.json'), '{"schema_version":1}');
-
-  // A PATH with none of the usual shells on it. `git` and `tar` are resolved from their real
-  // locations, so the only thing missing is the shell the old implementation needed.
-  const shellless = await mkdtemp(path.join(os.tmpdir(), 'sflow-noshell-'));
-  for (const tool of ['git', 'tar']) {
-    const resolved = execFileSync('which', [tool], { encoding: 'utf8' }).trim();
-    await symlink(resolved, path.join(shellless, tool));
-  }
-  const realPath = process.env.PATH;
-  process.env.PATH = shellless;
-  try {
-    const found = await resolveWorldModelSource(repo, { outputDir, ledger });
-    assert.equal(found.source, 'state-branch', 'the governed copy is what gets read');
-    assert.equal(found.authority, 'remote-governed');
-    assert.equal((await readFile(path.join(found.directory, 'summary.md'), 'utf8')).trim(),
-      'from the state branch');
-  } finally {
-    process.env.PATH = realPath;
-  }
 });

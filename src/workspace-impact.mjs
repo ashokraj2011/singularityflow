@@ -13,10 +13,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { invokeModel } from './model-runner.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
-import {
-  resolveWorldModelSource, validateWorldModelDirectory, worldModelFreshness, worldModelSourceSnapshot
-} from './grounding.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelSourceSnapshot } from './grounding.mjs';
 
 export const WORKSPACE_IMPACT_SCHEMA_VERSION = currentSchemaVersion('workspace-impact-report');
 const MAX_COPILOT_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -75,55 +72,14 @@ async function resolvedRepositoryWorldModel(root, commit, dirty) {
             : 'Committed HEAD does not project a world model and repository configuration was unavailable for governed-state resolution.'
         };
   }
-  try {
-    const state = worldModelStateAuthority(definition);
-    const source = await worldModelSourceSnapshot(root, definition);
-    const located = await resolveWorldModelSource(root, {
-      ...(definition.worldModel ?? {}),
-      outputDir,
-      stateBranch: state.branch,
-      remote: state.remote,
-      ledger: definition.ledger,
-      definition
-    }, { sourceTreeSha256: source.sha256 });
-    const validated = await validateWorldModelDirectory(located.directory, {
-      integrity: 'full',
-      sourceLabel: located.source === 'state-branch'
-        ? `governed state-branch world model '${located.branch}'`
-        : 'application-projection world model'
-    });
-    const freshness = await worldModelFreshness(root, definition, validated.manifest);
-    if (!freshness.fresh || freshness.built !== source.sha256) {
-      throw new SingularityFlowError(`Preserved model describes ${freshness.built ?? 'an unknown source'}, not ${source.sha256}.`);
-    }
-    const finalSource = await worldModelSourceSnapshot(root, definition);
-    if (finalSource.sha256 !== source.sha256) {
-      throw new SingularityFlowError('Repository source changed while governed world-model authority was being resolved.');
-    }
-    const text = await readFile(path.join(located.directory, 'manifest.json'), 'utf8');
-    return {
-      present: true,
-      status: located.source === 'state-branch' ? 'governed-state' : 'application-projection',
-      source: located.source,
-      outputDir,
-      sha256: sha256(text),
-      sourceTreeSha256: freshness.built,
-      snapshotRef: located.snapshotRef ?? located.commit ?? commit,
-      treeSha: located.treeSha ?? null,
-      authority: located.authority ?? null,
-      historical: located.historical === true,
-      directory: located.directory,
-      reason: null
-    };
-  } catch (error) {
-    return {
-      present: false, status: projected.status === 0 ? 'projection-invalid' : 'not-available',
-      source: projected.status === 0 ? 'application-projection' : null,
-      outputDir, sha256: projected.status === 0 ? sha256(projected.stdout) : null,
-      sourceTreeSha256: null, snapshotRef: commit,
-      reason: `No exact-source validated model was selected from governed state or the application projection: ${error.message}`
-    };
-  }
+  // Registered World Model views are not read by impact analysis; only the committed projection is reported.
+  return {
+    present: false, status: projected.status === 0 ? 'projection-unread' : 'not-available',
+    source: projected.status === 0 ? 'application-projection' : null,
+    outputDir, sha256: projected.status === 0 ? sha256(projected.stdout) : null,
+    sourceTreeSha256: null, snapshotRef: commit,
+    reason: 'Impact analysis does not read registered World Model views; inspect them with singularity-flow wm context.'
+  };
 }
 
 async function repositorySnapshot(workspace, id) {

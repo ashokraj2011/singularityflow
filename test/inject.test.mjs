@@ -9,9 +9,6 @@ import {
   injectAgentPrompt,
   readPromptGeneration,
   recordInjection,
-  renderInjection,
-  resolveInjection,
-  ruleMatches,
   validateInjectionDefinition
 } from '../src/inject.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
@@ -31,19 +28,33 @@ import {
   worldModelGroundingPacketPayloadPath
 } from '../src/world-model/history/paths.mjs';
 
-async function fixtureRoot({ placeholder = true } = {}) {
+const MODEL_FILE = 'singularity/world-model/architecture/overview.md';
+const MODEL_COMMIT = 'a'.repeat(40);
+
+async function fixtureRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inject-'));
   run('git', ['init', '-q'], { cwd: root });
-  await mkdir(path.join(root, 'singularity/world-model/architecture'), { recursive: true });
-  await mkdir(path.join(root, 'singularity/world-model/domains'), { recursive: true });
-  await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
-  await mkdir(path.join(root, 'singularity/agents'), { recursive: true });
-  await writeFile(path.join(root, 'singularity/world-model/architecture/overview.md'), '# Architecture\n\nHexagonal, event-driven.\n');
-  await writeFile(path.join(root, 'singularity/world-model/domains/payments.md'), '# Payments domain\n\nPCI boundaries live here.\n');
-  await writeFile(path.join(root, 'singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'Observed architecture' })}\n`);
-  await writeFile(path.join(root, 'singularity/world-model/manifest.json'), JSON.stringify({ schema_version: '1.0', repository_commit: 'a'.repeat(40), evidence: { path: 'evidence/evidence.jsonl' } }));
-  await writeFile(path.join(root, 'singularity/agents/architect.md'), placeholder ? '# Architect\n\nDesign carefully.\n\n{{WORLD_MODEL}}\n' : '# Architect\n\nDesign carefully.\n');
+  await mkdir(path.join(root, path.dirname(MODEL_FILE)), { recursive: true });
+  await writeFile(path.join(root, MODEL_FILE), '# Architecture\n\nHexagonal, event-driven.\n');
   return root;
+}
+
+/**
+ * The World Model part of a composed prompt as a composer hands it to recordInjection: one exact
+ * file section bound to the commit that supplied it. Persistence never re-reads these bytes.
+ */
+async function composedInjection(root) {
+  const raw = await readFile(path.join(root, MODEL_FILE));
+  const body = raw.toString('utf8');
+  return {
+    mode: 'append', placeholder: '{{WORLD_MODEL}}', maxBytes: 32768, matchedRules: 1,
+    evidence: false, depth: 'standard', modelCommit: MODEL_COMMIT,
+    sections: [{
+      path: MODEL_FILE, sha256: createHash('sha256').update(raw).digest('hex'),
+      bytes: raw.length, injectedBytes: raw.length, truncated: false, body
+    }],
+    text: `\n## World model: ${MODEL_FILE}\n\n${body.trim()}\n`
+  };
 }
 
 function definition(rules, mode = 'append') {
@@ -121,9 +132,7 @@ async function coordinatedPersistedGroundingFixture(workId, {
   packetMutator = null, pinMutator = null, sealedPinMutator = null
 } = {}) {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const repositoryDomainSha256 = `sha256:${'1'.repeat(64)}`;
   const workflowInstanceId = `sha256:${'2'.repeat(64)}`;
   const authorityCommit = '4'.repeat(40);
@@ -251,30 +260,6 @@ test('globToRegExp supports * and ** semantics', () => {
   assert.ok(!globToRegExp('domains/*.md').test('domains/payments.txt'));
 });
 
-test('ruleMatches evaluates agent, phase, workType, changedPaths, and labels', () => {
-  const signals = { agent: 'architect', phase: 'design', workType: 'feature', changedPaths: ['src/api/routes.mjs'], labels: ['Payments'] };
-  assert.ok(ruleMatches({ agent: 'architect' }, signals));
-  assert.ok(!ruleMatches({ agent: 'developer' }, signals));
-  assert.ok(ruleMatches({ phase: ['design', 'implementation'] }, signals));
-  assert.ok(ruleMatches({ changedPaths: 'src/api/**' }, signals));
-  assert.ok(!ruleMatches({ changedPaths: 'src/ui/**' }, signals));
-  assert.ok(ruleMatches({ labels: ['payments'] }, signals));
-  assert.ok(ruleMatches({}, signals));
-});
-
-test('resolveInjection unions includes across matched rules', () => {
-  const config = definition([
-    { when: { agent: 'architect' }, include: ['architecture/*'] },
-    { when: { labels: ['payments'] }, include: ['domains/payments.md'], evidence: true, depth: 'deep' },
-    { when: { agent: 'developer' }, include: ['development/*'] }
-  ]);
-  const resolved = resolveInjection(config, { agent: 'architect', labels: ['payments'] });
-  assert.equal(resolved.matchedRules, 2);
-  assert.deepEqual(resolved.includes.sort(), ['architecture/*', 'domains/payments.md']);
-  assert.equal(resolved.evidence, true);
-  assert.equal(resolved.depth, 'deep');
-});
-
 test('injection configuration validates references and safe includes', () => {
   const config = definition([{ when: { agent: 'architect', phase: 'design', workType: 'feature' }, include: ['domains/*.md'] }]);
   assert.equal(validateInjectionDefinition(config).rules.length, 1);
@@ -285,87 +270,24 @@ test('injection configuration validates references and safe includes', () => {
   assert.throws(() => validateInjectionDefinition(config), /stay inside the world-model directory/);
 });
 
-test('renderInjection assembles matching model files with hashes and header', async () => {
+test('injectAgentPrompt removes the placeholder and never reads World Model files, in every mode', async () => {
   const root = await fixtureRoot();
-  const config = definition([{ when: { agent: 'architect' }, include: ['architecture/*', 'domains/payments.md'] }]);
-  const rendered = await renderInjection(root, config, { agent: 'architect' });
-  assert.equal(rendered.sections.length, 2);
-  assert.match(rendered.text, /Hexagonal/);
-  assert.match(rendered.text, /PCI boundaries/);
-  assert.match(rendered.text, /commit=aaaaaaaaaa/);
-  assert.ok(rendered.sections.every((section) => /^[0-9a-f]{64}$/.test(section.sha256)));
-});
-
-test('renderInjection refuses rule bytes that differ from the validated model snapshot', async () => {
-  const root = await fixtureRoot();
-  const relative = 'architecture/overview.md';
-  const original = await readFile(path.join(root, 'singularity/world-model', relative));
-  const validatedModelFiles = [{
-    path: relative,
-    sha256: createHash('sha256').update(original).digest('hex'),
-    size: original.length
-  }];
-  await writeFile(
-    path.join(root, 'singularity/world-model', relative),
-    '# Architecture\n\nReplaced after validation.\n'
-  );
-  await assert.rejects(
-    () => renderInjection(
-      root,
-      definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }]),
-      { agent: 'architect' },
-      { validatedModelFiles }
-    ),
-    (error) => error?.code === 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED'
-      && /differs from the validated model snapshot/.test(error.message)
-  );
-});
-
-test('renderInjection does not silently omit a validated file that disappears before selection', async () => {
-  const root = await fixtureRoot();
-  const relative = 'architecture/overview.md';
-  const original = await readFile(path.join(root, 'singularity/world-model', relative));
-  const validatedModelFiles = [{
-    path: relative,
-    sha256: createHash('sha256').update(original).digest('hex'),
-    size: original.length
-  }];
-  await unlink(path.join(root, 'singularity/world-model', relative));
-
-  await assert.rejects(
-    () => renderInjection(
-      root,
-      definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }]),
-      { agent: 'architect' },
-      { validatedModelFiles }
-    ),
-    (error) => error?.code === 'ENOENT'
-  );
-});
-
-test('renderInjection enforces the UTF-8 source-byte budget with truncation', async () => {
-  const root = await fixtureRoot();
-  const config = definition([{ when: {}, include: ['**/*.md'] }]);
-  config.worldModel.injection.maxBytes = 40;
-  const rendered = await renderInjection(root, config, { agent: 'architect' });
-  assert.ok(rendered.sections.some((section) => section.truncated));
-  assert.equal(rendered.sections.reduce((sum, section) => sum + section.injectedBytes, 0), 40);
-  assert.match(rendered.text, /truncated by injection budget/);
-});
-
-test('injectAgentPrompt replaces the placeholder', async () => {
-  const root = await fixtureRoot();
-  const config = definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }], 'replace');
-  const { text, injection } = await injectAgentPrompt(root, config, 'architect', {});
-  assert.ok(injection.applied);
-  assert.match(text, /Design carefully/);
-  assert.match(text, /Hexagonal/);
-  assert.ok(!text.includes('{{WORLD_MODEL}}'));
+  for (const mode of ['replace', 'append', 'off']) {
+    const config = definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }], mode);
+    const { text, injection } = await injectAgentPrompt(root, config, 'architect', { agent: 'architect' });
+    assert.match(text, /Design carefully/, mode);
+    assert.doesNotMatch(text, /Hexagonal|\{\{WORLD_MODEL\}\}/, mode);
+    assert.equal(injection.mode, 'off', mode);
+    assert.equal(injection.applied, false, mode);
+    assert.equal(injection.matchedRules, 0, mode);
+    assert.deepEqual(injection.sections, [], mode);
+    assert.equal(injection.modelCommit, null, mode);
+  }
 });
 
 test('injectAgentPrompt replaces only the governed prompt body for a prompt-study variant', async () => {
   const root = await fixtureRoot();
-  const config = definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }], 'replace');
+  const config = definition([], 'replace');
   const promptOverride = {
     text: '# Experimental architect\n\nUse evidence.\n\n{{WORLD_MODEL}}\n',
     studyRunId: 'architect-prompts@2',
@@ -374,50 +296,21 @@ test('injectAgentPrompt replaces only the governed prompt body for a prompt-stud
   };
   const { text, injection } = await injectAgentPrompt(root, config, 'architect', {}, { promptOverride });
   assert.match(text, /Experimental architect/);
-  assert.match(text, /Hexagonal/);
-  assert.doesNotMatch(text, /Design carefully/);
+  assert.doesNotMatch(text, /Design carefully|\{\{WORLD_MODEL\}\}/);
   assert.deepEqual(injection.promptOverride, promptOverride);
 });
 
-test('injectAgentPrompt appends without a placeholder and respects off mode', async () => {
-  const root = await fixtureRoot({ placeholder: false });
+test('injectAgentPrompt leaves a prompt without a placeholder byte for byte', async () => {
+  const root = await fixtureRoot();
   const config = definition([{ when: {}, include: ['architecture/*'] }], 'append');
   config.agents.architect.prompt = '# Architect\n\nDesign carefully.\n';
-  const appended = await injectAgentPrompt(root, config, 'architect', {});
-  assert.match(appended.text, /Design carefully[\s\S]*Hexagonal/);
-  const off = await injectAgentPrompt(root, definition([{ when: {}, include: ['architecture/*'] }], 'off'), 'architect', {});
-  assert.equal(off.text.includes('Hexagonal'), false);
-});
-
-test('an explicit generic context arm removes the placeholder without reading model files', async () => {
-  const root = await fixtureRoot();
-  const config = definition([{ when: {}, include: ['architecture/*'] }], 'append');
-  const disabled = await injectAgentPrompt(root, config, 'architect', {}, {
-    disableWorldModelInjection: true
-  });
-  assert.doesNotMatch(disabled.text, /Hexagonal|WORLD_MODEL/);
-  assert.equal(disabled.injection.mode, 'off');
-  assert.equal(disabled.injection.matchedRules, 0);
-  assert.deepEqual(disabled.injection.sections, []);
-});
-
-test('non-matching signals leave the agent prompt untouched', async () => {
-  const root = await fixtureRoot();
-  const { text, injection } = await injectAgentPrompt(root, definition([{ when: { agent: 'developer' }, include: ['architecture/*'] }]), 'architect', {});
-  assert.equal(injection.sections.length, 0);
-  assert.equal(injection.applied, false);
-  assert.ok(!text.includes('{{WORLD_MODEL}}'));
-});
-
-test('evidence rules use the manifest evidence path', async () => {
-  const root = await fixtureRoot();
-  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'], evidence: true }]), { agent: 'architect' });
-  assert.ok(rendered.sections.some((section) => section.path.endsWith('evidence/evidence.jsonl')));
+  const { text } = await injectAgentPrompt(root, config, 'architect', {});
+  assert.equal(text, '# Architect\n\nDesign carefully.\n');
 });
 
 test('recordInjection writes an auditable generation context record', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' });
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-9' } };
   const phase = { id: 'design', generation: 1 };
   const workDir = path.join(root, 'singularity/work-items/ENG-9');
@@ -450,9 +343,7 @@ test('recordInjection writes an auditable generation context record', async () =
 
 test('prompt injection binds one exact persisted Story grounding packet and detects payload tampering', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workId = 'ENG-WMP-PACKET';
   const repositoryDomainSha256 = `sha256:${'1'.repeat(64)}`;
   const workflowInstanceId = `sha256:${'2'.repeat(64)}`;
@@ -695,9 +586,7 @@ test('persisted Story grounding refuses coordinated substitutions outside its se
 
 test('prompt injection persists and verifies the exact advisory TKR composition receipt', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workId = 'ENG-TKR-SHADOW';
   const {
     compiled, workflowSnapshotSha256, repositoryDomainSha256, sourceSha256, tokenEconomy
@@ -824,9 +713,7 @@ test('prompt injection persists and verifies the exact advisory TKR composition 
 
 test('receipt-only recovery restores exact legacy bytes despite corrupt advisory TKR', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workId = 'ENG-TKR-RECEIPT-RECOVERY';
   const {
     compiled, workflowSnapshotSha256, repositoryDomainSha256, sourceSha256, tokenEconomy
@@ -882,9 +769,7 @@ test('receipt-only recovery restores exact legacy bytes despite corrupt advisory
 
 test('prompt injection strips an advisory summary that is not bound to its receipt', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workId = 'ENG-TKR-SPLIT';
   const {
     compiled, workflowSnapshotSha256, repositoryDomainSha256, sourceSha256, tokenEconomy
@@ -926,9 +811,7 @@ test('prompt injection strips an advisory summary that is not bound to its recei
 
 test('v5 receipt-only generation recovers after advisory shadow fields are introduced', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workId = 'ENG-TKR-V5-RECOVERY';
   const {
     compiled, workflowSnapshotSha256, repositoryDomainSha256, sourceSha256, tokenEconomy
@@ -973,9 +856,7 @@ test('v5 receipt-only generation recovers after advisory shadow fields are intro
 
 test('snapshot-backed prompt persistence never invents live provenance when an adapter omits it', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workflow = {
     workItem: { id: 'ENG-SNAPSHOT-OMITTED' },
     workflowSnapshot: { snapshotHash: `sha256:${'a'.repeat(64)}` }
@@ -990,7 +871,7 @@ test('snapshot-backed prompt persistence never invents live provenance when an a
 
 test('recordInjection requires stable reasons for stale or unavailable source comparisons', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' });
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-SOURCE' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-SOURCE');
@@ -1005,7 +886,7 @@ test('recordInjection requires stable reasons for stale or unavailable source co
 
 test('recordInjection preserves prompt-study, agent, and remote-skill provenance', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' });
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-10' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-10');
@@ -1037,9 +918,7 @@ test('recordInjection preserves prompt-study, agent, and remote-skill provenance
 
 test('recordInjection refuses diagnostic prose and paths in durable grounding reasons', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   await assert.rejects(
     () => recordInjection(root, { workItem: { id: 'ENG-11' } }, {
       id: 'design', generation: 0
@@ -1057,9 +936,7 @@ test('recordInjection refuses diagnostic prose and paths in durable grounding re
 
 test('recordInjection reuses a verified generation without rewriting its receipt or snapshot', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-REUSE' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-REUSE');
@@ -1094,9 +971,7 @@ test('recordInjection reuses a verified generation without rewriting its receipt
 
 test('recordInjection refuses a different composition for an occupied generation', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-CONFLICT' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-CONFLICT');
@@ -1124,9 +999,7 @@ test('recordInjection refuses a different composition for an occupied generation
 
 test('prompt-generation reuse refuses a corrupt snapshot instead of replacing it', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-CORRUPT' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-CORRUPT');
@@ -1155,9 +1028,7 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
   const promptOnlyPath = path.join(promptOnlyWorkDir, 'context/prompts/design-gen1.md');
   await mkdir(path.dirname(promptOnlyPath), { recursive: true });
   await writeFile(promptOnlyPath, renderedText);
-  const promptOnlyRendered = await renderInjection(
-    promptOnlyRoot, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const promptOnlyRendered = await composedInjection(promptOnlyRoot);
   const repairedPromptOnly = await recordInjection(promptOnlyRoot, promptOnlyWorkflow, phase, {
     ...promptOnlyRendered, agent: 'architect', renderedText
   }, { workDir: promptOnlyWorkDir });
@@ -1170,9 +1041,7 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
   const receiptOnlyRoot = await fixtureRoot();
   const receiptOnlyWorkflow = { workItem: { id: 'ENG-RECEIPT-ONLY' } };
   const receiptOnlyWorkDir = path.join(receiptOnlyRoot, 'singularity/work-items/ENG-RECEIPT-ONLY');
-  const receiptOnlyRendered = await renderInjection(
-    receiptOnlyRoot, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const receiptOnlyRendered = await composedInjection(receiptOnlyRoot);
   const recorded = await recordInjection(receiptOnlyRoot, receiptOnlyWorkflow, phase, {
     ...receiptOnlyRendered, agent: 'architect', renderedText
   }, { workDir: receiptOnlyWorkDir });
@@ -1188,10 +1057,7 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
   const corruptReceiptWorkDir = path.join(
     corruptReceiptRoot, 'singularity/work-items/ENG-CORRUPT-RECEIPT'
   );
-  const corruptRendered = await renderInjection(
-    corruptReceiptRoot, definition([{ when: {}, include: ['architecture/*'] }]),
-    { agent: 'architect' }
-  );
+  const corruptRendered = await composedInjection(corruptReceiptRoot);
   const corruptRecorded = await recordInjection(
     corruptReceiptRoot, corruptReceiptWorkflow, phase,
     {
@@ -1224,9 +1090,7 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
   const changedPath = path.join(changedWorkDir, 'context/prompts/design-gen1.md');
   await mkdir(path.dirname(changedPath), { recursive: true });
   await writeFile(changedPath, '# Different orphan prompt\n');
-  const changedRendered = await renderInjection(
-    changedRoot, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const changedRendered = await composedInjection(changedRoot);
   await assert.rejects(
     () => recordInjection(changedRoot, changedWorkflow, phase, {
       ...changedRendered, agent: 'architect', renderedText
@@ -1237,9 +1101,7 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
 
 test('concurrent first composers cannot overwrite one prompt-generation slot', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-RACE' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-RACE');
@@ -1275,9 +1137,7 @@ test('concurrent first composers cannot overwrite one prompt-generation slot', a
 
 test('a path occupied at the final persistence boundary is preserved and refused', async () => {
   const root = await fixtureRoot();
-  const rendered = await renderInjection(
-    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
-  );
+  const rendered = await composedInjection(root);
   const workflow = { workItem: { id: 'ENG-EXTERNAL-RACE' } };
   const phase = { id: 'design', generation: 0 };
   const workDir = path.join(root, 'singularity/work-items/ENG-EXTERNAL-RACE');

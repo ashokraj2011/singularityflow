@@ -101,7 +101,7 @@
       <span class="stat"><strong>172</strong> skills</span>
       <span class="stat"><strong>0</strong> automatic</span>
       <span class="stat"><strong>172</strong> explicit only</span>
-      <span class="stat"><strong>161</strong> never-model operations</span>
+      <span class="stat"><strong>164</strong> never-model operations</span>
     </div>
   </header>
   <section class="toolbar" aria-label="Catalog filters">
@@ -937,7 +937,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">conversational</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~971 body tokens</span>
+          <span class="pill">~893 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-admin</code></dd></div>
@@ -971,8 +971,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 4. Build the preview from that exact selection and run it once:
 
    `singularity-flow workspace reinitialize [WORKSPACE-ID] [--repository REPOSITORY-ID]... --dry-run --json`
-
-   For explicit World Model migration, include `--migrate-world-model` in preview and apply. Show catalog/capability changes; old artifacts and Story pins remain preserved, fresh rebuilding is separate. VS Code After install → Migrate workspace &amp; capabilities includes local-pin refresh with one confirmation.
 
    Only for an explicit pilot hard cutover, include `--hard-cutover` in both commands. Review every retiring Story ID: those Stories become read-only; historical bytes remain unchanged and do not require migration. New Stories need new IDs. VS Code After install → Hard cutover provides the same exact-plan confirmation.
 
@@ -5412,7 +5410,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-class="generative"
     data-boundary="repository"
     data-invocation="explicit"
-    data-model="conditional">
+    data-model="never">
     <details>
       <summary>
         <span class="skill-number">076</span>
@@ -5424,13 +5422,13 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill ">explicit only</span>
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
-          <span class="pill">model: conditional</span>
+          <span class="pill">model: never</span>
           <span class="pill">~889 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-phase</code></dd></div>
           <div><dt>Arguments</dt><dd><code>[PHASE] [--initiative INIT-ID]</code></dd></div>
-          <div><dt>Model-capable operations</dt><dd>wm.ensure</dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-initiative-phase/SKILL.md</code></dd></div>
         </dl>
         <div class="source-heading">
@@ -9089,7 +9087,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-class="mutation"
     data-boundary="story"
     data-invocation="explicit"
-    data-model="conditional">
+    data-model="never">
     <details>
       <summary>
         <span class="skill-number">133</span>
@@ -9101,13 +9099,13 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill ">explicit only</span>
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
-          <span class="pill">model: conditional</span>
+          <span class="pill">model: never</span>
           <span class="pill">~552 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-run</code></dd></div>
           <div><dt>Arguments</dt><dd><code>[task focus]</code></dd></div>
-          <div><dt>Model-capable operations</dt><dd>wm.ensure</dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-run/SKILL.md</code></dd></div>
         </dl>
         <div class="source-heading">
@@ -10369,7 +10367,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-class="interactive"
     data-boundary="repository"
     data-invocation="explicit"
-    data-model="conditional">
+    data-model="never">
     <details>
       <summary>
         <span class="skill-number">155</span>
@@ -10381,13 +10379,13 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill ">explicit only</span>
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
-          <span class="pill">model: conditional</span>
+          <span class="pill">model: never</span>
           <span class="pill">~980 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-story-start</code></dd></div>
           <div><dt>Arguments</dt><dd><code>&lt;JIRA-STORY-KEY&gt;</code></dd></div>
-          <div><dt>Model-capable operations</dt><dd>wm.ensure</dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-story-start/SKILL.md</code></dd></div>
         </dl>
         <div class="source-heading">
@@ -10996,7 +10994,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflow-rules</code></dd></div>
           <div><dt>Arguments</dt><dd><code>none</code></dd></div>
-          <div><dt>Model-capable operations</dt><dd>next.orchestrate, wm.ensure</dd></div>
+          <div><dt>Model-capable operations</dt><dd>next.orchestrate</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-workflow-rules/SKILL.md</code></dd></div>
         </dl>
         <div class="source-heading">
@@ -11460,7 +11458,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~985 body tokens</span>
+          <span class="pill">~941 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-worldmodel</code></dd></div>
@@ -11493,9 +11491,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 - **Bare `/sf-worldmodel` is read-only.** Run only `singularity-flow wm status --json` and `singularity-flow wm ast status --json`; report source, assurance, views, and blockers. Preserve `unavailable` and `current: null` exactly. Never infer mutation consent.
 - Explicit arguments select the exact `wm` operation, not status: `/sf-worldmodel compose --phase implementation` → `singularity-flow wm compose --phase implementation`. `--dry-run`/`--render-only` are read-only. Validate argv; reject shell chains/substitutions; unknown forms stop with help.
 - Before mutation show revision/views/depth/routing/writes/target; confirm.
-- Inventory: `singularity-flow wm init`; `singularity-flow wm light [--phase PHASE] [--local]`. `--local` is a private rehearsal and is not reusable from the shared state branch.
-- Shared Story refresh: inspect the pinned format. `legacy-v3`: review `singularity-flow wm light --format legacy-v3 --views all --state-only` (no model, committed source, remote state publication, no Story commit). Show revision, views, remote/state target and command; confirm. `registered-v4`: reviewed Plan/build route. Never switch formats or run ordinary light on a Story branch.
-- Build: `singularity-flow wm build [--phase PHASE] [--views VIEW,...] [--depth light|quick|standard|deep]`. Readiness: `singularity-flow wm availability --json`.
+- Shared refresh: review `singularity-flow wm plan`, then `singularity-flow wm build`. A build under `materialization.publish: local` is a private rehearsal and is not reusable from the shared state branch. A Story pinned to the removed legacy-v3 format cannot use the World Model: say so and suggest a new Story.
+- Build: `singularity-flow wm build [--phase PHASE] [--views VIEW,...] [--depth quick|standard|deep]`. Readiness: `singularity-flow wm availability --json`.
+- Knowledge (read-only): `singularity-flow wm knowledge show [overview|business|rules|journeys|tests|change]`.
 - Inspect: `singularity-flow wm check`; `singularity-flow wm context &lt;PHASE&gt;`. Compose writes the phase prompt/receipt unless previewed, never rebuilds or approves. Relay its handoff; absent after compose, read `singularity-flow nextsteps --json`.
 - Recovery: `singularity-flow wm cleanup --json` removes stale, process-owned temporary worktrees; `--force` only on request. `singularity-flow wm recovery publish &lt;ID&gt; --confirm &lt;ID&gt;` reuses retained output.
 - AST: `singularity-flow wm ast doctor|status --json`, bounded `singularity-flow wm ast context --paths &lt;ROOT&gt; --max-facts 50 --max-output-bytes 32768 --json`, or `singularity-flow wm ast query`. Symbol gates require explicit syntax policy.
@@ -11503,7 +11501,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 No active Story is valid. Never invent scope, add `--local`, use ensure for reads, or run competing builds. Report freshness/reuse.
 
-Reuse ready exact-source/scope snapshots. Ensure never upgrades light; never replace removed, stale, divergent, invalid, offline-unverified or different-source authority. Generate only on request.
+Reuse ready exact-source/scope snapshots. Never replace removed, stale, divergent, invalid, offline-unverified or different-source authority. Generate only on request.
 
 Polyglot text facts need a reviewed pack for semantics. Missing AST uses bounded files. Dirty previews cannot govern. Reads: `sflow_resolve`, `sflow_read`; agents cannot remove required views or approve.
 </code></pre>

@@ -12,10 +12,6 @@ import path from 'node:path';
 
 import { astQuery } from './ast-intelligence.mjs';
 import { loadDefinition } from './config.mjs';
-import {
-  resolveWorldModelSource, validateWorldModelDirectory, worldModelFreshness, worldModelSourceSnapshot
-} from './grounding.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { contextPacketTelemetryForWork } from './context-packet-telemetry.mjs';
 import { gitCommonDir } from './git.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
@@ -171,63 +167,19 @@ async function resolvedFlightWorldModel(root, revision) {
         : 'The committed application projection contains a world-model manifest, but full exact-source validation was not performed against dirty working-tree bytes.'
     };
   }
-  try {
-    const state = worldModelStateAuthority(definition);
-    const source = await worldModelSourceSnapshot(root, definition);
-    const located = await resolveWorldModelSource(root, {
-      ...(definition.worldModel ?? {}),
-      outputDir,
-      stateBranch: state.branch,
-      remote: state.remote,
-      ledger: definition.ledger,
-      definition
-    }, { sourceTreeSha256: source.sha256 });
-    const validated = await validateWorldModelDirectory(located.directory, {
-      integrity: 'full',
-      sourceLabel: located.source === 'state-branch'
-        ? `governed state-branch world model '${located.branch}'`
-        : 'application-projection world model'
-    });
-    const freshness = await worldModelFreshness(root, definition, validated.manifest);
-    if (!freshness.fresh || freshness.built !== source.sha256) {
-      throw new SingularityFlowError(`Preserved model describes ${freshness.built ?? 'an unknown source'}, not ${source.sha256}.`);
-    }
-    const finalRevision = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
-    const finalDirty = flightGit(root, ['status', '--porcelain'], 'The working tree status').trim().length > 0;
-    const finalSource = await worldModelSourceSnapshot(root, definition);
-    if (finalRevision !== revision || finalDirty || finalSource.sha256 !== source.sha256) {
-      throw new SingularityFlowError('Repository source changed while the exact world-model baseline was being resolved.');
-    }
-    const manifestText = await readFile(path.join(located.directory, 'manifest.json'), 'utf8');
-    return {
-      valid: true,
-      manifest: validated.manifest,
-      directory: located.directory,
-      outputDir,
-      manifestDigest: sha256(manifestText),
-      source: located.source,
-      authority: located.authority ?? null,
-      historical: located.historical === true,
-      snapshotRef: located.snapshotRef ?? located.commit ?? revision,
-      // Without --verify, rev-parse echoes an unresolved `revision:path` back as if it were a tree.
-      treeSha: located.treeSha ?? (flightGit(root, ['rev-parse', '--verify', '--quiet', `${revision}:${outputDir}`],
-        'The world-model tree', { absentStatus: 1 }).trim() || null),
-      sourceTreeSha256: source.sha256,
-      reason: null
-    };
-  } catch (error) {
-    return {
-      valid: false,
-      manifest: null,
-      directory: null,
-      outputDir,
-      manifestDigest: projectedText == null ? null : sha256(projectedText),
-      source: projectedText == null ? null : 'application-projection',
-      snapshotRef: revision,
-      treeSha: null,
-      reason: `No exact-source validated model was selected from governed state or the application projection: ${error.message}`
-    };
-  }
+  // Registered World Model views are not part of the flight-plan baseline; only the committed
+  // projection's manifest digest is recorded.
+  return {
+    valid: false,
+    manifest: null,
+    directory: null,
+    outputDir,
+    manifestDigest: projectedText == null ? null : sha256(projectedText),
+    source: projectedText == null ? null : 'application-projection',
+    snapshotRef: revision,
+    treeSha: null,
+    reason: 'The flight plan does not read registered World Model views; inspect them with singularity-flow wm context.'
+  };
 }
 
 async function baselineAt(root) {

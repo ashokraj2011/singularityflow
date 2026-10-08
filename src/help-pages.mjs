@@ -24,8 +24,7 @@ const BIN_ALIASES = new Map([
   ['agent', ['sflow-agent']],
   ['reset-all', ['sf-reset-all']],
   ['local-reset', ['sf-local-reset']],
-  ['reinstall', ['sf-reinstall']],
-  ['wm', ['sflow-wm-minimal']]
+  ['reinstall', ['sf-reinstall']]
 ]);
 
 function usagePrefixes(command) {
@@ -1443,10 +1442,10 @@ const PAGES = Object.freeze({
   wm: {
     summary: 'Build, inspect, and compose the repository world model that grounds each phase.',
     description: [
-      'The world model is the grounding a phase is checked against. `wm build` invokes the',
-      'configured model provider; every other subcommand is deterministic and needs no model.',
-      'Discovery routes through the `analyze` task and final synthesis through `reason` in',
-      '`singularity/modelTiers.yml`. `--model` is an explicit caller-named compatibility override.',
+      'The world model is the grounding a phase is checked against: registered views built from',
+      'the committed source. `wm build` is deterministic by default (zero model tokens); a',
+      '`model-optional` or `model-required` composer may call the configured provider.',
+      '`wm knowledge` reads what the code does (rules, journeys, tests) for each phase prompt.',
       '',
       'If a phase refuses to publish with "grounding is not ready", this is the command that fixes',
       'it — and note that the grounding policy is pinned from the configuration branch, not from the',
@@ -1460,7 +1459,7 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow wm build --depth quick', 'Build the world model at quick depth.'],
       ['singularity-flow wm compose --phase intake', 'Compose the grounding for a phase.'],
-      ['singularity-flow wm light --local', 'Deterministic lightweight model, no provider needed.'],
+      ['singularity-flow wm knowledge show business', 'Approved requirements, journeys, rules and messages, read from the committed source.'],
       ['singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json', 'Read a bounded, page-continuable structural context without invoking a model.'],
       ['singularity-flow wm ast query --predicate symbol --value PaymentService --paths src --json', 'Find a bounded declaration/signature page from a text preview or installed parser provider.'],
       ['singularity-flow wm ast pack doctor sflow-polyglot-syntax', 'Inspect the legacy-named bundled Java/Python/Kotlin/Swift structural preview and its text assurance ceiling.'],
@@ -1689,7 +1688,6 @@ const PAGES = Object.freeze({
       ['--level LEVEL', 'For workspace status or repair: full (default), summary, or readiness. Readiness skips World Model and document detail.'],
       ['--resolve PATH=CHOICE', 'For refresh-configuration only: deliberately resolve one reported conflict as local, bundled, or merge; repeat for additional paths. Safe reinitialize refuses ownership transfer.'],
       ['--confirm-plan ID', 'Apply only if the reviewed configuration, state, and reinitialization topology authorities still match the preview.'],
-      ['--migrate-world-model', 'For reinitialize: explicitly migrate approved repository and capability legacy view settings to registered-v4 in the same reviewed configuration publication. Preserve old artifacts and Story pins; build fresh views separately.'],
       ['--accept-bundled-conflicts', 'For refresh-configuration only: explicitly adopt packaged values where both package and repository changed the same field or asset. Safe reinitialize refuses this option.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
@@ -1708,7 +1706,6 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.'],
       ['singularity-flow workspace migrate-schemas --json', 'Check schema compatibility across all active registered workspace repositories without rewriting stored records.'],
       ['singularity-flow workspace reinitialize payments --dry-run', 'Preview a complete, non-destructive workspace upgrade and receive its bound plan ID.'],
-      ['singularity-flow workspace reinitialize payments --migrate-world-model --dry-run', 'Preview framework upgrade and registered-v4 configuration migration for the workspace and its capabilities together.'],
       ['singularity-flow workspace reinitialize payments --confirm-plan wrip-…', 'Apply the compound plan that binds configuration/state authority, workspace topology, and schema readiness.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']

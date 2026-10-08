@@ -44,7 +44,7 @@ The workflow decides what must happen:
 phases:
   design:
     template: feature/design.md
-    worldModelViews: [architecture, security]
+    worldModelViews: [arch.contracts, dev.impact]
     inputs: [requirements]
     approval:
       minimum: 1
@@ -83,7 +83,7 @@ Agent Markdown file:
 ---
 name: Architect
 phases: [design, implementation-spec]
-worldModelViews: [architecture, security]
+worldModelViews: [arch.contracts, dev.impact]
 ---
 
 Make boundaries, contracts, trade-offs, security, operability, migration, and
@@ -124,29 +124,22 @@ complete governed prompt without replacing either with a summary.
 
 The world model is repository-owned evidence:
 
-Semantic world-model generation deliberately crosses a trust boundary. Its configured runner is executed as a local command with the current user's operating-system permissions. The detached analysis worktree isolates the Git checkout and the validator rejects unexpected generated output, but neither mechanism is an OS sandbox: the runner can still access the user's environment, filesystem, processes, and network. Repositories must treat runner configuration as executable code and review it accordingly; `wm light` avoids semantic runner execution entirely.
+A build is deterministic by default. Closed extractors read the exact scoped source, and
+registered view contracts render each view without a model call. Only
+`worldModel.v4.composer: model-optional` or `model-required` sends an admitted fact packet to the
+governed model provider; the model cannot create facts, evidence, or provenance. The validated
+facts, evidence, receipts, views, and manifest are published together under
+`singularity/world-model/` on the state branch.
 
-```text
-singularity/world-model/
-├── manifest.json
-├── core/
-├── views/
-│   ├── architecture.md
-│   ├── development.md
-│   ├── testing.md
-│   └── security.md
-├── domains/
-├── tasks/
-└── evidence/
-```
+The built-in registered views answer questions such as:
 
-It answers questions such as:
+- which interfaces and contracts exist (`arch.contracts`);
+- which business rules the code registers (`biz.rules`);
+- which source and test files a change touches (`dev.impact`);
+- where change concentrates (`dev.hotspots`).
 
-- which components, APIs, schemas, and dependencies exist;
-- how data moves;
-- where security boundaries sit;
-- which source and test files are relevant;
-- how the repository is built, tested, deployed, and observed.
+For the business or product reading of the code, use repository knowledge
+(`singularity-flow wm knowledge show business`).
 
 The workflow selects mandatory views. A governed agent may add views but cannot
 remove a mandatory one. World-model Markdown is evidence, not executable code

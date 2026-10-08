@@ -661,67 +661,6 @@ test('next never launches a missing world-model agent unattended and still prepa
   assert.equal(receipt.worldModelCommit, null);
 });
 
-test('next can automatically build the configured deterministic light world model', async () => {
-  const root = await repository();
-  const definitionPath = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.grounding = 'enforce';
-  definition.worldModel.materialization = {
-    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
-  };
-  await writeFile(definitionPath, YAML.stringify(definition));
-  execute('git', ['add', 'singularity/workflow.yml'], root);
-  execute('git', ['commit', '-m', 'automate deterministic light grounding'], root);
-  execute('git', ['push', 'origin', 'main'], root);
-  // Automatic first creation is allowed only when the shared state authority exists and its
-  // reachable history proves that no model has ever been published. An absent branch could instead
-  // be a deleted model and must fail closed.
-  execute('git', ['branch', 'state'], root);
-  execute('git', ['push', 'origin', 'state'], root);
-  const workId = 'NEXT-LIGHT-AUTO-1';
-  flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Automatic light grounding', '--description', 'Build deterministic grounding before intake without a separate command.']);
-
-  const result = flow(root, ['next']);
-  assert.match(result.stdout, /Automatically building the deterministic light world model/);
-  assert.match(result.stdout, /Light world model built with 0 model tokens/);
-  assert.match(result.stdout, /Next step prepared: generate 'intake'/);
-  const stateBeforeReturn = execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim();
-
-  // A new Copilot chat may describe the same work differently. `next` must not turn that
-  // conversational wording into a task-guide identity.
-  const returned = flow(root, ['next', '--task', 'Prepare intake and advance this work to its next valid step']);
-  assert.match(returned.stderr, /repository world model is shared across Stories/);
-  assert.doesNotMatch(returned.stdout, /Automatically building/);
-  assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeReturn);
-  const availability = JSON.parse(flow(root, ['wm', 'availability', '--phase', 'intake', '--json']).stdout);
-  assert.equal(availability.ready, true);
-  assert.equal(availability.taskGuide.status, 'not-requested');
-  const explicitTask = JSON.parse(flow(root, [
-    'wm', 'availability', '--phase', 'intake', '--task', 'Automatic light grounding', '--json'
-  ]).stdout);
-  assert.equal(explicitTask.ready, false, 'a task guide is only required when explicitly requested');
-  assert.equal(explicitTask.taskGuide.status, 'missing');
-  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
-  assert.deepEqual(workflow.resolution.worldModelMaterialization, definition.worldModel.materialization);
-  assert.equal(workflow.phases.intake.generation, 0);
-
-  // A different Story against the same application source must consume the governed state-branch
-  // snapshot without creating another model or a Story-specific task guide.
-  execute('git', ['add', `singularity/work-items/${workId}`], root);
-  execute('git', ['commit', '-m', `[${workId}] retain prepared grounding context`], root);
-  execute('git', ['switch', 'main'], root);
-  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '', 'returning to main must leave a clean tree before another Story starts');
-  const secondWorkId = 'NEXT-LIGHT-AUTO-2';
-  flow(root, ['start', secondWorkId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'A completely different Story', '--description', 'Reuse repository grounding created while another Story was active.']);
-  const second = flow(root, ['next']);
-  assert.doesNotMatch(second.stdout, /Automatically building/);
-  assert.match(second.stdout, /Next step prepared: generate 'intake'/);
-  assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeReturn);
-  const sharedManifest = JSON.parse(execute('git', ['show', 'refs/heads/state:singularity/world-model/manifest.json'], root).stdout);
-  assert.deepEqual(sharedManifest.task_guides, []);
-  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
-});
-
 test('automatic lifecycle materialization never replaces an existing stale world model', async () => {
   const root = await repository();
   const definitionPath = path.join(root, 'singularity/workflow.yml');
@@ -736,7 +675,7 @@ test('automatic lifecycle materialization never replaces an existing stale world
   execute('git', ['commit', '-m', 'configure preserve-existing grounding'], root);
   execute('git', ['push', 'origin', 'main'], root);
 
-  flow(root, ['wm', 'light', '--phase', 'intake']);
+  flow(root, ['wm', 'build', '--phase', 'intake']);
   execute('git', ['push', 'origin', 'main'], root);
   const stateBeforeSourceChange = execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim();
   await writeFile(path.join(root, 'README.md'), '# Test\n\nsource changed after the shared model was built\n');
@@ -868,7 +807,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   execute('git', ['commit', '-m', 'Use light grounding for lifecycle fixture'], root);
   execute('git', ['push', 'origin', 'main'], root);
   flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
-  flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security']);
+  flow(root, ['wm', 'build']);
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const agents = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
@@ -890,7 +829,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
 `);
     }
     if (phaseId === 'verification') {
-      flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security']);
+      flow(root, ['wm', 'build']);
     }
     flow(root, ['wm', 'compose', '--phase', phaseId]);
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));

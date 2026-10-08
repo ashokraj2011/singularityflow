@@ -20,8 +20,7 @@ export class AfterInstallPanel {
         if (path) return this.journey.select(path);
       },
       align: () => this.journey.align(),
-      migrate: () => this.journey.migrate(),
-      cutover: () => this.journey.migrate(true),
+      cutover: () => this.journey.cutover(),
       preview: () => this.journey.preview(),
       apply: () => this.journey.apply(),
       references: () => this.journey.refreshReferences(),

@@ -1,18 +1,10 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { lstat, mkdir, open, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
 import { constants as fsConstants, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  exists,
-  nowIso,
-  posix,
-  readJson,
-  secureRepositoryPath,
-  SingularityFlowError,
-  writeAtomicExclusive
-} from './util.mjs';
+import { exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, writeAtomicExclusive } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
@@ -114,62 +106,6 @@ export function globToRegExp(glob) {
   return new RegExp(`^${pattern}$`);
 }
 
-function matchesAnyGlob(value, globs) {
-  return globs.some((glob) => globToRegExp(glob).test(value));
-}
-
-export function ruleMatches(when = {}, signals = {}) {
-  const equals = (condition, actual) => condition == null || (actual != null && values(condition).includes(actual));
-  if (!equals(when.agent, signals.agent)) return false;
-  if (!equals(when.phase, signals.phase)) return false;
-  if (!equals(when.workType, signals.workType)) return false;
-  if (when.changedPaths != null && !(signals.changedPaths ?? []).some((file) => matchesAnyGlob(posix(file), values(when.changedPaths)))) return false;
-  if (when.labels != null) {
-    const wanted = values(when.labels).map((label) => String(label).toLowerCase());
-    const actual = (signals.labels ?? []).map((label) => String(label).toLowerCase());
-    if (!wanted.some((label) => actual.includes(label))) return false;
-  }
-  return true;
-}
-
-export function resolveInjection(definition, signals = {}) {
-  const injection = injectionConfig(definition);
-  const matched = injection.rules.filter((rule) => ruleMatches(rule.when, signals));
-  return {
-    mode: injection.mode,
-    placeholder: injection.placeholder,
-    maxBytes: injection.maxBytes,
-    matchedRules: matched.length,
-    includes: [...new Set(matched.flatMap((rule) => rule.include ?? []))],
-    evidence: matched.some((rule) => rule.evidence === true),
-    depth: matched.map((rule) => rule.depth).filter(Boolean).at(-1) ?? 'standard'
-  };
-}
-
-async function walkModel(directory, prefix = '') {
-  if (!existsSync(directory)) return [];
-  const files = [];
-  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) files.push(...await walkModel(path.join(directory, entry.name), relative));
-    else if (entry.isFile()) files.push(relative);
-  }
-  return files;
-}
-
-export async function selectModelFiles(root, definition, includes, { modelDirectory = null } = {}) {
-  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const available = await walkModel(modelDirectory ?? path.join(root, outputDir));
-  return { outputDir, selected: available.filter((file) => matchesAnyGlob(file, includes)) };
-}
-
-function utf8Prefix(buffer, maxBytes) {
-  if (buffer.length <= maxBytes) return buffer.toString('utf8');
-  let end = maxBytes;
-  while (end > 0 && (buffer[end] & 0xc0) === 0x80) end -= 1;
-  return buffer.subarray(0, end).toString('utf8');
-}
-
 function durableGroundingAvailability(injection) {
   const supplied = injection.groundingAvailability;
   const status = supplied?.status ?? (injection.modelCommit ? 'available' : 'unavailable');
@@ -218,122 +154,24 @@ function durableSourceComparison(injection, groundingAvailability) {
   return { status, reasonCode };
 }
 
-export async function renderInjection(root, definition, signals = {}, {
-  modelDirectory = null, validatedModelFiles = null, validatedManifest = null
-} = {}) {
-  const resolution = resolveInjection(definition, signals);
-  if (resolution.mode === 'off' || !resolution.includes.length) return { ...resolution, sections: [], text: '' };
-  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const modelRoot = modelDirectory ?? path.join(root, outputDir);
-  const manifestFile = path.join(modelRoot, 'manifest.json');
-  // Once grounding validation supplies an immutable manifest/file snapshot, never reopen the
-  // mutable manifest to decide which bytes enter the prompt. Callers without such a snapshot keep
-  // the standalone rule-injection behavior for backwards compatibility.
-  const manifest = validatedManifest
-    ?? (validatedModelFiles == null && await exists(manifestFile) ? await readJson(manifestFile) : null);
-  const includes = resolution.evidence && manifest?.evidence?.path
-    ? [...new Set([...resolution.includes, manifest.evidence.path])]
-    : resolution.includes;
-  const validated = validatedModelFiles == null
-    ? null
-    : new Map(validatedModelFiles.map((entry) => [posix(entry.path), entry]));
-  // A validated manifest snapshot is the selection authority. Walking the live directory again can
-  // silently omit a file that disappears between validation and injection, turning an integrity or
-  // availability event into a smaller, apparently valid prompt. Preserve every selected identity
-  // from the snapshot and let the exact read below classify any subsequent change.
-  const selected = validated
-    ? [...validated.keys()].filter((relative) => matchesAnyGlob(relative, includes)).sort()
-    : (await selectModelFiles(root, definition, includes, { modelDirectory: modelRoot })).selected;
-  const sections = [];
-  let budget = resolution.maxBytes;
-  for (const relative of selected) {
-    if (budget <= 0) break;
-    const absolute = path.join(modelRoot, relative);
-    const before = await lstat(absolute);
-    if (!before.isFile() || before.isSymbolicLink()) {
-      throw new SingularityFlowError(
-        `World-model injection source changed to a non-file after validation: ${relative}.`,
-        { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) } }
-      );
-    }
-    const [resolvedRoot, resolvedFile] = await Promise.all([
-      realpath(modelRoot), realpath(absolute)
-    ]);
-    if (resolvedFile !== resolvedRoot && !resolvedFile.startsWith(`${resolvedRoot}${path.sep}`)) {
-      throw new SingularityFlowError(
-        `World-model injection source resolves outside the validated model: ${relative}.`,
-        { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) } }
-      );
-    }
-    const raw = await readFile(absolute);
-    const after = await lstat(absolute);
-    const rawSha256 = createHash('sha256').update(raw).digest('hex');
-    const expected = validated?.get(posix(relative));
-    if (validated && (!expected || expected.sha256 !== rawSha256 || expected.size !== raw.length)) {
-      throw new SingularityFlowError(
-        `World-model injection source differs from the validated model snapshot: ${relative}.`,
-        { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) } }
-      );
-    }
-    if (!after.isFile() || after.isSymbolicLink()
-        || before.dev !== after.dev || before.ino !== after.ino
-        || before.size !== after.size || after.size !== raw.length) {
-      throw new SingularityFlowError(
-        `World-model injection source changed while it was being read: ${relative}.`,
-        { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) } }
-      );
-    }
-    const prefix = utf8Prefix(raw, budget);
-    const injectedBytes = Buffer.byteLength(prefix, 'utf8');
-    if (!injectedBytes && raw.length) break;
-    const truncated = raw.length > injectedBytes;
-    const body = `${prefix}${truncated ? '\n… truncated by injection budget …' : ''}`;
-    budget -= injectedBytes;
-    sections.push({
-      path: posix(path.join(outputDir, relative)), sha256: rawSha256, bytes: raw.length,
-      injectedBytes, truncated, body
-    });
-  }
-  const modelCommit = manifest?.repository_commit ?? manifest?.repository?.commit ?? null;
-  const header = `<!-- world-model injection: rules=${resolution.matchedRules} files=${sections.length} commit=${modelCommit ? String(modelCommit).slice(0, 10) : 'unknown'} -->`;
-  const text = [header, ...sections.map((section) => `\n## World model: ${section.path}\n\n${section.body.trim()}\n`)].join('\n');
-  return { ...resolution, modelCommit, sections, text };
-}
-
+/**
+ * The governed agent's prompt for one composition. World Model views are resolved as exact
+ * registered blobs by the composer, so the World Model placeholder is only ever removed here.
+ */
 export async function injectAgentPrompt(root, definition, agentId, signals = {}, {
-  promptOverride = null, disableWorldModelInjection = false, modelDirectory = null,
-  validatedModelFiles = null, validatedManifest = null, resolvedAgent = null
+  promptOverride = null, resolvedAgent = null
 } = {}) {
   const agent = resolvedAgent ?? definition.agents?.[agentId];
   if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
   const base = promptOverride?.text ?? agent.prompt;
-  if (disableWorldModelInjection) {
-    const { placeholder } = injectionConfig(definition);
-    return {
-      text: base.replaceAll(placeholder, ''),
-      injection: {
-        mode: 'off', placeholder, applied: false, matchedRules: 0, sections: [], modelCommit: null,
-        depth: 'standard', evidence: false, requiredViews: [], requiredSelections: [], promptOverride
-      }
-    };
-  }
-  const rendered = await renderInjection(
-    root, definition, { ...signals, agent: agentId }, {
-      modelDirectory, validatedModelFiles, validatedManifest
+  const { placeholder } = injectionConfig(definition);
+  return {
+    text: base.replaceAll(placeholder, ''),
+    injection: {
+      mode: 'off', placeholder, applied: false, matchedRules: 0, sections: [], modelCommit: null,
+      depth: 'standard', evidence: false, requiredViews: [], requiredSelections: [], promptOverride
     }
-  );
-  if (rendered.mode === 'off' || !rendered.sections.length) return {
-    text: base.replaceAll(rendered.placeholder, ''),
-    injection: { ...rendered, applied: false, promptOverride }
   };
-  const hasPlaceholder = base.includes(rendered.placeholder);
-  const applied = hasPlaceholder || rendered.mode === 'append';
-  const text = hasPlaceholder
-    ? base.replaceAll(rendered.placeholder, rendered.text)
-    : rendered.mode === 'append'
-      ? `${base.trimEnd()}\n\n${rendered.text}\n`
-      : base;
-  return { text, injection: { ...rendered, applied, promptOverride } };
 }
 
 function promptGenerationLocation(root, workflow, phase, workDir) {

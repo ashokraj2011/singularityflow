@@ -31,35 +31,34 @@ operation cannot invoke a model, including through a nested helper. A `required`
 operation fails before execution when model mode is disabled. The generated
 [operation catalog](OPERATION-MODEL-POLICY.md) is the authoritative inventory.
 
-`wm light` is deterministic and model-free. `wm build` is model-required and, in
-disabled mode, points to `wm light` as its guided fallback. `wm ensure` and `next`
-are mixed orchestrators: they reuse an exact governed selection first, select the
-builder from the Story's pinned materialization policy, and use deterministic light
-generation when that policy requests `depth: light`. With `--no-model`, their
-registered fallback remains deterministic and the result identifies a light model;
-they never invoke the provider.
+`wm build` is deterministic by default: with the default deterministic composer it
+runs as `wm.build.deterministic` and calls no model. Only a configured
+`worldModel.v4.composer: model-optional` or `model-required` (or the matching
+`--composer` option) may call one. `wm ensure` is a read-only readiness check and
+never builds. `next` reuses an exact governed selection first; when the
+Story's pinned materialization policy requests `depth: light`, it runs the
+deterministic registered build at `quick` depth. With `--no-model`, these paths
+stay deterministic and never invoke the provider.
 
-Compatibility forms that prove they are deterministic are classified by their
-actual work: `wm build --depth light` and `wm ensure --depth light` resolve to
-`wm.light`. `copilot --dry-run`, `workspace copilot --dry-run`, and `workspace
+Previews that prove they are deterministic are classified by their actual work:
+`copilot --dry-run`, `workspace copilot --dry-run`, and `workspace
 impact analyze --dry-run` have separate preview operation IDs and run with
 `--no-model`; permission is checked only when a real host or analysis process is
 about to start.
 
-An authorized semantic `wm ensure` may fall forward to light only when generation
-or validation fails before publication. A state-branch, installation, commit, or
-push failure is reported as publication recovery and never starts a replacement
-light build. With `lookahead: next-phase`, a successful `next` also ensures the
+A state-branch, installation, commit, or push failure is reported as publication
+recovery and never starts a replacement build. With `lookahead: next-phase`, a successful `next` also ensures the
 next pinned phase plan after the current one.
 
 When publication fails after validation, the validated snapshot is retained under
-the repository's private `.git/singularity-flow/world-model-recovery/` area. The
+the repository's private `.git/singularity-flow/world-model-v4-recovery/` area, with an ID that
+starts with `wmb4-`. A recovery ID retained by the removed legacy-v3 builder is refused. The
 reported error keeps the original synchronization instruction; these recovery
 snapshots are never treated as governed context until normal publication succeeds.
 List them with `singularity-flow wm recovery list`, inspect the exact retained manifest with
 `wm recovery inspect <ID>`, and republish the validated bytes—without another provider call—with
-`wm recovery publish <ID> --confirm <ID>`. Publication revalidates the complete snapshot and
-requires the current source tree to match its recorded source hash.
+`wm recovery publish <ID> --confirm <ID>`. Publication rechecks the recorded state authority
+and source guard before it writes.
 
 ## Publish manually authored artifacts
 

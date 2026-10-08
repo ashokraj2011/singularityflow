@@ -13,11 +13,8 @@ or source facts and rebuild the World Model. Do not edit files below
 
 Open **Configuration Center → World model → Behavior & generation settings → Architecture
 projection**, enable **Generate CALM architecture**, and publish the configuration. The recommended
-rollout is enabled and optional. CALM is a registered projection and therefore requires
-`worldModel.format: registered-v4`; enabling it in the current UI stages the v4 format, the exact
-active contracts, and the explicit legacy-assignment migration bridge together. Core validation
-also refuses an enabled CALM projection under `legacy-v3`, so a save cannot appear successful while
-later legacy builds silently ignore it:
+rollout is enabled and optional. CALM is a registered-v4 projection; registered-v4 is the only
+World Model format, so no format change is needed:
 
 ```yaml
 worldModel:

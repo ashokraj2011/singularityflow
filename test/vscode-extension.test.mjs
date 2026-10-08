@@ -7481,14 +7481,14 @@ test('the instruction designer browser script is valid JavaScript', () => {
 test('the instruction designer separates agents, prompts, repository skills and packaged prompt packs', () => {
   const instructionSnapshot = {
     definition: {
-      phases: { design: { label: 'Design', agents: ['architect'], worldModel: { views: ['architecture'] } } },
+      phases: { design: { label: 'Design', agents: ['architect'], worldModel: { views: ['arch.contracts'] } } },
       planning: { promptSource: 'singularity/prompts/planning.md' },
-      worldModel: { views: ['architecture', 'security'], promptSource: 'singularity/prompts/worldmodel-builder.md' }
+      worldModel: { views: ['arch.contracts', 'biz.rules'] }
     },
     portfolio: { initiativePhases: {} },
-    worldModel: { views: [{ id: 'development', references: [] }] },
+    worldModel: { views: [{ id: 'dev.impact', references: [] }] },
     agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true,
-      content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "architecture,security"\n---\n\n# Architect\n\nUse evidence.\n\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| security-guide | https://docs.example.test/security.md | design | false | 4096 |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-template | https://docs.example.test/design.md | design | false | - |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n| external-review | https://docs.example.test/{workId}/review.md | design | artifacts/design/external-review.md | true | - |` }],
+      content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "arch.contracts,biz.rules"\n---\n\n# Architect\n\nUse evidence.\n\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| security-guide | https://docs.example.test/security.md | design | false | 4096 |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-template | https://docs.example.test/design.md | design | false | - |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n| external-review | https://docs.example.test/{workId}/review.md | design | artifacts/design/external-review.md | true | - |` }],
     agentMappings: { path: 'singularity/agent-mappings.yml', exists: true,
       content: 'version: 1\nmappings:\n  architecture: architect\n', rows: [
       { copilotAgent: 'architecture', agentId: 'architect', source: 'configured' },
@@ -7508,7 +7508,7 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.equal(catalog.packs.length, 1);
   assert.equal(catalog.mappingContent, instructionSnapshot.agentMappings.content,
     'the mapping form retains the exact authority bytes it rendered for destination-bound CAS');
-  assert.deepEqual(catalog.worldModelViews, ['architecture', 'security', 'development'],
+  assert.deepEqual(catalog.worldModelViews, ['arch.contracts', 'biz.rules', 'dev.impact'],
     'approved repository order is retained before inferred generated views');
   const registeredCatalog = instructionCatalog({
     ...instructionSnapshot,
@@ -7529,7 +7529,7 @@ test('the instruction designer separates agents, prompts, repository skills and 
 
   const parsed = parseAgent(catalog.agents[0].content, 'architect');
   assert.deepEqual(parsed.phases, ['design']);
-  assert.deepEqual(parsed.worldModelViews, ['architecture', 'security']);
+  assert.deepEqual(parsed.worldModelViews, ['arch.contracts', 'biz.rules']);
   assert.equal(parsed.remoteSkills[0].id, 'security-guide');
   assert.equal(parsed.remoteTemplates[0].id, 'design-template');
   assert.equal(parsed.remoteOutputs[0].target, 'artifacts/design/external-review.md');

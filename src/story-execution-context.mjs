@@ -283,6 +283,18 @@ export function storyExecutionVerified(root, definition, workflow) {
  * Verify and retain the complete portable catalog before any Story consumer selects an agent.
  * No live agent path, installed cache, remote URL, or previous checkout participates in this read.
  */
+/**
+ * A Story pinned before the legacy-v3 World Model was removed keeps its exact records, but its pin
+ * (which may omit the format, as v3 did) must never be read as registered-v4. It is marked as the
+ * retired format with its Story, so every World Model entry point refuses it by name.
+ */
+function pinnedWorldModelPolicy(pinned, workId) {
+  if (pinned?.format === 'registered-v4') return pinned;
+  const retired = { ...pinned, format: 'legacy-v3' };
+  Object.defineProperty(retired, 'retiredStoryWorkId', { value: workId, enumerable: false });
+  return Object.freeze(retired);
+}
+
 export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   // `loadAcceptedStoryExecution()` returns this exact effective definition. Nested consumers in
   // the same operation may independently ask for policy, agent selection, or prompt inputs; bind
@@ -378,7 +390,7 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   const effectiveDefinition = {
     ...definition,
     ...savedPolicy,
-    ...(policy.worldModelPolicy ? { worldModel: policy.worldModelPolicy } : {}),
+    ...(policy.worldModelPolicy ? { worldModel: pinnedWorldModelPolicy(policy.worldModelPolicy, workflow.workItem.id) } : {}),
     ...(policy.mcpServers ? { mcpServers: policy.mcpServers } : {}),
     agents,
     agentCatalog

@@ -707,7 +707,6 @@ async function initCommand(options) {
   const wrote = await initializeDefinition(root);
   const config = await loadConfig(root);
   if (workId) validateId(config, workId);
-  await worldModelCommand(root, ['wm', 'init'], {});
   console.log(wrote.length
     ? `${repair ? 'Repaired' : 'Created'} ${wrote.join(', ')}`
     : `Verified ${WORKFLOW_PATH}, templates, prompts, and governed agents; nothing needed repair.`);
@@ -4547,13 +4546,8 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
       reason: buildPlan.reason
     };
   }
-  const deterministic = buildPlan.format === 'registered-v4'
-    ? buildPlan.modelFree
-    : policy.depth === 'light' || operationContext()?.modelMode.enabled === false;
-  const description = deterministic
-    ? buildPlan.format === 'registered-v4'
-      ? `the deterministic world model for phase '${phase.id}' (zero model tokens)`
-      : `the deterministic light world model for phase '${phase.id}' (zero model tokens${policy.depth === 'phase' ? '; --no-model fallback' : ''})`
+  const description = buildPlan.modelFree
+    ? `the deterministic world model for phase '${phase.id}' (zero model tokens)`
     : `the configured phase-depth world model for phase '${phase.id}' (may invoke the configured model provider)`;
   const authorized = policy.confirmation === 'automatic'
     || optionBoolean(options, 'yes')
@@ -6443,8 +6437,8 @@ async function wmCommand(positionals, options) {
   if (positionals[1] !== 'design-inventory') {
     const root = repoRoot();
     const readsApprovedPolicy = new Set([
-      'ast', 'facts', 'prompt', 'build', 'light', 'availability', 'status', 'ensure', 'refresh-authority',
-      'context', 'budget', 'check', 'show-prompt', 'read', 'read-views', 'read-contract'
+      'ast', 'facts', 'build', 'availability', 'status', 'ensure', 'refresh-authority',
+      'context', 'check', 'show-prompt', 'read', 'read-views', 'read-contract'
     ]).has(positionals[1]);
     return readsApprovedPolicy
       ? withApprovedConfigurationRead(root, () => worldModelCommand(root, positionals, options))
@@ -15987,6 +15981,11 @@ async function workspaceCommand(positionals, options) {
     return result;
   }
   if (subcommand === 'reinitialize') {
+    // The legacy-v3 → registered-v4 configuration migration was removed with legacy-v3 itself.
+    if (optionBoolean(options, 'migrate-world-model')) {
+      const { retiredWorldModelFormatError } = await import('./world-model-format.mjs');
+      throw retiredWorldModelFormatError('workspace reinitialize --migrate-world-model');
+    }
     const result = await reinitializeWorkspaces({
       registryFile: registry,
       workspace: positionals[2] ?? optionString(options, 'workspace'),

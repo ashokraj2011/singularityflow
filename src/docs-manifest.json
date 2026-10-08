@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "0f8e869dd4940cd45fbc9ef606ee6aaed5078f5b",
+  "sourceCommit": "94ed35919ef19805c50b2973260a0ba7e04ea08a",
   "topicCount": 81,
-  "contentSha256": "441ffa55b24696b1b2d3d424004980270d13c65dbf7b300d28648a713945d02b",
+  "contentSha256": "532beaa6bfd7f9b9e4f04b8f04a210a7775d11005558473a6add47867c43f6b8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -320,8 +320,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 32,
-      "sha256": "bed62ec8e32f3d1630481145dee2764edc2b1e1eee88010f77ab899e03b0c977",
+      "version": 33,
+      "sha256": "df951baee8cd636bf2bb89680788d5f785e8de4e93fd3351f3ec2d702927aca5",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
@@ -376,8 +376,8 @@
     {
       "id": "model-independence",
       "title": "Model independence",
-      "version": 3,
-      "sha256": "00e07771bd4e006c96e2aaf870f5c403b134d9cc70e439d2a474859b29a59645",
+      "version": 4,
+      "sha256": "c1aa01c4724a18a6997a807ae966b4293a8d52eb70c5c397256b7d83ecf3b44a",
       "routingSha256": "cf0fc876954ff0be1f6dd06d267d45183e60f9c647749e7ca3ff6999fbaa3a12",
       "file": "model-independence.md"
     },
@@ -648,8 +648,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 34,
-      "sha256": "04ab1c45730ed05b9ecba25031a7d8e047a1917a1172a4d812dcdbc4a7e8af3c",
+      "version": 35,
+      "sha256": "5814dc181ce3229c25486c1181e6a2f9aafbff14f398a5f360806f3eebad62c6",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

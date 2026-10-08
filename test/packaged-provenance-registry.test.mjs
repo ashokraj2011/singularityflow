@@ -27,7 +27,6 @@ const FIXED_ASSETS = Object.freeze([
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['impact.yml', 'singularity/impact.yml'],
   ['modelTiers.yml', 'singularity/modelTiers.yml'],
-  ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ]);
 
@@ -288,8 +287,6 @@ test('safe reinitialization preserves one-byte and one-field prior-package custo
   t.after(() => rm(root, { recursive: true, force: true }));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  // This repository explicitly retains customized legacy phase selectors during its migration.
-  workflow.worldModel.v4.legacyAssignments = 'inherit-configured';
   const priorWorkflow = YAML.parse(await readFile(path.join(
     ROOT, 'test/fixtures/packaged-workflow-prior-v2.yml'
   ), 'utf8'));
@@ -301,6 +298,9 @@ test('safe reinitialization preserves one-byte and one-field prior-package custo
   };
   custom.workTypes.description += ' Repository choice.';
   custom.phases.label += ' — repository choice';
+  // The prior package named the retired legacy-v3 'architecture' view; a loadable repository has
+  // already replaced it with the registered ID (the inherit-configured bridge is retired).
+  custom.phases.worldModel = { ...custom.phases.worldModel, views: ['arch.contracts'] };
   custom.artifactSets.members[1].role += '-repository';
   // The historical server predates the packaged Testing phase binding. Adding that one phase is
   // both a valid repository customization and enough to remove exact package provenance.

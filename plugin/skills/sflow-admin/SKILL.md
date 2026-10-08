@@ -21,8 +21,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
    `singularity-flow workspace reinitialize [WORKSPACE-ID] [--repository REPOSITORY-ID]... --dry-run --json`
 
-   For explicit World Model migration, include `--migrate-world-model` in preview and apply. Show catalog/capability changes; old artifacts and Story pins remain preserved, fresh rebuilding is separate. VS Code After install → Migrate workspace & capabilities includes local-pin refresh with one confirmation.
-
    Only for an explicit pilot hard cutover, include `--hard-cutover` in both commands. Review every retiring Story ID: those Stories become read-only; historical bytes remain unchanged and do not require migration. New Stories need new IDs. VS Code After install → Hard cutover provides the same exact-plan confirmation.
 
 5. Show scope, plan, changes, preserved customizations, schema findings and next action. Preview changes nothing; custom assets and history are preserved. Never offer `--resolve ...=bundled` or `--accept-bundled-conflicts`; ownership transfer requires a separate `/sf-refresh-configuration` preview.

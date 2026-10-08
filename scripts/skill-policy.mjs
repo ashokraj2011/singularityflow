@@ -52,7 +52,6 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'story.enhance-description': /\bsingularity-flow\s+story\s+enhance-description\b/,
   'story.converge.assisted': /\bstory\s+converge\b[^\n`]*--assisted\b/,
   'wm.build': /\bwm\s+build\b/,
-  'wm.ensure': /\bwm\s+ensure\b/,
   'wm.migrate': /\bwm\s+migrate\b/,
   'wm.regenerate': /\bwm\s+regenerate\b/,
   'wm.knowledge.explain': /\bwm\s+knowledge\s+explain\b(?![^\n]*--dry-run)/,

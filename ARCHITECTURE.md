@@ -210,12 +210,12 @@ phase contract/template
 + evidence ledger for verification/conformance
 ```
 
-World-model generation runs in a detached analysis worktree with a separate output directory. The CLI rejects source writes, validates manifest coverage and safe regular-file paths, records a source-tree hash, atomically installs the model, and commits/publishes it. Its source hash excludes model output and work-item lifecycle state, so those commits do not create false staleness.
+A World Model build reads an exact scoped source snapshot, runs closed extractors and registered view contracts, validates every view, and publishes one atomic current projection to the state branch. Its source identity excludes model output and work-item lifecycle state, so those commits do not create false staleness.
 
-Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, need-based `worldModel.injection.rules`, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` policy verifies consumed model context against the committed model. Missing or unreachable intelligence—and stale intelligence when staleness policy is `fail`—is represented by an unavailable receipt with zero World-Model bytes and never becomes lifecycle authority. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility.
+Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` policy verifies consumed model context against the committed model. Missing or unreachable intelligence—and stale intelligence when staleness policy is `fail`—is represented by an unavailable receipt with zero World-Model bytes and never becomes lifecycle authority. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility.
 
-The compatibility `legacy-v3` builder and the opt-in `registered-v4` builder, their current
-state-branch projections, and their existing reuse mechanisms are operational. The newer WMP
+The `registered-v4` builder is the only World Model format; the legacy-v3 builder was removed. Its
+current state-branch projection and exact cache reuse are operational. The newer WMP
 immutable exact-history contracts, lookup, and build-to-binding staging are an additive foundation:
 they are not yet invoked automatically by Story start or phase grounding. That staged boundary does
 not disable existing Story or World-Model commands. The shipped `grounding: warn` policy records an

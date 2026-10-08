@@ -33,14 +33,11 @@ const applied = { ...upgrade, dryRun: false, status: 'complete', updated: 1,
   results: upgrade.results.map(repository => ({ ...repository, status: 'updated', configurationCommit: 'a'.repeat(40) })) };
 const copy = value => structuredClone(value);
 
-function withMigration(result) {
-  return { ...copy(result), worldModelMigration: {
-    requested: true, targetFormat: 'registered-v4', status: result.dryRun ? 'planned' : 'configured',
-    historicalArtifacts: 'preserved', storiesRepinned: false, rebuildRequired: true,
-    statement: 'Configure v4; preserve old artifacts; rebuild separately.',
-    repositories: [{ repository: 'ui', status: result.results[0].status,
-      fromFormat: 'legacy-v3', targetFormat: 'registered-v4', capabilities: ['calc-app'],
-      views: ['dev.impact@4'], capabilityAssignments: [] }]
+function withCutover(result) {
+  return { ...copy(result), storyCutover: {
+    requested: true, mode: 'hard', historicalBytes: 'preserved',
+    status: result.dryRun ? 'planned' : 'retired', statement: 'Old Stories are read-only.',
+    repositories: [{ repository: 'ui', requested: true, mode: 'hard', retiredIds: ['OLD-1'] }]
   } };
 }
 
@@ -58,7 +55,7 @@ function fixture(overrides = {}) {
       if (argv[1] === 'status') return { ...copy(status), workspace: { ...status.workspace, path: argv[2] } };
       if (argv[1] === 'reinitialize') {
         const result = argv.includes('--dry-run') ? upgrade : applied;
-        return argv.includes('--migrate-world-model') ? withMigration(result) : copy(result);
+        return argv.includes('--hard-cutover') ? withCutover(result) : copy(result);
       }
       if (argv[0] === 'authority') return { data: { result: { status: 'refreshed',
         descriptor: { authority: { sourceCommit: 'a'.repeat(40) } } } } };
@@ -117,39 +114,28 @@ test('complete flow uses exact workspace/plan and independently confirms local r
   for (const argv of f.calls) assert.ok(!argv.some(arg => ['clone', 'pull', 'checkout', 'start', 'approve', 'publish', 'factory-reset', '--accept-bundled-conflicts'].includes(arg)));
 });
 
-test('one-click migration previews, confirms once, applies the exact flag and refreshes references', async () => {
+test('one-click hard cutover previews, confirms once, applies the exact flag and refreshes bound references', async () => {
   const f = fixture(); await f.journey.load(); await f.journey.select(workspace.path);
-  await f.journey.migrate();
+  await f.journey.cutover();
   assert.equal(f.confirmations.length, 1);
-  assert.match(f.confirmations[0].detail, /Fresh World Model analysis is a separate build/);
   assert.deepEqual(f.calls.filter(argv => argv[1] === 'reinitialize'), [
-    ['workspace', 'reinitialize', workspace.path, '--migrate-world-model', '--dry-run', '--json'],
-    ['workspace', 'reinitialize', workspace.path, '--migrate-world-model', '--confirm-plan', 'wrip-exact', '--json']
+    ['workspace', 'reinitialize', workspace.path, '--hard-cutover', '--dry-run', '--json'],
+    ['workspace', 'reinitialize', workspace.path, '--hard-cutover', '--confirm-plan', 'wrip-exact', '--json']
   ]);
+  assert.ok(f.calls.every(argv => !argv.includes('--migrate-world-model')),
+    'the retired World Model migration flag is never sent');
   assert.deepEqual(f.calls.find(argv => argv[0] === 'authority'), ['authority', 'refresh', '/work/calc/repos/ui',
     '--expected-config-commit', 'a'.repeat(40), '--attach-if-missing', '--json']);
   assert.equal(afterInstallComplete(f.journey.view), true);
-  assert.equal(f.journey.view.upgrade.worldModelMigration.status, 'configured');
+  assert.equal(f.journey.view.upgrade.storyCutover.status, 'retired');
   const html = afterInstallHtml(f.journey.view);
-  assert.match(html, /Workspace and capability configuration migration complete/);
-  assert.match(html, /calc-app/);
-  assert.match(html, /build fresh views/);
-  assert.match(html, /not an older Story checkout/);
+  assert.match(html, /After-install checks complete for this workspace/);
+  assert.doesNotMatch(html, /World Model migration|data-after-action="migrate"|Migrate workspace/);
 });
 
 test('hard cutover is explicit, lists retiring IDs, confirms once, and keeps its flag', async () => {
   const f = fixture();
-  const run = f.host.run;
-  f.host.run = async argv => {
-    const result = await run(argv);
-    if (argv[1] === 'reinitialize' && argv.includes('--hard-cutover')) result.storyCutover = {
-      requested: true, mode: 'hard', historicalBytes: 'preserved',
-      status: result.dryRun ? 'planned' : 'retired', statement: 'Old Stories are read-only.',
-      repositories: [{ repository: 'ui', requested: true, mode: 'hard', retiredIds: ['OLD-1'] }]
-    };
-    return result;
-  };
-  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate(true);
+  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.cutover();
   assert.equal(f.confirmations.length, 1);
   assert.match(f.confirmations[0].title, /Hard cutover/);
   assert.match(f.confirmations[0].detail, /OLD-1/);
@@ -161,35 +147,37 @@ test('hard cutover is explicit, lists retiring IDs, confirms once, and keeps its
 });
 
 test('hard cutover rejects an older CLI that did not stage Story retirement', async () => {
-  const f = fixture(); await f.journey.load(); await f.journey.select(workspace.path);
-  await f.journey.migrate(true);
+  const f = fixture(); const normal = f.host.run;
+  f.host.run = async argv => { const result = await normal(argv); delete result.storyCutover; return result; };
+  await f.journey.load(); await f.journey.select(workspace.path);
+  await f.journey.cutover();
   assert.equal(f.confirmations.length, 0);
   assert.equal(f.calls.some(argv => argv.includes('--confirm-plan')), false);
   assert.match(f.journey.view.error, /preview needs attention/);
 });
 
-test('retrying local refresh after migration remains bound to its exact migrated commit', async () => {
+test('retrying local refresh after a hard cutover remains bound to its exact published commit', async () => {
   const f = fixture();
   const run = f.host.run;
   let refreshes = 0;
   f.host.run = async argv => {
     if (argv[0] === 'authority' && refreshes++ === 0) {
       f.calls.push(argv);
-      throw new Error('Connection interrupted after configuration migration');
+      throw new Error('Connection interrupted after the hard cutover');
     }
     return run(argv);
   };
-  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate();
+  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.cutover();
   assert.equal(afterInstallComplete(f.journey.view), false);
   await f.journey.refreshReferences();
   assert.equal(afterInstallComplete(f.journey.view), true);
   assert.equal(f.calls.filter(argv => argv[0] === 'authority').length, 2);
   assert.ok(f.calls.filter(argv => argv[0] === 'authority').every(argv =>
     argv.includes('--expected-config-commit') && argv.includes('a'.repeat(40))));
-  assert.match(f.confirmations[1].detail, /exact migrated configuration commit/);
+  assert.match(f.confirmations[1].detail, /exact cutover configuration commit/);
 });
 
-test('one-click migration cancel, scope change and disposal cannot apply a preview', async () => {
+test('one-click hard cutover cancel, scope change and disposal cannot apply a preview', async () => {
   for (const change of ['cancel', 'scope', 'dispose', 'modified']) {
     const f = fixture(); await f.journey.load(); await f.journey.select(workspace.path);
     f.host.confirm = async () => {
@@ -198,36 +186,36 @@ test('one-click migration cancel, scope change and disposal cannot apply a previ
         await f.journey.select('/other');
       }
       if (change === 'dispose') f.journey.dispose();
-      if (change === 'modified') f.journey.view.upgrade.worldModelMigration.repositories[0].views = ['forged'];
+      if (change === 'modified') f.journey.view.upgrade.storyCutover.repositories[0].retiredIds = ['forged'];
       return change !== 'cancel';
     };
-    await f.journey.migrate();
+    await f.journey.cutover();
     assert.equal(f.calls.some(argv => argv.includes('--confirm-plan')), false, change);
     assert.equal(f.calls.some(argv => argv[0] === 'authority'), false, change);
   }
 });
 
-test('migration refuses old or mismatched CLI migration reports before confirmation', async () => {
-  for (const mutate of [result => { delete result.worldModelMigration; },
-    result => { result.worldModelMigration.repositories[0].repository = 'another'; },
-    result => { result.worldModelMigration.storiesRepinned = true; }]) {
+test('hard cutover refuses old or mismatched CLI cutover reports before confirmation', async () => {
+  for (const mutate of [result => { result.storyCutover.repositories = []; },
+    result => { result.storyCutover.repositories[0].repository = 'another'; },
+    result => { result.storyCutover.historicalBytes = 'rewritten'; }]) {
     const f = fixture(); const normal = f.host.run;
     f.host.run = async argv => { const result = await normal(argv); if (argv[1] === 'reinitialize') mutate(result); return result; };
-    await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate();
+    await f.journey.load(); await f.journey.select(workspace.path); await f.journey.cutover();
     assert.equal(f.confirmations.length, 0);
     assert.equal(f.calls.some(argv => argv.includes('--confirm-plan')), false);
     assert.match(f.journey.view.error, /preview needs attention|unverifiable upgrade/);
   }
 });
 
-test('an unverified migration cannot be resumed through the generic reference-refresh button', async () => {
+test('an unverified hard cutover cannot be resumed through the generic reference-refresh button', async () => {
   const f = fixture(); const normal = f.host.run;
   f.host.run = async argv => {
     const result = await normal(argv);
-    if (argv.includes('--confirm-plan')) result.worldModelMigration.status = 'incomplete';
+    if (argv.includes('--confirm-plan')) result.storyCutover.status = 'incomplete';
     return result;
   };
-  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate();
+  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.cutover();
   assert.match(f.journey.view.error, /not fully verified/);
   assert.equal(safeUpgradeComplete(f.journey.view.upgrade), false);
   await f.journey.refreshReferences();
@@ -235,7 +223,7 @@ test('an unverified migration cannot be resumed through the generic reference-re
   assert.equal(afterInstallComplete(f.journey.view), false);
 });
 
-test('partial migration and reference failure retain progress without claiming completion', async () => {
+test('partial hard cutover and reference failure retain progress without claiming completion', async () => {
   for (const failure of ['publication', 'reference']) {
     const f = fixture(); const normal = f.host.run;
     f.host.run = async argv => {
@@ -247,7 +235,7 @@ test('partial migration and reference failure retain progress without claiming c
       if (failure === 'reference' && argv[0] === 'authority') throw new Error('offline');
       return result;
     };
-    await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate();
+    await f.journey.load(); await f.journey.select(workspace.path); await f.journey.cutover();
     assert.equal(f.confirmations.length, 1);
     assert.equal(afterInstallComplete(f.journey.view), false);
     assert.equal(f.journey.view.upgrade.updated, 1, 'durable configuration result remains visible');
@@ -256,14 +244,14 @@ test('partial migration and reference failure retain progress without claiming c
   }
 });
 
-test('migration verifies the exact published pin, not an unrelated or newer authority receipt', async () => {
+test('hard cutover verifies the exact published pin, not an unrelated or newer authority receipt', async () => {
   const f = fixture(); const normal = f.host.run;
   f.host.run = async argv => {
     const result = await normal(argv);
     if (argv[0] === 'authority') result.data.result.descriptor.authority.sourceCommit = 'b'.repeat(40);
     return result;
   };
-  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate();
+  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.cutover();
   assert.equal(afterInstallComplete(f.journey.view), false);
   assert.equal(f.journey.view.references[0].status, 'attention');
   assert.match(f.journey.view.references[0].reason, /does not match/);
@@ -531,11 +519,15 @@ test('real panel messages use host-owned scope and plan, reject forged commands,
   await panel.send({ type: 'apply', planId: 'forged', workspacePath: '/forged' });
   assert.equal(f.confirmations[0].expected, 'wrip-exact');
   assert.ok(f.calls.some(argv => argv.includes('--confirm-plan') && argv[2] === workspace.path));
+  const beforeRetired = f.calls.length;
   await panel.send({ type: 'migrate', planId: 'forged', workspacePath: '/forged' });
-  assert.equal(f.confirmations.length, 2, 'migration has one confirmation, including reference refresh');
-  assert.ok(f.calls.some(argv => argv.includes('--migrate-world-model')
+  assert.equal(f.calls.length, beforeRetired, 'the retired World Model migration route no longer exists');
+  await panel.send({ type: 'cutover', planId: 'forged', workspacePath: '/forged' });
+  assert.equal(f.confirmations.length, 2, 'the hard cutover has one confirmation, including reference refresh');
+  assert.ok(f.calls.some(argv => argv.includes('--hard-cutover')
     && argv.includes('--confirm-plan') && argv[2] === workspace.path));
-  assert.match(panel.webview.html, /Workspace and capability configuration migration complete/);
+  assert.ok(f.calls.every(argv => !argv.includes('--migrate-world-model')));
+  assert.match(panel.webview.html, /After-install checks complete for this workspace/);
   await panel.send({ type: 'workspaces', workspacePath: '/forged' });
   assert.equal(navigations.at(-1)[1].workspacePath, workspace.path);
   assert.match(panel.webview.html, /4. Refresh workspace references/);

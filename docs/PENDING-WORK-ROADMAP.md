@@ -948,8 +948,8 @@ pin. Every eligible governed-agent phase re-resolves the exact closure, proves t
 remains reachable, and
 injects the packet bytes exactly once. A tokenizer owner is not applicable to byte-only v1 and is
 required only if a future variant claims token measurement. This activation does not disable Story
-creation, phase progression, legacy-v3 builds, registered-v4
-builds/current projections, or their existing reuse mechanisms. The shipped `grounding: warn`
+creation, phase progression, registered-v4 builds/current projections, or their existing reuse
+mechanisms. The shipped `grounding: warn`
 policy records unavailable intelligence with zero World-Model bytes and lets ordinary repository
 work continue. `grounding: enforce` changes consumed-context integrity handling, not availability;
 a separately required product may retain an independent explicit gate. The
@@ -1055,7 +1055,7 @@ composition primitive still reports a caller-supplied cut as unproven; the lifec
 may re-resolve the exact cut and report `authorityProven: true`. This does not authorize token
 measurement.
 Direct caller-supplied persisted facts are refused at the publication-service boundary. This restriction
-does not turn off the existing WMB v3/v4 services.
+does not turn off the existing WMB v4 services.
 Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
 source-authority, origin-authority, target-authority, and adoption-authorization owners; no role
 may be satisfied with an unrelated registered record.

@@ -7,8 +7,7 @@
  * requested branch and exact commit/tree; each laptop may reproduce the detached local checkout.
  */
 import { createHash } from 'node:crypto';
-import { appendFile, lstat, mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { appendFile, lstat, mkdir, mkdtemp, readFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -22,8 +21,6 @@ import {
   SingularityFlowError, ensureSecureRepositoryDirectory, gitReadOutput, isGitRefName, mapLimit, nowIso, posix,
   readJson, removeTemporaryTree, run, secureRepositoryPath, writeJson
 } from './util.mjs';
-import { validateWorldModelDirectory, worldModelFreshness } from './grounding.mjs';
-import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { hasPrefetchedReference, prefetchedReferenceSource } from './reference-prefetch.mjs';
 
@@ -38,9 +35,6 @@ const EXCLUDE_PATTERN = `/${REFERENCE_REPOSITORY_LOCAL_ROOT}/`;
 // the Windows directory-creation limit; adding the Story ID and reference ID to a mkdtemp prefix
 // used to make an otherwise valid checkout impossible to create.
 const REFERENCE_STAGING_PREFIX = '.r-';
-const MAXIMUM_REUSABLE_WORLD_MODEL_FILES = 512;
-const MAXIMUM_REUSABLE_WORLD_MODEL_FILE_BYTES = 4 * 1024 * 1024;
-const MAXIMUM_REUSABLE_WORLD_MODEL_BYTES = 32 * 1024 * 1024;
 const MAXIMUM_REFERENCE_TREE_LISTING_BYTES = 8 * 1024 * 1024;
 const MAXIMUM_ATTRIBUTES_FILE_BYTES = 128 * 1024;
 const MAXIMUM_ATTRIBUTES_FILES = 64;
@@ -614,34 +608,6 @@ function markdownCode(value) {
   return `${fence}${text}${fence}`;
 }
 
-function committedWorldModelFootprint(target) {
-  const listed = run('git', [
-    'ls-tree', '-l', '-r', '--full-tree', 'HEAD', '--', 'singularity/world-model'
-  ], { cwd: target, allowFailure: true });
-  if (listed.status !== 0) return { admitted: false, reason: 'tree-unreadable' };
-  const files = listed.stdout.split(/\r?\n/).filter(Boolean).map((line) => {
-    const match = line.match(/^\d+\s+blob\s+([0-9a-f]+)\s+(\d+)\t(.+)$/i);
-    const prefix = 'singularity/world-model/';
-    const relative = match?.[3]?.startsWith(prefix) ? match[3].slice(prefix.length) : null;
-    return match && relative && !relative.includes('\\') && !path.posix.isAbsolute(relative)
-      && relative.split('/').every((part) => part && part !== '.' && part !== '..')
-      ? { objectId: match[1], bytes: Number(match[2]), path: relative }
-      : null;
-  });
-  if (files.some((entry) => !entry)) return { admitted: false, reason: 'tree-invalid' };
-  if (files.length > MAXIMUM_REUSABLE_WORLD_MODEL_FILES) {
-    return { admitted: false, reason: 'file-count-limit' };
-  }
-  if (files.some((entry) => entry.bytes > MAXIMUM_REUSABLE_WORLD_MODEL_FILE_BYTES)) {
-    return { admitted: false, reason: 'file-size-limit' };
-  }
-  const bytes = files.reduce((total, entry) => total + entry.bytes, 0);
-  if (bytes > MAXIMUM_REUSABLE_WORLD_MODEL_BYTES) {
-    return { admitted: false, reason: 'total-size-limit' };
-  }
-  return { admitted: true, entries: files, fileCount: files.length, bytes };
-}
-
 async function reusableReferenceWorldModel(target, reference) {
   const relative = 'singularity/world-model/manifest.json';
   const present = run('git', ['cat-file', '-e', `HEAD:${relative}`], {
@@ -650,60 +616,9 @@ async function reusableReferenceWorldModel(target, reference) {
   if (present.status !== 0) {
     return { pointer: null, status: { status: 'not-present', reason: 'manifest-not-committed' } };
   }
-  const footprint = committedWorldModelFootprint(target);
-  if (!footprint.admitted) {
-    return { pointer: null, status: { status: 'unavailable', reason: footprint.reason } };
-  }
-  let staging;
-  try {
-    staging = await mkdtemp(path.join(os.tmpdir(), 'sflow-reference-world-model-'));
-  } catch {
-    return { pointer: null, status: { status: 'unavailable', reason: 'private-staging-unavailable' } };
-  }
-  try {
-    const blobs = readLocalGitBlobs(target, footprint.entries.map((entry) => entry.objectId), {
-      maximumBytes: MAXIMUM_REUSABLE_WORLD_MODEL_BYTES,
-      maximumObjectBytes: MAXIMUM_REUSABLE_WORLD_MODEL_FILE_BYTES,
-      code: 'REFERENCE_WORLD_MODEL_INVALID',
-      label: `Reference World Model '${reference.id}'`
-    });
-    for (const entry of footprint.entries) {
-      const bytes = blobs.get(entry.objectId);
-      if (!bytes) throw new Error('A committed reference World Model blob was unavailable.');
-      const destination = path.join(staging, entry.path);
-      await mkdir(path.dirname(destination), { recursive: true });
-      await writeFile(destination, bytes);
-    }
-    const validated = await validateWorldModelDirectory(staging, {
-      integrity: 'full', requireEvidence: true, sourceLabel: `reference repository '${reference.id}'`
-    });
-    const freshness = await worldModelFreshness(target, {
-      worldModel: { outputDir: 'singularity/world-model' }
-    }, validated.manifest);
-    if (!freshness.fresh) {
-      return { pointer: null, status: { status: 'stale', reason: 'source-fingerprint-mismatch' } };
-    }
-    return {
-      pointer: {
-        path: posix(path.join(reference.localPath, relative)),
-        sha256: `sha256:${validated.manifestContentSha256}`,
-        sourceTreeSha256: validated.manifest.source_tree_sha256 ?? null
-      },
-      status: {
-        status: 'reusable', reason: 'integrity-and-source-binding-verified',
-        files: footprint.fileCount, bytes: footprint.bytes
-      }
-    };
-  } catch {
-    // A reference World Model is optional evidence. Malformed, incomplete, stale, oversized, or
-    // unavailable bytes must never block ordinary bounded inspection of the pinned source tree.
-    return { pointer: null, status: { status: 'invalid', reason: 'integrity-validation-failed' } };
-  } finally {
-    // This is optional evidence. A host cleanup race must not turn an otherwise usable immutable
-    // source reference into a lifecycle blocker; the disposable tree contains only committed
-    // repository blobs and removeTemporaryTree has already exhausted bounded retries.
-    await removeTemporaryTree(staging).catch(() => {});
-  }
+  // A World Model committed to the application branch is the projection of the retired legacy-v3
+  // builder (registered views are published to the state branch only). It is never read.
+  return { pointer: null, status: { status: 'unavailable', reason: 'legacy-v3-projection-retired' } };
 }
 
 /**

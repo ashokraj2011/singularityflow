@@ -8,7 +8,7 @@ import test from 'node:test';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { withConfigurationReadRoot } from '../src/configuration-read-scope.mjs';
 import { exactEnvironmentDeclarationAtRef } from '../src/git.mjs';
-import { worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import {
   environmentWorldModelExcludedRoots, loadEnvironmentDeclarationSync
 } from '../src/environment-declaration.mjs';
@@ -99,14 +99,14 @@ test('configuration projects environment-local paths through the existing v4 exc
   assert.ok(scope.excludedPaths.includes('config/*.env'));
 });
 
-test('legacy-v3 and registered-v4 exclude historically tracked environment-local content', async (t) => {
+test('source capture and registered-v4 exclude historically tracked environment-local content', async (t) => {
   const root = await fixture(t);
 
-  const legacyBefore = await worldModelSourceSnapshot(root, {});
-  assert.ok(legacyBefore.files.some((entry) => entry.path === 'src/app.mjs'));
-  assert.ok(!legacyBefore.files.some((entry) => entry.path === '.env.local'));
-  assert.ok(!legacyBefore.files.some((entry) => entry.path === '.ENV.QA'));
-  assert.ok(!legacyBefore.files.some((entry) => entry.path === 'config/qa.env'));
+  const sourceBefore = await worldModelSourceSnapshot(root, {});
+  assert.ok(sourceBefore.files.some((entry) => entry.path === 'src/app.mjs'));
+  assert.ok(!sourceBefore.files.some((entry) => entry.path === '.env.local'));
+  assert.ok(!sourceBefore.files.some((entry) => entry.path === '.ENV.QA'));
+  assert.ok(!sourceBefore.files.some((entry) => entry.path === 'config/qa.env'));
 
   const scope = registeredScope(root);
   assert.ok(scope.excludedPaths.includes('.env*'));
@@ -121,24 +121,24 @@ test('legacy-v3 and registered-v4 exclude historically tracked environment-local
   });
   assert.deepEqual(historical.files.map((entry) => entry.path), ['src/app.mjs']);
 
-  // Updating only a historically tracked local file must not make either model format stale.
+  // Updating only a historically tracked local file must change neither source digest.
   await writeFile(path.join(root, 'config', 'qa.env'), 'API_TOKEN=changed-local-value\n');
   await writeFile(path.join(root, '.ENV.QA'), 'TOKEN=changed-portable-alias-value\n');
   git(root, 'add', '-f', 'config/qa.env', '.ENV.QA');
   git(root, 'commit', '-qm', 'rotate local environment value');
-  const legacyAfter = await worldModelSourceSnapshot(root, {});
+  const sourceAfter = await worldModelSourceSnapshot(root, {});
   const registeredAfter = createExactSourceSnapshot(root, {
     subjectId: 'environment-fixture', scopeManifest: registeredScope(root)
   });
-  assert.equal(legacyAfter.sha256, legacyBefore.sha256);
+  assert.equal(sourceAfter.sha256, sourceBefore.sha256);
   assert.equal(registeredAfter.sourceManifestSha256, registeredBefore.sourceManifestSha256);
   assert.doesNotMatch(
-    JSON.stringify({ legacyAfter, registeredAfter }),
+    JSON.stringify({ sourceAfter, registeredAfter }),
     /changed-local-value|changed-portable-alias-value/
   );
 });
 
-test('legacy world-model capture retains committed exclusions across unstaged weakening', async (t) => {
+test('world-model source capture retains committed exclusions across unstaged weakening', async (t) => {
   const root = await fixture(t);
   const declarationPath = path.join(root, 'singularity', 'environments.yml');
   const declaration = await readFile(declarationPath, 'utf8');
@@ -183,7 +183,7 @@ test('historical declaration reads bypass the current approved configuration ove
   });
 });
 
-test('legacy world-model capture fails closed when the exact committed declaration is invalid', async (t) => {
+test('world-model source capture fails closed when the exact committed declaration is invalid', async (t) => {
   const root = await fixture(t);
   const declarationPath = path.join(root, 'singularity', 'environments.yml');
   const valid = await readFile(declarationPath, 'utf8');
@@ -222,23 +222,13 @@ test('world-model capture fails closed when the approved environment declaration
   );
 });
 
-test('tightening environment exclusions makes an older legacy model stale even with no visible path delta', async (t) => {
+test('tightening environment exclusions changes the source digest even with no visible path delta', async (t) => {
   const root = await fixture(t);
   await writeFile(path.join(root, 'src', 'newly-private.txt'), 'historical local configuration\n');
   git(root, 'add', 'src/newly-private.txt');
   git(root, 'commit', '-qm', 'track legacy configuration before policy');
-  const modelSourceCommit = git(root, 'rev-parse', 'HEAD');
   const source = await worldModelSourceSnapshot(root, {});
   assert.ok(source.files.some((entry) => entry.path === 'src/newly-private.txt'));
-
-  const modelDirectory = path.join(root, 'singularity', 'world-model');
-  await mkdir(modelDirectory, { recursive: true });
-  await writeFile(path.join(modelDirectory, 'manifest.json'), `${JSON.stringify({
-    source_tree_sha256: source.sha256,
-    repository_commit: modelSourceCommit
-  }, null, 2)}\n`);
-  git(root, 'add', 'singularity/world-model/manifest.json');
-  git(root, 'commit', '-qm', 'publish legacy model fixture');
 
   const declarationPath = path.join(root, 'singularity', 'environments.yml');
   const declaration = await readFile(declarationPath, 'utf8');
@@ -254,8 +244,4 @@ test('tightening environment exclusions makes an older legacy model stale even w
   const current = await worldModelSourceSnapshot(root, {});
   assert.ok(!current.files.some((entry) => entry.path === 'src/newly-private.txt'));
   assert.notEqual(current.sha256, source.sha256);
-  assert.equal(
-    await worldModelRebuildReason(root, { worldModel: { outputDir: 'singularity/world-model' } }),
-    'The repository world model is stale for the current source tree.'
-  );
 });

@@ -17,6 +17,7 @@ import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
+import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -49,7 +50,7 @@ export function recoveryRevision(root, config, workflow, inspection = null) {
  * This is a routing hint, not publication authority: even the workflow aggregate still needs
  * review of its diff before an agent may continue.
  */
-async function workingTreeAction(root, config, workflow, phase, status, phaseRecovery, inspection) {
+export async function workingTreeAction(root, config, workflow, phase, status, phaseRecovery, inspection) {
   let paths;
   try {
     paths = changedFiles(root);
@@ -103,6 +104,10 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
   const expectedPaths = relevantPaths.filter((candidate) => (expected.has(candidate) || applicationPaths.includes(candidate))
     && !protectedPaths.some((guard) => pathWithin(candidate, guard)));
   const unexpectedPaths = relevantPaths.filter((candidate) => !expectedPaths.includes(candidate));
+  const authoringContinuation = current && unexpectedPaths.length
+    ? await inspectDraftEvidenceHold(root, config, workflow, phase, {
+      unexpectedPaths, expectedPaths, inspection, simpleStatus
+    }) : null;
   const inPhaseAuthoring = simpleStatus && relevantPaths.length > 0 && unexpectedPaths.length === 0;
   const rollover = phaseRecovery?.actions.find(entry => entry.id === `begin-new-generation:${phase?.id}`
     && entry.mode === 'guided' && typeof entry.command === 'string');
@@ -120,6 +125,7 @@ async function workingTreeAction(root, config, workflow, phase, status, phaseRec
     confirmation: guided ? successorRequired ? 'plan-hash' : 'none' : 'human-authority', command: route,
     ...(route ? { skill: successorRequired ? '/sf-recover' : '/sf-code' } : {}),
     paths: relevantPaths, expectedPaths, unexpectedPaths, disposableUntrackedPaths,
+    ...(authoringContinuation ? { authoringContinuation } : {}),
     applicationPaths, applicationScope,
     preserved: ['working-tree bytes', 'Git index', 'published generations', 'approval history'],
     detail: guided && applicationPaths.length

@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 5
+version: 6
 ---
 # Compact phase entry for Copilot
 
@@ -28,6 +28,29 @@ its evidence-contract route is presented before document inspection and optional
 Do not claim tags are the sole admission blocker while that human boundary remains pending.
 When composition is not admitted, relay these blockers and the returned `next` route rather than
 repeat document viewing or the unchanged authoring skill. No guard or human confirmation is waived.
+
+An exact, bounded, untracked evidence file may instead be reported as
+`contextAdmission.pendingEvidence` with `status: draft-only`. This requires a current prospective
+phase, an approved preceding plan owner, intact approved documents and (for code) a verified open
+generation intent. It does not add the file to `expectedPaths`. The author can compose and repair
+the verified draft while preserving each held file's bytes and the index; do not edit, execute,
+stage, delete or use it as passing proof. Staged/tracked unknown evidence, links, protected/unrelated
+edits, unsafe Git operations and lifecycle/authority failures cannot use this continuation.
+
+Prepublish and publication independently re-read pending evidence contracts and refuse with
+`PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED` until ownership is reviewed. An evidence-correction
+preview returns `humanReview.surface: human-terminal` and the exact confirmation text. Relay it
+to an interactive human terminal; an automated Copilot shell is not that review surface
+(`ACTION_TERMINAL_PRESENTATION_REQUIRED`). No phase approval, passing screenshot or test waiver
+is implied by preserving an image or correcting its contract.
+
+Prepublish can return `draftRepair.scope: draft-only` and same-turn owned corrections while that
+decision is pending. It freshly rechecks the same worktree hold; unknown/protected edits cannot
+use it. The bounded repair coordinator may repair other owned findings, but retains the evidence
+review in the condition/readiness hash. Fixing the draft never clears or records that human decision.
+This also applies to owned coverage gaps found only by recovery while the Markdown draft is ready:
+the bound author can repair the planned source/test bindings in the same open generation. Unclaimed
+paths, invalid evidence, withdrawn claims and lifecycle/authority findings retain their owner routes.
 
 After reviewing that entry packet, use:
 

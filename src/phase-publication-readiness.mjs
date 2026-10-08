@@ -8,6 +8,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
 import { requiredStepActionHold } from './step-action-receipts.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
 
 /**
  * Local, read-only publication dependencies shared by preview, recovery and the transaction.
@@ -42,6 +43,23 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     catch (error) { return { errors: [error.message], warnings: [], sourceCode: error.code ?? null,
       state: error.details?.repairLoop ?? null }; }
   };
+  const evidence = await capture(async () => {
+    const inspected = await inspectPendingEvidenceContracts(root, config, workflow, phase, { generation });
+    return { ...inspected, errors: inspected.paths.map(relative =>
+      `Pending evidence contract requires review before publication: ${relative}. Keep repairing the in-scope draft; preserve this file.`) };
+  });
+  if (evidence.errors.length) {
+    blockers.push(...evidence.errors.map((message, index) => ({ code: 'phase.evidence-contract.not-ready',
+      category: 'evidence-contract', path: evidence.paths?.[index] ?? null, message,
+      details: { sourceCode: evidence.sourceCode ?? 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED', draftRepairAllowed: true } })));
+    actions.push(...(evidence.actions ?? []));
+    if (!evidence.actions?.length) actions.push({ id: `resolve-evidence-contract:${phase.id}`,
+      safe: false, automatic: false, mode: 'guided', confirmation: 'human-authority',
+      command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, skill: '/sf-recover',
+      detail: 'Preserve the exact evidence and inspect its owning contract/authority; no evidence is automatically accepted.' });
+    failures.push({ code: evidence.sourceCode ?? 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED',
+      message: evidence.errors.join('\n') });
+  }
   const repair = await capture(async () => {
     const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
     return { errors: [], state: await assertPhaseRepairSettled(root, workflow, phase) };

@@ -13,7 +13,9 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
-import { exactFileAtObject } from './git.mjs';
+import { exactFileAtObject, changes } from './git.mjs';
+import { workingTreeAction } from './collaboration.mjs';
+import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { authoredArtifactFingerprint, authoredArtifactText } from './publication-preflight.mjs';
@@ -410,6 +412,18 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     }
   }
   const lifecycleReady = workflow.currentPhase === phase.id && phase.status === 'in_progress';
+  const agentOwnsRepair = draft.ownership.proven && draft.producer === 'governed-agent';
+  const evidenceReview = entry => entry.code === 'phase.evidence-contract.not-ready'
+    && entry.details?.sourceCode === 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED';
+  // Publication and producer repair are different boundaries. Reuse the exact worktree guard,
+  // never mark the pending decision repairable or remove it from readiness/findings.
+  const evidenceOnlyDependencies = dependencies.blockers.length > 0 && dependencies.blockers.every(evidenceReview);
+  const heldDraft = !retained && lifecycleReady && agentOwnsRepair && evidenceOnlyDependencies
+    ? (await workingTreeAction(root, config, workflow, phase, changes(root), recovery,
+      inspectLifecycleWorktree(root, config, workflow)))?.authoringContinuation : null;
+  const draftRepairAllowed = heldDraft?.allowed === true;
+  const repairDependencies = draftRepairAllowed ? dependencies.blockers.filter(entry => !evidenceReview(entry)) : dependencies.blockers;
+  const repairRecoveryBlockers = draftRepairAllowed ? recovery.blockers.filter(entry => !evidenceReview(entry)) : recovery.blockers;
   const findings = new Map(draft.findings.map((finding) => [findingKey(finding), finding]));
   for (const blocker of [...blockers, ...recovery.blockers]) {
     const key = findingKey(blocker);
@@ -432,13 +446,32 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   const draftRoute = draft.commands.next ? {
     command: draft.commands.next, skill: draft.correction.skill, detail: draft.correction.guidance
   } : null;
+  const briefOnly = recovery.actions.length > 0
+    && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);
+  const hardBlocker = [...blockers, ...recovery.blockers].some((entry) =>
+    ['lifecycle', 'host', 'collaboration'].includes(entry.category)
+      || entry.code === 'phase.generation-intent.required');
+  // Recovery can detect source/test coverage that the Markdown draft checker does not own.
+  // Apply the same installed finding policy to both sets; an unclaimed/invalid evidence path
+  // remains an owner decision, never a producer repair merely because the summary is ready.
+  const repairBlockers = [...blockers, ...repairRecoveryBlockers];
+  const authoringRepairOnly = repairBlockers.length > 0
+    && repairBlockers.every((entry) => phaseFindingPolicy(entry).repairableByProducer);
+  const ownedRecoveryRepair = !retained && lifecycleReady && !hardBlocker
+    && !repairDependencies.length && authoringRepairOnly && agentOwnsRepair;
+  const producerRoute = ownedRecoveryRepair ? {
+    command: `singularity-flow phase prepublish ${phase.id} --json`,
+    skill: directCopilotSkill(generationSkillForPhase(phase, workflow)),
+    detail: 'Repair the cited owned draft/source/test bindings in this open generation, preserving the index; then recheck.'
+      + (draftRepairAllowed ? ' Preserve held evidence; its pending human review still blocks publication.' : '')
+  } : null;
   const action = !lifecycleReady
     ? {
         command: draft.commands.recover,
         skill: '/sf-recover',
         detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
       }
-    : dependencies.blockers.length ? dependencies.actions[0]
+    : dependencies.blockers.length && !(draftRepairAllowed && (draft.status !== 'ready' || ownedRecoveryRepair)) ? dependencies.actions[0]
     : draft.status !== 'ready'
       ? draftRoute ?? recovery.actions[0] ?? actions[0] ?? null
       // A retained packet can be individually ready while changed application bytes require a
@@ -446,17 +479,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       : retained && recovery.requiresLifecycleRecovery
         ? { command: draft.commands.recover, skill: '/sf-recover',
             detail: 'Inspect the reported lifecycle recovery and its exact successor/return plan before submitting this retained generation.' }
-      : actions[0] ?? recovery.actions[0] ?? null;
-  const briefOnly = recovery.actions.length > 0
-    && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);
-  const hardBlocker = [...blockers, ...recovery.blockers].some((entry) =>
-    ['lifecycle', 'host', 'collaboration'].includes(entry.category)
-      || entry.code === 'phase.generation-intent.required');
-  const authoringRepairOnly = blockers.length > 0
-    && blockers.every((entry) => phaseFindingPolicy(entry).repairableByProducer)
-    && recovery.blockers.length === 0;
+      : actions[0] ?? producerRoute ?? recovery.actions[0] ?? null;
   const needsHumanClarification = [...blockers, ...recovery.blockers].some((entry) => entry.category === 'clarification');
-  const agentOwnsRepair = draft.ownership.proven && draft.producer === 'governed-agent';
   // A supporting evidence collection is not a prose draft, but its exact bundle hash must still
   // move the bounded same-turn repair fingerprint when an agent adds a file beneath it.
   const draftFingerprint = staticChecks.artifactSetFingerprint == null
@@ -491,16 +515,19 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     findings: Object.freeze([...findings.values()].map((finding) => Object.freeze(finding))),
     resolution: phaseResolutionProjection(workflow, phase, [...findings.values(), ...(draft.advisories ?? [])]),
     repairLoop: dependencies.repairLoop,
+    ...(draftRepairAllowed ? { draftRepair: { allowed: true, scope: 'draft-only',
+      heldEvidence: heldDraft.heldEvidence, publicationBlocked: true, evidenceAccepted: false,
+      deferredFindingCodes: ['PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED'] } } : {}),
     // Carried through unchanged: advisories never enter findings or readiness.
     advisories: draft.advisories,
     documentation: draft.documentation,
     coverage: draft.coverage,
     traceabilityRepair: draft.traceabilityRepair ? Object.freeze({
       ...draft.traceabilityRepair,
-      sameTurn: lifecycleReady && !hardBlocker && !dependencies.blockers.length
+      sameTurn: lifecycleReady && !hardBlocker && !repairDependencies.length
         && draft.correction.sameTurn && draft.traceabilityRepair.sameTurn,
       actions: Object.freeze(draft.traceabilityRepair.actions.map((entry) => Object.freeze({
-        ...entry, sameTurn: lifecycleReady && !hardBlocker && !dependencies.blockers.length
+        ...entry, sameTurn: lifecycleReady && !hardBlocker && !repairDependencies.length
           && draft.correction.sameTurn && entry.sameTurn
       })))
     }) : null,
@@ -528,19 +555,21 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     correction: Object.freeze({
       ...draft.correction,
       class: !lifecycleReady ? 'phase-recovery'
-        : dependencies.blockers.length
-          ? dependencies.blockers[0].category === 'clarification' ? 'human-input' : 'phase-recovery'
-        : draft.status === 'ready' && (blockers.length || recovery.blockers.length)
+        : repairDependencies.length
+          ? repairDependencies[0].category === 'clarification' ? 'human-input' : 'phase-recovery'
+        : draftRepairAllowed && draft.status === 'ready' && !blockers.length && !repairRecoveryBlockers.length
+          ? 'human-input'
+        : draft.status === 'ready' && (blockers.length || repairRecoveryBlockers.length)
         ? needsHumanClarification ? 'human-input'
           : authoringRepairOnly && agentOwnsRepair ? 'agent-authoring' : 'phase-recovery'
         : draft.correction.class,
-      sameTurn: !retained && lifecycleReady && !ready && !hardBlocker && !dependencies.blockers.length && (draft.status !== 'ready'
+      sameTurn: !retained && lifecycleReady && !ready && !hardBlocker && !repairDependencies.length && (draft.status !== 'ready'
         ? draft.correction.sameTurn
         : (briefOnly || authoringRepairOnly) && agentOwnsRepair),
-      guidance: ready ? null : !lifecycleReady || dependencies.blockers.length ? action.detail : draft.status !== 'ready'
+      guidance: ready ? null : !lifecycleReady || repairDependencies.length ? action.detail : draft.status !== 'ready'
         ? draft.correction.guidance
         : action?.detail ?? 'Resolve the reported phase-scoped blocker, then recheck before publication.',
-      skill: ready ? null : !lifecycleReady || dependencies.blockers.length ? action.skill
+      skill: ready ? null : !lifecycleReady || repairDependencies.length ? action.skill
         : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null
     }),
     commands,

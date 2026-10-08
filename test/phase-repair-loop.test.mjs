@@ -59,6 +59,32 @@ test('persistent producer reservation preserves files/index, holds transitions a
   await assertPhaseRepairSettled(f.root, f.workflow, f.phase);
   assert.equal((await f.call('resume')).journalChanged, false);
 });
+
+test('pending evidence review allows only other owned draft repairs and never counts as repair success', async t => {
+  const f = await fixture(t);
+  const pending = { code: 'phase.evidence-contract.not-ready', category: 'evidence-contract', path: 'evidence/screen.png',
+    details: { sourceCode: 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED' } };
+  const observe = async () => {
+    const value = f.observation();
+    value.inspection.draftRepair = { allowed: true, scope: 'draft-only' };
+    value.findings.push(pending);
+    value.conditionHash = phaseRepairConditionHash({ ready: false, findings: value.findings });
+    value.ready = false;
+    return value;
+  };
+  const plan = await f.call('plan', null, { inspect: observe });
+  assert.equal(plan.action.id, 'owned-producer-repair');
+  const reserved = await f.call('run', plan.confirmation, { inspect: observe });
+  assert.equal(reserved.status, 'awaiting-producer-repair');
+  f.set('ready');
+  const finished = await f.call('resume', null, { inspect: observe });
+  assert.notEqual(finished.result, 'ready');
+  assert.equal(finished.action, null, 'the producer cannot repair the human decision');
+  assert.equal(finished.phaseAdvanced, false);
+  const unverified = async () => { const value = await observe(); delete value.inspection.draftRepair; return value; };
+  f.set('different-owned-gap');
+  assert.equal((await f.call('plan', null, { inspect: unverified })).action, null);
+});
 test('unchanged, oscillating and exhausted repairs remain stopped across coordinator restarts', async t => {
   const f = await fixture(t); await reserve(f);
   const same = await f.call('resume'); assert.equal(same.result, 'unchanged-condition');
@@ -297,6 +323,6 @@ test('publication skills require a returned publish command and stop when only a
     'sflow-converge', 'sflow-workflow-rules', 'sflow-document-intake']) {
     const text = await readFile(new URL(`../plugin/skills/${name}/SKILL.md`, import.meta.url), 'utf8');
     assert.match(text, /`commands.publish`/u, name);
-    assert.match(text, /absent: relay `commands.next`, stop/u, name);
+    assert.match(text, /absent: relay `commands.next`, stop/iu, name);
   }
 });

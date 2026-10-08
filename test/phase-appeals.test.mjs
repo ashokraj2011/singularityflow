@@ -28,6 +28,8 @@ import { publishedGenerationCommit } from '../src/generation-publication-store.m
 import { runGovernanceGate } from '../src/governance.mjs';
 import { readBoundSpecificationClaimMap } from '../src/specifications.mjs';
 import { recoveryPlan } from '../src/collaboration.mjs';
+import { setAgentSession } from '../src/session.mjs';
+import { inspectPhasePublicationReadiness, assertPhasePublicationReadiness } from '../src/phase-publication-readiness.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -74,6 +76,11 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
     details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', qualityRisk: { eligible: true } } }).choices[0].kind, 'pilot-risk-review');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'SPEC_COVERAGE_INCOMPLETE' }).choices[0].kind, 'author-correction');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'artifact.placeholder' }).choices[0].kind, 'author-correction');
+  const evidence = phaseResolutionChoices(workflow, phase, { code: 'phase.evidence-contract.not-ready',
+    path: 'singularity/work-items/APPEAL-1/evidence/screen.png', category: 'evidence-contract',
+    details: { sourceCode: 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED' } });
+  assert.equal(evidence.status, 'needs-human');
+  assert.match(evidence.choices[0].copilotCommand, /^\/sf-appeal evidence-prepare/u);
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'phase.appeal.not-ready', category: 'appeal', details: { sourceCode: 'PHASE_APPEAL_INTEGRITY' } }).choices[0].kind, 'configuration-owner');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'PHASE_APPEAL_PATH_UNSUPPORTED' }).choices[0].kind, 'owner-escalation');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED' }).status, 'needs-human');
@@ -121,7 +128,7 @@ async function acceptDocumentRisk(root, cli, phase, { transitions = [] } = {}) {
   assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr); assert.match(ceremony.stdout, /risk-accepted/u);
   return packet;
 }
-async function fixture(t, { pilotCoverage = false, directCoverage = false, intakeDocumentRisk = false } = {}) {
+async function fixture(t, { pilotCoverage = false, directCoverage = false, missingPlannedSource = false, intakeDocumentRisk = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-appeals-')); const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
   const git = (...args) => run('git', args, root);
@@ -150,7 +157,7 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, intak
     '## Scope and constraints', '', 'Change only the value module and its test.', '',
     '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${WORK}:AC-001] | The exported value equals 2. |`, '',
     '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
-    `| \`${WORK}:AC-001\` | \`src/value.mjs\`${pilotCoverage ? ', `src/missing.mjs`' : ''} | \`test/value.test.mjs\` | modified |`, '',
+    `| \`${WORK}:AC-001\` | \`src/value.mjs\`${pilotCoverage || missingPlannedSource ? ', `src/missing.mjs`' : ''} | \`test/value.test.mjs\` | modified |`, '',
     '## Initial evidence', '', 'The baseline module and test at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake'); cli('clarification', 'record', 'intake', '--question', 'Is 2 the approved value?', '--answer', 'Yes.');
@@ -172,7 +179,7 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, intak
 const request = { phaseId: 'implementation', changes: [{ kind: 'add-location', clauseId: `${WORK}:AC-001`, path: 'src/helper.mjs' }], reason: 'The small helper implements the already approved return value.' };
 
 test('reviewed evidence typing preserves the draft/index and clears only exact screenshot ownership', { timeout: 180000 }, async t => {
-  const f = await fixture(t, { directCoverage: true });
+  const f = await fixture(t, { directCoverage: true, missingPlannedSource: true });
   const evidencePath = `${f.item}/evidence/value.png`;
   await f.write(evidencePath, Buffer.from('retained visual proof, not a passing adjudication'));
   const options = ['--phase', 'implementation', '--clause', `${WORK}:AC-001`, '--path', evidencePath,
@@ -188,8 +195,61 @@ test('reviewed evidence typing preserves the draft/index and clears only exact s
   assert.deepEqual(recovery.actions.find(action => action.id === 'working-tree').unexpectedPaths, [evidencePath]);
   const route = recovery.actions.find(action => action.id.startsWith('review-evidence-contract:'));
   assert.match(route.copilotCommand, /^\/sf-appeal evidence-prepare/u);
+  assert.equal(recovery.actions.find(action => action.id === 'working-tree').authoringContinuation?.allowed, true);
+  const publishBefore = await inspectPhasePublicationReadiness(f.root, definition, workflow, workflow.phases.implementation);
+  assert.ok(publishBefore.blockers.some(finding => finding.code === 'phase.evidence-contract.not-ready' && finding.path === evidencePath));
+  await assert.rejects(assertPhasePublicationReadiness(f.root, definition, workflow, workflow.phases.implementation),
+    { code: 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED' });
+  await setAgentSession(f.root, definition, { name: 'Appeal Tester', email: 'appeal@example.test' },
+    workflow.phases.implementation.defaultAgent, WORK, { phaseId: 'implementation', source: 'test' });
+  const composed = f.cli('phase', 'enter', '--compose', '--for-agent', '--json');
+  const entry = JSON.parse(composed.stdout);
+  assert.equal(entry.contextAdmission.allowed, true, composed.stdout);
+  assert.equal(entry.contextComposition, 'delivered');
+  assert.equal(entry.contextAdmission.pendingEvidence.evidenceAccepted, false);
+  assert.equal(entry.next[0].scope, 'draft-only');
+  assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);
+  assert.equal(f.git('ls-files', '--stage').stdout, indexBefore, 'composition never stages held evidence or source');
+  const summaryBefore = await readFile(path.join(f.root, f.summary), 'utf8');
+  await f.write(f.summary, `${summaryBefore}\nTODO explain this implementation detail.\n`);
+  const heldRepair = await phasePrepublish(f.root, definition, workflow, workflow.phases.implementation, {
+    modelEnabled: true, session: { workId: WORK, phaseId: 'implementation', agent: workflow.phases.implementation.defaultAgent }
+  });
+  assert.equal(heldRepair.status, 'correction-required');
+  assert.equal(heldRepair.commands.publish, null);
+  assert.equal(heldRepair.draftRepair?.allowed, true);
+  assert.equal(heldRepair.correction.sameTurn, true, JSON.stringify(heldRepair));
+  assert.equal(heldRepair.correction.class, 'agent-authoring');
+  await f.write(f.summary, summaryBefore);
+  // A complete prose artifact does not imply complete source delivery. Recovery-only missing
+  // bindings must still allow the verified author to repair while the screenshot stays held.
+  const heldCoverageRepair = await phasePrepublish(f.root, definition, workflow, workflow.phases.implementation, {
+    modelEnabled: true, session: { workId: WORK, phaseId: 'implementation', agent: workflow.phases.implementation.defaultAgent }
+  });
+  assert.equal(heldCoverageRepair.readiness.authoring, true, JSON.stringify(heldCoverageRepair));
+  assert.ok(heldCoverageRepair.findings.some(finding => finding.details?.sourceCode === 'SPEC_COVERAGE_INCOMPLETE'));
+  assert.equal(heldCoverageRepair.correction.sameTurn, true, JSON.stringify(heldCoverageRepair));
+  assert.equal(heldCoverageRepair.correction.class, 'agent-authoring');
+  assert.equal(heldCoverageRepair.correction.skill, '/sf-code');
+  assert.equal(heldCoverageRepair.commands.publish, null);
+  assert.ok(heldCoverageRepair.findings.some(finding => finding.code === 'phase.evidence-contract.not-ready'));
+  assert.match(heldCoverageRepair.correction.guidance, /Repair the cited owned draft\/source\/test bindings/u);
+  assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);
+  assert.equal(f.git('ls-files', '--stage').stdout, indexBefore);
+  const foreignPath = 'singularity/work-items/OTHER/private.md';
+  await f.write(foreignPath, 'Another Story cannot inherit the current evidence hold.\n');
+  const unrelatedRepair = await phasePrepublish(f.root, definition, workflow, workflow.phases.implementation, {
+    modelEnabled: true, session: { workId: WORK, phaseId: 'implementation', agent: workflow.phases.implementation.defaultAgent }
+  });
+  assert.notEqual(unrelatedRepair.draftRepair?.allowed, true);
+  assert.equal(unrelatedRepair.correction.sameTurn, false);
+  assert.equal(unrelatedRepair.commands.publish, null);
+  await rm(path.join(f.root, foreignPath));
   const packet = JSON.parse(f.cli('appeal', 'evidence-prepare', ...options, '--json').stdout).data.packet;
+  assert.equal(packet.humanReview.surface, 'human-terminal');
+  assert.equal(packet.humanReview.execution, 'human-relay-only');
   const id = `PEA-${packet.packetSha256.slice(7, 31)}`;
+  assert.equal(packet.humanReview.confirmationText, `Correct evidence ${id}`);
   const stale = run(process.execPath, [CLI, '--no-model', 'appeal', 'evidence-accept', ...options, '--confirm', 'sha256:' + '0'.repeat(64), '--json'], f.root, true);
   assert.equal(JSON.parse(stale.stdout).error.code, 'PLAN_EVIDENCE_CORRECTION_STALE');
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
@@ -209,6 +269,9 @@ test('reviewed evidence typing preserves the draft/index and clears only exact s
   assert.equal(dirty.confirmation, 'none');
   assert.equal(workflow.phases.implementation.generation, 0, 'correction neither publishes nor advances');
   assert.equal(workflow.phases.implementation.status, 'in_progress');
+  const publishAfter = await inspectPhasePublicationReadiness(f.root, definition, workflow, workflow.phases.implementation);
+  assert.equal(publishAfter.blockers.some(finding => finding.code === 'phase.evidence-contract.not-ready'), false,
+    'only the reviewed contract clears publication ownership; adequacy and tests remain independent');
   assert.deepEqual(await readFile(path.join(f.root, owner.claimMaps.planned.path)), ownerBytes);
   assert.deepEqual(await readFile(path.join(f.root, 'src/value.mjs')), codeBytes);
   assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);

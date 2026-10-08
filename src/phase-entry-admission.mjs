@@ -17,14 +17,17 @@ export function phaseContextAdmission({ ready = true, authoring = {}, recovery =
     'Complete the returned recovery boundary before composing. Draft quality findings are separate.',
     { actionIds: (recovery.actions ?? []).filter(action => action.automatic || action.mode === 'manual').map(action => action.id) });
   const worktree = (recovery.actions ?? []).find(action => action.id === 'working-tree' && action.confirmation !== 'none');
-  if (worktree) add('PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED',
+  const continuation = worktree?.authoringContinuation;
+  const pendingEvidence = continuation?.allowed === true && continuation.status === 'draft-only'
+    ? continuation : null;
+  if (worktree && !pendingEvidence) add('PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED',
     'The listed worktree changes require human review. A tag/artifact repair or source-only commit does not clear an unexpected evidence file.',
     { actionIds: (recovery.actions ?? []).filter(action => action.id === 'working-tree'
       || action.id?.startsWith('review-evidence-contract:')).map(action => action.id),
     paths: worktree.unexpectedPaths?.length ? worktree.unexpectedPaths : worktree.paths ?? [],
     confirmation: worktree.confirmation });
   if (references.status === 'blocked') add('PHASE_CONTEXT_REFERENCES_BLOCKED', 'Repair the returned reference-repository findings before composition.');
-  return { allowed: blockers.length === 0, blockers };
+  return { allowed: blockers.length === 0, blockers, ...(pendingEvidence ? { pendingEvidence } : {}) };
 }
 
 /** Show the actual admission remedy before unrelated, repairable draft quality checks. */

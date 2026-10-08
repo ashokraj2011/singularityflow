@@ -24,7 +24,7 @@ const fail = (message, code = 'PLAN_EVIDENCE_CORRECTION_INVALID', details = {}) 
 };
 const itemRoot = (config, workflow) => `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`;
 
-function correctionOwner(workflow, phase) {
+export function correctionOwner(workflow, phase) {
   const ownerId = workflow.resolution?.plannedClaims?.owners?.[phase.id];
   const owner = workflow.phases?.[ownerId];
   const order = workflow.phaseOrder ?? [];
@@ -40,7 +40,7 @@ async function readOwnedPlan(root, config, workflow, phase) {
   }) };
 }
 
-async function assertApprovedDocumentsIntact(root, config, workflow, phase) {
+export async function assertApprovedDocumentsIntact(root, config, workflow, phase) {
   const revision = head(root);
   const prefix = `${itemRoot(config, workflow)}/`;
   for (const id of workflow.phaseOrder.slice(0, workflow.phaseOrder.indexOf(phase.id))) {
@@ -118,6 +118,8 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
     '--phase', phase.id, '--clause', clauseId, '--path', evidencePath, '--method', method,
     '--reason', core.reason, '--confirm', packetSha256, '--json'] });
   return { ...preview, acceptance: guidance, copilotCommand: guidance?.copilotCommand ?? null,
+    humanReview: { required: true, surface: 'human-terminal', execution: 'human-relay-only',
+      confirmationText: `Correct evidence PEA-${packetSha256.slice(7, 31)}` },
     reviewRequired: 'An authorized human must inspect the exact file and the before/after contract. This classifies delivery; it does not attest that the screen satisfies the criterion.' };
 }
 

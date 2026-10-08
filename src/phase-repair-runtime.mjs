@@ -62,6 +62,12 @@ const policyHash = ({ config, workflow, phase }, observation) => repairDigest({ 
   owner: observation.inspection.ownership ?? null });
 function actionFor(observation, { phase, workflow, config }) {
   const recovery = observation.recovery;
+  // A kernel-verified evidence hold is a pending human decision, not a producer repair.
+  // It stays in the condition/readiness hash while other owned findings are repaired.
+  const producerFindings = observation.inspection.draftRepair?.allowed === true
+    && observation.inspection.draftRepair.scope === 'draft-only'
+    ? observation.findings.filter(finding => (finding.details?.sourceCode ?? finding.code) !== 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED')
+    : observation.findings;
   // Only retry a retained, already governed publication. No fresh publish, generic push, fetch,
   // integration delivery, test command, arbitrary shell, approval or discard is registered here.
   if (!storyUsesStepActions(workflow) && !(workflow.resolution?.ledger ?? config.ledger)?.enabled
@@ -77,8 +83,8 @@ function actionFor(observation, { phase, workflow, config }) {
       && phase.status === 'in_progress' && observation.inspection.correction?.sameTurn === true
       && observation.inspection.ownership?.proven === true
       && observation.inspection.correction.class === 'agent-authoring'
-      && observation.findings.length > 0
-      && observation.findings.every(finding => phaseFindingPolicy(finding).repairableByProducer)) {
+      && producerFindings.length > 0
+      && producerFindings.every(finding => phaseFindingPolicy(finding).repairableByProducer)) {
     return { id: 'owned-producer-repair', mode: 'producer-handoff', pendingHash: null,
       skill: observation.inspection.correction.skill,
       detail: 'The bound producer repairs only the returned owned draft/source findings, then resumes this same attempt. No nested model is launched.' };

@@ -94,9 +94,15 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
   const status = authoring.entry?.status === 'retained-generation' ? 'retained-generation'
     : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry' : 'attention-required';
-  const next = preparationAdmitted ? authoring.entry.actions
+  let next = preparationAdmitted ? authoring.entry.actions
     : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
     : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;
+  if (authoringAllowed && contextAdmission.pendingEvidence) next = [{
+    id: `continue-draft:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+    skill: authoring.effectiveAuthoringSkill, command: `singularity-flow prepare ${phase.id}`,
+    detail: contextAdmission.pendingEvidence.detail,
+    scope: 'draft-only', evidenceAccepted: false, publicationReviewRequired: true
+  }, ...next];
   return { ...base, status, authoringAllowed, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),

@@ -346,6 +346,21 @@ test('admission diagnostics preserve every existing composition guard for arbitr
   assert.equal(phaseContextAdmission({ authoring: { entry: { status: 'authoring-entry' }, policyVerified: true } }).allowed, false);
 });
 
+test('pending evidence permits draft composition only, never recovery or authority bypass', () => {
+  const authoring = { entry: { status: 'authoring-entry' }, policyVerified: true, effectiveAuthoringSkill: '/sf-code' };
+  const continuation = { allowed: true, status: 'draft-only', evidenceAccepted: false,
+    publicationReviewRequired: true, heldEvidence: [{ path: 'team/stories/E/evidence/screen.png' }] };
+  const recovery = { requiresRecovery: false, actions: [{ id: 'working-tree', confirmation: 'human-authority',
+    authoringContinuation: continuation }] };
+  const admitted = phaseContextAdmission({ authoring, recovery });
+  assert.equal(admitted.allowed, true);
+  assert.equal(admitted.pendingEvidence, continuation);
+  for (const overrides of [{ authoring: { ...authoring, policyVerified: false } },
+    { authoring: { ...authoring, entry: { status: 'retained-generation' } } },
+    { recovery: { ...recovery, requiresRecovery: true } }, { references: { status: 'blocked' } },
+    { deterministic: true }]) assert.equal(phaseContextAdmission({ authoring, recovery, ...overrides }).allowed, false);
+});
+
 test('explicit entry composition returns the governed prompt once and reuses immutable bytes', async t => {
   const item = await fixture(t);
   const before = git(item.root, 'rev-parse', 'HEAD');

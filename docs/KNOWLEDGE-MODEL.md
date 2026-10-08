@@ -86,6 +86,8 @@ item (a test/code disagreement, coverage, impact) is tied to the lines of the it
 When the reviewed lines change, the review stops applying and the item says to review it again; a
 review whose item no longer exists is listed as a pitfall, never dropped quietly. Rules are
 numbered within their function, so editing a condition keeps the rule's id and its review.
+In VS Code, **Repository Knowledge** opens the current build as a preview and **Review Repository
+Knowledge** picks an item and records the same confirm, correct or reject review.
 
 ## Plain-language explanations
 
@@ -141,5 +143,4 @@ suite:
 - An explanation's check is lexical: a sentence that uses only plain words can still misread what it
   cites, which is why kept sentences stay labelled `inferred`.
 - History covers the last 12 months (at most 2,000 commits, merges skipped).
-- Not built yet: reviewing items from the IDE (the CLI records them), and approved Story documents as
-  cited sources.
+- Not built yet: approved Story documents as cited sources.

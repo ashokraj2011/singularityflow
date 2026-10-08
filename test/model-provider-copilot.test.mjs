@@ -416,7 +416,10 @@ test('ACP records exact normalized output and fails closed on response and token
   await t.test('aggregate token budget', async () => {
     await assert.rejects(() => invokeAcp(root, {
       limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxTotalTokens: 10 }
-    }), (error) => error.code === 'MODEL_TOKEN_BUDGET_EXCEEDED');
+    }), (error) => error.code === 'MODEL_TOKEN_BUDGET_EXCEEDED'
+      && error.details.maximumTotalTokens === 10
+      && error.details.observedTotalTokens === 12
+      && /reported 12 total tokens, exceeding the 10-token/.test(error.message));
   });
 });
 

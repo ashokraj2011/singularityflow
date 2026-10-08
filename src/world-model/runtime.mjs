@@ -181,30 +181,44 @@ async function composeWithModel(root, prompt, contract, viewOutputBudget, {
       { code: 'WMB_EXECUTION_UNIT_UNAVAILABLE' }
     );
   }
-  assertWmbV4PromptInputBudget(prompt, contract);
+  const logicalPromptTokens = assertWmbV4PromptInputBudget(prompt, contract);
   const maximumOutputTokens = viewOutputBudget.viewBudgets[contract.id].maximumOutputTokens;
-  return invokeModel({
-    provider,
-    providerConfig,
-    ...(model ? { model } : {}),
-    cwd: root,
-    allowedRoots: [root],
-    prompt: { text: prompt },
-    channel: 'world-model-view-composition',
-    subject: { kind: 'repository-world-model-view', id: contract.id },
-    executionContext,
-    tools: { mode: 'none', names: [] },
-    limits: {
-      timeoutMs,
-      outputBytes: maximumOutputTokens * 4,
-      promptBytes: contract.budgets.maximumInputTokens * 4,
-      maxTurns: 'auto',
-      maxToolCalls: 'auto',
-      maxTotalTokens: contract.budgets.maximumInputTokens + maximumOutputTokens,
-      maxAiCredits: 'auto'
-    },
-    tokenAdmission: { mode: 'observe' }
-  });
+  try {
+    return await invokeModel({
+      provider,
+      providerConfig,
+      ...(model ? { model } : {}),
+      cwd: root,
+      allowedRoots: [root],
+      prompt: { text: prompt },
+      channel: 'world-model-view-composition',
+      subject: { kind: 'repository-world-model-view', id: contract.id },
+      executionContext,
+      tools: { mode: 'none', names: [] },
+      limits: {
+        timeoutMs,
+        outputBytes: maximumOutputTokens * 4,
+        promptBytes: contract.budgets.maximumInputTokens * 4,
+        maxTurns: 'auto',
+        maxToolCalls: 'auto',
+        // The view contract bounds our logical prompt and returned bytes, not provider session
+        // usage (which can include hidden system/history tokens). Use the model runner's finite
+        // tool-free invocation default; never equate that aggregate with these view allowances.
+        maxAiCredits: 'auto'
+      },
+      tokenAdmission: { mode: 'observe' }
+    });
+  } catch (error) {
+    if (error?.code === 'MODEL_TOKEN_BUDGET_EXCEEDED') {
+      error.details = {
+        ...error.details,
+        logicalPromptTokensEstimate: logicalPromptTokens,
+        maximumPromptTokensEstimate: contract.budgets.maximumInputTokens,
+        maximumOutputBytes: maximumOutputTokens * 4
+      };
+    }
+    throw error;
+  }
 }
 
 function failureRecord(error) {

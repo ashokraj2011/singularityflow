@@ -821,6 +821,16 @@ export function refusalDetails(details) {
   if (obligations.length) projected.obligations = obligations;
   const gate = projectGateRefusal(details.gate);
   if (gate) projected.gate = gate;
+  if (details.modelBudget && typeof details.modelBudget === 'object') {
+    const budget = {};
+    if (text(details.modelBudget.viewId)) budget.viewId = text(details.modelBudget.viewId);
+    for (const key of ['logicalPromptTokensEstimate', 'maximumPromptTokensEstimate', 'maximumOutputBytes',
+      'maximumTotalTokens', 'observedTotalTokens', 'providerInputTokens', 'providerOutputTokens']) {
+      const value = details.modelBudget[key];
+      if (Number.isSafeInteger(value) && value >= 0) budget[key] = value;
+    }
+    if (Object.keys(budget).length) projected.modelBudget = budget;
+  }
   if (details.coverage && typeof details.coverage === 'object') {
     const coverage = compact(Object.fromEntries(['unimplemented', 'testPresenceOnly', 'unclaimedChangedPaths', 'withdrawnButClaimed']
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));

@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 28
+version: 29
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -29,6 +29,16 @@ During explicit migration, current deterministic registration runs before narrat
 Exact legacy claims may bind only to current registered Facts; every unresolved claim becomes a
 typed `unavailable` Fact through the model-free migration producer, using only claim identity
 hashes. The regenerated view and exact migration receipt publish together in one state transaction.
+
+Model composition applies independent budgets: each view contract bounds SFlow's logical prompt
+estimate and returned output bytes, while the model runner's finite tool-free invocation ceiling
+(currently 64,000 tokens) bounds provider-reported aggregate usage. Provider system/history context
+is not measured by the logical prompt estimate; unknown overhead remains unknown, not zero.
+Usage and enforced limits are retained in invocation diagnostics. Exceeding the aggregate ceiling
+does not publish an invalid view or trigger an automatic retry. The failure card shows available
+usage and limits. If every selected view permits deterministic composition, choose **World Model →
+Build / refresh effective model → deterministic composer**, then review a new exact Plan. Required-
+model contracts instead require configuration-authority review; validation is never relaxed.
 
 Changing only `worldModel.format` is not a complete repository migration because older phase,
 workflow-override, Agent Markdown, and prompt contracts still name v3 reader projections. The VS

@@ -137,6 +137,11 @@ function fromRefusalPlan(result: any, displayMessage: string,
   const actions = reviewableActions(planned, repositoryRoot);
   const code = String(result.error?.code ?? result.remediationPlan?.code ?? 'SINGULARITY_FLOW_ERROR');
   const gate = gateRefusalReasons(result.error?.details?.gate);
+  const budget = result.error?.details?.modelBudget;
+  const budgetDetails = Object.fromEntries([
+    'logicalPromptTokensEstimate', 'maximumPromptTokensEstimate', 'maximumOutputBytes',
+    'maximumTotalTokens', 'observedTotalTokens', 'providerInputTokens', 'providerOutputTokens'
+  ].flatMap(key => Number.isSafeInteger(budget?.[key]) && budget[key] >= 0 ? [[key, budget[key]]] : []));
   return Object.freeze({
     tone: 'refusal' as const,
     headline: 'This command is blocked — here is a safe path forward',
@@ -161,6 +166,7 @@ function fromRefusalPlan(result: any, displayMessage: string,
     details: Object.freeze({
       code,
       source: 'deterministic recovery planner',
+      ...budgetDetails,
       retry: String(result.remediationPlan?.retry?.label ?? 'Retry after resolving the blocking condition.')
     })
   });

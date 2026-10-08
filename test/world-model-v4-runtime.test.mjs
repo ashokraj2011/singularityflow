@@ -12,6 +12,7 @@ import { initializeDefinition } from '../src/config.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
+import { listModelInvocations } from '../src/model-runner.mjs';
 import { run } from '../src/util.mjs';
 import {
   inspectWorldModelViewCache, verifyWorldModelStalenessReceipt,
@@ -2103,7 +2104,7 @@ test('failed-view retry policy preserves refusal lineage and exhausts its instal
   );
 });
 
-test('the governed model composer validates, materializes, and accounts for one successful candidate', async (t) => {
+test('the governed model composer separates logical view budgets from bounded provider usage', async (t) => {
   const { root } = await repository(t);
   const executionContext = {
     mode: 'workflow-snapshot', snapshotHash: `sha256:${'1'.repeat(64)}`,
@@ -2119,9 +2120,12 @@ test('the governed model composer validates, materializes, and accounts for one 
   assert.equal(deterministic.status, 'ready-to-publish');
   const candidate = JSON.stringify(deterministic.availableViews[0].candidate);
   const fixture = path.join(root, 'fake-wmb-composer-acp.mjs');
+  const responseFile = path.join(root, 'fake-wmb-response.json');
+  const passingUsage = { inputTokens: 22033, outputTokens: 1960, totalTokens: 23993 };
   await writeFile(fixture, `
 import readline from 'node:readline';
-const candidate = ${JSON.stringify(candidate)};
+import { readFileSync } from 'node:fs';
+const { candidate, usage } = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 for await (const line of lines) {
@@ -2142,26 +2146,30 @@ for await (const line of lines) {
       }
     }});
     send({ jsonrpc: '2.0', id: message.id, result: {
-      stopReason: 'end_turn', usage: { inputTokens: 101, outputTokens: 47, totalTokens: 148 }
+      stopReason: 'end_turn', usage
     }});
   }
 }
 `);
 
-  const composed = await withOperationContext({
-    operation: { id: 'world-model.build', modelPolicy: 'required' },
-    modelMode: { enabled: true }, root, command: 'wm build'
-  }, () => buildWorldModelV4(root, buildOptions({
-    composer: 'model', provider: 'copilot-cli', model: 'fixture-model',
-    executionContext,
-    providerConfig: {
-      type: 'copilot-cli', executable: process.execPath,
-      arguments: [fixture], promptTransport: 'acp-stdio'
-    },
-    cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:31:00.000Z'
-  })));
+  const compose = async (usage = passingUsage, output = candidate) => {
+    await writeFile(responseFile, JSON.stringify({ usage, candidate: output }));
+    return withOperationContext({
+      operation: { id: 'world-model.build', modelPolicy: 'required' },
+      modelMode: { enabled: true }, root, command: 'wm build'
+    }, () => buildWorldModelV4(root, buildOptions({
+      composer: 'model', provider: 'copilot-cli', model: 'fixture-model',
+      executionContext,
+      providerConfig: {
+        type: 'copilot-cli', executable: process.execPath,
+        arguments: [fixture, responseFile], promptTransport: 'acp-stdio'
+      },
+      cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:31:00.000Z'
+    })));
+  };
+  const composed = await compose();
 
-  assert.equal(composed.status, 'ready-to-publish');
+  assert.equal(composed.status, 'ready-to-publish', JSON.stringify(composed.refusals));
   assert.equal(composed.availableViews.length, 1);
   const [view] = composed.availableViews;
   assert.equal(view.route, 'model');
@@ -2170,14 +2178,59 @@ for await (const line of lines) {
   assert.equal(view.execution.executionUnitManifestSha256, worldModelExecutionUnitManifestSha256({
     route: 'model', provider: 'copilot-cli', requestedModel: 'fixture-model'
   }));
-  assert.equal(view.usageObservation.providerInputTokens, 101);
-  assert.equal(view.usageObservation.providerOutputTokens, 47);
+  assert.equal(view.usageObservation.providerInputTokens, 22033);
+  assert.equal(view.usageObservation.providerOutputTokens, 1960);
   assert.equal(view.usageObservation.assurance.providerTokens, 'provider-reported');
   assert.match(view.markdown, /execution-unit: governed-model-composer@1:/);
   const audits = await listPromptAudits(root, { includePrompt: false });
   assert.equal(audits.count, 1);
   assert.deepEqual(audits.records[0].executionContext, executionContext);
   assert.equal(audits.records[0].workId, null);
+  const invocations = await listModelInvocations(root);
+  assert.equal(invocations[0].limits.maxTotalTokens, 64000);
+  assert.equal(invocations[0].limits.promptBytes, 32000);
+  assert.equal(invocations[0].limits.outputBytes, 5600);
+  assert.equal(invocations[0].usage.totalTokens, 23993);
+  assert.equal(invocations[0].tokenAdmission.logicalPromptTokens.assurance, 'estimated');
+  assert.equal(invocations[0].tokenAdmission.systemAndToolReserveTokens.value, null);
+
+  await t.test('the independent provider ceiling still refuses excessive aggregate usage', async () => {
+    const overBudget = await compose({ inputTokens: 63000, outputTokens: 1001, totalTokens: 64001 });
+    assert.equal(overBudget.status, 'refused');
+    assert.equal(overBudget.availableViews.length, 0);
+    const failure = overBudget.refusals[0].failures[0];
+    assert.equal(failure.code, 'MODEL_TOKEN_BUDGET_EXCEEDED');
+    assert.equal(failure.details.maximumTotalTokens, 64000);
+    assert.equal(failure.details.observedTotalTokens, 64001);
+    assert.equal(failure.details.maximumPromptTokensEstimate, 8000);
+    assert.ok(failure.details.logicalPromptTokensEstimate <= 8000);
+    assert.equal(failure.details.maximumOutputBytes, 5600);
+    await writeFile(responseFile, JSON.stringify({ usage: passingUsage, candidate }));
+    const retried = await withOperationContext({
+      operation: { id: 'world-model.build', modelPolicy: 'required' },
+      modelMode: { enabled: true }, root, command: 'wm build'
+    }, () => retryFailedWorldModelV4View(root, overBudget, {
+      view: 'dev.impact', composer: 'model', provider: 'copilot-cli', model: 'fixture-model',
+      providerConfig: {
+        type: 'copilot-cli', executable: process.execPath,
+        arguments: [fixture, responseFile], promptTransport: 'acp-stdio'
+      }
+    }));
+    assert.equal(retried.runtime.status, 'ready-to-publish');
+    assert.equal(retried.runtime.availableViews[0].usageObservation.providerInputTokens, 22033);
+  });
+  await t.test('the original response-size ceiling remains enforced', async () => {
+    const oversized = await compose({}, 'x'.repeat(5601));
+    assert.equal(oversized.status, 'refused');
+    assert.equal(oversized.refusals[0].failures[0].code, 'MODEL_OUTPUT_LIMIT');
+    assert.equal(oversized.availableViews.length, 0);
+  });
+  await t.test('fitting provider usage does not bypass candidate validation', async () => {
+    const invalid = await compose({}, '{}');
+    assert.equal(invalid.status, 'refused');
+    assert.equal(invalid.availableViews.length, 0);
+    assert.notEqual(invalid.refusals[0].failures[0].code, 'MODEL_TOKEN_BUDGET_EXCEEDED');
+  });
 });
 
 test('a large model-routed architecture view omits optional facts, publishes, and replays from state', async (t) => {

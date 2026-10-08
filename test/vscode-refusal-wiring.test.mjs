@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { codeOccurrences } from './source-text.mjs';
 import { storyPublicationPreflightError } from '../src/story-publication-preflight.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
+import { assertWorldModelV4BuildCompleted } from '../src/world-model/service.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
@@ -251,6 +252,68 @@ test('a registered-view model-boundary refusal retains registered-v4 diagnosis',
     'singularity-flow wm doctor --format registered-v4 --json',
     'singularity-flow recommend --json'
   ]);
+});
+
+function worldModelBudgetRefusal(modes = ['optional']) {
+  return {
+    status: 'refused',
+    runtime: { planned: { requestedViews: modes.map(mode => ({ contract: { model: { mode } } })) } },
+    refusals: [{
+      code: 'WMB_VIEW_VALIDATION_FAILED', view: 'arch.contracts',
+      failures: [{
+        code: 'MODEL_TOKEN_BUDGET_EXCEEDED', reason: 'Provider reported 64001 total tokens, exceeding its 64000-token invocation budget.',
+        details: {
+          logicalPromptTokensEstimate: 7426, maximumPromptTokensEstimate: 8000,
+          maximumOutputBytes: 5600, maximumTotalTokens: 64000, observedTotalTokens: 64001,
+          usage: { inputTokens: 63000, outputTokens: 1001, totalTokens: 64001 },
+          providerTranscript: 'office-secret', providerOverheadTokens: 55555
+        }
+      }]
+    }]
+  };
+}
+
+test('native World Model budget refusal shows actual usage and reviewed model-free recovery', () => {
+  assert.throws(() => assertWorldModelV4BuildCompleted(worldModelBudgetRefusal()), error => {
+    const { view: card, fidelity } = refusalFor(error, { repositoryRoot: '/Users/example/calc' });
+    assert.equal(fidelity, 'refusal-plan-v1');
+    assert.equal(card.details.observedTotalTokens, 64001);
+    assert.equal(card.details.maximumTotalTokens, 64000);
+    assert.equal(card.details.providerInputTokens, 63000);
+    assert.equal(card.details.providerOutputTokens, 1001);
+    assert.equal(card.details.logicalPromptTokensEstimate, 7426);
+    assert.equal(card.details.maximumOutputBytes, 5600);
+    assert.match(card.warnings[0].label, /choose the deterministic composer.*new exact build Plan/);
+    assert.ok(card.actions.every(action => action.executable === false));
+    assert.match(card.actions[0].command, /cd '\/Users\/example\/calc'.*'wm' 'doctor' '--format' 'registered-v4'/);
+    assert.deepEqual(card.preserved, []);
+    assert.doesNotMatch(JSON.stringify(card), /office-secret|55555|providerOverheadTokens/);
+    assert.doesNotMatch(JSON.stringify(card.actions), /recommend|start/);
+    return true;
+  });
+});
+
+test('model-budget recovery never downgrades required-model or unknown view policies', () => {
+  for (const modes of [['required'], ['optional', 'required'], [], ['unknown']]) {
+    assert.throws(() => assertWorldModelV4BuildCompleted(worldModelBudgetRefusal(modes)), error => {
+      const { view: card } = refusalFor(error);
+      assert.match(card.warnings[0].label, /model-free retry is not verified.*configuration authority/);
+      assert.doesNotMatch(JSON.stringify(card), /choose the deterministic composer/);
+      return true;
+    });
+  }
+});
+
+test('unavailable provider usage stays absent rather than becoming zero or inferred overhead', () => {
+  const result = worldModelBudgetRefusal();
+  result.refusals[0].failures[0].details = {};
+  assert.throws(() => assertWorldModelV4BuildCompleted(result), error => {
+    const { view: card } = refusalFor(error);
+    assert.equal(card.details.observedTotalTokens, undefined);
+    assert.equal(card.details.providerInputTokens, undefined);
+    assert.equal(card.details.maximumTotalTokens, undefined);
+    return true;
+  });
 });
 
 test('a deterministic refusal plan becomes safe reviewable VS Code actions', () => {

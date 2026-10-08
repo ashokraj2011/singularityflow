@@ -1051,7 +1051,7 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
   if (!tokensAreAutomatic && Number.isFinite(usage.totalTokens)
       && usage.totalTokens > request.limits.maxTotalTokens) {
     throw new SingularityFlowError(
-      `${providerLabel} exceeded the ${request.limits.maxTotalTokens}-token invocation budget.`,
+      `${providerLabel} reported ${usage.totalTokens} total tokens, exceeding the ${request.limits.maxTotalTokens}-token invocation budget.`,
       {
         code: 'MODEL_TOKEN_BUDGET_EXCEEDED',
         details: {

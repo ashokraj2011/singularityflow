@@ -1,6 +1,8 @@
 import { types as utilTypes } from 'node:util';
 
 import { SingularityFlowError } from '../util.mjs';
+import { refusalEnvelope } from '../refusal-remediation.mjs';
+import { worldModelBudgetRecovery } from './compose/model-budget-diagnostics.mjs';
 import { storeConservativeWorldModelStalenessReceipt } from './cache.mjs';
 import {
   buildWorldModelManifest, deriveWorldModelManifestDependencies
@@ -1174,7 +1176,8 @@ export function assertWorldModelV4BuildCompleted(result) {
   const refusalMessage = projection
     ? `World-model projection '${projection}' was refused: ${reason}`
     : view ? `World-model view '${view}' was refused: ${reason}` : null;
-  throw new SingularityFlowError(
+  const budgetRecovery = worldModelBudgetRecovery(result?.runtime ?? result, first);
+  const error = new SingularityFlowError(
     refusalMessage ?? 'The WMB v4 build did not produce a complete manifest.',
     {
       code: first?.code ?? 'WMB_REQUIRED_VIEW_UNAVAILABLE',
@@ -1183,10 +1186,15 @@ export function assertWorldModelV4BuildCompleted(result) {
         requiredFailures: result?.runtime?.requiredFailures ?? [],
         requiredProjectionFailures: projection ? [projection] : [],
         refusals: result?.refusals ?? [],
-        next: result?.next ?? []
+        next: result?.next ?? [],
+        ...(budgetRecovery ?? {})
       }
     }
   );
+  // Native callers do not pass through the CLI error writer. Give them the same bounded
+  // structured refusal, without inventing an effects/preservation claim for a partial build.
+  if (budgetRecovery) error.result = refusalEnvelope(error, ['wm', 'build', '--format', 'registered-v4']);
+  throw error;
 }
 
 /**

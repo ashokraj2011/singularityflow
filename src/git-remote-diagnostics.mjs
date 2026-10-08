@@ -702,7 +702,10 @@ function receiveHookRejected(output) {
 
 /** Only local hook markers qualify; provider-side `remote:` diagnostics remain server policy. */
 export function localGitHookFailure(result) {
-  const lines = outputForClassification(result).split(/\r?\n/u).filter((line) => !/^\s*remote:/iu.test(line));
+  // Git's own `hint:` advice names a hook it did not run ("The '.git/hooks/pre-push' hook was
+  // ignored because it's not set as executable"), so it can never be evidence of a hook failure.
+  const lines = outputForClassification(result).split(/\r?\n/u)
+    .filter((line) => !/^\s*(?:remote|hint):/iu.test(line));
   const marker = lines.find((line) => /(?:\.husky[\\/]|[\\/]hooks[\\/])pre-push\b|husky\s*(?:-|–)?\s*pre-push\b/iu.test(line));
   if (!marker) return null;
   const missing = lines.map((line) => line.match(/(?:line\s+\d+:|:\s*\d+:)\s*['"]?([A-Za-z0-9][A-Za-z0-9._-]{0,63})['"]?:\s*(?:command\s+)?not found\b/iu)

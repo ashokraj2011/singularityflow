@@ -6,7 +6,7 @@ import path from 'node:path';
 import { classifyGitRemoteFailure, gitFailureDiagnostic } from '../src/git-remote-diagnostics.mjs';
 import { probeStoryBranchPublication, storyPublicationPreflightError } from '../src/story-publication-preflight.mjs';
 import { capturePushWorktree, observePublicationHookEffects, publicationFailureMessage } from '../src/git-hook-effects.mjs';
-import { pushCommitToBranchAsync, refHead } from '../src/git.mjs';
+import { publicationPushOutcome, pushCommitToBranchAsync, refHead } from '../src/git.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { reportCliFailure } from '../src/cli-failure.mjs';
 import { run } from '../src/util.mjs';
@@ -100,6 +100,30 @@ test('intake probe skips local hooks; actual publication enforces them and retai
   assert.equal(retry.status, 0, retry.stderr);
   assert.equal(refHead(remote, 'refs/heads/news-filter-e2e'), refHead(root, 'HEAD'));
   assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'retained report\n');
+});
+
+test("Git's ignored-hook hint is not a hook failure and keeps a lost push response indeterminate", async (t) => {
+  const hint = "hint: The '.git/hooks/pre-push' hook was ignored because it's not set as executable.\n"
+    + 'hint: You can disable this warning with `git config set advice.ignoredHook false`.\n';
+  const lost = { status: 128, stdout: '', stderr: `${hint}fatal: the remote end hung up unexpectedly\n` };
+  assert.equal(classifyGitRemoteFailure(lost).classification, 'network-transient');
+  assert.equal(classifyGitRemoteFailure(lost).hook, undefined);
+  assert.equal(publicationPushOutcome(lost), 'transport-indeterminate',
+    'a response lost after the remote may have accepted the update must stay reconcilable');
+  assert.equal(classifyGitRemoteFailure(failed(`${hint}fatal: Authentication failed`)).classification, 'authentication-required');
+
+  const { root, hook } = await repository(t);
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+  await chmod(hook, 0o644);
+  run('git', ['config', 'advice.ignoredHook', 'true'], { cwd: root });
+  await writeFile(path.join(root, 'source.txt'), 'changed\n');
+  run('git', ['commit', '-qam', 'second'], { cwd: root });
+  // A lease that expects `main` to be absent is stale: a definite rejection that names no hook.
+  const result = await pushCommitToBranchAsync(root, 'origin', refHead(root, 'HEAD'), 'main', { expectedRemoteSha: null });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /hooks[\\/]pre-push' hook was ignored/);
+  assert.equal(result.failure.hook, undefined);
+  assert.doesNotMatch(result.failure.classification, /^local-hook/);
 });
 
 test('observation unavailable is never asserted to mean unchanged', async () => {

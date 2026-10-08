@@ -72,16 +72,34 @@ function workspaceStatus(value: WorkspaceStatus, selected: string): WorkspaceSta
 
 /** Older/malformed CLI output is a visible recovery condition, never a broken webview. */
 function upgradeStatus(value: WorkspaceConfigurationRefreshResult): WorkspaceConfigurationRefreshResult {
+  const stringList = (items: unknown): boolean => Array.isArray(items)
+    && items.every(item => typeof item === 'string');
+  const migration = value?.worldModelMigration;
+  const invalidMigration = migration !== undefined && (!migration
+    || migration.requested !== true || migration.targetFormat !== 'registered-v4'
+    || !['planned', 'configured', 'incomplete'].includes(migration.status)
+    || migration.historicalArtifacts !== 'preserved' || migration.storiesRepinned !== false
+    || typeof migration.rebuildRequired !== 'boolean' || typeof migration.statement !== 'string'
+    || !Array.isArray(migration.repositories) || migration.repositories.some(repository =>
+      !repository || typeof repository.repository !== 'string' || typeof repository.status !== 'string'
+      || (repository.capabilities !== undefined && !stringList(repository.capabilities))
+      || (repository.views !== undefined && !stringList(repository.views))
+      || (repository.capabilityAssignments !== undefined && (!Array.isArray(repository.capabilityAssignments)
+        || repository.capabilityAssignments.some(assignment => !assignment
+          || typeof assignment.capability !== 'string' || !stringList(assignment.before) || !stringList(assignment.after))))));
   if (!value || value.resultType !== 'workspace-reinitialization' || typeof value.dryRun !== 'boolean'
     || !['preview', 'complete', 'partial', 'blocked'].includes(value.status)
     || !Number.isSafeInteger(value.total) || value.total < 0
     || !Number.isSafeInteger(value.updated) || value.updated < 0
-    || !Array.isArray(value.results) || value.results.some(repository =>
+    || invalidMigration || !Array.isArray(value.results) || value.results.some(repository =>
       !repository || typeof repository.repository !== 'string' || typeof repository.status !== 'string'
       || (repository.files !== undefined && (!Array.isArray(repository.files)
         || repository.files.some(file => typeof file !== 'string')))
       || (repository.conflicts !== undefined && (!Array.isArray(repository.conflicts)
-        || repository.conflicts.some(conflict => !conflict || typeof conflict.path !== 'string'))))) {
+        || repository.conflicts.some(conflict => !conflict || typeof conflict.path !== 'string')))
+      || (repository.memberships !== undefined && (!Array.isArray(repository.memberships)
+        || repository.memberships.some(member => !member || typeof member.workspaceId !== 'string'
+          || typeof member.repositoryId !== 'string'))))) {
     throw new Error('The CLI returned an unverifiable upgrade result. Recheck the installed build and preview again; no completion was recorded.');
   }
   return value;
@@ -99,6 +117,7 @@ export function safeUpgradeComplete(result: WorkspaceConfigurationRefreshResult 
     && result.dryRun === false && result.status === 'complete' && result.total > 0
     && Array.isArray(result.results) && result.results.length === result.total && !result.failed
     && result.results.every(repository => ['current', 'updated'].includes(repository.status))
+    && (!result.worldModelMigration || verifiedWorldModelMigration(result, 'configured'))
     && !result.topologyIssues?.length
     && !result.schemaCensuses?.some(census => census.healthy === false || census.truncated)
     && result.capabilityPortability?.changed === false);
@@ -109,6 +128,17 @@ export function afterInstallComplete(view: AfterInstallView): boolean {
     && view.verified?.workspace.path === view.selected && view.verified.healthy === true
     && Boolean(view.references?.length) && view.references!.every(reference =>
       reference.status === 'refreshed' || reference.status === 'already-attached');
+}
+
+export function verifiedWorldModelMigration(result: WorkspaceConfigurationRefreshResult, status: 'planned' | 'configured'): boolean {
+  const migration = result.worldModelMigration;
+  return Boolean(migration?.requested === true && migration.status === status
+    && migration.targetFormat === 'registered-v4' && migration.historicalArtifacts === 'preserved'
+    && migration.storiesRepinned === false && Array.isArray(migration.repositories)
+    && migration.repositories.length === result.total
+    && new Set(migration.repositories.map(repository => repository.repository)).size === result.total
+    && migration.repositories.every(repository => repository.targetFormat === 'registered-v4'
+      && result.results.some(entry => entry.repository === repository.repository)));
 }
 
 /** Host-owned revision leases expire on scope/build changes, disposal and overlapping requests. */
@@ -189,7 +219,7 @@ export class AfterInstallJourney {
 
   async select(selected: string): Promise<void> {
     // Scope changes invalidate an open confirmation, but cannot start beside an executing write.
-    if (this.view.busy && this.view.busy !== 'Review the exact upgrade plan…') return;
+    if (this.view.busy && !['Review the exact upgrade plan…', 'Review workspace and capability migration…'].includes(this.view.busy)) return;
     if (!this.view.workspaces.some(entry => entry.path === selected && !entry.archivedAt)) return;
     const revision = this.begin('Reading this workspace…');
     this.view.selected = selected;
@@ -250,13 +280,17 @@ export class AfterInstallJourney {
     const selected = this.view.selected!;
     const planId = reviewed.planId;
     const binding = JSON.stringify(reviewed);
-    const argv = this.args(['--confirm-plan', planId]);
+    const argv = this.args([
+      ...(reviewed.worldModelMigration?.requested ? ['--migrate-world-model'] : []),
+      '--confirm-plan', planId
+    ]);
     const revision = this.begin('Review the exact upgrade plan…');
     try {
       const accepted = await this.host.confirm({
         title: 'Apply the safe after-install upgrade',
         summary: `${reviewed.total} repositories in ${this.view.workspace.workspace.name}.`,
         detail: 'Update framework-owned assets on sflow/config and its state mirror. Preserve custom content, workspace mappings, application code and Story history.\n\n'
+          + (reviewed.worldModelMigration?.requested ? reviewed.worldModelMigration.statement + '\n\n' : '')
           + reviewed.results.map(repository => `${repository.repository}: ${repository.status}\n`
             + (repository.files ?? []).join('\n')).join('\n\n'),
         confirmLabel: 'Apply reviewed upgrade', expected: planId
@@ -280,10 +314,70 @@ export class AfterInstallJourney {
     finally { this.finish(revision); }
   }
 
+  /** One launch, one exact confirmation: migrate approved settings, refresh pins, then verify. */
+  async migrate(): Promise<void> {
+    if (this.view.busy || !this.view.workspace || this.view.product?.verdict !== 'aligned') return;
+    const selected = this.view.selected!;
+    const reviewedTopology = topology(this.view.workspace);
+    const revision = this.begin('Previewing workspace and capability migration…');
+    this.view.upgrade = null;
+    this.view.references = null;
+    this.view.verified = null;
+    try {
+      const reviewed = upgradeStatus(await this.host.run<WorkspaceConfigurationRefreshResult>(
+        this.args(['--migrate-world-model', '--dry-run'])
+      ));
+      if (!this.current(revision)) return;
+      this.view.upgrade = reviewed;
+      if (!isSafeWorkspaceReinitializationPreview(reviewed) || reviewed.total < 1
+        || reviewed.results.length !== reviewed.total || !verifiedWorldModelMigration(reviewed, 'planned')) {
+        throw new Error('Migration preview needs attention. Resolve the reported configuration or schema issue, then run migration again. An older CLI may need the matching installed build.');
+      }
+      const binding = JSON.stringify(reviewed);
+      const argv = this.args(['--migrate-world-model', '--confirm-plan', reviewed.planId]);
+      this.view.busy = 'Review workspace and capability migration…';
+      this.render();
+      const accepted = await this.host.confirm({
+        title: 'Migrate workspace and capabilities',
+        summary: `${this.view.workspace!.workspace.name} · ${reviewed.total} repositories · registered-v4`,
+        detail: 'Upgrade framework seeds and approved World Model settings on sflow/config, mirror them to state, and refresh existing checkout authority pins. Known legacy phase/agent/initiative assignments inherit the registered catalog; listed capability assignments change in the same configuration commit. Custom code, capability routing, historical artifacts and existing Story snapshots are preserved. No tests, source pull, clone or model call. Fresh World Model analysis is a separate build.\n\n'
+          + reviewed.results.map(repository => `${repository.repository}: ${repository.status}\n`
+            + (repository.files ?? []).join('\n')).join('\n\n')
+          + '\n\nWorld Model changes:\n' + JSON.stringify(reviewed.worldModelMigration, null, 2)
+          + '\n\nLocal references:\n' + this.view.workspace!.repositories.map(repository =>
+            `${repository.id}: ${repository.absolutePath ?? repository.path ?? 'path unavailable'}`
+          ).join('\n'),
+        confirmLabel: 'Migrate and verify', expected: reviewed.planId
+      });
+      if (!accepted || !this.current(revision) || this.view.selected !== selected
+        || this.view.upgrade !== reviewed || JSON.stringify(reviewed) !== binding) return;
+      const currentWorkspace = workspaceStatus(await this.host.run<WorkspaceStatus>([
+        'workspace', 'status', selected, '--level', 'readiness', '--json'
+      ]), selected);
+      if (!this.current(revision)) return;
+      if (topology(currentWorkspace) !== reviewedTopology) throw new Error('Workspace membership changed after review. Run migration again for a fresh preview.');
+      this.view.upgrade = null; // consume authorization before any publication
+      this.view.busy = 'Migrating approved workspace and capability configuration…';
+      this.render();
+      const result = upgradeStatus(await this.host.run<WorkspaceConfigurationRefreshResult>(argv));
+      if (!this.current(revision)) return;
+      this.view.upgrade = result;
+      if (result.updated > 0 || safeUpgradeComplete(result)) await this.host.configurationChanged();
+      if (!this.current(revision)) return;
+      if (!safeUpgradeComplete(result) || !verifiedWorldModelMigration(result, 'configured')) {
+        throw new Error('Migration is not fully verified. Completed publications are preserved; resolve the reported issue and run migration again to resume.');
+      }
+      await this.refreshVerifiedReferences(selected, reviewedTopology, revision, result);
+    } catch (error) { if (this.current(revision)) this.view.error = message(error); }
+    finally { this.finish(revision); }
+  }
+
   async refreshReferences(): Promise<void> {
     if (this.view.busy || this.view.product?.verdict !== 'aligned'
       || !safeUpgradeComplete(this.view.upgrade) || !this.view.workspace) return;
     const selected = this.view.selected!;
+    const migration = this.view.upgrade!.worldModelMigration?.requested
+      ? this.view.upgrade : null;
     const reviewedTopology = topology(this.view.workspace);
     const revision = this.begin('Review workspace reference refresh…');
     this.view.references = null;
@@ -292,11 +386,20 @@ export class AfterInstallJourney {
       const accepted = await this.host.confirm({
         title: 'Refresh this workspace’s configuration references',
         summary: this.view.workspace.workspace.name,
-        detail: 'Update only each existing checkout’s previously selected authority pin. No pull, checkout, clone, source scan, tests or Story changes. Missing/deferred checkouts remain untouched.\n\n'
+        detail: (migration ? 'Refresh only to each checkout’s exact migrated configuration commit. If authority moved, run migration again for a fresh preview. '
+          : 'Update only each existing checkout’s previously selected authority pin. ')
+          + 'No pull, checkout, clone, source scan, tests or Story changes. Missing/deferred checkouts remain untouched.\n\n'
           + this.view.workspace.repositories.map(repository => `${repository.id}: ${repository.absolutePath ?? repository.path ?? 'path unavailable'}`).join('\n'),
         confirmLabel: 'Refresh and verify workspace', expected: this.view.workspace.workspace.id
       });
       if (!accepted || !this.current(revision)) return;
+      await this.refreshVerifiedReferences(selected, reviewedTopology, revision, migration);
+    } catch (error) { if (this.current(revision)) this.view.error = message(error); }
+    finally { this.finish(revision); }
+  }
+
+  private async refreshVerifiedReferences(selected: string, reviewedTopology: string, revision: number,
+    migration: WorkspaceConfigurationRefreshResult | null = null): Promise<void> {
       const status = workspaceStatus(await this.host.run<WorkspaceStatus>([
         'workspace', 'status', selected, '--level', 'readiness', '--json'
       ]), selected);
@@ -317,9 +420,22 @@ export class AfterInstallJourney {
           continue;
         }
         try {
-          const raw = payload(await this.host.run<unknown>(['authority', 'refresh', root, '--json'])) as { result?: { status?: string } };
-          const result = raw?.result ?? raw as { status?: string };
+          const migrated = migration?.results.filter(entry => entry.memberships
+            ? entry.memberships.some(member => member.workspaceId === status.workspace.id && member.repositoryId === repository.id)
+            : entry.repository === repository.id) ?? [];
+          const expected = migrated.length === 1 ? migrated[0]?.configurationCommit : null;
+          if (migration && (!expected || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(expected))) {
+            throw new Error('No exact migrated configuration commit is bound to this checkout. Run migration again for a fresh verified result.');
+          }
+          const raw = payload(await this.host.run<unknown>([
+            'authority', 'refresh', root,
+            ...(expected ? ['--expected-config-commit', expected, '--attach-if-missing'] : []), '--json'
+          ])) as { result?: { status?: string; descriptor?: { authority?: { sourceCommit?: string } } } };
+          const result = raw?.result ?? raw as { status?: string; descriptor?: { authority?: { sourceCommit?: string } } };
           if (!['refreshed', 'already-attached'].includes(result?.status ?? '')) throw new Error('Authority refresh did not verify a current pin. Open workspace maintenance to verify and attach this checkout.');
+          if (expected && result.descriptor?.authority?.sourceCommit !== expected) {
+            throw new Error('The refreshed checkout pin does not match its migrated configuration. Run migration again; completion is not verified.');
+          }
           references.push({ id: repository.id, path: root, status: result.status as AfterInstallReference['status'] });
         } catch (error) { references.push({ id: repository.id, path: root, status: 'attention', reason: message(error) }); }
       }
@@ -336,7 +452,5 @@ export class AfterInstallJourney {
       this.view.verified = verified;
       this.view.product = product;
       await this.host.configurationChanged();
-    } catch (error) { if (this.current(revision)) this.view.error = message(error); }
-    finally { this.finish(revision); }
   }
 }

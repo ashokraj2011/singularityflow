@@ -8561,6 +8561,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void showCompactInformationMessage(worldModelBuildCompletionMessage(outcome));
       } catch (error) {
         output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
+        if ((error as { code?: string }).code === 'WMB_COMPLEXITY_REQUIRES_V4') {
+          const migration = 'Migrate workspace & capabilities';
+          const choice = await showCompactWarningMessage(
+            'This checkout uses legacy-v3 World Model configuration. After install can migrate approved workspace and capability settings. Existing Stories retain their pins: after migration, rebuild from the workspace repository checkout, not an older Story checkout.',
+            migration
+          );
+          if (choice === migration) await vscode.commands.executeCommand('singularityFlow.afterInstall');
+          return;
+        }
         // Keep recovery bound to the repository that produced the failure even if the user changes
         // the active workspace while an authority probe or reviewed build is still in flight.
         showRefusal(error, {

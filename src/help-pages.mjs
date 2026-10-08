@@ -145,6 +145,11 @@ const PAGES = Object.freeze({
       'Refresh re-observes the exact recorded authority, verifies its current fold, and replaces',
       'the machine-local pin atomically. It never changes the remote authority branch.'
     ],
+    options: [
+      ['--expected-config-commit OID', 'Require the exact full configuration commit from a reviewed migration result. Refuse an authority that moved before updating the pin.'],
+      ['--attach-if-missing', 'With --expected-config-commit only: attach an older checkout without a pin to that exact verified authority.'],
+      ['--json', 'Return the verified attachment and its source commit.']
+    ],
     examples: [['sflow authority refresh . --json', 'Refresh the authority attached to this checkout.']],
     seeAlso: ['onboard', 'cache']
   },
@@ -1684,6 +1689,7 @@ const PAGES = Object.freeze({
       ['--level LEVEL', 'For workspace status or repair: full (default), summary, or readiness. Readiness skips World Model and document detail.'],
       ['--resolve PATH=CHOICE', 'For refresh-configuration only: deliberately resolve one reported conflict as local, bundled, or merge; repeat for additional paths. Safe reinitialize refuses ownership transfer.'],
       ['--confirm-plan ID', 'Apply only if the reviewed configuration, state, and reinitialization topology authorities still match the preview.'],
+      ['--migrate-world-model', 'For reinitialize: explicitly migrate approved repository and capability legacy view settings to registered-v4 in the same reviewed configuration publication. Preserve old artifacts and Story pins; build fresh views separately.'],
       ['--accept-bundled-conflicts', 'For refresh-configuration only: explicitly adopt packaged values where both package and repository changed the same field or asset. Safe reinitialize refuses this option.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
@@ -1702,6 +1708,7 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.'],
       ['singularity-flow workspace migrate-schemas --json', 'Check schema compatibility across all active registered workspace repositories without rewriting stored records.'],
       ['singularity-flow workspace reinitialize payments --dry-run', 'Preview a complete, non-destructive workspace upgrade and receive its bound plan ID.'],
+      ['singularity-flow workspace reinitialize payments --migrate-world-model --dry-run', 'Preview framework upgrade and registered-v4 configuration migration for the workspace and its capabilities together.'],
       ['singularity-flow workspace reinitialize payments --confirm-plan wrip-…', 'Apply the compound plan that binds configuration/state authority, workspace topology, and schema readiness.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']

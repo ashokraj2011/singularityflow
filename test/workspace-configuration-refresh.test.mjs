@@ -17,6 +17,11 @@ import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { refreshFosAuthority } from '../src/onboard.mjs';
+import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
+import { loadWorldModelConfig } from '../src/worldmodel.mjs';
+import { buildWorldModelV4Command } from '../src/world-model/commands.mjs';
+import { BUILTIN_VIEW_REFERENCES } from '../src/world-model/registry/views.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
   isolatedCacheGitEnvironment,
@@ -42,6 +47,7 @@ const INITIAL_FILES = [
   ['modelTiers.yml', 'singularity/modelTiers.yml'],
   ['artifacts', 'singularity/templates'],
   ['agents', '.github/agents'],
+  ['skill-library', 'singularity/skill-library'],
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ];
@@ -148,6 +154,127 @@ async function registeredRepositoryFixture(root, id) {
   await rememberWorkspace(registry, manifest);
   return { ...fixture, registry };
 }
+
+test('confirmed migration publishes repository and capability settings together and preserves history', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-config-migration-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, 'migration');
+  const editor = path.join(root, 'editor');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, editor]);
+  git(editor, ['config', 'user.name', 'Migration Test']);
+  git(editor, ['config', 'user.email', 'migration@example.test']);
+  const capsText = '# Preserve authored layout and routing\nversion: 1\ncapabilities:\n  enterprise:\n    kind: collection\n    policy:\n      approvalMinimum: 2\n      requiredWorldModelViews: [security, testing]\n';
+  await writeFile(path.join(editor, 'singularity/capabilities.yml'), capsText);
+  git(editor, ['add', 'singularity/capabilities.yml']);
+  git(editor, ['commit', '-m', 'Custom capability policy']);
+  git(editor, ['push', 'origin', 'HEAD:sflow/config']);
+  const state = path.join(root, 'state');
+  await initializeStatePublisher(state);
+  await mkdir(path.join(state, 'singularity/world-model'), { recursive: true });
+  const oldManifest = '{"schema_version":"3.0","historical":true}\n';
+  await writeFile(path.join(state, 'singularity/world-model/manifest.json'), oldManifest);
+  git(state, ['add', '-A']); git(state, ['commit', '-m', 'Historical World Model']);
+  git(state, ['remote', 'add', 'origin', remote]); git(state, ['push', 'origin', 'state']);
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+  const configBefore = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+  const stateBefore = git(remote, ['rev-parse', 'refs/heads/state']);
+  await writeFile(path.join(repository, 'uncommitted.txt'), 'do not touch draft\n');
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true, migrateWorldModel: true
+  });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview));
+  assert.equal(preview.results[0].worldModelMigration.fromFormat, 'legacy-v3');
+  assert.deepEqual(preview.results[0].worldModelMigration.capabilities, ['enterprise']);
+  assert.ok(preview.results[0].files.includes('singularity/capabilities.yml'));
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), stateBefore);
+  const wrongMode = await refreshWorkspaceConfigurations({
+    registryFile: registry, restorePackagedSeeds: true, confirmPlan: preview.planId
+  });
+  assert.equal(wrongMode.status, 'blocked', 'migration flag is part of exact confirmation');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore);
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, restorePackagedSeeds: true, migrateWorldModel: true, confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied));
+  assert.equal(applied.results[0].worldModelMigration.targetFormat, 'registered-v4');
+  const workflow = YAML.parse(git(remote, ['show', 'sflow/config:singularity/workflow.yml']));
+  assert.equal(workflow.worldModel.format, 'registered-v4');
+  assert.deepEqual(workflow.worldModel.views, BUILTIN_VIEW_REFERENCES);
+  assert.equal(workflow.worldModel.v4.legacyAssignments, 'inherit-configured');
+  const migratedCaps = git(remote, ['show', 'sflow/config:singularity/capabilities.yml']);
+  assert.match(migratedCaps, /^# Preserve authored layout and routing/);
+  assert.equal(YAML.parse(migratedCaps).capabilities.enterprise.policy.approvalMinimum, 2);
+  assert.deepEqual(YAML.parse(migratedCaps).capabilities.enterprise.policy.requiredWorldModelViews,
+    BUILTIN_VIEW_REFERENCES.map(view => view.split('@')[0]));
+  assert.equal(git(remote, ['show', 'state:singularity/capabilities.yml']), migratedCaps);
+  assert.equal(git(remote, ['show', 'state:singularity/world-model/manifest.json']), oldManifest.trim());
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore);
+  assert.equal(await readFile(path.join(repository, 'uncommitted.txt'), 'utf8'), 'do not touch draft\n');
+  const repeat = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true, migrateWorldModel: true
+  });
+  assert.equal(repeat.status, 'preview', JSON.stringify(repeat));
+  assert.equal(repeat.results[0].status, 'current');
+  assert.equal(repeat.results[0].worldModelMigration.rebuildRequired, false);
+
+  // The menu must activate the exact upgraded authority even for older checkouts without a
+  // FOS pin. A legacy manifest can remain in governed history without trapping the next build.
+  const attached = await refreshFosAuthority(repository, {
+    expectedConfigCommit: applied.results[0].configurationCommit, attachIfMissing: true
+  });
+  assert.equal(attached.descriptor.authority.sourceCommit, applied.results[0].configurationCommit);
+  // Rebuild on a clean source snapshot, not by consuming or discarding the user's saved draft.
+  const buildRoot = path.join(root, 'clean-build-checkout');
+  run('git', ['clone', '--quiet', '--branch', 'main', remote, buildRoot]);
+  git(buildRoot, ['config', 'user.name', 'Migration Test']);
+  git(buildRoot, ['config', 'user.email', 'migration@example.test']);
+  await refreshFosAuthority(buildRoot, {
+    expectedConfigCommit: applied.results[0].configurationCommit, attachIfMissing: true
+  });
+  const built = await withApprovedConfigurationRead(buildRoot, async () => {
+    const config = await loadWorldModelConfig(buildRoot);
+    assert.equal(config.definition.worldModel.format, 'registered-v4');
+    return buildWorldModelV4Command(buildRoot, config, { local: true, views: 'dev.impact' }, { silent: true });
+  }, { preferAuthority: true });
+  assert.equal(built.status, 'completed', JSON.stringify(built));
+  assert.ok(built.warnings.some(warning => /Legacy v3 output was not imported/.test(warning)));
+  assert.equal(git(remote, ['show', 'state:singularity/world-model/manifest.json']), oldManifest.trim());
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore);
+  assert.equal(await readFile(path.join(repository, 'uncommitted.txt'), 'utf8'), 'do not touch draft\n');
+});
+
+test('an already registered custom catalog is not widened by packaged legacy defaults', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-custom-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.worldModel.format = 'registered-v4';
+  definition.worldModel.views = ['dev.impact@4'];
+  definition.worldModel.v4 = { legacyAssignments: 'inherit-configured', composer: 'model-optional' };
+  await writeFile(file, YAML.stringify(definition));
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true });
+  assert.deepEqual(result.worldModelMigration.views, ['dev.impact@4']);
+  const after = await loadDefinition(root);
+  assert.deepEqual(after.worldModel.views, ['dev.impact@4']);
+  assert.equal(after.worldModel.v4.composer, 'model-optional');
+});
+
+test('mixed capability assignments refuse migration before any local candidate write', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-mixed-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const before = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
+  const file = path.join(root, 'singularity/capabilities.yml');
+  const caps = YAML.parse(await readFile(file, 'utf8'));
+  caps.capabilities.enterprise.policy.requiredWorldModelViews = ['security', 'dev.impact'];
+  await writeFile(file, YAML.stringify(caps));
+  await assert.rejects(refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true }),
+    error => error.code === 'WMB_VIEW_ASSIGNMENT_MIXED');
+  assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), before);
+  assert.deepEqual(YAML.parse(await readFile(file, 'utf8')), caps);
+});
 
 async function cachedConfigurationCheckout(registry, planId) {
   const planRoot = path.join(path.dirname(registry), '.configuration-refresh-cache', planId);

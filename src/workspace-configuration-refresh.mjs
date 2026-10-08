@@ -43,6 +43,8 @@ import {
 } from './packaged-asset-history.mjs';
 import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 import { patchYamlDocument, renderPreservingFormatting } from './yaml-formatting.mjs';
+import { CAPABILITIES_PATH, validateCapabilities } from './capabilities.mjs';
+import { planWorldModelConfigurationMigration } from './world-model/migration/configuration.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
 export const STATE_CONFIGURATION_ROOT = 'configuration';
@@ -90,7 +92,8 @@ const FIXED_PACKAGE_ASSETS = Object.freeze([
 const USER_CONFIGURABLE_PACKAGE_ASSETS = new Set([
   'singularity/agent-mappings.yml',
   'singularity/impact.yml',
-  'singularity/modelTiers.yml'
+  'singularity/modelTiers.yml',
+  'singularity/skill-library/attachments.yml'
 ]);
 
 function packageAssetAllowsExactSeedRestore(relative) {
@@ -1055,6 +1058,11 @@ async function packagedAssets(templatesRoot) {
   await walkPackageDirectory(
     path.join(PACKAGE_ROOT, 'templates', 'agents'), '.github/agents', output
   );
+  // Seeded agents and their attached skills form one executable contract. Copying only agents
+  // made a fresh upgrade fail its final loadDefinition validation (or lose attachment policy).
+  await walkPackageDirectory(
+    path.join(PACKAGE_ROOT, 'templates', 'skill-library'), 'singularity/skill-library', output
+  );
   return new Map([...output.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 
@@ -1324,7 +1332,8 @@ export async function refreshPackagedConfiguration(root, {
   dryRun = false,
   acceptBundledConflicts = false,
   resolutions = {},
-  restorePackagedSeeds = false
+  restorePackagedSeeds = false,
+  migrateWorldModel = false
 } = {}) {
   resolutions = normalizeRefreshResolutions(resolutions);
   const ownershipTransfers = Object.entries(resolutions)
@@ -1412,6 +1421,35 @@ export async function refreshPackagedConfiguration(root, {
     && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.exactRoots)
     && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.collisionRoots));
   merged.conflicts.push(...seededWorkflowResult.conflicts);
+  // The explicit migration is staged in this disposable, plan-bound configuration candidate.
+  // Never flip only `format`, rewrite Story snapshots, or promote old narrative to v4 facts.
+  let worldModelMigration = null;
+  let capabilityEdit = null;
+  if (migrateWorldModel) {
+    const target = await assertSafeTarget(root, CAPABILITIES_PATH);
+    const info = await lstat(target).catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (info && (!info.isFile() || info.isSymbolicLink() || info.size > 16 * 1024 * 1024)) {
+      throw new SingularityFlowError('Capability migration requires a bounded regular capabilities.yml file.', {
+        code: 'WMB_MIGRATION_CAPABILITIES_UNSAFE'
+      });
+    }
+    const text = info ? await readFile(target, 'utf8') : null;
+    const before = text == null ? null : YAML.parse(text);
+    if (info) validateCapabilities(structuredClone(before));
+    // The generic additive seed merge must not append old package view names to an already
+    // registered custom catalog when the repository has no historical package baseline.
+    const migrationInput = current.worldModel?.format === 'registered-v4'
+      ? { ...merged.value, worldModel: { ...merged.value.worldModel,
+          views: current.worldModel.views ?? merged.value.worldModel.views } }
+      : merged.value;
+    const migration = planWorldModelConfigurationMigration(migrationInput, before);
+    merged.value = migration.definition;
+    worldModelMigration = migration.report;
+    if (migration.capabilities) validateCapabilities(structuredClone(migration.capabilities));
+    if (before && !equal(before, migration.capabilities)) {
+      capabilityEdit = { target, text, before, after: migration.capabilities };
+    }
+  }
   // Exact framework legacy role fields have been migrated above. Repository-created legacy role
   // fields are refused rather than rewritten. Defer only the live Agent Markdown reference lookup;
   // the complete post-write loadDefinition below validates the restored agent catalog and tools.
@@ -1440,7 +1478,8 @@ export async function refreshPackagedConfiguration(root, {
     historicalRuntimeRoots: historicalRuntimePolicy.runtimeRoots
   });
   const managedTargets = [...new Set([
-    WORKFLOW_PATH, PACKAGE_BASELINE_PATH, ...assets.keys(), ...Object.keys(priorAssets)
+    WORKFLOW_PATH, PACKAGE_BASELINE_PATH, ...assets.keys(), ...Object.keys(priorAssets),
+    ...(migrateWorldModel ? [CAPABILITIES_PATH] : [])
   ])];
   // A Git tree can contain two spellings that alias on Windows or default macOS filesystems even
   // when the Linux build host keeps them distinct. Reject the entire candidate before the first
@@ -1459,6 +1498,11 @@ export async function refreshPackagedConfiguration(root, {
     changedFiles.add(WORKFLOW_PATH);
     // A missing workflow starts from the packaged text, so the restored file keeps its commentary.
     if (!dryRun) await writeAtomic(workflowFile, patchWorkflowDocument(currentText, current, merged.value));
+  }
+  if (capabilityEdit) {
+    changedFiles.add(CAPABILITIES_PATH);
+    if (!dryRun) await writeAtomic(capabilityEdit.target,
+      patchWorkflowDocument(capabilityEdit.text, capabilityEdit.before, capabilityEdit.after));
   }
 
   for (const [relative, bundled] of assets) {
@@ -1650,6 +1694,7 @@ export async function refreshPackagedConfiguration(root, {
     files: [...changedFiles].sort(),
     removed: [...removedFiles].sort(),
     conflicts,
+    ...(worldModelMigration ? { worldModelMigration } : {}),
     dryRun
   };
 }
@@ -2892,7 +2937,7 @@ async function prepareObservedCandidate(observation, options, cache, { env = pro
 }
 
 function refreshPlanId(candidates, {
-  resolutions, acceptBundledConflicts, restorePackagedSeeds = false
+  resolutions, acceptBundledConflicts, restorePackagedSeeds = false, migrateWorldModel = false
 }) {
   const identity = {
     repositories: candidates.map((candidate) => ({
@@ -2918,6 +2963,7 @@ function refreshPlanId(candidates, {
     policy: {
       acceptBundledConflicts: acceptBundledConflicts === true,
       restorePackagedSeeds: restorePackagedSeeds === true,
+      migrateWorldModel: migrateWorldModel === true,
       resolutions: canonical(resolutions)
     }
   };
@@ -2950,7 +2996,8 @@ function previewResultForCandidate(candidate, status) {
     conflicts: candidate.refresh.conflicts,
     packageContentDigest: candidate.refresh.packageContentDigest,
     configurationPaths: candidate.desired.paths,
-    configurationAssets: candidate.desired.assets
+    configurationAssets: candidate.desired.assets,
+    ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {})
   };
 }
 
@@ -3251,7 +3298,8 @@ async function publishCandidate(candidate) {
     stateStatus: stateAfter.status,
     removedStatePaths: state.removed,
     files: refresh.files,
-    conflicts: refresh.conflicts
+    conflicts: refresh.conflicts,
+    ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {})
   };
   } catch (error) {
     // Configuration and state are two remote publications. If the first succeeded, never report
@@ -3301,6 +3349,7 @@ export async function refreshWorkspaceConfigurations({
   acceptBundledConflicts = false,
   resolutions = {},
   restorePackagedSeeds = false,
+  migrateWorldModel = false,
   confirmPlan = null,
   inspectCandidate = null,
   cleanupTemporaryTree = removeTemporaryTree,
@@ -3384,7 +3433,7 @@ export async function refreshWorkspaceConfigurations({
           // conflicts, removals, and the desired state projection change behind one plan ID.
           candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds
+            restorePackagedSeeds, migrateWorldModel
           }, { env: gitEnv });
           if (inspectCandidate) await inspectCandidate(candidate);
         } catch (error) {
@@ -3400,7 +3449,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         candidate = await prepareCandidate(observation.repository, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds
+          restorePackagedSeeds, migrateWorldModel
         }, { env: gitEnv });
         if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
@@ -3419,7 +3468,7 @@ export async function refreshWorkspaceConfigurations({
     const results = prepared.map((entry) => entry.result);
     const blocked = results.some((entry) => entry.status === 'blocked');
     const planId = blocked ? null : refreshPlanId(planCandidates, {
-      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds
+      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel
     });
     if (planId) {
       await retainRefreshPlanCache(registryFile, planId, planCandidates).catch(() => false);
@@ -3449,7 +3498,7 @@ export async function refreshWorkspaceConfigurations({
         try {
           const candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds
+            restorePackagedSeeds, migrateWorldModel
           }, { env: gitEnv });
           return { observation, candidate, retained: false, bootstrap: true, error: null };
         } catch (error) {
@@ -3460,7 +3509,7 @@ export async function refreshWorkspaceConfigurations({
       }
       try {
         const candidate = await prepareObservedCandidate(observation, {
-          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds
+          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel
         }, cachedPlan, { env: gitEnv });
         return { observation, candidate, retained: true, bootstrap: false, error: null };
       } catch (error) {
@@ -3493,7 +3542,7 @@ export async function refreshWorkspaceConfigurations({
       };
     }
     previewBoundPlanId = refreshPlanId(confirmationCandidates, {
-      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds
+      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel
     });
     if (previewBoundPlanId !== confirmPlan) {
       await Promise.all(prepared.filter((entry) => entry.candidate?.root)
@@ -3521,7 +3570,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         const candidate = await prepareBootstrapInspectionCandidate(observation, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds
+          restorePackagedSeeds, migrateWorldModel
         }, { env: gitEnv });
         return { observation, candidate, error: null };
       } catch (error) {
@@ -3697,7 +3746,7 @@ export async function refreshWorkspaceConfigurations({
   const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
       const candidate = await prepareObservedCandidate(observation, {
-        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds
+        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel
       }, cachedPlan, { env: gitEnv });
       return { observation, candidate, error: null };
     } catch (error) {
@@ -3747,7 +3796,7 @@ export async function refreshWorkspaceConfigurations({
   }
 
   const planId = previewBoundPlanId ?? refreshPlanId(candidates, {
-    resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds
+    resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel
   });
   if (!previewBoundPlanId && confirmPlan && confirmPlan !== planId) {
     await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));

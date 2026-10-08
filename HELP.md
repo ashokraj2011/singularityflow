@@ -1266,6 +1266,25 @@ collisions are preserved and reported. Reinitialize refuses `--resolve ...=bundl
 `workspace refresh-configuration` preview when packaged content should deliberately replace
 repository-owned content. Neither path changes existing Story snapshots or immutable evidence.
 
+For the complete post-install configuration journey, VS Code **After install** offers
+**Migrate workspace & capabilities**. Select the existing workspace, launch migration, and review
+one compact, exact-plan confirmation. It upgrades framework seeds, migrates approved repository
+and capability World Model view settings to registered-v4, mirrors configuration to state, refreshes
+existing checkout pins, and verifies the workspace. Partial results preserve completed publications;
+resolve the reported issue and run the action again for a fresh, resumable plan. No source pull,
+clone, tests, model calls, capability rerouting, or existing Story repinning occurs.
+
+Terminal / Copilot equivalent (Copilot: `/sf-admin`): preview
+`singularity-flow workspace reinitialize WORKSPACE --migrate-world-model --dry-run --json`,
+then apply the same scope and flag with `--confirm-plan <EXACT-PLAN-ID>` instead of `--dry-run`.
+Known legacy phase/agent/initiative assignments inherit the exact installed registered catalog;
+capability policy lists containing only known legacy names migrate to that catalog in the same
+configuration commit. Mixed or unknown catalogs need review, not guessed mappings. Old World Model
+content remains preserved: migration configures v4 but does not fabricate v4 facts. Use **Rebuild
+capability World Model** afterward, from the workspace repository checkout rather than a pinned
+historical Story checkout, to create fresh registered analysis. Historical records continue
+through their supported read-time compatibility readers without mass rewriting immutable bytes.
+
 `workspace use` records a machine-local active workspace and repository. The
 context label is `<workspace> >`, or `<workspace> / <story> >` on a governed
 Story branch or when `--story` is supplied. `workspace copilot` starts GitHub

@@ -337,6 +337,7 @@ export interface WorkspaceConfigurationRefreshRepository {
   status: string;
   repository: string;
   remote: string;
+  memberships?: Array<{ workspaceId: string; repositoryId: string }>;
   configurationChanged?: boolean;
   stateChanged?: boolean;
   stateStatus?: string;
@@ -368,6 +369,20 @@ export interface WorkspaceConfigurationRefreshResult {
   results: WorkspaceConfigurationRefreshRepository[];
   /** Present for the composed `workspace reinitialize` report. */
   resultType?: 'workspace-reinitialization';
+  worldModelMigration?: {
+    requested: true;
+    targetFormat: 'registered-v4';
+    status: 'planned' | 'configured' | 'incomplete';
+    historicalArtifacts: 'preserved';
+    storiesRepinned: false;
+    rebuildRequired: boolean;
+    statement: string;
+    repositories: Array<{
+      repository: string; status: string; fromFormat?: string; targetFormat?: string;
+      capabilities?: string[]; views?: string[];
+      capabilityAssignments?: Array<{ capability: string; before: string[]; after: string[] }>;
+    }>;
+  };
   capabilityPortability?: {
     status: string;
     /** Always false for safe reinitialization; capability publication is a separate command. */

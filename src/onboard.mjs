@@ -874,10 +874,22 @@ export async function onboardRepository(root, {
   offline = false,
   resume = null,
   refresh = false,
+  expectedConfigCommit = null,
+  attachIfMissing = false,
   cache = true,
   stateWriter = writeAtomic,
   now = new Date()
 } = {}) {
+  if (expectedConfigCommit != null && (typeof expectedConfigCommit !== 'string'
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(expectedConfigCommit) || !refresh)) {
+    throw new SingularityFlowError('Expected configuration commit must be a full Git object ID.', {
+      code: 'AUTHORITY_EXPECTED_COMMIT_INVALID'
+    });
+  }
+  if (attachIfMissing && (!refresh || !expectedConfigCommit)) throw new SingularityFlowError(
+    'Attaching a missing pin during refresh requires an exact expected configuration commit.',
+    { code: 'AUTHORITY_EXPECTED_COMMIT_REQUIRED' }
+  );
   if (offline && (refresh || resume)) throw new SingularityFlowError(
     'Offline reuse cannot refresh authority or resume a mutating attachment operation.', {
       code: 'AUTHORITY_ROUTE_INVALID'
@@ -895,7 +907,7 @@ export async function onboardRepository(root, {
     }
   );
   const route = await resolveRoute(context, existing, { remote, authorityLocal });
-  if (refresh && !existing) throw new SingularityFlowError(
+  if (refresh && !existing && !attachIfMissing) throw new SingularityFlowError(
     'This repository has no recorded FOS authority pin to refresh. Run sflow onboard first.', {
       code: 'AUTHORITY_PIN_MISSING'
     }
@@ -904,6 +916,8 @@ export async function onboardRepository(root, {
     kind: offline ? 'offline-reuse' : refresh ? 'authority-refresh' : 'repository-onboard',
     repositoryInstanceId: identity.repositoryInstanceId,
     route,
+    ...(expectedConfigCommit ? { expectedConfigCommit } : {}),
+    ...(attachIfMissing ? { attachIfMissing: true } : {}),
     ...(refresh || offline
       ? { previousDescriptorSha256: existing?.descriptor?.descriptorSha256 ?? null }
       : {})
@@ -1021,6 +1035,14 @@ export async function onboardRepository(root, {
         { code: 'AUTHORITY_NOT_CONFIGURED' }
       );
       const snapshot = await loadStoryConfigurationSnapshot(authority);
+      if (expectedConfigCommit && snapshot.sourceCommit !== expectedConfigCommit) {
+        throw new SingularityFlowError(
+          'The configuration authority moved after migration. Preserve completed work and review a fresh migration preview before refreshing this pin.',
+          { code: 'AUTHORITY_EXPECTED_COMMIT_STALE', details: {
+            expectedConfigCommit, observedConfigCommit: snapshot.sourceCommit
+          } }
+        );
+      }
       const observedAt = nowIso();
       const receiptId = `fos-receipt-${requestDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
       const folded = fold(snapshot);

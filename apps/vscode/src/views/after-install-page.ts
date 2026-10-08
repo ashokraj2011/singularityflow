@@ -1,6 +1,6 @@
-/** Four small steps over existing guarded CLI operations, not a second migration authority. */
+/** One-confirm migration plus advanced maintenance over the existing guarded authorities. */
 import { brandLockup, escape, icon } from './webview.ts';
-import { afterInstallComplete, safeUpgradeComplete, type AfterInstallView } from './after-install-model.ts';
+import { afterInstallComplete, safeUpgradeComplete, verifiedWorldModelMigration, type AfterInstallView } from './after-install-model.ts';
 import { isSafeWorkspaceReinitializationPreview } from './workspaces-model.ts';
 
 export function afterInstallHtml(view: AfterInstallView): string {
@@ -9,6 +9,7 @@ export function afterInstallHtml(view: AfterInstallView): string {
   const upgraded = safeUpgradeComplete(view.upgrade);
   const complete = afterInstallComplete(view);
   const result = view.upgrade;
+  const migrated = Boolean(result && verifiedWorldModelMigration(result, 'configured'));
   return `<header class="page-header">${brandLockup()}<p class="meta">Existing capabilities &amp; workspaces</p>
     <h1>After install</h1><p class="muted">Bring your existing repositories and workspace references up to the installed SFlow build. No remapping or workspace recreation.</p></header>
     ${view.busy ? `<p class="notice" role="status" aria-live="polite">${icon('wait')}${escape(view.busy)}</p>` : ''}
@@ -34,11 +35,19 @@ export function afterInstallHtml(view: AfterInstallView): string {
         <ul class="plain-list">${view.workspace.repositories.map(repository => `<li>${escape(repository.id)} · ${escape(repository.state ?? 'unknown')}<br><code>${escape(repository.absolutePath ?? repository.path ?? 'path unavailable')}</code></li>`).join('')}</ul>` : ''}
       <p class="card-foot"><button class="secondary" data-after-action="workspaces"${disabled}>Open workspace maintenance</button>
         <button class="secondary" data-after-action="repository-setup"${disabled}>Find / repair repository setup…</button></p>
+      <section class="migration-action"><h3>Migrate workspace and capabilities</h3>
+        <p class="muted">One guided action: preview the exact upgrade, confirm once, migrate approved repository and capability World Model settings to registered-v4, refresh local pins, and verify. No workspace recreation.</p>
+        <p class="card-foot"><button data-after-action="migrate"${disabled || !productReady || !view.workspace ? ' disabled' : ''}>Migrate workspace &amp; capabilities…</button></p>
+        <p class="muted">Preserves custom configuration, source, legacy World Model artifacts, and existing Story snapshots. Fresh registered World Model analysis is a separate build—not a relabel of old content.</p>
+      </section>
     </section>
     <section class="plain"><h2>3. Upgrade repository configuration ${upgraded ? '<span class="pill ok">verified</span>' : ''}</h2>
       <p class="muted">Preview framework-owned workflow, agent, skill and template updates to <code>sflow/config</code> and its state mirror. Custom assets, mappings, source code, approvals and Story history are preserved.</p>
       <p class="card-foot"><button data-after-action="preview"${disabled || !productReady || !view.workspace ? ' disabled' : ''}>Preview safe upgrade</button></p>
       ${result ? `<p>Status: <strong>${escape(result.status)}</strong> · ${escape(result.total)} repositories · ${escape(result.updated)} updated</p>
+        ${result.worldModelMigration ? `<p>World Model migration: <strong>${escape(result.worldModelMigration.status)}</strong> → registered-v4</p>
+          <div class="table-scroll"><table><thead><tr><th>Repository</th><th>Format</th><th>Capabilities</th></tr></thead><tbody>${result.worldModelMigration.repositories.map(repository => `<tr><td>${escape(repository.repository)}</td><td>${escape(repository.fromFormat ?? 'unverified')} → ${escape(repository.targetFormat ?? 'unverified')}</td><td>${escape(repository.capabilities?.join(', ') || 'Implicit repository capability')}</td></tr>`).join('')}</tbody></table></div>
+          <p class="muted">${escape(result.worldModelMigration.statement)}</p>` : ''}
         ${result.planId ? `<p class="muted">Reviewed plan: <code>${escape(result.planId)}</code></p>` : ''}
         <div class="table-scroll"><table><thead><tr><th>Repository</th><th>Result / next step</th></tr></thead><tbody>${result.results.map(repository => `<tr><td>${escape(repository.repository)}</td><td>${escape(repository.status)}
           ${repository.error ? `<p class="notice warning">${escape(repository.error)}</p>` : ''}
@@ -54,8 +63,8 @@ export function afterInstallHtml(view: AfterInstallView): string {
       <p class="muted">After the upgrade completes, refresh each existing checkout’s selected authority pin and recheck this workspace. This does not pull source, switch branches, clone deferred repositories, run tests or change an existing Story’s configuration snapshot.</p>
       <p class="card-foot"><button data-after-action="references"${disabled || !productReady || !upgraded ? ' disabled' : ''}>Refresh &amp; verify this workspace…</button></p>
       ${view.references ? `<ul class="plain-list">${view.references.map(reference => `<li><strong>${escape(reference.id)}</strong> · ${escape(reference.status)}${reference.reason ? `<p class="muted">${escape(reference.reason)}</p>` : ''}</li>`).join('')}</ul>` : ''}
-      ${complete ? `<p class="notice">${icon('ok')}After-install checks complete for this workspace. New Stories can use the upgraded configuration.</p>` : view.verified ? '<p class="notice warning">Verification needs attention. Use workspace maintenance for the listed checkout or authority issue, then repeat the affected step.</p>' : ''}
-      <p class="muted">Existing Stories retain their pinned configuration and approvals. Repeat this journey on other laptops to refresh their local references.</p>
+      ${complete ? `<p class="notice">${icon('ok')}${migrated ? 'Workspace and capability configuration migration complete. Registered-v4 is configured; select the capability and build fresh views from Configuration → Rebuild capability World Model.' : 'After-install checks complete for this workspace. New Stories can use the upgraded configuration.'}</p>` : view.verified ? '<p class="notice warning">Verification needs attention. Use workspace maintenance for the listed checkout or authority issue, then repeat the affected step.</p>' : ''}
+      <p class="muted">Existing Stories retain their pinned configuration and approvals. Build the migrated capability World Model from the workspace repository checkout, not an older Story checkout that still uses its preserved pin. Repeat this journey on other laptops to refresh their local references.</p>
     </section>`;
 }
 
@@ -64,6 +73,7 @@ export const AFTER_INSTALL_STYLE = `
   .table-scroll code { white-space:normal; } pre { max-height:320px; overflow:auto; }
   .card-foot { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
   h2 .pill { font-size:12px; font-weight:400; margin-left:8px; }
+  .migration-action { margin-top:20px; padding-top:12px; border-top:1px solid var(--vscode-panel-border); }
 `;
 
 export const AFTER_INSTALL_SCRIPT = `

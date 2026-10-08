@@ -15984,6 +15984,7 @@ async function workspaceCommand(positionals, options) {
       dryRun: optionBoolean(options, 'dry-run'),
       acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
       resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
+      migrateWorldModel: optionBoolean(options, 'migrate-world-model'),
       confirmPlan: optionString(options, 'confirm-plan')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
@@ -16000,6 +16001,10 @@ async function workspaceCommand(positionals, options) {
         if (item.error) console.log(`    ${item.error}`);
       }
       console.log(`Schema policy: ${result.schemaMigrationPolicy.statement}`);
+      if (result.worldModelMigration) {
+        console.log(`World Model migration: ${result.worldModelMigration.status} → registered-v4`);
+        console.log(`  ${result.worldModelMigration.statement}`);
+      }
       for (const census of result.schemaCensuses) {
         const records = census.records == null ? '' : ` · ${census.records} registered record(s)`;
         const migrations = census.readTimeMigrationRecords

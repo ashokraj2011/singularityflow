@@ -111,7 +111,10 @@ export async function run(_argv, { positionals, options }) {
     markCommandFeedback();
     process.stderr.write('Refreshing the previously selected configuration authority pin.\n');
     return output(await refreshFosAuthority(
-      selectedRoot(requirePositional(positionals, 2, 'local path'))
+      selectedRoot(requirePositional(positionals, 2, 'local path')), {
+        expectedConfigCommit: optionString(options, 'expected-config-commit'),
+        attachIfMissing: optionBoolean(options, 'attach-if-missing')
+      }
     ), json, 'authority');
   }
   if (command === 'cache') {

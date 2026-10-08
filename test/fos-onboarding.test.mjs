@@ -96,6 +96,32 @@ test('FOS:AC-001 existing local authority attaches idempotently without changing
   assert.equal(first.descriptor.receiptId, first.receipt.receiptId);
 });
 
+test('migration refresh attaches missing pins only at the exact reviewed configuration and rejects drift', async t => {
+  const root = await governedRepository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configCommit = git(['rev-parse', 'sflow/config'], root);
+  await assert.rejects(refreshFosAuthority(root, { authorityLocal: true, attachIfMissing: true }),
+    error => error.code === 'AUTHORITY_EXPECTED_COMMIT_REQUIRED');
+  await assert.rejects(refreshFosAuthority(root, { authorityLocal: true, attachIfMissing: true,
+    expectedConfigCommit: 'a'.repeat(40) }), error => error.code === 'AUTHORITY_EXPECTED_COMMIT_STALE');
+  assert.equal(await readFosAttachment(root), null, 'rejected first refresh must not create an attachment');
+  const attached = await refreshFosAuthority(root, { authorityLocal: true,
+    attachIfMissing: true, expectedConfigCommit: configCommit });
+  assert.equal(attached.status, 'refreshed');
+  assert.equal(attached.descriptor.authority.sourceCommit, configCommit);
+  git(['switch', '-q', 'sflow/config'], root);
+  await writeFile(path.join(root, 'singularity/README.md'), '# reviewed configuration update\n');
+  git(['add', 'singularity/README.md'], root); git(['commit', '-qm', 'Move config authority'], root);
+  const nextCommit = git(['rev-parse', 'HEAD'], root);
+  git(['switch', '-q', 'main'], root);
+  await assert.rejects(refreshFosAuthority(root, { expectedConfigCommit: configCommit }),
+    error => error.code === 'AUTHORITY_EXPECTED_COMMIT_STALE');
+  assert.equal((await readFosAttachment(root)).descriptor.authority.sourceCommit, configCommit);
+  const refreshed = await refreshFosAuthority(root, { expectedConfigCommit: nextCommit });
+  assert.equal(refreshed.descriptor.authority.sourceCommit, nextCommit);
+  assert.equal(git(['branch', '--show-current'], root), 'main');
+});
+
 test('local authority reuse treats a symlink spelling as the same repository, not a rebind', async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-fos-alias-'));
   const root = await plainRepository(parent, 'actual');

@@ -36,7 +36,17 @@ export function roleForPhase(phase) {
   return 'developer';
 }
 
-const at = (item) => (item.citations[0] ? `\`${item.citations[0].path}:${item.citations[0].lines[0]}\`` : '');
+/** Where an item was read, and what a person said about it when the review still applies. */
+const cite = (item) => (item.citations[0] ? `\`${item.citations[0].path}:${item.citations[0].lines[0]}\`` : '');
+const at = (item) => `${cite(item)}${reviewNote(item)}`;
+function reviewNote(item) {
+  const review = item.review;
+  if (!review) return '';
+  if (!review.current) return ' · reviewed before this code changed; review it again';
+  if (review.status === 'confirmed') return ` · confirmed${review.by ? ` by ${review.by}` : ''}`;
+  if (review.status === 'corrected') return ` · correction${review.by ? ` from ${review.by}` : ''}: ${review.note}`;
+  return '';
+}
 const code = (text) => `\`${String(text ?? '').replace(/`/gu, "'").slice(0, 160)}\``;
 /** A condition as code, or as words when it is a context the analyzer phrased ("if that fails"). */
 const condition = (text) => (/^the step before fails/u.test(String(text)) ? String(text)
@@ -113,13 +123,14 @@ function sections(knowledge, items, explanations = []) {
     .filter((sentence) => sentence.cites.some((id) => present.has(id)))
     .map((sentence) => `${sentence.text}${sentence.citations[0] ? ` — \`${sentence.citations[0].path}:${sentence.citations[0].lines[0]}\`` : ''}`) };
   out.pitfalls = { title: 'Things a newcomer would get wrong', lines: [
-    ...of('drift').map((item) => `Test and code disagree: "${item.statement.testTitle}" — ${item.statement.detail} — ${code(item.statement.condition)} ${at(knowledge.items.find((rule) => rule.id === item.statement.rule) ?? item)}`),
+    ...of('drift').map((item) => `Test and code disagree: "${item.statement.testTitle}" — ${item.statement.detail} — ${code(item.statement.condition)} ${cite(knowledge.items.find((rule) => rule.id === item.statement.rule) ?? item)}${reviewNote(item)}`),
     ...of('limit').map((item) => {
       const users = [...new Set((item.statement.usedIn ?? []).filter((use) => !use.test && use.symbol).map((use) => use.symbol))];
       return `Limit ${item.statement.name} = ${item.statement.value}${users.length ? `, applied in ${users.join(', ')}` : ''} — ${at(item)}`;
     }),
     ...of('rule').filter((item) => item.statement.kind === 'refusal').map((item) => `${item.subject.symbol} refuses "${item.statement.then.text}" when ${item.statement.when.map(condition).join(' and ')} — ${at(item)}`),
-    ...of('untested-rule').map((item) => `No test exercises ${item.subject.symbol} (${item.statement.rules} rule${item.statement.rules === 1 ? '' : 's'}) — \`${item.subject.path}\``)
+    ...of('untested-rule').map((item) => `No test exercises ${item.subject.symbol} (${item.statement.rules} rule${item.statement.rules === 1 ? '' : 's'}) — \`${item.subject.path}\``),
+    ...(knowledge.orphaned ?? []).map((entry) => `A review of ${entry.about ?? entry.item} (${entry.status}${entry.by ? ` by ${entry.by}` : ''}) no longer matches any item: its code changed — \`${entry.at ?? ''}\``)
   ] };
   out.areas = { title: 'Areas', lines: of('area').map((item) => {
     const layers = item.statement.layers.length ? `; ${item.statement.layers.join(', ').toLowerCase()}` : '';

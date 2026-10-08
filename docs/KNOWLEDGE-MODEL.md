@@ -41,6 +41,9 @@ singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
 singularity-flow wm knowledge explain [--dry-run] [--json]
 singularity-flow wm knowledge areas [--json]
+singularity-flow wm knowledge confirm ITEM [--note TEXT]
+singularity-flow wm knowledge correct ITEM --note TEXT
+singularity-flow wm knowledge reject ITEM --note TEXT
 ```
 
 A build reads the committed tree only (never working files, Singularity Flow's records, Git
@@ -71,6 +74,18 @@ other C-like languages as text. On top of it:
 | Android | `AndroidManifest.xml` activities, services, receivers and providers (launcher, exported) and permissions; `settings.gradle` modules; Compose `onClick = { … }` handlers; Room `data class` entities; Retrofit and Feign interfaces as outbound calls, never as endpoints |
 | Python | FastAPI and Flask routes, pydantic models, dataclasses and TypedDicts, `except X: raise HTTPException(status_code=…)` statuses, pytest functions |
 | Builds | npm scripts, Maven, Gradle (from the folder holding `settings.gradle`), pytest, `go test`, `dotnet test`; build scripts such as `build.gradle.kts` are read as manifests, not code |
+
+## People's reviews
+
+The person who knows the code is the authority. `wm knowledge confirm`, `correct` and `reject`
+record a review in `docs/knowledge/confirmations.yml` in the working tree, with the reviewer's Git
+identity and the hash of the lines the item cited; commit it with the code it describes, so it goes
+through the repository's ordinary review. A confirmed item becomes `confirmed`; a correction is
+shown beside the item; a rejected item leaves views and prompts and is listed instead. A derived
+item (a test/code disagreement, coverage, impact) is tied to the lines of the item it is about.
+When the reviewed lines change, the review stops applying and the item says to review it again; a
+review whose item no longer exists is listed as a pitfall, never dropped quietly. Rules are
+numbered within their function, so editing a condition keeps the rule's id and its review.
 
 ## Plain-language explanations
 
@@ -126,5 +141,5 @@ suite:
 - An explanation's check is lexical: a sentence that uses only plain words can still misread what it
   cites, which is why kept sentences stay labelled `inferred`.
 - History covers the last 12 months (at most 2,000 commits, merges skipped).
-- Not built yet: IDE review and confirmation of items, and per-area incremental rebuilds for very
-  large repositories.
+- Not built yet: reviewing items from the IDE (the CLI records them), and approved Story documents as
+  cited sources.

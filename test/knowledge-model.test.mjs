@@ -197,7 +197,7 @@ test('wm knowledge works from the command line, read-only for the repository', a
   assert.equal(git(repository, 'status', '--porcelain'), '', 'the working tree is untouched');
   const unknown = run('explode');
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /Available: areas, build, eval, explain, items, show, slice, status/u);
+  assert.match(unknown.stderr, /Available: areas, build, confirm, correct, eval, explain, items, reject, show, slice, status/u);
 });
 
 test('phase prompts receive one slice for the phase reader, focused on the Story, unless turned off', async (t) => {
@@ -381,4 +381,46 @@ test('Android with Kotlin and Gradle modules, and a FastAPI service, meet their 
   assert.ok(knowledge.items.some((item) => item.kind === 'configuration' && item.statement.key === 'Gradle modules' && item.statement.value === ':app, :feature:notes, :core:data'));
   assert.ok(knowledge.items.some((item) => item.kind === 'configuration' && item.statement.value === 'android.permission.INTERNET'));
   assert.ok(!knowledge.items.some((item) => item.kind === 'rule' && /gradle/u.test(item.subject.path)), 'build scripts are manifests, not code');
+});
+
+test('people confirm, correct or reject items; a review applies only while the reviewed lines are unchanged', async (t) => {
+  const { applyReviews, readConfirmations, recordReview, CONFIRMATIONS_PATH } = await import('../src/knowledge/confirm.mjs');
+  const repository = await fixtureRepository(t, 'shop');
+  git(repository, 'config', 'user.email', 'reviewer@example.com');
+  let { knowledge } = await buildKnowledge(repository, { history: false });
+  const save10 = knowledge.items.find((item) => item.kind === 'rule' && /SAVE10/u.test(item.statement.when.join(' ')));
+  const vip = knowledge.items.find((item) => item.kind === 'rule' && item.statement.then?.kind === 'refuses');
+  const drift = knowledge.items.find((item) => item.kind === 'drift');
+  const shipping = knowledge.items.find((item) => item.kind === 'rule' && item.subject.symbol === 'shipping');
+  await recordReview(repository, knowledge, { id: save10.id, status: 'confirmed' });
+  await recordReview(repository, knowledge, { id: drift.id, status: 'corrected', note: 'The test name is out of date' });
+  await recordReview(repository, knowledge, { id: vip.id, status: 'rejected', note: 'VIP20 was retired' });
+  await assert.rejects(() => recordReview(repository, knowledge, { id: shipping.id, status: 'corrected' }), /needs --note/u);
+  await assert.rejects(() => recordReview(repository, knowledge, { id: 'K-rule-0000000000000000', status: 'confirmed' }), /No knowledge item/u);
+  const reviews = await readConfirmations(repository);
+  assert.equal(reviews.length, 3);
+  assert.equal(reviews.find((entry) => entry.item === drift.id).at, 'src/rules/pricing.ts:20', 'a drift review is tied to the rule it is about');
+  let reviewed = applyReviews(knowledge, reviews);
+  assert.equal(reviewed.items.find((item) => item.id === save10.id).assurance, 'confirmed');
+  assert.ok(!reviewed.items.some((item) => item.id === vip.id), 'a rejected item leaves views and prompts');
+  assert.equal(reviewed.rejected.map((item) => item.id).join(), vip.id);
+  const overview = renderKnowledgeView(reviewed, 'overview');
+  assert.match(overview, /SAVE10.*· confirmed by reviewer@example\.com/u);
+  assert.match(overview, /Test and code disagree.*· correction from reviewer@example\.com: The test name is out of date/u);
+  assert.doesNotMatch(overview, /VIP20 is for members only/u);
+  // Change the reviewed line: the reviews of it stop applying and say so.
+  const pricing = path.join(repository, 'src', 'rules', 'pricing.ts');
+  await writeFile(pricing, (await readFile(pricing, 'utf8')).replace("code === 'SAVE10' && base >= 3000", "code === 'SAVE10' && base >= 3500"));
+  git(repository, 'add', '-A');
+  git(repository, '-c', 'user.name=Fixture', 'commit', '-qm', 'Raise SAVE10 threshold');
+  ({ knowledge } = await buildKnowledge(repository, { history: false }));
+  reviewed = applyReviews(knowledge, await readConfirmations(repository));
+  const changed = reviewed.items.find((item) => item.kind === 'rule' && /SAVE10/u.test(item.statement.when.join(' ')));
+  assert.equal(changed.assurance, 'observed');
+  assert.equal(changed.review?.current ?? null, null === changed.review ? null : false);
+  assert.match(renderKnowledgeView(reviewed, 'rules'), /3500.*reviewed before this code changed; review it again/u);
+  assert.match(await readFile(path.join(repository, ...CONFIRMATIONS_PATH.split('/')), 'utf8'), /Commit this file with the code it describes/u);
+  const orphan = applyReviews(knowledge, [{ item: 'K-rule-ffffffffffffffff', status: 'confirmed', about: 'oldFunction', at: 'src/old.ts:3' }]);
+  assert.equal(orphan.orphaned.length, 1);
+  assert.match(renderKnowledgeView(orphan, 'overview'), /A review of oldFunction \(confirmed\) no longer matches any item: its code changed/u);
 });

@@ -10,6 +10,7 @@
  *   worldModel.knowledge.prompt:   slice (default) | off
  *   worldModel.knowledge.maxBytes: bytes per phase slice (default 8192, 2048–32768)
  */
+import { applyReviews, readConfirmations } from './confirm.mjs';
 import { readExplanations } from './explain.mjs';
 import { renderKnowledgeSlice, roleForPhase } from './render.mjs';
 import { buildKnowledge, buildKnowledgeForAreas, selectKnowledgeAreas } from './store.mjs';
@@ -44,7 +45,8 @@ export async function repositoryKnowledgePrompt(root, { definition, phase, workf
     const role = roleForPhase(phase);
     // Explanations are read from this machine's cache only; composing a prompt never calls a model for them.
     const explanations = (await readExplanations(root, result.key))?.accepted ?? [];
-    const text = renderKnowledgeSlice(result.knowledge, { role, focus: focus || null, maximumBytes: policy.maxBytes, explanations });
+    const knowledge = applyReviews(result.knowledge, await readConfirmations(root));
+    const text = renderKnowledgeSlice(knowledge, { role, focus: focus || null, maximumBytes: policy.maxBytes, explanations });
     return {
       text: `${text.trimEnd()}\n\nThis knowledge was read from the committed source by pattern analysis. Open the cited lines before relying on a detail.`,
       warnings: [], status: 'ok', role, cache: result.cache

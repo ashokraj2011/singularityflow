@@ -7,6 +7,7 @@
  *   status  [--area PATH] [--json]                                    levels and counts
  *   items   [--kind KIND] [--area PATH] [--json]                      the typed items, for tools
  *   eval    --expected FILE [--area PATH] [--json]                    score against expectations
+ *   confirm|correct|reject ID [--note TEXT]                           review an item (writes docs/knowledge/confirmations.yml)
  *   areas   [--json]                                                  the areas a large repository is built in
  *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
  *
@@ -19,6 +20,7 @@ import { loadDefinition } from '../config.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
+import { applyReviews, readConfirmations, recordReview } from './confirm.mjs';
 import { buildExplanationPrompt, explanationSubjects, readExplanations, validateExplanations, writeExplanations } from './explain.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
@@ -27,7 +29,7 @@ import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
 import { KNOWLEDGE_SOURCE_LIMITS } from './source.mjs';
 
-const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|areas> [--area PATH] [--json]';
+const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|areas|confirm|correct|reject> [--area PATH] [--json]';
 
 async function built(root, options) {
   const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh') });
@@ -48,10 +50,12 @@ function levelLine(levels) {
 export async function knowledgeCommand(root, positionals, options) {
   const subcommand = positionals[0];
   const json = optionBoolean(options, 'json');
-  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
   if (subcommand === 'areas') return areasCommand(root, options);
   const result = await built(root, options);
-  const { knowledge } = result;
+  if (['confirm', 'correct', 'reject'].includes(subcommand)) return reviewCommand(root, result, subcommand, positionals[1], options);
+  // People's reviews (docs/knowledge/confirmations.yml) apply to everything shown below.
+  const knowledge = applyReviews(result.knowledge, await readConfirmations(root));
   const maximumBytes = optionNumber(options, 'max-bytes') ?? null;
   const focus = optionString(options, 'focus') ?? null;
   const explanations = (await readExplanations(root, result.key))?.accepted ?? [];
@@ -176,4 +180,17 @@ async function areasCommand(root, options) {
   console.log(`${source.codePaths} code files: ${whole ? 'built whole' : `built one area at a time (over ${KNOWLEDGE_SOURCE_LIMITS.maximumCodeFiles})`}.`);
   for (const area of result.areas) console.log(`  ${area.path.padEnd(48)} ${area.files} files   wm knowledge build --area ${area.path}`);
   return result;
+}
+
+/** Record a person's review of one item in the working tree, to be committed with the code. */
+async function reviewCommand(root, result, subcommand, id, options) {
+  if (!id) throw new SingularityFlowError(`Usage: singularity-flow wm knowledge ${subcommand} <ITEM-ID> ${subcommand === 'confirm' ? '[--note TEXT]' : '--note TEXT'}`);
+  const status = { confirm: 'confirmed', correct: 'corrected', reject: 'rejected' }[subcommand];
+  const { entry, file } = await recordReview(root, result.knowledge, { id, status, note: optionString(options, 'note') ?? null });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify({ status: 'recorded', review: entry, file }, null, 2));
+  else {
+    console.log(`Recorded: ${entry.about ?? id} ${status}${entry.note ? ` (${entry.note})` : ''}.`);
+    console.log(`Commit ${file} with your change so the review travels with the code.`);
+  }
+  return { entry, file };
 }

@@ -397,6 +397,9 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
     const file = filesByPath.get(symbol.file);
     if (!file) continue;
     const decisionLines = [];
+    // Rules are numbered within their function, so an edited condition keeps its id (and its review).
+    let ruleOrdinal = 0;
+    const ruleKey = () => `${symbol.file}:${symbol.qualifiedName}:rule:${ruleOrdinal++}`;
     const formulaLines = new Set();
     // A calculation the code always performs (a total, a rate, a rounding) is a rule too.
     const addFormula = (entry, context) => {
@@ -404,7 +407,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
       formulaLines.add(entry.line);
       const values = conditionValues(entry.text, limits);
       const rule = add({
-        kind: 'rule', key: `${symbol.file}:${symbol.qualifiedName}:${entry.line}:formula`, grain: 'unit',
+        kind: 'rule', key: ruleKey(), grain: 'unit',
         subject: { symbol: symbol.qualifiedName, path: symbol.file },
         statement: { kind: 'calculation', when: context, then: { kind: 'computes', text: entry.text, line: entry.line }, otherwise: null, values, comparison: null },
         citations: [citation(file, entry.line)], area: areaOf(symbol.file)
@@ -423,7 +426,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
           const kind = ruleKind(step.cond, outcome, values);
           decisionLines.push(step.line);
           const rule = add({
-            kind: 'rule', key: `${symbol.file}:${symbol.qualifiedName}:${step.line}:${step.cond}`, grain: 'unit',
+            kind: 'rule', key: ruleKey(), grain: 'unit',
             subject: { symbol: symbol.qualifiedName, path: symbol.file },
             statement: { kind, when: [...context, step.cond], then: outcome, otherwise, values, comparison: comparisonIn(step.cond) },
             citations: [citation(file, step.line, Math.max(step.line, outcome?.line ?? step.line))], area: areaOf(symbol.file)
@@ -449,7 +452,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
             const values = conditionValues(ternary[1], limits);
             decisionLines.push(step.line);
             const rule = add({
-              kind: 'rule', key: `${symbol.file}:${symbol.qualifiedName}:${step.line}:${ternary[1]}`, grain: 'unit',
+              kind: 'rule', key: ruleKey(), grain: 'unit',
               subject: { symbol: symbol.qualifiedName, path: symbol.file },
               statement: { kind: ruleKind(ternary[1], null, values), when: [...context, ternary[1]],
                 then: { kind: 'returns', text: ternary[2], line: step.line }, otherwise: { kind: 'returns', text: ternary[3], line: step.line },
@@ -477,7 +480,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
             if (cap) {
               const values = conditionValues(entry.text, limits);
               const rule = add({
-                kind: 'rule', key: `${symbol.file}:${symbol.qualifiedName}:${entry.line}:cap`, grain: 'unit',
+                kind: 'rule', key: ruleKey(), grain: 'unit',
                 subject: { symbol: symbol.qualifiedName, path: symbol.file },
                 statement: { kind: 'cap', when: context, then: { kind: 'does', text: entry.text, line: entry.line }, otherwise: null, values, comparison: null },
                 citations: [citation(file, entry.line)], area: areaOf(symbol.file)

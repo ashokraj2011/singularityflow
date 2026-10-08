@@ -183,7 +183,9 @@ const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
 const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
 // Repository knowledge reads the committed tree and writes only its machine-local cache; no model, no governed state.
-const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas']);
+const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas', 'confirm', 'correct', 'reject']);
+// Reviews write docs/knowledge/confirmations.yml in the working tree (committed by the person, with the code).
+const WM_KNOWLEDGE_REVIEW_ACTIONS = new Set(['confirm', 'correct', 'reject']);
 
 /**
  * The subcommands that only read, on commands whose *name* is not read-only.
@@ -1142,7 +1144,7 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
     if (!WM_KNOWLEDGE_ACTIONS.includes(action)) return unknownSubcommand('wm knowledge', action, WM_KNOWLEDGE_ACTIONS, 'action');
     // Plain-language explanations use a model when one is enabled; without one the command shows what it would send.
     if (action === 'explain') return optional('wm.knowledge.explain', 'wm.knowledge.explain.deterministic', { ...definition, classification: 'read' });
-    return never(`wm.knowledge.${action}`, definition, 'read');
+    return never(`wm.knowledge.${action}`, definition, WM_KNOWLEDGE_REVIEW_ACTIONS.has(action) ? 'mutation' : 'read');
   }
   if (subcommand === 'recovery') {
     const action = positionals[2] ?? 'list';
@@ -1579,7 +1581,7 @@ export function operationCatalog() {
       `wm.ast.pack.${name}`, commandDefinition('wm'), ['list', 'status', 'doctor'].includes(name) ? 'read' : 'mutation'
     )))
     .concat(['show', 'set'].map((name) => never(`wm.ast.preference.${name}`, commandDefinition('wm'), name === 'show' ? 'read' : 'mutation')));
-  wm.push(...WM_KNOWLEDGE_ACTIONS.filter((name) => name !== 'explain').map((name) => never(`wm.knowledge.${name}`, commandDefinition('wm'), 'read')));
+  wm.push(...WM_KNOWLEDGE_ACTIONS.filter((name) => name !== 'explain').map((name) => never(`wm.knowledge.${name}`, commandDefinition('wm'), WM_KNOWLEDGE_REVIEW_ACTIONS.has(name) ? 'mutation' : 'read')));
   wm.push(optional('wm.knowledge.explain', 'wm.knowledge.explain.deterministic', { ...commandDefinition('wm'), classification: 'read' }));
   wm.push(never('wm.knowledge.explain.deterministic', commandDefinition('wm'), 'read'));
   wm.push(...WM_RECOVERY_ACTIONS.map((name) => never(
